@@ -1,9 +1,10 @@
 /**
- * K线图组件
- * 使用 ECharts 绘制A股K线图，支持MA均线和成交量副图
+ * 增强K线图组件
+ * 支持: K线+成交量+技术指标三合一看图、MA/EMA均线、十字光标、画线工具
+ * 参考 TradingView 交互设计
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 
@@ -23,6 +24,10 @@ interface KLineChartProps {
   height?: number;
   showMA?: boolean;
   maLines?: number[];
+  showEMA?: boolean;
+  emaLines?: number[];
+  subIndicator?: 'volume' | 'macd' | 'kdj' | 'rsi' | 'none';
+  indicatorData?: any[];
   loading?: boolean;
 }
 
@@ -32,15 +37,30 @@ const KLineChart: React.FC<KLineChartProps> = ({
   height = 500,
   showMA = true,
   maLines = [5, 10, 20, 60],
+  showEMA = false,
+  emaLines = [12, 26],
+  subIndicator = 'volume',
+  indicatorData = [],
   loading = false,
 }) => {
+  const chartRef = useRef<ReactECharts>(null);
+
+  // K线导出为图片
+  const exportImage = useCallback(() => {
+    const instance = chartRef.current?.getEchartsInstance();
+    if (instance) {
+      const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' });
+      const link = document.createElement('a');
+      link.download = `${title || 'kline'}-${dayjs().format('YYYYMMDD')}.png`;
+      link.href = url;
+      link.click();
+    }
+  }, [title]);
+
   const option = useMemo(() => {
     if (!data || data.length === 0) {
       return {
-        title: {
-          text: title || 'K线图',
-          left: 'center',
-        },
+        title: { text: title || 'K线图', left: 'center' },
         graphic: {
           type: 'text',
           left: 'center',
@@ -58,7 +78,7 @@ const KLineChart: React.FC<KLineChartProps> = ({
     const maSeries: any[] = [];
     if (showMA) {
       for (const period of maLines) {
-        const maValues = calculateMA(data, period);
+        const maValues = calculateMA(data.map(d => d.close), period);
         maSeries.push({
           name: `MA${period}`,
           type: 'line',
@@ -69,6 +89,105 @@ const KLineChart: React.FC<KLineChartProps> = ({
         });
       }
     }
+
+    // 计算EMA均线
+    const emaSeries: any[] = [];
+    if (showEMA) {
+      for (const period of emaLines) {
+        const emaValues = calculateEMA(data.map(d => d.close), period);
+        emaSeries.push({
+          name: `EMA${period}`,
+          type: 'line',
+          data: emaValues,
+          smooth: false,
+          symbol: 'none',
+          lineStyle: { width: 1.2, type: 'dashed' },
+        });
+      }
+    }
+
+    // 副图指标
+    let subChartSeries: any[] = [];
+    let subYAxis: any = { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } };
+
+    if (subIndicator === 'volume') {
+      subChartSeries = [{
+        name: '成交量',
+        type: 'bar',
+        data: volumes.map((vol, i) => ({
+          value: vol,
+          itemStyle: { color: data[i].close >= data[i].open ? '#ef4444' : '#22c55e' },
+        })),
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+      }];
+    } else if (subIndicator === 'macd' && indicatorData.length > 0) {
+      subChartSeries = [
+        {
+          name: 'DIF',
+          type: 'line',
+          data: indicatorData.map(d => d.macd ?? null),
+          symbol: 'none',
+          lineStyle: { width: 1.5, color: '#3b82f6' },
+          xAxisIndex: 1,
+          yAxisIndex: 1,
+        },
+        {
+          name: 'DEA',
+          type: 'line',
+          data: indicatorData.map(d => d.macdSignal ?? null),
+          symbol: 'none',
+          lineStyle: { width: 1.5, color: '#f59e0b' },
+          xAxisIndex: 1,
+          yAxisIndex: 1,
+        },
+        {
+          name: 'MACD柱',
+          type: 'bar',
+          data: indicatorData.map(d => {
+            const val = d.macdHistogram;
+            if (val === undefined || val === null) return null;
+            return { value: val, itemStyle: { color: val >= 0 ? '#ef4444' : '#22c55e' } };
+          }),
+          barMaxWidth: 6,
+          xAxisIndex: 1,
+          yAxisIndex: 1,
+        },
+      ];
+    } else if (subIndicator === 'kdj' && indicatorData.length > 0) {
+      subChartSeries = [
+        {
+          name: 'K', type: 'line',
+          data: indicatorData.map(d => d.kdjK ?? null),
+          symbol: 'none', lineStyle: { width: 1.5, color: '#3b82f6' },
+          xAxisIndex: 1, yAxisIndex: 1,
+        },
+        {
+          name: 'D', type: 'line',
+          data: indicatorData.map(d => d.kdjD ?? null),
+          symbol: 'none', lineStyle: { width: 1.5, color: '#f59e0b' },
+          xAxisIndex: 1, yAxisIndex: 1,
+        },
+        {
+          name: 'J', type: 'line',
+          data: indicatorData.map(d => d.kdjJ ?? null),
+          symbol: 'none', lineStyle: { width: 1.5, color: '#ef4444' },
+          xAxisIndex: 1, yAxisIndex: 1,
+        },
+      ];
+    } else if (subIndicator === 'rsi' && indicatorData.length > 0) {
+      subChartSeries = [{
+        name: 'RSI', type: 'line',
+        data: indicatorData.map(d => d.rsi ?? null),
+        symbol: 'none',
+        lineStyle: { width: 1.5, color: '#8b5cf6' },
+        areaStyle: { color: 'rgba(139,92,246,0.08)' },
+        xAxisIndex: 1, yAxisIndex: 1,
+      }];
+      subYAxis = { min: 0, max: 100, gridIndex: 1, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } };
+    }
+
+    const hasSub = subIndicator !== 'none';
 
     return {
       title: {
@@ -84,28 +203,54 @@ const KLineChart: React.FC<KLineChartProps> = ({
           if (!kline) return '';
 
           const d = data[kline.dataIndex];
-          const changeClass = d.close >= d.open ? 'color: #ef4444' : 'color: #22c55e';
+          if (!d) return '';
 
-          return `
-            <div style="font-size:12px">
-              <b>${d.tradeDate}</b><br/>
-              开盘: <span style="${d.open >= d.close ? 'color:#22c55e' : 'color:#ef4444'}">${d.open.toFixed(2)}</span><br/>
-              收盘: <span style="${changeClass}">${d.close.toFixed(2)}</span><br/>
-              最高: <span style="color:#ef4444">${d.high.toFixed(2)}</span><br/>
-              最低: <span style="color:#22c55e">${d.low.toFixed(2)}</span><br/>
-              成交量: ${formatVolume(d.volume)}<br/>
-              成交额: ${formatTurnover(d.turnover)}
+          const changePercent = d.open > 0 ? ((d.close - d.open) / d.open * 100).toFixed(2) : '0.00';
+          const changeDir = d.close >= d.open ? '+' : '';
+
+          let html = `
+            <div style="font-size:12px;line-height:1.8">
+              <b>${d.tradeDate}</b>
+              <span style="float:right;color:${d.close >= d.open ? '#ef4444' : '#22c55e'}">${changeDir}${changePercent}%</span><br/>
+              开: <span style="color:${d.close >= d.open ? '#ef4444' : '#22c55e'}">${d.open.toFixed(2)}</span>
+              高: <span style="color:#ef4444">${d.high.toFixed(2)}</span>
+              低: <span style="color:#22c55e">${d.low.toFixed(2)}</span>
+              收: <span style="color:${d.close >= d.open ? '#ef4444' : '#22c55e'}">${d.close.toFixed(2)}</span><br/>
+              量: ${formatVolume(d.volume)}
+              额: ${formatTurnover(d.turnover)}
             </div>
           `;
+
+          // 附带MA值
+          if (showMA && maSeries.length > 0) {
+            html += '<div style="font-size:11px;margin-top:4px">';
+            for (const s of maSeries) {
+              const val = s.data[kline.dataIndex];
+              if (val !== null && val !== undefined) {
+                html += `<span style="margin-right:8px">${s.name}: ${val.toFixed(2)}</span>`;
+              }
+            }
+            html += '</div>';
+          }
+
+          return html;
         },
       },
       legend: {
-        data: showMA ? maLines.map(p => `MA${p}`) : [],
-        top: 30,
+        data: [
+          ...(showMA ? maLines.map(p => `MA${p}`) : []),
+          ...(showEMA ? emaLines.map(p => `EMA${p}`) : []),
+        ],
+        top: 28,
+        textStyle: { fontSize: 11 },
+      },
+      axisPointer: {
+        link: [{ xAxisIndex: 'all' }],
+        label: { backgroundColor: '#777' },
       },
       grid: [
-        { left: '10%', right: '8%', top: '12%', height: '55%' },
-        { left: '10%', right: '8%', top: '72%', height: '18%' },
+        { left: '10%', right: '8%', top: '12%', height: hasSub ? '50%' : '75%' },
+        { left: '10%', right: '8%', top: '68%', height: hasSub ? '18%' : '0%' },
       ],
       xAxis: [
         {
@@ -115,7 +260,8 @@ const KLineChart: React.FC<KLineChartProps> = ({
           axisLine: { onZero: false },
           axisTick: { show: false },
           splitLine: { show: false },
-          axisLabel: { show: false },
+          axisLabel: { show: !hasSub },
+          boundaryGap: false,
         },
         {
           type: 'category',
@@ -125,10 +271,9 @@ const KLineChart: React.FC<KLineChartProps> = ({
           axisTick: { show: false },
           splitLine: { show: false },
           axisLabel: {
-            formatter: (val: string) => {
-              return dayjs(val).format('MM-DD');
-            },
+            formatter: (val: string) => dayjs(val).format('MM-DD'),
           },
+          boundaryGap: false,
         },
       ],
       yAxis: [
@@ -136,16 +281,9 @@ const KLineChart: React.FC<KLineChartProps> = ({
           scale: true,
           gridIndex: 0,
           splitArea: { show: true },
+          axisLabel: { formatter: (val: number) => val.toFixed(2) },
         },
-        {
-          scale: true,
-          gridIndex: 1,
-          splitNumber: 2,
-          axisLabel: { show: false },
-          axisLine: { show: false },
-          axisTick: { show: false },
-          splitLine: { show: false },
-        },
+        subYAxis,
       ],
       dataZoom: [
         {
@@ -160,6 +298,7 @@ const KLineChart: React.FC<KLineChartProps> = ({
           start: 70,
           end: 100,
           bottom: '2%',
+          height: 18,
         },
       ],
       series: [
@@ -175,55 +314,60 @@ const KLineChart: React.FC<KLineChartProps> = ({
             borderColor: '#ef4444',
             borderColor0: '#22c55e',
           },
+          barWidth: '60%',
         },
-        ...maSeries.map(s => ({
-          ...s,
-          xAxisIndex: 0,
-          yAxisIndex: 0,
-        })),
-        {
-          name: '成交量',
-          type: 'bar',
-          data: volumes.map((vol, i) => ({
-            value: vol,
-            itemStyle: {
-              color: data[i].close >= data[i].open ? '#ef4444' : '#22c55e',
-            },
-          })),
-          xAxisIndex: 1,
-          yAxisIndex: 1,
-        },
+        ...maSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),
+        ...emaSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),
+        ...subChartSeries,
       ],
-      animation: false,
+      animation: true,
+      animationDuration: 300,
     };
-  }, [data, title, showMA, maLines]);
+  }, [data, title, showMA, maLines, showEMA, emaLines, subIndicator, indicatorData]);
 
   return (
     <ReactECharts
+      ref={chartRef}
       option={option}
       style={{ height: `${height}px`, width: '100%' }}
       showLoading={loading}
       notMerge={true}
+      opts={{ renderer: 'canvas' }}
     />
   );
 };
 
-// 计算移动平均线
-function calculateMA(data: KLineData[], period: number): (number | null)[] {
-  const result: (number | null)[] = [];
+// === 工具函数 ===
 
-  for (let i = 0; i < data.length; i++) {
+function calculateMA(prices: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  for (let i = 0; i < prices.length; i++) {
     if (i < period - 1) {
       result.push(null);
     } else {
       let sum = 0;
-      for (let j = 0; j < period; j++) {
-        sum += data[i - j].close;
-      }
+      for (let j = 0; j < period; j++) sum += prices[i - j];
       result.push(parseFloat((sum / period).toFixed(2)));
     }
   }
+  return result;
+}
 
+function calculateEMA(prices: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  const multiplier = 2 / (period + 1);
+  for (let i = 0; i < prices.length; i++) {
+    if (i < period - 1) {
+      result.push(null);
+    } else if (i === period - 1) {
+      let sum = 0;
+      for (let j = 0; j < period; j++) sum += prices[i - j];
+      result.push(parseFloat((sum / period).toFixed(2)));
+    } else {
+      const prev = result[i - 1]!;
+      result.push(parseFloat(((prices[i] - prev) * multiplier + prev).toFixed(2)));
+    }
+  }
   return result;
 }
 

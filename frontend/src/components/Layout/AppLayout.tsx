@@ -1,9 +1,10 @@
 /**
  * 响应式布局组件
+ * 支持 PC端侧边栏 + 移动端抽屉菜单
  */
 
-import React, { useState } from 'react';
-import { Layout, Menu, Button, Drawer, Input, Avatar, Space } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Layout, Menu, Button, Drawer, Input, Avatar, Space, Badge } from 'antd';
 import {
   HomeOutlined,
   StockOutlined,
@@ -12,10 +13,11 @@ import {
   MenuOutlined,
   SearchOutlined,
   SettingOutlined,
-  BulbOutlined,
+  BellOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useAppStore } from '../store/useAppStore';
+import { useAppStore } from '../../store/useAppStore';
+import ErrorBoundary from '../Common/ErrorBoundary';
 
 const { Header, Sider, Content, Footer } = Layout;
 
@@ -26,7 +28,7 @@ const AppLayout: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -51,10 +53,17 @@ const AppLayout: React.FC = () => {
     }
   };
 
+  // 获取当前选中的菜单项
+  const getSelectedKeys = () => {
+    const path = location.pathname;
+    if (path.startsWith('/stock/')) return ['/stocks'];
+    return [path];
+  };
+
   const menuContent = (
     <Menu
       mode="inline"
-      selectedKeys={[location.pathname]}
+      selectedKeys={getSelectedKeys()}
       items={menuItems}
       onClick={handleMenuClick}
       style={{ borderRight: 0 }}
@@ -82,8 +91,15 @@ const AppLayout: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             borderBottom: '1px solid #f0f0f0',
-          }}>
-            <span style={{ fontSize: sidebarCollapsed ? 20 : 18, fontWeight: 700 }}>
+            cursor: 'pointer',
+          }}
+            onClick={() => navigate('/')}
+          >
+            <span style={{
+              fontSize: sidebarCollapsed ? 20 : 18,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}>
               {sidebarCollapsed ? '📈' : '📈 A股分析'}
             </span>
           </div>
@@ -92,7 +108,7 @@ const AppLayout: React.FC = () => {
       )}
 
       <Layout>
-        {/* 头部 */}
+        {/* 顶部导航栏 */}
         <Header style={{
           background: '#fff',
           padding: '0 16px',
@@ -113,18 +129,20 @@ const AppLayout: React.FC = () => {
               />
             )}
             <Input
-              placeholder="搜索股票..."
+              placeholder="搜索股票代码或名称..."
               prefix={<SearchOutlined />}
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               onPressEnter={handleSearch}
-              style={{ width: isMobile ? 150 : 250 }}
+              style={{ width: isMobile ? 150 : 280 }}
               allowClear
               size="small"
             />
           </Space>
           <Space>
-            <Button type="text" icon={<BulbOutlined />} size="small" />
+            <Badge count={0} size="small">
+              <Button type="text" icon={<BellOutlined />} size="small" />
+            </Badge>
             <Button type="text" icon={<SettingOutlined />} size="small" />
             <Avatar size="small" style={{ backgroundColor: '#1890ff' }}>U</Avatar>
           </Space>
@@ -142,13 +160,15 @@ const AppLayout: React.FC = () => {
           {menuContent}
         </Drawer>
 
-        {/* 内容区 */}
+        {/* 内容区域 - 包裹错误边界 */}
         <Content style={{
           background: '#f5f5f5',
-          minHeight: 'calc(100vh - 64px - 70px)',
+          minHeight: 'calc(100vh - 64px - 54px)',
           overflow: 'auto',
         }}>
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </Content>
 
         {/* 页脚 */}

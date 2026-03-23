@@ -1,4 +1,4 @@
-/* A股行情分析网站 - 全局样式 */
+/* A股行情分析网站 - 全局样式 v1.1 */
 
 /* ==================== CSS Variables ==================== */
 :root {
@@ -15,7 +15,7 @@
   --color-primary-light: #EFF6FF;
   
   /* 中性色 */
-  --color-bg: #F9FAFB;
+  --color-bg: #F5F5F5;
   --color-surface: #FFFFFF;
   --color-border: #E5E7EB;
   --color-text: #111827;
@@ -41,7 +41,7 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   
   /* 字体 */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }
 
@@ -60,287 +60,74 @@ body {
   color: var(--color-text);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ==================== Layout ==================== */
-.app {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+/* ==================== 表格行悬浮效果 ==================== */
+.stock-table-row:hover {
+  background-color: #f0f7ff !important;
 }
 
-.header {
-  background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
-  color: white;
-  padding: var(--spacing-lg) var(--spacing-xl);
-  box-shadow: var(--shadow-md);
+/* ==================== 滚动条美化 ==================== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.header-content {
-  max-width: 1400px;
-  margin: 0 auto;
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
 }
 
-.header h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  margin-bottom: var(--spacing-xs);
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
 }
 
-.subtitle {
-  color: #94A3B8;
-  font-size: 0.95rem;
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
-.main-content {
-  flex: 1;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: var(--spacing-xl);
-  width: 100%;
-}
-
-.footer {
-  background: #1e293b;
-  color: #94A3B8;
-  text-align: center;
-  padding: var(--spacing-md);
-  font-size: 0.85rem;
-}
-
-/* ==================== Market Summary ==================== */
-.market-summary {
-  margin-bottom: var(--spacing-xl);
-}
-
-.market-summary h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: var(--spacing-md);
-  color: var(--color-text);
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--spacing-md);
-}
-
-.summary-card {
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border);
-  transition: box-shadow 0.2s ease;
-}
-
-.summary-card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.summary-label {
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-sm);
-}
-
-.summary-value {
-  font-size: 1.75rem;
-  font-weight: 700;
+/* ==================== 数字等宽字体 ==================== */
+.mono {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
-.summary-value.positive {
+/* ==================== 涨跌颜色类 ==================== */
+.text-rise {
   color: var(--color-rise);
 }
 
-.summary-value.negative {
+.text-fall {
   color: var(--color-fall);
 }
 
-/* ==================== Stocks Section ==================== */
-.stocks-section {
-  margin-bottom: var(--spacing-xl);
+.bg-rise {
+  background-color: var(--color-rise-bg);
 }
 
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-md);
-  flex-wrap: wrap;
-  gap: var(--spacing-md);
+.bg-fall {
+  background-color: var(--color-fall-bg);
 }
 
-.section-header h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
+/* ==================== 动画 ==================== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* ==================== Search Box ==================== */
-.search-box {
-  display: flex;
-  gap: var(--spacing-sm);
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
 }
 
-.search-box input {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: 0.95rem;
-  width: 280px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
-.search-box input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-light);
-}
-
-.search-box button {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.search-box button:hover {
-  background: var(--color-primary-hover);
-}
-
-/* ==================== Stock Cards Grid ==================== */
-.stocks-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--spacing-md);
-}
-
-.stock-card {
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.stock-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-}
-
-.stock-card.selected {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-light);
-}
-
-.stock-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-sm);
-}
-
-.stock-symbol {
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-  color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
-.stock-name {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.stock-quote {
-  margin-top: var(--spacing-sm);
-}
-
-.price {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-xs);
-}
-
-.current-price {
-  font-size: 1.5rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-}
-
-.change {
-  font-size: 0.95rem;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-}
-
-.change.positive {
-  color: var(--color-rise);
-  background: var(--color-rise-bg);
-}
-
-.change.negative {
-  color: var(--color-fall);
-  background: var(--color-fall-bg);
-}
-
-.volume {
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-}
-
-/* ==================== Stock Detail ==================== */
-.stock-detail {
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border);
-  margin-bottom: var(--spacing-xl);
-}
-
-.stock-detail h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: var(--spacing-md);
-}
-
-.detail-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.detail-item .label {
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-}
-
-.detail-item .value {
-  font-size: 1.1rem;
-  font-weight: 600;
-  font-family: var(--font-mono);
+.pulse {
+  animation: pulse 2s ease-in-out infinite;
 }
 
 /* ==================== Loading ==================== */
@@ -381,7 +168,7 @@ body {
   100% { background-position: -200% 0; }
 }
 
-/* ==================== Responsive ==================== */
+/* ==================== 响应式 ==================== */
 @media (max-width: 768px) {
   .header {
     padding: var(--spacing-md);
@@ -389,10 +176,6 @@ body {
   
   .header h1 {
     font-size: 1.25rem;
-  }
-  
-  .main-content {
-    padding: var(--spacing-md);
   }
   
   .section-header {
@@ -407,26 +190,110 @@ body {
   .search-box {
     flex-direction: column;
   }
-  
-  .stocks-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .summary-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .detail-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
-@media (max-width: 480px) {
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
+/* ==================== Ant Design 覆盖 ==================== */
+.ant-card-small > .ant-card-body {
+  padding: 12px;
+}
+
+.ant-table-small .ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.ant-table-tbody > tr {
+  transition: background 0.2s;
+}
+
+.ant-tag {
+  border-radius: 4px;
+}
+
+.ant-statistic-title {
+  font-size: 12px !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.ant-breadcrumb {
+  font-size: 13px;
+}
+
+/* ==================== 首页卡片悬浮 ==================== */
+.ant-card-hoverable:hover {
+  box-shadow: var(--shadow-md) !important;
+  transform: translateY(-1px);
+  transition: all 0.2s ease;
+}
+
+/* ==================== 骨架屏动画 ==================== */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ==================== WebSocket 状态指示 ==================== */
+.ws-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.ws-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.ws-status-dot.connected { background: #22c55e; }
+.ws-status-dot.disconnected { background: #94a3b8; animation: none; }
+.ws-status-dot.stale { background: #f59e0b; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ==================== 搜索高亮 ==================== */
+.search-highlight {
+  color: #1890ff;
+  font-weight: 600;
+}
+
+/* ==================== 实时行情闪烁 ==================== */
+@keyframes flash-rise {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(239, 68, 68, 0.1); }
+}
+
+@keyframes flash-fall {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(34, 197, 94, 0.1); }
+}
+
+.flash-rise { animation: flash-rise 0.6s ease; }
+.flash-fall { animation: flash-fall 0.6s ease; }
+
+/* ==================== 图表工具栏 ==================== */
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  margin-bottom: 8px;
+}
+
+.chart-toolbar .ant-radio-button-wrapper {
+  font-size: 12px;
+  height: 28px;
+  line-height: 26px;
 }

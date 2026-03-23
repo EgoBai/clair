@@ -40,6 +40,40 @@ export class Database {
     await this.knexInstance.destroy();
   }
 
+  /**
+   * 获取连接池状态
+   */
+  getPoolStats(): { used: number; free: number; pending: number; min: number; max: number } {
+    const pool = (this.knexInstance as any).client?.pool;
+    if (!pool) return { used: 0, free: 0, pending: 0, min: 0, max: 0 };
+    return {
+      used: pool.numUsed?.() ?? 0,
+      free: pool.numFree?.() ?? 0,
+      pending: pool.numPendingAcquires?.() ?? 0,
+      min: pool.min ?? 0,
+      max: pool.max ?? 0,
+    };
+  }
+
+  /**
+   * 连接池健康检查
+   */
+  async healthCheck(): Promise<{ healthy: boolean; latency: number; poolSize: number }> {
+    const start = Date.now();
+    try {
+      await this.knexInstance.raw('SELECT 1');
+      const latency = Date.now() - start;
+      const poolStats = this.getPoolStats();
+      return {
+        healthy: true,
+        latency,
+        poolSize: poolStats.used + poolStats.free,
+      };
+    } catch (error) {
+      return { healthy: false, latency: Date.now() - start, poolSize: 0 };
+    }
+  }
+
   // ==================== 股票相关操作 ====================
 
   /**
@@ -537,16 +571,31 @@ export const defaultConfig: Knex.Config = {
     database: process.env.DB_NAME || 'a_stock'
   },
   pool: {
-    min: 2,
-    max: 10
+    min: parseInt(process.env.DB_POOL_MIN || '2'),
+    max: parseInt(process.env.DB_POOL_MAX || '20'),
+    acquireTimeoutMillis: 30000,
+    idleTimeoutMillis: 30000,
+    reapIntervalMillis: 1000,
+    createTimeoutMillis: 30000,
+    createRetryIntervalMillis: 200,
+    propagateCreateError: false,
   },
+  acquireConnectionTimeout: 30000,
   migrations: {
     tableName: 'knex_migrations',
     directory: './migrations'
   },
   seeds: {
     directory: './seeds'
-  }
+  },
+  // 慢查询日志 (开发环境)
+  ...(process.env.NODE_ENV !== 'production' ? {
+    log: {
+      warn(msg: string) { console.warn('[Knex]', msg); },
+      error(msg: string) { console.error('[Knex]', msg); },
+      debug(msg: string) { console.debug('[Knex]', msg); },
+    }
+  } : {}),
 };
 
 // 创建默认数据库实例

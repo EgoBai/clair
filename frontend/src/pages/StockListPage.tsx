@@ -1,30 +1,37 @@
 /**
  * 股票列表页
+ * 支持搜索、筛选、排序、分页
  */
 
 import React, { useEffect, useState } from 'react';
-import { Table, Input, Select, Card, Tag, Space, Pagination, Spin, Row, Col } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Table, Input, Select, Card, Tag, Pagination, Row, Col, Tooltip, Typography } from 'antd';
+import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import { apiService, StockWithQuote } from '../services/api';
+import { useDebounce } from '../hooks/useHooks';
+
+const { Text } = Typography;
 
 const StockListPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [stocks, setStocks] = useState<StockWithQuote[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(searchParams.get('search') || '');
   const [market, setMarket] = useState<string>('');
   const [industry, setIndustry] = useState<string>('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
 
+  const debouncedSearch = useDebounce(searchText, 300);
+
   useEffect(() => {
     loadStocks();
-  }, [page, pageSize, market, industry]);
+  }, [page, pageSize, market, industry, debouncedSearch]);
 
-  const loadStocks = async (keyword?: string) => {
+  const loadStocks = async () => {
     setLoading(true);
     try {
       const params: any = {
@@ -33,8 +40,10 @@ const StockListPage: React.FC = () => {
         sortBy: 'symbol',
         sortOrder: 'asc',
       };
-      if (keyword || searchText) params.symbol = keyword || searchText;
-      if (keyword || searchText) params.name = keyword || searchText;
+      if (debouncedSearch) {
+        params.symbol = debouncedSearch;
+        params.name = debouncedSearch;
+      }
       if (market) params.market = market;
       if (industry) params.industry = industry;
 
@@ -50,10 +59,30 @@ const StockListPage: React.FC = () => {
     }
   };
 
-  const handleSearch = () => {
-    setPage(1);
-    loadStocks(searchText);
+  // 格式化函数
+  const formatTurnover = (val?: number) => {
+    if (!val) return '-';
+    if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
+    if (val >= 1e4) return `${(val / 1e4).toFixed(2)}万`;
+    return val.toString();
   };
+
+  const formatVolume = (val?: number) => {
+    if (!val) return '-';
+    if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
+    if (val >= 1e4) return `${(val / 1e4).toFixed(2)}万`;
+    return val.toString();
+  };
+
+  const formatMarketCap = (val?: number) => {
+    if (!val) return '-';
+    if (val >= 1e12) return `${(val / 1e12).toFixed(2)}万亿`;
+    if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
+    return val.toString();
+  };
+
+  const marketColorMap: Record<string, string> = { SH: 'blue', SZ: 'green', BJ: 'orange' };
+  const marketLabelMap: Record<string, string> = { SH: '沪', SZ: '深', BJ: '北' };
 
   const columns: ColumnsType<StockWithQuote> = [
     {
@@ -62,7 +91,7 @@ const StockListPage: React.FC = () => {
       width: 110,
       fixed: 'left',
       render: (val: string) => (
-        <a style={{ fontWeight: 500, color: '#1890ff' }}>{val}</a>
+        <Text strong style={{ color: '#1890ff', fontSize: 13 }}>{val}</Text>
       ),
     },
     {
@@ -70,30 +99,40 @@ const StockListPage: React.FC = () => {
       dataIndex: 'name',
       width: 100,
       fixed: 'left',
-      render: (val: string) => <span style={{ fontWeight: 500 }}>{val}</span>,
+      render: (val: string) => <Text strong style={{ fontSize: 13 }}>{val}</Text>,
     },
     {
       title: '市场',
       dataIndex: 'market',
-      width: 70,
+      width: 60,
       render: (val: string) => (
-        <Tag color={val === 'SH' ? 'blue' : val === 'SZ' ? 'green' : 'orange'}>
-          {val === 'SH' ? '沪' : val === 'SZ' ? '深' : '北'}
+        <Tag color={marketColorMap[val] || 'default'} style={{ fontSize: 11 }}>
+          {marketLabelMap[val] || val}
         </Tag>
       ),
     },
     {
       title: '行业',
       dataIndex: 'industry',
-      width: 100,
-      ellipsis: true,
+      width: 90,
+      ellipsis: { showTitle: false },
+      render: (val: string) => val ? (
+        <Tooltip title={val}>
+          <Text style={{ fontSize: 12 }}>{val}</Text>
+        </Tooltip>
+      ) : '-',
     },
     {
       title: '最新价',
       dataIndex: ['latestQuote', 'closePrice'],
       width: 90,
       align: 'right',
-      render: (val: number) => val?.toFixed(2) ?? '-',
+      render: (val: number, record) => {
+        if (!val) return '-';
+        const changePercent = record.latestQuote?.changePercent ?? 0;
+        const color = changePercent >= 0 ? '#EF4444' : '#22C55E';
+        return <Text style={{ fontFamily: 'monospace', fontWeight: 600, color }}>{val.toFixed(2)}</Text>;
+      },
     },
     {
       title: '涨跌幅',
@@ -105,7 +144,7 @@ const StockListPage: React.FC = () => {
       render: (val: number) => {
         if (val === undefined || val === null) return '-';
         return (
-          <Tag color={val >= 0 ? 'red' : 'green'}>
+          <Tag color={val >= 0 ? 'red' : 'green'} style={{ fontFamily: 'monospace' }}>
             {val >= 0 ? '+' : ''}{val.toFixed(2)}%
           </Tag>
         );
@@ -114,44 +153,54 @@ const StockListPage: React.FC = () => {
     {
       title: '成交量',
       dataIndex: ['latestQuote', 'volume'],
-      width: 100,
+      width: 90,
       align: 'right',
-      render: (val: number) => {
-        if (!val) return '-';
-        if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
-        if (val >= 1e4) return `${(val / 1e4).toFixed(2)}万`;
-        return val.toString();
-      },
+      render: (val: number) => (
+        <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{formatVolume(val)}</Text>
+      ),
     },
     {
       title: '成交额',
       dataIndex: ['latestQuote', 'turnover'],
-      width: 100,
+      width: 90,
       align: 'right',
-      render: (val: number) => {
-        if (!val) return '-';
-        if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
-        if (val >= 1e4) return `${(val / 1e4).toFixed(2)}万`;
-        return val.toString();
-      },
+      render: (val: number) => (
+        <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{formatTurnover(val)}</Text>
+      ),
     },
     {
       title: '市值',
       dataIndex: ['latestQuote', 'marketCap'],
       width: 100,
       align: 'right',
-      render: (val: number) => {
-        if (!val) return '-';
-        if (val >= 1e12) return `${(val / 1e12).toFixed(2)}万亿`;
-        if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
-        return val.toString();
-      },
+      render: (val: number) => (
+        <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{formatMarketCap(val)}</Text>
+      ),
     },
+  ];
+
+  const industries = [
+    { label: '银行', value: '银行' },
+    { label: '食品饮料', value: '食品饮料' },
+    { label: '电子', value: '电子' },
+    { label: '医药生物', value: '医药生物' },
+    { label: '电力设备', value: '电力设备' },
+    { label: '非银金融', value: '非银金融' },
+    { label: '计算机', value: '计算机' },
+    { label: '汽车', value: '汽车' },
+    { label: '家用电器', value: '家用电器' },
+    { label: '通信', value: '通信' },
+    { label: '国防军工', value: '国防军工' },
+    { label: '机械设备', value: '机械设备' },
   ];
 
   return (
     <div style={{ padding: '16px' }}>
-      <Card title="股票列表" size="small">
+      <Card
+        title={<span style={{ fontWeight: 600 }}>📋 股票列表</span>}
+        size="small"
+        extra={<Text type="secondary" style={{ fontSize: 12 }}>共 {total} 只</Text>}
+      >
         {/* 搜索和筛选 */}
         <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
           <Col xs={24} sm={12} md={8}>
@@ -159,9 +208,12 @@ const StockListPage: React.FC = () => {
               placeholder="搜索股票代码或名称"
               prefix={<SearchOutlined />}
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              onPressEnter={handleSearch}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setPage(1);
+              }}
               allowClear
+              size="middle"
             />
           </Col>
           <Col xs={12} sm={6} md={4}>
@@ -171,6 +223,7 @@ const StockListPage: React.FC = () => {
               onChange={(val) => { setMarket(val || ''); setPage(1); }}
               allowClear
               style={{ width: '100%' }}
+              suffixIcon={<FilterOutlined />}
               options={[
                 { label: '上海', value: 'SH' },
                 { label: '深圳', value: 'SZ' },
@@ -185,17 +238,10 @@ const StockListPage: React.FC = () => {
               onChange={(val) => { setIndustry(val || ''); setPage(1); }}
               allowClear
               style={{ width: '100%' }}
-              options={[
-                { label: '银行', value: '银行' },
-                { label: '食品饮料', value: '食品饮料' },
-                { label: '电子', value: '电子' },
-                { label: '医药生物', value: '医药生物' },
-                { label: '电力设备', value: '电力设备' },
-                { label: '非银金融', value: '非银金融' },
-                { label: '计算机', value: '计算机' },
-                { label: '汽车', value: '汽车' },
-                { label: '家用电器', value: '家用电器' },
-              ]}
+              suffixIcon={<FilterOutlined />}
+              options={industries}
+              showSearch
+              optionFilterProp="label"
             />
           </Col>
         </Row>
@@ -204,15 +250,19 @@ const StockListPage: React.FC = () => {
         <Table
           columns={columns}
           dataSource={stocks}
-          rowKey="id"
+          rowKey={(r) => r.id || r.symbol}
           loading={loading}
           pagination={false}
           size="small"
           scroll={{ x: 900 }}
           onRow={(record) => ({
             onClick: () => navigate(`/stock/${record.symbol}`),
-            style: { cursor: 'pointer' },
+            style: {
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            },
           })}
+          rowClassName={() => 'stock-table-row'}
         />
 
         {/* 分页 */}
@@ -229,6 +279,7 @@ const StockListPage: React.FC = () => {
               setPageSize(ps);
             }}
             size="small"
+            pageSizeOptions={['10', '20', '50', '100']}
           />
         </div>
       </Card>
