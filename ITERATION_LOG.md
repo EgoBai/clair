@@ -4145,3 +4145,60 @@
 ### 统计
 - 新增测试: +253 (总计 18436 passed)
 - 新增文件: 11 test files + 1 source file
+
+---
+
+## Round 124 — 通知系统核心 (Notification System Core) [2026-03-31 00:55]
+
+### 目标
+搭建通知系统基础设施：模板管理、多渠道分发、用户偏好、前端组件
+
+### 完成内容
+
+#### 后端服务 (`backend/src/services/notification/`)
+- **types.ts** — 通知类型定义（9种通知类型、4级优先级、5个渠道、状态机）
+- **templates.ts** — 通知模板管理（10个预定义模板、变量渲染、增删改查、启用/禁用）
+- **service.ts** — 核心通知服务（创建/批量创建/查询/标记已读/删除/统计/频率限制/用户偏好）
+- **channels.ts** — 多渠道管理器（WebSocket/Email/InApp/Push/SMS 五种渠道处理器）
+- **index.ts** — 统一导出、工厂函数 `createNotificationSystem`
+
+#### API 路由 (`backend/src/api/notifications.ts`)
+- `GET /user/:userId` — 获取通知列表（支持分页/过滤/排序）
+- `GET /:notificationId` — 获取单条通知
+- `POST /` — 创建通知
+- `POST /batch` — 批量创建
+- `PATCH /:id/read` — 标记已读
+- `PATCH /user/:userId/read-all` — 全部已读
+- `DELETE /:id` — 删除
+- `DELETE /user/:userId/clear` — 清空
+- `GET /user/:userId/stats` — 统计
+- `GET /user/:userId/unread-count` — 未读数
+- `GET/PUT /user/:userId/preferences` — 偏好设置
+- `GET /templates/list` — 模板列表
+
+#### 前端组件
+- **notificationService.ts** — API服务 + 常量映射（图标/标签/颜色/时间格式化）
+- **NotificationBell.tsx** — 通知铃铛组件（未读徽章/下拉列表/已读/删除/轮询）
+- **NotificationSettings.tsx** — 通知设置面板（全局开关/渠道/订阅类型/免打扰/摘要）
+
+#### 测试
+- `notificationService.test.ts` — 59个测试（模板管理12个 + 核心服务30个 + 渠道管理14个 + 集成3个）
+- `notificationAPI.test.ts` — 16个测试（API路由全覆盖 + 完整工作流）
+- `notificationService.test.ts` (frontend) — 7个测试（常量/时间格式化）
+- `notificationComponents.test.tsx` — 8个测试（组件逻辑验证）
+
+### 技术要点
+- 模板变量渲染 `{{var}}` 支持嵌套数据
+- 频率限制：每用户每分钟30条
+- 最大通知数：500条/用户，自动清理过期和已读
+- 构造器深拷贝模板避免测试间污染
+
+### 统计
+- 新增测试: +95 (总计 18531 passed)
+- 新增文件: 8 (5 source + 3 test)
+- 累计测试: 18531/0 fail
+
+### 下一步 (Round 125)
+- WebSocket 实时通知推送集成
+- 通知中心页面
+- 通知声音/振动配置
