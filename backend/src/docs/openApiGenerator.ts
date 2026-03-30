@@ -329,6 +329,99 @@ export function generateOpenAPISpec(options?: {
             error: { type: 'string' },
           },
         },
+        User: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' },
+            username: { type: 'string' },
+            email: { type: 'string', format: 'email' },
+            avatar: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        ETF: {
+          type: 'object',
+          properties: {
+            symbol: { type: 'string', example: '510300' },
+            name: { type: 'string', example: '沪深300ETF' },
+            type: { type: 'string', enum: ['index', 'sector', 'qdii', 'commodity', 'bond'] },
+            benchmark: { type: 'string' },
+            nav: { type: 'number' },
+            changePercent: { type: 'number' },
+            premiumRate: { type: 'number' },
+            totalAssets: { type: 'number' },
+            trackingError: { type: 'number' },
+            expenseRatio: { type: 'number' },
+          },
+        },
+        BlockTrade: {
+          type: 'object',
+          properties: {
+            symbol: { type: 'string' },
+            name: { type: 'string' },
+            price: { type: 'number' },
+            volume: { type: 'number' },
+            amount: { type: 'number' },
+            buyer: { type: 'string' },
+            seller: { type: 'string' },
+            discount: { type: 'number' },
+            tradeDate: { type: 'string', format: 'date' },
+          },
+        },
+        AIRecommendation: {
+          type: 'object',
+          properties: {
+            symbol: { type: 'string' },
+            name: { type: 'string' },
+            score: { type: 'integer', minimum: 0, maximum: 100 },
+            reason: { type: 'string' },
+            strategy: { type: 'string' },
+            price: { type: 'number' },
+            changePercent: { type: 'number' },
+          },
+        },
+        PerformanceOverview: {
+          type: 'object',
+          properties: {
+            uptime: { type: 'number' },
+            requestsPerSecond: { type: 'number' },
+            avgResponseTime: { type: 'number' },
+            p95ResponseTime: { type: 'number' },
+            errorRate: { type: 'number' },
+            memoryUsage: { type: 'object' },
+            endpoints: { type: 'array', items: { type: 'object' } },
+          },
+        },
+        HealthStatus: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['healthy', 'unhealthy'] },
+            timestamp: { type: 'string', format: 'date-time' },
+            version: { type: 'string' },
+            database: {
+              type: 'object',
+              properties: {
+                connected: { type: 'boolean' },
+                latency: { type: 'number' },
+                pool: { type: 'object' },
+              },
+            },
+            cache: {
+              type: 'object',
+              properties: {
+                size: { type: 'integer' },
+                hitRate: { type: 'string' },
+              },
+            },
+            websocket: {
+              type: 'object',
+              properties: {
+                connectedClients: { type: 'integer' },
+                activeSubscriptions: { type: 'integer' },
+              },
+            },
+          },
+        },
       },
       securitySchemes: {
         BearerAuth: {

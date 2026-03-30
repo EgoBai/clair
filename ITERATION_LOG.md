@@ -3925,3 +3925,24 @@
 
 **结果**: 640 test files passing, 17619 tests passing (↑2 from 638/17596)
 **失败修复**: 8→0 failing files
+
+## Round 90-95 (2026-03-30 23:34-23:40) - OpenAPI规范完善/文档端点
+
+**目标**: 创建完整的 API 文档系统，提供 Swagger UI + ReDoc + OpenAPI 规范
+
+**新增文件**:
+- `backend/src/api/api-docs.ts`: 文档端点路由模块（6个端点）
+- `backend/src/docs/routeAutoRegistry.ts`: 路由自动注册（100+端点元数据）
+- `backend/src/__tests__/apiDocsEndpoint.test.ts`: 文档端点测试（25 tests）
+
+**修改文件**:
+- `backend/src/app.ts`: 集成文档路由，版本升级 v1.7.0，更新 banner
+- `backend/src/docs/openApiGenerator.ts`: 新增 User/ETF/BlockTrade/AIRecommendation 等 schema
+
+**功能亮点**:
+- Swagger UI + ReDoc 通过 CDN 加载，零额外依赖
+- 路由自动注册：pathMetadata 映射表覆盖所有 API 端点
+- 双格式输出：JSON + YAML OpenAPI 3.0.3 规范
+- 端点清单接口 (/api-docs/endpoints) 支持程序化消费
+
+**测试结果**: 648 test files (17799 tests) passing ↑8 files / ↑180 tests

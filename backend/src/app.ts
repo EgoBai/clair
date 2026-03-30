@@ -36,6 +36,7 @@ import shareholderChangesRouter from './api/shareholder-changes';
 import lockupSharesRouter from './api/lockup-shares';
 import aiStockSelectionRouter from './api/ai-stock-selection';
 import etfRouter from './api/etf';
+import apiDocsRouter from './api/api-docs';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
@@ -110,6 +111,9 @@ app.use('/api', shareholderChangesRouter);
 app.use('/api', lockupSharesRouter);
 app.use('/api', aiStockSelectionRouter);
 app.use('/api/etf', etfRouter);
+
+// ==================== API 文档 ====================
+app.use(apiDocsRouter);
 
 // ==================== CSRF Token ====================
 app.get('/api/csrf-token', csrfTokenEndpoint);
@@ -218,8 +222,16 @@ app.post('/api/sync/kline/:symbol', syncRateLimit, asyncHandler(async (req, res)
 app.get('/', (_req, res) => {
   res.json({
     service: 'A股行情分析网站 - 后端API',
-    version: '1.6.0',
+    version: '1.7.0',
     status: 'running',
+    docs: {
+      swaggerUI: '/api-docs',
+      redoc: '/api-docs/redoc',
+      openapiJson: '/api-docs/openapi.json',
+      openapiYaml: '/api-docs/openapi.yaml',
+      endpoints: '/api-docs/endpoints',
+      info: '/api-docs/info',
+    },
     endpoints: {
       health: '/health',
       stocks: '/api/stocks',
@@ -236,8 +248,10 @@ app.get('/', (_req, res) => {
       news: '/api/news',
       social: '/api/social/comments',
       aiAnalysis: '/api/ai/recommendations',
+      aiStockSelection: '/api/ai/selection/recommendations',
       financials: '/api/financials/summary?symbol=',
       stockCompare: '/api/compare?symbols=',
+      etf: '/api/etf/list',
       user: '/api/user/register | /api/user/login',
       performance: '/api/performance/overview',
       blockTrades: '/api/block-trades',
@@ -280,14 +294,16 @@ wsService.initialize(httpServer);
 // ==================== 启动服务器 ====================
 httpServer.listen(PORT, () => {
   console.log(`
-╔══════════════════════════════════════════════╗
-║   A股行情分析网站 - 后端服务已启动 (v1.4.0)  ║
-╠══════════════════════════════════════════════╣
-║   HTTP服务:     http://localhost:${PORT}        ║
-║   WebSocket:    ws://localhost:${PORT}          ║
-║   健康检查:     http://localhost:${PORT}/health  ║
-║   API文档:      http://localhost:${PORT}/        ║
-╚══════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════╗
+║   A股行情分析网站 - 后端服务已启动 (v1.7.0)      ║
+╠══════════════════════════════════════════════════╣
+║   HTTP服务:     http://localhost:${PORT}          ║
+║   WebSocket:    ws://localhost:${PORT}            ║
+║   健康检查:     http://localhost:${PORT}/health    ║
+║   Swagger UI:   http://localhost:${PORT}/api-docs ║
+║   ReDoc:        http://localhost:${PORT}/api-docs/redoc ║
+║   OpenAPI JSON: http://localhost:${PORT}/api-docs/openapi.json ║
+╚══════════════════════════════════════════════════╝
   `);
 });
 
