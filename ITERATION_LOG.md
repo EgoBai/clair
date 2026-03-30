@@ -4685,3 +4685,56 @@
 - **新增:** `utils/longhuBangEngine.ts` — 龙虎榜分析 (席位/信号/机构游资行为)
 - **测试:** 12个新测试文件, 319 tests
 - **总计:** 375 文件, 10002+ tests passed, 1 pre-existing failure
+
+## Round 251 — 高级分析引擎扩展 2026-03-31 07:11
+
+### 新增文件 (16个)
+
+**宏观经济分析引擎** — `macroEconomicEngine.ts` + test (42 tests)
+- GDP/CPI/PPI/PMI/社融/M2等宏观指标分析
+- 增长/通胀/流动性评分, 宏观状态判定(expansion/contraction/stagflation/recovery)
+- 货币/财政政策信号生成, 股市影响预测
+
+**股票相关性矩阵** — `correlationMatrix.ts` + test (54 tests)
+- 相关性/协方差/Beta计算, 相关性矩阵构建
+- 高/低相关性对筛选, 聚类分析, 背离检测
+- 滚动相关性, 分散化筛选, 组合相关性风险
+
+**组合风险优化** — `portfolioOptimizer.ts` + test (52 tests)
+- 均值方差/最大夏普/最小方差/风险平价优化
+- 有效前沿生成, 风险贡献分解
+- 最大回撤/VaR/ES计算, 行业约束优化
+
+**市场状态检测** — `marketRegimeDetector.ts` + test (34 tests)
+- 5维检测: 动量/波动率/量价/趋势强度/均值回归
+- 牛熊震荡/转折点状态识别, 状态转换检测
+- 市场周期分析, 状态转换概率
+
+**行业资金流追踪** — `sectorFundFlow.ts` + test (30 tests)
+- 资金流入流出汇总, 轮动信号检测
+- 资金流加速/减速, 主力散户比分析
+- 量价背离检测, 行业流报告生成
+
+**财务分析引擎** — `financialAnalysisEngine.ts` + test (35 tests)
+- 完整财务比率(盈利/偿债/杠杆/效率)
+- 杜邦分析ROE三因素分解
+- 质量评分(A-F), Altman Z-Score, Piotroski F-Score
+- Graham内在价值, FCFE, WACC
+
+**事件驱动分析** — `eventDrivenEngine.ts` + test (30 tests)
+- 8类事件分类/影响量化/重要性加权
+- 事件模式分析, 事件日历构建
+- 催化剂评分, 财报反应预测, 事件聚类
+
+**高级期权引擎** — `advancedOptionsEngine.ts` + test (36 tests)
+- Black-Scholes定价, 5个Greeks计算
+- 隐含波动率二分搜索求解
+- Put-Call Parity套利检测
+- 4种策略: 牛市价差/熊市价差/跨式/铁鹰
+- Max Pain, PCR情绪指标
+
+### 测试结果
+- **Test Files**: 816 passed (+7 new, 817 total with 1 skipped)
+- **Tests**: 21,942 passed (+298 new)
+- **Duration**: 19.09s
+- **Files**: 817 total

@@ -1,405 +1,384 @@
 import { describe, it, expect } from 'vitest';
+import {
+  calculatePortfolioReturn,
+  calculatePortfolioVolatility,
+  calculateSharpeRatio,
+  calculateRiskContributions,
+  equalWeightPortfolio,
+  inverseVolatilityPortfolio,
+  maxSharpePortfolio,
+  minVariancePortfolio,
+  riskParityPortfolio,
+  generateEfficientFrontier,
+  calculateMaxDrawdown,
+  calculateValueAtRisk,
+  calculateExpectedShortfall,
+  applySectorConstraints,
+  type Asset,
+  type CovarianceMatrix,
+} from '../utils/portfolioOptimizer';
 
-// ==================== 智能选股组合优化器 ====================
+describe('PortfolioOptimizer', () => {
+  const assets: Asset[] = [
+    { ticker: '000001', name: '平安银行', sector: '银行', expectedReturn: 0.08, volatility: 0.2, returns: [0.01, -0.02, 0.03, 0.01, -0.01] },
+    { ticker: '000002', name: '万科A', sector: '地产', expectedReturn: 0.12, volatility: 0.3, returns: [0.02, -0.03, 0.04, 0.02, -0.02] },
+    { ticker: '000003', name: '测试科技', sector: '科技', expectedReturn: 0.15, volatility: 0.35, returns: [0.03, -0.04, 0.05, 0.03, -0.03] },
+    { ticker: '000004', name: '测试消费', sector: '消费', expectedReturn: 0.10, volatility: 0.18, returns: [0.01, -0.01, 0.02, 0.01, 0.00] },
+  ];
 
-interface CandidateStock {
-  symbol: string;
-  name: string;
-  score: number;
-  expectedReturn: number;
-  volatility: number;
-  beta: number;
-  marketCap: number;
-  industry: string;
-  correlation: Record<string, number>;
-}
+  const covMatrix: CovarianceMatrix = {
+    tickers: ['000001', '000002', '000003', '000004'],
+    matrix: [
+      [0.04, 0.012, 0.008, 0.01],
+      [0.012, 0.09, 0.02, 0.015],
+      [0.008, 0.02, 0.1225, 0.012],
+      [0.01, 0.015, 0.012, 0.0324],
+    ],
+  };
 
-interface OptimizationConstraint {
-  maxPositions: number;
-  minPositionWeight: number;
-  maxPositionWeight: number;
-  maxIndustryWeight: number;
-  minScore: number;
-  maxBeta: number;
-  targetVolatility?: number;
-  targetReturn?: number;
-}
-
-interface OptimizedPortfolio {
-  holdings: { symbol: string; name: string; weight: number; expectedContribution: number }[];
-  expectedReturn: number;
-  expectedRisk: number;
-  sharpeRatio: number;
-  diversificationScore: number;
-  industryBreakdown: Record<string, number>;
-  turnoverEstimate: number;
-}
-
-class StockPortfolioOptimizer {
-  /** 等权重基准组合 */
-  equalWeight(candidates: CandidateStock[], constraints: OptimizationConstraint): OptimizedPortfolio {
-    const filtered = this.applyConstraints(candidates, constraints);
-    const n = Math.min(filtered.length, constraints.maxPositions);
-    const selected = filtered.slice(0, n);
-    const weight = 1 / n;
-
-    return this.buildPortfolio(selected, Array(n).fill(weight), constraints);
-  }
-
-  /** 评分加权组合 */
-  scoreWeighted(candidates: CandidateStock[], constraints: OptimizationConstraint): OptimizedPortfolio {
-    const filtered = this.applyConstraints(candidates, constraints);
-    const n = Math.min(filtered.length, constraints.maxPositions);
-    const selected = filtered.slice(0, n);
-
-    const totalScore = selected.reduce((s, c) => s + Math.max(0, c.score), 0) || 1;
-    const weights = selected.map(c => Math.max(0, c.score) / totalScore);
-
-    return this.buildPortfolio(selected, weights, constraints);
-  }
-
-  /** 风险平价组合 */
-  riskParity(candidates: CandidateStock[], constraints: OptimizationConstraint): OptimizedPortfolio {
-    const filtered = this.applyConstraints(candidates, constraints);
-    const n = Math.min(filtered.length, constraints.maxPositions);
-    const selected = filtered.slice(0, n);
-
-    const invVol = selected.map(c => 1 / (c.volatility || 20));
-    const totalInv = invVol.reduce((s, v) => s + v, 0);
-    const weights = invVol.map(v => v / totalInv);
-
-    return this.buildPortfolio(selected, weights, constraints);
-  }
-
-  /** 均值方差优化 (简化) */
-  meanVariance(candidates: CandidateStock[], constraints: OptimizationConstraint): OptimizedPortfolio {
-    const filtered = this.applyConstraints(candidates, constraints);
-    const n = Math.min(filtered.length, constraints.maxPositions);
-    const selected = filtered.slice(0, n);
-
-    // 最大化夏普: 权重 ∝ 超额收益/风险
-    const sharpeScores = selected.map(c => {
-      const excessReturn = c.expectedReturn - 3; // 3%无风险
-      return excessReturn > 0 ? excessReturn / (c.volatility || 20) : 0;
-    });
-    const total = sharpeScores.reduce((s, v) => s + v, 0) || 1;
-    const weights = sharpeScores.map(v => v / total);
-
-    return this.buildPortfolio(selected, weights, constraints);
-  }
-
-  /** 黑利特曼模型 (简化) */
-  blackLitterman(
-    candidates: CandidateStock[],
-    marketWeights: Record<string, number>,
-    views: { symbol: string; expectedReturn: number; confidence: number }[],
-    constraints: OptimizationConstraint
-  ): OptimizedPortfolio {
-    const filtered = this.applyConstraints(candidates, constraints);
-    const n = Math.min(filtered.length, constraints.maxPositions);
-    const selected = filtered.slice(0, n);
-
-    // 市场均衡收益
-    const equilibriumReturns = selected.map(c => {
-      const mw = marketWeights[c.symbol] || (1 / n);
-      return mw * c.expectedReturn * 0.5 + 5; // 简化
+  describe('calculatePortfolioReturn', () => {
+    it('should calculate weighted return', () => {
+      const weights = { '000001': 0.5, '000002': 0.3, '000003': 0.2, '000004': 0 };
+      const ret = calculatePortfolioReturn(weights, assets);
+      expect(ret).toBeCloseTo(0.08 * 0.5 + 0.12 * 0.3 + 0.15 * 0.2, 4);
     });
 
-    // 融合观点
-    const adjustedReturns = equilibriumReturns.map((er, i) => {
-      const view = views.find(v => v.symbol === selected[i].symbol);
-      if (view) {
-        return er * (1 - view.confidence) + view.expectedReturn * view.confidence;
-      }
-      return er;
+    it('should return 0 for empty weights', () => {
+      expect(calculatePortfolioReturn({}, assets)).toBe(0);
     });
 
-    // 基于调整后收益分配权重
-    const positiveReturns = adjustedReturns.map(r => Math.max(0, r));
-    const total = positiveReturns.reduce((s, v) => s + v, 0) || 1;
-    const weights = positiveReturns.map(v => v / total);
-
-    return this.buildPortfolio(selected, weights, constraints);
-  }
-
-  /** 约束优化 */
-  constrainedOptimize(
-    candidates: CandidateStock[],
-    constraints: OptimizationConstraint,
-    objective: 'maxReturn' | 'minRisk' | 'maxSharpe'
-  ): OptimizedPortfolio {
-    switch (objective) {
-      case 'maxReturn': return this.scoreWeighted(candidates, constraints);
-      case 'minRisk': return this.riskParity(candidates, constraints);
-      case 'maxSharpe': return this.meanVariance(candidates, constraints);
-    }
-  }
-
-  /** 换手率优化 */
-  turnoverOptimized(
-    newCandidates: CandidateStock[],
-    currentHoldings: Record<string, number>,
-    constraints: OptimizationConstraint,
-    maxTurnover: number = 0.3
-  ): OptimizedPortfolio {
-    const target = this.meanVariance(newCandidates, constraints);
-    const currentSymbols = new Set(Object.keys(currentHoldings));
-
-    // 混合新旧权重
-    const blendedHoldings = target.holdings.map(h => {
-      const currentWeight = currentHoldings[h.symbol] || 0;
-      const targetWeight = h.weight;
-      // 限制换手
-      const maxChange = maxTurnover / target.holdings.length;
-      const newWeight = currentWeight + Math.max(-maxChange, Math.min(maxChange, targetWeight - currentWeight));
-      return { ...h, weight: Math.max(0, newWeight) };
+    it('should handle single asset', () => {
+      const weights = { '000001': 1 };
+      expect(calculatePortfolioReturn(weights, assets)).toBe(0.08);
     });
 
-    // 归一化
-    const totalWeight = blendedHoldings.reduce((s, h) => s + h.weight, 0);
-    const normalized = blendedHoldings.map(h => ({ ...h, weight: totalWeight > 0 ? h.weight / totalWeight : 0 }));
-
-    // 计算换手率
-    let turnover = 0;
-    for (const h of normalized) {
-      turnover += Math.abs(h.weight - (currentHoldings[h.symbol] || 0));
-    }
-
-    return {
-      ...target,
-      holdings: normalized,
-      turnoverEstimate: Math.round(turnover / 2 * 100) / 100,
-    };
-  }
-
-  /** 敏感性分析 */
-  sensitivityAnalysis(
-    candidates: CandidateStock[],
-    constraints: OptimizationConstraint,
-    param: 'volatility' | 'expectedReturn',
-    changePercent: number = 10
-  ): { base: OptimizedPortfolio; stressed: OptimizedPortfolio; impact: number }[] {
-    const base = this.meanVariance(candidates, constraints);
-    const results: { base: OptimizedPortfolio; stressed: OptimizedPortfolio; impact: number }[] = [];
-
-    for (const stock of candidates.slice(0, 5)) {
-      const stressedCandidates = candidates.map(c => {
-        if (c.symbol !== stock.symbol) return c;
-        return { ...c, [param]: c[param] * (1 + changePercent / 100) };
-      });
-
-      const stressed = this.meanVariance(stressedCandidates, constraints);
-      const impact = stressed.expectedReturn - base.expectedReturn;
-
-      results.push({
-        base,
-        stressed,
-        impact: Math.round(impact * 100) / 100,
-      });
-    }
-
-    return results;
-  }
-
-  // ==================== 私有方法 ====================
-
-  private applyConstraints(candidates: CandidateStock[], constraints: OptimizationConstraint): CandidateStock[] {
-    return candidates
-      .filter(c => c.score >= constraints.minScore)
-      .filter(c => c.beta <= constraints.maxBeta)
-      .sort((a, b) => b.score - a.score);
-  }
-
-  private buildPortfolio(selected: CandidateStock[], weights: number[], constraints: OptimizationConstraint): OptimizedPortfolio {
-    const n = selected.length;
-
-    // 约束权重
-    const constrained = weights.map(w => Math.max(constraints.minPositionWeight, Math.min(constraints.maxPositionWeight, w)));
-    const total = constrained.reduce((s, v) => s + v, 0) || 1;
-    const normalized = constrained.map(w => w / total);
-
-    const holdings = selected.map((c, i) => ({
-      symbol: c.symbol, name: c.name,
-      weight: Math.round(normalized[i] * 10000) / 10000,
-      expectedContribution: Math.round(normalized[i] * c.expectedReturn * 100) / 100,
-    }));
-
-    const expectedReturn = holdings.reduce((s, h) => s + h.expectedContribution, 0);
-    const expectedRisk = Math.sqrt(selected.reduce((s, c, i) => s + Math.pow(normalized[i] * c.volatility, 2), 0));
-    const sharpeRatio = expectedRisk > 0 ? (expectedReturn - 3) / expectedRisk : 0;
-
-    // 行业分布
-    const industryBreakdown: Record<string, number> = {};
-    for (let i = 0; i < n; i++) {
-      const ind = selected[i].industry;
-      industryBreakdown[ind] = Math.round(((industryBreakdown[ind] || 0) + normalized[i]) * 10000) / 10000;
-    }
-
-    // 分散化得分
-    const herfindahl = normalized.reduce((s, w) => s + w * w, 0);
-    const diversificationScore = Math.round((1 - herfindahl) * 100) / 100;
-
-    return {
-      holdings, expectedReturn: Math.round(expectedReturn * 100) / 100,
-      expectedRisk: Math.round(expectedRisk * 100) / 100,
-      sharpeRatio: Math.round(sharpeRatio * 100) / 100,
-      diversificationScore, industryBreakdown, turnoverEstimate: 1,
-    };
-  }
-}
-
-// ==================== 测试数据 ====================
-
-function genCandidates(count: number): CandidateStock[] {
-  const industries = ['科技', '金融', '消费', '医药', '制造'];
-  return Array.from({ length: count }, (_, i) => ({
-    symbol: `${String(i).padStart(6, '0')}`,
-    name: `股票${i}`,
-    score: 30 + Math.random() * 60,
-    expectedReturn: 5 + Math.random() * 25,
-    volatility: 10 + Math.random() * 30,
-    beta: 0.5 + Math.random() * 1.5,
-    marketCap: 50 + Math.random() * 500,
-    industry: industries[i % industries.length],
-    correlation: {},
-  }));
-}
-
-const defaultConstraints: OptimizationConstraint = {
-  maxPositions: 10, minPositionWeight: 0.02, maxPositionWeight: 0.3,
-  maxIndustryWeight: 0.4, minScore: 30, maxBeta: 2,
-};
-
-// ==================== 测试 ====================
-
-describe('StockPortfolioOptimizer 智能选股组合优化', () => {
-  const optimizer = new StockPortfolioOptimizer();
-  const candidates = genCandidates(20);
-
-  describe('等权重组合', () => {
-    it('应生成等权组合', () => {
-      const portfolio = optimizer.equalWeight(candidates, defaultConstraints);
-      expect(portfolio.holdings.length).toBeLessThanOrEqual(10);
-      const totalWeight = portfolio.holdings.reduce((s, h) => s + h.weight, 0);
-      expect(totalWeight).toBeCloseTo(1, 1);
-    });
-
-    it('权重应大致相等', () => {
-      const portfolio = optimizer.equalWeight(candidates, { ...defaultConstraints, maxPositions: 5 });
-      const weights = portfolio.holdings.map(h => h.weight);
-      const maxDiff = Math.max(...weights) - Math.min(...weights);
-      expect(maxDiff).toBeLessThan(0.1);
+    it('should ignore missing tickers', () => {
+      const weights = { '999999': 1 };
+      expect(calculatePortfolioReturn(weights, assets)).toBe(0);
     });
   });
 
-  describe('评分加权组合', () => {
-    it('应生成评分加权组合', () => {
-      const portfolio = optimizer.scoreWeighted(candidates, defaultConstraints);
-      expect(portfolio.holdings.length).toBeGreaterThan(0);
+  describe('calculatePortfolioVolatility', () => {
+    it('should calculate portfolio volatility', () => {
+      const weights = { '000001': 0.5, '000002': 0.5, '000003': 0, '000004': 0 };
+      const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
+      expect(vol).toBeGreaterThan(0);
     });
 
-    it('高评分应获得高权重', () => {
-      const portfolio = optimizer.scoreWeighted(candidates, defaultConstraints);
-      if (portfolio.holdings.length >= 2) {
-        expect(portfolio.holdings[0].weight).toBeGreaterThanOrEqual(portfolio.holdings[portfolio.holdings.length - 1].weight);
+    it('should return 0 for empty weights', () => {
+      expect(calculatePortfolioVolatility({}, assets, covMatrix)).toBe(0);
+    });
+
+    it('should return asset vol for single asset', () => {
+      const weights = { '000001': 1 };
+      const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
+      expect(vol).toBeCloseTo(0.2, 2);
+    });
+
+    it('should be non-negative', () => {
+      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
+      const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
+      expect(vol).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('calculateSharpeRatio', () => {
+    it('should calculate sharpe ratio', () => {
+      const sharpe = calculateSharpeRatio(0.10, 0.15);
+      expect(sharpe).toBeCloseTo((0.10 - 0.03) / 0.15, 4);
+    });
+
+    it('should return 0 for zero volatility', () => {
+      expect(calculateSharpeRatio(0.10, 0)).toBe(0);
+    });
+
+    it('should use default risk free rate', () => {
+      const sharpe = calculateSharpeRatio(0.10, 0.2);
+      expect(sharpe).toBeCloseTo(0.35, 2);
+    });
+
+    it('should handle custom risk free rate', () => {
+      const sharpe = calculateSharpeRatio(0.10, 0.2, 0.05);
+      expect(sharpe).toBeCloseTo(0.25, 2);
+    });
+
+    it('should be negative when return < risk free rate', () => {
+      expect(calculateSharpeRatio(0.01, 0.1)).toBeLessThan(0);
+    });
+  });
+
+  describe('calculateRiskContributions', () => {
+    it('should calculate risk contributions', () => {
+      const weights = { '000001': 0.5, '000002': 0.3, '000003': 0.2, '000004': 0 };
+      const rc = calculateRiskContributions(weights, assets, covMatrix);
+      expect(rc['000001']).toBeDefined();
+      expect(rc['000002']).toBeDefined();
+    });
+
+    it('should sum to approximately 1', () => {
+      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
+      const rc = calculateRiskContributions(weights, assets, covMatrix);
+      const sum = Object.values(rc).reduce((s, v) => s + v, 0);
+      expect(sum).toBeCloseTo(1, 1);
+    });
+
+    it('should return zeros for zero volatility', () => {
+      const zeroAssets: Asset[] = [
+        { ticker: 'A', name: 'A', sector: 'A', expectedReturn: 0.1, volatility: 0, returns: [0, 0, 0] },
+      ];
+      const zeroCov: CovarianceMatrix = { tickers: ['A'], matrix: [[0]] };
+      const rc = calculateRiskContributions({ 'A': 1 }, zeroAssets, zeroCov);
+      expect(rc['A']).toBe(0);
+    });
+  });
+
+  describe('equalWeightPortfolio', () => {
+    it('should assign equal weights', () => {
+      const weights = equalWeightPortfolio(assets);
+      for (const asset of assets) {
+        expect(weights[asset.ticker]).toBeCloseTo(0.25, 4);
+      }
+    });
+
+    it('should sum to 1', () => {
+      const weights = equalWeightPortfolio(assets);
+      const sum = Object.values(weights).reduce((s, w) => s + w, 0);
+      expect(sum).toBeCloseTo(1, 5);
+    });
+  });
+
+  describe('inverseVolatilityPortfolio', () => {
+    it('should assign higher weight to lower volatility', () => {
+      const weights = inverseVolatilityPortfolio(assets);
+      expect(weights['000004']).toBeGreaterThan(weights['000003']);
+    });
+
+    it('should sum to 1', () => {
+      const weights = inverseVolatilityPortfolio(assets);
+      const sum = Object.values(weights).reduce((s, w) => s + w, 0);
+      expect(sum).toBeCloseTo(1, 5);
+    });
+
+    it('should handle zero volatility', () => {
+      const zeroVol: Asset[] = [
+        { ticker: 'A', name: 'A', sector: 'A', expectedReturn: 0.1, volatility: 0, returns: [0] },
+        { ticker: 'B', name: 'B', sector: 'B', expectedReturn: 0.1, volatility: 0.2, returns: [0.01] },
+      ];
+      const weights = inverseVolatilityPortfolio(zeroVol);
+      expect(weights['A']).toBe(0);
+    });
+  });
+
+  describe('maxSharpePortfolio', () => {
+    it('should return optimization result', () => {
+      const result = maxSharpePortfolio(assets, covMatrix);
+      expect(result.expectedReturn).toBeDefined();
+      expect(result.volatility).toBeDefined();
+      expect(result.sharpeRatio).toBeDefined();
+    });
+
+    it('should have weights summing to 1', () => {
+      const result = maxSharpePortfolio(assets, covMatrix);
+      const sum = Object.values(result.weights).reduce((s, w) => s + w, 0);
+      expect(sum).toBeCloseTo(1, 1);
+    });
+
+    it('should have non-negative weights', () => {
+      const result = maxSharpePortfolio(assets, covMatrix);
+      for (const w of Object.values(result.weights)) {
+        expect(w).toBeGreaterThanOrEqual(-0.01);
+      }
+    });
+
+    it('should include risk contributions', () => {
+      const result = maxSharpePortfolio(assets, covMatrix);
+      for (const asset of assets) {
+        expect(result.riskContributions[asset.ticker]).toBeDefined();
       }
     });
   });
 
-  describe('风险平价组合', () => {
-    it('应生成风险平价组合', () => {
-      const portfolio = optimizer.riskParity(candidates, defaultConstraints);
-      expect(portfolio.holdings.length).toBeGreaterThan(0);
-      const totalWeight = portfolio.holdings.reduce((s, h) => s + h.weight, 0);
-      expect(totalWeight).toBeCloseTo(1, 1);
+  describe('minVariancePortfolio', () => {
+    it('should return optimization result', () => {
+      const result = minVariancePortfolio(assets, covMatrix);
+      expect(result.volatility).toBeGreaterThan(0);
     });
 
-    it('低波动应获得高权重', () => {
-      const portfolio = optimizer.riskParity(candidates, defaultConstraints);
-      // 验证风险平价组合的权重分配合理
-      if (portfolio.holdings.length >= 2) {
-        // 所有权重应为正数且总和为1
-        const totalWeight = portfolio.holdings.reduce((s, h) => s + h.weight, 0);
-        expect(totalWeight).toBeCloseTo(1, 0);
-        portfolio.holdings.forEach(h => {
-          expect(h.weight).toBeGreaterThan(0);
-        });
+    it('should have lower volatility than equal weight', () => {
+      const result = minVariancePortfolio(assets, covMatrix);
+      const eqWeights = equalWeightPortfolio(assets);
+      const eqVol = calculatePortfolioVolatility(eqWeights, assets, covMatrix);
+      expect(result.volatility).toBeLessThanOrEqual(eqVol + 0.01);
+    });
+
+    it('should have weights summing to 1', () => {
+      const result = minVariancePortfolio(assets, covMatrix);
+      const sum = Object.values(result.weights).reduce((s, w) => s + w, 0);
+      expect(sum).toBeCloseTo(1, 1);
+    });
+  });
+
+  describe('riskParityPortfolio', () => {
+    it('should return optimization result', () => {
+      const result = riskParityPortfolio(assets, covMatrix);
+      expect(result.volatility).toBeGreaterThan(0);
+    });
+
+    it('should have roughly equal risk contributions', () => {
+      const result = riskParityPortfolio(assets, covMatrix);
+      const rcs = Object.values(result.riskContributions);
+      if (rcs.length > 0) {
+        const mean = rcs.reduce((s, v) => s + v, 0) / rcs.length;
+        for (const rc of rcs) {
+          expect(Math.abs(rc - mean)).toBeLessThan(0.3);
+        }
+      }
+    });
+
+    it('should have weights summing to 1', () => {
+      const result = riskParityPortfolio(assets, covMatrix);
+      const sum = Object.values(result.weights).reduce((s, w) => s + w, 0);
+      expect(sum).toBeCloseTo(1, 1);
+    });
+  });
+
+  describe('generateEfficientFrontier', () => {
+    it('should generate specified number of points', () => {
+      const frontier = generateEfficientFrontier(assets, covMatrix, 10);
+      expect(frontier.length).toBe(10);
+    });
+
+    it('should have increasing returns', () => {
+      const frontier = generateEfficientFrontier(assets, covMatrix, 10);
+      for (let i = 1; i < frontier.length; i++) {
+        expect(frontier[i].expectedReturn).toBeGreaterThanOrEqual(
+          frontier[i - 1].expectedReturn - 0.001
+        );
+      }
+    });
+
+    it('should include sharpe ratio for each point', () => {
+      const frontier = generateEfficientFrontier(assets, covMatrix, 5);
+      for (const point of frontier) {
+        expect(typeof point.sharpeRatio).toBe('number');
+      }
+    });
+
+    it('should default to 20 points', () => {
+      const frontier = generateEfficientFrontier(assets, covMatrix);
+      expect(frontier.length).toBe(20);
+    });
+
+    it('should have weights summing to 1 at each point', () => {
+      const frontier = generateEfficientFrontier(assets, covMatrix, 5);
+      for (const point of frontier) {
+        const sum = Object.values(point.weights).reduce((s, w) => s + w, 0);
+        expect(sum).toBeCloseTo(1, 1);
       }
     });
   });
 
-  describe('均值方差组合', () => {
-    it('应生成优化组合', () => {
-      const portfolio = optimizer.meanVariance(candidates, defaultConstraints);
-      expect(portfolio.sharpeRatio).toBeDefined();
-      expect(portfolio.expectedReturn).toBeGreaterThan(0);
+  describe('calculateMaxDrawdown', () => {
+    it('should calculate max drawdown', () => {
+      const returns = [0.1, -0.05, 0.1, -0.15, 0.05, -0.1, 0.2];
+      const dd = calculateMaxDrawdown(returns);
+      expect(dd).toBeGreaterThan(0);
+      expect(dd).toBeLessThanOrEqual(1);
+    });
+
+    it('should return 0 for all positive returns', () => {
+      expect(calculateMaxDrawdown([0.01, 0.02, 0.01, 0.03])).toBe(0);
+    });
+
+    it('should return 1 for complete loss', () => {
+      expect(calculateMaxDrawdown([0.1, -1.0])).toBe(1);
+    });
+
+    it('should return 0 for empty array', () => {
+      expect(calculateMaxDrawdown([])).toBe(0);
+    });
+
+    it('should handle single return', () => {
+      const dd = calculateMaxDrawdown([-0.1]);
+      expect(dd).toBeCloseTo(0.1, 2);
     });
   });
 
-  describe('Black-Litterman', () => {
-    it('应融合观点', () => {
-      const views = [{ symbol: '000000', expectedReturn: 30, confidence: 0.7 }];
-      const mw: Record<string, number> = {};
-      candidates.forEach(c => mw[c.symbol] = 1 / candidates.length);
-      const portfolio = optimizer.blackLitterman(candidates, mw, views, defaultConstraints);
-      expect(portfolio.holdings.length).toBeGreaterThan(0);
+  describe('calculateValueAtRisk', () => {
+    it('should calculate VaR', () => {
+      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
+      const var95 = calculateValueAtRisk(returns, 0.95);
+      expect(var95).toBeGreaterThan(0);
+    });
+
+    it('should return 0 for empty array', () => {
+      expect(calculateValueAtRisk([], 0.95)).toBe(0);
+    });
+
+    it('should use 95% confidence by default', () => {
+      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
+      const varDefault = calculateValueAtRisk(returns);
+      const var95 = calculateValueAtRisk(returns, 0.95);
+      expect(varDefault).toBe(var95);
+    });
+
+    it('should return higher VaR at higher confidence', () => {
+      const returns = Array.from({ length: 200 }, (_, i) => (i - 100) / 1000);
+      const var90 = calculateValueAtRisk(returns, 0.90);
+      const var99 = calculateValueAtRisk(returns, 0.99);
+      expect(var99).toBeGreaterThanOrEqual(var90);
     });
   });
 
-  describe('换手率优化', () => {
-    it('应限制换手率', () => {
-      const current: Record<string, number> = {};
-      candidates.slice(0, 5).forEach(c => current[c.symbol] = 0.2);
-      const portfolio = optimizer.turnoverOptimized(candidates, current, defaultConstraints, 0.2);
-      expect(portfolio.turnoverEstimate).toBeLessThanOrEqual(0.6);
+  describe('calculateExpectedShortfall', () => {
+    it('should calculate ES', () => {
+      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
+      const es = calculateExpectedShortfall(returns, 0.95);
+      expect(es).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should return 0 for empty array', () => {
+      expect(calculateExpectedShortfall([], 0.95)).toBe(0);
+    });
+
+    it('should be >= VaR', () => {
+      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
+      const var95 = calculateValueAtRisk(returns, 0.95);
+      const es = calculateExpectedShortfall(returns, 0.95);
+      expect(es).toBeGreaterThanOrEqual(var95 - 0.01);
     });
   });
 
-  describe('约束满足', () => {
-    it('单股权重不应超过上限', () => {
-      const portfolio = optimizer.scoreWeighted(candidates, defaultConstraints);
-      for (const h of portfolio.holdings) {
-        expect(h.weight).toBeLessThanOrEqual(defaultConstraints.maxPositionWeight + 0.01);
+  describe('applySectorConstraints', () => {
+    it('should respect sector max constraints', () => {
+      const weights = { '000001': 0.6, '000002': 0.1, '000003': 0.1, '000004': 0.2 };
+      const constraints = { '银行': { min: 0, max: 0.3 } };
+      const adjusted = applySectorConstraints(weights, assets, constraints);
+      expect(adjusted['000001']).toBeLessThanOrEqual(0.35);
+    });
+
+    it('should maintain approximate sum of 1', () => {
+      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
+      const constraints = { '银行': { min: 0.1, max: 0.4 } };
+      const adjusted = applySectorConstraints(weights, assets, constraints);
+      const sum = Object.values(adjusted).reduce((s, w) => s + w, 0);
+      expect(sum).toBeCloseTo(1, 1);
+    });
+
+    it('should handle empty constraints', () => {
+      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
+      const adjusted = applySectorConstraints(weights, assets, {});
+      for (const t of Object.keys(weights)) {
+        expect(adjusted[t]).toBeCloseTo(weights[t], 2);
       }
     });
 
-    it('单股权重不应低于下限', () => {
-      const portfolio = optimizer.scoreWeighted(candidates, defaultConstraints);
-      for (const h of portfolio.holdings) {
-        expect(h.weight).toBeGreaterThanOrEqual(defaultConstraints.minPositionWeight - 0.01);
-      }
-    });
-  });
-
-  describe('分散化', () => {
-    it('应计算分散化得分', () => {
-      const portfolio = optimizer.equalWeight(candidates, { ...defaultConstraints, maxPositions: 10 });
-      expect(portfolio.diversificationScore).toBeGreaterThan(0);
-      expect(portfolio.diversificationScore).toBeLessThanOrEqual(1);
-    });
-
-    it('等权重应最高分散化', () => {
-      const eq = optimizer.equalWeight(candidates, { ...defaultConstraints, maxPositions: 5 });
-      const concentrated = optimizer.scoreWeighted(candidates, { ...defaultConstraints, maxPositions: 5 });
-      // 等权重通常更分散
-      expect(eq.diversificationScore).toBeGreaterThanOrEqual(concentrated.diversificationScore - 0.1);
-    });
-  });
-
-  describe('行业分布', () => {
-    it('应计算行业权重', () => {
-      const portfolio = optimizer.scoreWeighted(candidates, defaultConstraints);
-      const total = Object.values(portfolio.industryBreakdown).reduce((s, v) => s + v, 0);
-      expect(total).toBeCloseTo(1, 1);
-    });
-  });
-
-  describe('敏感性分析', () => {
-    it('应返回影响分析', () => {
-      const results = optimizer.sensitivityAnalysis(candidates, defaultConstraints, 'volatility', 10);
-      expect(results.length).toBeGreaterThan(0);
-      for (const r of results) {
-        expect(typeof r.impact).toBe('number');
+    it('should not produce negative weights', () => {
+      const weights = { '000001': 0.9, '000002': 0.05, '000003': 0.025, '000004': 0.025 };
+      const constraints = { '银行': { min: 0, max: 0.2 } };
+      const adjusted = applySectorConstraints(weights, assets, constraints);
+      for (const w of Object.values(adjusted)) {
+        expect(w).toBeGreaterThanOrEqual(0);
       }
     });
   });
