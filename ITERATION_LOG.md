@@ -3946,3 +3946,136 @@
 - 端点清单接口 (/api-docs/endpoints) 支持程序化消费
 
 **测试结果**: 648 test files (17799 tests) passing ↑8 files / ↑180 tests
+
+## Round 97 - 缓存策略管理器 (Cache Strategy Manager)
+**时间**: 2026-03-30 23:47
+**目标**: 缓存完善 - 预热/失效策略/一致性/统计监控
+
+### 新增
+- `backend/src/utils/cacheStrategyManager.ts` — 缓存策略管理器
+  - 预热策略：支持注册/按优先级排序/按scope过滤（market-open/market-close/daily）
+  - 失效策略：pattern直接失效、级联失效（dependency触发）、阈值失效、时间失效
+  - 一致性检查：注册检查规则、验证器、自动修复
+  - 监控快照：命中率、内存、延迟、热点key、事件日志
+  - 健康状态：healthy/degraded/critical三级判定
+  - 生命周期：start/stop/reset控制定时器
+- `backend/src/__tests__/cacheStrategyManager.test.ts` — 23个测试用例
+
+### 测试
+- 649 test files, 17822 tests passing (+1 file, +23 tests)
+
+## Round 98 - 缓存失效路由器 (Cache Invalidation Router)
+**时间**: 2026-03-30 23:50
+**目标**: 缓存失效策略增强
+
+### 新增
+- `backend/src/utils/cacheInvalidationRouter.ts` — 基于事件驱动的智能失效策略
+  - 依赖图管理：注册/移除依赖、上下游依赖链遍历、循环依赖保护
+  - 级联失效：单key失效自动级联所有下游依赖
+  - 批量失效 + pattern匹配失效
+  - 延迟失效：写后延迟策略，定时器驱动
+  - 版本控制：版本号递增、一致性检查、bump不触发事件
+  - 事件系统：按原因监听、wildcard监听、自动清理
+  - 监控统计：总失效/级联/延迟/按原因分类
+- `backend/src/__tests__/cacheInvalidationRouter.test.ts` — 30个测试用例
+
+### 测试
+- 650 test files, 17852 tests passing (+1 file, +30 tests)
+
+## Round 99 - 缓存一致性引擎 (Cache Consistency Engine)
+**时间**: 2026-03-30 23:52
+**目标**: 缓存一致性
+
+### 新增
+- `backend/src/utils/cacheConsistencyEngine.ts` — 多级缓存一致性保证
+  - 一致性级别：strong/eventual/weak
+  - 写策略：write-through/write-behind/write-around
+  - 冲突解决：last-write-wins/first-write-wins/merge/reject
+  - 版本管理：版本号追踪、一致性检查、版本摘要
+  - 写入日志、写后缓冲、自动flush
+  - 事件监听：冲突、版本不匹配、读修复
+- `backend/src/__tests__/cacheConsistencyEngine.test.ts` — 30个测试用例
+
+### 测试
+- 651 test files, 17882 tests passing (+1 file, +30 tests)
+
+## Round 100 - 缓存监控面板 (Cache Monitor Dashboard) 🎯 里程碑
+**时间**: 2026-03-30 23:54
+**目标**: 缓存统计监控
+
+### 新增
+- `backend/src/utils/cacheMonitorDashboard.ts` — 聚合监控面板
+  - 快照采集：定时采集命中率/延迟/内存，保留60个快照
+  - 仪表盘指标：多级缓存/查询缓存/热点key/健康评估/趋势
+  - 健康评分：0-100分，综合命中率/延迟/内存/慢查询/问题数
+  - 建议生成：根据指标自动生成优化建议
+  - 文本报告生成
+  - 可配置阈值
+- `backend/src/__tests__/cacheMonitorDashboard.test.ts` — 17个测试用例
+
+### 缓存模块汇总 (Round 97-100)
+- `cacheStrategyManager.ts` — 预热/失效策略/一致性检查/监控
+- `cacheInvalidationRouter.ts` — 依赖图/级联失效/延迟失效/版本控制/事件系统
+- `cacheConsistencyEngine.ts` — 一致性级别/写策略/冲突解决/版本追踪
+- `cacheMonitorDashboard.ts` — 监控聚合/健康评分/趋势/报告
+
+### 测试
+- 652 test files, 17899 tests passing (+1 file, +17 tests)
+
+## Round 101 - 行情缓存预热服务 (Market Cache Warmup Service)
+**时间**: 2026-03-30 23:55
+**目标**: 缓存预热
+
+### 新增
+- `backend/src/utils/marketCacheWarmupService.ts` — A股智能预热服务
+  - 任务管理：注册/批量注册/移除/按优先级排序
+  - 计划管理：预热时间表（pre-open/post-open/midday/pre-close/post-close）
+  - 执行引擎：单任务/计划/全部执行，同优先级并行
+  - 统计：成功率/平均耗时/数据量/按类别分组
+  - 预设任务：市场状态/热门股票/板块概况/主要指数/财经日历
+- `backend/src/__tests__/marketCacheWarmupService.test.ts` — 20个测试用例
+
+### 测试
+- 653 test files, 17919 tests passing
+
+## Round 102 - 缓存中间件 (Cache Middleware)
+**时间**: 2026-03-30 23:57
+**目标**: 缓存中间件集成
+
+### 新增
+- `backend/src/middleware/cacheMiddleware.ts` — Express缓存中间件
+  - 响应缓存：GET请求自动缓存，可配置TTL/状态码/方法
+  - ETag支持：自动生成/条件请求/304 Not Modified
+  - 请求去重：同一key并发请求只执行一次
+  - 中间件工厂：标准Express middleware接口
+  - pattern失效、统计监控
+- `backend/src/__tests__/cacheMiddleware.test.ts` — 25个测试用例
+
+### 测试
+- 654 test files, 17944 tests passing
+
+## Round 103 - 缓存集成验证 (Cache Integration)
+**时间**: 2026-03-30 23:58
+**目标**: 缓存系统集成测试
+
+### 新增
+- `backend/src/__tests__/cacheIntegration.test.ts` — 6个集成测试
+  - 预热→写入→一致性→监控完整链路
+  - 依赖失效→级联→版本追踪
+  - 策略预热→失效规则→监控健康
+  - 多源数据合并一致性
+  - 性能基线（1000次读写 < 5秒）
+
+### 缓存模块完整汇总 (Round 97-103 ✅)
+| 模块 | 文件 | 测试 | 核心能力 |
+|------|------|------|----------|
+| 策略管理 | cacheStrategyManager.ts | 23 | 预热/失效/一致性检查/监控 |
+| 失效路由 | cacheInvalidationRouter.ts | 30 | 依赖图/级联/延迟/版本/事件 |
+| 一致性引擎 | cacheConsistencyEngine.ts | 30 | strong/eventual/写策略/冲突解决 |
+| 监控面板 | cacheMonitorDashboard.ts | 17 | 聚合监控/健康评分/趋势/报告 |
+| 预热服务 | marketCacheWarmupService.ts | 20 | A股预热/任务计划/并行执行 |
+| 缓存中间件 | cacheMiddleware.ts | 25 | 响应缓存/ETag/去重/Express集成 |
+| 集成测试 | cacheIntegration.test.ts | 6 | 端到端验证/性能基线 |
+
+### 测试
+- 655 test files, 17950 tests passing (+7 files, +151 tests from Round 96)
