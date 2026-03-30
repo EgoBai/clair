@@ -19,3 +19,11 @@ export { CollapsibleSection } from './CollapsibleSection';
 export { MicroFeedback, SuccessCheck, ErrorShake, LoadingDots, NumberFlip } from './MicroFeedback';
 export { FocusRing, KeyboardHint } from './FocusRing';
 export * from './MotionTokens';
+
+// 图表错误边界
+export { default as ChartErrorBoundary } from './ChartErrorBoundary';
+export { default as WebVitalsWidget } from './WebVitalsWidget';
+export { default as LazyPage } from './LazyPage';
+export { default as SearchHighlight } from './SearchHighlight';
+export { default as GlobalSearch } from './GlobalSearch';
+export { default as ExportButton } from './ExportButton';

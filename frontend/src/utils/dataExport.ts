@@ -198,3 +198,166 @@ function downloadFile(content: string, filename: string, mimeType: string): void
 }
 
 export { formatVolume, formatTurnover };
+
+// ==================== 图片导出 ====================
+
+/**
+ * 导出图表为图片 (PNG)
+ */
+export async function exportToImage(
+  element: HTMLElement,
+  filename: string = `chart_${formatDateForFile()}`
+): Promise<void> {
+  try {
+    // 使用 html2canvas 或原生方式
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // 尝试使用 SVG foreignObject 截图
+    const svgData = await elementToSVG(element);
+    if (svgData) {
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.width * 2; // 2x for retina
+        canvas.height = img.height * 2;
+        ctx.scale(2, 2);
+        ctx.drawImage(img, 0, 0);
+        canvasToBlob(canvas, filename);
+      };
+      img.src = svgData;
+    } else {
+      // Fallback: 使用 dom-to-image 思路
+      console.warn('[Export] 图片导出需要 html2canvas 库支持');
+    }
+  } catch (err) {
+    console.error('[Export] 图片导出失败:', err);
+  }
+}
+
+/**
+ * 从 ECharts 实例导出图片
+ */
+export function exportChartImage(
+  chartInstance: { getDataURL: (opts: { type: string; pixelRatio: number; backgroundColor: string }) => string },
+  filename: string = `chart_${formatDateForFile()}`
+): void {
+  try {
+    const dataUrl = chartInstance.getDataURL({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: '#fff',
+    });
+
+    const link = document.createElement('a');
+    link.download = `${filename}.png`;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch (err) {
+    console.error('[Export] ECharts 图片导出失败:', err);
+  }
+}
+
+/**
+ * 从 Canvas 元素导出图片
+ */
+export function exportCanvasImage(
+  canvas: HTMLCanvasElement,
+  filename: string = `image_${formatDateForFile()}`
+): void {
+  canvasToBlob(canvas, filename);
+}
+
+async function elementToSVG(element: HTMLElement): Promise<string | null> {
+  try {
+    const serializer = new XMLSerializer();
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    const html = serializer.serializeToString(clone);
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${element.offsetWidth}" height="${element.offsetHeight}">
+        <foreignObject width="100%" height="100%">
+          <div xmlns="http://www.w3.org/1999/xhtml">${html}</div>
+        </foreignObject>
+      </svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  } catch {
+    return null;
+  }
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, filename: string): void {
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+// ==================== PDF 导出 ====================
+
+/**
+ * 导出数据为 PDF（简单表格样式）
+ * 依赖 window.print() 实现，生成可打印视图
+ */
+export function exportToPrint(data: Record<string, any>[], options: ExportOptions = {}): void {
+  const {
+    filename = `report_${formatDateForFile()}`,
+    columns,
+  } = options;
+
+  if (!data.length) return;
+
+  const cols = columns || Object.keys(data[0]).map(key => ({ key, label: key }));
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${filename}</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 20px; }
+    h1 { font-size: 18px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #f5f5f5; padding: 8px 12px; text-align: left; border: 1px solid #ddd; font-weight: 600; }
+    td { padding: 6px 12px; border: 1px solid #ddd; }
+    .positive { color: #f5222d; }
+    .negative { color: #52c41a; }
+    .footer { margin-top: 20px; font-size: 11px; color: #999; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <h1>A股行情数据</h1>
+  <table>
+    <thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>
+    <tbody>
+      ${data.map(row => `<tr>${cols.map(c => {
+        let val = c.format ? c.format(row[c.key]) : String(row[c.key] ?? '');
+        const isPositive = val.startsWith('+');
+        const isNegative = val.startsWith('-') && !val.startsWith('-0.00');
+        return `<td class="${isPositive ? 'positive' : isNegative ? 'negative' : ''}">${val}</td>`;
+      }).join('')}</tr>`).join('')}
+    </tbody>
+  </table>
+  <div class="footer">导出时间: ${new Date().toLocaleString('zh-CN')} | A股行情分析平台</div>
+</body>
+</html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 500);
+  }
+}

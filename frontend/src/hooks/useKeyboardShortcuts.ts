@@ -1,11 +1,13 @@
 /**
  * 键盘快捷键 Hook
  * 支持搜索聚焦、切换股票、返回、主题切换等
+ * 集成快捷键引擎，支持序列键(g h, g s 等)
  * 参考雪球/TradingView快捷键设计
  */
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { shortcutEngine, PRESET_SHORTCUTS } from '../utils/shortcutEngine';
 
 export interface ShortcutConfig {
   key: string;
@@ -148,5 +150,18 @@ export function useShortcutHints() {
     { keys: ['Alt', 'T'], description: '切换主题' },
     { keys: ['Alt', 'S'], description: '切换侧边栏' },
     { keys: ['⌫'], description: '返回上一页' },
+    // 序列键
+    { keys: ['g', 'h'], description: '跳转首页' },
+    { keys: ['g', 's'], description: '跳转股票列表' },
+    { keys: ['g', 'm'], description: '跳转行情' },
+    { keys: ['g', 'w'], description: '跳转自选股' },
+    { keys: ['g', 'p'], description: '跳转设置' },
+    // 列表导航
+    { keys: ['j', '↓'], description: '列表下移' },
+    { keys: ['k', '↑'], description: '列表上移' },
+    // 股票操作
+    { keys: ['W'], description: '添加/移除自选' },
+    { keys: ['B'], description: '买入' },
+    { keys: ['S'], description: '卖出' },
   ];
 }

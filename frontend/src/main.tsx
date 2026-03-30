@@ -3,18 +3,19 @@
  * 集成：路由、主题、快捷键、状态管理、代码分割
  */
 
-import React, { useRef, useCallback, useState, lazy, Suspense } from 'react';
+import React, { useRef, useCallback, useState, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { Spin } from 'antd';
+import { Modal, Typography } from 'antd';
 import AppLayout from './components/Layout/AppLayout';
 import ThemeProvider from './components/Common/ThemeProvider';
+import EnhancedErrorBoundary from './components/Common/EnhancedErrorBoundary';
 import HomePage from './pages/HomePage';
 import { useKeyboardShortcuts, useShortcutHints } from './hooks/useKeyboardShortcuts';
 import { useAppStore } from './store/useAppStore';
-import { Modal, Typography } from 'antd';
 import Onboarding from './components/Common/Onboarding';
 import { initWebVitals } from './utils/webVitals';
+import LazyPage from './components/Common/LazyPage';
 import './App.css';
 
 // 初始化 Web Vitals 监控
@@ -48,13 +49,6 @@ const LockupCalendarPage = lazy(() => import('./pages/LockupCalendarPage'));
 const AIStockSelectionPage = lazy(() => import('./pages/AIStockSelectionPage'));
 const ETFPage = lazy(() => import('./pages/ETFPage'));
 const MarketHeatDashboard = lazy(() => import('./pages/MarketHeatDashboard'));
-
-// Loading fallback
-const PageLoader = () => (
-  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-    <Spin size="large" tip="页面加载中..." />
-  </div>
-);
 
 // ==================== 全局快捷键包装器 ====================
 
@@ -150,34 +144,34 @@ function App() {
           <Routes>
             <Route path="/" element={<AppLayout />}>
               <Route index element={<HomePage />} />
-              <Route path="stocks" element={<Suspense fallback={<PageLoader />}><StockListPage /></Suspense>} />
-              <Route path="stock/:symbol" element={<Suspense fallback={<PageLoader />}><StockDetailPage /></Suspense>} />
-              <Route path="market" element={<Suspense fallback={<PageLoader />}><MarketAnalysisPage /></Suspense>} />
-              <Route path="watchlist" element={<Suspense fallback={<PageLoader />}><WatchlistPage /></Suspense>} />
-              <Route path="alerts" element={<Suspense fallback={<PageLoader />}><AlertsPage /></Suspense>} />
-              <Route path="screener" element={<Suspense fallback={<PageLoader />}><ScreenerPage /></Suspense>} />
-              <Route path="advanced-screener" element={<Suspense fallback={<PageLoader />}><AdvancedScreenerPage /></Suspense>} />
-              <Route path="backtest" element={<Suspense fallback={<PageLoader />}><BacktestPage /></Suspense>} />
-              <Route path="portfolio" element={<Suspense fallback={<PageLoader />}><PortfolioPage /></Suspense>} />
-              <Route path="news" element={<Suspense fallback={<PageLoader />}><NewsPage /></Suspense>} />
-              <Route path="social" element={<Suspense fallback={<PageLoader />}><SocialPage /></Suspense>} />
-              <Route path="social/:symbol" element={<Suspense fallback={<PageLoader />}><SocialPage /></Suspense>} />
-              <Route path="dashboard" element={<Suspense fallback={<PageLoader />}><DashboardPage /></Suspense>} />
-              <Route path="financials/:symbol" element={<Suspense fallback={<PageLoader />}><FinancialsPage /></Suspense>} />
-              <Route path="financials" element={<Suspense fallback={<PageLoader />}><FinancialsPage /></Suspense>} />
-              <Route path="compare" element={<Suspense fallback={<PageLoader />}><StockComparePage /></Suspense>} />
-              <Route path="sectors" element={<Suspense fallback={<PageLoader />}><SectorDetailPage /></Suspense>} />
-              <Route path="sectors/:code" element={<Suspense fallback={<PageLoader />}><SectorDetailPage /></Suspense>} />
-              <Route path="settings" element={<Suspense fallback={<PageLoader />}><UserSettingsPage /></Suspense>} />
-              <Route path="performance" element={<Suspense fallback={<PageLoader />}><PerformanceDashboardPage /></Suspense>} />
-              <Route path="margin" element={<Suspense fallback={<PageLoader />}><MarginTradingPage /></Suspense>} />
-              <Route path="top-traders" element={<Suspense fallback={<PageLoader />}><TopTradersPage /></Suspense>} />
-              <Route path="block-trades" element={<Suspense fallback={<PageLoader />}><BlockTradesPage /></Suspense>} />
-              <Route path="shareholder-changes" element={<Suspense fallback={<PageLoader />}><ShareholderChangesPage /></Suspense>} />
-              <Route path="lockup-calendar" element={<Suspense fallback={<PageLoader />}><LockupCalendarPage /></Suspense>} />
-              <Route path="ai-selection" element={<Suspense fallback={<PageLoader />}><AIStockSelectionPage /></Suspense>} />
-              <Route path="etf" element={<Suspense fallback={<PageLoader />}><ETFPage /></Suspense>} />
-              <Route path="market-heat" element={<Suspense fallback={<PageLoader />}><MarketHeatDashboard /></Suspense>} />
+              <Route path="stocks" element={<LazyPage component={StockListPage} name="股票列表" />} />
+              <Route path="stock/:symbol" element={<LazyPage component={StockDetailPage} name="股票详情" />} />
+              <Route path="market" element={<LazyPage component={MarketAnalysisPage} name="市场分析" />} />
+              <Route path="watchlist" element={<LazyPage component={WatchlistPage} name="自选股" />} />
+              <Route path="alerts" element={<LazyPage component={AlertsPage} name="预警" />} />
+              <Route path="screener" element={<LazyPage component={ScreenerPage} name="选股器" />} />
+              <Route path="advanced-screener" element={<LazyPage component={AdvancedScreenerPage} name="高级选股" />} />
+              <Route path="backtest" element={<LazyPage component={BacktestPage} name="回测" />} />
+              <Route path="portfolio" element={<LazyPage component={PortfolioPage} name="持仓" />} />
+              <Route path="news" element={<LazyPage component={NewsPage} name="资讯" />} />
+              <Route path="social" element={<LazyPage component={SocialPage} name="社区" />} />
+              <Route path="social/:symbol" element={<LazyPage component={SocialPage} name="个股社区" />} />
+              <Route path="dashboard" element={<LazyPage component={DashboardPage} name="仪表盘" />} />
+              <Route path="financials/:symbol" element={<LazyPage component={FinancialsPage} name="财务" />} />
+              <Route path="financials" element={<LazyPage component={FinancialsPage} name="财务" />} />
+              <Route path="compare" element={<LazyPage component={StockComparePage} name="对比" />} />
+              <Route path="sectors" element={<LazyPage component={SectorDetailPage} name="板块" />} />
+              <Route path="sectors/:code" element={<LazyPage component={SectorDetailPage} name="板块详情" />} />
+              <Route path="settings" element={<LazyPage component={UserSettingsPage} name="设置" />} />
+              <Route path="performance" element={<LazyPage component={PerformanceDashboardPage} name="性能" />} />
+              <Route path="margin" element={<LazyPage component={MarginTradingPage} name="融资融券" />} />
+              <Route path="top-traders" element={<LazyPage component={TopTradersPage} name="龙虎榜" />} />
+              <Route path="block-trades" element={<LazyPage component={BlockTradesPage} name="大宗交易" />} />
+              <Route path="shareholder-changes" element={<LazyPage component={ShareholderChangesPage} name="股东变动" />} />
+              <Route path="lockup-calendar" element={<LazyPage component={LockupCalendarPage} name="解禁日历" />} />
+              <Route path="ai-selection" element={<LazyPage component={AIStockSelectionPage} name="AI选股" />} />
+              <Route path="etf" element={<LazyPage component={ETFPage} name="ETF" />} />
+              <Route path="market-heat" element={<LazyPage component={MarketHeatDashboard} name="市场热度" />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
@@ -189,6 +183,8 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <EnhancedErrorBoundary name="App Root" maxRetries={5}>
+      <App />
+    </EnhancedErrorBoundary>
   </React.StrictMode>,
 );

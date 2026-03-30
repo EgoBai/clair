@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Drawer, Input, Avatar, Space, Badge, Tooltip, Dropdown } from 'antd';
+import WebVitalsWidget from '../Common/WebVitalsWidget';
 import {
   HomeOutlined,
   StockOutlined,
@@ -268,7 +269,10 @@ const AppLayout: React.FC = () => {
           fontSize: 12,
           color: '#999',
         }}>
-          A股行情分析平台 ©{new Date().getFullYear()} | 数据仅供参考，不构成投资建议
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span>A股行情分析平台 ©{new Date().getFullYear()} | 数据仅供参考，不构成投资建议</span>
+            {import.meta.env.DEV && <WebVitalsWidget compact />}
+          </div>
         </Footer>
       </Layout>
 

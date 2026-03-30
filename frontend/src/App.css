@@ -306,10 +306,27 @@ body.dark {
   --color-border: #2a2a4a;
   --color-text: #e0e0e0;
   --color-text-secondary: #a0a0b0;
+  --color-text-muted: #6b6b8a;
   --color-rise-bg: rgba(239, 68, 68, 0.12);
   --color-fall-bg: rgba(34, 197, 94, 0.12);
+  --color-primary-light: rgba(59, 130, 246, 0.15);
   background-color: var(--color-bg);
   color: var(--color-text);
+}
+
+/* 主题切换过渡动画 */
+html {
+  transition: background-color 0.3s ease, color 0.2s ease;
+}
+
+html * {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 禁用图表和动画元素的过渡 */
+html canvas, html svg, html video, html img,
+html .ant-spin, html .ant-btn-loading {
+  transition: none !important;
 }
 
 [data-theme="dark"] .ant-layout,
@@ -374,6 +391,66 @@ body.dark .ant-tabs-tab {
 [data-theme="dark"] .ant-tabs-tab-active,
 body.dark .ant-tabs-tab-active {
   color: #3b82f6;
+}
+
+[data-theme="dark"] .ant-dropdown-menu,
+body.dark .ant-dropdown-menu {
+  background-color: #16213e;
+}
+
+[data-theme="dark"] .ant-dropdown-menu-item:hover,
+body.dark .ant-dropdown-menu-item:hover {
+  background-color: #1e2a4a;
+}
+
+[data-theme="dark"] .ant-tag,
+body.dark .ant-tag {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: #2a2a4a;
+  color: #a0a0b0;
+}
+
+[data-theme="dark"] .ant-badge-count,
+body.dark .ant-badge-count {
+  background-color: #3b82f6;
+}
+
+[data-theme="dark"] .ant-statistic-content-value,
+body.dark .ant-statistic-content-value {
+  color: #e0e0e0;
+}
+
+[data-theme="dark"] .stock-card,
+body.dark .stock-card {
+  background-color: #16213e;
+  border-color: #2a2a4a;
+}
+
+[data-theme="dark"] .stock-card:hover,
+body.dark .stock-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+[data-theme="dark"] .skeleton,
+body.dark .skeleton {
+  background: linear-gradient(90deg, #1a1a2e 25%, #2a2a4a 50%, #1a1a2e 75%);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track,
+body.dark ::-webkit-scrollbar-track {
+  background: #0f0f23;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb,
+body.dark ::-webkit-scrollbar-thumb {
+  background: #2a2a4a;
+  border-radius: 4px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover,
+body.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3a3a5a;
 }
 
 /* ==================== 响应式移动端 ==================== */
