@@ -4334,3 +4334,25 @@
 
 ### Round 160 - 性能监控
 - chartPerfMonitor.ts - mark/measure/渲染指标/健康检查/FPS监控/基准测试
+
+## Round 162 — 2026-03-31 03:22
+**阶段**: 性能极限 · 骨架屏 / 资源提示 / 压缩 / CDN / PWA / 预渲染
+**测试**: 717 files / 19531 tests ✅ (+7 files, +161 tests)
+
+### 新增文件
+- `frontend/src/components/Skeletons/index.tsx` — 骨架屏组件系统（11种：Block/Text/Card/StockRow/StockList/StockDetail/Chart/Dashboard/NewsList/Watchlist/MarketAnalysis）
+- `frontend/src/utils/resourceHints.ts` — 资源提示管理器（preconnect/dns-prefetch/modulepreload/prefetch + hover预加载路由chunk）
+- `frontend/src/utils/buildAnalyzer.ts` — 构建产物分析器（性能预算阈值、gzip估算、运行时资源分析）
+- `frontend/src/utils/compressionConfig.ts` — 资源压缩配置（Gzip/Brotli双压缩 + CDN缓存头策略）
+- `frontend/src/utils/pwaManifest.ts` — PWA Manifest 配置（应用元数据 + 图标 + 快捷方式 + 生成器）
+- `frontend/src/utils/prerenderConfig.ts` — 预渲染配置（路由优先级 + sitemap.xml + robots.txt 生成器）
+- `frontend/src/utils/cdnStrategy.ts` — CDN 策略配置（多环境URL生成 + Vite CDN选项）
+
+### 新增测试（7个文件，161个测试）
+- `frontend/src/__tests__/skeletons.test.ts` — 22个测试
+- `frontend/src/__tests__/resourceHints.test.ts` — 18个测试
+- `frontend/src/__tests__/buildAnalyzer.test.ts` — 20个测试
+- `frontend/src/__tests__/compressionConfig.test.ts` — 30个测试
+- `frontend/src/__tests__/pwaManifest.test.ts` — 28个测试
+- `frontend/src/__tests__/prerenderConfig.test.ts` — 23个测试
+- `frontend/src/__tests__/cdnStrategy.test.ts` — 20个测试
