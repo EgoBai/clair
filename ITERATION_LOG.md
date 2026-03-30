@@ -4202,3 +4202,94 @@
 - WebSocket 实时通知推送集成
 - 通知中心页面
 - 通知声音/振动配置
+
+---
+
+## Round 136-150 — 回测系统 + AI选股 [2026-03-31 01:56-02:39]
+
+### 批量迭代概览
+
+#### Round 136 — 绩效分析引擎 (Performance Analyzer)
+- **文件:** `backend/src/utils/performanceAnalyzer.ts`, `frontend/src/__tests__/performanceAnalyzer.test.ts`
+- **功能:** 完整绩效指标计算（收益/风险/风险调整/交易/持仓/时间）、月度收益矩阵、回撤区间、滚动指标、跟踪误差、绩效评级(A+~F)
+- **测试:** 40 tests
+
+#### Round 137 — 策略对比引擎 (Strategy Comparator)
+- **文件:** `frontend/src/__tests__/strategyComparator.test.ts`
+- **功能:** 多策略指标对比、综合排名(加权评分)、相关性分析(皮尔逊)、最优策略查找、风险收益散点图、有效前沿、对比报告生成
+- **测试:** 24 tests
+
+#### Round 138 — 参数优化引擎 (Parameter Optimizer)
+- **文件:** `frontend/src/__tests__/parameterOptimizer.test.ts`
+- **功能:** 网格搜索、随机搜索(种子可复现)、贝叶斯优化(模拟退火)、遗传算法(选择/交叉/变异)、过拟合检测、稳定性分析、Walk-Forward分析
+- **测试:** 21 tests
+
+#### Round 139 — 回测可视化数据引擎 (Backtest Visualizer)
+- **文件:** `frontend/src/__tests__/backtestVisualizer.test.ts`
+- **功能:** 权益曲线、回撤曲线(深度分级)、买卖点标注、月度收益热力图、收益分布直方图、滚动指标时序、K线+指标叠加、绩效雷达图、资金流向、基准对比
+- **测试:** 25 tests
+
+#### Round 140 — 回测报告生成器 (Backtest Report)
+- **文件:** `frontend/src/__tests__/backtestReport.test.ts`
+- **功能:** Markdown/HTML(明暗主题)/CSV/JSON报告生成、多策略对比报告、派生指标计算
+- **测试:** 24 tests
+
+#### Round 141 — 组合策略管理器 (Portfolio Strategy Manager)
+- **文件:** `frontend/src/__tests__/portfolioStrategyManager.test.ts`
+- **功能:** 策略CRUD、等权重/风险平价/均值方差分配、组合指标(分散化比率/有效N)、再平衡信号检测、策略分组
+- **测试:** 21 tests
+
+#### Round 142 — 交易模拟引擎 (Trade Simulator)
+- **文件:** `frontend/src/__tests__/tradeSimulator.test.ts`
+- **功能:** 市价/限价/止损/止损限价单、IOC/FOK、滑点模拟、佣金计算、账户管理、持仓管理、止损检查、盈亏汇总、订单统计
+- **测试:** 23 tests
+
+#### Round 143 — 回测数据管理器 (Data Manager)
+- **文件:** `frontend/src/__tests__/dataManager.test.ts`
+- **功能:** LRU缓存(TTL)、批量获取/预加载、训练测试分割、滑动窗口、多标的数据对齐、周/月重采样、数据完整性校验、技术指标计算(MA/RSI)
+- **测试:** 21 tests
+
+#### Round 144 — 多因子选股模型 (Multi-Factor Model)
+- **文件:** `frontend/src/__tests__/multiFactorModel.test.ts`
+- **功能:** 因子注册(6大类)、Z-score/Min-Max/Rank标准化、加权综合评分、行业中性化、因子分析(IC/IR/换手率)、分层回测(分位数)、因子相关性矩阵
+- **测试:** 20 tests
+
+#### Round 145 — AI评分推荐引擎 (AI Recommendation Engine)
+- **文件:** `frontend/src/__tests__/aiRecommendationEngine.test.ts`
+- **功能:** 6维度评分(价值/质量/成长/动量/技术/风险)、推荐等级(strongBuy~strongSell)、置信度计算、理由/风险生成、目标价/止损价、投资组合推荐(风险预算分配)、推荐解释生成
+- **测试:** 19 tests
+
+#### Round 146 — 自然语言选股查询 (Natural Language Query)
+- **文件:** `frontend/src/__tests__/naturalLanguageQuery.test.ts`
+- **功能:** 中文分词/标记化、指标/比较符/逻辑符/数量解析、范围查询(between)、多条件组合(and/or)、关键词映射(便宜/优质/成长/分红)、查询执行(筛选+排序+限制)、查询建议、解析解释
+- **测试:** 23 tests
+
+#### Round 147 — 市场情绪分析 (Sentiment Analyzer)
+- **文件:** `frontend/src/__tests__/sentimentAnalyzer.test.ts`
+- **功能:** 文本情感分析(正负词库+程度副词)、批量加权情绪、恐惧贪婪指数、个股情绪(正负中性/趋势/话题)、时间序列生成、情绪分歧度、信号生成(极度贪婪/恐惧)
+- **测试:** 22 tests
+
+#### Round 148 — 智能选股组合优化 (Portfolio Optimizer)
+- **文件:** `frontend/src/__tests__/portfolioOptimizer.test.ts`
+- **功能:** 等权重/评分加权/风险平价/均值方差/Black-Litterman组合、约束优化、换手率控制、分散化得分、行业分布、敏感性分析
+- **测试:** 15 tests
+
+#### Round 149 — 行业轮动分析 (Sector Rotation)
+- **文件:** `frontend/src/__tests__/sectorRotation.test.ts`
+- **功能:** 行业动量分析(多周期加权)、轮动信号(enter/exit/hold/watch)、经济周期识别(复苏/扩张/顶峰/收缩)、行业强度排名、相关性矩阵、轮动策略回测
+- **测试:** 14 tests
+
+#### Round 150 — 选股回测集成 (Selection Backtest)
+- **文件:** `frontend/src/__tests__/selectionBacktest.test.ts`
+- **功能:** 选股规则引擎(条件过滤+排序+TopN)、回测执行(再平衡/佣金/滑点)、多规则对比、TopN敏感性分析、每日快照
+- **测试:** 8 tests
+
+### 统计
+- **新增测试:** +299 (18744 → 19043)
+- **新增测试文件:** 15
+- **全量测试:** 694 passed, 1 skipped, 0 failures
+- **本轮覆盖:** 回测系统8轮 + AI选股7轮
+
+### 下一步 (Round 151+)
+- Round 151-153: 完成AI选股剩余(智能组合再平衡/选股信号聚合/自然语言策略编写)
+- Round 154-163: 可视化增强(图表/动画/导出/自定义主题)
