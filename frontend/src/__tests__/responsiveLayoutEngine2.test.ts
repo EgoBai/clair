@@ -1,143 +1,274 @@
 import { describe, it, expect } from 'vitest';
 
-// 响应式布局引擎 v2
-type Breakpoint = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+describe('ResponsiveLayoutEngine2', () => {
+  // 容器查询引擎
+  describe('Container Query Engine', () => {
+    interface ContainerRule {
+      name: string;
+      minWidth: number;
+      styles: Record<string, string>;
+    }
 
-interface ResponsiveConfig {
-  breakpoint: Breakpoint;
-  columns: number;
-  gap: number;
-  padding: number;
-  fontSize: { base: number; heading: number };
-}
+    function applyContainerRules(containerWidth: number, rules: ContainerRule[]): Record<string, string> {
+      const result: Record<string, string> = {};
+      const sorted = [...rules].sort((a, b) => a.minWidth - b.minWidth);
+      for (const rule of sorted) {
+        if (containerWidth >= rule.minWidth) {
+          Object.assign(result, rule.styles);
+        }
+      }
+      return result;
+    }
 
-const BREAKPOINTS: Record<Breakpoint, number> = {
-  xs: 0, sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536,
-};
+    const cardRules: ContainerRule[] = [
+      { name: 'compact', minWidth: 0, styles: { padding: '8px', fontSize: '12px' } },
+      { name: 'normal', minWidth: 300, styles: { padding: '12px', fontSize: '14px' } },
+      { name: 'wide', minWidth: 500, styles: { padding: '16px', fontSize: '16px' } },
+    ];
 
-const CONFIGS: Record<Breakpoint, ResponsiveConfig> = {
-  xs: { breakpoint: 'xs', columns: 1, gap: 8, padding: 12, fontSize: { base: 12, heading: 16 } },
-  sm: { breakpoint: 'sm', columns: 2, gap: 12, padding: 16, fontSize: { base: 13, heading: 18 } },
-  md: { breakpoint: 'md', columns: 3, gap: 16, padding: 20, fontSize: { base: 14, heading: 20 } },
-  lg: { breakpoint: 'lg', columns: 4, gap: 20, padding: 24, fontSize: { base: 14, heading: 22 } },
-  xl: { breakpoint: 'xl', columns: 4, gap: 24, padding: 32, fontSize: { base: 15, heading: 24 } },
-  '2xl': { breakpoint: '2xl', columns: 6, gap: 24, padding: 40, fontSize: { base: 16, heading: 28 } },
-};
+    it('should apply compact rule for narrow container', () => {
+      const s = applyContainerRules(200, cardRules);
+      expect(s.padding).toBe('8px');
+    });
 
-function getBreakpoint(width: number): Breakpoint {
-  const ordered: Breakpoint[] = ['2xl', 'xl', 'lg', 'md', 'sm', 'xs'];
-  for (const bp of ordered) {
-    if (width >= BREAKPOINTS[bp]) return bp;
-  }
-  return 'xs';
-}
+    it('should apply wide rule for large container', () => {
+      const s = applyContainerRules(600, cardRules);
+      expect(s.padding).toBe('16px');
+    });
 
-function getConfig(width: number): ResponsiveConfig {
-  return CONFIGS[getBreakpoint(width)];
-}
-
-function calcGridItemWidth(containerWidth: number, columns: number, gap: number): number {
-  return (containerWidth - gap * (columns - 1)) / columns;
-}
-
-function calcResponsiveFontSize(baseSize: number, width: number, min: number = 320, max: number = 1920): number {
-  const ratio = Math.min(1, Math.max(0, (width - min) / (max - min)));
-  return Math.round(baseSize + ratio * 4);
-}
-
-function generateMediaQuery(bp: Breakpoint, styles: Record<string, string>): string {
-  if (bp === 'xs') {
-    return Object.entries(styles).map(([k, v]) => `${k}:${v}`).join(';');
-  }
-  return `@media(min-width:${BREAKPOINTS[bp]}px){${Object.entries(styles).map(([k, v]) => `${k}:${v}`).join(';')}}`;
-}
-
-function isMobile(width: number): boolean {
-  return width < BREAKPOINTS.md;
-}
-
-function isTablet(width: number): boolean {
-  return width >= BREAKPOINTS.md && width < BREAKPOINTS.lg;
-}
-
-function isDesktop(width: number): boolean {
-  return width >= BREAKPOINTS.lg;
-}
-
-function calcContainerMaxWidth(bp: Breakpoint): number {
-  const maxes: Record<Breakpoint, number> = {
-    xs: 0, sm: 640, md: 720, lg: 960, xl: 1140, '2xl': 1320,
-  };
-  return maxes[bp];
-}
-
-describe('响应式布局引擎 v2', () => {
-  describe('断点检测', () => {
-    it('320应为xs', () => { expect(getBreakpoint(320)).toBe('xs'); });
-    it('768应为md', () => { expect(getBreakpoint(768)).toBe('md'); });
-    it('1024应为lg', () => { expect(getBreakpoint(1024)).toBe('lg'); });
-    it('1536应为2xl', () => { expect(getBreakpoint(1536)).toBe('2xl'); });
-    it('1920应为2xl', () => { expect(getBreakpoint(1920)).toBe('2xl'); });
-  });
-
-  describe('配置获取', () => {
-    it('移动端应为单列', () => { expect(getConfig(375).columns).toBe(1); });
-    it('桌面端应为多列', () => { expect(getConfig(1440).columns).toBe(4); });
-    it('移动端gap应小于桌面端', () => {
-      expect(getConfig(375).gap).toBeLessThan(getConfig(1440).gap);
+    it('should merge rules progressively', () => {
+      const s = applyContainerRules(400, cardRules);
+      expect(s.padding).toBe('12px');
     });
   });
 
-  describe('网格计算', () => {
-    it('应正确计算每列宽度', () => {
-      // 1000px, 4列, 20px gap
-      const width = calcGridItemWidth(1000, 4, 20);
-      expect(width).toBeCloseTo(235, 0);
+  // 断点感知 Hook 模拟
+  describe('Breakpoint Hook Simulation', () => {
+    class BreakpointTracker {
+      private listeners: Set<(bp: string) => void> = new Set();
+      private currentBp: string = 'lg';
+
+      subscribe(fn: (bp: string) => void) {
+        this.listeners.add(fn);
+        return () => this.listeners.delete(fn);
+      }
+
+      resize(w: number) {
+        let bp = 'xs';
+        if (w >= 1536) bp = '2xl';
+        else if (w >= 1280) bp = 'xl';
+        else if (w >= 1024) bp = 'lg';
+        else if (w >= 768) bp = 'md';
+        else if (w >= 640) bp = 'sm';
+
+        if (bp !== this.currentBp) {
+          this.currentBp = bp;
+          this.listeners.forEach((fn) => fn(bp));
+        }
+      }
+
+      get breakpoint() { return this.currentBp; }
+    }
+
+    it('should notify on breakpoint change', () => {
+      const tracker = new BreakpointTracker();
+      const changes: string[] = [];
+      tracker.subscribe((bp) => changes.push(bp));
+
+      tracker.resize(375);
+      tracker.resize(800);
+      tracker.resize(1440);
+
+      expect(changes).toEqual(['xs', 'md', 'xl']);
     });
 
-    it('单列应等于容器宽度', () => {
-      expect(calcGridItemWidth(500, 1, 0)).toBe(500);
+    it('should not notify when breakpoint unchanged', () => {
+      const tracker = new BreakpointTracker();
+      let count = 0;
+      tracker.subscribe(() => count++);
+
+      tracker.resize(375);
+      tracker.resize(400);
+      tracker.resize(500);
+
+      expect(count).toBe(1);
     });
   });
 
-  describe('响应式字体', () => {
-    it('小屏幕应返回较小字体', () => {
-      expect(calcResponsiveFontSize(16, 320)).toBeLessThan(calcResponsiveFontSize(16, 1920));
+  // 响应式状态管理
+  describe('Responsive State Management', () => {
+    interface LayoutState {
+      sidebarOpen: boolean;
+      drawerOpen: boolean;
+      modalFullscreen: boolean;
+      showBottomNav: boolean;
+    }
+
+    function computeLayoutState(w: number, userPrefs: { sidebarOpen?: boolean }): LayoutState {
+      const isMobile = w < 768;
+      return {
+        sidebarOpen: isMobile ? false : (userPrefs.sidebarOpen ?? true),
+        drawerOpen: isMobile && (userPrefs.sidebarOpen ?? false),
+        modalFullscreen: isMobile,
+        showBottomNav: isMobile,
+      };
+    }
+
+    it('should close sidebar on mobile regardless of prefs', () => {
+      const s = computeLayoutState(375, { sidebarOpen: true });
+      expect(s.sidebarOpen).toBe(false);
+      expect(s.drawerOpen).toBe(true);
+      expect(s.showBottomNav).toBe(true);
     });
 
-    it('大屏幕应返回较大字体', () => {
-      expect(calcResponsiveFontSize(16, 1920)).toBeGreaterThan(calcResponsiveFontSize(16, 320));
+    it('should respect user prefs on desktop', () => {
+      const s = computeLayoutState(1440, { sidebarOpen: false });
+      expect(s.sidebarOpen).toBe(false);
+      expect(s.showBottomNav).toBe(false);
     });
   });
 
-  describe('媒体查询生成', () => {
-    it('xs应生成普通样式', () => {
-      const mq = generateMediaQuery('xs', { display: 'block' });
-      expect(mq).toBe('display:block');
-    });
+  // 性能: 防抖 resize
+  describe('Resize Debounce', () => {
+    function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      return ((...args: unknown[]) => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), ms);
+      }) as T;
+    }
 
-    it('md应生成媒体查询', () => {
-      const mq = generateMediaQuery('md', { display: 'grid' });
-      expect(mq).toContain('@media');
-      expect(mq).toContain('768px');
+    it('should debounce function calls', () => {
+      let count = 0;
+      const debounced = debounce(() => count++, 100);
+      debounced();
+      debounced();
+      debounced();
+      expect(count).toBe(0);
     });
   });
 
-  describe('设备类型判断', () => {
-    it('375应为移动端', () => { expect(isMobile(375)).toBe(true); });
-    it('768应为平板', () => { expect(isTablet(768)).toBe(true); });
-    it('1440应为桌面端', () => { expect(isDesktop(1440)).toBe(true); });
-    it('移动端不应是桌面端', () => { expect(isDesktop(375)).toBe(false); });
-  });
+  // 媒体查询匹配器
+  describe('Media Query Matcher', () => {
+    function matchesMedia(query: string, width: number): boolean {
+      const minMatch = query.match(/\(min-width:\s*(\d+)px\)/);
+      const maxMatch = query.match(/\(max-width:\s*(\d+)px\)/);
 
-  describe('容器最大宽度', () => {
-    it('应返回各断点对应的最大宽度', () => {
-      expect(calcContainerMaxWidth('lg')).toBe(960);
-      expect(calcContainerMaxWidth('xl')).toBe(1140);
+      if (minMatch && maxMatch) {
+        return width >= parseInt(minMatch[1]) && width <= parseInt(maxMatch[1]);
+      }
+      if (minMatch) return width >= parseInt(minMatch[1]);
+      if (maxMatch) return width <= parseInt(maxMatch[1]);
+      return false;
+    }
+
+    it('should match min-width query', () => {
+      expect(matchesMedia('(min-width: 768px)', 1024)).toBe(true);
+      expect(matchesMedia('(min-width: 768px)', 640)).toBe(false);
     });
 
-    it('xs应为0（无限制）', () => {
-      expect(calcContainerMaxWidth('xs')).toBe(0);
+    it('should match max-width query', () => {
+      expect(matchesMedia('(max-width: 767px)', 375)).toBe(true);
+      expect(matchesMedia('(max-width: 767px)', 1024)).toBe(false);
+    });
+
+    it('should match range query', () => {
+      expect(matchesMedia('(min-width: 768px) and (max-width: 1023px)', 800)).toBe(true);
+      expect(matchesMedia('(min-width: 768px) and (max-width: 1023px)', 1200)).toBe(false);
+    });
+  });
+
+  // CSS-in-JS 响应式生成
+  describe('CSS-in-JS Generation', () => {
+    function responsiveStyles(config: Record<string, Record<string, string>>) {
+      let css = '';
+      for (const [selector, props] of Object.entries(config)) {
+        css += `${selector} { ${Object.entries(props).map(([k, v]) => `${k}: ${v}`).join('; ')} } `;
+      }
+      return css.trim();
+    }
+
+    it('should generate CSS from config', () => {
+      const css = responsiveStyles({
+        '.card': { padding: '16px', 'border-radius': '8px' },
+      });
+      expect(css).toContain('padding: 16px');
+      expect(css).toContain('border-radius: 8px');
+    });
+  });
+
+  // 网格布局引擎
+  describe('Grid Layout Engine', () => {
+    function autoGrid(containerW: number, minItem: number, gap: number) {
+      const cols = Math.max(1, Math.floor((containerW + gap) / (minItem + gap)));
+      const itemW = (containerW - gap * (cols - 1)) / cols;
+      return { cols, itemWidth: Math.floor(itemW) };
+    }
+
+    it('should calculate grid for 375px container', () => {
+      const g = autoGrid(375, 160, 12);
+      // (375 + 12) / (160 + 12) = 387/172 = 2.25 -> 2 cols
+      // itemWidth = (375 - 12) / 2 = 181.5 -> 181
+      expect(g.cols).toBe(2);
+      expect(g.itemWidth).toBe(181);
+    });
+
+    it('should calculate grid for 1440px container', () => {
+      const g = autoGrid(1440, 280, 20);
+      expect(g.cols).toBeGreaterThan(3);
+    });
+  });
+
+  // 响应式断点插值
+  describe('Breakpoint Interpolation', () => {
+    function lerp(min: number, max: number, t: number): number {
+      return min + (max - min) * Math.max(0, Math.min(1, t));
+    }
+
+    function breakpointRatio(w: number, bp1: number, bp2: number): number {
+      return (w - bp1) / (bp2 - bp1);
+    }
+
+    it('should interpolate between breakpoints', () => {
+      const ratio = breakpointRatio(900, 768, 1024);
+      const value = lerp(12, 16, ratio);
+      expect(value).toBeGreaterThan(12);
+      expect(value).toBeLessThan(16);
+    });
+
+    it('should clamp ratio to 0-1', () => {
+      expect(breakpointRatio(300, 768, 1024)).toBeLessThan(0);
+      expect(breakpointRatio(2000, 768, 1024)).toBeGreaterThan(1);
+    });
+  });
+
+  // 响应式组件可见性
+  describe('Component Visibility', () => {
+    function visibility(w: number) {
+      return {
+        searchDropdown: w >= 640,
+        sidebarMenu: w >= 768,
+        topGainersWidget: w >= 768,
+        marketHeatmap: true,
+        klineChart: true,
+        mobileBottomNav: w < 768,
+        floatingMenuBtn: w < 768,
+        shortcutHints: w >= 1024,
+        webVitalsWidget: w >= 1024,
+      };
+    }
+
+    it('should show mobile-only elements on small screen', () => {
+      const v = visibility(375);
+      expect(v.mobileBottomNav).toBe(true);
+      expect(v.floatingMenuBtn).toBe(true);
+      expect(v.sidebarMenu).toBe(false);
+    });
+
+    it('should show desktop-only elements on large screen', () => {
+      const v = visibility(1440);
+      expect(v.shortcutHints).toBe(true);
+      expect(v.mobileBottomNav).toBe(false);
     });
   });
 });

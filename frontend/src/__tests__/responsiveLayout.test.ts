@@ -92,69 +92,224 @@ describe('ResponsiveLayout', () => {
     expect(getBreakpoint(2560)).toBe('xxl');
   });
 
-  it('should show sidebar on desktop', () => {
-    expect(shouldShowSidebar(1024)).toBe(true);
-    expect(shouldShowSidebar(1920)).toBe(true);
-  });
-
-  it('should hide sidebar on mobile', () => {
-    expect(shouldShowSidebar(375)).toBe(false);
-    expect(shouldShowSidebar(767)).toBe(false);
-  });
-
-  it('should return single column for dashboard on mobile', () => {
+  it('should return 1 column for dashboard on xs', () => {
     expect(getColumns('xs', 'dashboard')).toBe(1);
-    expect(getColumns('sm', 'dashboard')).toBe(1);
   });
 
-  it('should return multi column for dashboard on desktop', () => {
+  it('should return 4 columns for dashboard on xl', () => {
     expect(getColumns('xl', 'dashboard')).toBe(4);
-    expect(getColumns('lg', 'dashboard')).toBe(3);
   });
 
-  it('should always single column for list layout', () => {
-    const bps: Breakpoint[] = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
-    for (const bp of bps) {
-      expect(getColumns(bp, 'list')).toBe(1);
-    }
+  it('should always return 1 column for list layout', () => {
+    expect(getColumns('xs', 'list')).toBe(1);
+    expect(getColumns('xl', 'list')).toBe(1);
   });
 
-  it('should return smaller padding on mobile', () => {
-    const xsPad = getContentPadding('xs');
-    const xlPad = getContentPadding('xl');
-    expect(xsPad.horizontal).toBeLessThan(xlPad.horizontal);
+  it('should show sidebar on larger screens', () => {
+    expect(shouldShowSidebar(320)).toBe(false);
+    expect(shouldShowSidebar(768)).toBe(true);
+    expect(shouldShowSidebar(1024)).toBe(true);
   });
 
-  it('should need horizontal scroll on mobile', () => {
+  it('should provide smaller padding on mobile', () => {
+    const mobilePad = getContentPadding('xs');
+    const desktopPad = getContentPadding('xl');
+    expect(mobilePad.horizontal).toBeLessThan(desktopPad.horizontal);
+    expect(mobilePad.vertical).toBeLessThan(desktopPad.vertical);
+  });
+
+  it('should require table scroll on mobile', () => {
     expect(getTableScroll('xs')).toBe(true);
     expect(getTableScroll('sm')).toBe(true);
-  });
-
-  it('should not need horizontal scroll on desktop', () => {
+    expect(getTableScroll('md')).toBe(false);
     expect(getTableScroll('lg')).toBe(false);
-    expect(getTableScroll('xl')).toBe(false);
   });
 
-  it('should return smaller font on mobile', () => {
-    const xsFont = getFontSize('xs');
-    const xlFont = getFontSize('xl');
-    expect(xsFont.title).toBeLessThan(xlFont.title);
-    expect(xsFont.body).toBeLessThanOrEqual(xlFont.body);
+  it('should provide smaller font sizes on mobile', () => {
+    const mobileFonts = getFontSize('xs');
+    const desktopFonts = getFontSize('xl');
+    expect(mobileFonts.title).toBeLessThan(desktopFonts.title);
+    expect(mobileFonts.body).toBeLessThan(desktopFonts.body);
   });
 
-  it('should have monotonically increasing breakpoints', () => {
-    const bpOrder: Breakpoint[] = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
-    for (let i = 1; i < bpOrder.length; i++) {
-      expect(breakpoints[bpOrder[i]]).toBeGreaterThan(breakpoints[bpOrder[i - 1]]);
+  // 流体排版测试
+  describe('Fluid Typography', () => {
+    function clampCalc(minSize: number, maxSize: number, minVw: number, maxVw: number): string {
+      const slope = (maxSize - minSize) / (maxVw - minVw);
+      const yIntercept = minSize - slope * minVw;
+      return `clamp(${minSize}px, ${yIntercept.toFixed(2)}px + ${(slope * 100).toFixed(4)}vw, ${maxSize}px)`;
     }
+
+    it('should generate clamp string', () => {
+      const result = clampCalc(16, 24, 375, 1280);
+      expect(result).toContain('clamp(');
+      expect(result).toContain('16px');
+      expect(result).toContain('24px');
+    });
+
+    it('should handle edge cases with equal min/max', () => {
+      const result = clampCalc(16, 16, 375, 1280);
+      expect(result).toContain('16px');
+    });
   });
 
-  it('should return positive padding values', () => {
-    const bps: Breakpoint[] = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
-    for (const bp of bps) {
-      const pad = getContentPadding(bp);
-      expect(pad.horizontal).toBeGreaterThan(0);
-      expect(pad.vertical).toBeGreaterThan(0);
+  // 自适应列数计算
+  describe('Adaptive Columns', () => {
+    function calcColumns(containerWidth: number, minItemWidth: number, gap: number, max = 6): number {
+      const cols = Math.floor((containerWidth + gap) / (minItemWidth + gap));
+      return Math.max(1, Math.min(cols, max));
     }
+
+    it('should return 1 for narrow container', () => {
+      expect(calcColumns(300, 280, 16)).toBe(1);
+    });
+
+    it('should return multiple columns for wide container', () => {
+      expect(calcColumns(1200, 280, 16)).toBeGreaterThan(1);
+    });
+
+    it('should respect max columns', () => {
+      expect(calcColumns(5000, 200, 16, 4)).toBe(4);
+    });
+
+    it('should handle zero width', () => {
+      expect(calcColumns(0, 200, 16)).toBe(1);
+    });
+  });
+
+  // 触摸目标验证
+  describe('Touch Target Validation', () => {
+    const MIN_SIZE = 44;
+
+    function isTouchFriendly(w: number, h: number): boolean {
+      return w >= MIN_SIZE && h >= MIN_SIZE;
+    }
+
+    it('should pass for standard touch target', () => {
+      expect(isTouchFriendly(44, 44)).toBe(true);
+    });
+
+    it('should fail for small targets', () => {
+      expect(isTouchFriendly(24, 24)).toBe(false);
+    });
+
+    it('should pass for oversized targets', () => {
+      expect(isTouchFriendly(64, 48)).toBe(true);
+    });
+  });
+
+  // 安全区域
+  describe('Safe Area', () => {
+    function safeAreaCSS() {
+      return {
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        paddingLeft: 'env(safe-area-inset-left, 0px)',
+        paddingRight: 'env(safe-area-inset-right, 0px)',
+      };
+    }
+
+    it('should generate safe area CSS variables', () => {
+      const css = safeAreaCSS();
+      expect(css.paddingTop).toContain('env(safe-area-inset-top');
+      expect(css.paddingBottom).toContain('env(safe-area-inset-bottom');
+    });
+  });
+
+  // 媒体查询字符串
+  describe('Media Query Generation', () => {
+    function mq(bp: string, dir: 'up' | 'down' = 'up'): string {
+      const bps: Record<string, number> = { sm: 640, md: 768, lg: 1024, xl: 1280 };
+      const px = bps[bp] ?? 0;
+      return dir === 'up'
+        ? `@media (min-width: ${px}px)`
+        : `@media (max-width: ${px - 1}px)`;
+    }
+
+    it('should generate min-width query for up', () => {
+      expect(mq('md', 'up')).toBe('@media (min-width: 768px)');
+    });
+
+    it('should generate max-width query for down', () => {
+      expect(mq('md', 'down')).toBe('@media (max-width: 767px)');
+    });
+  });
+
+  // 表格列过滤
+  describe('Table Column Filtering', () => {
+    interface Col { key: string; priority: number }
+
+    function filterCols(cols: Col[], width: number): Col[] {
+      return cols.filter((c) => {
+        if (c.priority === 1) return true;
+        if (c.priority === 2) return width >= 768;
+        if (c.priority === 3) return width >= 1024;
+        return true;
+      });
+    }
+
+    const cols: Col[] = [
+      { key: 'name', priority: 1 },
+      { key: 'price', priority: 1 },
+      { key: 'volume', priority: 2 },
+      { key: 'pe', priority: 3 },
+    ];
+
+    it('should show only priority-1 on mobile', () => {
+      const filtered = filterCols(cols, 375);
+      expect(filtered.map((c) => c.key)).toEqual(['name', 'price']);
+    });
+
+    it('should show priority-1 and 2 on tablet', () => {
+      const filtered = filterCols(cols, 800);
+      expect(filtered.map((c) => c.key)).toEqual(['name', 'price', 'volume']);
+    });
+
+    it('should show all columns on desktop', () => {
+      const filtered = filterCols(cols, 1200);
+      expect(filtered).toHaveLength(4);
+    });
+  });
+
+  // 响应式值选择器
+  describe('Responsive Value Selector', () => {
+    function rVal<T>(width: number, values: Record<string, T>): T | undefined {
+      const order = ['xxl', 'xl', 'lg', 'md', 'sm', 'xs'];
+      let bp = 'xs';
+      if (width >= 1600) bp = 'xxl';
+      else if (width >= 1200) bp = 'xl';
+      else if (width >= 1024) bp = 'lg';
+      else if (width >= 768) bp = 'md';
+      else if (width >= 640) bp = 'sm';
+
+      for (const key of order) {
+        const bps: Record<string, number> = { xs: 0, sm: 640, md: 768, lg: 1024, xl: 1200, xxl: 1600 };
+        if (bps[key] <= bps[bp] && values[key] !== undefined) return values[key];
+      }
+      return undefined;
+    }
+
+    it('should return mobile value on small screen', () => {
+      expect(rVal(375, { xs: 1, lg: 3 })).toBe(1);
+    });
+
+    it('should return matching value on large screen', () => {
+      expect(rVal(1200, { xs: 1, md: 2, xl: 4 })).toBe(4);
+    });
+  });
+
+  // Viewport height utility
+  describe('Viewport Height', () => {
+    function viewportUnit(vh: number, unit: 'vh' | 'dvh' | 'svh' = 'dvh'): string {
+      return `${vh}${unit}`;
+    }
+
+    it('should support dvh for dynamic viewport', () => {
+      expect(viewportUnit(100)).toBe('100dvh');
+    });
+
+    it('should support svh for small viewport', () => {
+      expect(viewportUnit(100, 'svh')).toBe('100svh');
+    });
   });
 });

@@ -1,327 +1,275 @@
-/**
- * 响应式布局深层测试
- * 覆盖断点系统、网格计算、侧边栏折叠、媒体查询匹配、布局适配
- */
-
 import { describe, it, expect } from 'vitest';
 
-// 模拟响应式布局核心逻辑
-interface BreakpointConfig {
-  xs: number;
-  sm: number;
-  md: number;
-  lg: number;
-  xl: number;
-  xxl: number;
-}
+describe('ResponsiveLayout Deep', () => {
+  // 断点边界检测
+  describe('Breakpoint Edge Cases', () => {
+    const BREAKPOINTS = { xs: 0, sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
 
-interface GridLayout {
-  columns: number;
-  gutter: number;
-  margin: number;
-}
-
-const DEFAULT_BREAKPOINTS: BreakpointConfig = {
-  xs: 0,
-  sm: 576,
-  md: 768,
-  lg: 992,
-  xl: 1200,
-  xxl: 1600,
-};
-
-function getBreakpoint(width: number, breakpoints: BreakpointConfig = DEFAULT_BREAKPOINTS): string {
-  if (width >= breakpoints.xxl) return 'xxl';
-  if (width >= breakpoints.xl) return 'xl';
-  if (width >= breakpoints.lg) return 'lg';
-  if (width >= breakpoints.md) return 'md';
-  if (width >= breakpoints.sm) return 'sm';
-  return 'xs';
-}
-
-function getGridLayout(width: number): GridLayout {
-  const bp = getBreakpoint(width);
-  switch (bp) {
-    case 'xxl': return { columns: 24, gutter: 16, margin: 48 };
-    case 'xl': return { columns: 24, gutter: 16, margin: 32 };
-    case 'lg': return { columns: 12, gutter: 16, margin: 24 };
-    case 'md': return { columns: 8, gutter: 12, margin: 16 };
-    case 'sm': return { columns: 4, gutter: 8, margin: 12 };
-    default: return { columns: 2, gutter: 8, margin: 8 };
-  }
-}
-
-function getSidebarMode(width: number): 'expanded' | 'collapsed' | 'hidden' {
-  if (width >= 1200) return 'expanded';
-  if (width >= 768) return 'collapsed';
-  return 'hidden';
-}
-
-function getCardColumns(width: number): number {
-  const bp = getBreakpoint(width);
-  switch (bp) {
-    case 'xxl': return 4;
-    case 'xl': return 4;
-    case 'lg': return 3;
-    case 'md': return 2;
-    case 'sm': return 1;
-    default: return 1;
-  }
-}
-
-function shouldShowLabels(width: number): boolean {
-  return width >= 768;
-}
-
-function getTablePageSize(width: number): number {
-  if (width >= 1600) return 20;
-  if (width >= 1200) return 15;
-  if (width >= 768) return 10;
-  return 5;
-}
-
-function getHeaderHeight(width: number): number {
-  if (width >= 768) return 64;
-  return 56;
-}
-
-function getChartHeight(width: number): number {
-  if (width >= 1200) return 400;
-  if (width >= 768) return 300;
-  return 200;
-}
-
-// ==================== 断点检测 ====================
-
-describe('getBreakpoint 断点检测', () => {
-  it('宽度0应返回xs', () => {
-    expect(getBreakpoint(0)).toBe('xs');
-  });
-
-  it('宽度576应返回sm', () => {
-    expect(getBreakpoint(576)).toBe('sm');
-  });
-
-  it('宽度768应返回md', () => {
-    expect(getBreakpoint(768)).toBe('md');
-  });
-
-  it('宽度992应返回lg', () => {
-    expect(getBreakpoint(992)).toBe('lg');
-  });
-
-  it('宽度1200应返回xl', () => {
-    expect(getBreakpoint(1200)).toBe('xl');
-  });
-
-  it('宽度1600应返回xxl', () => {
-    expect(getBreakpoint(1600)).toBe('xxl');
-  });
-
-  it('宽度320应返回xs', () => {
-    expect(getBreakpoint(320)).toBe('xs');
-  });
-
-  it('宽度575应返回xs', () => {
-    expect(getBreakpoint(575)).toBe('xs');
-  });
-
-  it('宽度767应返回sm', () => {
-    expect(getBreakpoint(767)).toBe('sm');
-  });
-
-  it('宽度1920应返回xxl', () => {
-    expect(getBreakpoint(1920)).toBe('xxl');
-  });
-
-  it('支持自定义断点配置', () => {
-    const custom: BreakpointConfig = { xs: 0, sm: 400, md: 600, lg: 800, xl: 1000, xxl: 1400 };
-    expect(getBreakpoint(500, custom)).toBe('sm');
-    expect(getBreakpoint(700, custom)).toBe('md');
-    expect(getBreakpoint(900, custom)).toBe('lg');
-  });
-});
-
-// ==================== 网格布局 ====================
-
-describe('getGridLayout 网格布局', () => {
-  it('xxl应使用24列', () => {
-    expect(getGridLayout(1920).columns).toBe(24);
-  });
-
-  it('lg应使用12列', () => {
-    expect(getGridLayout(1024).columns).toBe(12);
-  });
-
-  it('md应使用8列', () => {
-    expect(getGridLayout(800).columns).toBe(8);
-  });
-
-  it('sm应使用4列', () => {
-    expect(getGridLayout(600).columns).toBe(4);
-  });
-
-  it('xs应使用2列', () => {
-    expect(getGridLayout(320).columns).toBe(2);
-  });
-
-  it('大屏margin应更大', () => {
-    const xxl = getGridLayout(1920);
-    const xs = getGridLayout(320);
-    expect(xxl.margin).toBeGreaterThan(xs.margin);
-  });
-
-  it('所有布局应有gutter', () => {
-    const widths = [320, 600, 800, 1024, 1400, 1920];
-    for (const w of widths) {
-      expect(getGridLayout(w).gutter).toBeGreaterThan(0);
+    function bp(w: number): string {
+      if (w >= 1536) return '2xl';
+      if (w >= 1280) return 'xl';
+      if (w >= 1024) return 'lg';
+      if (w >= 768) return 'md';
+      if (w >= 640) return 'sm';
+      return 'xs';
     }
+
+    it('should handle exact boundary values', () => {
+      expect(bp(640)).toBe('sm');
+      expect(bp(768)).toBe('md');
+      expect(bp(1024)).toBe('lg');
+      expect(bp(1280)).toBe('xl');
+      expect(bp(1536)).toBe('2xl');
+    });
+
+    it('should handle one below boundary', () => {
+      expect(bp(639)).toBe('xs');
+      expect(bp(767)).toBe('sm');
+      expect(bp(1023)).toBe('md');
+    });
+
+    it('should handle negative and zero width', () => {
+      expect(bp(0)).toBe('xs');
+      expect(bp(-1)).toBe('xs');
+    });
   });
 
-  it('所有布局应有margin', () => {
-    const widths = [320, 600, 800, 1024, 1400, 1920];
-    for (const w of widths) {
-      expect(getGridLayout(w).margin).toBeGreaterThan(0);
+  // 流体排版全范围测试
+  describe('Fluid Typography Range', () => {
+    function clampValue(min: number, max: number, minVw: number, maxVw: number, vw: number): number {
+      if (vw <= minVw) return min;
+      if (vw >= maxVw) return max;
+      const ratio = (vw - minVw) / (maxVw - minVw);
+      return min + (max - min) * ratio;
     }
-  });
-});
 
-// ==================== 侧边栏模式 ====================
+    it('should return min at min viewport', () => {
+      expect(clampValue(14, 20, 375, 1280, 375)).toBe(14);
+    });
 
-describe('getSidebarMode 侧边栏模式', () => {
-  it('>=1200应展开', () => {
-    expect(getSidebarMode(1200)).toBe('expanded');
-    expect(getSidebarMode(1920)).toBe('expanded');
-  });
+    it('should return max at max viewport', () => {
+      expect(clampValue(14, 20, 375, 1280, 1280)).toBe(20);
+    });
 
-  it('768-1199应折叠', () => {
-    expect(getSidebarMode(768)).toBe('collapsed');
-    expect(getSidebarMode(1024)).toBe('collapsed');
-    expect(getSidebarMode(1199)).toBe('collapsed');
-  });
+    it('should interpolate linearly', () => {
+      const mid = clampValue(10, 20, 0, 100, 50);
+      expect(mid).toBe(15);
+    });
 
-  it('<768应隐藏', () => {
-    expect(getSidebarMode(320)).toBe('hidden');
-    expect(getSidebarMode(767)).toBe('hidden');
-  });
-});
+    it('should clamp below min viewport', () => {
+      expect(clampValue(14, 20, 375, 1280, 100)).toBe(14);
+    });
 
-// ==================== 卡片列数 ====================
-
-describe('getCardColumns 卡片列数', () => {
-  it('大屏应显示4列', () => {
-    expect(getCardColumns(1920)).toBe(4);
-    expect(getCardColumns(1200)).toBe(4);
+    it('should clamp above max viewport', () => {
+      expect(clampValue(14, 20, 375, 1280, 2000)).toBe(20);
+    });
   });
 
-  it('中屏应显示3列', () => {
-    expect(getCardColumns(1024)).toBe(3);
+  // Grid 自适应测试
+  describe('Adaptive Grid', () => {
+    function autoCols(containerW: number, minItemW: number, gap: number, max = 6): number {
+      return Math.max(1, Math.min(Math.floor((containerW + gap) / (minItemW + gap)), max));
+    }
+
+    it('should produce correct columns for common widths', () => {
+      // iPhone SE
+      expect(autoCols(375, 160, 12)).toBe(2);
+      // iPad
+      expect(autoCols(768, 200, 16)).toBe(3);
+      // Desktop
+      expect(autoCols(1440, 280, 20)).toBe(4);
+      // Ultra-wide
+      expect(autoCols(2560, 280, 20)).toBe(6);
+    });
+
+    it('should handle very narrow containers', () => {
+      expect(autoCols(100, 200, 16)).toBe(1);
+    });
+
+    it('should cap at max columns', () => {
+      expect(autoCols(10000, 100, 10, 8)).toBe(8);
+    });
   });
 
-  it('小中屏应显示2列', () => {
-    expect(getCardColumns(800)).toBe(2);
+  // 表格自适应列优先级
+  describe('Column Priority System', () => {
+    interface Col { key: string; priority: number; label: string }
+
+    function visible(cols: Col[], w: number): string[] {
+      return cols
+        .filter((c) => {
+          if (c.priority === 1) return true;
+          if (c.priority === 2) return w >= 768;
+          if (c.priority === 3) return w >= 1024;
+          if (c.priority === 4) return w >= 1280;
+          return true;
+        })
+        .map((c) => c.key);
+    }
+
+    const stockCols: Col[] = [
+      { key: 'name', priority: 1, label: '名称' },
+      { key: 'price', priority: 1, label: '现价' },
+      { key: 'change', priority: 1, label: '涨跌' },
+      { key: 'volume', priority: 2, label: '成交量' },
+      { key: 'turnover', priority: 2, label: '成交额' },
+      { key: 'pe', priority: 3, label: 'PE' },
+      { key: 'pb', priority: 3, label: 'PB' },
+      { key: 'roe', priority: 4, label: 'ROE' },
+    ];
+
+    it('should show 3 cols on phone', () => {
+      expect(visible(stockCols, 375)).toEqual(['name', 'price', 'change']);
+    });
+
+    it('should show 5 cols on tablet', () => {
+      expect(visible(stockCols, 800)).toEqual(['name', 'price', 'change', 'volume', 'turnover']);
+    });
+
+    it('should show 7 cols on laptop', () => {
+      expect(visible(stockCols, 1200)).toEqual(['name', 'price', 'change', 'volume', 'turnover', 'pe', 'pb']);
+    });
+
+    it('should show all cols on ultrawide', () => {
+      expect(visible(stockCols, 1600)).toHaveLength(8);
+    });
   });
 
-  it('小屏应显示1列', () => {
-    expect(getCardColumns(600)).toBe(1);
-    expect(getCardColumns(320)).toBe(1);
-  });
-});
+  // 响应式间距
+  describe('Responsive Spacing', () => {
+    function fluidSpacing(min: number, max: number, vw: number, minVw = 375, maxVw = 1280): number {
+      if (vw <= minVw) return min;
+      if (vw >= maxVw) return max;
+      return min + ((max - min) * (vw - minVw)) / (maxVw - minVw);
+    }
 
-// ==================== 标签显示 ====================
+    it('should scale padding from mobile to desktop', () => {
+      const mobilePad = fluidSpacing(8, 24, 375);
+      const desktopPad = fluidSpacing(8, 24, 1440);
+      expect(mobilePad).toBe(8);
+      expect(desktopPad).toBe(24);
+    });
 
-describe('shouldShowLabels 标签显示', () => {
-  it('>=768应显示标签', () => {
-    expect(shouldShowLabels(768)).toBe(true);
-    expect(shouldShowLabels(1920)).toBe(true);
-  });
-
-  it('<768应隐藏标签', () => {
-    expect(shouldShowLabels(320)).toBe(false);
-    expect(shouldShowLabels(767)).toBe(false);
-  });
-});
-
-// ==================== 表格分页 ====================
-
-describe('getTablePageSize 表格分页', () => {
-  it('大屏应显示20条', () => {
-    expect(getTablePageSize(1920)).toBe(20);
-    expect(getTablePageSize(1600)).toBe(20);
+    it('should interpolate padding', () => {
+      const midPad = fluidSpacing(8, 24, 827);
+      expect(midPad).toBeGreaterThan(8);
+      expect(midPad).toBeLessThan(24);
+    });
   });
 
-  it('中大屏应显示15条', () => {
-    expect(getTablePageSize(1400)).toBe(15);
+  // CSS 变量生成
+  describe('CSS Variable Generation', () => {
+    function responsiveVars(bp: string) {
+      const map: Record<string, Record<string, string>> = {
+        xs: { '--cols': '1', '--gap': '8px', '--pad': '8px', '--fs-title': '16px' },
+        sm: { '--cols': '1', '--gap': '12px', '--pad': '12px', '--fs-title': '18px' },
+        md: { '--cols': '2', '--gap': '16px', '--pad': '16px', '--fs-title': '20px' },
+        lg: { '--cols': '3', '--gap': '16px', '--pad': '24px', '--fs-title': '22px' },
+        xl: { '--cols': '4', '--gap': '20px', '--pad': '24px', '--fs-title': '24px' },
+      };
+      return map[bp] || map.xs;
+    }
+
+    it('should generate mobile vars', () => {
+      const vars = responsiveVars('xs');
+      expect(vars['--cols']).toBe('1');
+      expect(vars['--pad']).toBe('8px');
+    });
+
+    it('should generate desktop vars', () => {
+      const vars = responsiveVars('xl');
+      expect(vars['--cols']).toBe('4');
+      expect(vars['--gap']).toBe('20px');
+    });
   });
 
-  it('中屏应显示10条', () => {
-    expect(getTablePageSize(800)).toBe(10);
+  // 容器查询模拟
+  describe('Container Query Simulation', () => {
+    function containerClass(width: number): string {
+      if (width >= 600) return 'cq-lg';
+      if (width >= 400) return 'cq-md';
+      return 'cq-sm';
+    }
+
+    it('should return correct class for container width', () => {
+      expect(containerClass(300)).toBe('cq-sm');
+      expect(containerClass(500)).toBe('cq-md');
+      expect(containerClass(800)).toBe('cq-lg');
+    });
   });
 
-  it('小屏应显示5条', () => {
-    expect(getTablePageSize(320)).toBe(5);
-  });
-});
+  // 移动端布局配置
+  describe('Mobile Layout Config', () => {
+    function mobileConfig(w: number) {
+      const isMobile = w < 768;
+      const isTablet = w >= 768 && w < 1024;
+      return {
+        showSidebar: !isMobile,
+        headerHeight: isMobile ? 52 : 64,
+        contentPadding: isMobile ? 8 : isTablet ? 12 : 16,
+        footerPadding: isMobile ? '8px 12px' : '12px 24px',
+        searchWidth: isMobile ? 140 : isTablet ? 200 : 280,
+        showFloatingMenu: isMobile,
+        bottomNavHeight: isMobile ? 56 : 0,
+        contentBottomPad: isMobile ? 80 : 16,
+      };
+    }
 
-// ==================== 头部高度 ====================
+    it('should configure mobile correctly', () => {
+      const c = mobileConfig(375);
+      expect(c.showSidebar).toBe(false);
+      expect(c.headerHeight).toBe(52);
+      expect(c.showFloatingMenu).toBe(true);
+      expect(c.bottomNavHeight).toBe(56);
+    });
 
-describe('getHeaderHeight 头部高度', () => {
-  it('>=768应为64px', () => {
-    expect(getHeaderHeight(1024)).toBe(64);
-  });
+    it('should configure tablet correctly', () => {
+      const c = mobileConfig(800);
+      expect(c.showSidebar).toBe(true);
+      expect(c.headerHeight).toBe(64);
+      expect(c.showFloatingMenu).toBe(false);
+      expect(c.contentPadding).toBe(12);
+    });
 
-  it('<768应为56px', () => {
-    expect(getHeaderHeight(320)).toBe(56);
-  });
-});
-
-// ==================== 图表高度 ====================
-
-describe('getChartHeight 图表高度', () => {
-  it('大屏应为400px', () => {
-    expect(getChartHeight(1920)).toBe(400);
-  });
-
-  it('中屏应为300px', () => {
-    expect(getChartHeight(800)).toBe(300);
-  });
-
-  it('小屏应为200px', () => {
-    expect(getChartHeight(320)).toBe(200);
-  });
-
-  it('图表高度应随屏幕增大而增大', () => {
-    const small = getChartHeight(320);
-    const medium = getChartHeight(800);
-    const large = getChartHeight(1920);
-    expect(large).toBeGreaterThan(medium);
-    expect(medium).toBeGreaterThan(small);
-  });
-});
-
-// ==================== 边界情况 ====================
-
-describe('响应式边界情况', () => {
-  it('极端小宽度应正常工作', () => {
-    expect(getBreakpoint(1)).toBe('xs');
-    expect(getGridLayout(1).columns).toBe(2);
+    it('should configure desktop correctly', () => {
+      const c = mobileConfig(1440);
+      expect(c.showSidebar).toBe(true);
+      expect(c.contentPadding).toBe(16);
+      expect(c.searchWidth).toBe(280);
+    });
   });
 
-  it('极端大宽度应正常工作', () => {
-    expect(getBreakpoint(5000)).toBe('xxl');
-    expect(getGridLayout(5000).columns).toBe(24);
+  // 图表响应式配置
+  describe('Chart Responsive Config', () => {
+    function chartConfig(w: number) {
+      if (w < 768) return { height: 240, legendPos: 'bottom' as const, toolbar: false, fontSize: 11 };
+      if (w < 1024) return { height: 300, legendPos: 'right' as const, toolbar: true, fontSize: 12 };
+      return { height: 400, legendPos: 'right' as const, toolbar: true, fontSize: 13 };
+    }
+
+    it('should reduce chart height on mobile', () => {
+      expect(chartConfig(375).height).toBe(240);
+      expect(chartConfig(375).toolbar).toBe(false);
+    });
+
+    it('should increase chart height on desktop', () => {
+      expect(chartConfig(1440).height).toBe(400);
+      expect(chartConfig(1440).toolbar).toBe(true);
+    });
   });
 
-  it('断点边界值应一致', () => {
-    expect(getBreakpoint(575)).not.toBe(getBreakpoint(576));
-    expect(getBreakpoint(767)).not.toBe(getBreakpoint(768));
-    expect(getBreakpoint(991)).not.toBe(getBreakpoint(992));
-  });
+  // 方向锁定
+  describe('Orientation Handling', () => {
+    function orientation(w: number, h: number): 'portrait' | 'landscape' {
+      return w > h ? 'landscape' : 'portrait';
+    }
 
-  it('所有函数应处理0宽度', () => {
-    expect(() => getBreakpoint(0)).not.toThrow();
-    expect(() => getGridLayout(0)).not.toThrow();
-    expect(() => getSidebarMode(0)).not.toThrow();
-    expect(() => getCardColumns(0)).not.toThrow();
+    it('should detect portrait', () => {
+      expect(orientation(375, 812)).toBe('portrait');
+    });
+
+    it('should detect landscape', () => {
+      expect(orientation(812, 375)).toBe('landscape');
+    });
   });
 });

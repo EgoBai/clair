@@ -3864,3 +3864,43 @@
 - 4个图表组件新增 loading 状态: IndicatorPanel, StockCompareChart, IndustryHeatmap, SectorHeatmap
 - **所有 12 个图表组件现在都支持 loading 状态** ✅
 - 导出 ChartSkeleton/ChartLoadingPlaceholder 到 Charts/index.ts
+
+## Round 76-80 (2026-03-30): 响应式布局优化
+
+### 完成内容
+- **responsiveUtils.ts v2** - 全面重构
+  - 流体排版系统 (fluidTypography/clamp)
+  - 流体间距 (fluidSpacing)
+  - 触摸目标验证 (WCAG 2.1 AA 44x44px)
+  - getAdaptiveConfig() 一站式配置
+  - 安全区域支持 (iPhone notch)
+  - 容器查询生成器
+- **ResponsiveLayout.tsx v2** - 新增8个组件/Hook
+  - useAdaptive, useContainerWidth, ResponsiveGrid
+  - MobileOnly, DesktopOnly, TabletOnly
+  - FluidText, SafeAreaContainer, Spacer, Row
+- **AppLayout.tsx v2** - 平板/移动端增强
+  - 平板折叠侧边栏 (64px)
+  - 移动端头部压缩 (52px)
+  - 抽屉内嵌搜索
+  - 自适应padding (8/12/16px)
+  - skip-link, aria-label, min-touch-target
+- **测试**: 630 test files passing (+2), 17568 tests passing
+- **知识文档**: knowledge-base/iterations/a-stock/rounds-76-to-85.md
+
+## Round 81-85 (2026-03-30): 无障碍(a11y)增强
+
+### 完成内容
+- **accessibility.ts v2** - 全面增强
+  - 颜色对比度系统 (WCAG 2.0): relativeLuminance, contrastRatio, checkContrast, auditColorContrast
+  - 表格/进度条/加载 ARIA 属性生成器
+  - useReturnFocus, useFormErrorAnnounce, useRovingTabindex, useKeyboardUser
+  - auditPageAccessibility() - 页面级 a11y 快速审计
+  - validateAria() - ARIA 有效性检查
+  - getSystemA11yPreferences() - 系统偏好检测
+- **FocusRing.tsx v2** - 增强
+  - FocusIndicator: 键盘/鼠标焦点区分
+  - ShortcutPanel: 可访问的快捷键面板
+  - KeyboardHint: 支持 sm/md 两种尺寸
+- **测试**: 629 test files passing, 17568 tests passing
+- **知识文档**: knowledge-base/iterations/a-stock/rounds-76-to-85.md

@@ -1,9 +1,9 @@
 /**
- * 响应式布局组件 v1.3
- * 支持 PC端侧边栏 + 移动端抽屉菜单 + 暗色主题 + 快捷键提示
+ * 响应式布局组件 v2
+ * 支持 PC端侧边栏 + 移动端抽屉菜单 + 暗色主题 + 快捷键提示 + 平板适配
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Layout, Menu, Button, Drawer, Input, Avatar, Space, Badge, Tooltip, Dropdown } from 'antd';
 import WebVitalsWidget from '../Common/WebVitalsWidget';
 import {
@@ -13,10 +13,7 @@ import {
   StarOutlined,
   MenuOutlined,
   SearchOutlined,
-  SettingOutlined,
   BellOutlined,
-  BulbOutlined,
-  BulbFilled,
   QuestionCircleOutlined,
   DesktopOutlined,
   SunOutlined,
@@ -50,9 +47,14 @@ const AppLayout: React.FC = () => {
   } = useAppStore();
   const [searchText, setSearchText] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isTablet, setIsTablet] = useState(window.innerWidth >= 768 && window.innerWidth < 1024);
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    const handleResize = () => {
+      const w = window.innerWidth;
+      setIsMobile(w < 768);
+      setIsTablet(w >= 768 && w < 1024);
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -88,25 +90,25 @@ const AppLayout: React.FC = () => {
     { key: '/dashboard', icon: <DashboardOutlined />, label: '自定义仪表盘' },
   ];
 
-  const handleMenuClick = ({ key }: { key: string }) => {
+  const handleMenuClick = useCallback(({ key }: { key: string }) => {
     navigate(key);
     if (isMobile) setMobileMenuOpen(false);
-  };
+  }, [navigate, isMobile, setMobileMenuOpen]);
 
-  const handleSearch = () => {
+  const handleSearch = useCallback(() => {
     if (searchText.trim()) {
       navigate(`/stocks?search=${encodeURIComponent(searchText.trim())}`);
       setSearchText('');
+      if (isMobile) setMobileMenuOpen(false);
     }
-  };
+  }, [searchText, navigate, isMobile, setMobileMenuOpen]);
 
-  const getSelectedKeys = () => {
+  const getSelectedKeys = useCallback(() => {
     const path = location.pathname;
     if (path.startsWith('/stock/')) return ['/stocks'];
     return [path];
-  };
+  }, [location.pathname]);
 
-  // 主题切换菜单
   const themeMenuItems = [
     { key: 'light', icon: <SunOutlined />, label: '浅色' },
     { key: 'dark', icon: <MoonOutlined />, label: '深色' },
@@ -129,37 +131,56 @@ const AppLayout: React.FC = () => {
     />
   );
 
+  // 平板时使用折叠侧边栏
+  const sidebarCollapsed = preferences.sidebarCollapsed || isTablet;
+  const sidebarWidth = isTablet ? 64 : 200;
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      {/* PC端侧边栏 */}
+      {/* 无障碍跳转链接 */}
+      <a href="#main-content" className="skip-link">
+        跳转到主要内容
+      </a>
+
+      {/* PC端/平板侧边栏 */}
       {!isMobile && (
         <Sider
-          collapsible
-          collapsed={preferences.sidebarCollapsed}
-          onCollapse={toggleSidebar}
+          collapsible={!isTablet}
+          collapsed={sidebarCollapsed}
+          onCollapse={isTablet ? undefined : toggleSidebar}
           breakpoint="lg"
-          width={200}
+          width={sidebarWidth}
+          collapsedWidth={64}
           style={{
             background: '#fff',
             borderRight: '1px solid #f0f0f0',
+            position: 'sticky',
+            top: 0,
+            height: '100vh',
+            overflow: 'auto',
           }}
         >
-          <div style={{
-            height: 64,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderBottom: '1px solid #f0f0f0',
-            cursor: 'pointer',
-          }}
+          <div
+            style={{
+              height: 64,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderBottom: '1px solid #f0f0f0',
+              cursor: 'pointer',
+            }}
             onClick={() => navigate('/')}
+            role="button"
+            aria-label="返回首页"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && navigate('/')}
           >
             <span style={{
-              fontSize: preferences.sidebarCollapsed ? 20 : 18,
+              fontSize: sidebarCollapsed ? 20 : 18,
               fontWeight: 700,
               whiteSpace: 'nowrap',
             }}>
-              {preferences.sidebarCollapsed ? '📈' : '📈 A股分析'}
+              {sidebarCollapsed ? '📈' : '📈 A股分析'}
             </span>
           </div>
           {menuContent}
@@ -170,7 +191,7 @@ const AppLayout: React.FC = () => {
         {/* 顶部导航栏 */}
         <Header style={{
           background: '#fff',
-          padding: '0 16px',
+          padding: isMobile ? '0 12px' : '0 16px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -178,31 +199,41 @@ const AppLayout: React.FC = () => {
           position: 'sticky',
           top: 0,
           zIndex: 100,
+          height: isMobile ? 52 : 64,
         }}>
-          <Space>
+          <Space size={isMobile ? 8 : 16}>
             {isMobile && (
               <Button
                 type="text"
                 icon={<MenuOutlined />}
                 onClick={() => setMobileMenuOpen(true)}
+                aria-label="打开菜单"
+                className="min-touch-target"
               />
             )}
             <Input
               className="search-input"
               data-search-input
-              placeholder="搜索股票代码或名称 (⌘K)"
+              placeholder={isMobile ? '搜索股票' : '搜索股票代码或名称 (⌘K)'}
               prefix={<SearchOutlined />}
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               onPressEnter={handleSearch}
-              style={{ width: isMobile ? 150 : 280 }}
+              style={{ width: isMobile ? 140 : isTablet ? 200 : 280 }}
               allowClear
-              size="small"
+              size={isMobile ? 'middle' : 'small'}
+              aria-label="搜索股票"
             />
           </Space>
-          <Space>
+          <Space size={isMobile ? 4 : 8}>
             <Badge count={0} size="small">
-              <Button type="text" icon={<BellOutlined />} size="small" />
+              <Button
+                type="text"
+                icon={<BellOutlined />}
+                size={isMobile ? 'middle' : 'small'}
+                aria-label="通知"
+                className="min-touch-target"
+              />
             </Badge>
 
             {/* 主题切换 */}
@@ -215,25 +246,33 @@ const AppLayout: React.FC = () => {
               trigger={['click']}
             >
               <Tooltip title="切换主题 (Alt+T)">
-                <Button type="text" icon={themeIcon} size="small" className="theme-toggle" />
+                <Button
+                  type="text"
+                  icon={themeIcon}
+                  size={isMobile ? 'middle' : 'small'}
+                  className="theme-toggle min-touch-target"
+                  aria-label="切换主题"
+                />
               </Tooltip>
             </Dropdown>
 
             {/* 快捷键提示 */}
-            <Tooltip title="快捷键 (?)">
-              <Button
-                type="text"
-                icon={<QuestionCircleOutlined />}
-                size="small"
-                onClick={() => {
-                  // 触发快捷键提示面板
-                  const event = new KeyboardEvent('keydown', { key: '?' });
-                  document.dispatchEvent(event);
-                }}
-              />
-            </Tooltip>
+            {!isMobile && (
+              <Tooltip title="快捷键 (?)">
+                <Button
+                  type="text"
+                  icon={<QuestionCircleOutlined />}
+                  size="small"
+                  aria-label="快捷键帮助"
+                  onClick={() => {
+                    const event = new KeyboardEvent('keydown', { key: '?' });
+                    document.dispatchEvent(event);
+                  }}
+                />
+              </Tooltip>
+            )}
 
-            <Avatar size="small" style={{ backgroundColor: '#1890ff' }}>U</Avatar>
+            <Avatar size={isMobile ? 'default' : 'small'} style={{ backgroundColor: '#1890ff' }}>U</Avatar>
           </Space>
         </Header>
 
@@ -244,17 +283,36 @@ const AppLayout: React.FC = () => {
           open={mobileMenuOpen}
           onClose={() => setMobileMenuOpen(false)}
           bodyStyle={{ padding: 0 }}
-          width={200}
+          width={240}
+          className="mobile-drawer"
         >
+          {/* 移动端搜索 */}
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+            <Input
+              placeholder="搜索股票代码或名称"
+              prefix={<SearchOutlined />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onPressEnter={handleSearch}
+              allowClear
+              aria-label="搜索股票"
+            />
+          </div>
           {menuContent}
         </Drawer>
 
         {/* 内容区域 */}
-        <Content style={{
-          background: '#f5f5f5',
-          minHeight: 'calc(100vh - 64px - 54px)',
-          overflow: 'auto',
-        }}>
+        <Content
+          id="main-content"
+          role="main"
+          style={{
+            background: '#f5f5f5',
+            minHeight: 'calc(100vh - 64px - 54px)',
+            overflow: 'auto',
+            padding: isMobile ? 8 : isTablet ? 12 : 16,
+            paddingBottom: isMobile ? 80 : 16, // 移动端留出底部导航空间
+          }}
+        >
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>
@@ -265,12 +323,19 @@ const AppLayout: React.FC = () => {
           textAlign: 'center',
           background: '#fff',
           borderTop: '1px solid #f0f0f0',
-          padding: '12px 24px',
-          fontSize: 12,
+          padding: isMobile ? '8px 12px' : '12px 24px',
+          fontSize: isMobile ? 11 : 12,
           color: '#999',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <span>A股行情分析平台 ©{new Date().getFullYear()} | 数据仅供参考，不构成投资建议</span>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            flexDirection: isMobile ? 'column' : 'row',
+          }}>
+            <span>A股行情分析平台 ©{new Date().getFullYear()} | 数据仅供参考</span>
             {import.meta.env.DEV && <WebVitalsWidget compact />}
           </div>
         </Footer>
@@ -281,6 +346,10 @@ const AppLayout: React.FC = () => {
         <button
           className="mobile-menu-trigger"
           onClick={() => setMobileMenuOpen(true)}
+          aria-label="打开菜单"
+          style={{
+            bottom: 80,
+          }}
         >
           <MenuOutlined />
         </button>

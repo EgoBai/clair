@@ -1,6 +1,7 @@
 /**
- * 响应式布局工具
+ * 响应式布局工具 v2
  * 统一管理断点、媒体查询和自适应逻辑
+ * 新增: container queries, fluid typography, touch target validation
  */
 
 // 断点定义（与 Tailwind 对齐）
@@ -30,6 +31,25 @@ export const GRID_PRESETS: Record<Breakpoint, GridConfig> = {
   lg: { columns: 3, gap: 16, padding: 24 },
   xl: { columns: 4, gap: 20, padding: 24 },
   '2xl': { columns: 4, gap: 24, padding: 32 },
+};
+
+// 流体排版配置
+export interface FluidTypographyConfig {
+  minSize: number;
+  maxSize: number;
+  minViewport: number;
+  maxViewport: number;
+  unit?: 'px' | 'rem';
+}
+
+export const TYPOGRAPHY_SCALE: Record<string, FluidTypographyConfig> = {
+  h1: { minSize: 20, maxSize: 32, minViewport: 375, maxViewport: 1280, unit: 'px' },
+  h2: { minSize: 18, maxSize: 28, minViewport: 375, maxViewport: 1280, unit: 'px' },
+  h3: { minSize: 16, maxSize: 22, minViewport: 375, maxViewport: 1280, unit: 'px' },
+  body: { minSize: 13, maxSize: 15, minViewport: 375, maxViewport: 1280, unit: 'px' },
+  caption: { minSize: 11, maxSize: 13, minViewport: 375, maxViewport: 1280, unit: 'px' },
+  price: { minSize: 16, maxSize: 22, minViewport: 375, maxViewport: 1280, unit: 'px' },
+  priceSmall: { minSize: 13, maxSize: 15, minViewport: 375, maxViewport: 1280, unit: 'px' },
 };
 
 /**
@@ -158,4 +178,127 @@ export function filterColumnsByBreakpoint<T>(
     if (col.priority === 3) return isAbove(width, 'lg');
     return true;
   });
+}
+
+/**
+ * 流体排版 CSS 计算
+ * 返回 clamp() 字符串，适配任意视口宽度
+ */
+export function fluidTypography(config: FluidTypographyConfig): string {
+  const { minSize, maxSize, minViewport, maxViewport, unit = 'px' } = config;
+  const slope = (maxSize - minSize) / (maxViewport - minViewport);
+  const yIntercept = minSize - slope * minViewport;
+
+  if (unit === 'rem') {
+    const minRem = minSize / 16;
+    const maxRem = maxSize / 16;
+    const vwVal = slope * 100;
+    const interceptRem = yIntercept / 16;
+    return `clamp(${minRem}rem, ${interceptRem.toFixed(4)}rem + ${vwVal.toFixed(4)}vw, ${maxRem}rem)`;
+  }
+
+  return `clamp(${minSize}px, ${yIntercept.toFixed(2)}px + ${(slope * 100).toFixed(4)}vw, ${maxSize}px)`;
+}
+
+/**
+ * 生成流体间距 CSS
+ */
+export function fluidSpacing(min: number, max: number, minVw = 375, maxVw = 1280): string {
+  const slope = (max - min) / (maxVw - minVw);
+  const yIntercept = min - slope * minVw;
+  return `clamp(${min}px, ${yIntercept.toFixed(2)}px + ${(slope * 100).toFixed(4)}vw, ${max}px)`;
+}
+
+/**
+ * 触摸目标验证 (WCAG 2.1 AA: 44x44px minimum)
+ */
+export const TOUCH_TARGET_MIN = 44;
+
+export function validateTouchTarget(width: number, height: number): boolean {
+  return width >= TOUCH_TARGET_MIN && height >= TOUCH_TARGET_MIN;
+}
+
+export interface TouchTargetReport {
+  valid: boolean;
+  widthDiff: number;
+  heightDiff: number;
+  suggestion?: string;
+}
+
+export function touchTargetReport(width: number, height: number): TouchTargetReport {
+  const wDiff = TOUCH_TARGET_MIN - width;
+  const hDiff = TOUCH_TARGET_MIN - height;
+  return {
+    valid: wDiff <= 0 && hDiff <= 0,
+    widthDiff: Math.max(0, wDiff),
+    heightDiff: Math.max(0, hDiff),
+    suggestion: (wDiff > 0 || hDiff > 0)
+      ? `增加 padding: ${Math.max(wDiff, hDiff)}px`
+      : undefined,
+  };
+}
+
+/**
+ * 断点适配配置生成器
+ * 根据当前屏幕宽度返回一系列预设值
+ */
+export interface AdaptiveConfig {
+  breakpoint: Breakpoint;
+  isMobile: boolean;
+  isTablet: boolean;
+  isDesktop: boolean;
+  columns: number;
+  sidebarVisible: boolean;
+  fontSize: { h1: string; h2: string; body: string; caption: string };
+  spacing: { xs: string; sm: string; md: string; lg: string };
+  tableScroll: boolean;
+  touchFriendly: boolean;
+}
+
+export function getAdaptiveConfig(width: number): AdaptiveConfig {
+  const bp = getCurrentBreakpoint(width);
+  const isMobile = isBelow(width, 'md');
+  const isTablet = isAbove(width, 'md') && isBelow(width, 'lg');
+
+  return {
+    breakpoint: bp,
+    isMobile,
+    isTablet,
+    isDesktop: isAbove(width, 'lg'),
+    columns: GRID_PRESETS[bp].columns,
+    sidebarVisible: !isMobile,
+    fontSize: {
+      h1: fluidTypography(TYPOGRAPHY_SCALE.h1),
+      h2: fluidTypography(TYPOGRAPHY_SCALE.h2),
+      body: fluidTypography(TYPOGRAPHY_SCALE.body),
+      caption: fluidTypography(TYPOGRAPHY_SCALE.caption),
+    },
+    spacing: {
+      xs: fluidSpacing(4, 8),
+      sm: fluidSpacing(8, 12),
+      md: fluidSpacing(12, 20),
+      lg: fluidSpacing(16, 32),
+    },
+    tableScroll: isMobile,
+    touchFriendly: isMobile,
+  };
+}
+
+/**
+ * 容器查询 CSS 生成
+ */
+export function containerQuery(name: string, minWidth: number, styles: string): string {
+  return `@container ${name} (min-width: ${minWidth}px) { ${styles} }`;
+}
+
+/**
+ * 视口安全区域 CSS 变量 (iPhone notch support)
+ */
+export function safeAreaPadding(): { paddingTop: string; paddingBottom: string; paddingLeft: string; paddingRight: string } {
+  return {
+    paddingTop: 'env(safe-area-inset-top, 0px)',
+    paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+    paddingLeft: 'env(safe-area-inset-left, 0px)',
+    paddingRight: 'env(safe-area-inset-right, 0px)',
+  };
 }

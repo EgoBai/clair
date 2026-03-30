@@ -1,205 +1,229 @@
 import { describe, it, expect } from 'vitest';
 
-/**
- * 响应式布局工具测试
- * 测试断点系统、媒体查询、自适应计算
- */
-describe('Responsive Layout Utils', () => {
-  describe('Breakpoint System', () => {
-    const breakpoints = {
-      xs: 0,
-      sm: 576,
-      md: 768,
-      lg: 992,
-      xl: 1200,
-      xxl: 1600,
+describe('ResponsiveUtils Logic', () => {
+  // 排版系统
+  describe('Typography System', () => {
+    const TYPOGRAPHY = {
+      h1: { min: 20, max: 32, minVw: 375, maxVw: 1280 },
+      h2: { min: 18, max: 28, minVw: 375, maxVw: 1280 },
+      body: { min: 13, max: 15, minVw: 375, maxVw: 1280 },
+      caption: { min: 11, max: 13, minVw: 375, maxVw: 1280 },
+      price: { min: 16, max: 22, minVw: 375, maxVw: 1280 },
     };
 
-    function getBreakpoint(width: number): string {
-      if (width >= breakpoints.xxl) return 'xxl';
-      if (width >= breakpoints.xl) return 'xl';
-      if (width >= breakpoints.lg) return 'lg';
-      if (width >= breakpoints.md) return 'md';
-      if (width >= breakpoints.sm) return 'sm';
-      return 'xs';
+    function fluidSize(cfg: { min: number; max: number; minVw: number; maxVw: number }, vw: number): number {
+      if (vw <= cfg.minVw) return cfg.min;
+      if (vw >= cfg.maxVw) return cfg.max;
+      return cfg.min + ((cfg.max - cfg.min) * (vw - cfg.minVw)) / (cfg.maxVw - cfg.minVw);
     }
 
-    function isMobile(width: number): boolean {
-      return width < breakpoints.md;
-    }
-
-    function isTablet(width: number): boolean {
-      return width >= breakpoints.md && width < breakpoints.lg;
-    }
-
-    function isDesktop(width: number): boolean {
-      return width >= breakpoints.lg;
-    }
-
-    it('should detect mobile breakpoint', () => {
-      expect(getBreakpoint(375)).toBe('xs');
-      expect(getBreakpoint(500)).toBe('xs');
-      expect(isMobile(375)).toBe(true);
-      expect(isMobile(768)).toBe(false);
+    it('should return min at smallest viewport', () => {
+      expect(fluidSize(TYPOGRAPHY.h1, 375)).toBe(20);
     });
 
-    it('should detect tablet breakpoint', () => {
-      expect(getBreakpoint(768)).toBe('md');
-      expect(getBreakpoint(800)).toBe('md');
-      expect(isTablet(800)).toBe(true);
-      expect(isTablet(1024)).toBe(false);
+    it('should return max at largest viewport', () => {
+      expect(fluidSize(TYPOGRAPHY.h1, 1280)).toBe(32);
     });
 
-    it('should detect desktop breakpoint', () => {
-      expect(getBreakpoint(1200)).toBe('xl');
-      expect(getBreakpoint(1920)).toBe('xxl');
-      expect(isDesktop(1200)).toBe(true);
-      expect(isDesktop(800)).toBe(false);
-    });
-
-    it('should handle exact breakpoint values', () => {
-      expect(getBreakpoint(576)).toBe('sm');
-      expect(getBreakpoint(768)).toBe('md');
-      expect(getBreakpoint(992)).toBe('lg');
+    it('should interpolate body text', () => {
+      const mid = fluidSize(TYPOGRAPHY.body, 827);
+      expect(mid).toBeGreaterThan(13);
+      expect(mid).toBeLessThan(15);
     });
   });
 
-  describe('Grid Column Calculation', () => {
-    function getGridCols(breakpoint: string): { sidebar: number; content: number } {
-      const grids: Record<string, { sidebar: number; content: number }> = {
-        xs: { sidebar: 0, content: 24 },
-        sm: { sidebar: 0, content: 24 },
-        md: { sidebar: 6, content: 18 },
-        lg: { sidebar: 5, content: 19 },
-        xl: { sidebar: 4, content: 20 },
-        xxl: { sidebar: 3, content: 21 },
+  // 间距系统
+  describe('Spacing System', () => {
+    const SPACING = {
+      xs: { min: 4, max: 8 },
+      sm: { min: 8, max: 12 },
+      md: { min: 12, max: 20 },
+      lg: { min: 16, max: 32 },
+    };
+
+    function fluidSpace(min: number, max: number, vw: number): number {
+      if (vw <= 375) return min;
+      if (vw >= 1280) return max;
+      return min + ((max - min) * (vw - 375)) / (1280 - 375);
+    }
+
+    it('should scale all spacing values', () => {
+      Object.values(SPACING).forEach(({ min, max }) => {
+        expect(fluidSpace(min, max, 375)).toBe(min);
+        expect(fluidSpace(min, max, 1280)).toBe(max);
+      });
+    });
+  });
+
+  // 图表尺寸
+  describe('Chart Sizing', () => {
+    function chartSize(w: number) {
+      if (w < 768) return { width: '100%', height: 240, ratio: '4:3' };
+      if (w < 1024) return { width: '100%', height: 320, ratio: '16:9' };
+      return { width: '100%', height: 400, ratio: '16:9' };
+    }
+
+    it('should adapt chart to screen', () => {
+      expect(chartSize(375).height).toBe(240);
+      expect(chartSize(800).height).toBe(320);
+      expect(chartSize(1440).height).toBe(400);
+    });
+  });
+
+  // 表格密度
+  describe('Table Density', () => {
+    function tableDensity(w: number) {
+      if (w < 640) return { padding: '6px 4px', fontSize: 11 };
+      if (w < 1024) return { padding: '8px 8px', fontSize: 12 };
+      return { padding: '12px 16px', fontSize: 14 };
+    }
+
+    it('should compact table on mobile', () => {
+      const d = tableDensity(375);
+      expect(d.fontSize).toBe(11);
+      expect(d.padding).toContain('6px');
+    });
+
+    it('should expand table on desktop', () => {
+      const d = tableDensity(1440);
+      expect(d.fontSize).toBe(14);
+    });
+  });
+
+  // 卡片布局
+  describe('Card Grid', () => {
+    function cardGrid(w: number) {
+      if (w < 640) return { cols: 1, gap: 8, cardPad: 8 };
+      if (w < 768) return { cols: 1, gap: 12, cardPad: 12 };
+      if (w < 1024) return { cols: 2, gap: 16, cardPad: 16 };
+      if (w < 1280) return { cols: 3, gap: 16, cardPad: 16 };
+      return { cols: 4, gap: 20, cardPad: 20 };
+    }
+
+    it('should be single column on mobile', () => {
+      expect(cardGrid(375).cols).toBe(1);
+    });
+
+    it('should increase columns on larger screens', () => {
+      expect(cardGrid(1440).cols).toBe(4);
+    });
+  });
+
+  // 手势区域
+  describe('Gesture Area', () => {
+    function gestureConfig(w: number) {
+      return {
+        swipeThreshold: w < 768 ? 50 : 80,
+        longPressMs: 500,
+        doubleTapMs: 300,
+        pinchEnabled: w < 768,
       };
-      return grids[breakpoint] || grids.md;
+    }
+
+    it('should use smaller swipe threshold on mobile', () => {
+      expect(gestureConfig(375).swipeThreshold).toBe(50);
+      expect(gestureConfig(1440).swipeThreshold).toBe(80);
+    });
+
+    it('should enable pinch only on mobile', () => {
+      expect(gestureConfig(375).pinchEnabled).toBe(true);
+      expect(gestureConfig(1440).pinchEnabled).toBe(false);
+    });
+  });
+
+  // 导航模式
+  describe('Navigation Mode', () => {
+    function navMode(w: number) {
+      if (w < 768) return { mode: 'bottom-tabs' as const, items: 5, showLabels: true };
+      if (w < 1024) return { mode: 'sidebar-collapsed' as const, items: 20, showLabels: false };
+      return { mode: 'sidebar' as const, items: 20, showLabels: true };
+    }
+
+    it('should use bottom tabs on mobile', () => {
+      expect(navMode(375).mode).toBe('bottom-tabs');
+      expect(navMode(375).items).toBe(5);
+    });
+
+    it('should use sidebar on desktop', () => {
+      expect(navMode(1440).mode).toBe('sidebar');
+    });
+
+    it('should collapse sidebar on tablet', () => {
+      expect(navMode(800).mode).toBe('sidebar-collapsed');
+      expect(navMode(800).showLabels).toBe(false);
+    });
+  });
+
+  // 侧边栏折叠行为
+  describe('Sidebar Collapse', () => {
+    function sidebarState(w: number, userCollapsed: boolean) {
+      if (w < 768) return { visible: false, collapsed: false, width: 0 };
+      if (w < 1024) return { visible: true, collapsed: true, width: 64 };
+      return { visible: true, collapsed: userCollapsed, width: userCollapsed ? 64 : 200 };
     }
 
     it('should hide sidebar on mobile', () => {
-      const { sidebar } = getGridCols('xs');
-      expect(sidebar).toBe(0);
+      expect(sidebarState(375, false).visible).toBe(false);
     });
 
-    it('should show sidebar on larger screens', () => {
-      const { sidebar } = getGridCols('lg');
-      expect(sidebar).toBeGreaterThan(0);
+    it('should always collapse on tablet', () => {
+      expect(sidebarState(800, false).collapsed).toBe(true);
+      expect(sidebarState(800, false).width).toBe(64);
     });
 
-    it('should always sum to 24', () => {
-      ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'].forEach(bp => {
-        const { sidebar, content } = getGridCols(bp);
-        expect(sidebar + content).toBe(24);
-      });
+    it('should respect user preference on desktop', () => {
+      expect(sidebarState(1440, false).width).toBe(200);
+      expect(sidebarState(1440, true).width).toBe(64);
     });
   });
 
-  describe('Responsive Font Sizes', () => {
-    function getFontSize(base: number, breakpoint: string): number {
-      const multipliers: Record<string, number> = {
-        xs: 0.85,
-        sm: 0.9,
-        md: 1,
-        lg: 1,
-        xl: 1.05,
-        xxl: 1.1,
-      };
-      return Math.round(base * (multipliers[breakpoint] || 1));
+  // 弹窗尺寸
+  describe('Modal Sizing', () => {
+    function modalSize(w: number) {
+      if (w < 640) return { width: '100vw', fullscreen: true };
+      if (w < 1024) return { width: '80vw', fullscreen: false };
+      return { width: 520, fullscreen: false };
     }
 
-    it('should scale down on mobile', () => {
-      expect(getFontSize(16, 'xs')).toBeLessThan(16);
-    });
-
-    it('should scale up on large screens', () => {
-      expect(getFontSize(16, 'xxl')).toBeGreaterThan(16);
-    });
-
-    it('should not scale at md', () => {
-      expect(getFontSize(16, 'md')).toBe(16);
-    });
-  });
-
-  describe('Container Width', () => {
-    function getContainerWidth(breakpoint: string): number | string {
-      const widths: Record<string, number | string> = {
-        xs: '100%',
-        sm: '100%',
-        md: 720,
-        lg: 960,
-        xl: 1140,
-        xxl: 1320,
-      };
-      return widths[breakpoint] || '100%';
-    }
-
-    it('should use fluid width on mobile', () => {
-      expect(getContainerWidth('xs')).toBe('100%');
+    it('should fullscreen modal on phone', () => {
+      expect(modalSize(375).fullscreen).toBe(true);
     });
 
     it('should use fixed width on desktop', () => {
-      expect(getContainerWidth('xl')).toBe(1140);
+      expect(modalSize(1440).width).toBe(520);
     });
   });
 
-  describe('Responsive Table Columns', () => {
-    interface Column {
-      key: string;
-      label: string;
-      priority: number; // 1=always, 2=tablet+, 3=desktop+
+  // 下拉菜单位置
+  describe('Dropdown Position', () => {
+    function dropdownPos(w: number, triggerX: number) {
+      const menuWidth = 200;
+      const spaceRight = w - triggerX;
+      return spaceRight < menuWidth ? 'left' : 'right';
     }
 
-    function getVisibleColumns(columns: Column[], breakpoint: string): Column[] {
-      const minPriority = breakpoint === 'xs' ? 1 : breakpoint === 'md' ? 2 : 3;
-      return columns.filter(c => {
-        if (breakpoint === 'xs') return c.priority === 1;
-        if (breakpoint === 'md') return c.priority <= 2;
-        return true;
-      });
-    }
-
-    const columns: Column[] = [
-      { key: 'symbol', label: '代码', priority: 1 },
-      { key: 'name', label: '名称', priority: 1 },
-      { key: 'price', label: '最新价', priority: 1 },
-      { key: 'change', label: '涨跌幅', priority: 1 },
-      { key: 'volume', label: '成交量', priority: 2 },
-      { key: 'turnover', label: '成交额', priority: 2 },
-      { key: 'pe', label: '市盈率', priority: 3 },
-      { key: 'pb', label: '市净率', priority: 3 },
-    ];
-
-    it('should show only priority 1 on mobile', () => {
-      const visible = getVisibleColumns(columns, 'xs');
-      expect(visible.length).toBe(4);
-      visible.forEach(c => expect(c.priority).toBe(1));
+    it('should align left when near right edge', () => {
+      expect(dropdownPos(400, 350)).toBe('left');
     });
 
-    it('should show priority 1-2 on tablet', () => {
-      const visible = getVisibleColumns(columns, 'md');
-      expect(visible.length).toBe(6);
-    });
-
-    it('should show all on desktop', () => {
-      const visible = getVisibleColumns(columns, 'xl');
-      expect(visible.length).toBe(8);
+    it('should align right when enough space', () => {
+      expect(dropdownPos(1440, 100)).toBe('right');
     });
   });
 
-  describe('Responsive Image Sizes', () => {
-    function getOptimalImageSize(containerWidth: number): number {
-      if (containerWidth <= 400) return 400;
-      if (containerWidth <= 800) return 800;
-      if (containerWidth <= 1200) return 1200;
-      return 1600;
+  // 弹性布局换行
+  describe('Flex Wrap', () => {
+    function flexWrap(containerW: number, itemW: number, gap: number, count: number) {
+      const totalWidth = itemW * count + gap * (count - 1);
+      return totalWidth > containerW ? 'wrap' : 'nowrap';
     }
 
-    it('should return correct image size', () => {
-      expect(getOptimalImageSize(300)).toBe(400);
-      expect(getOptimalImageSize(600)).toBe(800);
-      expect(getOptimalImageSize(1000)).toBe(1200);
-      expect(getOptimalImageSize(1920)).toBe(1600);
+    it('should wrap when items overflow', () => {
+      expect(flexWrap(375, 120, 8, 5)).toBe('wrap');
+    });
+
+    it('should not wrap when items fit', () => {
+      expect(flexWrap(1440, 120, 8, 5)).toBe('nowrap');
     });
   });
 });

@@ -1,224 +1,248 @@
 import { describe, it, expect } from 'vitest';
 
-describe('Responsive Layout Proper', () => {
-  describe('Breakpoint Detection', () => {
-    const breakpoints = {
-      mobile: 480,
-      tablet: 768,
-      laptop: 1024,
-      desktop: 1280,
-      wide: 1600,
-    };
-
-    function getBreakpoint(width: number): string {
-      if (width <= breakpoints.mobile) return 'mobile';
-      if (width <= breakpoints.tablet) return 'tablet';
-      if (width <= breakpoints.laptop) return 'laptop';
-      if (width <= breakpoints.desktop) return 'desktop';
-      return 'wide';
+describe('ResponsiveLayoutProper', () => {
+  // 综合响应式配置
+  describe('Complete Responsive Config', () => {
+    interface ResponsiveState {
+      breakpoint: string;
+      isMobile: boolean;
+      isTablet: boolean;
+      isDesktop: boolean;
+      columns: number;
+      sidebarVisible: boolean;
+      tableScroll: boolean;
+      touchFriendly: boolean;
+      headerHeight: number;
+      contentPadding: number;
     }
 
-    function getColumnCount(width: number): number {
-      const bp = getBreakpoint(width);
-      switch (bp) {
-        case 'mobile': return 1;
-        case 'tablet': return 2;
-        case 'laptop': return 3;
-        case 'desktop': return 4;
-        default: return 4;
-      }
+    function fullConfig(w: number): ResponsiveState {
+      const isMobile = w < 768;
+      const isTablet = w >= 768 && w < 1024;
+      const isDesktop = w >= 1024;
+
+      let breakpoint = 'xs';
+      if (w >= 1536) breakpoint = '2xl';
+      else if (w >= 1280) breakpoint = 'xl';
+      else if (w >= 1024) breakpoint = 'lg';
+      else if (w >= 768) breakpoint = 'md';
+      else if (w >= 640) breakpoint = 'sm';
+
+      let columns = 1;
+      if (w >= 1280) columns = 4;
+      else if (w >= 1024) columns = 3;
+      else if (w >= 768) columns = 2;
+
+      return {
+        breakpoint,
+        isMobile,
+        isTablet,
+        isDesktop,
+        columns,
+        sidebarVisible: !isMobile,
+        tableScroll: isMobile,
+        touchFriendly: isMobile,
+        headerHeight: isMobile ? 52 : 64,
+        contentPadding: isMobile ? 8 : isTablet ? 12 : 16,
+      };
     }
 
-    function getSidebarVisible(width: number): boolean {
-      return width > breakpoints.tablet;
-    }
-
-    function getFontSize(width: number): number {
-      const bp = getBreakpoint(width);
-      switch (bp) {
-        case 'mobile': return 12;
-        case 'tablet': return 13;
-        default: return 14;
-      }
-    }
-
-    it('should detect mobile breakpoint', () => {
-      expect(getBreakpoint(320)).toBe('mobile');
-      expect(getBreakpoint(480)).toBe('mobile');
+    it('should produce correct config for iPhone SE', () => {
+      const c = fullConfig(375);
+      expect(c.breakpoint).toBe('xs');
+      expect(c.isMobile).toBe(true);
+      expect(c.columns).toBe(1);
+      expect(c.sidebarVisible).toBe(false);
+      expect(c.touchFriendly).toBe(true);
     });
 
-    it('should detect tablet breakpoint', () => {
-      expect(getBreakpoint(600)).toBe('tablet');
-      expect(getBreakpoint(768)).toBe('tablet');
+    it('should produce correct config for iPad', () => {
+      const c = fullConfig(810);
+      expect(c.breakpoint).toBe('md');
+      expect(c.isTablet).toBe(true);
+      expect(c.columns).toBe(2);
+      expect(c.sidebarVisible).toBe(true);
     });
 
-    it('should detect laptop breakpoint', () => {
-      expect(getBreakpoint(900)).toBe('laptop');
-      expect(getBreakpoint(1024)).toBe('laptop');
-    });
-
-    it('should detect desktop breakpoint', () => {
-      expect(getBreakpoint(1200)).toBe('desktop');
-      expect(getBreakpoint(1280)).toBe('desktop');
-    });
-
-    it('should detect wide breakpoint', () => {
-      expect(getBreakpoint(1920)).toBe('wide');
-    });
-
-    it('should return 1 column on mobile', () => {
-      expect(getColumnCount(375)).toBe(1);
-    });
-
-    it('should return 2 columns on tablet', () => {
-      expect(getColumnCount(600)).toBe(2);
-    });
-
-    it('should return 4 columns on desktop', () => {
-      expect(getColumnCount(1440)).toBe(4);
-    });
-
-    it('should hide sidebar on mobile', () => {
-      expect(getSidebarVisible(375)).toBe(false);
-    });
-
-    it('should show sidebar on desktop', () => {
-      expect(getSidebarVisible(1024)).toBe(true);
-    });
-
-    it('should use smaller font on mobile', () => {
-      expect(getFontSize(375)).toBe(12);
-    });
-
-    it('should use larger font on desktop', () => {
-      expect(getFontSize(1440)).toBe(14);
+    it('should produce correct config for MacBook', () => {
+      const c = fullConfig(1440);
+      expect(c.breakpoint).toBe('xl');
+      expect(c.isDesktop).toBe(true);
+      expect(c.columns).toBe(4);
+      expect(c.tableScroll).toBe(false);
     });
   });
 
-  describe('Table Responsiveness', () => {
-    interface Column { key: string; label: string; priority: number; minWidth: number; }
+  // 响应式图片
+  describe('Responsive Images', () => {
+    function imgSrcSet(base: string, sizes: number[]) {
+      return sizes.map((s) => `${base}-${s}.webp ${s}w`).join(', ');
+    }
 
-    function getVisibleColumns(columns: Column[], containerWidth: number): Column[] {
-      const sorted = [...columns].sort((a, b) => b.priority - a.priority);
-      const result: Column[] = [];
-      let usedWidth = 0;
-      for (const col of sorted) {
-        if (usedWidth + col.minWidth <= containerWidth) {
-          result.push(col);
-          usedWidth += col.minWidth;
-        }
+    function imgSizes(breakpoints: string[]) {
+      return breakpoints.join(', ');
+    }
+
+    it('should generate srcset', () => {
+      const srcset = imgSrcSet('/img/logo', [320, 640, 1024]);
+      expect(srcset).toContain('320w');
+      expect(srcset).toContain('640w');
+      expect(srcset).toContain('1024w');
+    });
+
+    it('should generate sizes attribute', () => {
+      const sizes = imgSizes(['(max-width: 768px) 100vw', '(max-width: 1200px) 50vw', '33vw']);
+      expect(sizes).toContain('100vw');
+    });
+  });
+
+  // 响应式表单
+  describe('Responsive Forms', () => {
+    function formLayout(w: number) {
+      if (w < 640) return { direction: 'column' as const, labelPos: 'top' as const, inputWidth: '100%' };
+      if (w < 1024) return { direction: 'row' as const, labelPos: 'left' as const, inputWidth: '60%' };
+      return { direction: 'row' as const, labelPos: 'left' as const, inputWidth: '400px' };
+    }
+
+    it('should stack form on mobile', () => {
+      const f = formLayout(375);
+      expect(f.direction).toBe('column');
+      expect(f.inputWidth).toBe('100%');
+    });
+
+    it('should use row layout on desktop', () => {
+      const f = formLayout(1440);
+      expect(f.direction).toBe('row');
+      expect(f.inputWidth).toBe('400px');
+    });
+  });
+
+  // 响应式分页
+  describe('Responsive Pagination', () => {
+    function paginationConfig(w: number) {
+      if (w < 640) return { showTotal: false, showSizeChanger: false, simple: true, pageSize: 10 };
+      if (w < 1024) return { showTotal: true, showSizeChanger: false, simple: false, pageSize: 20 };
+      return { showTotal: true, showSizeChanger: true, simple: false, pageSize: 20 };
+    }
+
+    it('should use simple pagination on mobile', () => {
+      expect(paginationConfig(375).simple).toBe(true);
+      expect(paginationConfig(375).showTotal).toBe(false);
+    });
+
+    it('should use full pagination on desktop', () => {
+      expect(paginationConfig(1440).showSizeChanger).toBe(true);
+      expect(paginationConfig(1440).simple).toBe(false);
+    });
+  });
+
+  // 热力图自适应
+  describe('Heatmap Responsive', () => {
+    function heatmapConfig(w: number) {
+      if (w < 768) return { cellSize: 24, showLabels: false, cols: 8, rows: 6 };
+      if (w < 1024) return { cellSize: 32, showLabels: true, cols: 12, rows: 8 };
+      return { cellSize: 40, showLabels: true, cols: 16, rows: 10 };
+    }
+
+    it('should reduce heatmap complexity on mobile', () => {
+      const h = heatmapConfig(375);
+      expect(h.showLabels).toBe(false);
+      expect(h.cellSize).toBe(24);
+    });
+
+    it('should show full heatmap on desktop', () => {
+      const h = heatmapConfig(1440);
+      expect(h.showLabels).toBe(true);
+      expect(h.cols).toBe(16);
+    });
+  });
+
+  // K线图自适应
+  describe('KLine Chart Responsive', () => {
+    function klineConfig(w: number) {
+      if (w < 768) {
+        return { width: w - 16, height: 280, showVolume: false, showMA: false, candleWidth: 4, showCrosshair: true };
       }
-      return result.sort((a, b) => columns.indexOf(a) - columns.indexOf(b));
+      if (w < 1024) {
+        return { width: w - 24, height: 360, showVolume: true, showMA: true, candleWidth: 6, showCrosshair: true };
+      }
+      return { width: Math.min(w - 32, 1200), height: 450, showVolume: true, showMA: true, candleWidth: 8, showCrosshair: true };
     }
 
-    it('should show all columns when space allows', () => {
-      const cols: Column[] = [
-        { key: 'name', label: '名称', priority: 10, minWidth: 100 },
-        { key: 'price', label: '价格', priority: 9, minWidth: 80 },
-        { key: 'change', label: '涨跌', priority: 8, minWidth: 80 },
-      ];
-      expect(getVisibleColumns(cols, 500).length).toBe(3);
+    it('should hide volume on mobile kline', () => {
+      expect(klineConfig(375).showVolume).toBe(false);
     });
 
-    it('should hide low priority columns when space is limited', () => {
-      const cols: Column[] = [
-        { key: 'name', label: '名称', priority: 10, minWidth: 100 },
-        { key: 'price', label: '价格', priority: 9, minWidth: 80 },
-        { key: 'change', label: '涨跌', priority: 8, minWidth: 80 },
-        { key: 'volume', label: '成交量', priority: 5, minWidth: 100 },
-        { key: 'turnover', label: '成交额', priority: 4, minWidth: 100 },
-      ];
-      const visible = getVisibleColumns(cols, 300);
-      expect(visible.length).toBeLessThan(5);
-      expect(visible.some(c => c.key === 'name')).toBe(true);
-    });
-
-    it('should handle empty columns', () => {
-      expect(getVisibleColumns([], 500)).toEqual([]);
-    });
-
-    it('should handle very narrow container', () => {
-      const cols: Column[] = [
-        { key: 'name', label: '名称', priority: 10, minWidth: 100 },
-        { key: 'price', label: '价格', priority: 9, minWidth: 80 },
-      ];
-      const visible = getVisibleColumns(cols, 50);
-      expect(visible.length).toBeLessThanOrEqual(1);
+    it('should show all indicators on desktop', () => {
+      const c = klineConfig(1440);
+      expect(c.showVolume).toBe(true);
+      expect(c.showMA).toBe(true);
+      expect(c.height).toBe(450);
     });
   });
 
-  describe('Grid Layout Calculation', () => {
-    function calculateGrid(items: number, containerWidth: number, minItemWidth: number): { columns: number; rows: number } {
-      const columns = Math.max(1, Math.floor(containerWidth / minItemWidth));
-      const rows = Math.ceil(items / columns);
-      return { columns, rows };
+  // 列表 vs 详情布局切换
+  describe('Layout Mode Switch', () => {
+    function layoutMode(w: number, hasDetail: boolean) {
+      if (w < 768) return hasDetail ? 'detail-full' as const : 'list-full' as const;
+      if (w < 1024) return hasDetail ? 'split-7-5' as const : 'list-full' as const;
+      return hasDetail ? 'split-8-4' as const : 'list-full' as const;
     }
 
-    it('should calculate grid for wide container', () => {
-      const grid = calculateGrid(10, 1200, 300);
-      expect(grid.columns).toBe(4);
-      expect(grid.rows).toBe(3);
+    it('should use full detail on mobile', () => {
+      expect(layoutMode(375, true)).toBe('detail-full');
     });
 
-    it('should calculate grid for narrow container', () => {
-      const grid = calculateGrid(10, 350, 300);
-      expect(grid.columns).toBe(1);
-      expect(grid.rows).toBe(10);
+    it('should use split layout on tablet', () => {
+      expect(layoutMode(800, true)).toBe('split-7-5');
     });
 
-    it('should handle exact fit', () => {
-      const grid = calculateGrid(4, 1200, 300);
-      expect(grid.columns).toBe(4);
-      expect(grid.rows).toBe(1);
-    });
-
-    it('should handle empty items', () => {
-      const grid = calculateGrid(0, 1200, 300);
-      expect(grid.rows).toBe(0);
-    });
-
-    it('should handle single item', () => {
-      const grid = calculateGrid(1, 1200, 300);
-      expect(grid.columns).toBe(4);
-      expect(grid.rows).toBe(1);
+    it('should use wider split on desktop', () => {
+      expect(layoutMode(1440, true)).toBe('split-8-4');
     });
   });
 
-  describe('Content Adaptation', () => {
-    function shouldShowFullContent(width: number, contentType: 'chart' | 'table' | 'card'): boolean {
-      if (contentType === 'chart') return width > 600;
-      if (contentType === 'table') return width > 480;
-      return true;
+  // 密度切换
+  describe('Density Mode', () => {
+    function densityMode(w: number) {
+      if (w < 640) return 'compact' as const;
+      if (w < 1024) return 'normal' as const;
+      return 'comfortable' as const;
     }
 
-    function getChartHeight(width: number): number {
-      if (width <= 480) return 200;
-      if (width <= 768) return 300;
-      return 400;
+    it('should use compact on mobile', () => {
+      expect(densityMode(375)).toBe('compact');
+    });
+
+    it('should use comfortable on desktop', () => {
+      expect(densityMode(1440)).toBe('comfortable');
+    });
+  });
+
+  // 主题色响应
+  describe('Theme Responsive', () => {
+    function themeVars(w: number, dark: boolean) {
+      return {
+        '--bg': dark ? '#0f0f23' : '#f5f5f5',
+        '--surface': dark ? '#16213e' : '#fff',
+        '--text': dark ? '#e0e0e0' : '#111827',
+        '--card-shadow': w < 768 ? 'none' : '0 2px 8px rgba(0,0,0,0.1)',
+        '--border-radius': w < 768 ? '8px' : '12px',
+      };
     }
 
-    it('should show full chart on desktop', () => {
-      expect(shouldShowFullContent(1024, 'chart')).toBe(true);
+    it('should generate correct light vars', () => {
+      const v = themeVars(1440, false);
+      expect(v['--bg']).toBe('#f5f5f5');
     });
 
-    it('should hide full chart on mobile', () => {
-      expect(shouldShowFullContent(375, 'chart')).toBe(false);
+    it('should generate correct dark vars', () => {
+      const v = themeVars(1440, true);
+      expect(v['--bg']).toBe('#0f0f23');
     });
 
-    it('should show full table on tablet+', () => {
-      expect(shouldShowFullContent(768, 'table')).toBe(true);
-    });
-
-    it('should always show cards', () => {
-      expect(shouldShowFullContent(320, 'card')).toBe(true);
-    });
-
-    it('should use shorter chart on mobile', () => {
-      expect(getChartHeight(375)).toBe(200);
-    });
-
-    it('should use taller chart on desktop', () => {
-      expect(getChartHeight(1440)).toBe(400);
+    it('should remove shadow on mobile', () => {
+      expect(themeVars(375, false)['--card-shadow']).toBe('none');
     });
   });
 });

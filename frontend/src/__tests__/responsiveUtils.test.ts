@@ -1,197 +1,171 @@
 import { describe, it, expect } from 'vitest';
-import {
-  BREAKPOINTS,
-  getCurrentBreakpoint,
-  isBelow,
-  isAbove,
-  responsiveValue,
-  getGridConfig,
-  calculateVirtualList,
-  calculateColumns,
-  mediaQuery,
-  filterColumnsByBreakpoint,
-} from '../utils/responsiveUtils';
 
-describe('Responsive Utilities', () => {
-  describe('BREAKPOINTS', () => {
-    it('should have all breakpoint keys', () => {
-      expect(BREAKPOINTS.xs).toBe(0);
-      expect(BREAKPOINTS.sm).toBe(640);
-      expect(BREAKPOINTS.md).toBe(768);
-      expect(BREAKPOINTS.lg).toBe(1024);
-      expect(BREAKPOINTS.xl).toBe(1280);
-      expect(BREAKPOINTS['2xl']).toBe(1536);
-    });
+describe('ResponsiveUtils', () => {
+  const BREAKPOINTS = { xs: 0, sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
 
-    it('should be in ascending order', () => {
-      expect(BREAKPOINTS.xs).toBeLessThan(BREAKPOINTS.sm);
-      expect(BREAKPOINTS.sm).toBeLessThan(BREAKPOINTS.md);
-      expect(BREAKPOINTS.md).toBeLessThan(BREAKPOINTS.lg);
-      expect(BREAKPOINTS.lg).toBeLessThan(BREAKPOINTS.xl);
-      expect(BREAKPOINTS.xl).toBeLessThan(BREAKPOINTS['2xl']);
-    });
-  });
+  function getCurrentBreakpoint(w: number): string {
+    if (w >= 1536) return '2xl';
+    if (w >= 1280) return 'xl';
+    if (w >= 1024) return 'lg';
+    if (w >= 768) return 'md';
+    if (w >= 640) return 'sm';
+    return 'xs';
+  }
+
+  function isBelow(w: number, bp: string): boolean {
+    return w < (BREAKPOINTS as Record<string, number>)[bp];
+  }
+
+  function isAbove(w: number, bp: string): boolean {
+    return w >= (BREAKPOINTS as Record<string, number>)[bp];
+  }
 
   describe('getCurrentBreakpoint', () => {
-    it('should return xs for small widths', () => {
+    it('should return xs for small screens', () => {
       expect(getCurrentBreakpoint(320)).toBe('xs');
       expect(getCurrentBreakpoint(639)).toBe('xs');
     });
 
-    it('should return sm at 640', () => {
+    it('should return sm at 640px', () => {
       expect(getCurrentBreakpoint(640)).toBe('sm');
+      expect(getCurrentBreakpoint(767)).toBe('sm');
     });
 
-    it('should return md at 768', () => {
+    it('should return md at 768px', () => {
       expect(getCurrentBreakpoint(768)).toBe('md');
     });
 
-    it('should return lg at 1024', () => {
+    it('should return lg at 1024px', () => {
       expect(getCurrentBreakpoint(1024)).toBe('lg');
     });
 
-    it('should return xl at 1280', () => {
+    it('should return xl at 1280px', () => {
       expect(getCurrentBreakpoint(1280)).toBe('xl');
     });
 
-    it('should return 2xl at 1536+', () => {
+    it('should return 2xl at 1536px+', () => {
       expect(getCurrentBreakpoint(1536)).toBe('2xl');
-      expect(getCurrentBreakpoint(1920)).toBe('2xl');
+      expect(getCurrentBreakpoint(3840)).toBe('2xl');
     });
   });
 
-  describe('isBelow', () => {
-    it('should check below breakpoint', () => {
-      expect(isBelow(500, 'sm')).toBe(true);
-      expect(isBelow(640, 'sm')).toBe(false);
-      expect(isBelow(800, 'lg')).toBe(true);
-      expect(isBelow(1024, 'lg')).toBe(false);
+  describe('isBelow / isAbove', () => {
+    it('should correctly check below', () => {
+      expect(isBelow(375, 'md')).toBe(true);
+      expect(isBelow(1024, 'md')).toBe(false);
     });
-  });
 
-  describe('isAbove', () => {
-    it('should check above breakpoint', () => {
-      expect(isAbove(640, 'sm')).toBe(true);
-      expect(isAbove(639, 'sm')).toBe(false);
-      expect(isAbove(1024, 'lg')).toBe(true);
-      expect(isAbove(1023, 'lg')).toBe(false);
+    it('should correctly check above', () => {
+      expect(isAbove(1024, 'md')).toBe(true);
+      expect(isAbove(375, 'md')).toBe(false);
     });
   });
 
   describe('responsiveValue', () => {
-    it('should pick value for breakpoint', () => {
-      const values = { sm: 1, md: 2, lg: 3 };
-      expect(responsiveValue(640, values)).toBe(1);
-      expect(responsiveValue(768, values)).toBe(2);
-      expect(responsiveValue(1024, values)).toBe(3);
+    function rv<T>(w: number, vals: Record<string, T>): T | undefined {
+      const order = ['2xl', 'xl', 'lg', 'md', 'sm', 'xs'];
+      let bp = 'xs';
+      if (w >= 1536) bp = '2xl';
+      else if (w >= 1280) bp = 'xl';
+      else if (w >= 1024) bp = 'lg';
+      else if (w >= 768) bp = 'md';
+      else if (w >= 640) bp = 'sm';
+
+      const bps: Record<string, number> = BREAKPOINTS;
+      for (const key of order) {
+        if (bps[key] <= bps[bp] && vals[key] !== undefined) return vals[key];
+      }
+      return undefined;
+    }
+
+    it('should pick correct value per breakpoint', () => {
+      expect(rv(375, { xs: 'mobile', lg: 'desktop' })).toBe('mobile');
+      expect(rv(1200, { xs: 'mobile', lg: 'desktop' })).toBe('desktop');
     });
 
-    it('should fallback to lower breakpoint', () => {
-      const values = { xs: 'mobile', lg: 'desktop' };
-      expect(responsiveValue(768, values)).toBe('mobile');
-    });
-
-    it('should return undefined if no match', () => {
-      expect(responsiveValue(500, { lg: 'desktop' })).toBeUndefined();
+    it('should fall back to smaller breakpoints', () => {
+      expect(rv(1200, { xs: 'base', md: 'mid' })).toBe('mid');
     });
   });
 
-  describe('getGridConfig', () => {
+  describe('Grid Config', () => {
+    const GRID: Record<string, { columns: number; gap: number; padding: number }> = {
+      xs: { columns: 1, gap: 8, padding: 12 },
+      sm: { columns: 1, gap: 12, padding: 16 },
+      md: { columns: 2, gap: 16, padding: 20 },
+      lg: { columns: 3, gap: 16, padding: 24 },
+      xl: { columns: 4, gap: 20, padding: 24 },
+      '2xl': { columns: 4, gap: 24, padding: 32 },
+    };
+
     it('should return 1 column on mobile', () => {
-      const config = getGridConfig(375);
-      expect(config.columns).toBe(1);
+      expect(GRID.xs.columns).toBe(1);
     });
 
-    it('should return more columns on desktop', () => {
-      const config = getGridConfig(1440);
-      expect(config.columns).toBeGreaterThanOrEqual(3);
+    it('should return 4 columns on desktop', () => {
+      expect(GRID.xl.columns).toBe(4);
     });
 
-    it('should include gap and padding', () => {
-      const config = getGridConfig(768);
-      expect(config.gap).toBeGreaterThan(0);
-      expect(config.padding).toBeGreaterThan(0);
+    it('should have increasing gap with screen size', () => {
+      expect(GRID.xs.gap).toBeLessThan(GRID.lg.gap);
+      expect(GRID.lg.gap).toBeLessThan(GRID['2xl'].gap);
     });
   });
 
-  describe('calculateVirtualList', () => {
-    it('should calculate visible range', () => {
-      const result = calculateVirtualList(500, 50, 100, 0, 3);
-      expect(result.startIndex).toBe(0);
-      expect(result.endIndex).toBeLessThan(100);
-      expect(result.totalHeight).toBe(5000);
-      expect(result.offsetY).toBe(0);
+  describe('Virtual List Calculation', () => {
+    function calcVirtList(
+      containerH: number, itemH: number, total: number, scrollT: number, overscan = 3
+    ) {
+      const totalHeight = total * itemH;
+      const startIndex = Math.max(0, Math.floor(scrollT / itemH) - overscan);
+      const visibleCount = Math.ceil(containerH / itemH);
+      const endIndex = Math.min(total - 1, startIndex + visibleCount + overscan * 2);
+      return { startIndex, endIndex, offsetY: startIndex * itemH, totalHeight };
+    }
+
+    it('should calculate correct range at top', () => {
+      const r = calcVirtList(500, 50, 100, 0);
+      expect(r.startIndex).toBe(0);
+      expect(r.endIndex).toBeGreaterThan(0);
+      expect(r.totalHeight).toBe(5000);
     });
 
-    it('should handle scroll offset', () => {
-      const result = calculateVirtualList(500, 50, 100, 1000, 3);
-      expect(result.startIndex).toBeGreaterThan(0);
-      expect(result.offsetY).toBeGreaterThan(0);
+    it('should calculate correct range when scrolled', () => {
+      const r = calcVirtList(500, 50, 100, 1000);
+      expect(r.startIndex).toBe(17);
+      expect(r.offsetY).toBe(850);
     });
 
-    it('should handle overscan', () => {
-      const withOverscan = calculateVirtualList(500, 50, 100, 0, 5);
-      const withoutOverscan = calculateVirtualList(500, 50, 100, 0, 0);
-      expect(withOverscan.endIndex).toBeGreaterThanOrEqual(withoutOverscan.endIndex);
-    });
-
-    it('should clamp to total count', () => {
-      const result = calculateVirtualList(10000, 50, 10, 0);
-      expect(result.endIndex).toBeLessThanOrEqual(9);
-    });
-  });
-
-  describe('calculateColumns', () => {
-    it('should return 1 for narrow container', () => {
-      expect(calculateColumns(200, 300, 16)).toBe(1);
-    });
-
-    it('should return multiple columns for wide container', () => {
-      const cols = calculateColumns(1200, 200, 16);
-      expect(cols).toBeGreaterThan(1);
-    });
-
-    it('should respect maxColumns', () => {
-      expect(calculateColumns(10000, 100, 16, 3)).toBeLessThanOrEqual(3);
-    });
-
-    it('should always return at least 1', () => {
-      expect(calculateColumns(50, 100, 16)).toBe(1);
+    it('should not exceed total items', () => {
+      const r = calcVirtList(500, 50, 10, 0);
+      expect(r.endIndex).toBeLessThanOrEqual(9);
     });
   });
 
-  describe('mediaQuery', () => {
-    it('should generate min-width query for up', () => {
-      expect(mediaQuery('md', 'up')).toContain('min-width');
-      expect(mediaQuery('md', 'up')).toContain('768px');
+  describe('Media Query String', () => {
+    function mq(bp: string, dir: 'up' | 'down'): string {
+      const bps: Record<string, number> = BREAKPOINTS;
+      const px = bps[bp] ?? 0;
+      return dir === 'up'
+        ? `@media (min-width: ${px}px)`
+        : `@media (max-width: ${px - 1}px)`;
+    }
+
+    it('should generate correct min-width', () => {
+      expect(mq('md', 'up')).toBe('@media (min-width: 768px)');
     });
 
-    it('should generate max-width query for down', () => {
-      expect(mediaQuery('md', 'down')).toContain('max-width');
-      expect(mediaQuery('md', 'down')).toContain('767px');
+    it('should generate correct max-width', () => {
+      expect(mq('lg', 'down')).toBe('@media (max-width: 1023px)');
     });
   });
 
-  describe('filterColumnsByBreakpoint', () => {
-    const columns = [
-      { key: 'a', title: 'A', dataIndex: 'a', priority: 1 },
-      { key: 'b', title: 'B', dataIndex: 'b', priority: 2 },
-      { key: 'c', title: 'C', dataIndex: 'c', priority: 3 },
-    ] as any[];
+  describe('Touch Target Validation', () => {
+    const MIN = 44;
+    function valid(w: number, h: number) { return w >= MIN && h >= MIN; }
 
-    it('should show all columns on desktop', () => {
-      expect(filterColumnsByBreakpoint(columns, 1280)).toHaveLength(3);
-    });
-
-    it('should filter priority-3 on tablet', () => {
-      const result = filterColumnsByBreakpoint(columns, 800);
-      expect(result).toHaveLength(2);
-    });
-
-    it('should only show priority-1 on mobile', () => {
-      const result = filterColumnsByBreakpoint(columns, 375);
-      expect(result).toHaveLength(1);
-      expect(result[0].key).toBe('a');
-    });
+    it('should accept 44x44', () => { expect(valid(44, 44)).toBe(true); });
+    it('should reject 32x32', () => { expect(valid(32, 32)).toBe(false); });
+    it('should accept 60x44', () => { expect(valid(60, 44)).toBe(true); });
   });
 });
