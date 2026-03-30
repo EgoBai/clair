@@ -248,47 +248,48 @@ describe('getMAColor', () => {
 
 describe('getKLineChartTheme', () => {
   it('上涨返回红色', () => {
+    chartThemeManager.set(LIGHT_THEME);
     const theme = getKLineChartTheme(true);
-    expect(theme.color).toBe(LIGHT_THEME.candlestick.upColor);
+    expect(theme.color).toBe(LIGHT_THEME.rise);
   });
 
   it('下跌返回绿色', () => {
+    chartThemeManager.set(LIGHT_THEME);
     const theme = getKLineChartTheme(false);
-    expect(theme.color).toBe(LIGHT_THEME.candlestick.downColor);
+    expect(theme.color).toBe(LIGHT_THEME.fall);
   });
 
   it('返回有效 itemStyle', () => {
     const theme = getKLineChartTheme(true);
     expect(theme.itemStyle).toBeDefined();
-    expect(theme.itemStyle.borderWidth).toBe(1);
+    expect(theme.itemStyle.color).toBeDefined();
+    expect(theme.itemStyle.borderColor).toBeDefined();
   });
 });
 
 describe('主题常量完整性', () => {
   it('浅色主题包含所有必要字段', () => {
-    expect(LIGHT_THEME.colors.rise).toBeDefined();
-    expect(LIGHT_THEME.colors.fall).toBeDefined();
-    expect(LIGHT_THEME.candlestick).toBeDefined();
+    expect(LIGHT_THEME.rise).toBeDefined();
+    expect(LIGHT_THEME.fall).toBeDefined();
+    expect(LIGHT_THEME.bg).toBeDefined();
+    expect(LIGHT_THEME.text).toBeDefined();
     expect(LIGHT_THEME.volume).toBeDefined();
-    expect(LIGHT_THEME.indicators.ma).toHaveLength(4);
-    expect(LIGHT_THEME.indicators.macd).toBeDefined();
-    expect(LIGHT_THEME.indicators.kdj).toBeDefined();
-    expect(LIGHT_THEME.indicators.rsi).toHaveLength(3);
-    expect(LIGHT_THEME.indicators.boll).toBeDefined();
+    expect(LIGHT_THEME.series).toHaveLength(8);
   });
 
   it('暗色主题包含所有必要字段', () => {
-    expect(DARK_THEME.colors.rise).toBeDefined();
-    expect(DARK_THEME.colors.fall).toBeDefined();
-    expect(DARK_THEME.candlestick).toBeDefined();
+    expect(DARK_THEME.rise).toBeDefined();
+    expect(DARK_THEME.fall).toBeDefined();
+    expect(DARK_THEME.bg).toBeDefined();
+    expect(DARK_THEME.text).toBeDefined();
     expect(DARK_THEME.volume).toBeDefined();
-    expect(DARK_THEME.indicators.ma).toHaveLength(4);
+    expect(DARK_THEME.series).toHaveLength(8);
   });
 
   it('涨跌颜色一致（红涨绿跌）', () => {
-    expect(LIGHT_THEME.colors.rise).toBe('#EF4444');
-    expect(LIGHT_THEME.colors.fall).toBe('#22C55E');
-    expect(DARK_THEME.colors.rise).toBe('#EF4444');
-    expect(DARK_THEME.colors.fall).toBe('#22C55E');
+    expect(LIGHT_THEME.rise).toBe('#EF4444');
+    expect(LIGHT_THEME.fall).toBe('#22C55E');
+    expect(DARK_THEME.rise).toBe('#EF4444');
+    expect(DARK_THEME.fall).toBe('#22C55E');
   });
 });

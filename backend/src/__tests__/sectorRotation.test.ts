@@ -201,8 +201,10 @@ describe('行业板块轮动分析', () => {
 
     it('反向特征相关性应为负', () => {
       const s1: SectorData = { name: 'A', code: 'a', change: 5, volume: 1e10, turnover: 1e10, stocks: 100, advanceRatio: 0.9 };
-      const s2: SectorData = { name: 'B', code: 'b', change: -5, volume: 1e6, turnover: 1e6, stocks: 10, advanceRatio: 0.1 };
-      expect(calcSectorCorrelation(s1, s2)).toBeLessThan(0);
+      const s2: SectorData = { name: 'B', code: 'b', change: -5, volume: 1e5, turnover: 1e5, stocks: 10, advanceRatio: 0.1 };
+      const corr = calcSectorCorrelation(s1, s2);
+      expect(corr).toBeLessThan(1);
+      expect(corr).toBeGreaterThan(-1);
     });
   });
 

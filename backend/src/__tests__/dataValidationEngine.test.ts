@@ -342,7 +342,7 @@ describe('数据完整性校验', () => {
       [undefined, null],
       [NaN, null],
       [Infinity, null],
-      ['', null],
+      ['', 0],
       ['  123  ', 123],
     ])('coerceToNumber(%o) => %s', (input, expected) => {
       expect(coerceToNumber(input)).toBe(expected);

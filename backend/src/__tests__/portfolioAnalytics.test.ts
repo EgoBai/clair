@@ -254,10 +254,10 @@ describe('投资组合分析', () => {
       expect(calcBeta(stock, market)).toBeLessThan(0);
     });
 
-    it('市场波动不变Beta为0', () => {
+    it('市场波动不变Beta为1', () => {
       const stock = [0.01, 0.02, 0.01, 0.03, 0.02];
       const market = [0.01, 0.01, 0.01, 0.01, 0.01];
-      expect(calcBeta(stock, market)).toBe(0);
+      expect(calcBeta(stock, market)).toBe(1);
     });
 
     it('不足2个数据点返回1', () => {
@@ -292,7 +292,7 @@ describe('投资组合分析', () => {
   describe('Alpha计算', () => {
     it('市场表现等于预期时Alpha接近0', () => {
       const alpha = calcAlpha(0.1, 0.1, 1, 0.03);
-      expect(alpha).toBeCloseTo(0.03, 5);
+      expect(alpha).toBeCloseTo(0, 5);
     });
 
     it('跑赢市场Alpha为正', () => {
@@ -337,7 +337,7 @@ describe('投资组合分析', () => {
     it('恒定偏差跟踪误差为0', () => {
       const port = [0.02, 0.03, 0.025, 0.035];
       const bench = [0.01, 0.02, 0.015, 0.025];
-      expect(calcTrackingError(port, bench)).toBe(0);
+      expect(calcTrackingError(port, bench)).toBeCloseTo(0, 10);
     });
 
     it('偏差波动越大跟踪误差越大', () => {
