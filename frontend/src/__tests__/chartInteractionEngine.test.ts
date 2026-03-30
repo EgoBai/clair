@@ -1,336 +1,515 @@
 import { describe, it, expect } from 'vitest';
+import {
+  createViewport,
+  zoomViewport,
+  panViewport,
+  resetViewport,
+  fitDataToViewport,
+  calculateCrosshair,
+  formatCrosshairData,
+  updateSelection,
+  getSelectedData,
+  calculateSelectionStats,
+  findNearestIndex,
+  findNearestPoint,
+  highlightRange,
+  calculateTooltipPosition,
+  buildTooltip,
+  handleWheelZoom,
+  handleDragPan,
+  handleDoubleClickReset,
+  handleKeyboardZoom,
+  handleKeyboardPan,
+  sampleDataForViewport,
+  calculateViewportSummary,
+  dataToScreen,
+  screenToData,
+  type ChartViewport,
+  type ChartPoint,
+  type SelectionRange,
+  type ChartInteractionConfig,
+} from '../utils/chartInteractionEngine';
 
-// 图表交互引擎
-interface Point { x: number; y: number }
-interface Rect { x: number; y: number; width: number; height: number }
-interface ZoomState { scale: number; offsetX: number; offsetY: number; minScale: number; maxScale: number }
-interface PanState { isPanning: boolean; startX: number; startY: number; lastX: number; lastY: number }
-interface TooltipState { visible: boolean; x: number; y: number; dataIndex: number; content: string }
+// ==================== 测试数据 ====================
 
-class ChartInteractionEngine {
-  static initZoom(min = 0.5, max = 5): ZoomState {
-    return { scale: 1, offsetX: 0, offsetY: 0, minScale: min, maxScale: max };
-  }
+const mockPoints: ChartPoint[] = Array.from({ length: 100 }, (_, i) => ({
+  x: i,
+  y: Math.sin(i * 0.1) * 50 + 100,
+  data: { open: 100 + i, close: 100 + i + Math.random() * 5, volume: 1000000 + i * 10000 },
+  index: i,
+}));
 
-  static zoom(state: ZoomState, factor: number, centerX: number, centerY: number): ZoomState {
-    const newScale = Math.max(state.minScale, Math.min(state.maxScale, state.scale * factor));
-    const scaleChange = newScale / state.scale;
-    return {
-      ...state,
-      scale: newScale,
-      offsetX: centerX - (centerX - state.offsetX) * scaleChange,
-      offsetY: centerY - (centerY - state.offsetY) * scaleChange,
-    };
-  }
+const defaultConfig: ChartInteractionConfig = {
+  zoomStep: 0.1,
+  minZoom: 0.5,
+  maxZoom: 10,
+  panSensitivity: 1,
+  snapToData: true,
+  crosshairEnabled: true,
+  selectionEnabled: true,
+  tooltipEnabled: true,
+};
 
-  static zoomIn(state: ZoomState, centerX = 0, centerY = 0): ZoomState {
-    return this.zoom(state, 1.2, centerX, centerY);
-  }
+// ==================== 视口管理测试 ====================
 
-  static zoomOut(state: ZoomState, centerX = 0, centerY = 0): ZoomState {
-    return this.zoom(state, 0.8, centerX, centerY);
-  }
+describe('createViewport', () => {
+  it('应创建正确的初始视口', () => {
+    const vp = createViewport(0, 100, 0, 200);
+    expect(vp.xMin).toBe(0);
+    expect(vp.xMax).toBe(100);
+    expect(vp.yMin).toBe(0);
+    expect(vp.yMax).toBe(200);
+    expect(vp.zoom).toBe(1);
+  });
+});
 
-  static resetZoom(state: ZoomState): ZoomState {
-    return { ...state, scale: 1, offsetX: 0, offsetY: 0 };
-  }
+describe('zoomViewport', () => {
+  it('应以指定中心点缩放', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const zoomed = zoomViewport(vp, 2, { x: 50, y: 50 });
 
-  static pan(state: ZoomState, deltaX: number, deltaY: number): ZoomState {
-    return { ...state, offsetX: state.offsetX + deltaX, offsetY: state.offsetY + deltaY };
-  }
+    expect(zoomed.zoom).toBe(2);
+    expect(zoomed.xMax - zoomed.xMin).toBeLessThan(100);
+  });
 
-  static screenToData(screenPoint: Point, zoom: ZoomState, chartRect: Rect): Point {
-    return {
-      x: (screenPoint.x - zoom.offsetX - chartRect.x) / zoom.scale,
-      y: (screenPoint.y - zoom.offsetY - chartRect.y) / zoom.scale,
-    };
-  }
+  it('应限制缩放范围', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const overZoom = zoomViewport(vp, 100, { x: 50, y: 50 });
+    expect(overZoom.zoom).toBeLessThanOrEqual(defaultConfig.maxZoom);
 
-  static dataToScreen(dataPoint: Point, zoom: ZoomState, chartRect: Rect): Point {
-    return {
-      x: dataPoint.x * zoom.scale + zoom.offsetX + chartRect.x,
-      y: dataPoint.y * zoom.scale + zoom.offsetY + chartRect.y,
-    };
-  }
+    const underZoom = zoomViewport(vp, 0.01, { x: 50, y: 50 });
+    expect(underZoom.zoom).toBeGreaterThanOrEqual(defaultConfig.minZoom);
+  });
 
-  static findNearestDataPoint(mouseX: number, dataPoints: { x: number; y: number; index: number }[], chartWidth: number, dataCount: number): number {
-    const stepWidth = chartWidth / dataCount;
-    const index = Math.round(mouseX / stepWidth);
-    return Math.max(0, Math.min(dataCount - 1, index));
-  }
+  it('放大应缩小数据范围', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const zoomed = zoomViewport(vp, 2, { x: 50, y: 50 });
+    const origWidth = vp.xMax - vp.xMin;
+    const zoomedWidth = zoomed.xMax - zoomed.xMin;
+    expect(zoomedWidth).toBeLessThan(origWidth);
+  });
+});
 
-  static calcTooltipPosition(mouseX: number, mouseY: number, tooltipWidth: number, tooltipHeight: number, containerWidth: number, containerHeight: number): Point {
-    let x = mouseX + 10;
-    let y = mouseY - tooltipHeight - 10;
-    if (x + tooltipWidth > containerWidth) x = mouseX - tooltipWidth - 10;
-    if (y < 0) y = mouseY + 10;
-    if (y + tooltipHeight > containerHeight) y = containerHeight - tooltipHeight;
-    return { x: Math.max(0, x), y: Math.max(0, y) };
-  }
+describe('panViewport', () => {
+  it('应平移视口', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const panned = panViewport(vp, 10, 20);
 
-  static isPointInRect(point: Point, rect: Rect): boolean {
-    return point.x >= rect.x && point.x <= rect.x + rect.width &&
-           point.y >= rect.y && point.y <= rect.y + rect.height;
-  }
+    expect(panned.xMin).toBe(10);
+    expect(panned.xMax).toBe(110);
+    expect(panned.yMin).toBe(20);
+    expect(panned.yMax).toBe(120);
+  });
 
-  static calcSelectionRect(start: Point, end: Point): Rect {
-    return {
-      x: Math.min(start.x, end.x),
-      y: Math.min(start.y, end.y),
-      width: Math.abs(end.x - start.x),
-      height: Math.abs(end.y - start.y),
-    };
-  }
+  it('负值应反向平移', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const panned = panViewport(vp, -10, -20);
 
-  static clampPan(state: ZoomState, chartWidth: number, containerWidth: number, chartHeight: number, containerHeight: number): ZoomState {
-    const maxOffsetX = 0;
-    const minOffsetX = containerWidth - chartWidth * state.scale;
-    const maxOffsetY = 0;
-    const minOffsetY = containerHeight - chartHeight * state.scale;
-    return {
-      ...state,
-      offsetX: Math.min(maxOffsetX, Math.max(minOffsetX, state.offsetX)),
-      offsetY: Math.min(maxOffsetY, Math.max(minOffsetY, state.offsetY)),
-    };
-  }
+    expect(panned.xMin).toBe(-10);
+    expect(panned.yMin).toBe(-20);
+  });
+});
 
-  static detectCrosshair(mouseX: number, mouseY: number, chartRect: Rect): { show: boolean; x: number; y: number } {
-    const inChart = this.isPointInRect({ x: mouseX, y: mouseY }, chartRect);
-    return {
-      show: inChart,
-      x: inChart ? mouseX - chartRect.x : 0,
-      y: inChart ? mouseY - chartRect.y : 0,
-    };
-  }
+describe('resetViewport', () => {
+  it('应重置zoom为1', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const zoomed = zoomViewport(vp, 3, { x: 50, y: 50 });
+    const reset = resetViewport(zoomed);
+    expect(reset.zoom).toBe(1);
+  });
+});
 
-  static calcAxisLabelPositions(min: number, max: number, count: number): number[] {
-    const step = (max - min) / (count - 1);
-    return Array(count).fill(0).map((_, i) => min + step * i);
-  }
+describe('fitDataToViewport', () => {
+  it('应适配数据范围', () => {
+    const points = [{ x: 10, y: 20 }, { x: 50, y: 80 }, { x: 30, y: 50 }];
+    const vp = fitDataToViewport(points);
 
-  static formatAxisValue(value: number, type: 'price' | 'volume' | 'percent'): string {
-    switch (type) {
-      case 'price': return value.toFixed(2);
-      case 'volume':
-        if (value >= 1e8) return (value / 1e8).toFixed(1) + '亿';
-        if (value >= 1e4) return (value / 1e4).toFixed(1) + '万';
-        return value.toString();
-      case 'percent': return value.toFixed(2) + '%';
+    expect(vp.xMin).toBeLessThan(10);
+    expect(vp.xMax).toBeGreaterThan(50);
+    expect(vp.yMin).toBeLessThan(20);
+    expect(vp.yMax).toBeGreaterThan(80);
+  });
+
+  it('空数据应返回默认视口', () => {
+    const vp = fitDataToViewport([]);
+    expect(vp.xMin).toBe(0);
+    expect(vp.xMax).toBe(1);
+  });
+});
+
+// ==================== 十字光标测试 ====================
+
+describe('calculateCrosshair', () => {
+  it('应计算十字光标位置', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const ch = calculateCrosshair(50, 50, 100, 100, vp, mockPoints);
+
+    expect(ch.visible).toBe(true);
+    expect(ch.x).toBe(50);
+    expect(ch.y).toBe(50);
+  });
+
+  it('禁用时应不可见', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const config = { ...defaultConfig, crosshairEnabled: false };
+    const ch = calculateCrosshair(50, 50, 100, 100, vp, mockPoints, config);
+
+    expect(ch.visible).toBe(false);
+  });
+
+  it('snapToData应找到最近的数据点', () => {
+    const vp = createViewport(0, 100, 0, 200);
+    const ch = calculateCrosshair(25, 50, 100, 100, vp, mockPoints);
+
+    expect(ch.dataPoint).not.toBeNull();
+    if (ch.dataPoint) {
+      expect(ch.dataPoint.index).toBeGreaterThanOrEqual(0);
     }
-  }
+  });
+});
 
-  static calcVisibleRange(zoom: ZoomState, chartWidth: number, containerWidth: number): { start: number; end: number } {
-    const start = Math.max(0, -zoom.offsetX / zoom.scale);
-    const end = (containerWidth - zoom.offsetX) / zoom.scale;
-    return { start, end: Math.min(chartWidth, end) };
-  }
+describe('formatCrosshairData', () => {
+  it('应格式化数据点的所有字段', () => {
+    const point = mockPoints[0];
+    const formatted = formatCrosshairData(point);
 
-  static lerp(a: number, b: number, t: number): number {
-    return a + (b - a) * t;
-  }
-
-  static easeOutCubic(t: number): number {
-    return 1 - Math.pow(1 - t, 3);
-  }
-
-  static animateZoom(from: ZoomState, to: ZoomState, progress: number): ZoomState {
-    const t = this.easeOutCubic(progress);
-    return {
-      ...from,
-      scale: this.lerp(from.scale, to.scale, t),
-      offsetX: this.lerp(from.offsetX, to.offsetX, t),
-      offsetY: this.lerp(from.offsetY, to.offsetY, t),
-    };
-  }
-}
-
-describe('图表交互引擎', () => {
-  describe('缩放', () => {
-    it('应该初始化缩放状态', () => {
-      const z = ChartInteractionEngine.initZoom();
-      expect(z.scale).toBe(1);
-      expect(z.offsetX).toBe(0);
-    });
-
-    it('应该放大', () => {
-      const z = ChartInteractionEngine.zoomIn(ChartInteractionEngine.initZoom());
-      expect(z.scale).toBeCloseTo(1.2, 1);
-    });
-
-    it('应该缩小', () => {
-      const z = ChartInteractionEngine.zoomOut(ChartInteractionEngine.initZoom());
-      expect(z.scale).toBeCloseTo(0.8, 1);
-    });
-
-    it('应该限制最大缩放', () => {
-      let z = ChartInteractionEngine.initZoom();
-      for (let i = 0; i < 20; i++) z = ChartInteractionEngine.zoomIn(z);
-      expect(z.scale).toBeLessThanOrEqual(5);
-    });
-
-    it('应该限制最小缩放', () => {
-      let z = ChartInteractionEngine.initZoom();
-      for (let i = 0; i < 20; i++) z = ChartInteractionEngine.zoomOut(z);
-      expect(z.scale).toBeGreaterThanOrEqual(0.5);
-    });
-
-    it('应该重置缩放', () => {
-      let z = ChartInteractionEngine.zoomIn(ChartInteractionEngine.initZoom());
-      z = ChartInteractionEngine.resetZoom(z);
-      expect(z.scale).toBe(1);
-      expect(z.offsetX).toBe(0);
-    });
+    expect(formatted.length).toBe(Object.keys(point.data).length);
+    expect(formatted.every(f => typeof f.key === 'string')).toBe(true);
+    expect(formatted.every(f => typeof f.value === 'string')).toBe(true);
   });
 
-  describe('平移', () => {
-    it('应该平移', () => {
-      const z = ChartInteractionEngine.pan(ChartInteractionEngine.initZoom(), 100, 50);
-      expect(z.offsetX).toBe(100);
-      expect(z.offsetY).toBe(50);
+  it('应使用自定义格式化器', () => {
+    const point = mockPoints[0];
+    const formatted = formatCrosshairData(point, {
+      volume: (v) => `${(Number(v) / 1e6).toFixed(1)}M`,
     });
 
-    it('应该限制平移范围', () => {
-      const z = ChartInteractionEngine.pan(ChartInteractionEngine.initZoom(), -2000, -1000);
-      const clamped = ChartInteractionEngine.clampPan(z, 1000, 800, 600, 400);
-      expect(clamped.offsetX).toBeLessThanOrEqual(0);
-    });
+    const volumeField = formatted.find(f => f.key === 'volume');
+    expect(volumeField?.value).toContain('M');
+  });
+});
+
+// ==================== 区间选择测试 ====================
+
+describe('updateSelection', () => {
+  it('禁用选择时应返回null', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const config = { ...defaultConfig, selectionEnabled: false };
+    const result = updateSelection(null, 50, 100, vp, mockPoints, true, config);
+    expect(result).toBeNull();
   });
 
-  describe('坐标转换', () => {
-    it('屏幕坐标应该转数据坐标', () => {
-      const z = ChartInteractionEngine.initZoom();
-      const rect: Rect = { x: 50, y: 50, width: 700, height: 400 };
-      const data = ChartInteractionEngine.screenToData({ x: 150, y: 150 }, z, rect);
-      expect(data.x).toBe(100);
-      expect(data.y).toBe(100);
-    });
+  it('应开始新的选择', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = updateSelection(null, 50, 100, vp, mockPoints, true);
 
-    it('数据坐标应该转屏幕坐标', () => {
-      const z = ChartInteractionEngine.initZoom();
-      const rect: Rect = { x: 50, y: 50, width: 700, height: 400 };
-      const screen = ChartInteractionEngine.dataToScreen({ x: 100, y: 100 }, z, rect);
-      expect(screen.x).toBe(150);
-      expect(screen.y).toBe(150);
-    });
-
-    it('缩放后坐标转换应该一致', () => {
-      const z = ChartInteractionEngine.zoomIn(ChartInteractionEngine.initZoom());
-      const rect: Rect = { x: 0, y: 0, width: 800, height: 600 };
-      const data = { x: 100, y: 200 };
-      const screen = ChartInteractionEngine.dataToScreen(data, z, rect);
-      const back = ChartInteractionEngine.screenToData(screen, z, rect);
-      expect(back.x).toBeCloseTo(data.x, 5);
-      expect(back.y).toBeCloseTo(data.y, 5);
-    });
+    expect(result).not.toBeNull();
+    if (result) {
+      expect(result.active).toBe(true);
+      expect(result.startIndex).toBeGreaterThanOrEqual(0);
+    }
   });
 
-  describe('最近数据点', () => {
-    it('应该找到最近的数据点', () => {
-      const index = ChartInteractionEngine.findNearestDataPoint(500, [], 1000, 10);
-      expect(index).toBe(5);
-    });
+  it('非选择状态应保持当前选择', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const existing: SelectionRange = { startX: 10, endX: 30, startIndex: 10, endIndex: 30, active: true };
+    const result = updateSelection(existing, 50, 100, vp, mockPoints, false);
+    expect(result).toEqual(existing);
+  });
+});
 
-    it('应该限制在有效范围内', () => {
-      expect(ChartInteractionEngine.findNearestDataPoint(-100, [], 1000, 10)).toBe(0);
-      expect(ChartInteractionEngine.findNearestDataPoint(2000, [], 1000, 10)).toBe(9);
-    });
+describe('getSelectedData', () => {
+  it('应返回选中区间的数据', () => {
+    const selection: SelectionRange = { startX: 10, endX: 30, startIndex: 10, endIndex: 30, active: true };
+    const selected = getSelectedData(mockPoints, selection);
+    expect(selected.length).toBe(21); // 10-30 inclusive
   });
 
-  describe('工具提示定位', () => {
-    it('应该定位在鼠标右上方', () => {
-      const pos = ChartInteractionEngine.calcTooltipPosition(400, 300, 150, 80, 800, 600);
-      expect(pos.x).toBe(410);
-      expect(pos.y).toBe(210);
-    });
-
-    it('应该翻转到左侧', () => {
-      const pos = ChartInteractionEngine.calcTooltipPosition(700, 300, 150, 80, 800, 600);
-      expect(pos.x).toBeLessThan(700);
-    });
-
-    it('应该翻转到下方', () => {
-      const pos = ChartInteractionEngine.calcTooltipPosition(400, 50, 150, 80, 800, 600);
-      expect(pos.y).toBe(60);
-    });
+  it('无选择应返回空数组', () => {
+    expect(getSelectedData(mockPoints, null)).toEqual([]);
   });
 
-  describe('矩形操作', () => {
-    it('应该判断点在矩形内', () => {
-      expect(ChartInteractionEngine.isPointInRect({ x: 50, y: 50 }, { x: 0, y: 0, width: 100, height: 100 })).toBe(true);
-      expect(ChartInteractionEngine.isPointInRect({ x: 150, y: 50 }, { x: 0, y: 0, width: 100, height: 100 })).toBe(false);
-    });
+  it('反向选择应正常工作', () => {
+    const selection: SelectionRange = { startX: 30, endX: 10, startIndex: 30, endIndex: 10, active: true };
+    const selected = getSelectedData(mockPoints, selection);
+    expect(selected.length).toBe(21);
+  });
+});
 
-    it('应该计算选择矩形', () => {
-      const rect = ChartInteractionEngine.calcSelectionRect({ x: 100, y: 100 }, { x: 50, y: 200 });
-      expect(rect.x).toBe(50);
-      expect(rect.y).toBe(100);
-      expect(rect.width).toBe(50);
-      expect(rect.height).toBe(100);
-    });
+describe('calculateSelectionStats', () => {
+  it('应计算选区统计', () => {
+    const selection: SelectionRange = { startX: 0, endX: 10, startIndex: 0, endIndex: 10, active: true };
+    const stats = calculateSelectionStats(selection, mockPoints, 'close');
+
+    expect(stats).not.toBeNull();
+    if (stats) {
+      expect(stats.count).toBe(11);
+      expect(stats.min).toBeLessThanOrEqual(stats.max);
+      expect(stats.avg).toBeGreaterThanOrEqual(stats.min);
+      expect(stats.avg).toBeLessThanOrEqual(stats.max);
+    }
   });
 
-  describe('十字线', () => {
-    it('应该显示在图表区域内', () => {
-      const cross = ChartInteractionEngine.detectCrosshair(100, 100, { x: 0, y: 0, width: 800, height: 600 });
-      expect(cross.show).toBe(true);
-    });
+  it('无选择应返回null', () => {
+    expect(calculateSelectionStats(null, mockPoints)).toBeNull();
+  });
+});
 
-    it('不应该显示在图表区域外', () => {
-      const cross = ChartInteractionEngine.detectCrosshair(-10, -10, { x: 0, y: 0, width: 800, height: 600 });
-      expect(cross.show).toBe(false);
-    });
+// ==================== 数据点查找测试 ====================
+
+describe('findNearestIndex', () => {
+  it('应找到最近的数据点索引', () => {
+    expect(findNearestIndex(mockPoints, 25)).toBe(25);
+    expect(findNearestIndex(mockPoints, 24.6)).toBe(25);
+    expect(findNearestIndex(mockPoints, 0)).toBe(0);
   });
 
-  describe('轴标签', () => {
-    it('应该等间距计算标签位置', () => {
-      const positions = ChartInteractionEngine.calcAxisLabelPositions(0, 100, 5);
-      expect(positions).toHaveLength(5);
-      expect(positions[0]).toBe(0);
-      expect(positions[4]).toBe(100);
-    });
+  it('空数据应返回-1', () => {
+    expect(findNearestIndex([], 10)).toBe(-1);
+  });
+});
 
-    it('应该格式化价格', () => {
-      expect(ChartInteractionEngine.formatAxisValue(123.456, 'price')).toBe('123.46');
-    });
-
-    it('应该格式化成交量(亿)', () => {
-      expect(ChartInteractionEngine.formatAxisValue(1.5e8, 'volume')).toBe('1.5亿');
-    });
-
-    it('应该格式化成交量(万)', () => {
-      expect(ChartInteractionEngine.formatAxisValue(5.5e4, 'volume')).toBe('5.5万');
-    });
-
-    it('应该格式化百分比', () => {
-      expect(ChartInteractionEngine.formatAxisValue(3.45, 'percent')).toBe('3.45%');
-    });
+describe('findNearestPoint', () => {
+  it('应找到最近的数据点', () => {
+    const point = findNearestPoint(mockPoints, 50);
+    expect(point).not.toBeNull();
+    expect(point?.x).toBe(50);
   });
 
-  describe('可见范围', () => {
-    it('应该计算可见范围', () => {
-      const range = ChartInteractionEngine.calcVisibleRange(ChartInteractionEngine.initZoom(), 1000, 800);
-      expect(range.start).toBe(0);
-      expect(range.end).toBe(800);
-    });
+  it('空数据应返回null', () => {
+    expect(findNearestPoint([], 10)).toBeNull();
+  });
+});
+
+describe('highlightRange', () => {
+  it('应返回高亮索引数组', () => {
+    const indices = highlightRange(mockPoints, 5, 10);
+    expect(indices).toEqual([5, 6, 7, 8, 9, 10]);
   });
 
-  describe('动画', () => {
-    it('应该线性插值', () => {
-      expect(ChartInteractionEngine.lerp(0, 100, 0.5)).toBe(50);
+  it('反向范围应正常工作', () => {
+    const indices = highlightRange(mockPoints, 10, 5);
+    expect(indices).toEqual([5, 6, 7, 8, 9, 10]);
+  });
+
+  it('应限制在数据范围内', () => {
+    const indices = highlightRange(mockPoints, -5, 105);
+    expect(indices[0]).toBe(0);
+    expect(indices[indices.length - 1]).toBe(99);
+  });
+});
+
+// ==================== 工具提示测试 ====================
+
+describe('calculateTooltipPosition', () => {
+  it('应避免右溢出', () => {
+    const pos = calculateTooltipPosition(150, 50, 100, 50, 200, 200);
+    expect(pos.x + 100).toBeLessThanOrEqual(200);
+  });
+
+  it('应避免下溢出', () => {
+    const pos = calculateTooltipPosition(50, 180, 100, 50, 200, 200);
+    expect(pos.y).toBeLessThan(180); // 应在上方
+  });
+
+  it('正常位置应偏移', () => {
+    const pos = calculateTooltipPosition(50, 50, 50, 30, 200, 200);
+    expect(pos.x).toBeGreaterThan(50);
+    expect(pos.y).toBeGreaterThan(50);
+  });
+
+  it('应限制不小于0', () => {
+    const pos = calculateTooltipPosition(0, 0, 100, 100, 50, 50);
+    expect(pos.x).toBeGreaterThanOrEqual(0);
+    expect(pos.y).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('buildTooltip', () => {
+  it('应构建工具提示数据', () => {
+    const point = mockPoints[0];
+    const tooltip = buildTooltip(point, {
+      title: '股价',
+      fields: [
+        { key: 'close', label: '收盘价' },
+        { key: 'volume', label: '成交量' },
+      ],
     });
 
-    it('应该缓出动画', () => {
-      expect(ChartInteractionEngine.easeOutCubic(0)).toBe(0);
-      expect(ChartInteractionEngine.easeOutCubic(1)).toBe(1);
-      expect(ChartInteractionEngine.easeOutCubic(0.5)).toBeGreaterThan(0.5);
-    });
+    expect(tooltip.title).toBe('股价');
+    expect(tooltip.items.length).toBe(2);
+    expect(tooltip.visible).toBe(true);
+  });
 
-    it('应该动画化缩放', () => {
-      const from = ChartInteractionEngine.initZoom();
-      const to = { ...from, scale: 2 };
-      const mid = ChartInteractionEngine.animateZoom(from, to, 0.5);
-      expect(mid.scale).toBeGreaterThan(1);
-      expect(mid.scale).toBeLessThan(2);
-    });
+  it('应使用默认标题', () => {
+    const point = mockPoints[0];
+    const tooltip = buildTooltip(point, { fields: [{ key: 'close', label: '收' }] });
+    expect(tooltip.title).toContain('#0');
+  });
+});
+
+// ==================== 手势处理测试 ====================
+
+describe('handleWheelZoom', () => {
+  it('正delta应缩小', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleWheelZoom(1, vp, 50, 50, 100, 100);
+    expect(result.zoom).toBeLessThan(1);
+  });
+
+  it('负delta应放大', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleWheelZoom(-1, vp, 50, 50, 100, 100);
+    expect(result.zoom).toBeGreaterThan(1);
+  });
+});
+
+describe('handleDragPan', () => {
+  it('应根据拖拽距离平移', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const panned = handleDragPan(0, 0, 10, 10, vp, 100, 100);
+    // 拖拽向右应使数据向左移动
+    expect(panned.xMax).not.toBe(100);
+  });
+});
+
+describe('handleDoubleClickReset', () => {
+  it('应重置zoom', () => {
+    const vp = { xMin: 10, xMax: 50, yMin: 20, yMax: 80, zoom: 3 };
+    const reset = handleDoubleClickReset(vp);
+    expect(reset.zoom).toBe(1);
+    expect(reset.xMin).toBe(10); // 保持位置
+  });
+});
+
+// ==================== 键盘处理测试 ====================
+
+describe('handleKeyboardZoom', () => {
+  it('+ 应放大', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleKeyboardZoom('+', vp);
+    expect(result.zoom).toBeGreaterThan(1);
+  });
+
+  it('- 应缩小', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleKeyboardZoom('-', vp);
+    expect(result.zoom).toBeLessThan(1);
+  });
+
+  it('0 应重置', () => {
+    const vp = { ...createViewport(0, 100, 0, 100), zoom: 5 };
+    const result = handleKeyboardZoom('0', vp);
+    expect(result.zoom).toBe(1);
+  });
+});
+
+describe('handleKeyboardPan', () => {
+  it('ArrowLeft应左移', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleKeyboardPan('ArrowLeft', vp);
+    expect(result.xMin).toBeGreaterThan(0);
+  });
+
+  it('ArrowRight应右移', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleKeyboardPan('ArrowRight', vp);
+    expect(result.xMin).toBeLessThan(0);
+  });
+
+  it('ArrowUp应上移（y减小）', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleKeyboardPan('ArrowUp', vp);
+    expect(result.yMin).toBeLessThan(0);
+  });
+
+  it('ArrowDown应下移（y增大）', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const result = handleKeyboardPan('ArrowDown', vp);
+    expect(result.yMin).toBeGreaterThan(0);
+  });
+});
+
+// ==================== 数据采样测试 ====================
+
+describe('sampleDataForViewport', () => {
+  it('小数据集不应采样', () => {
+    const small = mockPoints.slice(0, 10);
+    const vp = createViewport(0, 100, 0, 200);
+    const result = sampleDataForViewport(small, vp, 500);
+    expect(result.length).toBe(10);
+  });
+
+  it('大数据集应采样', () => {
+    const large = Array.from({ length: 2000 }, (_, i) => ({
+      x: i, y: i, data: {}, index: i,
+    }));
+    const vp = createViewport(0, 2000, 0, 2000);
+    const result = sampleDataForViewport(large, vp, 500);
+    expect(result.length).toBeLessThanOrEqual(500);
+  });
+
+  it('窄视口应只保留可见+上下文', () => {
+    // 需要数据量超过maxPoints才触发采样逻辑
+    const largeData = Array.from({ length: 1000 }, (_, i) => ({
+      x: i, y: i, data: {}, index: i,
+    }));
+    const vp = createViewport(20, 30, 0, 1000);
+    const result = sampleDataForViewport(largeData, vp, 500);
+    // 可见11个 + 上下文最多20个 = 31
+    expect(result.length).toBeLessThanOrEqual(35);
+    expect(result.length).toBeGreaterThan(0);
+  });
+});
+
+describe('calculateViewportSummary', () => {
+  it('应计算视口内数据摘要', () => {
+    const vp = createViewport(0, 50, 0, 200);
+    const summary = calculateViewportSummary(mockPoints, vp, 'close');
+
+    expect(summary.count).toBe(100);
+    expect(summary.visible).toBeGreaterThan(0);
+    expect(summary.min).toBeLessThanOrEqual(summary.max);
+  });
+
+  it('视口外应返回零值', () => {
+    const vp = createViewport(200, 300, 0, 200);
+    const summary = calculateViewportSummary(mockPoints, vp);
+    expect(summary.visible).toBe(0);
+  });
+});
+
+// ==================== 坐标转换测试 ====================
+
+describe('dataToScreen', () => {
+  it('应正确转换数据坐标到屏幕坐标', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const screen = dataToScreen(50, 50, vp, 200, 200);
+    expect(screen.x).toBe(100);
+    expect(screen.y).toBe(100);
+  });
+
+  it('原点应正确', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const screen = dataToScreen(0, 100, vp, 100, 100);
+    expect(screen.x).toBe(0);
+    expect(screen.y).toBe(0);
+  });
+});
+
+describe('screenToData', () => {
+  it('应正确转换屏幕坐标到数据坐标', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const data = screenToData(100, 100, vp, 200, 200);
+    expect(data.x).toBe(50);
+    expect(data.y).toBe(50);
+  });
+
+  it('与dataToScreen应互逆（近似）', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    const screen = dataToScreen(37, 63, vp, 200, 200);
+    const data = screenToData(screen.x, screen.y, vp, 200, 200);
+    expect(data.x).toBeCloseTo(37, 0);
+    expect(data.y).toBeCloseTo(63, 0);
   });
 });
