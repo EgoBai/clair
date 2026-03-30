@@ -2,6 +2,29 @@
 
 All notable changes to the A股行情分析网站 project.
 
+## [3.0.0] - 2026-03-30 (Round 104 - 用户系统增强)
+
+### 新增
+- **用户认证系统增强** (`utils/userEnhanced.ts` + `components/User/`)
+  - 密码重置流程（邮箱验证、30分钟有效期、频率限制、防枚举）
+  - 邮箱验证系统（24小时有效期、60秒冷却重发、功能限制提示）
+  - Session管理（最多5设备、7天有效期、远程登出、批量登出）
+  - 登录安全（5次/15分钟锁定、IP异常检测、登录日志）
+- **前端用户UI组件** (`components/User/`)
+  - LoginPage: 邮箱验证、记住我、加载状态、Enter键提交
+  - RegisterPage: 密码强度指示器、昵称验证、确认密码校验
+  - PasswordResetPage: 四步重置流程（输入邮箱→邮件已发送→重置密码→成功）
+  - SessionManager: 设备列表、当前设备标记、远程登出确认
+- **认证服务** (`services/auth.ts`)
+  - Token自动管理（localStorage、自动刷新、过期检测）
+  - authFetch: 带认证的请求封装
+  - 状态订阅机制：登录状态变化通知
+  - rememberMe支持（30天 vs 1小时）
+
+### 测试
+- 新增 87 个测试（后端49 + 前端38）
+- 总测试数: 18037
+
 ## [2.1.0] - 2026-03-24 (第17轮迭代)
 
 ### 新增
