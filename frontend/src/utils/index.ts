@@ -18,3 +18,7 @@ export * from './pageTransitions';
 export { DataPrefetchManager, globalPrefetcher, RoutePrefetchMap, useHoverPrefetch, useViewportPrefetch, useIdlePrefetch } from './dataPrefetch';
 export * from './uiPolish';
 export * from './responsiveUtils';
+export { getWorkerPool, terminateWorkerPool, workerSort, workerFilter, workerComputeIndicators, workerCorrelationMatrix, workerBacktest } from './workerManager';
+export { preloadResource, prefetchRoute, preloadImages, LazyImage, LazyComponent, useInView } from './lazyLoader.tsx';
+export { PerformanceBudgetChecker, DEFAULT_BUDGET, getBudgetChecker, setResourcePriority, prioritizeCriticalResources } from './performanceBudget';
+export { IdleScheduler, getIdleScheduler, whenIdle, nextFrame, deferredBatch } from './idleScheduler';
