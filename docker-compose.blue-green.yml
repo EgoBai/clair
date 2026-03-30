@@ -1,0 +1,63 @@
+# 蓝绿部署配置
+# Docker Compose override for blue-green deployment
+
+services:
+  # 蓝色环境（当前生产）
+  backend-blue:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      - NODE_ENV=production
+      - DEPLOYMENT_COLOR=blue
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/astock
+      - REDIS_URL=redis://redis:6379
+    networks:
+      - stock-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health/simple"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # 绿色环境（新版本）
+  backend-green:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      - NODE_ENV=production
+      - DEPLOYMENT_COLOR=green
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/astock
+      - REDIS_URL=redis://redis:6379
+    networks:
+      - stock-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health/simple"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    profiles:
+      - green  # 默认不启动
+
+  # 路由层 - 根据标签切换流量
+  nginx-router:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/blue-green.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - backend-blue
+    networks:
+      - stock-network

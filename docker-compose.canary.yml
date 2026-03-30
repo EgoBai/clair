@@ -1,0 +1,42 @@
+# 灰度发布配置
+# Docker Compose override for canary deployment
+
+services:
+  # Canary 实例（处理 10% 流量）
+  backend-canary:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      - NODE_ENV=production
+      - DEPLOYMENT=canary
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/astock
+      - REDIS_URL=redis://redis:6379
+    networks:
+      - stock-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health/simple"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    labels:
+      - "deployment.type=canary"
+      - "deployment.weight=10"
+
+  # Nginx 加权负载均衡
+  nginx-canary:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/canary.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - backend
+      - backend-canary
+    networks:
+      - stock-network

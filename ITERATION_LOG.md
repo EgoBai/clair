@@ -4502,3 +4502,46 @@
 - 安全审计: CSRF深度/XSS防护/SQL注入模拟/渗透测试/安全头/加密
 - 商业化: API配额/导出限制/订阅管理/支付网关/套餐对比/邀请推广/备份恢复
 - DevOps: CI/CD配置验证
+
+## Round 184 — DevOps基础设施 (2026-03-31)
+
+**主题**: 健康检查/结构化日志/错误追踪/监控/告警/部署策略
+
+### 新增文件 (12个)
+
+**后端服务**
+- `backend/src/services/healthCheck.ts` — 综合健康检查（DB/内存/事件循环/环境，K8s探针支持）
+- `backend/src/services/logger.ts` — 结构化日志系统（级别控制/敏感数据脱敏/请求日志中间件/子logger）
+- `backend/src/services/sentry.ts` — Sentry错误追踪集成（异常捕获/面包屑/性能追踪/Express中间件）
+- `backend/src/services/alertEngine.ts` — 告警引擎（规则注册/条件触发/冷却控制/多渠道通知）
+- `backend/src/services/logAggregator.ts` — 日志聚合器（多源收集/时间窗口聚合/错误率统计/查询过滤）
+- `backend/src/api/health.ts` — 健康检查API路由（/health, /health/ready, /health/live, /health/simple）
+- `backend/src/middleware/metrics.ts` — Prometheus指标中间件（QPS/延迟百分位/状态码分布/进程指标）
+
+**基础设施**
+- `backend/Dockerfile.prod` — 多阶段构建Docker（安全用户/健康检查/非root运行）
+- `nginx/nginx.conf` — Nginx反向代理（限流/WebSocket/gzip/安全头/静态缓存）
+- `nginx/canary.conf` — 灰度发布Nginx配置（加权负载均衡）
+- `nginx/blue-green.conf` — 蓝绿部署Nginx配置（cookie路由切换）
+- `monitoring/prometheus.yml` — Prometheus采集配置
+- `monitoring/alert_rules.yml` — 告警规则（可用性/性能/数据库/Redis/WebSocket）
+- `monitoring/grafana-dashboard.yml` — Grafana仪表盘配置
+
+**CI/CD**
+- `.github/workflows/ci-cd.yml` — 完整CI/CD流水线（lint/test/build/deploy/canary/性能）
+- `docker-compose.blue-green.yml` — 蓝绿部署编排
+- `docker-compose.canary.yml` — 灰度发布编排
+
+**测试 (6个新文件, 60+新测试)**
+- `healthCheck.test.ts` — 13 tests（健康检查/探针/自定义注册）
+- `logger.test.ts` — 13 tests（日志级别/脱敏/中间件/子logger）
+- `sentry.test.ts` — 12 tests（异常捕获/消息/面包屑/用户上下文）
+- `metrics.test.ts` — 7 tests（指标收集/Prometheus格式/百分位）
+- `alertEngine.test.ts` — 9 tests（规则触发/冷却/解决/统计）
+- `logAggregator.test.ts` — 7 tests（日志查询/聚合/错误率）
+
+### 测试结果
+- **Test Files**: 745 passed (↑5)
+- **Tests**: 20,147 passed (↑60)
+- **Duration**: 17.16s
+
