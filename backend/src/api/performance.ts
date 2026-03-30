@@ -6,6 +6,7 @@
 import { Request, Response, Router } from 'express';
 import { performanceMonitor } from '../middleware/performanceMonitor';
 import { dataSourceManager, dataUpdateScheduler } from '../data-sync/dataSourceAdapter';
+import { validateQuery, validateBody, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -91,7 +92,7 @@ router.get('/performance/data-sources', (_req: Request, res: Response) => {
  * 前端性能指标上报
  * POST /api/performance/frontend
  */
-router.post('/performance/frontend', (req: Request, res: Response) => {
+router.post('/performance/frontend', validateBody(schemas.performanceReport), (req: Request, res: Response) => {
   const { metrics, url, userAgent, timestamp } = req.body;
 
   if (!metrics || !Array.isArray(metrics)) {

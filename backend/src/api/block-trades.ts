@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 
 const router = Router();
 
@@ -74,7 +75,7 @@ function generateBlockTrades(date?: string, symbol?: string) {
 }
 
 // 大宗交易列表
-router.get('/block-trades', async (req: Request, res: Response) => {
+router.get('/block-trades', validateQuery(schemas.blockTradeQuery), async (req: Request, res: Response) => {
   try {
     const date = req.query.date as string;
     const symbol = req.query.symbol as string;
@@ -173,7 +174,7 @@ router.get('/block-trades/overview', async (_req: Request, res: Response) => {
 });
 
 // 个股大宗交易历史
-router.get('/block-trades/:symbol', async (req: Request, res: Response) => {
+router.get('/block-trades/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.blockTradeHistory), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const days = parseInt(req.query.days as string) || 30;

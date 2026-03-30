@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 
 const router = Router();
 
@@ -68,7 +69,7 @@ function generateLockupExpiries(month?: number, year?: number) {
 }
 
 // 月度解禁概览
-router.get('/lockup/calendar', async (req: Request, res: Response) => {
+router.get('/lockup/calendar', validateQuery(schemas.lockupCalendar), async (req: Request, res: Response) => {
   try {
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
     const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
@@ -117,7 +118,7 @@ router.get('/lockup/calendar', async (req: Request, res: Response) => {
 });
 
 // 解禁排行（按解禁市值）
-router.get('/lockup/rank', async (req: Request, res: Response) => {
+router.get('/lockup/rank', validateQuery(schemas.lockupRank), async (req: Request, res: Response) => {
   try {
     const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
@@ -140,7 +141,7 @@ router.get('/lockup/rank', async (req: Request, res: Response) => {
 });
 
 // 个股解禁历史
-router.get('/lockup/:symbol', async (req: Request, res: Response) => {
+router.get('/lockup/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const months = parseInt(req.query.months as string) || 12;

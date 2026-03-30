@@ -5,6 +5,7 @@
  */
 
 import { Request, Response, Router } from 'express';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import type { TopTraderRecord, TopTraderEntry, TopTraderOverview } from '../../shared/types';
 
 const router = Router();
@@ -117,7 +118,7 @@ router.get('/top-traders/overview', (req: Request, res: Response) => {
 });
 
 // 个股龙虎榜
-router.get('/top-traders/:symbol', (req: Request, res: Response) => {
+router.get('/top-traders/:symbol', validateParams(schemas.stockSymbol), (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const name = req.query.name as string || '未知';
@@ -129,7 +130,7 @@ router.get('/top-traders/:symbol', (req: Request, res: Response) => {
 });
 
 // 龙虎榜历史
-router.get('/top-traders/history/:symbol', (req: Request, res: Response) => {
+router.get('/top-traders/history/:symbol', validateParams(schemas.stockSymbol), (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const days = parseInt(req.query.days as string) || 10;

@@ -6,6 +6,7 @@
 
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 
 const router = Router();
 
@@ -175,7 +176,7 @@ let nextNewsId = MOCK_NEWS.length + 1;
 
 // ==================== 获取新闻列表 ====================
 
-router.get('/news', async (req: Request, res: Response) => {
+router.get('/news', validateQuery(schemas.newsQuery), async (req: Request, res: Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 20;
@@ -243,7 +244,7 @@ router.get('/news', async (req: Request, res: Response) => {
 
 // ==================== 获取个股相关新闻 ====================
 
-router.get('/news/stock/:symbol', async (req: Request, res: Response) => {
+router.get('/news/stock/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
   try {
     const symbol = req.params.symbol;
     const limit = parseInt(req.query.limit as string) || 10;

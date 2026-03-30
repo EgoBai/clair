@@ -5,6 +5,7 @@
  */
 
 import { Request, Response, Router } from 'express';
+import { validateParams, validateQuery, schemas } from '../middleware/validation';
 import type { OrderBook, OrderBookLevel, TimeShareData } from '../../shared/types';
 
 const router = Router();
@@ -98,7 +99,7 @@ function generateTimeShare(symbol: string): TimeShareData[] {
 }
 
 // 盘口数据
-router.get('/order-book/:symbol', (req: Request, res: Response) => {
+router.get('/order-book/:symbol', validateParams(schemas.stockSymbol), (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const name = req.query.name as string || '未知';
@@ -110,7 +111,7 @@ router.get('/order-book/:symbol', (req: Request, res: Response) => {
 });
 
 // 分时数据
-router.get('/time-share/:symbol', (req: Request, res: Response) => {
+router.get('/time-share/:symbol', validateParams(schemas.stockSymbol), (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const data = generateTimeShare(symbol);

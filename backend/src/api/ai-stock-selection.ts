@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
+import { validateParams, schemas } from '../middleware/validation';
 
 const router = Router();
 
@@ -115,7 +116,7 @@ router.get('/ai/recommendations', async (req: Request, res: Response) => {
 });
 
 // AI 个股诊断
-router.get('/ai/diagnose/:symbol', async (req: Request, res: Response) => {
+router.get('/ai/diagnose/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
 

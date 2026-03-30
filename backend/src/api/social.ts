@@ -5,8 +5,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import Joi from 'joi';
-import { validateBody, validateQuery, validateParams } from '../middleware/validation';
+import { validateBody, validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -113,31 +112,7 @@ mockComments.forEach(c => {
   comments.push({ ...c, id: commentIdCounter++ });
 });
 
-// ==================== Schema 定义 ====================
-
-const commentCreateSchema = Joi.object({
-  stockSymbol: Joi.string().max(20).required(),
-  content: Joi.string().min(1).max(2000).required(),
-  parentId: Joi.number().integer().positive().allow(null).optional(),
-  userId: Joi.number().integer().positive().default(1),
-});
-
-const commentQuerySchema = Joi.object({
-  stockSymbol: Joi.string().max(20).optional(),
-  userId: Joi.number().integer().positive().optional(),
-  sortBy: Joi.string().valid('newest', 'oldest', 'popular').default('newest'),
-  page: Joi.number().integer().min(1).default(1),
-  pageSize: Joi.number().integer().min(1).max(50).default(20),
-});
-
-const followSchema = Joi.object({
-  followeeId: Joi.number().integer().positive().required(),
-  followerId: Joi.number().integer().positive().default(1),
-});
-
-const userProfileSchema = Joi.object({
-  username: Joi.string().max(50).required(),
-});
+// ==================== 路由引用使用 validation.ts 中的 schemas ====================
 
 // ==================== 评论 API ====================
 
@@ -145,7 +120,7 @@ const userProfileSchema = Joi.object({
  * GET /api/social/comments
  * 获取评论列表
  */
-router.get('/social/comments', validateQuery(commentQuerySchema), (req: Request, res: Response) => {
+router.get('/social/comments', validateQuery(schemas.commentQuery), (req: Request, res: Response) => {
   const { stockSymbol, userId, sortBy, page, pageSize } = req.query as any;
 
   let filtered = [...comments];
@@ -220,7 +195,7 @@ router.get('/social/comments/:id/replies', (req: Request, res: Response) => {
  * POST /api/social/comments
  * 发表评论
  */
-router.post('/social/comments', validateBody(commentCreateSchema), (req: Request, res: Response) => {
+router.post('/social/comments', validateBody(schemas.commentCreate), (req: Request, res: Response) => {
   const { stockSymbol, content, parentId, userId } = req.body;
 
   // 查找用户
@@ -361,7 +336,7 @@ router.get('/social/users', (req: Request, res: Response) => {
  * GET /api/social/users/:username
  * 获取用户主页
  */
-router.get('/social/users/:username', validateParams(userProfileSchema), (req: Request, res: Response) => {
+router.get('/social/users/:username', validateParams(schemas.userProfile), (req: Request, res: Response) => {
   const { username } = req.params;
   const user = users.find(u => u.username === username);
 
@@ -396,7 +371,7 @@ router.get('/social/users/:username', validateParams(userProfileSchema), (req: R
  * POST /api/social/follow
  * 关注/取消关注用户
  */
-router.post('/social/follow', validateBody(followSchema), (req: Request, res: Response) => {
+router.post('/social/follow', validateBody(schemas.follow), (req: Request, res: Response) => {
   const { followerId, followeeId } = req.body;
 
   if (followerId === followeeId) {
@@ -447,7 +422,7 @@ router.post('/social/follow', validateBody(followSchema), (req: Request, res: Re
  * GET /api/social/follow/status
  * 检查关注状态
  */
-router.get('/social/follow/status', (req: Request, res: Response) => {
+router.get('/social/follow/status', validateQuery(schemas.followStatusQuery), (req: Request, res: Response) => {
   const followerId = parseInt(req.query.followerId as string) || 1;
   const followeeId = parseInt(req.query.followeeId as string);
 

@@ -7,6 +7,7 @@
 import { Request, Response, Router } from 'express';
 import axios from 'axios';
 import { db } from '../db/Database';
+import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -147,7 +148,7 @@ function generateMockHistory(symbol: string, days: number = 10): FundFlowData[] 
  * 获取个股资金流向
  * GET /api/fund-flow/:symbol
  */
-router.get('/fund-flow/:symbol', async (req: Request, res: Response) => {
+router.get('/fund-flow/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.fundFlowQuery), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const stock = await db.getStockBySymbol(symbol);
@@ -195,7 +196,7 @@ router.get('/fund-flow/:symbol', async (req: Request, res: Response) => {
  * 获取行业资金流向排行
  * GET /api/fund-flow/industry
  */
-router.get('/fund-flow/industry', async (req: Request, res: Response) => {
+router.get('/fund-flow/industry', validateQuery(schemas.industryFlowQuery), async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
 
@@ -239,7 +240,7 @@ router.get('/fund-flow/industry', async (req: Request, res: Response) => {
  * 批量获取资金流向
  * POST /api/fund-flow/batch
  */
-router.post('/fund-flow/batch', async (req: Request, res: Response) => {
+router.post('/fund-flow/batch', validateBody(schemas.fundFlowBatch), async (req: Request, res: Response) => {
   try {
     const { symbols } = req.body;
 

@@ -4,11 +4,12 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { validateQuery, schemas } from '../middleware/validation';
 
 const router = Router();
 
 // ---- 涨跌分布统计 ----
-router.get('/distribution', (req: Request, res: Response) => {
+router.get('/distribution', validateQuery(schemas.marketStatsQuery), (req: Request, res: Response) => {
   const distribution = {
     timestamp: new Date().toISOString(),
     total: 5200,
@@ -53,7 +54,7 @@ router.get('/distribution', (req: Request, res: Response) => {
 });
 
 // ---- 板块热度排行 ----
-router.get('/sector-heat', (req: Request, res: Response) => {
+router.get('/sector-heat', validateQuery(schemas.marketStatsQuery), (req: Request, res: Response) => {
   const sectors = [
     { name: '人工智能', changePercent: 3.5, turnover: 850e8, stockCount: 128, leading: '科大讯飞' },
     { name: '半导体', changePercent: 2.8, turnover: 720e8, stockCount: 95, leading: '中芯国际' },
@@ -77,7 +78,7 @@ router.get('/sector-heat', (req: Request, res: Response) => {
 });
 
 // ---- 市场宽度指标 ----
-router.get('/breadth', (req: Request, res: Response) => {
+router.get('/breadth', validateQuery(schemas.marketStatsQuery), (req: Request, res: Response) => {
   const advancing = Math.floor(Math.random() * 1000 + 1500);
   const declining = Math.floor(Math.random() * 1000 + 1500);
   const unchanged = 5200 - advancing - declining;
@@ -101,7 +102,7 @@ router.get('/breadth', (req: Request, res: Response) => {
 });
 
 // ---- 市场情绪指标 ----
-router.get('/sentiment', (req: Request, res: Response) => {
+router.get('/sentiment', validateQuery(schemas.marketStatsQuery), (req: Request, res: Response) => {
   const sentiment = {
     timestamp: new Date().toISOString(),
     greedFearIndex: Math.floor(Math.random() * 40 + 30), // 0-100

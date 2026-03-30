@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 
 const router = Router();
 
@@ -77,7 +78,7 @@ function randomDate(daysBack: number): string {
 }
 
 // 增减持列表
-router.get('/shareholder-changes', async (req: Request, res: Response) => {
+router.get('/shareholder-changes', validateQuery(schemas.blockTradeQuery), async (req: Request, res: Response) => {
   try {
     const symbol = req.query.symbol as string;
     const type = req.query.type as string; // increase/decrease/new/exit
@@ -151,7 +152,7 @@ router.get('/shareholder-changes/overview', async (_req: Request, res: Response)
 });
 
 // 个股股东增减持历史
-router.get('/shareholder-changes/:symbol', async (req: Request, res: Response) => {
+router.get('/shareholder-changes/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const days = parseInt(req.query.days as string) || 90;

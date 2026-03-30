@@ -51,7 +51,7 @@ const pushedAlerts: Set<number> = new Set();
  * 创建预警规则
  * POST /api/alerts
  */
-router.post('/alerts', async (req: Request, res: Response) => {
+router.post('/alerts', validateBody(schemas.alertCreate), async (req: Request, res: Response) => {
   try {
     const { symbol, alertType, threshold, message } = req.body;
 
@@ -123,7 +123,7 @@ router.post('/alerts', async (req: Request, res: Response) => {
  * 查询预警列表
  * GET /api/alerts
  */
-router.get('/alerts', async (req: Request, res: Response) => {
+router.get('/alerts', validateQuery(schemas.alertQuery), async (req: Request, res: Response) => {
   try {
     const userId = parseInt(req.query.userId as string) || 1;
     const isActive = req.query.isActive !== undefined ? req.query.isActive === 'true' : undefined;
@@ -173,7 +173,7 @@ router.get('/alerts', async (req: Request, res: Response) => {
  * 获取预警详情
  * GET /api/alerts/:id
  */
-router.get('/alerts/:id', async (req: Request, res: Response) => {
+router.get('/alerts/:id', validateParams(schemas.alertId), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   const alert = alertRules.get(id);
 
@@ -194,7 +194,7 @@ router.get('/alerts/:id', async (req: Request, res: Response) => {
  * 更新预警规则
  * PUT /api/alerts/:id
  */
-router.put('/alerts/:id', async (req: Request, res: Response) => {
+router.put('/alerts/:id', validateParams(schemas.alertId), validateBody(schemas.alertUpdate), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   const alert = alertRules.get(id);
 
@@ -243,7 +243,7 @@ router.put('/alerts/:id', async (req: Request, res: Response) => {
  * 删除预警规则
  * DELETE /api/alerts/:id
  */
-router.delete('/alerts/:id', async (req: Request, res: Response) => {
+router.delete('/alerts/:id', validateParams(schemas.alertId), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
 
   if (!alertRules.has(id)) {
@@ -266,7 +266,7 @@ router.delete('/alerts/:id', async (req: Request, res: Response) => {
  * 批量删除预警
  * POST /api/alerts/batch-delete
  */
-router.post('/alerts/batch-delete', async (req: Request, res: Response) => {
+router.post('/alerts/batch-delete', validateBody(schemas.alertBatchDelete), async (req: Request, res: Response) => {
   const { ids } = req.body;
 
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -295,7 +295,7 @@ router.post('/alerts/batch-delete', async (req: Request, res: Response) => {
  * 获取预警触发历史
  * GET /api/alerts/history
  */
-router.get('/alerts/history', async (req: Request, res: Response) => {
+router.get('/alerts/history', validateQuery(schemas.alertHistory), async (req: Request, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
   const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
   const symbol = req.query.symbol as string | undefined;

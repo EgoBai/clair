@@ -4,6 +4,7 @@
  */
 
 import { Request, Response, Router } from 'express';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -189,7 +190,7 @@ router.get('/sectors/analysis', async (_req: Request, res: Response) => {
  * 获取行业板块详情
  * GET /api/sectors/analysis/:code
  */
-router.get('/sectors/analysis/:code', async (req: Request, res: Response) => {
+router.get('/sectors/analysis/:code', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
   try {
     const sector = SECTORS[req.params.code.toUpperCase()];
     if (!sector) {

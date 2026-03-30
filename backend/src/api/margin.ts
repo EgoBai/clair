@@ -5,6 +5,7 @@
  */
 
 import { Request, Response, Router } from 'express';
+import { validateParams, validateQuery, schemas } from '../middleware/validation';
 import type { MarginTradingData, MarginOverview } from '../../shared/types';
 
 const router = Router();
@@ -89,7 +90,7 @@ router.get('/margin/overview', (_req: Request, res: Response) => {
 });
 
 // 获取个股融资融券数据
-router.get('/margin/:symbol', (req: Request, res: Response) => {
+router.get('/margin/:symbol', validateParams(schemas.marginSymbol), (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const days = parseInt(req.query.days as string) || 30;
@@ -102,7 +103,7 @@ router.get('/margin/:symbol', (req: Request, res: Response) => {
 });
 
 // 融资融券排行
-router.get('/margin/rank/:type', (_req: Request, res: Response) => {
+router.get('/margin/rank/:type', validateParams(schemas.marginRank), (_req: Request, res: Response) => {
   try {
     const type = _req.params.type; // financing | securities
     const count = parseInt(_req.query.count as string) || 20;

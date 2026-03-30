@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/Database';
 import { queryCache } from '../utils/queryCache';
+import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -74,7 +75,7 @@ initDefaultPortfolios();
 
 // ==================== 获取投资组合列表 ====================
 
-router.get('/portfolio', async (_req: Request, res: Response) => {
+router.get('/portfolio', validateQuery(schemas.watchlistQuery), async (_req: Request, res: Response) => {
   try {
     const list: any[] = [];
     for (const [_id, portfolio] of portfolios) {
@@ -108,7 +109,7 @@ router.get('/portfolio', async (_req: Request, res: Response) => {
 
 // ==================== 获取投资组合详情 ====================
 
-router.get('/portfolio/:id', async (req: Request, res: Response) => {
+router.get('/portfolio/:id', validateParams(schemas.portfolioId), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const portfolio = portfolios.get(id);
@@ -150,7 +151,7 @@ router.get('/portfolio/:id', async (req: Request, res: Response) => {
 
 // ==================== 创建投资组合 ====================
 
-router.post('/portfolio', (req: Request, res: Response) => {
+router.post('/portfolio', validateBody(schemas.portfolioCreate), (req: Request, res: Response) => {
   const { name, description, cashBalance } = req.body;
   if (!name) {
     return res.status(400).json({ success: false, error: '缺少组合名称' });
@@ -171,7 +172,7 @@ router.post('/portfolio', (req: Request, res: Response) => {
 
 // ==================== 添加持仓 ====================
 
-router.post('/portfolio/:id/positions', async (req: Request, res: Response) => {
+router.post('/portfolio/:id/positions', validateParams(schemas.portfolioId), validateBody(schemas.positionAdd), async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const portfolio = portfolios.get(id);
@@ -217,7 +218,7 @@ router.post('/portfolio/:id/positions', async (req: Request, res: Response) => {
 
 // ==================== 编辑持仓 ====================
 
-router.put('/portfolio/:id/positions/:symbol', (req: Request, res: Response) => {
+router.put('/portfolio/:id/positions/:symbol', validateParams(schemas.portfolioPositionSymbol), validateBody(schemas.positionUpdate), (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   const symbol = req.params.symbol;
   const portfolio = portfolios.get(id);
@@ -240,7 +241,7 @@ router.put('/portfolio/:id/positions/:symbol', (req: Request, res: Response) => 
 
 // ==================== 删除持仓 ====================
 
-router.delete('/portfolio/:id/positions/:symbol', (req: Request, res: Response) => {
+router.delete('/portfolio/:id/positions/:symbol', validateParams(schemas.portfolioPositionSymbol), (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   const symbol = req.params.symbol;
   const portfolio = portfolios.get(id);
@@ -263,7 +264,7 @@ router.delete('/portfolio/:id/positions/:symbol', (req: Request, res: Response) 
 
 // ==================== 删除投资组合 ====================
 
-router.delete('/portfolio/:id', (req: Request, res: Response) => {
+router.delete('/portfolio/:id', validateParams(schemas.portfolioId), (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   if (!portfolios.has(id)) {
     return res.status(404).json({ success: false, error: '投资组合不存在' });

@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/Database';
+import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
 
 const router = Router();
@@ -13,7 +14,7 @@ const router = Router();
  * 获取自选股列表（含分组）
  * GET /api/watchlist
  */
-router.get('/watchlist', async (req: Request, res: Response) => {
+router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Request, res: Response) => {
   try {
     const userId = parseInt(req.query.userId as string) || 1;
     const groupId = req.query.groupId as string;
@@ -80,7 +81,7 @@ router.get('/watchlist', async (req: Request, res: Response) => {
  * 添加自选股
  * POST /api/watchlist
  */
-router.post('/watchlist', async (req: Request, res: Response) => {
+router.post('/watchlist', validateBody(schemas.watchlistAdd), async (req: Request, res: Response) => {
   try {
     const { symbol, notes, groupId = 'default' } = req.body;
     const userId = parseInt(req.body.userId as string) || 1;
@@ -138,7 +139,7 @@ router.post('/watchlist', async (req: Request, res: Response) => {
  * 删除自选股
  * DELETE /api/watchlist/:symbol
  */
-router.delete('/watchlist/:symbol', async (req: Request, res: Response) => {
+router.delete('/watchlist/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const userId = parseInt(req.query.userId as string) || 1;
@@ -168,7 +169,7 @@ router.delete('/watchlist/:symbol', async (req: Request, res: Response) => {
  * 更新自选股（分组/排序/备注）
  * PATCH /api/watchlist/:symbol
  */
-router.patch('/watchlist/:symbol', async (req: Request, res: Response) => {
+router.patch('/watchlist/:symbol', validateParams(schemas.stockSymbol), validateBody(schemas.watchlistUpdate), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const { notes, groupId, sortIndex } = req.body;
@@ -208,7 +209,7 @@ router.patch('/watchlist/:symbol', async (req: Request, res: Response) => {
  * 批量排序
  * PUT /api/watchlist/reorder
  */
-router.put('/watchlist/reorder', async (req: Request, res: Response) => {
+router.put('/watchlist/reorder', validateBody(schemas.watchlistReorder), async (req: Request, res: Response) => {
   try {
     const { items } = req.body; // [{ symbol, sortIndex, groupId }]
     const userId = parseInt(req.body.userId as string) || 1;
@@ -241,7 +242,7 @@ router.put('/watchlist/reorder', async (req: Request, res: Response) => {
  * 创建分组
  * POST /api/watchlist/groups
  */
-router.post('/watchlist/groups', async (req: Request, res: Response) => {
+router.post('/watchlist/groups', validateBody(schemas.watchlistGroupCreate), async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
     const userId = parseInt(req.body.userId as string) || 1;
@@ -277,7 +278,7 @@ router.post('/watchlist/groups', async (req: Request, res: Response) => {
  * 删除分组
  * DELETE /api/watchlist/groups/:id
  */
-router.delete('/watchlist/groups/:id', async (req: Request, res: Response) => {
+router.delete('/watchlist/groups/:id', validateParams(schemas.watchlistGroupDelete), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (id === 'default') {

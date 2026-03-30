@@ -13,6 +13,7 @@
 import { Request, Response, Router } from 'express';
 import { db } from '../db/Database';
 import { queryCache } from '../utils/queryCache';
+import { validateBody, schemas } from '../middleware/validation';
 
 const router = Router();
 
@@ -214,7 +215,7 @@ const customTemplates: Map<string, any> = new Map();
  * 高级多条件组合筛选
  * POST /api/screener/advanced-filter
  */
-router.post('/screener/advanced-filter', async (req: Request, res: Response) => {
+router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), async (req: Request, res: Response) => {
   try {
     const {
       groups = [],

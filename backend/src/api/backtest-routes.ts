@@ -4,6 +4,8 @@
 
 import { Router } from 'express';
 import { db } from '../db/Database';
+import { validateBody, validateParams, schemas } from '../middleware/validation';
+import { asyncHandler, sendSuccess, sendValidationError } from '../utils/apiResponse';
 import { runBacktest, STRATEGY_PRESETS } from '../utils/backtestEngine';
 import type { KLineData } from '../../../shared/types';
 
@@ -11,7 +13,7 @@ const router = Router();
 
 // ==================== 运行回测 ====================
 
-router.post('/backtest/run', async (req, res) => {
+router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res) => {
   try {
     const { symbol, strategy, params = {} } = req.body;
 
@@ -88,7 +90,7 @@ router.get('/backtest/presets', (_req, res) => {
 
 // ==================== 对比多个策略 ====================
 
-router.post('/backtest/compare', async (req, res) => {
+router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (req, res) => {
   try {
     const { symbol, strategies } = req.body;
 

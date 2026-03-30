@@ -6,6 +6,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/Database';
+import { validateQuery, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendPaginated } from '../utils/apiResponse';
 
 const router = Router();
@@ -14,7 +15,7 @@ const router = Router();
  * 获取行业板块列表
  * GET /api/sectors
  */
-router.get('/sectors', asyncHandler(async (req, res) => {
+router.get('/sectors', validateQuery(schemas.sectorQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const sortBy = (req.query.sortBy as string) || 'avgChangePercent';
   const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
@@ -61,7 +62,7 @@ router.get('/sectors/:industry/stocks', asyncHandler(async (req, res) => {
  * 获取行业涨跌排名
  * GET /api/sectors/ranking
  */
-router.get('/sectors/ranking', asyncHandler(async (req, res) => {
+router.get('/sectors/ranking', validateQuery(schemas.sectorQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const type = (req.query.type as string) || 'gainers';
   const limit = parseInt(req.query.limit as string) || 10;

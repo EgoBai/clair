@@ -7,7 +7,8 @@
 import { Request, Response, Router } from 'express';
 import { db } from '../db/Database';
 import { queryCache } from '../utils/queryCache';
-import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
+import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
+import { asyncHandler, sendSuccess, sendNotFound, sendInternalError, sendValidationError } from '../utils/apiResponse';
 
 const router = Router();
 
@@ -170,34 +171,16 @@ const FIELD_MAP: Record<string, string> = {
  * 多条件组合筛选
  * POST /api/screener/filter
  */
-router.post('/screener/filter', async (req: Request, res: Response) => {
+router.post('/screener/filter', validateBody(schemas.screenerFilter), async (req: Request, res: Response) => {
   try {
     const {
-      conditions = [],
-      logic = 'and',
-      sortBy = 'change_percent',
-      sortOrder = 'desc',
-      page = 1,
-      pageSize = 50,
-    }: ScreenerRequest = req.body;
-
-    // 验证 conditions
-    if (!Array.isArray(conditions)) {
-      return res.status(400).json({
-        success: false,
-        error: 'conditions 必须是数组',
-      });
-    }
-
-    // 验证每个条件的字段
-    for (const cond of conditions) {
-      if (!ALLOWED_FIELDS.has(cond.field)) {
-        return res.status(400).json({
-          success: false,
-          error: `不支持的筛选字段: ${cond.field}，支持: ${Array.from(ALLOWED_FIELDS).join(', ')}`,
-        });
-      }
-    }
+      conditions,
+      logic,
+      sortBy,
+      sortOrder,
+      page,
+      pageSize,
+    } = req.body;
 
     const safePageSize = Math.min(Math.max(pageSize, 1), 200);
     const safePage = Math.max(page, 1);
@@ -365,7 +348,7 @@ router.get('/screener/templates', async (_req: Request, res: Response) => {
  * 使用预设模板筛选
  * POST /api/screener/templates/:id/run
  */
-router.post('/screener/templates/:id/run', async (req: Request, res: Response) => {
+router.post('/screener/templates/:id/run', validateBody(schemas.screenerTemplateRun), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const template = PRESET_TEMPLATES.find((t) => t.id === id) || customTemplates.get(id);
@@ -421,18 +404,11 @@ router.post('/screener/templates/:id/run', async (req: Request, res: Response) =
  * 保存自定义筛选条件
  * POST /api/screener/templates
  */
-router.post('/screener/templates', async (req: Request, res: Response) => {
+router.post('/screener/templates', validateBody(schemas.screenerTemplateSave), async (req: Request, res: Response) => {
   try {
     const { name, description, conditions, sortBy, sortOrder } = req.body;
 
-    if (!name || !Array.isArray(conditions) || conditions.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'name 和 conditions 是必填字段',
-      });
-    }
-
-    // 验证字段
+    // 验证字段 (schema already validates, but keep field whitelist check)
     for (const cond of conditions) {
       if (!ALLOWED_FIELDS.has(cond.field)) {
         return res.status(400).json({

@@ -4,6 +4,7 @@
  */
 
 import { Request, Response, Router } from 'express';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -64,7 +65,7 @@ function generateStockMetrics(symbol: string, name: string) {
  * 获取股票对比数据
  * GET /api/compare?symbols=600519,000858,000001
  */
-router.get('/compare', async (req: Request, res: Response) => {
+router.get('/compare', validateQuery(schemas.batchQuotes), async (req: Request, res: Response) => {
   try {
     const symbolsParam = (req.query.symbols as string) || '600519,000858,000001';
     const symbols = symbolsParam.split(',').map(s => s.trim()).slice(0, 5); // 最多5只
@@ -99,7 +100,7 @@ router.get('/compare', async (req: Request, res: Response) => {
  * 获取雷达图数据（归一化 0-100）
  * GET /api/compare/radar?symbols=600519,000858
  */
-router.get('/compare/radar', async (req: Request, res: Response) => {
+router.get('/compare/radar', validateQuery(schemas.batchQuotes), async (req: Request, res: Response) => {
   try {
     const symbolsParam = (req.query.symbols as string) || '600519,000858';
     const symbols = symbolsParam.split(',').map(s => s.trim()).slice(0, 5);

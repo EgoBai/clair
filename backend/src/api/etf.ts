@@ -5,6 +5,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -27,7 +28,7 @@ const etfList = [
  * 获取 ETF 列表
  * GET /api/etf/list
  */
-router.get('/list', (req: Request, res: Response) => {
+router.get('/list', validateQuery(schemas.etfListQuery), (req: Request, res: Response) => {
   const { type, sortBy = 'totalAssets', sortOrder = 'desc' } = req.query;
   let data = [...etfList];
   if (type) data = data.filter(e => e.type === type);
@@ -43,7 +44,7 @@ router.get('/list', (req: Request, res: Response) => {
  * 获取 ETF 详情
  * GET /api/etf/:symbol
  */
-router.get('/:symbol', (req: Request, res: Response) => {
+router.get('/:symbol', validateParams(schemas.etfSymbol), (req: Request, res: Response) => {
   const etf = etfList.find(e => e.symbol === req.params.symbol);
   if (!etf) return res.status(404).json({ success: false, error: 'ETF 未找到' });
   // 模拟持仓明细
@@ -64,7 +65,7 @@ router.get('/:symbol', (req: Request, res: Response) => {
  * 获取 ETF 净值历史
  * GET /api/etf/:symbol/nav-history
  */
-router.get('/:symbol/nav-history', (req: Request, res: Response) => {
+router.get('/:symbol/nav-history', validateParams(schemas.etfSymbol), validateQuery(schemas.etfNavHistory), (req: Request, res: Response) => {
   const etf = etfList.find(e => e.symbol === req.params.symbol);
   if (!etf) return res.status(404).json({ success: false, error: 'ETF 未找到' });
   const days = parseInt(req.query.days as string) || 30;

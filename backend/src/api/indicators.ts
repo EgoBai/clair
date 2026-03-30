@@ -6,6 +6,7 @@
 import { Request, Response, Router } from 'express';
 import { db } from '../db/Database';
 import { calculateAllIndicators, OHLCV } from '../indicators/technical';
+import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
 const router = Router();
@@ -14,7 +15,7 @@ const router = Router();
  * 获取股票技术指标
  * GET /api/indicators/:symbol
  */
-router.get('/indicators/:symbol', async (req: Request, res: Response) => {
+router.get('/indicators/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const limit = parseInt(req.query.limit as string) || 120;
@@ -67,7 +68,7 @@ router.get('/indicators/:symbol', async (req: Request, res: Response) => {
  * 获取MA均线数据
  * GET /api/indicators/:symbol/ma
  */
-router.get('/indicators/:symbol/ma', async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/ma', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const period = parseInt(req.query.period as string) || 5;
@@ -107,7 +108,7 @@ router.get('/indicators/:symbol/ma', async (req: Request, res: Response) => {
  * 获取MACD数据
  * GET /api/indicators/:symbol/macd
  */
-router.get('/indicators/:symbol/macd', async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/macd', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const limit = parseInt(req.query.limit as string) || 120;
@@ -148,7 +149,7 @@ router.get('/indicators/:symbol/macd', async (req: Request, res: Response) => {
  * 获取KDJ数据
  * GET /api/indicators/:symbol/kdj
  */
-router.get('/indicators/:symbol/kdj', async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/kdj', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const limit = parseInt(req.query.limit as string) || 120;
@@ -191,7 +192,7 @@ router.get('/indicators/:symbol/kdj', async (req: Request, res: Response) => {
  * 获取RSI数据
  * GET /api/indicators/:symbol/rsi
  */
-router.get('/indicators/:symbol/rsi', async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/rsi', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const period = parseInt(req.query.period as string) || 14;
@@ -231,7 +232,7 @@ router.get('/indicators/:symbol/rsi', async (req: Request, res: Response) => {
  * 获取布林带数据
  * GET /api/indicators/:symbol/boll
  */
-router.get('/indicators/:symbol/boll', async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/boll', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     const period = parseInt(req.query.period as string) || 20;
