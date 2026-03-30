@@ -4545,3 +4545,28 @@
 - **Tests**: 20,147 passed (↑60)
 - **Duration**: 17.16s
 
+
+## Round 185 — DevOps深化：灰度发布自动化 + 部署编排 (2026-03-31)
+
+**主题**: 灰度发布脚本/蓝绿部署脚本/功能开关/部署编排器/回滚管理器
+
+### 新增文件 (7个)
+
+**部署脚本**
+- `scripts/canary-deploy.sh` — 灰度发布自动化脚本（权重控制/健康检查/指标监控/自动提升/回滚/Dry-run）
+- `scripts/blue-green-deploy.sh` — 蓝绿部署自动化脚本（环境切换/Cookie路由/状态查询/回滚）
+
+**后端服务**
+- `backend/src/services/featureFlags.ts` — 功能开关服务（boolean/百分比/用户白名单/分组/时间窗口/组合策略/缓存/统计/导入导出）
+- `backend/src/services/deployOrchestrator.ts` — 部署编排器（统一管理canary/blue-green/rolling/recreate/状态推进/指标更新/自动回滚）
+- `backend/src/services/rollbackManager.ts` — 回滚管理器（版本快照/回滚执行/步骤推进/自动回滚策略/健康检查驱动/报告生成）
+
+**测试 (3个新文件, 47个新测试)**
+- `featureFlags.test.ts` — 18 tests（CRUD/评估策略/统计/导入导出）
+- `deployOrchestrator.test.ts` — 13 tests（灰度/蓝绿/滚动/回滚/通用功能）
+- `rollbackManager.test.ts` — 16 tests（快照/执行/步骤推进/自动回滚策略/清理报告）
+
+### 测试结果
+- **Test Files**: 747 passed (↑2)
+- **Tests**: 20,194 passed (↑47)
+- **Duration**: 16.96s
