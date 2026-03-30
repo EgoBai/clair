@@ -129,3 +129,58 @@ export const schemas = {
   marketQuery: marketQuerySchema,
   sectorQuery: sectorQuerySchema,
 };
+
+// ==================== 请求体大小限制中间件 ====================
+
+/**
+ * 限制请求体大小，防止DoS攻击
+ */
+export function limitBodySize(maxBytes: number = 10240) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength > maxBytes) {
+      return res.status(413).json({
+        success: false,
+        error: '请求体过大',
+        details: `最大允许 ${maxBytes} 字节`,
+      });
+    }
+    next();
+  };
+}
+
+/**
+ * SQL注入特征检测（简单防护层）
+ * 检测查询参数中是否包含SQL关键字
+ */
+export function sanitizeInput(req: Request, res: Response, next: NextFunction) {
+  const sqlPatterns = [
+    /(\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|EXEC|EXECUTE|UNION|SELECT)\b\s)/i,
+    /(--|;|\/\*|\*\/|xp_|@@)/i,
+    /(\bOR\b\s+\d+\s*=\s*\d+)/i,
+    /(\bAND\b\s+\d+\s*=\s*\d+)/i,
+    /(CHAR\s*\(|CONCAT\s*\(|CONVERT\s*\()/i,
+  ];
+
+  const checkValue = (val: string): boolean => {
+    return sqlPatterns.some(pattern => pattern.test(val));
+  };
+
+  const checkObject = (obj: any): boolean => {
+    if (typeof obj === 'string') return checkValue(obj);
+    if (typeof obj === 'object' && obj !== null) {
+      return Object.values(obj).some(v => checkObject(v));
+    }
+    return false;
+  };
+
+  if (checkObject(req.query) || checkObject(req.body) || checkObject(req.params)) {
+    console.warn(`⚠️ 检测到疑似注入请求: ${req.method} ${req.path} IP: ${req.ip}`);
+    return res.status(400).json({
+      success: false,
+      error: '请求包含非法字符',
+    });
+  }
+
+  next();
+}

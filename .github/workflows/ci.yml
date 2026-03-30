@@ -1,0 +1,185 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ==================== Lint & Type Check ====================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/src/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Backend Dependencies
+        working-directory: backend/src
+        run: npm ci
+
+      - name: ESLint (Frontend)
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Type Check (Frontend)
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Type Check (Backend)
+        working-directory: backend/src
+        run: npx tsc --noEmit
+
+  # ==================== Unit Tests ====================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: a_stock_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/src/package-lock.json
+
+      - name: Install Dependencies (Frontend)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Dependencies (Backend)
+        working-directory: backend/src
+        run: npm ci
+
+      - name: Run Frontend Tests
+        working-directory: frontend
+        run: npm test -- --run --reporter=verbose
+        env:
+          CI: true
+
+      - name: Run Backend Tests
+        working-directory: backend/src
+        run: npm test -- --run --reporter=verbose
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/a_stock_test
+          NODE_ENV: test
+          CI: true
+
+      - name: Upload Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            frontend/coverage/
+            backend/src/coverage/
+          retention-days: 7
+
+  # ==================== Build ====================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Frontend
+        working-directory: frontend
+        run: npm run build
+        env:
+          VITE_API_URL: /api
+          VITE_WS_URL: ws://localhost:3001/ws
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist/
+          retention-days: 7
+
+  # ==================== Deploy (Staging) ====================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist/
+
+      - name: Deploy
+        run: echo "Deploy to staging server"
+        # 实际部署脚本替换这里
+        # 可以使用 rsync, docker, 或云服务 CLI
+
+  # ==================== Deploy (Production) ====================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist/
+
+      - name: Deploy
+        run: echo "Deploy to production server"
+        # 生产部署使用审批门禁

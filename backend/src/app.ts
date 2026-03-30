@@ -15,9 +15,34 @@ import indicatorRouter from './api/indicators';
 import sectorRouter from './api/sectors';
 import fundFlowRouter from './api/fund-flow';
 import watchlistRouter from './api/watchlist';
+import alertRouter from './api/alerts';
+import screenerRouter from './api/screener';
+import advancedScreenerRouter from './api/advanced-screener';
+import backtestRouter from './api/backtest-routes';
+import portfolioRouter from './api/portfolio';
+import newsRouter from './api/news';
+import socialRouter from './api/social';
+import aiAnalysisRouter from './api/ai-analysis';
+import financialsRouter from './api/financials';
+import stockCompareRouter from './api/stock-compare';
+import sectorAnalysisRouter from './api/sector-analysis';
+import userRouter from './api/user';
+import performanceRouter from './api/performance';
+import orderBookRouter from './api/order-book';
+import marginRouter from './api/margin';
+import topTradersRouter from './api/top-traders';
+import blockTradesRouter from './api/block-trades';
+import shareholderChangesRouter from './api/shareholder-changes';
+import lockupSharesRouter from './api/lockup-shares';
+import aiStockSelectionRouter from './api/ai-stock-selection';
+import etfRouter from './api/etf';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
+import { csrfTokenEndpoint } from './middleware/csrf';
+import { enhancedSecurityHeaders } from './middleware/securityHeaders';
+import { performanceMonitor } from './middleware/performanceMonitor';
+import { sanitizeInput } from './middleware/validation';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -28,6 +53,7 @@ app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
+app.use(enhancedSecurityHeaders());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -38,8 +64,10 @@ app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// ==================== 限流 ====================
+// ==================== 限流 + 安全检查 + 性能监控 ====================
 app.use(apiRateLimit);
+app.use(sanitizeInput);
+app.use(performanceMonitor.middleware());
 
 // ==================== 请求日志 ====================
 app.use((req, res, next) => {
@@ -60,6 +88,30 @@ app.use('/api', indicatorRouter);
 app.use('/api', sectorRouter);
 app.use('/api', fundFlowRouter);
 app.use('/api', watchlistRouter);
+app.use('/api', alertRouter);
+app.use('/api', screenerRouter);
+app.use('/api', advancedScreenerRouter);
+app.use('/api', backtestRouter);
+app.use('/api', portfolioRouter);
+app.use('/api', newsRouter);
+app.use('/api', socialRouter);
+app.use('/api', aiAnalysisRouter);
+app.use('/api', financialsRouter);
+app.use('/api', stockCompareRouter);
+app.use('/api', sectorAnalysisRouter);
+app.use('/api', userRouter);
+app.use('/api', performanceRouter);
+app.use('/api', orderBookRouter);
+app.use('/api', marginRouter);
+app.use('/api', topTradersRouter);
+app.use('/api', blockTradesRouter);
+app.use('/api', shareholderChangesRouter);
+app.use('/api', lockupSharesRouter);
+app.use('/api', aiStockSelectionRouter);
+app.use('/api/etf', etfRouter);
+
+// ==================== CSRF Token ====================
+app.get('/api/csrf-token', csrfTokenEndpoint);
 
 // ==================== 搜索API ====================
 import { searchAndSort, addSearchHistory, getSearchHistory } from './utils/search';
@@ -128,7 +180,7 @@ app.get('/health', async (_req, res) => {
     res.json({
       status: health.healthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
-      version: '1.2.0',
+      version: '1.4.0',
       database: {
         connected: health.healthy,
         latency: health.latency,
@@ -202,16 +254,34 @@ app.post('/api/sync/kline/:symbol', syncRateLimit, async (req, res) => {
 app.get('/', (_req, res) => {
   res.json({
     service: 'A股行情分析网站 - 后端API',
-    version: '1.1.0',
+    version: '1.6.0',
     status: 'running',
     endpoints: {
       health: '/health',
       stocks: '/api/stocks',
       indicators: '/api/indicators/:symbol',
       sectors: '/api/sectors',
+      sectorAnalysis: '/api/sectors/analysis',
       fundFlow: '/api/fund-flow/:symbol',
       watchlist: '/api/watchlist',
+      alerts: '/api/alerts',
+      screener: '/api/screener/filter',
+      advancedScreener: '/api/screener/advanced-filter',
       market: '/api/market',
+      search: '/api/search',
+      news: '/api/news',
+      social: '/api/social/comments',
+      aiAnalysis: '/api/ai/recommendations',
+      financials: '/api/financials/summary?symbol=',
+      stockCompare: '/api/compare?symbols=',
+      user: '/api/user/register | /api/user/login',
+      performance: '/api/performance/overview',
+      blockTrades: '/api/block-trades',
+      shareholderChanges: '/api/shareholder-changes',
+      lockupCalendar: '/api/lockup/calendar',
+      aiDiagnose: '/api/ai/diagnose/:symbol',
+      aiSectorRotation: '/api/ai/sector-rotation',
+      aiAlertSuggestions: '/api/ai/alert-suggestions',
       sync: {
         realtime: 'POST /api/sync/realtime',
         kline: 'POST /api/sync/kline/:symbol',
@@ -247,7 +317,7 @@ wsService.initialize(httpServer);
 httpServer.listen(PORT, () => {
   console.log(`
 ╔══════════════════════════════════════════════╗
-║   A股行情分析网站 - 后端服务已启动 (v1.1.0)  ║
+║   A股行情分析网站 - 后端服务已启动 (v1.4.0)  ║
 ╠══════════════════════════════════════════════╣
 ║   HTTP服务:     http://localhost:${PORT}        ║
 ║   WebSocket:    ws://localhost:${PORT}          ║

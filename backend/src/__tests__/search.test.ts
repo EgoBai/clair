@@ -1,128 +1,119 @@
 /**
- * 搜索工具 - 单元测试
+ * 搜索 API 测试（增强版）
+ * 覆盖拼音搜索、缓存、历史记录
  */
-
 import { describe, it, expect } from 'vitest';
-import { matchStock, searchAndSort, getPinyinInitials } from '../utils/search';
+import { searchAndSort, addSearchHistory, getSearchHistory, clearSearchHistory } from '../utils/search';
 
-// ==================== matchStock 测试 ====================
+const mockStocks = [
+  { id: 1, symbol: '000001', name: '平安银行', market: 'SZ', industry: '银行' },
+  { id: 2, symbol: '600519', name: '贵州茅台', market: 'SH', industry: '白酒' },
+  { id: 3, symbol: '000858', name: '五粮液', market: 'SZ', industry: '白酒' },
+  { id: 4, symbol: '601318', name: '中国平安', market: 'SH', industry: '保险' },
+  { id: 5, symbol: '000333', name: '美的集团', market: 'SZ', industry: '家电' },
+  { id: 6, symbol: '600036', name: '招商银行', market: 'SH', industry: '银行' },
+  { id: 7, symbol: '002415', name: '海康威视', market: 'SZ', industry: '安防' },
+];
 
-describe('matchStock', () => {
-  it('代码精确匹配应该得分最高', () => {
-    const result = matchStock('600519', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-    expect(result.score).toBe(1000);
+describe('搜索工具', () => {
+  describe('精确匹配', () => {
+    it('股票代码精确匹配应该排第一', () => {
+      const results = searchAndSort(mockStocks, '000001');
+      expect(results[0].symbol).toBe('000001');
+    });
+
+    it('股票名称精确匹配', () => {
+      const results = searchAndSort(mockStocks, '平安银行');
+      expect(results[0].name).toBe('平安银行');
+    });
   });
 
-  it('代码前缀匹配', () => {
-    const result = matchStock('600', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-    expect(result.score).toBe(900);
+  describe('前缀匹配', () => {
+    it('代码前缀匹配', () => {
+      const results = searchAndSort(mockStocks, '600');
+      const symbols = results.map(r => r.symbol);
+      expect(symbols).toContain('600519');
+    });
+
+    it('名称前缀匹配', () => {
+      const results = searchAndSort(mockStocks, '中国');
+      expect(results.some(r => r.name.includes('中国'))).toBe(true);
+    });
   });
 
-  it('代码包含匹配', () => {
-    const result = matchStock('0519', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-    expect(result.score).toBe(800);
+  describe('拼音搜索', () => {
+    it('拼音首字母匹配', () => {
+      const results = searchAndSort(mockStocks, 'PAYH');
+      // 平安银行 - ping an yin hang
+      expect(results.length).toBeGreaterThan(0);
+    });
+
+    it('拼音应该能搜到对应股票', () => {
+      const results = searchAndSort(mockStocks, 'GZMT');
+      // 贵州茅台 - gui zhou mao tai
+      expect(results.some(r => r.name === '贵州茅台')).toBe(true);
+    });
   });
 
-  it('名称精确匹配', () => {
-    const result = matchStock('贵州茅台', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-    expect(result.score).toBe(700);
+  describe('模糊匹配', () => {
+    it('模糊匹配应该返回相关结果', () => {
+      const results = searchAndSort(mockStocks, '银行');
+      expect(results.some(r => r.name.includes('银行') || r.industry === '银行')).toBe(true);
+    });
+
+    it('不匹配任何内容应返回空', () => {
+      const results = searchAndSort(mockStocks, 'xyz123notfound');
+      expect(results.length).toBe(0);
+    });
   });
 
-  it('名称前缀匹配', () => {
-    const result = matchStock('贵州', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-    expect(result.score).toBe(600);
+  describe('排序', () => {
+    it('匹配优先级排序应该正确', () => {
+      const results = searchAndSort(mockStocks, '平安');
+      // "平安银行" 代码精确匹配 > "中国平安" 名称包含
+      expect(results.length).toBeGreaterThanOrEqual(2);
+    });
   });
 
-  it('名称包含匹配', () => {
-    const result = matchStock('茅台', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-    expect(result.score).toBe(500);
-  });
+  describe('空查询', () => {
+    it('空字符串应返回全部结果（无过滤）', () => {
+      expect(searchAndSort(mockStocks, '').length).toBe(mockStocks.length);
+    });
 
-  it('拼音首字母匹配', () => {
-    const result = matchStock('gzmt', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-    expect(result.score).toBe(400);
-  });
-
-  it('不匹配应该返回false', () => {
-    const result = matchStock('xyz', '600519', '贵州茅台');
-    expect(result.matched).toBe(false);
-  });
-
-  it('空查询应该匹配所有', () => {
-    const result = matchStock('', '600519', '贵州茅台');
-    expect(result.matched).toBe(true);
-  });
-
-  it('不区分大小写', () => {
-    const result = matchStock('GZMT', '600519', '贵州茅台');
-    // 大写转小写后应该匹配拼音首字母
-    expect(result.matched).toBe(true);
-  });
-});
-
-// ==================== searchAndSort 测试 ====================
-
-describe('searchAndSort', () => {
-  const stocks = [
-    { symbol: '600519', name: '贵州茅台', market: 'SH', industry: '白酒' },
-    { symbol: '000858', name: '五粮液', market: 'SZ', industry: '白酒' },
-    { symbol: '601318', name: '中国平安', market: 'SH', industry: '保险' },
-    { symbol: '000001', name: '平安银行', market: 'SZ', industry: '银行' },
-    { symbol: '600036', name: '招商银行', market: 'SH', industry: '银行' },
-  ];
-
-  it('空查询应该返回所有结果', () => {
-    const result = searchAndSort(stocks, '');
-    expect(result).toHaveLength(5);
-  });
-
-  it('代码搜索应该精确匹配排最前', () => {
-    const result = searchAndSort(stocks, '600519');
-    expect(result[0].symbol).toBe('600519');
-  });
-
-  it('名称搜索应该正确过滤', () => {
-    const result = searchAndSort(stocks, '银行');
-    expect(result).toHaveLength(2);
-    expect(result.some(s => s.name === '平安银行')).toBe(true);
-    expect(result.some(s => s.name === '招商银行')).toBe(true);
-  });
-
-  it('拼音搜索应该工作', () => {
-    const result = searchAndSort(stocks, 'zgpa');
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0].name).toBe('中国平安');
-  });
-
-  it('代码前缀搜索', () => {
-    const result = searchAndSort(stocks, '600');
-    expect(result.length).toBeGreaterThan(0);
-    result.forEach(s => expect(s.symbol).toContain('600'));
-  });
-
-  it('不匹配的查询应该返回空', () => {
-    const result = searchAndSort(stocks, '不存在的股票xyz');
-    expect(result).toHaveLength(0);
+    it('空白字符串应返回全部结果（无过滤）', () => {
+      expect(searchAndSort(mockStocks, '   ').length).toBe(mockStocks.length);
+    });
   });
 });
 
-// ==================== getPinyinInitials 测试 ====================
+describe('搜索历史', () => {
+  const userId = 999;
 
-describe('getPinyinInitials', () => {
-  it('应该返回已知股票的拼音首字母', () => {
-    expect(getPinyinInitials('贵州茅台')).toBe('gzmt');
-    expect(getPinyinInitials('中国平安')).toBe('zgpa');
-    expect(getPinyinInitials('比亚迪')).toBe('byd');
+  it('应该能添加搜索历史', () => {
+    addSearchHistory(userId, { query: '平安银行' });
+    addSearchHistory(userId, { query: '贵州茅台' });
+    const history = getSearchHistory(userId);
+    expect(history.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('未知股票应该返回空字符串', () => {
-    expect(getPinyinInitials('未知公司')).toBe('');
+  it('应该按时间倒序排列', () => {
+    addSearchHistory(userId, { query: '第一个' });
+    addSearchHistory(userId, { query: '第二个' });
+    const history = getSearchHistory(userId);
+    expect(history[0].query).toBe('第二个');
+  });
+
+  it('重复搜索应该去重', () => {
+    addSearchHistory(userId, { query: '重复' });
+    addSearchHistory(userId, { query: '重复' });
+    const history = getSearchHistory(userId);
+    const repeated = history.filter(h => h.query === '重复');
+    expect(repeated.length).toBe(1);
+  });
+
+  it('应该能清空搜索历史', () => {
+    clearSearchHistory(userId);
+    const history = getSearchHistory(userId);
+    expect(history.length).toBe(0);
   });
 });

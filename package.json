@@ -32,9 +32,12 @@
   "author": "A股分析助手",
   "license": "MIT",
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.1",
     "concurrently": "^8.2.2",
     "husky": "^9.0.11",
-    "lint-staged": "^15.2.2"
+    "jsdom": "^29.0.1",
+    "lint-staged": "^15.2.2",
+    "vitest": "^4.1.1"
   },
   "engines": {
     "node": ">=18.0.0",

@@ -13,33 +13,35 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
-    "antd": "^5.12.2",
     "@ant-design/icons": "^5.2.6",
-    "echarts": "^5.4.3",
-    "echarts-for-react": "^3.0.2",
+    "antd": "^5.12.2",
     "axios": "^1.6.2",
     "dayjs": "^1.11.10",
-    "zustand": "^4.4.7",
-    "react-query": "^3.39.3"
+    "echarts": "^5.4.3",
+    "echarts-for-react": "^3.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-query": "^3.39.3",
+    "react-router-dom": "^6.20.0",
+    "recharts": "^3.8.1",
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.1.5",
+    "@testing-library/react": "^14.0.0",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@typescript-eslint/eslint-plugin": "^6.13.2",
     "@typescript-eslint/parser": "^6.13.2",
     "@vitejs/plugin-react": "^4.2.0",
+    "@vitest/ui": "^1.0.4",
     "eslint": "^8.54.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "jsdom": "^29.0.1",
     "typescript": "^5.2.2",
     "vite": "^5.0.0",
-    "vitest": "^1.0.4",
-    "@vitest/ui": "^1.0.4",
-    "@testing-library/react": "^14.0.0",
-    "@testing-library/jest-dom": "^6.1.5"
+    "vitest": "^1.0.4"
   },
   "engines": {
     "node": ">=18.0.0",

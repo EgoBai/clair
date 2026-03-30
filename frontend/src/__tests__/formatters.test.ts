@@ -47,15 +47,15 @@ describe('formatChangePercent', () => {
 
 describe('formatVolume', () => {
   it('亿以上应该用亿', () => {
-    expect(formatVolume(150000000)).toBe('1.50亿');
+    expect(formatVolume(150000000)).toBe('1.50亿手');
   });
 
   it('万以上应该用万', () => {
-    expect(formatVolume(150000)).toBe('15.00万');
+    expect(formatVolume(150000)).toBe('15.00万手');
   });
 
   it('小数直接显示', () => {
-    expect(formatVolume(500)).toBe('500');
+    expect(formatVolume(500)).toBe('500手');
   });
 });
 

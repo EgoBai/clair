@@ -13,16 +13,19 @@ import ReactECharts from 'echarts-for-react';
 import type { ColumnsType } from 'antd/es/table';
 import { apiService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 
 const MarketAnalysisPage: React.FC = () => {
+  const navigate = useNavigate();
   const { marketSummary, setMarketSummary } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [topGainers, setTopGainers] = useState<any[]>([]);
   const [topLosers, setTopLosers] = useState<any[]>([]);
   const [topTurnover, setTopTurnover] = useState<any[]>([]);
   const [industries, setIndustries] = useState<any[]>([]);
+  const [heatmapView, setHeatmapView] = useState<'bar' | 'heatmap'>('bar');
 
   useEffect(() => {
     loadData();
@@ -187,6 +190,47 @@ const MarketAnalysisPage: React.FC = () => {
     }],
   } : {};
 
+  // 行业热力图 (Treemap)
+  const industryHeatmapOption = industries.length > 0 ? {
+    tooltip: {
+      formatter: (params: any) => {
+        const d = params.data;
+        const val = d.value ?? 0;
+        return `<b>${d.name}</b><br/>涨跌幅: ${val >= 0 ? '+' : ''}${val.toFixed(2)}%<br/>市值: ${formatMarketCap(d.marketCap || 0)}`;
+      },
+    },
+    series: [{
+      type: 'treemap',
+      data: industries.slice(0, 30).map((ind: any) => {
+        const val = ind.avgChangePercent ?? ind.avg_change_percent ?? 0;
+        const cap = ind.totalMarketCap ?? ind.total_market_cap ?? 0;
+        return {
+          name: ind.industry || ind.ind,
+          value: val,
+          marketCap: cap,
+          itemStyle: {
+            color: val >= 0
+              ? `rgba(239, 68, 68, ${Math.min(Math.abs(val) / 3, 1) * 0.8 + 0.2})`
+              : `rgba(34, 197, 94, ${Math.min(Math.abs(val) / 3, 1) * 0.8 + 0.2})`,
+            borderColor: '#fff',
+            borderWidth: 2,
+            gapWidth: 2,
+          },
+          label: {
+            formatter: (p: any) => `${p.name}\n${p.value >= 0 ? '+' : ''}${p.value.toFixed(2)}%`,
+            fontSize: 11,
+            lineHeight: 16,
+          },
+        };
+      }),
+      roam: false,
+      nodeClick: false,
+      breadcrumb: { show: false },
+      width: '100%',
+      height: '100%',
+    }],
+  } : {};
+
   const tabItems = [
     {
       key: 'gainers',
@@ -324,10 +368,37 @@ const MarketAnalysisPage: React.FC = () => {
 
           {/* 行业板块 */}
           <Col xs={24} md={16}>
-            <Card title="行业板块涨跌" size="small" style={{ height: '100%' }}>
+            <Card
+              title="行业板块涨跌"
+              size="small"
+              style={{ height: '100%' }}
+              extra={
+                <Space size={4}>
+                  <a
+                    style={{
+                      fontSize: 12,
+                      fontWeight: heatmapView === 'bar' ? 600 : 400,
+                      color: heatmapView === 'bar' ? '#1890ff' : '#999',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setHeatmapView('bar')}
+                  >柱状图</a>
+                  <Text type="secondary" style={{ fontSize: 11 }}>/</Text>
+                  <a
+                    style={{
+                      fontSize: 12,
+                      fontWeight: heatmapView === 'heatmap' ? 600 : 400,
+                      color: heatmapView === 'heatmap' ? '#1890ff' : '#999',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setHeatmapView('heatmap')}
+                  >热力图</a>
+                </Space>
+              }
+            >
               {industries.length > 0 ? (
                 <ReactECharts
-                  option={industryBarOption}
+                  option={heatmapView === 'heatmap' ? industryHeatmapOption : industryBarOption}
                   style={{ height: '280px', width: '100%' }}
                   notMerge
                 />

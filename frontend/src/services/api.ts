@@ -38,6 +38,7 @@ interface CacheEntry<T> {
 class ApiCache {
   private cache = new Map<string, CacheEntry<any>>();
   private defaultTTL = 30000; // 30秒
+  private maxSize = 200; // 最大缓存条目数，防止内存泄漏
 
   get<T>(key: string): T | null {
     const entry = this.cache.get(key);
@@ -50,6 +51,11 @@ class ApiCache {
   }
 
   set<T>(key: string, data: T, ttl?: number): void {
+    // 超过最大容量时，淘汰最旧的条目
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
     this.cache.set(key, {
       data,
       timestamp: Date.now(),
@@ -69,8 +75,18 @@ class ApiCache {
     }
   }
 
+  /** 定期清理过期条目 */
+  cleanup(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache) {
+      if (now - entry.timestamp > entry.ttl) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
   getStats() {
-    return { size: this.cache.size };
+    return { size: this.cache.size, maxSize: this.maxSize };
   }
 }
 
@@ -234,6 +250,80 @@ class ApiService {
   getCacheStats() {
     return cache.getStats();
   }
+
+  // ==================== 回测系统 ====================
+
+  async runBacktest(symbol: string, strategy: string, params: any = {}): Promise<ApiResponse<any>> {
+    const response = await this.client.post('/backtest/run', { symbol, strategy, params });
+    return response.data;
+  }
+
+  async getBacktestPresets(): Promise<ApiResponse<any>> {
+    return this.cachedGet('/backtest/presets', undefined, 300000);
+  }
+
+  async compareBacktests(symbol: string, strategies: any[]): Promise<ApiResponse<any>> {
+    const response = await this.client.post('/backtest/compare', { symbol, strategies });
+    return response.data;
+  }
+
+  // ==================== 投资组合 ====================
+
+  async getPortfolios(): Promise<ApiResponse<any>> {
+    return this.cachedGet('/portfolio', undefined, 10000);
+  }
+
+  async getPortfolio(id: number): Promise<ApiResponse<any>> {
+    return this.cachedGet(`/portfolio/${id}`, undefined, 5000);
+  }
+
+  async createPortfolio(name: string, description?: string, cashBalance?: number): Promise<ApiResponse<any>> {
+    const response = await this.client.post('/portfolio', { name, description, cashBalance });
+    cache.invalidate('portfolio');
+    return response.data;
+  }
+
+  async addPosition(portfolioId: number, position: any): Promise<ApiResponse<any>> {
+    const response = await this.client.post(`/portfolio/${portfolioId}/positions`, position);
+    cache.invalidate('portfolio');
+    return response.data;
+  }
+
+  async updatePosition(portfolioId: number, symbol: string, data: any): Promise<ApiResponse<any>> {
+    const response = await this.client.put(`/portfolio/${portfolioId}/positions/${symbol}`, data);
+    cache.invalidate('portfolio');
+    return response.data;
+  }
+
+  async deletePosition(portfolioId: number, symbol: string): Promise<ApiResponse<any>> {
+    const response = await this.client.delete(`/portfolio/${portfolioId}/positions/${symbol}`);
+    cache.invalidate('portfolio');
+    return response.data;
+  }
+
+  async deletePortfolio(id: number): Promise<ApiResponse<any>> {
+    const response = await this.client.delete(`/portfolio/${id}`);
+    cache.invalidate('portfolio');
+    return response.data;
+  }
+
+  // ==================== 新闻资讯 ====================
+
+  async getNews(params: any = {}): Promise<ApiResponse<any>> {
+    return this.cachedGet('/news', params, 30000);
+  }
+
+  async getStockNews(symbol: string, limit: number = 10): Promise<ApiResponse<any>> {
+    return this.cachedGet(`/news/stock/${symbol}`, { limit }, 60000);
+  }
+
+  async getNewsDetail(id: number): Promise<ApiResponse<any>> {
+    return this.cachedGet(`/news/${id}`, undefined, 300000);
+  }
+
+  async getNewsStats(): Promise<ApiResponse<any>> {
+    return this.cachedGet('/news/stats/overview', undefined, 60000);
+  }
 }
 
 // 单例导出
@@ -253,3 +343,151 @@ export const {
   getTopTurnover,
   healthCheck,
 } = apiService;
+
+// ==================== 盘口数据 ====================
+
+export async function fetchOrderBook(symbol: string, name?: string) {
+  const params = name ? `?name=${encodeURIComponent(name)}` : '';
+  const res = await api.get(`/api/order-book/${symbol}${params}`);
+  return res.data.data;
+}
+
+export async function fetchTimeShare(symbol: string) {
+  const res = await api.get(`/api/time-share/${symbol}`);
+  return res.data.data;
+}
+
+// ==================== 融资融券 ====================
+
+export async function fetchMarginOverview() {
+  const res = await api.get('/api/margin/overview');
+  return res.data.data;
+}
+
+export async function fetchMarginData(symbol: string, days = 30) {
+  const res = await api.get(`/api/margin/${symbol}?days=${days}`);
+  return res.data.data;
+}
+
+export async function fetchMarginRank(type: string, count = 20) {
+  const res = await api.get(`/api/margin/rank/${type}?count=${count}`);
+  return res.data.data.rank;
+}
+
+// ==================== 龙虎榜 ====================
+
+export async function fetchTopTraderOverview(date?: string) {
+  const params = date ? `?date=${date}` : '';
+  const res = await api.get(`/api/top-traders/overview${params}`);
+  return res.data.data;
+}
+
+export async function fetchTopTraderDetail(symbol: string, name?: string) {
+  const params = name ? `?name=${encodeURIComponent(name)}` : '';
+  const res = await api.get(`/api/top-traders/${symbol}${params}`);
+  return res.data.data;
+}
+
+export async function fetchTopTraderHistory(symbol: string, days = 10) {
+  const res = await api.get(`/api/top-traders/history/${symbol}?days=${days}`);
+  return res.data.data;
+}
+
+export async function fetchTopTraderSeatRank(count = 20) {
+  const res = await api.get(`/api/top-traders/seat/rank?count=${count}`);
+  return res.data.data.rank;
+}
+
+// ==================== 大宗交易 ====================
+
+export async function fetchBlockTrades(params: { date?: string; symbol?: string; page?: number; pageSize?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.date) query.set('date', params.date);
+  if (params.symbol) query.set('symbol', params.symbol);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  const res = await api.get(`/api/block-trades?${query}`);
+  return res.data.data;
+}
+
+export async function fetchBlockTradeOverview() {
+  const res = await api.get('/api/block-trades/overview');
+  return res.data.data;
+}
+
+export async function fetchBlockTradeHistory(symbol: string, days = 30) {
+  const res = await api.get(`/api/block-trades/${symbol}?days=${days}`);
+  return res.data.data;
+}
+
+// ==================== 股东增减持 ====================
+
+export async function fetchShareholderChanges(params: { symbol?: string; type?: string; page?: number; pageSize?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.symbol) query.set('symbol', params.symbol);
+  if (params.type) query.set('type', params.type);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  const res = await api.get(`/api/shareholder-changes?${query}`);
+  return res.data.data;
+}
+
+export async function fetchShareholderChangeOverview() {
+  const res = await api.get('/api/shareholder-changes/overview');
+  return res.data.data;
+}
+
+export async function fetchShareholderChangeHistory(symbol: string, days = 90) {
+  const res = await api.get(`/api/shareholder-changes/${symbol}?days=${days}`);
+  return res.data.data;
+}
+
+// ==================== 限售股解禁 ====================
+
+export async function fetchLockupCalendar(year?: number, month?: number) {
+  const now = new Date();
+  const params = new URLSearchParams({
+    year: String(year || now.getFullYear()),
+    month: String(month || now.getMonth() + 1),
+  });
+  const res = await api.get(`/api/lockup/calendar?${params}`);
+  return res.data.data;
+}
+
+export async function fetchLockupRank(year?: number, month?: number) {
+  const now = new Date();
+  const params = new URLSearchParams({
+    year: String(year || now.getFullYear()),
+    month: String(month || now.getMonth() + 1),
+  });
+  const res = await api.get(`/api/lockup/rank?${params}`);
+  return res.data.data;
+}
+
+export async function fetchLockupHistory(symbol: string, months = 12) {
+  const res = await api.get(`/api/lockup/${symbol}?months=${months}`);
+  return res.data.data;
+}
+
+// ==================== AI 智能选股 ====================
+
+export async function fetchAIRecommendations(strategy?: string) {
+  const params = strategy ? `?strategy=${strategy}` : '';
+  const res = await api.get(`/api/ai/recommendations${params}`);
+  return res.data.data;
+}
+
+export async function fetchAIDiagnosis(symbol: string) {
+  const res = await api.get(`/api/ai/diagnose/${symbol}`);
+  return res.data.data;
+}
+
+export async function fetchAISectorRotation() {
+  const res = await api.get('/api/ai/sector-rotation');
+  return res.data.data;
+}
+
+export async function fetchAIAlertSuggestions() {
+  const res = await api.get('/api/ai/alert-suggestions');
+  return res.data.data;
+}

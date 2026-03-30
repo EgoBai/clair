@@ -3,7 +3,7 @@
  * 市场全景概览 - 参考同花顺/富途首页信息密度设计
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Card, Row, Col, Statistic, Spin, Tag, Space, Divider, Tooltip, Typography, Progress } from 'antd';
 import {
   ArrowUpOutlined,
@@ -15,6 +15,9 @@ import {
   FireOutlined,
   FieldTimeOutlined,
   SyncOutlined,
+  ClockCircleOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
@@ -23,6 +26,22 @@ import { apiService } from '../services/api';
 
 const { Title, Text } = Typography;
 
+/** 判断当前是否为A股交易时间 */
+function isMarketOpen(): boolean {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const day = now.getDay();
+  if (day === 0 || day === 6) return false; // 周末
+  const totalMinutes = hours * 60 + minutes;
+  const morningStart = 9 * 60 + 15;
+  const morningEnd = 11 * 60 + 30;
+  const afternoonStart = 13 * 60;
+  const afternoonEnd = 15 * 60;
+  return (totalMinutes >= morningStart && totalMinutes <= morningEnd) ||
+         (totalMinutes >= afternoonStart && totalMinutes <= afternoonEnd);
+}
+
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { marketSummary, setMarketSummary, stocks, setStocks, loading, setLoading } = useAppStore();
@@ -30,12 +49,36 @@ const HomePage: React.FC = () => {
   const [topLosers, setTopLosers] = useState<any[]>([]);
   const [topTurnover, setTopTurnover] = useState<any[]>([]);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [marketOpen, setMarketOpen] = useState(isMarketOpen());
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     loadData();
+    // 每30秒更新市场状态
+    const statusTimer = setInterval(() => setMarketOpen(isMarketOpen()), 30000);
+    // 交易时段自动刷新数据
+    if (isMarketOpen()) {
+      autoRefreshRef.current = setInterval(loadData, 60000);
+    }
+    return () => {
+      clearInterval(statusTimer);
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    };
   }, []);
 
-  const loadData = async () => {
+  // 交易状态变化时启动/停止自动刷新
+  useEffect(() => {
+    if (marketOpen) {
+      autoRefreshRef.current = setInterval(loadData, 60000);
+    } else if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current);
+    }
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    };
+  }, [marketOpen]);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [summaryRes, stocksRes, gainersRes, losersRes, turnoverRes] = await Promise.all([
@@ -113,9 +156,24 @@ const HomePage: React.FC = () => {
         }}>
           <div>
             <Title level={4} style={{ margin: 0 }}>📊 市场总览</Title>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {lastUpdate ? `数据更新于 ${lastUpdate.toLocaleTimeString('zh-CN')}` : '加载中...'}
-            </Text>
+            <Space size="small" style={{ marginTop: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {lastUpdate ? `数据更新于 ${lastUpdate.toLocaleTimeString('zh-CN')}` : '加载中...'}
+              </Text>
+              {/* 市场交易状态指示 */}
+              <Tag
+                icon={marketOpen ? <CheckCircleOutlined /> : <ClockCircleOutlined />}
+                color={marketOpen ? 'green' : 'default'}
+                style={{ fontSize: 11, padding: '0 6px', lineHeight: '18px' }}
+              >
+                {marketOpen ? '交易中' : '已休市'}
+              </Tag>
+              {marketOpen && (
+                <Tag color="blue" style={{ fontSize: 11, padding: '0 6px', lineHeight: '18px' }}>
+                  自动刷新 60s
+                </Tag>
+              )}
+            </Space>
           </div>
           <Tooltip title="刷新数据">
             <SyncOutlined
@@ -417,7 +475,7 @@ const HomePage: React.FC = () => {
           </Col>
         </Row>
 
-        {/* 热门股票网格 */}
+        {/* 热门股票网格 - Bloomberg Terminal 风格信息密度 */}
         <Card
           size="small"
           title={<span style={{ fontWeight: 600 }}>🔥 热门股票</span>}
@@ -452,6 +510,37 @@ const HomePage: React.FC = () => {
                         {stock.latestQuote.changePercent >= 0 ? '+' : ''}
                         {stock.latestQuote.changePercent?.toFixed(2)}%
                       </Tag>
+                      {/* 新增：成交量和换手率信息 */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginTop: 8,
+                        paddingTop: 8,
+                        borderTop: '1px solid #f0f0f0',
+                        fontSize: 11,
+                        color: '#999',
+                      }}>
+                        <Tooltip title="成交量">
+                          <span>
+                            📊 {stock.latestQuote.volume >= 1e8
+                              ? `${(stock.latestQuote.volume / 1e8).toFixed(1)}亿手`
+                              : stock.latestQuote.volume >= 1e4
+                                ? `${(stock.latestQuote.volume / 1e4).toFixed(0)}万手`
+                                : `${stock.latestQuote.volume}手`}
+                          </span>
+                        </Tooltip>
+                        {stock.latestQuote.turnoverRate !== undefined && (
+                          <Tooltip title="换手率">
+                            <span>🔄 {stock.latestQuote.turnoverRate?.toFixed(2)}%</span>
+                          </Tooltip>
+                        )}
+                      </div>
+                      {/* 新增：振幅指示 */}
+                      {stock.latestQuote.amplitude !== undefined && (
+                        <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>
+                          振幅 {stock.latestQuote.amplitude?.toFixed(2)}%
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div style={{ color: '#ccc', fontSize: 13, padding: '12px 0' }}>暂无行情</div>

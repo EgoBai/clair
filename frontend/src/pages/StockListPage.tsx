@@ -1,9 +1,9 @@
 /**
  * 股票列表页
- * 支持搜索、筛选、排序、分页
+ * 支持搜索、筛选、排序、分页、键盘导航
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Table, Input, Select, Card, Tag, Pagination, Row, Col, Tooltip, Typography } from 'antd';
 import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -24,12 +24,36 @@ const StockListPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [selectedRowIdx, setSelectedRowIdx] = useState(-1);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   const debouncedSearch = useDebounce(searchText, 300);
 
   useEffect(() => {
     loadStocks();
   }, [page, pageSize, market, industry, debouncedSearch]);
+
+  // 键盘导航: 上下箭头选择行，Enter进入详情
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 仅在搜索框未聚焦时生效
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl.tagName === 'INPUT') return;
+      
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedRowIdx(prev => Math.min(prev + 1, stocks.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedRowIdx(prev => Math.max(prev - 1, 0));
+      } else if (e.key === 'Enter' && selectedRowIdx >= 0 && selectedRowIdx < stocks.length) {
+        e.preventDefault();
+        navigate(`/stock/${stocks[selectedRowIdx]!.symbol}`);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [stocks, selectedRowIdx, navigate]);
 
   const loadStocks = async () => {
     setLoading(true);
@@ -255,15 +279,31 @@ const StockListPage: React.FC = () => {
           pagination={false}
           size="small"
           scroll={{ x: 900 }}
-          onRow={(record) => ({
-            onClick: () => navigate(`/stock/${record.symbol}`),
+          onRow={(record, index) => ({
+            onClick: () => {
+              setSelectedRowIdx(index ?? -1);
+              navigate(`/stock/${record.symbol}`);
+            },
+            onMouseEnter: () => setSelectedRowIdx(index ?? -1),
             style: {
               cursor: 'pointer',
               transition: 'background 0.2s',
+              background: index === selectedRowIdx ? '#e6f4ff' : undefined,
             },
           })}
           rowClassName={() => 'stock-table-row'}
         />
+        {/* 键盘导航提示 */}
+        <div style={{
+          marginTop: 8,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            ⌨️ 快捷键: ↑↓ 选择行 | Enter 进入详情 | ⌘K 搜索
+          </Text>
+        </div>
 
         {/* 分页 */}
         <div style={{ marginTop: 16, textAlign: 'right' }}>

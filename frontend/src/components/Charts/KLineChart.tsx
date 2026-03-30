@@ -76,9 +76,11 @@ const KLineChart: React.FC<KLineChartProps> = ({
 
     // 计算MA均线
     const maSeries: any[] = [];
+    const maDataSets: Map<number, (number | null)[]> = new Map();
     if (showMA) {
       for (const period of maLines) {
         const maValues = calculateMA(data.map(d => d.close), period);
+        maDataSets.set(period, maValues);
         maSeries.push({
           name: `MA${period}`,
           type: 'line',
@@ -87,6 +89,38 @@ const KLineChart: React.FC<KLineChartProps> = ({
           symbol: 'none',
           lineStyle: { width: 1 },
         });
+      }
+    }
+
+    // 检测均线交叉信号（金叉/死叉）- 使用短周期MA5和MA10
+    const crossSignals: any[] = [];
+    if (showMA && maLines.includes(5) && maLines.includes(10)) {
+      const ma5 = maDataSets.get(5)!;
+      const ma10 = maDataSets.get(10)!;
+      for (let i = 1; i < data.length; i++) {
+        const prev5 = ma5[i - 1], prev10 = ma10[i - 1];
+        const curr5 = ma5[i], curr10 = ma10[i];
+        if (prev5 == null || prev10 == null || curr5 == null || curr10 == null) continue;
+        // 金叉: MA5 从下穿过 MA10
+        if (prev5 <= prev10 && curr5 > curr10) {
+          crossSignals.push({
+            coord: [i, data[i].low],
+            symbol: 'triangle',
+            symbolSize: 12,
+            itemStyle: { color: '#ef4444' },
+            label: { show: true, formatter: '金叉', position: 'bottom', fontSize: 9, color: '#ef4444' },
+          });
+        }
+        // 死叉: MA5 从上穿过 MA10
+        if (prev5 >= prev10 && curr5 < curr10) {
+          crossSignals.push({
+            coord: [i, data[i].high],
+            symbol: 'pin',
+            symbolSize: 12,
+            itemStyle: { color: '#22c55e' },
+            label: { show: true, formatter: '死叉', position: 'top', fontSize: 9, color: '#22c55e' },
+          });
+        }
       }
     }
 
@@ -315,6 +349,10 @@ const KLineChart: React.FC<KLineChartProps> = ({
             borderColor0: '#22c55e',
           },
           barWidth: '60%',
+          markPoint: crossSignals.length > 0 ? {
+            data: crossSignals,
+            animation: false,
+          } : undefined,
         },
         ...maSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),
         ...emaSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),

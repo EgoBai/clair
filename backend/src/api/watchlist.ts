@@ -1,6 +1,6 @@
 /**
- * 自选股 API
- * 提供用户自选股的增删改查功能
+ * 增强自选股 API
+ * 支持分组管理、拖拽排序、批量操作
  */
 
 import { Request, Response, Router } from 'express';
@@ -8,31 +8,16 @@ import { db } from '../db/Database';
 
 const router = Router();
 
-// 简化版：使用内存存储自选股（实际应用中应使用数据库）
-// 在实际项目中，应该关联 user_id 从 JWT token 获取
-interface WatchlistItem {
-  stockId: number;
-  symbol: string;
-  name: string;
-  addedAt: Date;
-  notes?: string;
-}
-
-// 使用数据库表 user_watchlist
-// 假设 user_id = 1 作为默认用户（实际应从认证中间件获取）
-
 /**
- * 获取自选股列表
+ * 获取自选股列表（含分组）
  * GET /api/watchlist
  */
 router.get('/watchlist', async (req: Request, res: Response) => {
   try {
     const userId = parseInt(req.query.userId as string) || 1;
-    const page = parseInt(req.query.page as string) || 1;
-    const pageSize = parseInt(req.query.pageSize as string) || 50;
+    const groupId = req.query.groupId as string;
 
-    // 从数据库查询自选股
-    const watchlist = await db.connection('user_watchlist as w')
+    let query = db.connection('user_watchlist as w')
       .join('stocks as s', 'w.stock_id', 's.id')
       .leftJoin('daily_quotes as dq', function() {
         this.on('s.id', '=', 'dq.stock_id')
@@ -47,56 +32,46 @@ router.get('/watchlist', async (req: Request, res: Response) => {
         's.name',
         's.market',
         's.industry',
-        'w.added_at',
+        'w.added_at as addedAt',
         'w.notes',
+        'w.group_id as groupId',
+        'w.sort_index as sortIndex',
         'dq.close_price as closePrice',
         'dq.change_percent as changePercent',
         'dq.volume',
         'dq.turnover',
         'dq.market_cap as marketCap'
-      )
-      .orderBy('w.added_at', 'desc')
-      .offset((page - 1) * pageSize)
-      .limit(pageSize);
+      );
 
-    const countResult = await db.connection('user_watchlist')
+    if (groupId) {
+      query = query.where('w.group_id', groupId);
+    }
+
+    const watchlist = await query.orderBy('w.sort_index', 'asc').orderBy('w.added_at', 'desc');
+
+    // 获取分组信息
+    const groups = await db.connection('watchlist_groups')
       .where('user_id', userId)
-      .count('id as count')
-      .first();
-
-    const totalCount = Number(countResult?.count || 0);
+      .select('id', 'name', 'sort_index as sortIndex')
+      .orderBy('sort_index', 'asc')
+      .catch(() => []);
 
     res.json({
       success: true,
       data: {
         watchlist,
-        pagination: {
-          page,
-          pageSize,
-          totalCount,
-          totalPages: Math.ceil(totalCount / pageSize),
-        },
+        groups: groups.length > 0 ? groups : [{ id: 'default', name: '默认分组', sortIndex: 0 }],
       },
     });
   } catch (error) {
     console.error('获取自选股列表失败:', error);
-
-    // 如果表不存在，返回空列表
     if ((error as Error).message?.includes('does not exist')) {
       return res.json({
         success: true,
-        data: {
-          watchlist: [],
-          pagination: { page: 1, pageSize: 50, totalCount: 0, totalPages: 0 },
-        },
+        data: { watchlist: [], groups: [{ id: 'default', name: '默认分组', sortIndex: 0 }] },
       });
     }
-
-    res.status(500).json({
-      success: false,
-      error: '获取自选股列表失败',
-      details: error instanceof Error ? error.message : '未知错误',
-    });
+    res.status(500).json({ success: false, error: '获取自选股列表失败' });
   }
 });
 
@@ -106,14 +81,13 @@ router.get('/watchlist', async (req: Request, res: Response) => {
  */
 router.post('/watchlist', async (req: Request, res: Response) => {
   try {
-    const { symbol, notes } = req.body;
+    const { symbol, notes, groupId = 'default' } = req.body;
     const userId = parseInt(req.body.userId as string) || 1;
 
     if (!symbol) {
       return res.status(400).json({ success: false, error: '需要提供股票代码' });
     }
 
-    // 查找股票
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
       return res.status(404).json({ success: false, error: '股票不存在' });
@@ -129,40 +103,33 @@ router.post('/watchlist', async (req: Request, res: Response) => {
       return res.status(409).json({ success: false, error: '该股票已在自选列表中' });
     }
 
-    // 添加自选股
+    // 获取当前最大排序索引
+    const maxSort = await db.connection('user_watchlist')
+      .where('user_id', userId)
+      .where('group_id', groupId)
+      .max('sort_index as maxSort')
+      .first();
+
     await db.connection('user_watchlist').insert({
       user_id: userId,
       stock_id: stock.id,
+      group_id: groupId,
+      sort_index: (maxSort?.maxSort || 0) + 1,
       notes: notes || null,
       added_at: new Date(),
     });
 
     res.status(201).json({
       success: true,
-      data: {
-        stockId: stock.id,
-        symbol: stock.symbol,
-        name: stock.name,
-        addedAt: new Date(),
-        notes,
-      },
+      data: { stockId: stock.id, symbol: stock.symbol, name: stock.name, groupId },
       message: '已添加到自选股',
     });
   } catch (error) {
     console.error('添加自选股失败:', error);
-
     if ((error as Error).message?.includes('does not exist')) {
-      return res.status(500).json({
-        success: false,
-        error: '自选股功能需要先初始化数据库表',
-      });
+      return res.status(500).json({ success: false, error: '自选股功能需要先初始化数据库表' });
     }
-
-    res.status(500).json({
-      success: false,
-      error: '添加自选股失败',
-      details: error instanceof Error ? error.message : '未知错误',
-    });
+    res.status(500).json({ success: false, error: '添加自选股失败' });
   }
 });
 
@@ -189,28 +156,21 @@ router.delete('/watchlist/:symbol', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: '该股票不在自选列表中' });
     }
 
-    res.json({
-      success: true,
-      message: '已从自选股移除',
-    });
+    res.json({ success: true, message: '已从自选股移除' });
   } catch (error) {
     console.error('删除自选股失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '删除自选股失败',
-      details: error instanceof Error ? error.message : '未知错误',
-    });
+    res.status(500).json({ success: false, error: '删除自选股失败' });
   }
 });
 
 /**
- * 更新自选股备注
+ * 更新自选股（分组/排序/备注）
  * PATCH /api/watchlist/:symbol
  */
 router.patch('/watchlist/:symbol', async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
-    const { notes } = req.body;
+    const { notes, groupId, sortIndex } = req.body;
     const userId = parseInt(req.body.userId as string) || 1;
 
     const stock = await db.getStockBySymbol(symbol);
@@ -218,26 +178,130 @@ router.patch('/watchlist/:symbol', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: '股票不存在' });
     }
 
+    const updateData: any = {};
+    if (notes !== undefined) updateData.notes = notes;
+    if (groupId !== undefined) updateData.group_id = groupId;
+    if (sortIndex !== undefined) updateData.sort_index = sortIndex;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, error: '没有需要更新的字段' });
+    }
+
     const updated = await db.connection('user_watchlist')
       .where('user_id', userId)
       .where('stock_id', stock.id)
-      .update({ notes });
+      .update(updateData);
 
     if (updated === 0) {
       return res.status(404).json({ success: false, error: '该股票不在自选列表中' });
     }
 
-    res.json({
+    res.json({ success: true, message: '已更新' });
+  } catch (error) {
+    console.error('更新自选股失败:', error);
+    res.status(500).json({ success: false, error: '更新自选股失败' });
+  }
+});
+
+/**
+ * 批量排序
+ * PUT /api/watchlist/reorder
+ */
+router.put('/watchlist/reorder', async (req: Request, res: Response) => {
+  try {
+    const { items } = req.body; // [{ symbol, sortIndex, groupId }]
+    const userId = parseInt(req.body.userId as string) || 1;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: '需要提供排序数据' });
+    }
+
+    for (const item of items) {
+      const stock = await db.getStockBySymbol(item.symbol);
+      if (stock) {
+        await db.connection('user_watchlist')
+          .where('user_id', userId)
+          .where('stock_id', stock.id)
+          .update({
+            sort_index: item.sortIndex,
+            ...(item.groupId && { group_id: item.groupId }),
+          });
+      }
+    }
+
+    res.json({ success: true, message: '排序已更新' });
+  } catch (error) {
+    console.error('批量排序失败:', error);
+    res.status(500).json({ success: false, error: '批量排序失败' });
+  }
+});
+
+/**
+ * 创建分组
+ * POST /api/watchlist/groups
+ */
+router.post('/watchlist/groups', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.body;
+    const userId = parseInt(req.body.userId as string) || 1;
+
+    if (!name?.trim()) {
+      return res.status(400).json({ success: false, error: '分组名称不能为空' });
+    }
+
+    const id = `group_${Date.now()}`;
+
+    await db.connection('watchlist_groups').insert({
+      id,
+      user_id: userId,
+      name: name.trim(),
+      sort_index: 999,
+      created_at: new Date(),
+    }).catch(() => {
+      // 表不存在时忽略
+    });
+
+    res.status(201).json({
       success: true,
-      message: '备注已更新',
+      data: { id, name: name.trim() },
+      message: '分组已创建',
     });
   } catch (error) {
-    console.error('更新自选股备注失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '更新自选股备注失败',
-      details: error instanceof Error ? error.message : '未知错误',
-    });
+    console.error('创建分组失败:', error);
+    res.status(500).json({ success: false, error: '创建分组失败' });
+  }
+});
+
+/**
+ * 删除分组
+ * DELETE /api/watchlist/groups/:id
+ */
+router.delete('/watchlist/groups/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (id === 'default') {
+      return res.status(400).json({ success: false, error: '默认分组不能删除' });
+    }
+
+    const userId = parseInt(req.query.userId as string) || 1;
+
+    // 将该分组的股票移到默认分组
+    await db.connection('user_watchlist')
+      .where('user_id', userId)
+      .where('group_id', id)
+      .update({ group_id: 'default' })
+      .catch(() => {});
+
+    await db.connection('watchlist_groups')
+      .where('id', id)
+      .where('user_id', userId)
+      .delete()
+      .catch(() => {});
+
+    res.json({ success: true, message: '分组已删除，股票已移至默认分组' });
+  } catch (error) {
+    console.error('删除分组失败:', error);
+    res.status(500).json({ success: false, error: '删除分组失败' });
   }
 });
 

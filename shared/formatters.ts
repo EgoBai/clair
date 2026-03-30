@@ -116,6 +116,53 @@ export const getMarketLabel = (market: string): string => {
 };
 
 /**
+ * 格式化日期
+ */
+export const formatDate = (date: Date | string | number): string => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '-';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+/**
+ * 格式化日期时间
+ */
+export const formatDateTime = (date: Date | string | number): string => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '-';
+  return `${formatDate(date)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/**
+ * 格式化大数字（千分位）
+ */
+export const formatLargeNumber = (num: number): string => {
+  if (num === null || num === undefined || isNaN(num)) return '-';
+  return num.toLocaleString('en-US');
+};
+
+/**
+ * 获取涨跌颜色（hex）
+ * A股红涨绿跌
+ */
+export const getColorByChange = (value?: number | null): string => {
+  if (value === undefined || value === null || value === 0) return '#6b7280';
+  return value > 0 ? '#ef4444' : '#22c55e';
+};
+
+/**
+ * 获取涨跌文字（带符号，2位小数）
+ */
+export const getChangeText = (value?: number | null): string => {
+  if (value === undefined || value === null) return '-';
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}`;
+};
+
+/**
  * 判断市场颜色
  */
 export const getMarketColor = (market: string): string => {
@@ -125,4 +172,45 @@ export const getMarketColor = (market: string): string => {
     BJ: 'orange',
   };
   return map[market] || 'default';
+};
+
+/**
+ * 格式化百分比（通用）
+ */
+export const formatPercent = (value?: number | null, decimals = 2): string => {
+  if (value === undefined || value === null) return '-';
+  return `${value.toFixed(decimals)}%`;
+};
+
+/**
+ * 格式化PE/PB等估值指标
+ */
+export const formatRatio = (value?: number | null): string => {
+  if (value === undefined || value === null) return '-';
+  if (value < 0) return `亏损`;
+  return value.toFixed(2);
+};
+
+/**
+ * 计算相对时间
+ * 5分钟内显示 "刚刚"，1小时内显示 "x分钟前"，否则显示日期
+ */
+export const formatRelativeTime = (date: Date | string | number): string => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '-';
+  const now = Date.now();
+  const diff = now - d.getTime();
+  if (diff < 5 * 60 * 1000) return '刚刚';
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}分钟前`;
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)}小时前`;
+  return formatDate(d);
+};
+
+/**
+ * 判断涨跌方向
+ * @returns 1 = 涨, -1 = 跌, 0 = 平
+ */
+export const getChangeDirection = (value?: number | null): 1 | -1 | 0 => {
+  if (value === undefined || value === null || value === 0) return 0;
+  return value > 0 ? 1 : -1;
 };
