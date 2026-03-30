@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 describe('风险管理引擎', () => {
   describe('VaR计算', () => {
     const calcVaR = (returns: number[], confidence: number): number => {
+      if (returns.length === 0) return 0;
       const sorted = [...returns].sort((a, b) => a - b);
       const index = Math.floor((1 - confidence) * sorted.length);
       return -sorted[Math.min(index, sorted.length - 1)];
@@ -84,12 +85,13 @@ describe('风险管理引擎', () => {
 
   describe('夏普比率', () => {
     const calcSharpe = (returns: number[], riskFreeRate: number): number => {
+      if (returns.length === 0) return 0;
       const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
       const excess = avgReturn - riskFreeRate / 252;
       const std = Math.sqrt(
         returns.reduce((a, b) => a + (b - avgReturn) ** 2, 0) / returns.length
       );
-      return std > 0 ? (excess / std) * Math.sqrt(252) : 0;
+      return std > 1e-10 ? (excess / std) * Math.sqrt(252) : 0;
     };
 
     it('正收益正夏普', () => {
@@ -108,7 +110,7 @@ describe('风险管理引擎', () => {
     });
 
     it('高无风险利率降低夏普', () => {
-      const returns = Array.from({ length: 100 }, () => 0.001);
+      const returns = Array.from({ length: 100 }, (_, i) => 0.001 + (i % 10) * 0.0001);
       const s1 = calcSharpe(returns, 0.01);
       const s2 = calcSharpe(returns, 0.10);
       expect(s1).toBeGreaterThan(s2);

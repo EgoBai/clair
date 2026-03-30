@@ -128,9 +128,9 @@ describe('数据可视化引擎', () => {
       const cA = hexToRgb(a)!;
       const cB = hexToRgb(b)!;
       return rgbToHex(
-        cA.r + (cB.r - cA.r) * t,
-        cA.g + (cB.g - cA.g) * t,
-        cA.b + (cB.b - cA.b) * t,
+        Math.floor(cA.r + (cB.r - cA.r) * t),
+        Math.floor(cA.g + (cB.g - cA.g) * t),
+        Math.floor(cA.b + (cB.b - cA.b) * t),
       );
     };
 

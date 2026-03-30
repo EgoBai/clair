@@ -7,6 +7,7 @@ describe('搜索与推荐引擎', () => {
       query: string,
       stocks: { code: string; name: string; pinyin: string; sector: string }[]
     ) => {
+      if (!query) return [];
       const q = query.toLowerCase();
       return stocks.filter(s =>
         s.code.includes(q) ||

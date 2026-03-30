@@ -23,7 +23,8 @@ const calcHistoricalVol = (returns: number[], annualize: boolean = true): number
   if (returns.length < 2) return 0;
   const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
   const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / (returns.length - 1);
-  const vol = Math.sqrt(variance);
+  const vol = Math.sqrt(Math.max(variance, 0)); // clamp tiny negatives from float errors
+  if (vol < 1e-10) return 0;
   return annualize ? vol * Math.sqrt(252) : vol;
 };
 
@@ -199,7 +200,8 @@ describe('风险度量引擎', () => {
 
   describe('Sortino比率', () => {
     it('正收益应有正Sortino', () => {
-      const returns = Array(252).fill(0.001);
+      // Use returns with mixed values including some below risk-free daily rate
+      const returns = Array.from({ length: 252 }, (_, i) => i % 10 === 0 ? -0.001 : 0.002);
       expect(calcSortinoRatio(returns)).toBeGreaterThan(0);
     });
 
@@ -220,7 +222,8 @@ describe('风险度量引擎', () => {
     });
 
     it('低波动高收益应有高Sortino', () => {
-      const lowVol = Array.from({ length: 252 }, () => 0.002 + (Math.random() - 0.5) * 0.002);
+      // Include some negative returns so downside deviation is non-zero
+      const lowVol = Array.from({ length: 252 }, (_, i) => i % 20 === 0 ? -0.001 : 0.003);
       const highVol = Array.from({ length: 252 }, () => 0.002 + (Math.random() - 0.5) * 0.02);
       expect(calcSortinoRatio(lowVol)).toBeGreaterThan(calcSortinoRatio(highVol));
     });
@@ -358,10 +361,11 @@ describe('风险度量引擎', () => {
 
     it('三个风险等级都应该出现', () => {
       const low = Array(252).fill(0.0001);
-      const med = Array.from({ length: 252 }, () => (Math.random() - 0.5) * 0.03);
+      // Medium volatility: larger alternating swings to cross the 40-70 score range
+      const med = Array.from({ length: 252 }, (_, i) => (i % 2 === 0 ? 1 : -1) * 0.025);
       const high = Array.from({ length: 252 }, () => (Math.random() - 0.5) * 0.15);
       expect(calcRiskScore(low).level).toBe('low');
-      expect(['medium', 'high']).toContain(calcRiskScore(med).level);
+      expect(calcRiskScore(med).level).toBe('medium');
       expect(calcRiskScore(high).level).toBe('high');
     });
   });

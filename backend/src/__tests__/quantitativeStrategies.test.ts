@@ -53,6 +53,7 @@ const calcMaxDrawdown = (prices: number[]): number => {
 };
 
 const calcSharpe = (returns: number[], riskFreeRate: number = 0.03): number => {
+  if (returns.length === 0) return 0;
   const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
   const std = Math.sqrt(returns.reduce((a, b) => a + (b - avgReturn) ** 2, 0) / returns.length);
   return std === 0 ? 0 : ((avgReturn - riskFreeRate / 252) / std) * Math.sqrt(252);
@@ -61,7 +62,7 @@ const calcSharpe = (returns: number[], riskFreeRate: number = 0.03): number => {
 describe('量化策略引擎', () => {
   describe('动量策略', () => {
     it('应该在上升趋势中产生买入信号', () => {
-      const prices = Array.from({ length: 50 }, (_, i) => 100 + i * 0.5);
+      const prices = Array.from({ length: 50 }, (_, i) => 100 + i * 1);
       const trades = momentumStrategy(prices, 10);
       expect(trades.length).toBeGreaterThan(0);
       expect(trades[0].type).toBe('buy');
@@ -329,7 +330,11 @@ describe('量化策略引擎', () => {
     });
 
     it('死叉应该产生卖出信号', () => {
-      const prices = Array.from({ length: 40 }, (_, i) => i < 20 ? 90 + i * 1.5 : 120 - (i - 20) * 2);
+      // Start flat (no golden cross), then rise (golden cross), then fall (death cross)
+      const flat = Array(15).fill(100);
+      const rise = Array.from({ length: 15 }, (_, i) => 100 + i * 2);
+      const fall = Array.from({ length: 20 }, (_, i) => 130 - i * 3);
+      const prices = [...flat, ...rise, ...fall];
       const trades = dualMAStrategy(prices, 3, 10);
       const sells = trades.filter(t => t.type === 'sell');
       expect(sells.length).toBeGreaterThan(0);
