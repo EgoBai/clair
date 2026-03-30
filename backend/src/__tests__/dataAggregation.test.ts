@@ -1,212 +1,190 @@
 import { describe, it, expect } from 'vitest';
+import {
+  aggregateOHLCV,
+  calculateVWAP,
+  calculateSMA,
+  calculateEMA,
+  calculateRSI,
+  calculateMACD,
+  calculateBollingerBands,
+  calculateATR,
+} from '../services/dataAggregation';
 
-// 数据聚合逻辑测试
-describe('Data Aggregation Logic', () => {
-  interface DailyData {
-    date: string;
-    close: number;
-    volume: number;
-    amount: number;
-    change_percent: number;
-  }
+const sampleData = [
+  { open: 10, high: 12, low: 9, close: 11, volume: 1000, timestamp: 1 },
+  { open: 11, high: 13, low: 10, close: 12, volume: 1500, timestamp: 2 },
+  { open: 12, high: 14, low: 11, close: 13, volume: 2000, timestamp: 3 },
+  { open: 13, high: 15, low: 12, close: 14, volume: 1800, timestamp: 4 },
+  { open: 14, high: 16, low: 13, close: 15, volume: 2200, timestamp: 5 },
+];
 
-  const dailyData: DailyData[] = [
-    { date: '2026-03-17', close: 100, volume: 1000000, amount: 100000000, change_percent: 1.5 },
-    { date: '2026-03-18', close: 102, volume: 1200000, amount: 122400000, change_percent: 2.0 },
-    { date: '2026-03-19', close: 101, volume: 800000, amount: 80800000, change_percent: -0.98 },
-    { date: '2026-03-20', close: 103, volume: 1500000, amount: 154500000, change_percent: 1.98 },
-    { date: '2026-03-21', close: 105, volume: 2000000, amount: 210000000, change_percent: 1.94 },
-  ];
-
-  // 周聚合
-  describe('Weekly Aggregation', () => {
-    it('should aggregate weekly close (last)', () => {
-      const weekClose = dailyData[dailyData.length - 1].close;
-      expect(weekClose).toBe(105);
-    });
-
-    it('should aggregate weekly high', () => {
-      const weekHigh = Math.max(...dailyData.map(d => d.close));
-      expect(weekHigh).toBe(105);
-    });
-
-    it('should aggregate weekly low', () => {
-      const weekLow = Math.min(...dailyData.map(d => d.close));
-      expect(weekLow).toBe(100);
-    });
-
-    it('should aggregate weekly volume', () => {
-      const weekVolume = dailyData.reduce((sum, d) => sum + d.volume, 0);
-      expect(weekVolume).toBe(6500000);
-    });
-
-    it('should aggregate weekly amount', () => {
-      const weekAmount = dailyData.reduce((sum, d) => sum + d.amount, 0);
-      expect(weekAmount).toBe(667700000);
-    });
-
-    it('should calculate weekly return', () => {
-      const first = dailyData[0].close;
-      const last = dailyData[dailyData.length - 1].close;
-      const weeklyReturn = ((last - first) / first) * 100;
-      expect(weeklyReturn).toBeCloseTo(5, 0);
-    });
+describe('aggregateOHLCV', () => {
+  it('should return empty for empty input', () => {
+    expect(aggregateOHLCV([], 1)).toEqual([]);
   });
 
-  // 均值计算
-  describe('Average Calculation', () => {
-    it('should calculate average close', () => {
-      const avg = dailyData.reduce((sum, d) => sum + d.close, 0) / dailyData.length;
-      expect(avg).toBeCloseTo(102.2, 0);
-    });
-
-    it('should calculate average volume', () => {
-      const avg = dailyData.reduce((sum, d) => sum + d.volume, 0) / dailyData.length;
-      expect(avg).toBe(1300000);
-    });
-
-    it('should calculate VWAP', () => {
-      const totalAmount = dailyData.reduce((sum, d) => sum + d.amount, 0);
-      const totalVolume = dailyData.reduce((sum, d) => sum + d.volume, 0);
-      const vwap = totalAmount / totalVolume;
-      expect(vwap).toBeGreaterThan(100);
-      expect(vwap).toBeLessThan(110);
-    });
+  it('should aggregate data within interval', () => {
+    const result = aggregateOHLCV(sampleData, 10);
+    expect(result.length).toBeGreaterThan(0);
   });
 
-  // 标准差
-  describe('Standard Deviation', () => {
-    const calcStdDev = (values: number[]): number => {
-      const avg = values.reduce((a, b) => a + b, 0) / values.length;
-      const sqDiffs = values.map(v => Math.pow(v - avg, 2));
-      return Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / values.length);
-    };
+  it('should maintain OHLCV integrity', () => {
+    const result = aggregateOHLCV(sampleData, 10);
+    for (const candle of result) {
+      expect(candle.high).toBeGreaterThanOrEqual(candle.open);
+      expect(candle.high).toBeGreaterThanOrEqual(candle.close);
+      expect(candle.low).toBeLessThanOrEqual(candle.open);
+      expect(candle.low).toBeLessThanOrEqual(candle.close);
+      expect(candle.volume).toBeGreaterThan(0);
+    }
+  });
+});
 
-    it('should calculate std dev for prices', () => {
-      const prices = dailyData.map(d => d.close);
-      const std = calcStdDev(prices);
-      expect(std).toBeGreaterThan(0);
-    });
-
-    it('should return 0 for identical values', () => {
-      expect(calcStdDev([100, 100, 100, 100, 100])).toBe(0);
-    });
-
-    it('should return higher std for more spread data', () => {
-      const low = calcStdDev([100, 101, 102]);
-      const high = calcStdDev([90, 100, 110]);
-      expect(high).toBeGreaterThan(low);
-    });
+describe('calculateVWAP', () => {
+  it('should return correct length', () => {
+    const vwap = calculateVWAP(sampleData);
+    expect(vwap).toHaveLength(sampleData.length);
   });
 
-  // 累计收益
-  describe('Cumulative Returns', () => {
-    it('should calculate cumulative return', () => {
-      const returns = dailyData.map(d => d.change_percent / 100);
-      let cumulative = 1;
-      returns.forEach(r => { cumulative *= (1 + r); });
-      const totalReturn = (cumulative - 1) * 100;
-      expect(totalReturn).toBeGreaterThan(0);
-    });
-
-    it('should calculate daily cumulative returns', () => {
-      const returns = dailyData.map(d => d.change_percent / 100);
-      const cumulative: number[] = [];
-      let cum = 1;
-      returns.forEach(r => {
-        cum *= (1 + r);
-        cumulative.push((cum - 1) * 100);
-      });
-      expect(cumulative).toHaveLength(5);
-    });
+  it('should calculate reasonable VWAP values', () => {
+    const vwap = calculateVWAP(sampleData);
+    for (const v of vwap) {
+      expect(v).toBeGreaterThan(0);
+    }
   });
 
-  // 分组聚合
-  describe('Group Aggregation', () => {
-    const records = [
-      { sector: '白酒', change: 2.5, volume: 1000 },
-      { sector: '白酒', change: 1.5, volume: 2000 },
-      { sector: '医药', change: -1.0, volume: 1500 },
-      { sector: '医药', change: 0.5, volume: 2500 },
-      { sector: '新能源', change: 3.0, volume: 3000 },
-    ];
+  it('should return empty for empty input', () => {
+    expect(calculateVWAP([])).toEqual([]);
+  });
+});
 
-    it('should group by sector', () => {
-      const groups = new Map<string, typeof records>();
-      records.forEach(r => {
-        if (!groups.has(r.sector)) groups.set(r.sector, []);
-        groups.get(r.sector)!.push(r);
-      });
-      expect(groups.size).toBe(3);
-    });
-
-    it('should aggregate by sector', () => {
-      const agg = new Map<string, { totalChange: number; totalVolume: number; count: number }>();
-      records.forEach(r => {
-        if (!agg.has(r.sector)) agg.set(r.sector, { totalChange: 0, totalVolume: 0, count: 0 });
-        const g = agg.get(r.sector)!;
-        g.totalChange += r.change;
-        g.totalVolume += r.volume;
-        g.count++;
-      });
-      expect(agg.get('白酒')!.count).toBe(2);
-      expect(agg.get('白酒')!.totalVolume).toBe(3000);
-    });
-
-    it('should calculate sector average change', () => {
-      const baijiu = records.filter(r => r.sector === '白酒');
-      const avg = baijiu.reduce((s, r) => s + r.change, 0) / baijiu.length;
-      expect(avg).toBe(2.0);
-    });
+describe('calculateSMA', () => {
+  it('should return correct length', () => {
+    const sma = calculateSMA([1, 2, 3, 4, 5], 3);
+    expect(sma).toHaveLength(5);
   });
 
-  // 时间窗口聚合
-  describe('Time Window Aggregation', () => {
-    it('should aggregate last N days', () => {
-      const last3 = dailyData.slice(-3);
-      expect(last3).toHaveLength(3);
-      expect(last3[0].date).toBe('2026-03-19');
-    });
+  it('should have NaN for insufficient data', () => {
+    const sma = calculateSMA([1, 2, 3, 4, 5], 3);
+    expect(isNaN(sma[0])).toBe(true);
+    expect(isNaN(sma[1])).toBe(true);
+  });
 
-    it('should aggregate rolling average', () => {
-      const windowSize = 3;
-      const rolling: number[] = [];
-      for (let i = windowSize - 1; i < dailyData.length; i++) {
-        const slice = dailyData.slice(i - windowSize + 1, i + 1);
-        const avg = slice.reduce((s, d) => s + d.close, 0) / windowSize;
-        rolling.push(avg);
+  it('should calculate correct values', () => {
+    const sma = calculateSMA([10, 20, 30, 40, 50], 3);
+    expect(sma[2]).toBe(20); // (10+20+30)/3
+    expect(sma[3]).toBe(30); // (20+30+40)/3
+    expect(sma[4]).toBe(40); // (30+40+50)/3
+  });
+});
+
+describe('calculateEMA', () => {
+  it('should return correct length', () => {
+    const ema = calculateEMA([1, 2, 3, 4, 5], 3);
+    expect(ema).toHaveLength(5);
+  });
+
+  it('should start with first value', () => {
+    const ema = calculateEMA([100, 200, 300], 3);
+    expect(ema[0]).toBe(100);
+  });
+
+  it('should produce smoothed values', () => {
+    const ema = calculateEMA([10, 20, 30, 40, 50], 3);
+    // Each value should be between prev and current
+    for (let i = 1; i < ema.length; i++) {
+      expect(ema[i]).toBeGreaterThan(ema[i - 1]);
+    }
+  });
+});
+
+describe('calculateRSI', () => {
+  it('should return correct length', () => {
+    const prices = [44, 44.34, 44.09, 43.61, 44.33, 44.83, 45.10, 45.42, 45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.00, 46.03, 46.41, 46.22, 45.64];
+    const rsi = calculateRSI(prices, 14);
+    expect(rsi).toHaveLength(prices.length);
+  });
+
+  it('should have NaN for insufficient data', () => {
+    const prices = [1, 2, 3, 4, 5];
+    const rsi = calculateRSI(prices, 14);
+    const nanCount = rsi.filter(isNaN).length;
+    expect(nanCount).toBeGreaterThan(0);
+  });
+
+  it('should return values between 0 and 100', () => {
+    const prices = Array.from({ length: 30 }, (_, i) => 100 + i * Math.sin(i));
+    const rsi = calculateRSI(prices, 14);
+    for (const v of rsi) {
+      if (!isNaN(v)) {
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(100);
       }
-      expect(rolling).toHaveLength(3);
-    });
+    }
+  });
+});
 
-    it('should aggregate rolling sum', () => {
-      const windowSize = 3;
-      const rolling: number[] = [];
-      for (let i = windowSize - 1; i < dailyData.length; i++) {
-        const slice = dailyData.slice(i - windowSize + 1, i + 1);
-        const sum = slice.reduce((s, d) => s + d.volume, 0);
-        rolling.push(sum);
-      }
-      expect(rolling[0]).toBe(3000000); // 1M + 1.2M + 0.8M
-    });
+describe('calculateMACD', () => {
+  it('should return macd, signal, and histogram', () => {
+    const prices = Array.from({ length: 50 }, (_, i) => 100 + i);
+    const result = calculateMACD(prices);
+    expect(result.macd).toHaveLength(prices.length);
+    expect(result.signal).toHaveLength(prices.length);
+    expect(result.histogram).toHaveLength(prices.length);
   });
 
-  // 数据插值
-  describe('Data Interpolation', () => {
-    const linearInterpolate = (x: number, x1: number, y1: number, x2: number, y2: number) => {
-      return y1 + ((y2 - y1) / (x2 - x1)) * (x - x1);
-    };
+  it('histogram should equal macd minus signal', () => {
+    const prices = Array.from({ length: 50 }, (_, i) => 100 + i);
+    const result = calculateMACD(prices);
+    for (let i = 0; i < prices.length; i++) {
+      if (!isNaN(result.macd[i]) && !isNaN(result.signal[i])) {
+        expect(result.histogram[i]).toBeCloseTo(result.macd[i] - result.signal[i], 10);
+      }
+    }
+  });
+});
 
-    it('should interpolate mid point', () => {
-      expect(linearInterpolate(50, 0, 100, 100, 200)).toBe(150);
-    });
+describe('calculateBollingerBands', () => {
+  it('should return upper, middle, lower', () => {
+    const prices = Array.from({ length: 30 }, (_, i) => 100 + i);
+    const result = calculateBollingerBands(prices, 20, 2);
+    expect(result.upper).toHaveLength(prices.length);
+    expect(result.middle).toHaveLength(prices.length);
+    expect(result.lower).toHaveLength(prices.length);
+  });
 
-    it('should return start value at start', () => {
-      expect(linearInterpolate(0, 0, 100, 100, 200)).toBe(100);
-    });
+  it('upper should be above middle, middle above lower', () => {
+    const prices = Array.from({ length: 30 }, (_, i) => 100 + i);
+    const result = calculateBollingerBands(prices, 20, 2);
+    for (let i = 19; i < prices.length; i++) {
+      expect(result.upper[i]).toBeGreaterThan(result.middle[i]);
+      expect(result.middle[i]).toBeGreaterThan(result.lower[i]);
+    }
+  });
+});
 
-    it('should return end value at end', () => {
-      expect(linearInterpolate(100, 0, 100, 100, 200)).toBe(200);
-    });
+describe('calculateATR', () => {
+  it('should return correct length', () => {
+    const atr = calculateATR(
+      [10, 11, 12, 13, 14],
+      [8, 9, 10, 11, 12],
+      [9, 10, 11, 12, 13],
+      3
+    );
+    expect(atr).toHaveLength(5);
+  });
+
+  it('should return positive values', () => {
+    const atr = calculateATR(
+      [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+      [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+      [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
+      14
+    );
+    for (const v of atr) {
+      if (!isNaN(v)) {
+        expect(v).toBeGreaterThan(0);
+      }
+    }
   });
 });

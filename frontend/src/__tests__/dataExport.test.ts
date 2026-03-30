@@ -1,102 +1,114 @@
 import { describe, it, expect } from 'vitest';
+import { exportToCSV, exportToJSON, parseCSV } from '../services/dataExport';
 
-// Test dataExport utility functions
-describe('数据导出工具', () => {
-  describe('escapeCSV', () => {
-    // We test the exported functions and column definitions
-    it('STOCK_EXPORT_COLUMNS 应该有12个列定义', async () => {
-      const { STOCK_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      expect(STOCK_EXPORT_COLUMNS).toHaveLength(12);
-    });
+const sampleData = [
+  { code: '000001', name: '平安银行', price: 12.50, change: 2.5 },
+  { code: '600519', name: '贵州茅台', price: 1800.00, change: -1.2 },
+];
 
-    it('KLINE_EXPORT_COLUMNS 应该有7个列定义', async () => {
-      const { KLINE_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      expect(KLINE_EXPORT_COLUMNS).toHaveLength(7);
-    });
+const columns = [
+  { key: 'code', label: '股票代码' },
+  { key: 'name', label: '股票名称' },
+  { key: 'price', label: '价格', format: (v: unknown) => String(v) },
+  { key: 'change', label: '涨跌幅', format: (v: unknown) => `${v}%` },
+];
 
-    it('BACKTEST_EXPORT_COLUMNS 应该有7个列定义', async () => {
-      const { BACKTEST_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      expect(BACKTEST_EXPORT_COLUMNS).toHaveLength(7);
-    });
+describe('exportToCSV', () => {
+  it('should generate CSV with headers', () => {
+    const csv = exportToCSV({ filename: 'test', columns, data: sampleData });
+    const lines = csv.split('\n');
+    expect(lines[0]).toBe('股票代码,股票名称,价格,涨跌幅');
+  });
 
-    it('股票导出列应该包含必要字段', async () => {
-      const { STOCK_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      const keys = STOCK_EXPORT_COLUMNS.map(c => c.key);
-      expect(keys).toContain('symbol');
-      expect(keys).toContain('name');
-      expect(keys).toContain('price');
-      expect(keys).toContain('changePercent');
-      expect(keys).toContain('volume');
-      expect(keys).toContain('turnover');
-    });
+  it('should generate CSV rows', () => {
+    const csv = exportToCSV({ filename: 'test', columns, data: sampleData });
+    const lines = csv.split('\n');
+    expect(lines).toHaveLength(3); // header + 2 rows
+    expect(lines[1]).toContain('000001');
+    expect(lines[1]).toContain('平安银行');
+  });
 
-    it('K线导出列应该包含OHLC字段', async () => {
-      const { KLINE_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      const keys = KLINE_EXPORT_COLUMNS.map(c => c.key);
-      expect(keys).toContain('open');
-      expect(keys).toContain('high');
-      expect(keys).toContain('low');
-      expect(keys).toContain('close');
-      expect(keys).toContain('volume');
-    });
+  it('should escape CSV special characters', () => {
+    const data = [{ text: 'hello, world', value: 1 }];
+    const cols = [{ key: 'text', label: 'Text' }, { key: 'value', label: 'Value' }];
+    const csv = exportToCSV({ filename: 'test', columns: cols, data });
+    expect(csv).toContain('"hello, world"');
+  });
 
-    it('回测导出列应该包含交易字段', async () => {
-      const { BACKTEST_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      const keys = BACKTEST_EXPORT_COLUMNS.map(c => c.key);
-      expect(keys).toContain('date');
-      expect(keys).toContain('type');
-      expect(keys).toContain('price');
-      expect(keys).toContain('quantity');
-    });
+  it('should escape quotes in CSV', () => {
+    const data = [{ text: 'say "hello"', value: 1 }];
+    const cols = [{ key: 'text', label: 'Text' }, { key: 'value', label: 'Value' }];
+    const csv = exportToCSV({ filename: 'test', columns: cols, data });
+    expect(csv).toContain('""hello""');
+  });
 
-    it('formatVolume 应该正确格式化成交量', async () => {
-      const { formatVolume } = await import('../utils/dataExport');
-      expect(formatVolume(0)).toBe('');
-      expect(formatVolume(100)).toBe('100');
-      expect(formatVolume(10000)).toBe('1万');
-      expect(formatVolume(100000000)).toBe('1.00亿');
-    });
+  it('should apply formatters', () => {
+    const csv = exportToCSV({ filename: 'test', columns, data: sampleData });
+    expect(csv).toContain('2.5%');
+    expect(csv).toContain('-1.2%');
+  });
 
-    it('formatTurnover 应该正确格式化成交额', async () => {
-      const { formatTurnover } = await import('../utils/dataExport');
-      expect(formatTurnover(0)).toBe('');
-      expect(formatTurnover(100.5)).toBe('100.50');
-      expect(formatTurnover(10000)).toBe('1万');
-      expect(formatTurnover(100000000)).toBe('1.00亿');
-    });
+  it('should handle empty data', () => {
+    const csv = exportToCSV({ filename: 'test', columns, data: [] });
+    const lines = csv.split('\n');
+    expect(lines).toHaveLength(1); // just header
+  });
 
-    it('列定义的format函数应该正确格式化涨跌幅', async () => {
-      const { STOCK_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      const changeCol = STOCK_EXPORT_COLUMNS.find(c => c.key === 'changePercent');
-      expect(changeCol).toBeDefined();
-      expect(changeCol!.format!(2.5)).toBe('+2.50');
-      expect(changeCol!.format!(-1.23)).toBe('-1.23');
-      expect(changeCol!.format!(null)).toBe('');
-    });
+  it('should handle null/undefined values', () => {
+    const data = [{ code: '001', name: null, price: undefined, change: 0 }];
+    const csv = exportToCSV({ filename: 'test', columns, data });
+    expect(csv).toContain('001');
+  });
+});
 
-    it('列定义的format函数应该正确格式化价格', async () => {
-      const { STOCK_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      const priceCol = STOCK_EXPORT_COLUMNS.find(c => c.key === 'price');
-      expect(priceCol).toBeDefined();
-      expect(priceCol!.format!(123.45)).toBe('123.45');
-      expect(priceCol!.format!(null)).toBe('');
-    });
+describe('exportToJSON', () => {
+  it('should export raw data without columns', () => {
+    const json = exportToJSON(sampleData);
+    const parsed = JSON.parse(json);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].code).toBe('000001');
+  });
 
-    it('列定义的format函数应该正确格式化PE', async () => {
-      const { STOCK_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      const peCol = STOCK_EXPORT_COLUMNS.find(c => c.key === 'peRatio');
-      expect(peCol).toBeDefined();
-      expect(peCol!.format!(15.67)).toBe('15.67');
-      expect(peCol!.format!(null)).toBe('-');
-    });
+  it('should export with column mapping', () => {
+    const json = exportToJSON(sampleData, columns);
+    const parsed = JSON.parse(json);
+    expect(parsed[0]['股票代码']).toBe('000001');
+    expect(parsed[0]['涨跌幅']).toBe('2.5%');
+  });
 
-    it('每列应该有key和label', async () => {
-      const { STOCK_EXPORT_COLUMNS, KLINE_EXPORT_COLUMNS, BACKTEST_EXPORT_COLUMNS } = await import('../utils/dataExport');
-      const all = [...STOCK_EXPORT_COLUMNS, ...KLINE_EXPORT_COLUMNS, ...BACKTEST_EXPORT_COLUMNS];
-      for (const col of all) {
-        expect(col.key).toBeTruthy();
-        expect(col.label).toBeTruthy();
-      }
-    });
+  it('should format JSON nicely', () => {
+    const json = exportToJSON(sampleData);
+    expect(json).toContain('\n');
+    expect(json).toContain('  ');
+  });
+});
+
+describe('parseCSV', () => {
+  it('should parse CSV string', () => {
+    const csv = 'name,age\nAlice,30\nBob,25';
+    const result = parseCSV(csv);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ name: 'Alice', age: '30' });
+    expect(result[1]).toEqual({ name: 'Bob', age: '25' });
+  });
+
+  it('should handle quoted values', () => {
+    const csv = 'name,detail\nAlice,"hello, world"';
+    const result = parseCSV(csv);
+    expect(result[0].detail).toBe('hello, world');
+  });
+
+  it('should handle escaped quotes', () => {
+    const csv = 'name,desc\nAlice,"say ""hello"""';
+    const result = parseCSV(csv);
+    expect(result[0].desc).toBe('say "hello"');
+  });
+
+  it('should return empty for empty string', () => {
+    expect(parseCSV('')).toEqual([]);
+  });
+
+  it('should return empty for header only', () => {
+    expect(parseCSV('name,age')).toEqual([]);
   });
 });

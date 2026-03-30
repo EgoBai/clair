@@ -1,171 +1,111 @@
-/**
- * 健康检查服务测试
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { HealthCheckService, createDefaultHealthCheck } from '../services/healthCheck';
 
-// Mock the Database module
-vi.mock('../db/Database', () => ({
-  db: {
-    healthCheck: vi.fn().mockResolvedValue({ healthy: true, latency: 5 }),
-  },
-}));
+describe('HealthCheckService', () => {
+  let service: HealthCheckService;
 
-import {
-  checkDatabase,
-  checkMemory,
-  checkUptime,
-  checkEventLoop,
-  checkEnvironment,
-  runAllChecks,
-  readinessCheck,
-  livenessCheck,
-  registerCheck,
-} from '../services/healthCheck';
-import { db } from '../db/Database';
-
-describe('HealthCheck Service', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    service = new HealthCheckService('1.2.3');
   });
 
-  describe('checkDatabase', () => {
-    it('should return healthy when DB is connected', async () => {
-      (db.healthCheck as any).mockResolvedValue({ healthy: true, latency: 5 });
-      const result = await checkDatabase();
-      expect(result.name).toBe('database');
+  describe('register and unregister', () => {
+    it('should register a check', () => {
+      service.register('test', async () => ({ status: 'pass' }));
+      expect(service.getRegisteredChecks()).toContain('test');
+    });
+
+    it('should unregister a check', () => {
+      service.register('test', async () => ({ status: 'pass' }));
+      expect(service.unregister('test')).toBe(true);
+      expect(service.getRegisteredChecks()).not.toContain('test');
+    });
+
+    it('should return false for unregistering unknown check', () => {
+      expect(service.unregister('unknown')).toBe(false);
+    });
+  });
+
+  describe('checkAll', () => {
+    it('should return healthy when all checks pass', async () => {
+      service.register('db', async () => ({ status: 'pass' }));
+      service.register('cache', async () => ({ status: 'pass' }));
+
+      const result = await service.checkAll();
       expect(result.status).toBe('healthy');
-      expect(result.latency).toBeGreaterThanOrEqual(0);
-      expect(result.timestamp).toBeTruthy();
+      expect(result.version).toBe('1.2.3');
+      expect(result.checks).toHaveLength(2);
     });
 
-    it('should return unhealthy when DB is disconnected', async () => {
-      (db.healthCheck as any).mockResolvedValue({ healthy: false, latency: 0 });
-      const result = await checkDatabase();
-      expect(result.name).toBe('database');
-      expect(result.status).toBe('unhealthy');
-    });
+    it('should return degraded when some checks warn', async () => {
+      service.register('db', async () => ({ status: 'pass' }));
+      service.register('cache', async () => ({ status: 'warn', message: 'Slow' }));
 
-    it('should handle DB check errors', async () => {
-      (db.healthCheck as any).mockRejectedValue(new Error('Connection refused'));
-      const result = await checkDatabase();
-      expect(result.status).toBe('unhealthy');
-      expect(result.message).toContain('Connection refused');
-    });
-  });
-
-  describe('checkMemory', () => {
-    it('should return memory health status', async () => {
-      const result = await checkMemory();
-      expect(result.name).toBe('memory');
-      expect(['healthy', 'degraded', 'unhealthy']).toContain(result.status);
-      expect(result.details).toBeDefined();
-      expect(result.details!.heapUsed).toBeGreaterThan(0);
-      expect(result.details!.heapTotal).toBeGreaterThan(0);
-      expect(result.details!.rss).toBeGreaterThan(0);
-    });
-
-    it('should include usage percentage', async () => {
-      const result = await checkMemory();
-      expect(result.details!.usagePercent).toBeGreaterThan(0);
-      expect(result.details!.usagePercent).toBeLessThanOrEqual(100);
-    });
-  });
-
-  describe('checkUptime', () => {
-    it('should return uptime info', async () => {
-      const result = await checkUptime();
-      expect(result.name).toBe('uptime');
-      expect(result.status).toBe('healthy');
-      expect(result.details!.uptimeSeconds).toBeGreaterThanOrEqual(0);
-      expect(result.message).toContain('运行时间');
-    });
-  });
-
-  describe('checkEventLoop', () => {
-    it('should measure event loop delay', async () => {
-      const result = await checkEventLoop();
-      expect(result.name).toBe('eventLoop');
-      expect(result.details!.delayMs).toBeGreaterThanOrEqual(0);
-    });
-
-    it('should degrade when event loop is slow', async () => {
-      const result = await checkEventLoop();
-      // In test environment, event loop should be fast
-      expect(['healthy', 'degraded']).toContain(result.status);
-    });
-  });
-
-  describe('checkEnvironment', () => {
-    it('should return environment info', async () => {
-      const result = await checkEnvironment();
-      expect(result.name).toBe('environment');
-      expect(result.status).toBe('healthy');
-      expect(result.details!.nodeVersion).toBe(process.version);
-      expect(result.details!.platform).toBe(process.platform);
-      expect(result.details!.arch).toBe(process.arch);
-    });
-  });
-
-  describe('runAllChecks', () => {
-    it('should aggregate all check results', async () => {
-      const health = await runAllChecks();
-      expect(health.status).toBeTruthy();
-      expect(health.version).toBeTruthy();
-      expect(health.timestamp).toBeTruthy();
-      expect(health.checks.length).toBeGreaterThanOrEqual(5);
-      expect(health.summary.total).toBe(health.checks.length);
-      expect(health.summary.healthy + health.summary.degraded + health.summary.unhealthy).toBe(
-        health.summary.total
-      );
+      const result = await service.checkAll();
+      expect(result.status).toBe('degraded');
     });
 
     it('should return unhealthy when any check fails', async () => {
-      (db.healthCheck as any).mockResolvedValue({ healthy: false, latency: 0 });
-      const health = await runAllChecks();
-      expect(health.status).toBe('unhealthy');
-      expect(health.summary.unhealthy).toBeGreaterThan(0);
+      service.register('db', async () => ({ status: 'pass' }));
+      service.register('cache', async () => ({ status: 'fail', message: 'Down' }));
+
+      const result = await service.checkAll();
+      expect(result.status).toBe('unhealthy');
     });
 
-    it('should include custom registered checks', async () => {
-      registerCheck('customTest', async () => ({
-        name: 'customTest',
-        status: 'healthy' as const,
-        latency: 1,
-        message: 'Custom check OK',
-        timestamp: new Date().toISOString(),
-      }));
-      const health = await runAllChecks();
-      const customResult = health.checks.find((c) => c.name === 'customTest');
-      expect(customResult).toBeDefined();
-      expect(customResult!.status).toBe('healthy');
-    });
-  });
+    it('should handle check exceptions', async () => {
+      service.register('broken', async () => { throw new Error('crash'); });
 
-  describe('readinessCheck', () => {
-    it('should return true when DB is healthy', async () => {
-      (db.healthCheck as any).mockResolvedValue({ healthy: true, latency: 5 });
-      const ready = await readinessCheck();
-      expect(ready).toBe(true);
+      const result = await service.checkAll();
+      expect(result.status).toBe('unhealthy');
+      expect(result.checks[0].status).toBe('fail');
+      expect(result.checks[0].message).toBe('crash');
     });
 
-    it('should return false when DB is unhealthy', async () => {
-      (db.healthCheck as any).mockResolvedValue({ healthy: false, latency: 0 });
-      const ready = await readinessCheck();
-      expect(ready).toBe(false);
+    it('should measure latency', async () => {
+      service.register('fast', async () => ({ status: 'pass' }));
+      const result = await service.checkAll();
+      expect(result.checks[0].latencyMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('should return false on error', async () => {
-      (db.healthCheck as any).mockRejectedValue(new Error('fail'));
-      const ready = await readinessCheck();
-      expect(ready).toBe(false);
+    it('should include uptime', async () => {
+      const result = await service.checkAll();
+      expect(result.uptime).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should include timestamp', async () => {
+      const before = Date.now();
+      const result = await service.checkAll();
+      const after = Date.now();
+      expect(result.timestamp).toBeGreaterThanOrEqual(before);
+      expect(result.timestamp).toBeLessThanOrEqual(after);
     });
   });
 
-  describe('livenessCheck', () => {
-    it('should always return true', async () => {
-      const alive = await livenessCheck();
-      expect(alive).toBe(true);
+  describe('check single', () => {
+    it('should run single check', async () => {
+      service.register('test', async () => ({ status: 'pass', message: 'OK' }));
+      const result = await service.check('test');
+      expect(result?.status).toBe('pass');
+      expect(result?.message).toBe('OK');
+    });
+
+    it('should return null for unknown check', async () => {
+      const result = await service.check('unknown');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('createDefaultHealthCheck', () => {
+    it('should create service with default checks', () => {
+      const s = createDefaultHealthCheck('2.0.0');
+      expect(s.getRegisteredChecks()).toContain('memory');
+      expect(s.getRegisteredChecks()).toContain('uptime');
+    });
+
+    it('should run default checks', async () => {
+      const s = createDefaultHealthCheck();
+      const result = await s.checkAll();
+      expect(result.checks.length).toBeGreaterThanOrEqual(2);
     });
   });
 });
