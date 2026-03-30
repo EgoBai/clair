@@ -285,7 +285,7 @@ router.post('/screener/filter', validateBody(schemas.screenerFilter), async (req
         const stocks = await query;
 
         return {
-          stocks: stocks.map((s: any) => ({
+          stocks: stocks.map((s: Record<string, string | null>) => ({
             ...s,
             price: parseFloat(s.price) || 0,
             changePercent: parseFloat(s.change_percent) || 0,

@@ -95,7 +95,7 @@ const alertQuerySchema = Joi.object({
 });
 
 router.get('/ai/alerts', validateQuery(alertQuerySchema), (req: Request, res: Response) => {
-  const { severity, type, limit } = req.query as any;
+  const { severity, type, limit } = req.query as Record<string, string | undefined>;
 
   let alerts = detectAbnormalEvents();
 

@@ -11,6 +11,7 @@
  */
 
 import { Request, Response, Router } from 'express';
+import { Knex } from 'knex';
 import { db } from '../db/Database';
 import { queryCache } from '../utils/queryCache';
 import { validateBody, schemas } from '../middleware/validation';
@@ -46,6 +47,34 @@ interface AdvancedScreenerRequest {
   page?: number;
   pageSize?: number;
   format?: 'json' | 'csv';     // 导出格式
+}
+
+interface MappedStock {
+  id: number;
+  symbol: string;
+  name: string;
+  market: string;
+  industry: string;
+  price: number;
+  changePercent: number;
+  volume: number;
+  turnover: number;
+  turnoverRate: number;
+  peRatio: number | null;
+  pbRatio: number | null;
+  marketCap: number | null;
+  circulatingMarketCap: number | null;
+  rsi: number | null;
+  macd: number | null;
+  macdSignal: number | null;
+  macdHistogram: number | null;
+  kdjK: number | null;
+  kdjD: number | null;
+  kdjJ: number | null;
+  ma5: number | null;
+  ma10: number | null;
+  ma20: number | null;
+  ma60: number | null;
 }
 
 // ==================== 技术指标条件映射 ====================
@@ -207,7 +236,17 @@ const ADVANCED_PRESETS = [
   },
 ];
 
-const customTemplates: Map<string, any> = new Map();
+interface CustomTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  groups: ConditionGroup[];
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
+const customTemplates: Map<string, CustomTemplate> = new Map();
 
 // ==================== 路由 ====================
 
@@ -340,7 +379,7 @@ router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), a
           .limit(safePageSize)
           .offset(offset);
 
-        const mappedStocks = stocks.map((s: any) => ({
+        const mappedStocks = stocks.map((s: Record<string, string | null>) => ({
           id: s.id,
           symbol: s.symbol,
           name: s.name,
@@ -476,7 +515,7 @@ router.post('/screener/advanced-templates', async (req: Request, res: Response) 
 
 // ==================== 辅助函数 ====================
 
-function applyCondition(query: any, cond: ScreenerCondition): any {
+function applyCondition(query: Knex.QueryBuilder, cond: ScreenerCondition): Knex.QueryBuilder {
   const dbField = FIELD_MAP[cond.field];
   if (!dbField) return query;
 
@@ -500,23 +539,24 @@ function applyCondition(query: any, cond: ScreenerCondition): any {
   }
 }
 
-function applyConditionToBuilder(builder: any, cond: ScreenerCondition, dbField: string, method: string): void {
+function applyConditionToBuilder(builder: Knex.QueryBuilder, cond: ScreenerCondition, dbField: string, method: string): void {
+  const fn = (builder as unknown as Record<string, Function>)[method];
   switch (cond.operator) {
-    case 'gt': builder[method](dbField, '>', cond.value); break;
-    case 'gte': builder[method](dbField, '>=', cond.value); break;
-    case 'lt': builder[method](dbField, '<', cond.value); break;
-    case 'lte': builder[method](dbField, '<=', cond.value); break;
-    case 'eq': builder[method](dbField, '=', cond.value); break;
+    case 'gt': fn.call(builder, dbField, '>', cond.value); break;
+    case 'gte': fn.call(builder, dbField, '>=', cond.value); break;
+    case 'lt': fn.call(builder, dbField, '<', cond.value); break;
+    case 'lte': fn.call(builder, dbField, '<=', cond.value); break;
+    case 'eq': fn.call(builder, dbField, '=', cond.value); break;
     case 'between':
       if (Array.isArray(cond.value) && cond.value.length === 2) {
-        builder[method](dbField, '>=', cond.value[0]);
-        builder[method](dbField, '<=', cond.value[1]);
+        fn.call(builder, dbField, '>=', cond.value[0]);
+        fn.call(builder, dbField, '<=', cond.value[1]);
       }
       break;
   }
 }
 
-function convertToCSV(data: any[]): string {
+function convertToCSV(data: MappedStock[]): string {
   if (data.length === 0) return '';
 
   const headers = [

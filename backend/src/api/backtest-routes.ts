@@ -47,7 +47,7 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
       });
     }
 
-    const klineData: KLineData[] = klineRows.map((r: any) => ({
+    const klineData: KLineData[] = klineRows.map((r: Record<string, string>) => ({
       ...r,
       open: parseFloat(r.open),
       close: parseFloat(r.close),
@@ -131,7 +131,7 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
       });
     }
 
-    const klineData: KLineData[] = klineRows.map((r: any) => ({
+    const klineData: KLineData[] = klineRows.map((r: Record<string, string>) => ({
       ...r,
       open: parseFloat(r.open),
       close: parseFloat(r.close),
@@ -142,7 +142,7 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
     }));
 
     // 运行所有策略
-    const results = strategies.map((strat: any) => {
+    const results = strategies.map((strat: { name: string; description: string; type: string; params: Record<string, unknown> }) => {
       try {
         const result = runBacktest(klineData, {
           type: strat.type,

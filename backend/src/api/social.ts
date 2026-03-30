@@ -121,7 +121,7 @@ mockComments.forEach(c => {
  * 获取评论列表
  */
 router.get('/social/comments', validateQuery(schemas.commentQuery), (req: Request, res: Response) => {
-  const { stockSymbol, userId, sortBy, page, pageSize } = req.query as any;
+  const { stockSymbol, userId, sortBy, page, pageSize } = req.query as Record<string, string | undefined>;
 
   let filtered = [...comments];
 

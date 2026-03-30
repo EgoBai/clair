@@ -82,12 +82,16 @@ function defaultSettings(): UserSettings {
   };
 }
 
+interface AuthenticatedRequest extends Request {
+  userId?: string;
+}
+
 function authMiddleware(req: Request, res: Response, next: Function) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token || !tokens.has(token)) {
     return res.status(401).json({ success: false, message: '未登录' });
   }
-  (req as any).userId = tokens.get(token);
+  (req as AuthenticatedRequest).userId = tokens.get(token);
   next();
 }
 
@@ -193,7 +197,7 @@ router.post('/user/login', (req: Request, res: Response) => {
  * GET /api/user/profile
  */
 router.get('/user/profile', authMiddleware, (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as AuthenticatedRequest).userId;
   const user = users.get(userId);
   if (!user) {
     return res.status(404).json({ success: false, message: '用户不存在' });
@@ -206,7 +210,7 @@ router.get('/user/profile', authMiddleware, (req: Request, res: Response) => {
  * PUT /api/user/settings
  */
 router.put('/user/settings', authMiddleware, (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as AuthenticatedRequest).userId;
   const user = users.get(userId);
   if (!user) {
     return res.status(404).json({ success: false, message: '用户不存在' });
@@ -226,7 +230,7 @@ router.put('/user/settings', authMiddleware, (req: Request, res: Response) => {
  * POST /api/user/history
  */
 router.post('/user/history', authMiddleware, (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as AuthenticatedRequest).userId;
   const { type, target, detail } = req.body;
 
   if (!type || !target) {
@@ -256,7 +260,7 @@ router.post('/user/history', authMiddleware, (req: Request, res: Response) => {
  * GET /api/user/history?type=stock_view&page=1&pageSize=20
  */
 router.get('/user/history', authMiddleware, (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as AuthenticatedRequest).userId;
   const type = req.query.type as string;
   const page = parseInt(req.query.page as string) || 1;
   const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);

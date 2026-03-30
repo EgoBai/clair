@@ -180,7 +180,7 @@ router.patch('/watchlist/:symbol', validateParams(schemas.stockSymbol), validate
       return res.status(404).json({ success: false, error: '股票不存在' });
     }
 
-    const updateData: any = {};
+    const updateData: Record<string, string | number> = {};
     if (notes !== undefined) updateData.notes = notes;
     if (groupId !== undefined) updateData.group_id = groupId;
     if (sortIndex !== undefined) updateData.sort_index = sortIndex;

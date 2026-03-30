@@ -47,9 +47,29 @@ interface PortfolioSummary {
   profitHistory: { date: string; value: number }[];
 }
 
+// ==================== 类型 ====================
+
+interface RawPosition {
+  symbol: string;
+  name: string;
+  quantity: number;
+  costPrice: number;
+  buyDate: string;
+  notes: string;
+}
+
+interface PortfolioData {
+  id: number;
+  name: string;
+  description: string;
+  cashBalance: number;
+  positions: RawPosition[];
+  createdAt: string;
+}
+
 // ==================== 模拟数据存储（实际应用中用数据库表）====================
 
-const portfolios = new Map<number, any>();
+const portfolios = new Map<number, PortfolioData>();
 let nextId = 1;
 
 // 默认投资组合
@@ -77,7 +97,11 @@ initDefaultPortfolios();
 
 router.get('/portfolio', validateQuery(schemas.watchlistQuery), async (_req: Request, res: Response) => {
   try {
-    const list: any[] = [];
+    const list: Array<{
+      id: number; name: string; description: string; positionCount: number;
+      totalCost: number; totalMarketValue: number; totalProfit: number;
+      totalProfitPercent: number; cashBalance: number; totalValue: number; createdAt: string;
+    }> = [];
     for (const [_id, portfolio] of portfolios) {
       const positions = await enrichPositionsWithQuotes(portfolio.positions);
       const totalCost = positions.reduce((s, p) => s + p.costTotal, 0);
@@ -186,7 +210,7 @@ router.post('/portfolio/:id/positions', validateParams(schemas.portfolioId), val
     }
 
     // 检查是否已持有该股票
-    const existing = portfolio.positions.find((p: any) => p.symbol === symbol);
+    const existing = portfolio.positions.find((p: RawPosition) => p.symbol === symbol);
     if (existing) {
       // 加仓：更新均价和数量
       const totalCost = existing.costPrice * existing.quantity + costPrice * quantity;
@@ -226,7 +250,7 @@ router.put('/portfolio/:id/positions/:symbol', validateParams(schemas.portfolioP
     return res.status(404).json({ success: false, error: '投资组合不存在' });
   }
 
-  const pos = portfolio.positions.find((p: any) => p.symbol === symbol);
+  const pos = portfolio.positions.find((p: RawPosition) => p.symbol === symbol);
   if (!pos) {
     return res.status(404).json({ success: false, error: '持仓不存在' });
   }
@@ -249,7 +273,7 @@ router.delete('/portfolio/:id/positions/:symbol', validateParams(schemas.portfol
     return res.status(404).json({ success: false, error: '投资组合不存在' });
   }
 
-  const idx = portfolio.positions.findIndex((p: any) => p.symbol === symbol);
+  const idx = portfolio.positions.findIndex((p: RawPosition) => p.symbol === symbol);
   if (idx === -1) {
     return res.status(404).json({ success: false, error: '持仓不存在' });
   }
@@ -275,11 +299,11 @@ router.delete('/portfolio/:id', validateParams(schemas.portfolioId), (req: Reque
 
 // ==================== 辅助函数 ====================
 
-async function enrichPositionsWithQuotes(positions: any[]): Promise<PortfolioPosition[]> {
+async function enrichPositionsWithQuotes(positions: RawPosition[]): Promise<PortfolioPosition[]> {
   if (positions.length === 0) return [];
 
   // 获取所有持仓股票的最新行情
-  const symbols = positions.map((p: any) => p.symbol);
+  const symbols = positions.map((p: RawPosition) => p.symbol);
   const quotes = await db.connection('daily_quotes')
     .join('stocks', 'stocks.id', 'daily_quotes.stock_id')
     .whereIn('stocks.symbol', symbols)
@@ -298,7 +322,7 @@ async function enrichPositionsWithQuotes(positions: any[]): Promise<PortfolioPos
     }
   }
 
-  return positions.map((pos: any, idx: number) => {
+  return positions.map((pos: RawPosition, idx: number) => {
     const currentPrice = latestPrices.get(pos.symbol) || pos.costPrice;
     const costTotal = pos.costPrice * pos.quantity;
     const marketValue = currentPrice * pos.quantity;

@@ -98,7 +98,7 @@ async function fetchIndustryFlow(): Promise<IndustryFlowData[]> {
     });
 
     const items = response.data?.data?.diff || [];
-    return items.map((item: any) => ({
+    return items.map((item: Record<string, string | number>) => ({
       industry: item.f14 || '',
       mainNet: item.f184 || 0,
       netInflow: item.f62 || 0,
@@ -213,7 +213,7 @@ router.get('/fund-flow/industry', validateQuery(schemas.industryFlowQuery), asyn
         .orderBy('stockCount', 'desc')
         .limit(limit);
 
-      industryFlow = industries.map((ind: any) => ({
+      industryFlow = industries.map((ind: Record<string, string | number>) => ({
         industry: ind.industry,
         mainNet: (Math.random() - 0.5) * 50000,
         netInflow: (Math.random() - 0.5) * 30000,

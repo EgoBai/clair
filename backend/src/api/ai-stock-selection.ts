@@ -11,7 +11,7 @@ const router = Router();
 
 // 模拟 AI 选股推荐数据
 function generateRecommendations(strategy?: string) {
-  const strategies: Record<string, { name: string; desc: string; stocks: () => any[] }> = {
+  const strategies: Record<string, { name: string; desc: string; stocks: () => Array<{ symbol: string; name: string; score: number; reason: string; price: number; changePercent: number }> }> = {
     value: {
       name: '价值投资',
       desc: '低估值+高分红+稳定增长',

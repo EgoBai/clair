@@ -32,9 +32,9 @@ router.get('/list', validateQuery(schemas.etfListQuery), (req: Request, res: Res
   const { type, sortBy = 'totalAssets', sortOrder = 'desc' } = req.query;
   let data = [...etfList];
   if (type) data = data.filter(e => e.type === type);
-  data.sort((a: any, b: any) => {
-    const aVal = a[sortBy as string] ?? 0;
-    const bVal = b[sortBy as string] ?? 0;
+  data.sort((a: Record<string, string | number>, b: Record<string, string | number>) => {
+    const aVal = (a[sortBy as string] as number) ?? 0;
+    const bVal = (b[sortBy as string] as number) ?? 0;
     return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
   });
   res.json({ success: true, data, count: data.length });

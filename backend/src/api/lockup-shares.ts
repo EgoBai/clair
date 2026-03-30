@@ -9,8 +9,23 @@ import { validateQuery, validateParams, schemas } from '../middleware/validation
 
 const router = Router();
 
+interface LockupExpiry {
+  id: number;
+  symbol: string;
+  name: string;
+  expiryDate: string;
+  lockupType: string;
+  shareholder: string;
+  totalShares: number;
+  circulatingBefore: number;
+  unlockRatio: number;
+  marketValue: number;
+  price: number;
+  actualCirculating: number;
+}
+
 // 模拟限售股解禁数据
-function generateLockupExpiries(month?: number, year?: number) {
+function generateLockupExpiries(month?: number, year?: number): LockupExpiry[] {
   const now = new Date();
   const targetYear = year || now.getFullYear();
   const targetMonth = month || now.getMonth() + 1;
@@ -151,7 +166,7 @@ router.get('/lockup/:symbol', validateParams(schemas.stockSymbol), async (req: R
       cacheKey,
       () => {
         const now = new Date();
-        const all: any[] = [];
+        const all: LockupExpiry[] = [];
         for (let m = 0; m < months; m++) {
           const d = new Date(now);
           d.setMonth(d.getMonth() + m);
