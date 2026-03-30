@@ -6,7 +6,7 @@
 
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { Card, Tabs, Radio } from 'antd';
+import { Card, Tabs, Skeleton } from 'antd';
 
 export interface IndicatorPoint {
   date: string;
@@ -33,6 +33,7 @@ interface IndicatorPanelProps {
   activeKey?: string;
   onTabChange?: (key: string) => void;
   height?: number;
+  loading?: boolean;
 }
 
 const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
@@ -40,6 +41,7 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
   activeKey = 'macd',
   onTabChange,
   height = 220,
+  loading = false,
 }) => {
   const macdOption = useMemo(() => buildMACDOption(data), [data]);
   const kdjOption = useMemo(() => buildKDJOption(data), [data]);
@@ -52,6 +54,14 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
     { key: 'rsi', label: 'RSI', option: rsiOption },
     { key: 'boll', label: 'BOLL', option: bollOption },
   ];
+
+  if (loading) {
+    return (
+      <Card size="small" style={{ marginTop: 8 }} styles={{ body: { padding: '8px 12px' } }}>
+        <Skeleton active paragraph={{ rows: 4 }} />
+      </Card>
+    );
+  }
 
   return (
     <Card

@@ -5,7 +5,7 @@
  */
 
 import React, { useRef, useEffect, useMemo } from 'react';
-import { Typography, Tag, Space, Empty, Select } from 'antd';
+import { Typography, Tag, Space, Empty, Select, Skeleton } from 'antd';
 import { StockOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -21,7 +21,8 @@ interface StockCompareChartProps {
   stocks: CompareStock[];
   width?: number;
   height?: number;
-  normalize?: boolean; // 是否归一化为百分比
+  normalize?: boolean;
+  loading?: boolean;
 }
 
 const COLORS = [
@@ -34,6 +35,7 @@ function StockCompareChart({
   width = 800,
   height = 400,
   normalize = true,
+  loading = false,
 }: StockCompareChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -204,6 +206,14 @@ function StockCompareChart({
         background: '#fafafa', borderRadius: 8,
       }}>
         <Empty description="添加股票进行对比" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', borderRadius: 8 }}>
+        <Skeleton active paragraph={{ rows: 4 }} style={{ width: '80%' }} />
       </div>
     );
   }

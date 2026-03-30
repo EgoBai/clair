@@ -3845,3 +3845,22 @@
 - 文档: 24份
 - **知识库: 43篇设计/模式文档**
 - **突破15500测试目标** ✅ 🎯
+
+## Round 21-30 (2026-03-30)
+
+### Round 21-25: 统一API错误处理和响应格式
+- 创建 `backend/src/utils/apiResponse.ts` - 统一响应工具
+  - `sendSuccess`, `sendPaginated`, `sendError`, `sendNotFound` 等
+  - `asyncHandler` 异步路由包装器
+- 重构 `stock.ts` (10个路由) → asyncHandler
+- 重构 `sectors.ts` (3个路由) → asyncHandler
+- 重构 `financials.ts` (5个路由) → asyncHandler
+- 重构 `app.ts` 内联路由 (search, sync, cache) → asyncHandler
+- 给 14 个 API 文件添加 apiResponse 导入
+- 测试: 346 passed (不变)
+
+### Round 26-30: 图表组件加载状态和骨架屏
+- 创建 `ChartSkeleton.tsx` - 可复用骨架屏组件
+- 4个图表组件新增 loading 状态: IndicatorPanel, StockCompareChart, IndustryHeatmap, SectorHeatmap
+- **所有 12 个图表组件现在都支持 loading 状态** ✅
+- 导出 ChartSkeleton/ChartLoadingPlaceholder 到 Charts/index.ts

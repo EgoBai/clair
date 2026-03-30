@@ -43,6 +43,7 @@ import { csrfTokenEndpoint } from './middleware/csrf';
 import { enhancedSecurityHeaders } from './middleware/securityHeaders';
 import { performanceMonitor } from './middleware/performanceMonitor';
 import { sanitizeInput } from './middleware/validation';
+import { asyncHandler, sendSuccess, sendNotFound, sendConflict, sendInternalError } from './utils/apiResponse';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -117,57 +118,46 @@ app.get('/api/csrf-token', csrfTokenEndpoint);
 import { searchAndSort, addSearchHistory, getSearchHistory } from './utils/search';
 import { queryCache } from './utils/queryCache';
 
-app.get('/api/search', async (req, res) => {
-  try {
-    const q = (req.query.q as string || '').trim();
-    const limit = parseInt(req.query.limit as string) || 20;
+app.get('/api/search', asyncHandler(async (req, res) => {
+  const q = (req.query.q as string || '').trim();
+  const limit = parseInt(req.query.limit as string) || 20;
 
-    if (!q) {
-      return res.json({ success: true, data: { results: [], query: q } });
-    }
-
-    // 从缓存获取股票列表搜索
-    const stocks = await queryCache.query(
-      `search:${q}:${limit}`,
-      async () => {
-        const allStocks = await db.connection('stocks')
-          .where('is_active', true)
-          .select('id', 'symbol', 'name', 'market', 'industry')
-          .limit(500);
-        return allStocks;
-      },
-      60000 // 1分钟缓存
-    );
-
-    const results = searchAndSort(stocks as any[], q).slice(0, limit);
-
-    // 记录搜索历史
-    const userId = parseInt(req.query.userId as string) || 1;
-    addSearchHistory(userId, { query: q });
-
-    res.json({
-      success: true,
-      data: { results, query: q, total: results.length },
-    });
-  } catch (error) {
-    console.error('搜索失败:', error);
-    res.status(500).json({ success: false, error: '搜索失败' });
+  if (!q) {
+    return sendSuccess(res, { results: [], query: q });
   }
-});
+
+  const stocks = await queryCache.query(
+    `search:${q}:${limit}`,
+    async () => {
+      const allStocks = await db.connection('stocks')
+        .where('is_active', true)
+        .select('id', 'symbol', 'name', 'market', 'industry')
+        .limit(500);
+      return allStocks;
+    },
+    60000
+  );
+
+  const results = searchAndSort(stocks as any[], q).slice(0, limit);
+  const userId = parseInt(req.query.userId as string) || 1;
+  addSearchHistory(userId, { query: q });
+
+  sendSuccess(res, { results, query: q, total: results.length });
+}));
 
 // 搜索历史
-app.get('/api/search/history', async (req, res) => {
+app.get('/api/search/history', asyncHandler(async (req, res) => {
   const userId = parseInt(req.query.userId as string) || 1;
   const history = getSearchHistory(userId);
-  res.json({ success: true, data: { history } });
-});
+  sendSuccess(res, { history });
+}));
 
 // ==================== 缓存统计API ====================
-app.get('/api/stats/cache', async (_req, res) => {
+app.get('/api/stats/cache', asyncHandler(async (_req, res) => {
   const stats = queryCache.getStats();
   const topCached = queryCache.getTopCached(5);
-  res.json({ success: true, data: { ...stats, topCached } });
-});
+  sendSuccess(res, { ...stats, topCached });
+}));
 
 // ==================== 健康检查 ====================
 app.get('/health', async (_req, res) => {
@@ -209,46 +199,20 @@ app.get('/health', async (_req, res) => {
 });
 
 // ==================== 数据同步API（严格限流）====================
-app.post('/api/sync/realtime', syncRateLimit, async (_req, res) => {
-  try {
-    if (dataSyncService.isSyncing()) {
-      return res.status(409).json({
-        success: false,
-        error: '同步任务正在运行中',
-      });
-    }
-
-    const result = await dataSyncService.syncRealtimeQuotes();
-    res.json({
-      success: result.success,
-      data: result,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: '数据同步失败',
-      details: error instanceof Error ? error.message : '未知错误',
-    });
+app.post('/api/sync/realtime', syncRateLimit, asyncHandler(async (_req, res) => {
+  if (dataSyncService.isSyncing()) {
+    return sendConflict(res, '同步任务正在运行中');
   }
-});
+  const result = await dataSyncService.syncRealtimeQuotes();
+  sendSuccess(res, result);
+}));
 
-app.post('/api/sync/kline/:symbol', syncRateLimit, async (req, res) => {
-  try {
-    const { symbol } = req.params;
-    const days = parseInt(req.query.days as string) || 120;
-    const result = await dataSyncService.syncKLineData(symbol, days);
-    res.json({
-      success: result.success,
-      data: result,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'K线数据同步失败',
-      details: error instanceof Error ? error.message : '未知错误',
-    });
-  }
-});
+app.post('/api/sync/kline/:symbol', syncRateLimit, asyncHandler(async (req, res) => {
+  const { symbol } = req.params;
+  const days = parseInt(req.query.days as string) || 120;
+  const result = await dataSyncService.syncKLineData(symbol, days);
+  sendSuccess(res, result);
+}));
 
 // ==================== 根路径 ====================
 app.get('/', (_req, res) => {

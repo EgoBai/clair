@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Typography, Tooltip } from 'antd';
+import { Typography, Tooltip, Skeleton } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
 const { Text } = Typography;
@@ -20,6 +20,7 @@ interface IndustryHeatmapProps {
   data: IndustryData[];
   width?: number;
   height?: number;
+  loading?: boolean;
 }
 
 // 根据涨跌幅获取颜色
@@ -41,7 +42,7 @@ function getTextColor(changePercent: number): string {
   return Math.abs(changePercent) >= 1.5 ? '#fff' : '#333';
 }
 
-export default function IndustryHeatmap({ data, width = 800, height = 400 }: IndustryHeatmapProps) {
+export default function IndustryHeatmap({ data, width = 800, height = 400, loading = false }: IndustryHeatmapProps) {
   const navigate = useNavigate();
 
   // 简单的 Treemap 布局算法
@@ -87,6 +88,14 @@ export default function IndustryHeatmap({ data, width = 800, height = 400 }: Ind
         background: '#fafafa', borderRadius: 8,
       }}>
         <Text type="secondary">暂无行业数据</Text>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', borderRadius: 8 }}>
+        <Skeleton active paragraph={{ rows: 3 }} style={{ width: '80%' }} />
       </div>
     );
   }

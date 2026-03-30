@@ -3,7 +3,7 @@
  * 参考 TradingView 树状图热力图样式
  */
 import React, { useMemo } from 'react';
-import { Card, Typography, Tooltip, Space, Tag } from 'antd';
+import { Card, Typography, Tooltip, Space, Tag, Skeleton } from 'antd';
 import { FireOutlined, ThunderboltOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -22,9 +22,10 @@ interface SectorHeatmapProps {
   data: SectorHeatData[];
   onSectorClick?: (sector: SectorHeatData) => void;
   colorMode?: 'change' | 'volume';
+  loading?: boolean;
 }
 
-const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ data, onSectorClick, colorMode = 'change' }) => {
+const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ data, onSectorClick, colorMode = 'change', loading = false }) => {
   const sortedData = useMemo(() => {
     return [...data].sort((a, b) => {
       if (colorMode === 'volume') return b.turnover - a.turnover;
@@ -53,6 +54,14 @@ const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ data, onSectorClick, colo
     return (
       <Card title="行业热力图">
         <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>暂无数据</div>
+      </Card>
+    );
+  }
+
+  if (loading) {
+    return (
+      <Card title="行业热力图" size="small">
+        <Skeleton active paragraph={{ rows: 6 }} />
       </Card>
     );
   }
