@@ -1,204 +1,331 @@
 import { describe, it, expect } from 'vitest';
+import {
+  normalCDF,
+  normalPDF,
+  inverseNormalCDF,
+  blackScholesPrice,
+  calculateGreeks,
+  priceOption,
+  calculateImpliedVolatility,
+  binomialTreePrice,
+  putCallParity,
+  aggregateGreeks,
+  priceStrategy,
+  interpolateVolatilitySurface,
+  type OptionParams,
+  type VolatilitySurface,
+} from '../utils/optionsPricingEngine';
 
-// 期权定价引擎测试
-describe('期权定价引擎', () => {
-  // 标准正态分布累积函数近似
-  function normalCDF(x: number): number {
-    const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429;
-    const p = 0.3275911;
-    const sign = x < 0 ? -1 : 1;
-    x = Math.abs(x) / Math.sqrt(2);
-    const t = 1.0 / (1.0 + p * x);
-    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-    return 0.5 * (1.0 + sign * y);
-  }
-
-  // Black-Scholes 定价
-  function blackScholes(S: number, K: number, T: number, r: number, sigma: number, type: 'call' | 'put'): number {
-    if (T <= 0) return type === 'call' ? Math.max(S - K, 0) : Math.max(K - S, 0);
-    const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
-    const d2 = d1 - sigma * Math.sqrt(T);
-    if (type === 'call') {
-      return S * normalCDF(d1) - K * Math.exp(-r * T) * normalCDF(d2);
-    }
-    return K * Math.exp(-r * T) * normalCDF(-d2) - S * normalCDF(-d1);
-  }
-
-  // Greeks
-  function delta(S: number, K: number, T: number, r: number, sigma: number, type: 'call' | 'put'): number {
-    if (T <= 0) return type === 'call' ? (S > K ? 1 : 0) : (S < K ? -1 : 0);
-    const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
-    return type === 'call' ? normalCDF(d1) : normalCDF(d1) - 1;
-  }
-
-  function gamma(S: number, K: number, T: number, r: number, sigma: number): number {
-    if (T <= 0) return 0;
-    const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
-    return Math.exp(-d1 * d1 / 2) / (S * sigma * Math.sqrt(T) * Math.sqrt(2 * Math.PI));
-  }
-
-  function theta(S: number, K: number, T: number, r: number, sigma: number, type: 'call' | 'put'): number {
-    if (T <= 0) return 0;
-    const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
-    const d2 = d1 - sigma * Math.sqrt(T);
-    const common = -(S * Math.exp(-d1 * d1 / 2) * sigma) / (2 * Math.sqrt(T) * Math.sqrt(2 * Math.PI));
-    if (type === 'call') {
-      return (common - r * K * Math.exp(-r * T) * normalCDF(d2)) / 365;
-    }
-    return (common + r * K * Math.exp(-r * T) * normalCDF(-d2)) / 365;
-  }
-
-  function vega(S: number, K: number, T: number, r: number, sigma: number): number {
-    if (T <= 0) return 0;
-    const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
-    return (S * Math.sqrt(T) * Math.exp(-d1 * d1 / 2)) / (100 * Math.sqrt(2 * Math.PI));
-  }
-
-  describe('Black-Scholes定价', () => {
-    it('看涨期权价格为正', () => {
-      expect(blackScholes(100, 100, 1, 0.05, 0.2, 'call')).toBeGreaterThan(0);
-    });
-
-    it('看跌期权价格为正', () => {
-      expect(blackScholes(100, 100, 1, 0.05, 0.2, 'put')).toBeGreaterThan(0);
-    });
-
-    it('深度实值看涨接近内在价值', () => {
-      const call = blackScholes(200, 100, 1, 0.05, 0.2, 'call');
-      expect(call).toBeGreaterThan(90);
-    });
-
-    it('深度虚值看涨趋近零', () => {
-      const call = blackScholes(50, 100, 0.01, 0.05, 0.2, 'call');
-      expect(call).toBeLessThan(0.1);
-    });
-
-    it('到期时看涨等于max(S-K,0)', () => {
-      expect(blackScholes(110, 100, 0, 0.05, 0.2, 'call')).toBe(10);
-      expect(blackScholes(90, 100, 0, 0.05, 0.2, 'call')).toBe(0);
-    });
-
-    it('到期时看跌等于max(K-S,0)', () => {
-      expect(blackScholes(90, 100, 0, 0.05, 0.2, 'put')).toBe(10);
-      expect(blackScholes(110, 100, 0, 0.05, 0.2, 'put')).toBe(0);
-    });
-
-    it('平价看涨看跌满足看涨看跌平价', () => {
-      const call = blackScholes(100, 100, 1, 0.05, 0.2, 'call');
-      const put = blackScholes(100, 100, 1, 0.05, 0.2, 'put');
-      const pvK = 100 * Math.exp(-0.05 * 1);
-      expect(call - put).toBeCloseTo(100 - pvK, 1);
-    });
-
-    it('波动率增加看涨价格增加', () => {
-      const low = blackScholes(100, 100, 1, 0.05, 0.1, 'call');
-      const high = blackScholes(100, 100, 1, 0.05, 0.4, 'call');
-      expect(high).toBeGreaterThan(low);
-    });
-
-    it('波动率增加看跌价格增加', () => {
-      const low = blackScholes(100, 100, 1, 0.05, 0.1, 'put');
-      const high = blackScholes(100, 100, 1, 0.05, 0.4, 'put');
-      expect(high).toBeGreaterThan(low);
-    });
+describe('normalCDF', () => {
+  it('should return 0.5 for x=0', () => {
+    expect(normalCDF(0)).toBeCloseTo(0.5, 5);
   });
 
-  describe('Delta', () => {
-    it('看涨Delta在0-1之间', () => {
-      const d = delta(100, 100, 1, 0.05, 0.2, 'call');
-      expect(d).toBeGreaterThan(0);
-      expect(d).toBeLessThan(1);
-    });
-
-    it('看跌Delta在-1到0之间', () => {
-      const d = delta(100, 100, 1, 0.05, 0.2, 'put');
-      expect(d).toBeGreaterThan(-1);
-      expect(d).toBeLessThan(0);
-    });
-
-    it('深度实值看涨Delta接近1', () => {
-      expect(delta(200, 100, 1, 0.05, 0.2, 'call')).toBeGreaterThan(0.9);
-    });
-
-    it('深度虚值看涨Delta接近0', () => {
-      expect(delta(50, 100, 1, 0.05, 0.2, 'call')).toBeLessThan(0.1);
-    });
-
-    it('到期实值Delta为1', () => {
-      expect(delta(110, 100, 0, 0.05, 0.2, 'call')).toBe(1);
-    });
-
-    it('到期虚值Delta为0', () => {
-      expect(delta(90, 100, 0, 0.05, 0.2, 'call')).toBe(0);
-    });
+  it('should approach 1 for large positive x', () => {
+    expect(normalCDF(8)).toBeCloseTo(1, 5);
   });
 
-  describe('Gamma', () => {
-    it('Gamma为正', () => {
-      expect(gamma(100, 100, 1, 0.05, 0.2)).toBeGreaterThan(0);
-    });
-
-    it('平价Gamma最大', () => {
-      const atm = gamma(100, 100, 1, 0.05, 0.2);
-      const otm = gamma(80, 100, 1, 0.05, 0.2);
-      expect(atm).toBeGreaterThan(otm);
-    });
-
-    it('到期Gamma趋近无穷或零', () => {
-      expect(gamma(100, 100, 0, 0.05, 0.2)).toBe(0);
-    });
+  it('should approach 0 for large negative x', () => {
+    expect(normalCDF(-8)).toBeCloseTo(0, 5);
   });
 
-  describe('Vega', () => {
-    it('Vega为正', () => {
-      expect(vega(100, 100, 1, 0.05, 0.2)).toBeGreaterThan(0);
-    });
-
-    it('平价Vega最大', () => {
-      const atm = vega(100, 100, 1, 0.05, 0.2);
-      const otm = vega(80, 100, 1, 0.05, 0.2);
-      expect(atm).toBeGreaterThan(otm);
-    });
-
-    it('到期Vega为零', () => {
-      expect(vega(100, 100, 0, 0.05, 0.2)).toBe(0);
-    });
+  it('should be symmetric around 0', () => {
+    expect(normalCDF(1) + normalCDF(-1)).toBeCloseTo(1, 5);
   });
 
-  describe('Theta', () => {
-    it('看涨平价Theta为负', () => {
-      expect(theta(100, 100, 1, 0.05, 0.2, 'call')).toBeLessThan(0);
-    });
+  it('should return ~0.8413 for x=1', () => {
+    expect(normalCDF(1)).toBeCloseTo(0.8413, 3);
+  });
+});
 
-    it('到期Theta为零', () => {
-      expect(theta(100, 100, 0, 0.05, 0.2, 'call')).toBe(0);
-    });
+describe('normalPDF', () => {
+  it('should return ~0.3989 for x=0', () => {
+    expect(normalPDF(0)).toBeCloseTo(1 / Math.sqrt(2 * Math.PI), 5);
   });
 
-  describe('隐含波动率', () => {
-    function impliedVolatility(marketPrice: number, S: number, K: number, T: number, r: number, type: 'call' | 'put', tolerance = 0.0001, maxIter = 100): number {
-      let low = 0.001, high = 5;
-      for (let i = 0; i < maxIter; i++) {
-        const mid = (low + high) / 2;
-        const price = blackScholes(S, K, T, r, mid, type);
-        if (Math.abs(price - marketPrice) < tolerance) return mid;
-        if (price > marketPrice) high = mid;
-        else low = mid;
-      }
-      return (low + high) / 2;
-    }
+  it('should be symmetric', () => {
+    expect(normalPDF(1)).toBeCloseTo(normalPDF(-1), 10);
+  });
 
-    it('隐含波动率接近原始波动率', () => {
-      const sigma = 0.25;
-      const price = blackScholes(100, 100, 1, 0.05, sigma, 'call');
-      const iv = impliedVolatility(price, 100, 100, 1, 0.05, 'call');
-      expect(iv).toBeCloseTo(sigma, 2);
-    });
+  it('should decrease as |x| increases', () => {
+    expect(normalPDF(0)).toBeGreaterThan(normalPDF(1));
+    expect(normalPDF(1)).toBeGreaterThan(normalPDF(2));
+  });
+});
 
-    it('隐含波动率为正', () => {
-      const price = blackScholes(100, 100, 1, 0.05, 0.3, 'put');
-      const iv = impliedVolatility(price, 100, 100, 1, 0.05, 'put');
-      expect(iv).toBeGreaterThan(0);
+describe('inverseNormalCDF', () => {
+  it('should return 0 for p=0.5', () => {
+    expect(inverseNormalCDF(0.5)).toBeCloseTo(0, 2);
+  });
+
+  it('should return ~1.645 for p=0.95', () => {
+    expect(inverseNormalCDF(0.95)).toBeCloseTo(1.645, 1);
+  });
+
+  it('should return ~-1.645 for p=0.05', () => {
+    expect(inverseNormalCDF(0.05)).toBeCloseTo(-1.645, 1);
+  });
+
+  it('should roundtrip with normalCDF', () => {
+    const p = 0.75;
+    const x = inverseNormalCDF(p);
+    expect(normalCDF(x)).toBeCloseTo(p, 3);
+  });
+});
+
+const atmCall: OptionParams = {
+  spot: 100,
+  strike: 100,
+  timeToExpiry: 0.25,
+  riskFreeRate: 0.05,
+  volatility: 0.2,
+  type: 'call',
+};
+
+const atmPut: OptionParams = {
+  ...atmCall,
+  type: 'put',
+};
+
+const itmCall: OptionParams = {
+  ...atmCall,
+  strike: 90,
+};
+
+const otmCall: OptionParams = {
+  ...atmCall,
+  strike: 110,
+};
+
+describe('blackScholesPrice', () => {
+  it('should price ATM call correctly', () => {
+    const price = blackScholesPrice(atmCall);
+    expect(price).toBeGreaterThan(0);
+    expect(price).toBeCloseTo(4.615, 1);
+  });
+
+  it('should price ATM put correctly', () => {
+    const price = blackScholesPrice(atmPut);
+    expect(price).toBeGreaterThan(0);
+    expect(price).toBeCloseTo(3.384, 1);
+  });
+
+  it('ITM call should be more expensive than OTM call', () => {
+    expect(blackScholesPrice(itmCall)).toBeGreaterThan(blackScholesPrice(otmCall));
+  });
+
+  it('should return intrinsic value at expiry', () => {
+    const expired = { ...atmCall, timeToExpiry: 0 };
+    expect(blackScholesPrice(expired)).toBe(0);
+  });
+
+  it('should handle very small time to expiry', () => {
+    const nearExpiry = { ...atmCall, timeToExpiry: 0.001 };
+    expect(blackScholesPrice(nearExpiry)).toBeGreaterThan(0);
+  });
+
+  it('should satisfy put-call parity approximately', () => {
+    const call = blackScholesPrice(atmCall);
+    const put = blackScholesPrice(atmPut);
+    const parity = putCallParity(call, put, atmCall.spot, atmCall.strike, atmCall.riskFreeRate, atmCall.timeToExpiry);
+    expect(parity.isValid).toBe(true);
+  });
+
+  it('should increase with volatility', () => {
+    const lowVol = blackScholesPrice({ ...atmCall, volatility: 0.1 });
+    const highVol = blackScholesPrice({ ...atmCall, volatility: 0.4 });
+    expect(highVol).toBeGreaterThan(lowVol);
+  });
+
+  it('should handle dividend yield', () => {
+    const withDiv = blackScholesPrice({ ...atmCall, dividendYield: 0.03 });
+    const withoutDiv = blackScholesPrice(atmCall);
+    expect(withoutDiv).toBeGreaterThan(withDiv);
+  });
+});
+
+describe('calculateGreeks', () => {
+  it('should calculate positive delta for call', () => {
+    const greeks = calculateGreeks(atmCall);
+    expect(greeks.delta).toBeGreaterThan(0);
+    expect(greeks.delta).toBeLessThanOrEqual(1);
+  });
+
+  it('should calculate negative delta for put', () => {
+    const greeks = calculateGreeks(atmPut);
+    expect(greeks.delta).toBeLessThan(0);
+    expect(greeks.delta).toBeGreaterThanOrEqual(-1);
+  });
+
+  it('should calculate positive gamma', () => {
+    const greeks = calculateGreeks(atmCall);
+    expect(greeks.gamma).toBeGreaterThan(0);
+  });
+
+  it('should calculate negative theta for long options', () => {
+    const greeks = calculateGreeks(atmCall);
+    expect(greeks.theta).toBeLessThan(0);
+  });
+
+  it('should calculate positive vega', () => {
+    const greeks = calculateGreeks(atmCall);
+    expect(greeks.vega).toBeGreaterThan(0);
+  });
+
+  it('should calculate positive rho for call', () => {
+    const greeks = calculateGreeks(atmCall);
+    expect(greeks.rho).toBeGreaterThan(0);
+  });
+
+  it('should calculate negative rho for put', () => {
+    const greeks = calculateGreeks(atmPut);
+    expect(greeks.rho).toBeLessThan(0);
+  });
+
+  it('should return zero greeks at expiry', () => {
+    const greeks = calculateGreeks({ ...atmCall, timeToExpiry: 0 });
+    expect(greeks.delta).toBe(0);
+    expect(greeks.gamma).toBe(0);
+  });
+
+  it('ATM call delta should be close to 0.5', () => {
+    const greeks = calculateGreeks(atmCall);
+    expect(greeks.delta).toBeCloseTo(0.5, 0);
+  });
+
+  it('ITM call delta should be greater than ATM', () => {
+    const itmDelta = calculateGreeks(itmCall).delta;
+    const atmDelta = calculateGreeks(atmCall).delta;
+    expect(itmDelta).toBeGreaterThan(atmDelta);
+  });
+});
+
+describe('priceOption', () => {
+  it('should return complete pricing result', () => {
+    const result = priceOption(atmCall);
+    expect(result.price).toBeGreaterThan(0);
+    expect(result.intrinsicValue).toBe(0); // ATM
+    expect(result.timeValue).toBeCloseTo(result.price, 5);
+    expect(result.greeks).toBeDefined();
+  });
+
+  it('ITM option should have positive intrinsic value', () => {
+    const result = priceOption(itmCall);
+    expect(result.intrinsicValue).toBe(itmCall.spot - itmCall.strike);
+  });
+
+  it('OTM option should have zero intrinsic value', () => {
+    const result = priceOption(otmCall);
+    expect(result.intrinsicValue).toBe(0);
+  });
+});
+
+describe('calculateImpliedVolatility', () => {
+  it('should recover known volatility', () => {
+    const marketPrice = blackScholesPrice(atmCall);
+    const iv = calculateImpliedVolatility(marketPrice, {
+      spot: atmCall.spot,
+      strike: atmCall.strike,
+      timeToExpiry: atmCall.timeToExpiry,
+      riskFreeRate: atmCall.riskFreeRate,
+      type: atmCall.type,
     });
+    expect(iv).toBeCloseTo(atmCall.volatility, 2);
+  });
+
+  it('should handle put options', () => {
+    const marketPrice = blackScholesPrice(atmPut);
+    const iv = calculateImpliedVolatility(marketPrice, {
+      spot: atmPut.spot,
+      strike: atmPut.strike,
+      timeToExpiry: atmPut.timeToExpiry,
+      riskFreeRate: atmPut.riskFreeRate,
+      type: atmPut.type,
+    });
+    expect(iv).toBeCloseTo(atmPut.volatility, 2);
+  });
+});
+
+describe('binomialTreePrice', () => {
+  it('should approximate Black-Scholes for European options', () => {
+    const bsPrice = blackScholesPrice(atmCall);
+    const binPrice = binomialTreePrice(atmCall, 200);
+    expect(binPrice).toBeCloseTo(bsPrice, 0);
+  });
+
+  it('American put should be worth at least European put', () => {
+    const bsPut = blackScholesPrice(atmPut);
+    const binPut = binomialTreePrice(atmPut, 100);
+    expect(binPut).toBeGreaterThanOrEqual(bsPut - 0.1);
+  });
+});
+
+describe('putCallParity', () => {
+  it('should verify put-call parity', () => {
+    const call = blackScholesPrice(atmCall);
+    const put = blackScholesPrice(atmPut);
+    const result = putCallParity(call, put, 100, 100, 0.05, 0.25);
+    expect(result.isValid).toBe(true);
+    expect(result.difference).toBeLessThan(0.01);
+  });
+});
+
+describe('aggregateGreeks', () => {
+  it('should aggregate Greeks for multiple positions', () => {
+    const positions = [
+      { params: atmCall, quantity: 10 },
+      { params: atmPut, quantity: -5 },
+    ];
+    const agg = aggregateGreeks(positions);
+    expect(agg.delta).toBeDefined();
+    expect(agg.gamma).toBeDefined();
+    expect(agg.theta).toBeDefined();
+  });
+
+  it('opposite positions should partially cancel', () => {
+    const long = aggregateGreeks([{ params: atmCall, quantity: 1 }]);
+    const short = aggregateGreeks([{ params: atmCall, quantity: -1 }]);
+    const combined = aggregateGreeks([
+      { params: atmCall, quantity: 1 },
+      { params: atmCall, quantity: -1 },
+    ]);
+    expect(Math.abs(combined.delta)).toBeLessThan(Math.abs(long.delta) + 0.001);
+  });
+});
+
+describe('priceStrategy', () => {
+  it('should price a straddle', () => {
+    const straddle = priceStrategy([
+      { params: atmCall, quantity: 1 },
+      { params: atmPut, quantity: 1 },
+    ]);
+    expect(straddle.totalCost).toBeGreaterThan(0);
+    expect(straddle.breakeven.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('interpolateVolatilitySurface', () => {
+  it('should interpolate vol surface', () => {
+    const surface: VolatilitySurface = {
+      strikes: [90, 95, 100, 105, 110],
+      expiries: [0.25, 0.5, 1.0],
+      impliedVols: [
+        [0.25, 0.22, 0.20, 0.22, 0.25],
+        [0.24, 0.21, 0.19, 0.21, 0.24],
+        [0.23, 0.20, 0.18, 0.20, 0.23],
+      ],
+    };
+    const vol = interpolateVolatilitySurface(surface, 100, 0.5);
+    expect(vol).toBeCloseTo(0.19, 1);
+  });
+
+  it('should handle boundary strikes', () => {
+    const surface: VolatilitySurface = {
+      strikes: [90, 100, 110],
+      expiries: [0.25, 0.5],
+      impliedVols: [[0.25, 0.20, 0.25], [0.24, 0.19, 0.24]],
+    };
+    const vol = interpolateVolatilitySurface(surface, 90, 0.25);
+    expect(vol).toBeCloseTo(0.25, 2);
   });
 });
