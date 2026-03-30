@@ -4293,3 +4293,44 @@
 ### 下一步 (Round 151+)
 - Round 151-153: 完成AI选股剩余(智能组合再平衡/选股信号聚合/自然语言策略编写)
 - Round 154-163: 可视化增强(图表/动画/导出/自定义主题)
+
+## Round 151-160 可视化增强 + AI选股收尾 (2024-03-31)
+
+### 统计
+- 文件: 694 → 706 (+12)
+- 测试: 19043 → 19321 (+278)
+- 失败: 0
+
+### Round 151 - AI模型解释
+- aiModelExplainer.ts - 特征重要性/因子贡献/决策路径/CSV导出/分享摘要
+- 修复 portfolioOptimizer.test.ts 换手率断言
+
+### Round 152 - AI可视化增强
+- ModelExplanationViz.tsx - 雷达图/柱状图/树图/决策路径
+- StrategyComparison.tsx - 策略对比（雷达/散点/排名表）
+
+### Round 153 - 策略分享增强
+- strategyShare.ts - 4个预设组合/4个分享模板/风险推荐/风险评分
+
+### Round 154 - 新图表类型
+- RiverChart.tsx - 河流图（板块资金流向）
+- SectorTreeMap.tsx - 板块树图（涨跌分布）
+- CandlestickWithVolume.tsx - K线+成交量组合
+
+### Round 155 - 图表动画
+- chartAnimation.ts - 缓动函数/插值/数据动画/数字滚动/CSS关键帧
+
+### Round 156 - 图表导出
+- chartExport.ts - PNG/SVG/CSV/JSON导出/批量导出/剪贴板
+
+### Round 157 - 自定义主题
+- customThemes.ts - 5个预设主题/主题合并/CSS变量/验证/暗色检测
+
+### Round 158 - 图表交互
+- chartInteraction.ts - ZoomManager/CrosshairManager/ChartLink/Annotation/键盘快捷键
+
+### Round 159 - 流向图
+- flowChartUtils.ts - 桑基图/弦图/层级布局/数据过滤/统计分析
+
+### Round 160 - 性能监控
+- chartPerfMonitor.ts - mark/measure/渲染指标/健康检查/FPS监控/基准测试
