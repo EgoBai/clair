@@ -4662,3 +4662,26 @@
 - New services: offlineQueue, resilientWebSocket, cacheManager, performanceMonitor, rateLimiter, shortcutManager, retryUtility, sseClient, encryptedStorage, dataExport
 - New utils: formatters, validation, debounceThrottle, virtualScroll, lazyLoad, imageLazyLoader
 - New backend: dataAggregation, apiCache, batchOperations, healthCheck
+
+## Round 222 — 2026-03-31
+- **新增:** `utils/valuationModel.ts` — 估值模型引擎 (DCF/相对估值/PEG/SOTP/同业比较/综合评分)
+- **新增:** `utils/northboundFlow.ts` — 北向资金追踪引擎 (资金汇总/持仓变动/板块聚合/信号生成)
+- **测试:** `__tests__/valuationModel.test.ts` — 45 tests
+- **测试:** `__tests__/northboundFlow.test.ts` — 37 tests
+- **总计:** 366 文件, 9746 tests passed, 1 pre-existing failure (retryUtility)
+
+## Round 223-234 (2026-03-31)
+- **新增:** `utils/capitalFlowDepth.ts` — 资金流深度分析 (主力/散户拆解/大单追踪/资金博弈)
+- **新增:** `utils/sectorRotation.ts` — 板块轮动信号引擎 (动量/轮动检测/风格分析/配置建议)
+- **新增:** `utils/industryComparison.ts` — 行业对比分析 (多维评分/景气度/产业链定位)
+- **新增:** `utils/chipDistribution.ts` — 筹码分布分析 (成本分布/盈亏/转换检测)
+- **新增:** `utils/marginTradingEngine.ts` — 融资融券分析 (市场概况/信号/个股分析/热度排行)
+- **新增:** `utils/blockTradingEngine.ts` — 大宗交易分析 (汇总/机构行为/异常检测/趋势)
+- **新增:** `utils/limitAnalysis.ts` — 涨跌停分析 (连板追踪/情绪/板块分布)
+- **新增:** `utils/marketBreadthEngine.ts` — 市场宽度分析 (涨跌家数/均线广度/信号)
+- **新增:** `utils/etfAnalysisEngine.ts` — ETF分析 (估值/流动性/效率/套利)
+- **新增:** `utils/patternRecognition.ts` — 技术形态识别 (支撑阻力/图表形态/量价关系)
+- **新增:** `utils/optionsAnalysisEngine.ts` — 期权分析 (Black-Scholes/Max Pain/PCR/IV偏度)
+- **新增:** `utils/longhuBangEngine.ts` — 龙虎榜分析 (席位/信号/机构游资行为)
+- **测试:** 12个新测试文件, 319 tests
+- **总计:** 375 文件, 10002+ tests passed, 1 pre-existing failure
