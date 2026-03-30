@@ -4356,3 +4356,22 @@
 - `frontend/src/__tests__/pwaManifest.test.ts` — 28个测试
 - `frontend/src/__tests__/prerenderConfig.test.ts` — 23个测试
 - `frontend/src/__tests__/cdnStrategy.test.ts` — 20个测试
+
+## Round 165 — 国际化收尾 + CSP Nonce 安全加固 [2026-03-31 03:40]
+
+### 变更
+- **i18n 重构**: 将内联翻译拆分为独立 locale 文件 (zh-CN/en-US/ja-JP/ko-KR)，每个文件包含完整翻译键
+- **i18n 增强**: 新增浏览器语言自动检测、SUPPORTED_LOCALES/LOCALE_NAMES 导出、locales 数组到 context
+- **CSP Nonce 中间件**: 新增 `backend/src/middleware/cspNonce.ts`，为每个请求生成唯一 nonce
+  - 替代 `unsafe-inline` + `unsafe-eval`，符合 OWASP CSP 最佳实践
+  - 支持 `req.cspNonce` 挂载、`X-CSP-Nonce` 响应头暴露
+  - 提供 `getCspMetaContent()` 和 `nonceAttr()` 辅助函数
+
+### 新增测试
+- `frontend/src/__tests__/i18nLocales.test.ts` — 16个测试（多语言键一致性、完整性、非空验证）
+- `backend/src/__tests__/cspNonce.test.ts` — 11个测试（nonce生成、中间件行为、CSP头验证）
+
+### 测试结果
+- **722 test files passed** (1 skipped)
+- **19716 tests passed** (14 skipped)
+

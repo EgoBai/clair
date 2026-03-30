@@ -1,9 +1,117 @@
 /**
- * 简体中文语言包 - 动态加载扩展
- * 包含延迟加载的扩展翻译键
+ * 简体中文语言包
  */
-export default {
-  // 高级筛选
+const zhCN = {
+  common: {
+    search: '搜索',
+    loading: '加载中...',
+    noData: '暂无数据',
+    confirm: '确定',
+    cancel: '取消',
+    save: '保存',
+    delete: '删除',
+    edit: '编辑',
+    refresh: '刷新',
+    export: '导出',
+    more: '更多',
+    back: '返回',
+    settings: '设置',
+    error: '错误',
+    success: '成功',
+    warning: '警告',
+  },
+  nav: {
+    home: '首页',
+    stocks: '股票',
+    market: '行情',
+    watchlist: '自选股',
+    screener: '选股器',
+    advancedScreener: '高级选股',
+    alerts: '预警',
+    analysis: '分析',
+    heatmap: '热力图',
+    compare: '对比',
+  },
+  home: {
+    title: 'A股行情分析',
+    marketOverview: '市场概况',
+    topGainers: '涨幅榜',
+    topLosers: '跌幅榜',
+    topTurnover: '成交额榜',
+    risingStocks: '上涨',
+    fallingStocks: '下跌',
+    unchangedStocks: '平盘',
+    totalMarketCap: '总市值',
+    totalTurnover: '总成交额',
+  },
+  stock: {
+    code: '代码',
+    name: '名称',
+    price: '最新价',
+    change: '涨跌额',
+    changePercent: '涨跌幅',
+    volume: '成交量',
+    turnover: '成交额',
+    turnoverRate: '换手率',
+    amplitude: '振幅',
+    high: '最高',
+    low: '最低',
+    open: '开盘',
+    close: '收盘',
+    peRatio: '市盈率',
+    pbRatio: '市净率',
+    marketCap: '总市值',
+    circulatingMarketCap: '流通市值',
+    industry: '行业',
+    market: '市场',
+    detail: '详情',
+    kline: 'K线',
+    timeline: '分时',
+    indicators: '指标',
+    fundFlow: '资金流向',
+  },
+  screener: {
+    title: '选股器',
+    conditions: '筛选条件',
+    addCondition: '添加条件',
+    addGroup: '添加组',
+    execute: '执行',
+    results: '筛选结果',
+    presets: '预设模板',
+    customTemplates: '自定义模板',
+    saveTemplate: '保存模板',
+    templateName: '模板名称',
+    logic: { and: '且', or: '或' },
+    operators: {
+      gt: '大于',
+      gte: '大于等于',
+      lt: '小于',
+      lte: '小于等于',
+      eq: '等于',
+      between: '介于',
+    },
+  },
+  watchlist: {
+    title: '自选股',
+    add: '添加股票',
+    remove: '移除',
+    createGroup: '新建分组',
+    defaultGroup: '默认分组',
+    empty: '自选股列表为空',
+    addHint: '点击右上角添加股票到自选股',
+  },
+  alerts: {
+    title: '预警管理',
+    create: '创建预警',
+    priceAbove: '价格高于',
+    priceBelow: '价格低于',
+    changeAbove: '涨幅超过',
+    changeBelow: '跌幅超过',
+    volumeSurge: '成交量异动',
+    active: '活跃',
+    triggered: '已触发',
+    history: '预警历史',
+  },
   advancedScreener: {
     title: '高级选股器',
     saveAsTemplate: '另存为模板',
@@ -11,7 +119,6 @@ export default {
     clearAll: '清除全部',
     previewCount: '预览结果数',
   },
-  // 导出
   export: {
     title: '数据导出',
     format: '导出格式',
@@ -24,7 +131,6 @@ export default {
     success: '导出成功',
     failed: '导出失败',
   },
-  // 通知
   notification: {
     newAlert: '新预警触发',
     marketOpen: '市场开盘',
@@ -32,7 +138,28 @@ export default {
     priceAlert: '价格预警',
     volumeAlert: '成交量预警',
   },
-  // 帮助
+  theme: {
+    light: '浅色',
+    dark: '深色',
+    system: '跟随系统',
+  },
+  shortcuts: {
+    title: '快捷键',
+    search: '聚焦搜索',
+    navigate: '快速导航',
+    theme: '切换主题',
+    back: '返回上一页',
+  },
+  chart: {
+    kline: 'K线图',
+    timeline: '分时图',
+    macd: 'MACD',
+    kdj: 'KDJ',
+    rsi: 'RSI',
+    boll: '布林带',
+    volume: '成交量',
+    ma: '均线',
+  },
   help: {
     title: '帮助中心',
     shortcuts: '快捷键',
@@ -40,7 +167,6 @@ export default {
     contact: '联系我们',
     feedback: '意见反馈',
   },
-  // 错误
   errors: {
     networkError: '网络错误，请检查连接',
     serverError: '服务器错误，请稍后重试',
@@ -49,3 +175,5 @@ export default {
     forbidden: '无权限访问',
   },
 };
+
+export default zhCN;
