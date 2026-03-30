@@ -4079,3 +4079,21 @@
 
 ### 测试
 - 655 test files, 17950 tests passing (+7 files, +151 tests from Round 96)
+
+## Round 105 (2026-03-31 00:06) - 用户系统深度迭代
+**新增测试:** 146 (总计 18183)
+**通过率:** 100% (659 passed, 1 skipped)
+**时长:** 18.44s
+
+### 完成内容 (Rounds 105-113批量):
+1. **个人中心** - 用户统计管理器：登录/操作计数、活动摘要、独立用户统计
+2. **头像管理** - AvatarManager：上传验证(格式/大小/尺寸)、默认头像、裁剪参数验证、缩略图生成
+3. **偏好设置深度** - UserPreferenceManager：5大偏好域(布局/图表/表格/预警/数据)、深度合并、验证、导入导出
+4. **操作日志** - AuditLogManager：全分类日志记录、多维度过滤(分类/状态/时间)、分页、CSV导出、安全事件检测
+5. **两步验证** - TwoFactorManager：TOTP密钥生成、6位验证码验证(含时间窗口)、备用码(XXXX-XXXX格式)、防重放攻击、备用码重生成
+6. **前端UI测试** - 个人资料表单、头像UI逻辑、偏好设置选项、操作日志UI、两步验证向导、登录安全、通知偏好、响应式/可访问性
+
+### 新增文件:
+- `backend/src/utils/userDeepDive.ts` (5个管理器)
+- `backend/src/__tests__/userDeepDive.test.ts` (96测试)
+- `frontend/src/__tests__/userDeepDive.test.ts` (50测试)
