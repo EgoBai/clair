@@ -9,7 +9,7 @@ import dayjs from 'dayjs';
 
 // ==================== 翻译资源 ====================
 
-export type Locale = 'zh-CN' | 'en-US';
+export type Locale = 'zh-CN' | 'en-US' | 'ja-JP' | 'ko-KR';
 
 export interface I18nMessages {
   [key: string]: string | I18nMessages;
@@ -291,16 +291,300 @@ const enUS: I18nMessages = {
   },
 };
 
+const jaJP: I18nMessages = {
+  common: {
+    search: '検索',
+    loading: '読み込み中...',
+    noData: 'データなし',
+    confirm: '確認',
+    cancel: 'キャンセル',
+    save: '保存',
+    delete: '削除',
+    edit: '編集',
+    refresh: '更新',
+    export: 'エクスポート',
+    more: 'もっと見る',
+    back: '戻る',
+    settings: '設定',
+    error: 'エラー',
+    success: '成功',
+    warning: '警告',
+  },
+  nav: {
+    home: 'ホーム',
+    stocks: '株式',
+    market: '市場',
+    watchlist: 'ウォッチリスト',
+    screener: 'スクリーナー',
+    advancedScreener: '高度なスクリーナー',
+    alerts: 'アラート',
+    analysis: '分析',
+    heatmap: 'ヒートマップ',
+    compare: '比較',
+  },
+  home: {
+    title: 'A株市場分析',
+    marketOverview: '市場概況',
+    topGainers: '上昇ランキング',
+    topLosers: '下落ランキング',
+    topTurnover: '出来高ランキング',
+    risingStocks: '上昇',
+    fallingStocks: '下落',
+    unchangedStocks: '変動なし',
+    totalMarketCap: '時価総額',
+    totalTurnover: '総出来高',
+  },
+  stock: {
+    code: 'コード',
+    name: '名称',
+    price: '現在値',
+    change: '変動',
+    changePercent: '変動率',
+    volume: '出来高',
+    turnover: '取引高',
+    turnoverRate: '回転率',
+    amplitude: '振幅',
+    high: '高値',
+    low: '安値',
+    open: '始値',
+    close: '終値',
+    peRatio: 'PER',
+    pbRatio: 'PBR',
+    marketCap: '時価総額',
+    circulatingMarketCap: '流通時価総額',
+    industry: '業種',
+    market: '市場',
+    detail: '詳細',
+    kline: 'ローソク足',
+    timeline: 'タイムライン',
+    indicators: '指標',
+    fundFlow: '資金フロー',
+  },
+  screener: {
+    title: '株式スクリーナー',
+    conditions: 'フィルター条件',
+    addCondition: '条件を追加',
+    addGroup: 'グループを追加',
+    execute: '実行',
+    results: '結果',
+    presets: 'プリセット',
+    customTemplates: 'カスタム',
+    saveTemplate: 'テンプレート保存',
+    templateName: 'テンプレート名',
+    logic: {
+      and: 'かつ',
+      or: 'または',
+    },
+    operators: {
+      gt: 'より大きい',
+      gte: '以上',
+      lt: 'より小さい',
+      lte: '以下',
+      eq: '等しい',
+      between: '範囲内',
+    },
+  },
+  watchlist: {
+    title: 'ウォッチリスト',
+    add: '銘柄を追加',
+    remove: '削除',
+    createGroup: '新規グループ',
+    defaultGroup: 'デフォルト',
+    empty: 'ウォッチリストは空です',
+    addHint: '右上のボタンで銘柄を追加',
+  },
+  alerts: {
+    title: 'アラート管理',
+    create: 'アラート作成',
+    priceAbove: '価格以上',
+    priceBelow: '価格以下',
+    changeAbove: '上昇率以上',
+    changeBelow: '下落率以上',
+    volumeSurge: '出来高急増',
+    active: 'アクティブ',
+    triggered: '発動済み',
+    history: 'アラート履歴',
+  },
+  theme: {
+    light: 'ライト',
+    dark: 'ダーク',
+    system: 'システム',
+  },
+  shortcuts: {
+    title: 'キーボードショートカット',
+    search: '検索にフォーカス',
+    navigate: 'クイックナビゲーション',
+    theme: 'テーマ切替',
+    back: '前のページに戻る',
+  },
+  chart: {
+    kline: 'ローソク足チャート',
+    timeline: 'タイムチャート',
+    macd: 'MACD',
+    kdj: 'KDJ',
+    rsi: 'RSI',
+    boll: 'ボリンジャーバンド',
+    volume: '出来高',
+    ma: '移動平均線',
+  },
+};
+
+const koKR: I18nMessages = {
+  common: {
+    search: '검색',
+    loading: '로딩 중...',
+    noData: '데이터 없음',
+    confirm: '확인',
+    cancel: '취소',
+    save: '저장',
+    delete: '삭제',
+    edit: '편집',
+    refresh: '새로고침',
+    export: '내보내기',
+    more: '더보기',
+    back: '뒤로',
+    settings: '설정',
+    error: '오류',
+    success: '성공',
+    warning: '경고',
+  },
+  nav: {
+    home: '홈',
+    stocks: '주식',
+    market: '시장',
+    watchlist: '관심목록',
+    screener: '스크리너',
+    advancedScreener: '고급 스크리너',
+    alerts: '알림',
+    analysis: '분석',
+    heatmap: '히트맵',
+    compare: '비교',
+  },
+  home: {
+    title: 'A주 시장 분석',
+    marketOverview: '시장 개요',
+    topGainers: '상승 랭킹',
+    topLosers: '하락 랭킹',
+    topTurnover: '거래대금 랭킹',
+    risingStocks: '상승',
+    fallingStocks: '하락',
+    unchangedStocks: '보합',
+    totalMarketCap: '시가총액',
+    totalTurnover: '총 거래대금',
+  },
+  stock: {
+    code: '코드',
+    name: '종목명',
+    price: '현재가',
+    change: '변동',
+    changePercent: '변동률',
+    volume: '거래량',
+    turnover: '거래대금',
+    turnoverRate: '회전율',
+    amplitude: '진폭',
+    high: '고가',
+    low: '저가',
+    open: '시가',
+    close: '종가',
+    peRatio: 'PER',
+    pbRatio: 'PBR',
+    marketCap: '시가총액',
+    circulatingMarketCap: '유통시가총액',
+    industry: '업종',
+    market: '시장',
+    detail: '상세',
+    kline: '캔들차트',
+    timeline: '분봉',
+    indicators: '지표',
+    fundFlow: '자금흐름',
+  },
+  screener: {
+    title: '주식 스크리너',
+    conditions: '필터 조건',
+    addCondition: '조건 추가',
+    addGroup: '그룹 추가',
+    execute: '실행',
+    results: '결과',
+    presets: '프리셋',
+    customTemplates: '사용자 정의',
+    saveTemplate: '템플릿 저장',
+    templateName: '템플릿 이름',
+    logic: {
+      and: '그리고',
+      or: '또는',
+    },
+    operators: {
+      gt: '초과',
+      gte: '이상',
+      lt: '미만',
+      lte: '이하',
+      eq: '같음',
+      between: '범위 내',
+    },
+  },
+  watchlist: {
+    title: '관심목록',
+    add: '종목 추가',
+    remove: '제거',
+    createGroup: '새 그룹',
+    defaultGroup: '기본',
+    empty: '관심목록이 비어있습니다',
+    addHint: '우상단 버튼으로 종목을 추가하세요',
+  },
+  alerts: {
+    title: '알림 관리',
+    create: '알림 생성',
+    priceAbove: '가격 이상',
+    priceBelow: '가격 이하',
+    changeAbove: '상승률 이상',
+    changeBelow: '하락률 이상',
+    volumeSurge: '거래량 급증',
+    active: '활성',
+    triggered: '발동됨',
+    history: '알림 이력',
+  },
+  theme: {
+    light: '라이트',
+    dark: '다크',
+    system: '시스템',
+  },
+  shortcuts: {
+    title: '키보드 단축키',
+    search: '검색 포커스',
+    navigate: '빠른 이동',
+    theme: '테마 전환',
+    back: '이전 페이지',
+  },
+  chart: {
+    kline: '캔들차트',
+    timeline: '분봉차트',
+    macd: 'MACD',
+    kdj: 'KDJ',
+    rsi: 'RSI',
+    boll: '볼린저밴드',
+    volume: '거래량',
+    ma: '이동평균선',
+  },
+};
+
 const messages: Record<Locale, I18nMessages> = {
   'zh-CN': zhCN,
   'en-US': enUS,
+  'ja-JP': jaJP,
+  'ko-KR': koKR,
 };
 
 // ==================== 数字/日期格式化 ====================
 
 export const formatters = {
   number: (value: number, locale: Locale): string => {
-    return value.toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US');
+    const localeMap: Record<Locale, string> = {
+      'zh-CN': 'zh-CN',
+      'en-US': 'en-US',
+      'ja-JP': 'ja-JP',
+      'ko-KR': 'ko-KR',
+    };
+    return value.toLocaleString(localeMap[locale] || 'en-US');
   },
 
   currency: (value: number, locale: Locale): string => {
@@ -310,13 +594,24 @@ export const formatters = {
       if (value >= 1e4) return `${(value / 1e4).toFixed(2)}万`;
       return value.toFixed(2);
     }
+    if (locale === 'ja-JP') {
+      if (value >= 1e12) return `${(value / 1e12).toFixed(2)}兆`;
+      if (value >= 1e8) return `${(value / 1e8).toFixed(2)}億`;
+      if (value >= 1e4) return `${(value / 1e4).toFixed(2)}万`;
+      return `¥${value.toLocaleString('ja-JP', { minimumFractionDigits: 2 })}`;
+    }
+    if (locale === 'ko-KR') {
+      if (value >= 1e12) return `${(value / 1e12).toFixed(2)}조`;
+      if (value >= 1e8) return `${(value / 1e8).toFixed(2)}억`;
+      return `₩${value.toLocaleString('ko-KR', { minimumFractionDigits: 2 })}`;
+    }
     if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
     if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
     if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
     return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   },
 
-  percent: (value: number, locale: Locale): string => {
+  percent: (value: number, _locale: Locale): string => {
     const sign = value >= 0 ? '+' : '';
     return `${sign}${value.toFixed(2)}%`;
   },
@@ -326,13 +621,21 @@ export const formatters = {
     if (locale === 'zh-CN') {
       return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
     }
+    if (locale === 'ja-JP') {
+      return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    }
+    if (locale === 'ko-KR') {
+      return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+    }
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   },
 
   time: (value: string | Date, locale: Locale): string => {
     const d = typeof value === 'string' ? new Date(value) : value;
-    if (locale === 'zh-CN') {
-      return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    const hh = d.getHours().toString().padStart(2, '0');
+    const mm = d.getMinutes().toString().padStart(2, '0');
+    if (locale === 'zh-CN' || locale === 'ja-JP' || locale === 'ko-KR') {
+      return `${hh}:${mm}`;
     }
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   },
@@ -342,6 +645,16 @@ export const formatters = {
       if (value >= 1e8) return `${(value / 1e8).toFixed(2)}亿手`;
       if (value >= 1e4) return `${(value / 1e4).toFixed(2)}万手`;
       return `${value}手`;
+    }
+    if (locale === 'ja-JP') {
+      if (value >= 1e8) return `${(value / 1e8).toFixed(2)}億株`;
+      if (value >= 1e4) return `${(value / 1e4).toFixed(2)}万株`;
+      return `${value}株`;
+    }
+    if (locale === 'ko-KR') {
+      if (value >= 1e8) return `${(value / 1e8).toFixed(2)}억주`;
+      if (value >= 1e4) return `${(value / 1e4).toFixed(2)}만주`;
+      return `${value}주`;
     }
     if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
     if (value >= 1e3) return `${(value / 1e3).toFixed(2)}K`;

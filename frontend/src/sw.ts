@@ -9,7 +9,7 @@
  * 参考 Google Workbox 最佳实践
  */
 
-const CACHE_VERSION = 'v1.4.0';
+const CACHE_VERSION = 'v2.0.0';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `dynamic-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;
@@ -296,7 +296,7 @@ self.addEventListener('fetch', (event: FetchEvent) => {
 });
 
 // 后台定期清理缓存
-self.addEventListener('periodicsync', (event: { tag: string }) => {
+self.addEventListener('periodicsync', (event: any) => {
   if (event.tag === 'cache-cleanup') {
     event.waitUntil(
       Promise.all(
@@ -304,6 +304,105 @@ self.addEventListener('periodicsync', (event: { tag: string }) => {
       )
     );
   }
+});
+
+// ==================== 后台同步 ====================
+interface SyncQueueItem {
+  id: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+  timestamp: number;
+  retries: number;
+}
+
+self.addEventListener('sync', (event: any) => {
+  if (event.tag === 'sync-watchlist') {
+    event.waitUntil(syncQueue('watchlist'));
+  } else if (event.tag === 'sync-alerts') {
+    event.waitUntil(syncQueue('alerts'));
+  } else if (event.tag === 'sync-portfolio') {
+    event.waitUntil(syncQueue('portfolio'));
+  }
+});
+
+async function syncQueue(type: string): Promise<void> {
+  try {
+    const cache = await caches.open(API_CACHE);
+    const keys = await cache.keys();
+    const pendingSyncs = keys.filter(r => r.url.includes(`/sync/${type}`));
+
+    for (const request of pendingSyncs) {
+      try {
+        const response = await fetch(request);
+        if (response.ok) {
+          await cache.delete(request);
+        }
+      } catch {
+        // 网络仍不可用，保留在缓存中等待下次同步
+      }
+    }
+  } catch (err) {
+    // 同步失败，静默处理
+  }
+}
+
+// ==================== 推送通知 ====================
+self.addEventListener('push', (event: any) => {
+  if (!event.data) return;
+
+  try {
+    const data = event.data.json();
+    const { title, body, type, stockCode, url } = data;
+
+    const options: NotificationOptions & { actions?: Array<{ action: string; title: string }> } = {
+      body: body || '收到新通知',
+      icon: '/manifest.json',
+      badge: '/manifest.json',
+      tag: `${type}-${stockCode || 'general'}-${Date.now()}`,
+      data: { url: url || '/', type, stockCode },
+      actions: type === 'price-alert' ? [
+        { action: 'view', title: '查看详情' },
+        { action: 'dismiss', title: '忽略' },
+      ] : undefined,
+      requireInteraction: type === 'price-alert',
+      vibrate: type === 'price-alert' ? [200, 100, 200] : undefined,
+    };
+
+    event.waitUntil(
+      self.registration.showNotification(title || 'A股行情', options)
+    );
+  } catch {
+    // 推送数据解析失败
+  }
+});
+
+self.addEventListener('notificationclick', (event: any) => {
+  event.notification.close();
+
+  const action = event.action;
+  const data = event.notification.data;
+
+  if (action === 'dismiss') return;
+
+  const targetUrl = data?.url || '/';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList: readonly Client[]) => {
+        // 尝试聚焦已有窗口
+        for (const client of clientList) {
+          if (client.url.includes(targetUrl) && 'focus' in client) {
+            return (client as WindowClient).focus();
+          }
+        }
+        // 打开新窗口
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl);
+        }
+      })
+  );
 });
 
 export {};
