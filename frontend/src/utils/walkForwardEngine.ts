@@ -1,301 +1,328 @@
 /**
- * Walk-Forward Analysis Engine
- *
- * Out-of-sample testing framework: walk-forward optimization,
- * anchored/expanding/rolling windows, and overfitting detection.
+ * Walk-Forward 回测引擎
+ * 支持: 滚动窗口优化、样本外验证、参数稳定性分析
  */
 
-export interface WalkForwardWindow {
-  trainStart: number;
-  trainEnd: number;
-  testStart: number;
-  testEnd: number;
-  trainReturns: number[];
-  testReturns: number[];
+export interface WalkForwardConfig {
+  totalPeriods: number; // 总期数
+  inSampleSize: number; // 训练集大小
+  outSampleSize: number; // 测试集大小
+  stepSize?: number; // 滚动步长 (默认=outSampleSize)
+  purgeSize?: number; // 清洗窗口 (避免前视偏差)
 }
 
-export interface WalkForwardResult {
-  windows: WalkForwardWindow[];
-  inSampleMetrics: PerformanceMetrics;
-  outOfSampleMetrics: PerformanceMetrics;
-  efficiencyRatio: number; // OOS / IS
-  overfittingScore: number; // 0-1, higher = more overfit
-  parameterStability: number[];
+export interface WalkForwardWindow {
+  windowIndex: number;
+  inSampleStart: number;
+  inSampleEnd: number;
+  outSampleStart: number;
+  outSampleEnd: number;
+}
+
+export interface WalkForwardResult<Params> {
+  windows: WalkForwardWindowResult<Params>[];
+  overallMetrics: OutOfSampleMetrics;
+  parameterStability: ParameterStability<Params>;
+}
+
+export interface WalkForwardWindowResult<Params> {
+  window: WalkForwardWindow;
+  optimalParams: Params;
+  inSamplePerformance: PerformanceMetrics;
+  outSamplePerformance: PerformanceMetrics;
 }
 
 export interface PerformanceMetrics {
   totalReturn: number;
   annualizedReturn: number;
+  volatility: number;
   sharpeRatio: number;
   maxDrawdown: number;
   winRate: number;
   profitFactor: number;
-  calmarRatio: number;
-  sortinoRatio: number;
+  numTrades: number;
 }
 
-export type WalkForwardType = 'anchored' | 'rolling' | 'expanding';
-
-function mean(arr: number[]): number {
-  return arr.length === 0 ? 0 : arr.reduce((s, v) => s + v, 0) / arr.length;
+export interface OutOfSampleMetrics {
+  totalReturn: number;
+  avgWindowReturn: number;
+  annualizedReturn: number;
+  volatility: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  avgWinRate: number;
+  efficiencyRatio: number; // OOS return / IS return
 }
 
-function std(arr: number[]): number {
-  if (arr.length < 2) return 0;
-  const m = mean(arr);
-  return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - 1));
+export interface ParameterStability<Params> {
+  params: Params[];
+  meanParams: { [K in keyof Params]?: number };
+  stdParams: { [K in keyof Params]?: number };
+  stabilityScore: number; // 0-1, 1=完全稳定
 }
 
 /**
- * Generate walk-forward windows
+ * 生成Walk-Forward窗口
  */
 export function generateWalkForwardWindows(
-  totalLength: number,
-  trainSize: number,
-  testSize: number,
-  type: WalkForwardType = 'rolling'
+  config: WalkForwardConfig
 ): WalkForwardWindow[] {
+  const { totalPeriods, inSampleSize, outSampleSize, stepSize, purgeSize = 0 } = config;
+  const step = stepSize ?? outSampleSize;
   const windows: WalkForwardWindow[] = [];
 
-  if (type === 'anchored') {
-    // Train always starts at 0, test slides forward
-    for (let testStart = trainSize; testStart + testSize <= totalLength; testStart += testSize) {
-      windows.push({
-        trainStart: 0,
-        trainEnd: testStart,
-        testStart,
-        testEnd: testStart + testSize,
-        trainReturns: [],
-        testReturns: [],
-      });
-    }
-  } else if (type === 'rolling') {
-    // Both train and test slide forward
-    for (let start = 0; start + trainSize + testSize <= totalLength; start += testSize) {
-      windows.push({
-        trainStart: start,
-        trainEnd: start + trainSize,
-        testStart: start + trainSize,
-        testEnd: start + trainSize + testSize,
-        trainReturns: [],
-        testReturns: [],
-      });
-    }
-  } else {
-    // Expanding: train grows, test slides
-    for (let testStart = trainSize; testStart + testSize <= totalLength; testStart += testSize) {
-      windows.push({
-        trainStart: 0,
-        trainEnd: testStart,
-        testStart,
-        testEnd: Math.min(testStart + testSize, totalLength),
-        trainReturns: [],
-        testReturns: [],
-      });
-    }
+  let windowIndex = 0;
+  let position = 0;
+
+  while (position + inSampleSize + purgeSize + outSampleSize <= totalPeriods) {
+    windows.push({
+      windowIndex: windowIndex++,
+      inSampleStart: position,
+      inSampleEnd: position + inSampleSize - 1,
+      outSampleStart: position + inSampleSize + purgeSize,
+      outSampleEnd: position + inSampleSize + purgeSize + outSampleSize - 1
+    });
+    position += step;
   }
 
   return windows;
 }
 
 /**
- * Calculate performance metrics from returns
+ * 执行Walk-Forward回测
+ * @param config Walk-Forward配置
+ * @param optimizeFunc 参数优化函数: (start, end) => 最优参数
+ * @param backtestFunc 回测函数: (start, end, params) => 绩效指标
+ * @param extractParams 提取数值参数用于稳定性分析
  */
-export function calculatePerformanceMetrics(returns: number[]): PerformanceMetrics {
-  if (returns.length === 0) {
+export function walkForwardBacktest<Params>(
+  config: WalkForwardConfig,
+  optimizeFunc: (start: number, end: number) => Params,
+  backtestFunc: (start: number, end: number, params: Params) => PerformanceMetrics,
+  extractParams: (params: Params) => { [key: string]: number }
+): WalkForwardResult<Params> {
+  const windows = generateWalkForwardWindows(config);
+  const results: WalkForwardWindowResult<Params>[] = [];
+
+  for (const window of windows) {
+    // 样本内优化
+    const optimalParams = optimizeFunc(window.inSampleStart, window.inSampleEnd);
+
+    // 样本内回测
+    const inSamplePerf = backtestFunc(window.inSampleStart, window.inSampleEnd, optimalParams);
+
+    // 样本外回测
+    const outSamplePerf = backtestFunc(window.outSampleStart, window.outSampleEnd, optimalParams);
+
+    results.push({
+      window,
+      optimalParams,
+      inSamplePerformance: inSamplePerf,
+      outSamplePerformance: outSamplePerf
+    });
+  }
+
+  // 汇总样本外绩效
+  const oosMetrics = calculateOverallMetrics(results.map(r => r.outSamplePerformance));
+
+  // 参数稳定性
+  const paramsList = results.map(r => r.optimalParams);
+  const stability = analyzeParameterStability(paramsList, extractParams);
+
+  return {
+    windows: results,
+    overallMetrics: oosMetrics,
+    parameterStability: stability
+  };
+}
+
+/**
+ * 计算滚动绩效指标
+ */
+export function calculateRollingMetrics(
+  returns: number[],
+  windowSize: number
+): PerformanceMetrics[] {
+  const results: PerformanceMetrics[] = [];
+
+  for (let i = windowSize; i <= returns.length; i++) {
+    const window = returns.slice(i - windowSize, i);
+    results.push(calculatePerformanceMetrics(window));
+  }
+
+  return results;
+}
+
+/**
+ * 从收益率序列计算绩效指标
+ */
+export function calculatePerformanceMetrics(
+  returns: number[],
+  annualizeFactor: number = 252
+): PerformanceMetrics {
+  const n = returns.length;
+  if (n === 0) {
     return {
-      totalReturn: 0, annualizedReturn: 0, sharpeRatio: 0, maxDrawdown: 0,
-      winRate: 0, profitFactor: 0, calmarRatio: 0, sortinoRatio: 0,
+      totalReturn: 0, annualizedReturn: 0, volatility: 0,
+      sharpeRatio: 0, maxDrawdown: 0, winRate: 0,
+      profitFactor: 0, numTrades: 0
     };
   }
 
-  const totalReturn = returns.reduce((s, r) => s + r, 0);
-  const annualizedReturn = totalReturn * (252 / returns.length);
-  const vol = std(returns) * Math.sqrt(252);
-  const sharpeRatio = vol === 0 ? 0 : annualizedReturn / vol;
+  // 累计收益
+  let cumReturn = 1;
+  let peak = 1;
+  let maxDD = 0;
+  let wins = 0;
+  let totalProfit = 0;
+  let totalLoss = 0;
 
-  // Max drawdown
-  let cumReturn = 0, peak = 0, maxDrawdown = 0;
+  const equity: number[] = [1];
   for (const r of returns) {
-    cumReturn += r;
+    cumReturn *= (1 + r);
+    equity.push(cumReturn);
+
     if (cumReturn > peak) peak = cumReturn;
-    const dd = peak - cumReturn;
-    if (dd > maxDrawdown) maxDrawdown = dd;
+    const dd = (peak - cumReturn) / peak;
+    if (dd > maxDD) maxDD = dd;
+
+    if (r > 0) {
+      wins++;
+      totalProfit += r;
+    } else {
+      totalLoss += Math.abs(r);
+    }
   }
 
-  // Win rate
-  const wins = returns.filter(r => r > 0);
-  const losses = returns.filter(r => r <= 0);
-  const winRate = returns.length === 0 ? 0 : wins.length / returns.length;
-
-  // Profit factor
-  const totalWins = wins.reduce((s, r) => s + r, 0);
-  const totalLosses = Math.abs(losses.reduce((s, r) => s + r, 0));
-  const profitFactor = totalLosses === 0 ? (totalWins > 0 ? Infinity : 0) : totalWins / totalLosses;
-
-  // Calmar ratio
-  const calmarRatio = maxDrawdown === 0 ? 0 : annualizedReturn / maxDrawdown;
-
-  // Sortino ratio
-  const downside = returns.filter(r => r < 0);
-  const downsideDev = downside.length > 0
-    ? Math.sqrt(downside.reduce((s, r) => s + r ** 2, 0) / downside.length) * Math.sqrt(252)
-    : 0;
-  const sortinoRatio = downsideDev === 0 ? 0 : annualizedReturn / downsideDev;
+  const totalReturn = cumReturn - 1;
+  const annualizedReturn = (1 + totalReturn) ** (annualizeFactor / n) - 1;
+  const mean = returns.reduce((a, b) => a + b, 0) / n;
+  const variance = returns.reduce((a, r) => a + (r - mean) ** 2, 0) / (n - 1);
+  const volatility = Math.sqrt(variance * annualizeFactor);
+  const sharpe = volatility > 0 ? (mean * annualizeFactor) / volatility : 0;
+  const winRate = n > 0 ? wins / n : 0;
+  const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : totalProfit > 0 ? Infinity : 0;
 
   return {
     totalReturn,
     annualizedReturn,
-    sharpeRatio,
-    maxDrawdown,
+    volatility,
+    sharpeRatio: sharpe,
+    maxDrawdown: maxDD,
     winRate,
-    profitFactor: isFinite(profitFactor) ? profitFactor : 0,
-    calmarRatio,
-    sortinoRatio,
+    profitFactor,
+    numTrades: n
   };
 }
 
 /**
- * Run walk-forward analysis
+ * 蒙特卡洛Walk-Forward (多次随机划分)
  */
-export function runWalkForward(
-  returns: number[],
-  trainSize: number,
-  testSize: number,
-  type: WalkForwardType = 'rolling'
-): WalkForwardResult {
-  const windows = generateWalkForwardWindows(returns.length, trainSize, testSize, type);
-
-  // Fill windows with returns data
-  for (const w of windows) {
-    w.trainReturns = returns.slice(w.trainStart, w.trainEnd);
-    w.testReturns = returns.slice(w.testStart, w.testEnd);
-  }
-
-  // Aggregate IS and OOS returns
-  const isReturns: number[] = [];
+export function monteCarloWalkForward<Params>(
+  totalPeriods: number,
+  numIterations: number,
+  optimizeFunc: (start: number, end: number) => Params,
+  backtestFunc: (start: number, end: number, params: Params) => PerformanceMetrics,
+  trainRatio: number = 0.7
+): { avgOOSReturn: number; stdOOSReturn: number; worstCase: number; bestCase: number } {
   const oosReturns: number[] = [];
+  const trainSize = Math.floor(totalPeriods * trainRatio);
 
-  for (const w of windows) {
-    isReturns.push(...w.trainReturns);
-    oosReturns.push(...w.testReturns);
+  for (let i = 0; i < numIterations; i++) {
+    // 随机选择分割点
+    const splitPoint = trainSize + Math.floor(Math.random() * (totalPeriods - trainSize - 1));
+    const inSampleStart = Math.max(0, splitPoint - trainSize);
+
+    const params = optimizeFunc(inSampleStart, splitPoint - 1);
+    const oosPerf = backtestFunc(splitPoint, totalPeriods - 1, params);
+
+    oosReturns.push(oosPerf.totalReturn);
   }
 
-  const inSampleMetrics = calculatePerformanceMetrics(isReturns);
-  const outOfSampleMetrics = calculatePerformanceMetrics(oosReturns);
-
-  // Efficiency ratio: how much OOS performance degrades vs IS
-  const efficiencyRatio = inSampleMetrics.sharpeRatio === 0
-    ? 0
-    : outOfSampleMetrics.sharpeRatio / inSampleMetrics.sharpeRatio;
-
-  // Overfitting score: based on efficiency ratio and win rate degradation
-  const sharpeDecay = 1 - efficiencyRatio;
-  const winRateDecay = Math.abs(inSampleMetrics.winRate - outOfSampleMetrics.winRate);
-  const overfittingScore = Math.min(1, Math.max(0, (sharpeDecay + winRateDecay) / 2));
-
-  // Parameter stability: variance of per-window Sharpe ratios
-  const windowSharpes = windows
-    .filter(w => w.testReturns.length > 0)
-    .map(w => calculatePerformanceMetrics(w.testReturns).sharpeRatio);
-  const parameterStability = windowSharpes;
+  const avg = oosReturns.reduce((a, b) => a + b, 0) / oosReturns.length;
+  const std = Math.sqrt(oosReturns.reduce((a, r) => a + (r - avg) ** 2, 0) / (oosReturns.length - 1));
 
   return {
-    windows,
-    inSampleMetrics,
-    outOfSampleMetrics,
-    efficiencyRatio,
-    overfittingScore,
-    parameterStability,
+    avgOOSReturn: avg,
+    stdOOSReturn: std,
+    worstCase: Math.min(...oosReturns),
+    bestCase: Math.max(...oosReturns)
   };
 }
 
-/**
- * Combinatorial cross-validation (Combinatorial Purged Cross-Validation)
- */
-export function combinatorialPurgedCV(
-  returns: number[],
-  numFolds: number = 5,
-  purgeGap: number = 5
-): { folds: { train: number[]; test: number[] }[]; avgOOSMetrics: PerformanceMetrics } {
-  const foldSize = Math.floor(returns.length / numFolds);
-  const folds: { train: number[]; test: number[] }[] = [];
+// ===== Helper Functions =====
 
-  for (let i = 0; i < numFolds; i++) {
-    const testStart = i * foldSize;
-    const testEnd = Math.min(testStart + foldSize, returns.length);
+function calculateOverallMetrics(
+  performances: PerformanceMetrics[]
+): OutOfSampleMetrics {
+  if (performances.length === 0) {
+    return {
+      totalReturn: 0, avgWindowReturn: 0, annualizedReturn: 0,
+      volatility: 0, sharpeRatio: 0, maxDrawdown: 0,
+      avgWinRate: 0, efficiencyRatio: 0
+    };
+  }
 
-    const train: number[] = [];
-    for (let j = 0; j < returns.length; j++) {
-      if (j < testStart - purgeGap || j >= testEnd + purgeGap) {
-        train.push(returns[j]);
-      }
+  const returns = performances.map(p => p.totalReturn);
+  const totalReturn = returns.reduce((acc, r) => acc * (1 + r), 1) - 1;
+  const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const vol = Math.sqrt(returns.reduce((a, r) => a + (r - avgReturn) ** 2, 0) / (returns.length - 1));
+  const maxDD = Math.max(...performances.map(p => p.maxDrawdown));
+  const avgWinRate = performances.reduce((a, p) => a + p.winRate, 0) / performances.length;
+  const sharpe = vol > 0 ? avgReturn / vol : 0;
+
+  return {
+    totalReturn,
+    avgWindowReturn: avgReturn,
+    annualizedReturn: totalReturn, // 简化
+    volatility: vol,
+    sharpeRatio: sharpe,
+    maxDrawdown: maxDD,
+    avgWinRate,
+    efficiencyRatio: 1 // 需要IS数据对比
+  };
+}
+
+function analyzeParameterStability<Params>(
+  paramsList: Params[],
+  extractParams: (p: Params) => { [key: string]: number }
+): ParameterStability<Params> {
+  if (paramsList.length === 0) {
+    return {
+      params: [],
+      meanParams: {},
+      stdParams: {},
+      stabilityScore: 0
+    };
+  }
+
+  const allNumeric = paramsList.map(extractParams);
+  const keys = Object.keys(allNumeric[0]);
+
+  const meanParams: { [key: string]: number } = {};
+  const stdParams: { [key: string]: number } = {};
+
+  let totalCV = 0;
+  for (const key of keys) {
+    const values = allNumeric.map(p => p[key]).filter(v => !isNaN(v));
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const std = Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / (values.length - 1));
+    meanParams[key] = mean;
+    stdParams[key] = std;
+
+    // 变异系数
+    if (Math.abs(mean) > 1e-10) {
+      totalCV += std / Math.abs(mean);
     }
-
-    folds.push({
-      train,
-      test: returns.slice(testStart, testEnd),
-    });
   }
 
-  const oosMetrics = folds.map(f => calculatePerformanceMetrics(f.test));
-  const avgOOSMetrics: PerformanceMetrics = {
-    totalReturn: mean(oosMetrics.map(m => m.totalReturn)),
-    annualizedReturn: mean(oosMetrics.map(m => m.annualizedReturn)),
-    sharpeRatio: mean(oosMetrics.map(m => m.sharpeRatio)),
-    maxDrawdown: mean(oosMetrics.map(m => m.maxDrawdown)),
-    winRate: mean(oosMetrics.map(m => m.winRate)),
-    profitFactor: mean(oosMetrics.map(m => m.profitFactor)),
-    calmarRatio: mean(oosMetrics.map(m => m.calmarRatio)),
-    sortinoRatio: mean(oosMetrics.map(m => m.sortinoRatio)),
+  const avgCV = keys.length > 0 ? totalCV / keys.length : 0;
+  const stabilityScore = Math.max(0, 1 - avgCV);
+
+  return {
+    params: paramsList,
+    meanParams,
+    stdParams,
+    stabilityScore
   };
-
-  return { folds, avgOOSMetrics };
-}
-
-/**
- * Detect overfitting via performance degradation
- */
-export function detectOverfitting(
-  inSample: PerformanceMetrics,
-  outOfSample: PerformanceMetrics,
-  thresholds: { sharpeRatio: number; winRate: number; profitFactor: number } = {
-    sharpeRatio: 0.5,
-    winRate: 0.1,
-    profitFactor: 0.5,
-  }
-): {
-  isOverfit: boolean;
-  reasons: string[];
-  severity: 'none' | 'mild' | 'moderate' | 'severe';
-} {
-  const reasons: string[] = [];
-
-  const sharpeDecay = inSample.sharpeRatio > 0
-    ? (inSample.sharpeRatio - outOfSample.sharpeRatio) / inSample.sharpeRatio
-    : 0;
-  if (sharpeDecay > thresholds.sharpeRatio) {
-    reasons.push(`Sharpe decay: ${(sharpeDecay * 100).toFixed(0)}%`);
-  }
-
-  const winRateDecay = Math.abs(inSample.winRate - outOfSample.winRate);
-  if (winRateDecay > thresholds.winRate) {
-    reasons.push(`Win rate decay: ${(winRateDecay * 100).toFixed(0)}%`);
-  }
-
-  const pfDecay = inSample.profitFactor > 0
-    ? (inSample.profitFactor - outOfSample.profitFactor) / inSample.profitFactor
-    : 0;
-  if (pfDecay > thresholds.profitFactor) {
-    reasons.push(`Profit factor decay: ${(pfDecay * 100).toFixed(0)}%`);
-  }
-
-  const isOverfit = reasons.length > 0;
-  let severity: 'none' | 'mild' | 'moderate' | 'severe';
-  if (reasons.length === 0) severity = 'none';
-  else if (reasons.length === 1) severity = 'mild';
-  else if (reasons.length === 2) severity = 'moderate';
-  else severity = 'severe';
-
-  return { isOverfit, reasons, severity };
 }

@@ -1,231 +1,366 @@
 /**
  * 蒙特卡洛模拟引擎
- * - 股价路径模拟
- * - 投资组合分布
- * - VaR/CVaR估计
- * - 期权定价
+ * 支持: 路径模拟、VaR/CVaR计算、组合压力测试、策略评估
  */
 
-export interface MonteCarloParams {
+export interface MonteCarloConfig {
+  numSimulations: number;
+  numSteps: number;
   initialValue: number;
-  expectedReturn: number;  // 年化
-  volatility: number;      // 年化
-  timeHorizon: number;     // 年
-  steps: number;           // 时间步数
-  simulations: number;     // 模拟次数
+  drift: number; // 年化漂移率
+  volatility: number; // 年化波动率
+  dt?: number; // 时间步长 (默认1/252)
+  randomSeed?: number;
+}
+
+export interface SimulationPath {
+  id: number;
+  values: number[];
+  finalValue: number;
+  maxDrawdown: number;
+  maxDrawdownDuration: number;
 }
 
 export interface MonteCarloResult {
-  paths: number[][];
-  statistics: {
-    mean: number;
-    median: number;
-    stdDev: number;
-    skewness: number;
-    kurtosis: number;
-    min: number;
-    max: number;
-  };
-  percentiles: Record<number, number>;
-  var95: number;
-  cvar95: number;
+  paths: SimulationPath[];
+  statistics: SimulationStatistics;
+  percentiles: { [key: number]: number };
+  riskMetrics: RiskMetrics;
 }
 
-export interface PortfolioSimResult {
-  finalValues: number[];
+export interface SimulationStatistics {
+  mean: number;
+  median: number;
+  std: number;
+  skewness: number;
+  kurtosis: number;
+  min: number;
+  max: number;
+}
+
+export interface RiskMetrics {
+  var95: number; // 95% VaR
+  var99: number; // 99% VaR
+  cvar95: number; // 95% CVaR (Expected Shortfall)
+  cvar99: number; // 99% CVaR
+  maxDrawdown95: number;
+  probabilityOfLoss: number;
   expectedReturn: number;
-  risk: number;
-  sharpeRatio: number;
-  maxDrawdown: number;
-  probLoss: number;
 }
 
-export class MonteCarloEngine {
-  private seed: number = 42;
-
-  // 简单伪随机数生成器(可重复)
-  private random(): number {
-    this.seed = (this.seed * 16807) % 2147483647;
-    return this.seed / 2147483647;
-  }
-
-  // Box-Muller正态随机数
-  private normalRandom(): number {
-    const u1 = this.random();
-    const u2 = this.random();
-    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  }
-
-  /**
-   * 模拟股价路径(几何布朗运动)
-   */
-  simulatePaths(params: MonteCarloParams): MonteCarloResult {
-    const { initialValue, expectedReturn, volatility, timeHorizon, steps, simulations } = params;
-    const dt = timeHorizon / steps;
-    const drift = (expectedReturn - 0.5 * volatility ** 2) * dt;
-    const diffusion = volatility * Math.sqrt(dt);
-
-    const paths: number[][] = [];
-    const finalValues: number[] = [];
-
-    for (let sim = 0; sim < simulations; sim++) {
-      const path = [initialValue];
-      let price = initialValue;
-
-      for (let step = 0; step < steps; step++) {
-        price *= Math.exp(drift + diffusion * this.normalRandom());
-        path.push(price);
-      }
-
-      paths.push(path);
-      finalValues.push(price);
-    }
-
-    // 统计
-    finalValues.sort((a, b) => a - b);
-    const mean = finalValues.reduce((a, b) => a + b, 0) / simulations;
-    const median = finalValues[Math.floor(simulations / 2)];
-    const variance = finalValues.reduce((s, v) => s + (v - mean) ** 2, 0) / simulations;
-    const stdDev = Math.sqrt(variance);
-
-    const m3 = finalValues.reduce((s, v) => s + ((v - mean) / stdDev) ** 3, 0) / simulations;
-    const m4 = finalValues.reduce((s, v) => s + ((v - mean) / stdDev) ** 4, 0) / simulations;
-
-    // 百分位数
-    const percentiles: Record<number, number> = {};
-    for (const p of [1, 5, 10, 25, 50, 75, 90, 95, 99]) {
-      const idx = Math.floor(simulations * p / 100);
-      percentiles[p] = Math.round(finalValues[Math.min(idx, simulations - 1)] * 100) / 100;
-    }
-
-    // VaR/CVaR
-    const var95 = initialValue - percentiles[5];
-    const worstFivePct = finalValues.slice(0, Math.max(1, Math.floor(simulations * 0.05)));
-    const cvar95 = initialValue - worstFivePct.reduce((a, b) => a + b, 0) / worstFivePct.length;
-
-    return {
-      paths,
-      statistics: {
-        mean: Math.round(mean * 100) / 100,
-        median: Math.round(median * 100) / 100,
-        stdDev: Math.round(stdDev * 100) / 100,
-        skewness: Math.round(m3 * 10000) / 10000,
-        kurtosis: Math.round(m4 * 10000) / 10000,
-        min: Math.round(finalValues[0] * 100) / 100,
-        max: Math.round(finalValues[simulations - 1] * 100) / 100,
-      },
-      percentiles,
-      var95: Math.round(var95 * 100) / 100,
-      cvar95: Math.round(cvar95 * 100) / 100,
-    };
-  }
-
-  /**
-   * 投资组合蒙特卡洛模拟
-   */
-  simulatePortfolio(
-    weights: number[],
-    expectedReturns: number[],
-    covarianceMatrix: number[][],
-    initialValue: number,
-    timeHorizon: number,
-    simulations: number,
-  ): PortfolioSimResult {
-    const n = weights.length;
-    const finalValues: number[] = [];
-
-    // 组合预期收益和波动率
-    let portReturn = 0;
-    for (let i = 0; i < n; i++) portReturn += weights[i] * expectedReturns[i];
-
-    let portVariance = 0;
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        portVariance += weights[i] * weights[j] * covarianceMatrix[i][j];
-      }
-    }
-    const portVol = Math.sqrt(portVariance);
-
-    // 模拟
-    const dt = timeHorizon;
-    const drift = (portReturn - 0.5 * portVol ** 2) * dt;
-    const diffusion = portVol * Math.sqrt(dt);
-
-    let peakValue = initialValue;
-    let maxDrawdown = 0;
-
-    for (let sim = 0; sim < simulations; sim++) {
-      let value = initialValue;
-      const z = this.normalRandom();
-      value *= Math.exp(drift + diffusion * z);
-      finalValues.push(value);
-
-      if (value > peakValue) peakValue = value;
-      const drawdown = (peakValue - value) / peakValue;
-      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-    }
-
-    finalValues.sort((a, b) => a - b);
-    const mean = finalValues.reduce((a, b) => a + b, 0) / simulations;
-    const variance = finalValues.reduce((s, v) => s + (v - mean) ** 2, 0) / simulations;
-    const risk = Math.sqrt(variance);
-    const expectedReturnPct = (mean - initialValue) / initialValue;
-    const sharpeRatio = risk > 0 ? expectedReturnPct / (risk / initialValue) : 0;
-    const probLoss = finalValues.filter(v => v < initialValue).length / simulations;
-
-    return {
-      finalValues,
-      expectedReturn: Math.round(expectedReturnPct * 10000) / 10000,
-      risk: Math.round(risk * 100) / 100,
-      sharpeRatio: Math.round(sharpeRatio * 10000) / 10000,
-      maxDrawdown: Math.round(maxDrawdown * 10000) / 10000,
-      probLoss: Math.round(probLoss * 10000) / 10000,
-    };
-  }
-
-  /**
-   * 蒙特卡洛期权定价
-   */
-  priceOption(
-    spot: number,
-    strike: number,
-    rate: number,
-    volatility: number,
-    timeToExpiry: number,
-    type: 'call' | 'put',
-    simulations: number = 10000,
-  ): { price: number; stdError: number } {
-    const drift = (rate - 0.5 * volatility ** 2) * timeToExpiry;
-    const diffusion = volatility * Math.sqrt(timeToExpiry);
-
-    let totalPayoff = 0;
-    let totalPayoffSq = 0;
-
-    for (let i = 0; i < simulations; i++) {
-      const finalPrice = spot * Math.exp(drift + diffusion * this.normalRandom());
-      const payoff = type === 'call' ? Math.max(0, finalPrice - strike) : Math.max(0, strike - finalPrice);
-      totalPayoff += payoff;
-      totalPayoffSq += payoff ** 2;
-    }
-
-    const avgPayoff = totalPayoff / simulations;
-    const price = Math.exp(-rate * timeToExpiry) * avgPayoff;
-
-    const variance = totalPayoffSq / simulations - avgPayoff ** 2;
-    const stdError = Math.exp(-rate * timeToExpiry) * Math.sqrt(variance / simulations);
-
-    return {
-      price: Math.round(price * 10000) / 10000,
-      stdError: Math.round(stdError * 10000) / 10000,
-    };
-  }
-
-  /**
-   * 重置随机种子
-   */
-  setSeed(seed: number): void {
-    this.seed = seed;
-  }
+export interface StressTestScenario {
+  name: string;
+  driftShift: number;
+  volMultiplier: number;
+  crashDay?: number;
+  crashMagnitude?: number;
 }
 
-export default new MonteCarloEngine();
+export interface StressTestResult {
+  scenario: string;
+  meanFinalValue: number;
+  worstCase5pct: number;
+  probabilityOfLoss: number;
+  maxDrawdown95: number;
+}
+
+/**
+ * 几何布朗运动 (GBM) 路径模拟
+ */
+export function simulateGBMPaths(config: MonteCarloConfig): SimulationPath[] {
+  const {
+    numSimulations, numSteps, initialValue,
+    drift, volatility, dt = 1 / 252
+  } = config;
+
+  const paths: SimulationPath[] = [];
+
+  for (let sim = 0; sim < numSimulations; sim++) {
+    const values: number[] = [initialValue];
+    let currentValue = initialValue;
+    let peak = initialValue;
+    let maxDD = 0;
+    let ddDuration = 0;
+    let maxDDDuration = 0;
+
+    for (let step = 1; step <= numSteps; step++) {
+      const z = boxMullerRandom();
+      const newValue = currentValue * Math.exp(
+        (drift - 0.5 * volatility ** 2) * dt + volatility * Math.sqrt(dt) * z
+      );
+
+      values.push(newValue);
+      currentValue = newValue;
+
+      // 计算最大回撤
+      if (newValue > peak) {
+        peak = newValue;
+        ddDuration = 0;
+      } else {
+        ddDuration++;
+        if (ddDuration > maxDDDuration) maxDDDuration = ddDuration;
+      }
+
+      const dd = (peak - newValue) / peak;
+      if (dd > maxDD) maxDD = dd;
+    }
+
+    paths.push({
+      id: sim,
+      values,
+      finalValue: currentValue,
+      maxDrawdown: maxDD,
+      maxDrawdownDuration: maxDDDuration
+    });
+  }
+
+  return paths;
+}
+
+/**
+ * 跳跃扩散过程 (Merton Jump Diffusion)
+ */
+export function simulateJumpDiffusion(
+  config: MonteCarloConfig & {
+    jumpIntensity: number; // 泊松强度
+    jumpMean: number; // 跳跃均值
+    jumpStd: number; // 跳跃标准差
+  }
+): SimulationPath[] {
+  const {
+    numSimulations, numSteps, initialValue,
+    drift, volatility, dt = 1 / 252,
+    jumpIntensity, jumpMean, jumpStd
+  } = config;
+
+  const paths: SimulationPath[] = [];
+
+  for (let sim = 0; sim < numSimulations; sim++) {
+    const values: number[] = [initialValue];
+    let currentValue = initialValue;
+    let peak = initialValue;
+    let maxDD = 0;
+    let ddDuration = 0;
+    let maxDDDuration = 0;
+
+    for (let step = 1; step <= numSteps; step++) {
+      const z = boxMullerRandom();
+
+      // 泊松跳跃
+      const jump = Math.random() < jumpIntensity * dt
+        ? Math.exp(jumpMean + jumpStd * boxMullerRandom()) - 1
+        : 0;
+
+      const newValue = currentValue * Math.exp(
+        (drift - 0.5 * volatility ** 2) * dt + volatility * Math.sqrt(dt) * z
+      ) * (1 + jump);
+
+      values.push(newValue);
+      currentValue = newValue;
+
+      if (newValue > peak) {
+        peak = newValue;
+        ddDuration = 0;
+      } else {
+        ddDuration++;
+        if (ddDuration > maxDDDuration) maxDDDuration = ddDuration;
+      }
+
+      const dd = (peak - newValue) / peak;
+      if (dd > maxDD) maxDD = dd;
+    }
+
+    paths.push({
+      id: sim,
+      values,
+      finalValue: currentValue,
+      maxDrawdown: maxDD,
+      maxDrawdownDuration: maxDDDuration
+    });
+  }
+
+  return paths;
+}
+
+/**
+ * 从蒙特卡洛结果计算统计和风险指标
+ */
+export function analyzeMonteCarloResults(paths: SimulationPath[]): MonteCarloResult {
+  const finalValues = paths.map(p => p.finalValue);
+  const returns = finalValues.map(v => v / (paths[0]?.values[0] ?? 1) - 1);
+
+  const statistics = calculateStats(finalValues);
+  const percentiles = calculatePercentiles(finalValues, [1, 5, 10, 25, 50, 75, 90, 95, 99]);
+  const riskMetrics = calculateRiskMetrics(returns, paths.map(p => p.maxDrawdown));
+
+  return { paths, statistics, percentiles, riskMetrics };
+}
+
+/**
+ * 压力测试
+ */
+export function stressTest(
+  baseConfig: MonteCarloConfig,
+  scenarios: StressTestScenario[]
+): StressTestResult[] {
+  const results: StressTestResult[] = [];
+
+  for (const scenario of scenarios) {
+    const paths = simulateGBMPaths({
+      ...baseConfig,
+      drift: baseConfig.drift + scenario.driftShift,
+      volatility: baseConfig.volatility * scenario.volMultiplier
+    });
+
+    // 如果有crash scenario
+    if (scenario.crashDay !== undefined && scenario.crashMagnitude !== undefined) {
+      for (const path of paths) {
+        if (scenario.crashDay < path.values.length) {
+          const crashFactor = 1 + scenario.crashMagnitude;
+          for (let i = scenario.crashDay; i < path.values.length; i++) {
+            path.values[i] *= crashFactor;
+          }
+          path.finalValue = path.values[path.values.length - 1];
+        }
+      }
+    }
+
+    const finalValues = paths.map(p => p.finalValue);
+    const returns = finalValues.map(v => v / baseConfig.initialValue - 1);
+    const sorted = [...returns].sort((a, b) => a - b);
+    const p5Index = Math.floor(sorted.length * 0.05);
+
+    results.push({
+      scenario: scenario.name,
+      meanFinalValue: finalValues.reduce((a, b) => a + b, 0) / finalValues.length,
+      worstCase5pct: sorted[p5Index] ?? sorted[0],
+      probabilityOfLoss: returns.filter(r => r < 0).length / returns.length,
+      maxDrawdown95: calculatePercentile(paths.map(p => p.maxDrawdown), 95)
+    });
+  }
+
+  return results;
+}
+
+/**
+ * 策略评估: 用蒙特卡洛评估策略鲁棒性
+ */
+export function evaluateStrategyRobustness(
+  baseReturns: number[],
+  numSimulations: number = 1000,
+  blockSize: number = 20
+): {
+  meanReturn: number;
+  probPositive: number;
+  worstCase5pct: number;
+  bestCase95pct: number;
+  sharpeDistribution: { mean: number; std: number };
+} {
+  const n = baseReturns.length;
+  const simulatedReturns: number[] = [];
+  const sharpes: number[] = [];
+
+  for (let sim = 0; sim < numSimulations; sim++) {
+    // Block bootstrap
+    const simReturns: number[] = [];
+    while (simReturns.length < n) {
+      const start = Math.floor(Math.random() * Math.max(1, n - blockSize));
+      const block = baseReturns.slice(start, start + blockSize);
+      simReturns.push(...block);
+    }
+
+    const totalReturn = simReturns.slice(0, n).reduce((acc, r) => acc * (1 + r), 1) - 1;
+    simulatedReturns.push(totalReturn);
+
+    const mean = simReturns.slice(0, n).reduce((a, b) => a + b, 0) / n;
+    const std = Math.sqrt(simReturns.slice(0, n).reduce((a, r) => a + (r - mean) ** 2, 0) / n);
+    sharpes.push(std > 0 ? mean / std : 0);
+  }
+
+  const sorted = [...simulatedReturns].sort((a, b) => a - b);
+  const p5Index = Math.floor(sorted.length * 0.05);
+  const p95Index = Math.floor(sorted.length * 0.95);
+
+  const sharpeMean = sharpes.reduce((a, b) => a + b, 0) / sharpes.length;
+  const sharpeStd = Math.sqrt(sharpes.reduce((a, s) => a + (s - sharpeMean) ** 2, 0) / sharpes.length);
+
+  return {
+    meanReturn: simulatedReturns.reduce((a, b) => a + b, 0) / simulatedReturns.length,
+    probPositive: simulatedReturns.filter(r => r > 0).length / simulatedReturns.length,
+    worstCase5pct: sorted[p5Index],
+    bestCase95pct: sorted[p95Index],
+    sharpeDistribution: { mean: sharpeMean, std: sharpeStd }
+  };
+}
+
+// ===== Helper Functions =====
+
+function boxMullerRandom(): number {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+function calculateStats(values: number[]): SimulationStatistics {
+  const n = values.length;
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const sorted = [...values].sort((a, b) => a - b);
+  const median = sorted[Math.floor(n / 2)];
+  const variance = values.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1);
+  const std = Math.sqrt(variance);
+
+  const skewness = values.reduce((a, v) => a + ((v - mean) / std) ** 3, 0) / n;
+  const kurtosis = values.reduce((a, v) => a + ((v - mean) / std) ** 4, 0) / n - 3;
+
+  return {
+    mean, median, std, skewness, kurtosis,
+    min: sorted[0],
+    max: sorted[n - 1]
+  };
+}
+
+function calculatePercentiles(values: number[], pcts: number[]): { [key: number]: number } {
+  const sorted = [...values].sort((a, b) => a - b);
+  const result: { [key: number]: number } = {};
+  for (const p of pcts) {
+    const idx = Math.floor(sorted.length * p / 100);
+    result[p] = sorted[Math.min(idx, sorted.length - 1)];
+  }
+  return result;
+}
+
+function calculatePercentile(values: number[], pct: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.floor(sorted.length * pct / 100);
+  return sorted[Math.min(idx, sorted.length - 1)];
+}
+
+function calculateRiskMetrics(returns: number[], maxDrawdowns: number[]): RiskMetrics {
+  const sorted = [...returns].sort((a, b) => a - b);
+  const n = sorted.length;
+
+  const var95Idx = Math.floor(n * 0.05);
+  const var99Idx = Math.floor(n * 0.01);
+
+  const var95 = -sorted[var95Idx];
+  const var99 = -sorted[var99Idx];
+
+  const tail95 = sorted.slice(0, var95Idx + 1);
+  const tail99 = sorted.slice(0, var99Idx + 1);
+
+  const cvar95 = -tail95.reduce((a, b) => a + b, 0) / tail95.length;
+  const cvar99 = -tail99.reduce((a, b) => a + b, 0) / tail99.length;
+
+  const sortedDD = [...maxDrawdowns].sort((a, b) => b - a);
+  const maxDD95Idx = Math.floor(n * 0.05);
+
+  return {
+    var95,
+    var99,
+    cvar95,
+    cvar99,
+    maxDrawdown95: sortedDD[maxDD95Idx] ?? 0,
+    probabilityOfLoss: returns.filter(r => r < 0).length / n,
+    expectedReturn: returns.reduce((a, b) => a + b, 0) / n
+  };
+}

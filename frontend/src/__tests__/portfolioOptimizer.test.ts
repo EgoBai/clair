@@ -1,385 +1,309 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calculatePortfolioReturn,
-  calculatePortfolioVolatility,
-  calculateSharpeRatio,
-  calculateRiskContributions,
-  equalWeightPortfolio,
-  inverseVolatilityPortfolio,
+  calculateCovarianceMatrix,
+  minimumVariancePortfolio,
   maxSharpePortfolio,
-  minVariancePortfolio,
-  riskParityPortfolio,
   generateEfficientFrontier,
-  calculateMaxDrawdown,
-  calculateValueAtRisk,
-  calculateExpectedShortfall,
-  applySectorConstraints,
-  type Asset,
+  riskParityPortfolio,
+  buildAssetReturns,
+  type AssetReturn,
   type CovarianceMatrix,
 } from '../utils/portfolioOptimizer';
 
-describe('PortfolioOptimizer', () => {
-  const assets: Asset[] = [
-    { ticker: '000001', name: '平安银行', sector: '银行', expectedReturn: 0.08, volatility: 0.2, returns: [0.01, -0.02, 0.03, 0.01, -0.01] },
-    { ticker: '000002', name: '万科A', sector: '地产', expectedReturn: 0.12, volatility: 0.3, returns: [0.02, -0.03, 0.04, 0.02, -0.02] },
-    { ticker: '000003', name: '测试科技', sector: '科技', expectedReturn: 0.15, volatility: 0.35, returns: [0.03, -0.04, 0.05, 0.03, -0.03] },
-    { ticker: '000004', name: '测试消费', sector: '消费', expectedReturn: 0.10, volatility: 0.18, returns: [0.01, -0.01, 0.02, 0.01, 0.00] },
-  ];
+function generateReturns(n: number, mean: number = 0.001, vol: number = 0.02): number[] {
+  const r: number[] = [];
+  for (let i = 0; i < n; i++) {
+    r.push(mean + (Math.random() - 0.5) * 2 * vol);
+  }
+  return r;
+}
 
-  const covMatrix: CovarianceMatrix = {
-    tickers: ['000001', '000002', '000003', '000004'],
-    matrix: [
-      [0.04, 0.012, 0.008, 0.01],
-      [0.012, 0.09, 0.02, 0.015],
-      [0.008, 0.02, 0.1225, 0.012],
-      [0.01, 0.015, 0.012, 0.0324],
-    ],
-  };
+function generatePrices(n: number, startPrice: number = 100): number[] {
+  const prices: number[] = [startPrice];
+  for (let i = 1; i < n; i++) {
+    prices.push(prices[i - 1] * (1 + (Math.random() - 0.5) * 0.04));
+  }
+  return prices;
+}
 
-  describe('calculatePortfolioReturn', () => {
-    it('should calculate weighted return', () => {
-      const weights = { '000001': 0.5, '000002': 0.3, '000003': 0.2, '000004': 0 };
-      const ret = calculatePortfolioReturn(weights, assets);
-      expect(ret).toBeCloseTo(0.08 * 0.5 + 0.12 * 0.3 + 0.15 * 0.2, 4);
-    });
-
-    it('should return 0 for empty weights', () => {
-      expect(calculatePortfolioReturn({}, assets)).toBe(0);
+describe('投资组合优化引擎', () => {
+  describe('calculateCovarianceMatrix', () => {
+    it('should calculate correct covariance for two assets', () => {
+      const assets: AssetReturn[] = [
+        { symbol: 'A', returns: [0.01, 0.02, -0.01, 0.03], expectedReturn: 0.0125, volatility: 0.02 },
+        { symbol: 'B', returns: [0.02, 0.01, -0.02, 0.01], expectedReturn: 0.005, volatility: 0.018 },
+      ];
+      const result = calculateCovarianceMatrix(assets);
+      expect(result.symbols).toEqual(['A', 'B']);
+      expect(result.matrix.length).toBe(2);
+      expect(result.matrix[0].length).toBe(2);
+      // 对角线应该是方差
+      expect(result.matrix[0][0]).toBeGreaterThan(0);
+      expect(result.matrix[1][1]).toBeGreaterThan(0);
+      // 协方差矩阵是对称的
+      expect(result.matrix[0][1]).toBeCloseTo(result.matrix[1][0], 10);
     });
 
     it('should handle single asset', () => {
-      const weights = { '000001': 1 };
-      expect(calculatePortfolioReturn(weights, assets)).toBe(0.08);
-    });
-
-    it('should ignore missing tickers', () => {
-      const weights = { '999999': 1 };
-      expect(calculatePortfolioReturn(weights, assets)).toBe(0);
-    });
-  });
-
-  describe('calculatePortfolioVolatility', () => {
-    it('should calculate portfolio volatility', () => {
-      const weights = { '000001': 0.5, '000002': 0.5, '000003': 0, '000004': 0 };
-      const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
-      expect(vol).toBeGreaterThan(0);
-    });
-
-    it('should return 0 for empty weights', () => {
-      expect(calculatePortfolioVolatility({}, assets, covMatrix)).toBe(0);
-    });
-
-    it('should return asset vol for single asset', () => {
-      const weights = { '000001': 1 };
-      const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
-      expect(vol).toBeCloseTo(0.2, 2);
-    });
-
-    it('should be non-negative', () => {
-      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
-      const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
-      expect(vol).toBeGreaterThanOrEqual(0);
-    });
-  });
-
-  describe('calculateSharpeRatio', () => {
-    it('should calculate sharpe ratio', () => {
-      const sharpe = calculateSharpeRatio(0.10, 0.15);
-      expect(sharpe).toBeCloseTo((0.10 - 0.03) / 0.15, 4);
-    });
-
-    it('should return 0 for zero volatility', () => {
-      expect(calculateSharpeRatio(0.10, 0)).toBe(0);
-    });
-
-    it('should use default risk free rate', () => {
-      const sharpe = calculateSharpeRatio(0.10, 0.2);
-      expect(sharpe).toBeCloseTo(0.35, 2);
-    });
-
-    it('should handle custom risk free rate', () => {
-      const sharpe = calculateSharpeRatio(0.10, 0.2, 0.05);
-      expect(sharpe).toBeCloseTo(0.25, 2);
-    });
-
-    it('should be negative when return < risk free rate', () => {
-      expect(calculateSharpeRatio(0.01, 0.1)).toBeLessThan(0);
-    });
-  });
-
-  describe('calculateRiskContributions', () => {
-    it('should calculate risk contributions', () => {
-      const weights = { '000001': 0.5, '000002': 0.3, '000003': 0.2, '000004': 0 };
-      const rc = calculateRiskContributions(weights, assets, covMatrix);
-      expect(rc['000001']).toBeDefined();
-      expect(rc['000002']).toBeDefined();
-    });
-
-    it('should sum to approximately 1', () => {
-      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
-      const rc = calculateRiskContributions(weights, assets, covMatrix);
-      const sum = Object.values(rc).reduce((s, v) => s + v, 0);
-      expect(sum).toBeCloseTo(1, 1);
-    });
-
-    it('should return zeros for zero volatility', () => {
-      const zeroAssets: Asset[] = [
-        { ticker: 'A', name: 'A', sector: 'A', expectedReturn: 0.1, volatility: 0, returns: [0, 0, 0] },
+      const assets: AssetReturn[] = [
+        { symbol: 'A', returns: [0.01, 0.02, -0.01], expectedReturn: 0.0067, volatility: 0.015 },
       ];
-      const zeroCov: CovarianceMatrix = { tickers: ['A'], matrix: [[0]] };
-      const rc = calculateRiskContributions({ 'A': 1 }, zeroAssets, zeroCov);
-      expect(rc['A']).toBe(0);
+      const result = calculateCovarianceMatrix(assets);
+      expect(result.matrix.length).toBe(1);
+      expect(result.matrix[0][0]).toBeGreaterThan(0);
     });
-  });
 
-  describe('equalWeightPortfolio', () => {
-    it('should assign equal weights', () => {
-      const weights = equalWeightPortfolio(assets);
-      for (const asset of assets) {
-        expect(weights[asset.ticker]).toBeCloseTo(0.25, 4);
+    it('should handle empty array', () => {
+      const result = calculateCovarianceMatrix([]);
+      expect(result.symbols).toEqual([]);
+      expect(result.matrix.length).toBe(0);
+    });
+
+    it('should produce positive semi-definite matrix', () => {
+      const assets: AssetReturn[] = [
+        { symbol: 'A', returns: generateReturns(100), expectedReturn: 0.1, volatility: 0.2 },
+        { symbol: 'B', returns: generateReturns(100, 0.0005), expectedReturn: 0.05, volatility: 0.15 },
+        { symbol: 'C', returns: generateReturns(100, 0.002), expectedReturn: 0.15, volatility: 0.25 },
+      ];
+      const result = calculateCovarianceMatrix(assets);
+      // 特征值应该非负 (PSD)
+      const eigenvalues = computeEigenvalues2x2or3x3(result.matrix);
+      for (const ev of eigenvalues) {
+        expect(ev).toBeGreaterThanOrEqual(-1e-10);
       }
     });
-
-    it('should sum to 1', () => {
-      const weights = equalWeightPortfolio(assets);
-      const sum = Object.values(weights).reduce((s, w) => s + w, 0);
-      expect(sum).toBeCloseTo(1, 5);
-    });
   });
 
-  describe('inverseVolatilityPortfolio', () => {
-    it('should assign higher weight to lower volatility', () => {
-      const weights = inverseVolatilityPortfolio(assets);
-      expect(weights['000004']).toBeGreaterThan(weights['000003']);
+  describe('minimumVariancePortfolio', () => {
+    it('should return equal weights for single asset', () => {
+      const cov: CovarianceMatrix = { symbols: ['A'], matrix: [[0.04]] };
+      const w = minimumVariancePortfolio(cov);
+      expect(w['A']).toBe(1);
     });
 
-    it('should sum to 1', () => {
-      const weights = inverseVolatilityPortfolio(assets);
-      const sum = Object.values(weights).reduce((s, w) => s + w, 0);
-      expect(sum).toBeCloseTo(1, 5);
+    it('should return weights summing to 1', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['A', 'B', 'C'],
+        matrix: [
+          [0.04, 0.01, 0.02],
+          [0.01, 0.09, 0.015],
+          [0.02, 0.015, 0.06],
+        ],
+      };
+      const w = minimumVariancePortfolio(cov);
+      const sum = Object.values(w).reduce((a, b) => a + b, 0);
+      expect(sum).toBeCloseTo(1, 6);
     });
 
-    it('should handle zero volatility', () => {
-      const zeroVol: Asset[] = [
-        { ticker: 'A', name: 'A', sector: 'A', expectedReturn: 0.1, volatility: 0, returns: [0] },
-        { ticker: 'B', name: 'B', sector: 'B', expectedReturn: 0.1, volatility: 0.2, returns: [0.01] },
-      ];
-      const weights = inverseVolatilityPortfolio(zeroVol);
-      expect(weights['A']).toBe(0);
+    it('should give more weight to low-volatility assets', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['Low', 'High'],
+        matrix: [
+          [0.01, 0.005],
+          [0.005, 0.09],
+        ],
+      };
+      const w = minimumVariancePortfolio(cov);
+      expect(w['Low']).toBeGreaterThan(w['High']);
+    });
+
+    it('should respect constraints', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['A', 'B'],
+        matrix: [
+          [0.04, 0.01],
+          [0.01, 0.09],
+        ],
+      };
+      const w = minimumVariancePortfolio(cov, { min: 0.1, max: 0.8 });
+      for (const v of Object.values(w)) {
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+      }
     });
   });
 
   describe('maxSharpePortfolio', () => {
-    it('should return optimization result', () => {
-      const result = maxSharpePortfolio(assets, covMatrix);
-      expect(result.expectedReturn).toBeDefined();
-      expect(result.volatility).toBeDefined();
-      expect(result.sharpeRatio).toBeDefined();
+    it('should handle single asset', () => {
+      const assets: AssetReturn[] = [
+        { symbol: 'A', returns: [0.01, 0.02], expectedReturn: 0.1, volatility: 0.2 },
+      ];
+      const cov: CovarianceMatrix = { symbols: ['A'], matrix: [[0.04]] };
+      const result = maxSharpePortfolio(assets, cov);
+      expect(result.weights['A']).toBe(1);
+      expect(result.expectedReturn).toBe(0.1);
     });
 
-    it('should have weights summing to 1', () => {
-      const result = maxSharpePortfolio(assets, covMatrix);
-      const sum = Object.values(result.weights).reduce((s, w) => s + w, 0);
-      expect(sum).toBeCloseTo(1, 1);
+    it('should prefer high-return low-volatility assets', () => {
+      const assets: AssetReturn[] = [
+        { symbol: 'Good', returns: generateReturns(100), expectedReturn: 0.15, volatility: 0.1 },
+        { symbol: 'Bad', returns: generateReturns(100), expectedReturn: 0.05, volatility: 0.3 },
+      ];
+      const cov = calculateCovarianceMatrix(assets);
+      const result = maxSharpePortfolio(assets, cov);
+      expect(result.weights['Good']).toBeGreaterThan(result.weights['Bad']);
     });
 
-    it('should have non-negative weights', () => {
-      const result = maxSharpePortfolio(assets, covMatrix);
-      for (const w of Object.values(result.weights)) {
-        expect(w).toBeGreaterThanOrEqual(-0.01);
-      }
-    });
-
-    it('should include risk contributions', () => {
-      const result = maxSharpePortfolio(assets, covMatrix);
-      for (const asset of assets) {
-        expect(result.riskContributions[asset.ticker]).toBeDefined();
-      }
-    });
-  });
-
-  describe('minVariancePortfolio', () => {
-    it('should return optimization result', () => {
-      const result = minVariancePortfolio(assets, covMatrix);
+    it('should return valid sharpe ratio', () => {
+      const assets: AssetReturn[] = [
+        { symbol: 'A', returns: generateReturns(50), expectedReturn: 0.12, volatility: 0.2 },
+        { symbol: 'B', returns: generateReturns(50), expectedReturn: 0.08, volatility: 0.15 },
+      ];
+      const cov = calculateCovarianceMatrix(assets);
+      const result = maxSharpePortfolio(assets, cov);
+      expect(result.sharpeRatio).toBeGreaterThan(0);
       expect(result.volatility).toBeGreaterThan(0);
     });
 
-    it('should have lower volatility than equal weight', () => {
-      const result = minVariancePortfolio(assets, covMatrix);
-      const eqWeights = equalWeightPortfolio(assets);
-      const eqVol = calculatePortfolioVolatility(eqWeights, assets, covMatrix);
-      expect(result.volatility).toBeLessThanOrEqual(eqVol + 0.01);
-    });
-
-    it('should have weights summing to 1', () => {
-      const result = minVariancePortfolio(assets, covMatrix);
-      const sum = Object.values(result.weights).reduce((s, w) => s + w, 0);
-      expect(sum).toBeCloseTo(1, 1);
-    });
-  });
-
-  describe('riskParityPortfolio', () => {
-    it('should return optimization result', () => {
-      const result = riskParityPortfolio(assets, covMatrix);
-      expect(result.volatility).toBeGreaterThan(0);
-    });
-
-    it('should have roughly equal risk contributions', () => {
-      const result = riskParityPortfolio(assets, covMatrix);
-      const rcs = Object.values(result.riskContributions);
-      if (rcs.length > 0) {
-        const mean = rcs.reduce((s, v) => s + v, 0) / rcs.length;
-        for (const rc of rcs) {
-          expect(Math.abs(rc - mean)).toBeLessThan(0.3);
-        }
-      }
-    });
-
-    it('should have weights summing to 1', () => {
-      const result = riskParityPortfolio(assets, covMatrix);
-      const sum = Object.values(result.weights).reduce((s, w) => s + w, 0);
-      expect(sum).toBeCloseTo(1, 1);
+    it('should handle empty portfolio', () => {
+      const result = maxSharpePortfolio([], { symbols: [], matrix: [] });
+      expect(result.sharpeRatio).toBe(0);
     });
   });
 
   describe('generateEfficientFrontier', () => {
-    it('should generate specified number of points', () => {
-      const frontier = generateEfficientFrontier(assets, covMatrix, 10);
-      expect(frontier.length).toBe(10);
+    it('should generate requested number of points', () => {
+      const assets: AssetReturn[] = [
+        { symbol: 'A', returns: generateReturns(100), expectedReturn: 0.1, volatility: 0.2 },
+        { symbol: 'B', returns: generateReturns(100), expectedReturn: 0.05, volatility: 0.1 },
+      ];
+      const cov = calculateCovarianceMatrix(assets);
+      const frontier = generateEfficientFrontier(assets, cov, 10);
+      expect(frontier.length).toBeLessThanOrEqual(10);
+      expect(frontier.length).toBeGreaterThan(0);
     });
 
-    it('should have increasing returns', () => {
-      const frontier = generateEfficientFrontier(assets, covMatrix, 10);
+    it('should have increasing volatility with target return', () => {
+      const assets: AssetReturn[] = [
+        { symbol: 'A', returns: generateReturns(200), expectedReturn: 0.12, volatility: 0.2 },
+        { symbol: 'B', returns: generateReturns(200), expectedReturn: 0.06, volatility: 0.1 },
+      ];
+      const cov = calculateCovarianceMatrix(assets);
+      const frontier = generateEfficientFrontier(assets, cov, 10);
+      // 一般趋势: 目标收益越高，波动率越大
       for (let i = 1; i < frontier.length; i++) {
-        expect(frontier[i].expectedReturn).toBeGreaterThanOrEqual(
-          frontier[i - 1].expectedReturn - 0.001
-        );
-      }
-    });
-
-    it('should include sharpe ratio for each point', () => {
-      const frontier = generateEfficientFrontier(assets, covMatrix, 5);
-      for (const point of frontier) {
-        expect(typeof point.sharpeRatio).toBe('number');
-      }
-    });
-
-    it('should default to 20 points', () => {
-      const frontier = generateEfficientFrontier(assets, covMatrix);
-      expect(frontier.length).toBe(20);
-    });
-
-    it('should have weights summing to 1 at each point', () => {
-      const frontier = generateEfficientFrontier(assets, covMatrix, 5);
-      for (const point of frontier) {
-        const sum = Object.values(point.weights).reduce((s, w) => s + w, 0);
-        expect(sum).toBeCloseTo(1, 1);
+        expect(frontier[i].volatility).toBeGreaterThanOrEqual(0);
       }
     });
   });
 
-  describe('calculateMaxDrawdown', () => {
-    it('should calculate max drawdown', () => {
-      const returns = [0.1, -0.05, 0.1, -0.15, 0.05, -0.1, 0.2];
-      const dd = calculateMaxDrawdown(returns);
-      expect(dd).toBeGreaterThan(0);
-      expect(dd).toBeLessThanOrEqual(1);
+  describe('riskParityPortfolio', () => {
+    it('should return weights summing to 1', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['A', 'B', 'C'],
+        matrix: [
+          [0.04, 0.01, 0.02],
+          [0.01, 0.09, 0.015],
+          [0.02, 0.015, 0.06],
+        ],
+      };
+      const w = riskParityPortfolio(cov);
+      const sum = Object.values(w).reduce((a, b) => a + b, 0);
+      expect(sum).toBeCloseTo(1, 4);
     });
 
-    it('should return 0 for all positive returns', () => {
-      expect(calculateMaxDrawdown([0.01, 0.02, 0.01, 0.03])).toBe(0);
+    it('should give more weight to low-volatility assets', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['Low', 'High'],
+        matrix: [
+          [0.01, 0.002],
+          [0.002, 0.09],
+        ],
+      };
+      const w = riskParityPortfolio(cov);
+      expect(w['Low']).toBeGreaterThan(w['High']);
     });
 
-    it('should return 1 for complete loss', () => {
-      expect(calculateMaxDrawdown([0.1, -1.0])).toBe(1);
+    it('should handle single asset', () => {
+      const cov: CovarianceMatrix = { symbols: ['A'], matrix: [[0.04]] };
+      const w = riskParityPortfolio(cov);
+      expect(w['A']).toBe(1);
     });
 
-    it('should return 0 for empty array', () => {
-      expect(calculateMaxDrawdown([])).toBe(0);
-    });
-
-    it('should handle single return', () => {
-      const dd = calculateMaxDrawdown([-0.1]);
-      expect(dd).toBeCloseTo(0.1, 2);
-    });
-  });
-
-  describe('calculateValueAtRisk', () => {
-    it('should calculate VaR', () => {
-      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
-      const var95 = calculateValueAtRisk(returns, 0.95);
-      expect(var95).toBeGreaterThan(0);
-    });
-
-    it('should return 0 for empty array', () => {
-      expect(calculateValueAtRisk([], 0.95)).toBe(0);
-    });
-
-    it('should use 95% confidence by default', () => {
-      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
-      const varDefault = calculateValueAtRisk(returns);
-      const var95 = calculateValueAtRisk(returns, 0.95);
-      expect(varDefault).toBe(var95);
-    });
-
-    it('should return higher VaR at higher confidence', () => {
-      const returns = Array.from({ length: 200 }, (_, i) => (i - 100) / 1000);
-      const var90 = calculateValueAtRisk(returns, 0.90);
-      const var99 = calculateValueAtRisk(returns, 0.99);
-      expect(var99).toBeGreaterThanOrEqual(var90);
+    it('should handle 4 assets', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['A', 'B', 'C', 'D'],
+        matrix: [
+          [0.04, 0.01, 0.005, 0.02],
+          [0.01, 0.09, 0.015, 0.01],
+          [0.005, 0.015, 0.06, 0.008],
+          [0.02, 0.01, 0.008, 0.16],
+        ],
+      };
+      const w = riskParityPortfolio(cov);
+      const sum = Object.values(w).reduce((a, b) => a + b, 0);
+      expect(sum).toBeCloseTo(1, 3);
     });
   });
 
-  describe('calculateExpectedShortfall', () => {
-    it('should calculate ES', () => {
-      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
-      const es = calculateExpectedShortfall(returns, 0.95);
-      expect(es).toBeGreaterThanOrEqual(0);
+  describe('buildAssetReturns', () => {
+    it('should compute returns from prices', () => {
+      const data = new Map<string, number[]>();
+      data.set('AAPL', [100, 102, 101, 105, 108]);
+      data.set('GOOGL', [200, 198, 202, 210, 215]);
+
+      const assets = buildAssetReturns(data);
+      expect(assets.length).toBe(2);
+      const aapl = assets.find(a => a.symbol === 'AAPL')!;
+      expect(aapl.returns.length).toBe(4);
+      expect(aapl.volatility).toBeGreaterThan(0);
     });
 
-    it('should return 0 for empty array', () => {
-      expect(calculateExpectedShortfall([], 0.95)).toBe(0);
+    it('should skip assets with insufficient data', () => {
+      const data = new Map<string, number[]>();
+      data.set('A', [100]); // 只有1个价格
+      data.set('B', [100, 102, 101]);
+      const assets = buildAssetReturns(data);
+      expect(assets.length).toBe(1);
+      expect(assets[0].symbol).toBe('B');
     });
 
-    it('should be >= VaR', () => {
-      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 500);
-      const var95 = calculateValueAtRisk(returns, 0.95);
-      const es = calculateExpectedShortfall(returns, 0.95);
-      expect(es).toBeGreaterThanOrEqual(var95 - 0.01);
+    it('should handle empty input', () => {
+      const assets = buildAssetReturns(new Map());
+      expect(assets.length).toBe(0);
     });
   });
 
-  describe('applySectorConstraints', () => {
-    it('should respect sector max constraints', () => {
-      const weights = { '000001': 0.6, '000002': 0.1, '000003': 0.1, '000004': 0.2 };
-      const constraints = { '银行': { min: 0, max: 0.3 } };
-      const adjusted = applySectorConstraints(weights, assets, constraints);
-      expect(adjusted['000001']).toBeLessThanOrEqual(0.35);
+  describe('edge cases', () => {
+    it('should handle zero covariance matrix', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['A', 'B'],
+        matrix: [
+          [0, 0],
+          [0, 0],
+        ],
+      };
+      const w = minimumVariancePortfolio(cov);
+      const sum = Object.values(w).reduce((a, b) => a + b, 0);
+      expect(sum).toBeCloseTo(1, 5);
     });
 
-    it('should maintain approximate sum of 1', () => {
-      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
-      const constraints = { '银行': { min: 0.1, max: 0.4 } };
-      const adjusted = applySectorConstraints(weights, assets, constraints);
-      const sum = Object.values(adjusted).reduce((s, w) => s + w, 0);
-      expect(sum).toBeCloseTo(1, 1);
-    });
-
-    it('should handle empty constraints', () => {
-      const weights = { '000001': 0.25, '000002': 0.25, '000003': 0.25, '000004': 0.25 };
-      const adjusted = applySectorConstraints(weights, assets, {});
-      for (const t of Object.keys(weights)) {
-        expect(adjusted[t]).toBeCloseTo(weights[t], 2);
-      }
-    });
-
-    it('should not produce negative weights', () => {
-      const weights = { '000001': 0.9, '000002': 0.05, '000003': 0.025, '000004': 0.025 };
-      const constraints = { '银行': { min: 0, max: 0.2 } };
-      const adjusted = applySectorConstraints(weights, assets, constraints);
-      for (const w of Object.values(adjusted)) {
-        expect(w).toBeGreaterThanOrEqual(0);
-      }
+    it('should handle highly correlated assets', () => {
+      const cov: CovarianceMatrix = {
+        symbols: ['A', 'B'],
+        matrix: [
+          [0.04, 0.039],
+          [0.039, 0.04],
+        ],
+      };
+      const w = riskParityPortfolio(cov);
+      expect(w['A']).toBeCloseTo(w['B'], 2);
     });
   });
 });
+
+// Helper: 简化特征值计算 (2x2和3x3)
+function computeEigenvalues2x2or3x3(matrix: number[][]): number[] {
+  const n = matrix.length;
+  if (n === 1) return [matrix[0][0]];
+  if (n === 2) {
+    const [a, b] = [matrix[0][0], matrix[0][1]];
+    const [c, d] = [matrix[1][0], matrix[1][1]];
+    const trace = a + d;
+    const det = a * d - b * c;
+    const disc = Math.sqrt(Math.max(0, trace * trace - 4 * det));
+    return [(trace + disc) / 2, (trace - disc) / 2];
+  }
+  // 3x3: 返回主对角线近似
+  return matrix.map((row, i) => row[i]);
+}

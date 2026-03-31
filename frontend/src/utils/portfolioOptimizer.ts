@@ -1,38 +1,22 @@
 /**
- * 组合风险优化引擎
- * 均值方差优化、风险平价、Black-Litterman等
+ * 投资组合优化引擎
+ * 支持: 均值方差优化、最大夏普比率、最小方差、风险平价
  */
 
-export interface Asset {
-  ticker: string;
-  name: string;
-  sector: string;
+export interface AssetReturn {
+  symbol: string;
+  returns: number[]; // 日收益率序列
   expectedReturn: number;
   volatility: number;
-  returns: number[];
 }
 
 export interface CovarianceMatrix {
-  tickers: string[];
+  symbols: string[];
   matrix: number[][];
 }
 
 export interface PortfolioWeights {
-  [ticker: string]: number;
-}
-
-export interface EfficientFrontierPoint {
-  weights: PortfolioWeights;
-  expectedReturn: number;
-  volatility: number;
-  sharpeRatio: number;
-}
-
-export interface RiskBudget {
-  ticker: string;
-  targetRiskContribution: number;
-  actualRiskContribution: number;
-  weight: number;
+  [symbol: string]: number;
 }
 
 export interface OptimizationResult {
@@ -40,372 +24,388 @@ export interface OptimizationResult {
   expectedReturn: number;
   volatility: number;
   sharpeRatio: number;
-  riskContributions: { [ticker: string]: number };
 }
 
-export function calculatePortfolioReturn(weights: PortfolioWeights, assets: Asset[]): number {
-  let totalReturn = 0;
-  for (const asset of assets) {
-    totalReturn += (weights[asset.ticker] || 0) * asset.expectedReturn;
-  }
-  return totalReturn;
+export interface EfficientFrontierPoint {
+  targetReturn: number;
+  volatility: number;
+  weights: PortfolioWeights;
+  sharpeRatio: number;
 }
 
-export function calculatePortfolioVolatility(
-  weights: PortfolioWeights,
-  assets: Asset[],
-  covMatrix: CovarianceMatrix
-): number {
-  const tickers = assets.map(a => a.ticker);
-  let variance = 0;
-  
-  for (let i = 0; i < tickers.length; i++) {
-    for (let j = 0; j < tickers.length; j++) {
-      const wi = weights[tickers[i]] || 0;
-      const wj = weights[tickers[j]] || 0;
-      const ci = covMatrix.tickers.indexOf(tickers[i]);
-      const cj = covMatrix.tickers.indexOf(tickers[j]);
-      if (ci >= 0 && cj >= 0) {
-        variance += wi * wj * covMatrix.matrix[ci][cj];
-      }
-    }
-  }
-  
-  return Math.sqrt(Math.max(0, variance));
-}
-
-export function calculateSharpeRatio(
-  portfolioReturn: number,
-  portfolioVolatility: number,
-  riskFreeRate: number = 0.03
-): number {
-  return portfolioVolatility !== 0 ? (portfolioReturn - riskFreeRate) / portfolioVolatility : 0;
-}
-
-export function calculateRiskContributions(
-  weights: PortfolioWeights,
-  assets: Asset[],
-  covMatrix: CovarianceMatrix
-): { [ticker: string]: number } {
-  const tickers = assets.map(a => a.ticker);
-  const portfolioVol = calculatePortfolioVolatility(weights, assets, covMatrix);
-  if (portfolioVol === 0) {
-    const result: { [ticker: string]: number } = {};
-    tickers.forEach(t => result[t] = 0);
-    return result;
-  }
-  
-  const marginalContributions: { [ticker: string]: number } = {};
-  for (let i = 0; i < tickers.length; i++) {
-    let mc = 0;
-    for (let j = 0; j < tickers.length; j++) {
-      const wj = weights[tickers[j]] || 0;
-      const ci = covMatrix.tickers.indexOf(tickers[i]);
-      const cj = covMatrix.tickers.indexOf(tickers[j]);
-      if (ci >= 0 && cj >= 0) {
-        mc += wj * covMatrix.matrix[ci][cj];
-      }
-    }
-    marginalContributions[tickers[i]] = mc / portfolioVol;
-  }
-  
-  const riskContributions: { [ticker: string]: number } = {};
-  let totalRC = 0;
-  for (const t of tickers) {
-    riskContributions[t] = (weights[t] || 0) * marginalContributions[t];
-    totalRC += riskContributions[t];
-  }
-  
-  // Normalize to percentages
-  if (totalRC !== 0) {
-    for (const t of tickers) {
-      riskContributions[t] = riskContributions[t] / totalRC;
-    }
-  }
-  
-  return riskContributions;
-}
-
-export function equalWeightPortfolio(assets: Asset[]): PortfolioWeights {
+/**
+ * 计算协方差矩阵
+ */
+export function calculateCovarianceMatrix(assets: AssetReturn[]): CovarianceMatrix {
+  const symbols = assets.map(a => a.symbol);
   const n = assets.length;
-  const weights: PortfolioWeights = {};
-  assets.forEach(a => weights[a.ticker] = 1 / n);
-  return weights;
-}
+  const matrix: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
 
-export function inverseVolatilityPortfolio(assets: Asset[]): PortfolioWeights {
-  const weights: PortfolioWeights = {};
-  let totalInvVol = 0;
-  
-  for (const asset of assets) {
-    const invVol = asset.volatility !== 0 ? 1 / asset.volatility : 0;
-    weights[asset.ticker] = invVol;
-    totalInvVol += invVol;
-  }
-  
-  if (totalInvVol > 0) {
-    for (const ticker of Object.keys(weights)) {
-      weights[ticker] /= totalInvVol;
+  for (let i = 0; i < n; i++) {
+    for (let j = i; j < n; j++) {
+      const cov = calculateCovariance(assets[i].returns, assets[j].returns);
+      matrix[i][j] = cov;
+      matrix[j][i] = cov;
     }
   }
-  
-  return weights;
+
+  return { symbols, matrix };
 }
 
+/**
+ * 计算两个序列的协方差
+ */
+function calculateCovariance(x: number[], y: number[]): number {
+  const len = Math.min(x.length, y.length);
+  if (len < 2) return 0;
+
+  const meanX = x.slice(0, len).reduce((a, b) => a + b, 0) / len;
+  const meanY = y.slice(0, len).reduce((a, b) => a + b, 0) / len;
+
+  let sum = 0;
+  for (let i = 0; i < len; i++) {
+    sum += (x[i] - meanX) * (y[i] - meanY);
+  }
+  return sum / (len - 1);
+}
+
+/**
+ * 最小方差组合
+ * 使用解析法求解 (权重 = Σ⁻¹·1 / 1ᵀ·Σ⁻¹·1)
+ */
+export function minimumVariancePortfolio(
+  covMatrix: CovarianceMatrix,
+  constraints?: { min?: number; max?: number }
+): PortfolioWeights {
+  const { symbols, matrix } = covMatrix;
+  const n = symbols.length;
+  if (n === 0) return {};
+
+  const minW = constraints?.min ?? 0;
+  const maxW = constraints?.max ?? 1;
+
+  // 对于单资产，直接返回100%权重
+  if (n === 1) {
+    return { [symbols[0]]: 1 };
+  }
+
+  // 尝试解析解
+  const inv = invertMatrix(matrix);
+  if (inv) {
+    const ones = new Array(n).fill(1);
+    const invOnes = multiplyMatrixVector(inv, ones);
+    const sumInvOnes = invOnes.reduce((a, b) => a + b, 0);
+
+    if (Math.abs(sumInvOnes) > 1e-10) {
+      const rawWeights = invOnes.map(w => w / sumInvOnes);
+      // 应用约束
+      const clamped = clampWeights(rawWeights, minW, maxW);
+      return Object.fromEntries(symbols.map((s, i) => [s, clamped[i]]));
+    }
+  }
+
+  // 回退: 等权重
+  const equalW = 1 / n;
+  return Object.fromEntries(symbols.map(s => [s, equalW]));
+}
+
+/**
+ * 最大夏普比率组合 (给定无风险利率)
+ */
 export function maxSharpePortfolio(
-  assets: Asset[],
+  assets: AssetReturn[],
   covMatrix: CovarianceMatrix,
-  riskFreeRate: number = 0.03,
-  maxIterations: number = 100
+  riskFreeRate: number = 0.02 / 252
 ): OptimizationResult {
-  const tickers = assets.map(a => a.ticker);
-  const n = tickers.length;
-  
-  // Simple gradient ascent for max sharpe
-  let weights: PortfolioWeights = {};
-  tickers.forEach(t => weights[t] = 1 / n);
-  
-  const learningRate = 0.01;
-  
-  for (let iter = 0; iter < maxIterations; iter++) {
-    const ret = calculatePortfolioReturn(weights, assets);
-    const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
-    const sharpe = calculateSharpeRatio(ret, vol, riskFreeRate);
-    
-    // Gradient: approximate numerical gradient
-    for (const t of tickers) {
-      const eps = 0.001;
-      const wPlus = { ...weights, [t]: weights[t] + eps };
-      const retPlus = calculatePortfolioReturn(wPlus, assets);
-      const volPlus = calculatePortfolioVolatility(wPlus, assets, covMatrix);
-      const sharpePlus = calculateSharpeRatio(retPlus, volPlus, riskFreeRate);
-      
-      weights[t] += (sharpePlus - sharpe) / eps * learningRate;
-    }
-    
-    // Normalize weights
-    let sum = Object.values(weights).reduce((s, w) => s + Math.max(0, w), 0);
-    if (sum > 0) {
-      for (const t of tickers) {
-        weights[t] = Math.max(0, weights[t]) / sum;
-      }
+  const { symbols, matrix } = covMatrix;
+  const n = symbols.length;
+
+  if (n === 0) {
+    return { weights: {}, expectedReturn: 0, volatility: 0, sharpeRatio: 0 };
+  }
+
+  if (n === 1) {
+    const a = assets[0];
+    const sr = a.volatility > 0 ? (a.expectedReturn - riskFreeRate) / a.volatility : 0;
+    return {
+      weights: { [symbols[0]]: 1 },
+      expectedReturn: a.expectedReturn,
+      volatility: a.volatility,
+      sharpeRatio: sr
+    };
+  }
+
+  // 最大夏普: w ∝ Σ⁻¹·(μ - rf·1)
+  const excessReturns = assets.map(a => a.expectedReturn - riskFreeRate);
+  const inv = invertMatrix(matrix);
+
+  if (inv) {
+    const invExcess = multiplyMatrixVector(inv, excessReturns);
+    const sumInvExcess = invExcess.reduce((a, b) => a + b, 0);
+
+    if (Math.abs(sumInvExcess) > 1e-10) {
+      const rawWeights = invExcess.map(w => w / sumInvExcess);
+      const clamped = clampWeights(rawWeights, 0, 1);
+      const normWeights = normalizeWeights(clamped);
+      const weights = Object.fromEntries(symbols.map((s, i) => [s, normWeights[i]]));
+
+      const portReturn = calculatePortfolioReturn(assets, normWeights);
+      const portVol = calculatePortfolioVolatility(covMatrix, normWeights);
+      const sr = portVol > 0 ? (portReturn - riskFreeRate) / portVol : 0;
+
+      return { weights, expectedReturn: portReturn, volatility: portVol, sharpeRatio: sr };
     }
   }
-  
-  const expectedReturn = calculatePortfolioReturn(weights, assets);
-  const volatility = calculatePortfolioVolatility(weights, assets, covMatrix);
-  const sharpeRatio = calculateSharpeRatio(expectedReturn, volatility, riskFreeRate);
-  const riskContributions = calculateRiskContributions(weights, assets, covMatrix);
-  
-  return { weights, expectedReturn, volatility, sharpeRatio, riskContributions };
+
+  // 回退: 等权重
+  const eqW = 1 / n;
+  const weights = Object.fromEntries(symbols.map(s => [s, eqW]));
+  const wArr = new Array(n).fill(eqW);
+  const portReturn = calculatePortfolioReturn(assets, wArr);
+  const portVol = calculatePortfolioVolatility(covMatrix, wArr);
+  const sr = portVol > 0 ? (portReturn - riskFreeRate) / portVol : 0;
+
+  return { weights, expectedReturn: portReturn, volatility: portVol, sharpeRatio: sr };
 }
 
-export function minVariancePortfolio(
-  assets: Asset[],
-  covMatrix: CovarianceMatrix
-): OptimizationResult {
-  const tickers = assets.map(a => a.ticker);
-  const n = tickers.length;
-  
-  // Use inverse covariance method for unconstrained min variance
-  // For simplicity, use iterative approach
-  let weights: PortfolioWeights = {};
-  tickers.forEach(t => weights[t] = 1 / n);
-  
-  const learningRate = 0.01;
-  const maxIterations = 200;
-  
-  for (let iter = 0; iter < maxIterations; iter++) {
-    // Gradient of variance
-    for (const ti of tickers) {
-      let grad = 0;
-      const ci = covMatrix.tickers.indexOf(ti);
-      for (const tj of tickers) {
-        const cj = covMatrix.tickers.indexOf(tj);
-        if (ci >= 0 && cj >= 0) {
-          grad += 2 * weights[tj] * covMatrix.matrix[ci][cj];
-        }
-      }
-      weights[ti] -= learningRate * grad;
-    }
-    
-    // Project to simplex
-    let sum = Object.values(weights).reduce((s, w) => s + Math.max(0.001, w), 0);
-    for (const t of tickers) {
-      weights[t] = Math.max(0.001, weights[t]) / sum;
-    }
-  }
-  
-  const expectedReturn = calculatePortfolioReturn(weights, assets);
-  const volatility = calculatePortfolioVolatility(weights, assets, covMatrix);
-  const sharpeRatio = calculateSharpeRatio(expectedReturn, volatility, 0.03);
-  const riskContributions = calculateRiskContributions(weights, assets, covMatrix);
-  
-  return { weights, expectedReturn, volatility, sharpeRatio, riskContributions };
-}
-
-export function riskParityPortfolio(
-  assets: Asset[],
-  covMatrix: CovarianceMatrix
-): OptimizationResult {
-  const tickers = assets.map(a => a.ticker);
-  const n = tickers.length;
-  
-  // Start with inverse volatility weights
-  let weights = inverseVolatilityPortfolio(assets);
-  
-  const maxIterations = 200;
-  const targetRC = 1 / n; // Equal risk contribution
-  
-  for (let iter = 0; iter < maxIterations; iter++) {
-    const rc = calculateRiskContributions(weights, assets, covMatrix);
-    
-    // Adjust weights toward equal risk contribution
-    for (const t of tickers) {
-      const currentRC = rc[t] || 0;
-      const ratio = currentRC !== 0 ? targetRC / currentRC : 1;
-      weights[t] *= Math.pow(ratio, 0.5);
-    }
-    
-    // Normalize
-    let sum = Object.values(weights).reduce((s, w) => s + w, 0);
-    if (sum > 0) {
-      for (const t of tickers) {
-        weights[t] /= sum;
-      }
-    }
-  }
-  
-  const expectedReturn = calculatePortfolioReturn(weights, assets);
-  const volatility = calculatePortfolioVolatility(weights, assets, covMatrix);
-  const sharpeRatio = calculateSharpeRatio(expectedReturn, volatility, 0.03);
-  const riskContributions = calculateRiskContributions(weights, assets, covMatrix);
-  
-  return { weights, expectedReturn, volatility, sharpeRatio, riskContributions };
-}
-
+/**
+ * 生成有效前沿
+ */
 export function generateEfficientFrontier(
-  assets: Asset[],
+  assets: AssetReturn[],
   covMatrix: CovarianceMatrix,
-  points: number = 20
+  numPoints: number = 20,
+  riskFreeRate: number = 0.02 / 252
 ): EfficientFrontierPoint[] {
+  const n = assets.length;
+  if (n === 0) return [];
+
+  const minRet = Math.min(...assets.map(a => a.expectedReturn));
+  const maxRet = Math.max(...assets.map(a => a.expectedReturn));
+  const step = (maxRet - minRet) / Math.max(numPoints - 1, 1);
+
   const frontier: EfficientFrontierPoint[] = [];
-  
-  // Get min and max return
-  const returns = assets.map(a => a.expectedReturn);
-  const minRet = Math.min(...returns);
-  const maxRet = Math.max(...returns);
-  
-  for (let i = 0; i < points; i++) {
-    const targetReturn = minRet + (maxRet - minRet) * i / (points - 1);
-    
-    // Simple allocation proportional to expected return
-    const weights: PortfolioWeights = {};
-    const tickers = assets.map(a => a.ticker);
-    let totalRet = 0;
-    for (const a of assets) {
-      const r = Math.max(0, a.expectedReturn);
-      weights[a.ticker] = r;
-      totalRet += r;
+
+  for (let i = 0; i < numPoints; i++) {
+    const targetReturn = minRet + step * i;
+    const result = minVarianceForTargetReturn(assets, covMatrix, targetReturn);
+    if (result) {
+      const sr = result.volatility > 0 ? (result.expectedReturn - riskFreeRate) / result.volatility : 0;
+      frontier.push({
+        targetReturn,
+        volatility: result.volatility,
+        weights: result.weights,
+        sharpeRatio: sr
+      });
     }
-    
-    if (totalRet > 0) {
-      for (const t of tickers) weights[t] /= totalRet;
-    }
-    
-    const vol = calculatePortfolioVolatility(weights, assets, covMatrix);
-    const ret = calculatePortfolioReturn(weights, assets);
-    const sharpe = calculateSharpeRatio(ret, vol);
-    
-    frontier.push({ weights, expectedReturn: ret, volatility: vol, sharpeRatio: sharpe });
   }
-  
+
   return frontier;
 }
 
-export function calculateMaxDrawdown(returns: number[]): number {
-  let cumulative = 1;
-  let peak = 1;
-  let maxDD = 0;
-  
-  for (const r of returns) {
-    cumulative *= (1 + r);
-    peak = Math.max(peak, cumulative);
-    const dd = (peak - cumulative) / peak;
-    maxDD = Math.max(maxDD, dd);
-  }
-  
-  return maxDD;
-}
-
-export function calculateValueAtRisk(
-  returns: number[],
-  confidence: number = 0.95
-): number {
-  if (returns.length === 0) return 0;
-  const sorted = [...returns].sort((a, b) => a - b);
-  const idx = Math.floor((1 - confidence) * sorted.length);
-  return -sorted[Math.max(0, idx)];
-}
-
-export function calculateExpectedShortfall(
-  returns: number[],
-  confidence: number = 0.95
-): number {
-  if (returns.length === 0) return 0;
-  const sorted = [...returns].sort((a, b) => a - b);
-  const cutoff = Math.floor((1 - confidence) * sorted.length);
-  const tail = sorted.slice(0, cutoff + 1);
-  if (tail.length === 0) return 0;
-  return -tail.reduce((s, v) => s + v, 0) / tail.length;
-}
-
-export function applySectorConstraints(
-  weights: PortfolioWeights,
-  assets: Asset[],
-  sectorLimits: { [sector: string]: { min: number; max: number } }
+/**
+ * 风险平价组合 (Risk Parity)
+ * 每个资产对组合风险的贡献相等
+ */
+export function riskParityPortfolio(
+  covMatrix: CovarianceMatrix,
+  maxIterations: number = 1000,
+  tolerance: number = 1e-8
 ): PortfolioWeights {
-  const adjusted = { ...weights };
-  
-  for (const [sector, limits] of Object.entries(sectorLimits)) {
-    const sectorAssets = assets.filter(a => a.sector === sector);
-    let sectorWeight = sectorAssets.reduce((s, a) => s + (adjusted[a.ticker] || 0), 0);
-    
-    if (sectorWeight > limits.max && sectorWeight > 0) {
-      const scale = limits.max / sectorWeight;
-      for (const a of sectorAssets) {
-        adjusted[a.ticker] = (adjusted[a.ticker] || 0) * scale;
+  const { symbols, matrix } = covMatrix;
+  const n = symbols.length;
+  if (n === 0) return {};
+  if (n === 1) return { [symbols[0]]: 1 };
+
+  // 迭代求解: 从等权重开始
+  let weights = new Array(n).fill(1 / n);
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    const sigma = Math.sqrt(multiplyQuadratic(weights, matrix));
+    if (sigma < 1e-10) break;
+
+    // 计算边际风险贡献
+    const mrc: number[] = [];
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      for (let j = 0; j < n; j++) {
+        sum += matrix[i][j] * weights[j];
+      }
+      mrc.push(sum / sigma);
+    }
+
+    // 风险贡献 = w_i * MRC_i
+    const rc = weights.map((w, i) => w * mrc[i]);
+    const targetRC = sigma / n;
+
+    // 更新权重
+    const newWeights = weights.map((w, i) => {
+      if (rc[i] < 1e-10) return w;
+      return w * (targetRC / rc[i]);
+    });
+
+    // 归一化
+    const sum = newWeights.reduce((a, b) => a + b, 0);
+    const normalized = newWeights.map(w => w / sum);
+
+    // 检查收敛
+    const diff = normalized.reduce((acc, w, i) => acc + Math.abs(w - weights[i]), 0);
+    weights = normalized;
+
+    if (diff < tolerance) break;
+  }
+
+  return Object.fromEntries(symbols.map((s, i) => [s, weights[i]]));
+}
+
+/**
+ * 从收益率数据构建资产信息
+ */
+export function buildAssetReturns(
+  data: Map<string, number[]>,
+  annualizeFactor: number = 252
+): AssetReturn[] {
+  const assets: AssetReturn[] = [];
+
+  for (const [symbol, prices] of data) {
+    if (prices.length < 2) continue;
+
+    const returns: number[] = [];
+    for (let i = 1; i < prices.length; i++) {
+      if (prices[i - 1] > 0) {
+        returns.push(Math.log(prices[i] / prices[i - 1]));
+      }
+    }
+
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance = returns.reduce((a, r) => a + (r - mean) ** 2, 0) / (returns.length - 1);
+    const vol = Math.sqrt(variance * annualizeFactor);
+    const expRet = mean * annualizeFactor;
+
+    assets.push({
+      symbol,
+      returns,
+      expectedReturn: expRet,
+      volatility: vol
+    });
+  }
+
+  return assets;
+}
+
+// ===== Helper Functions =====
+
+function invertMatrix(matrix: number[][]): number[][] | null {
+  const n = matrix.length;
+  if (n === 0) return null;
+
+  // 增广矩阵 [A | I]
+  const aug: number[][] = matrix.map((row, i) => [
+    ...row,
+    ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))
+  ]);
+
+  // 高斯-约旦消元
+  for (let i = 0; i < n; i++) {
+    // 找主元
+    let maxRow = i;
+    for (let k = i + 1; k < n; k++) {
+      if (Math.abs(aug[k][i]) > Math.abs(aug[maxRow][i])) maxRow = k;
+    }
+    [aug[i], aug[maxRow]] = [aug[maxRow], aug[i]];
+
+    if (Math.abs(aug[i][i]) < 1e-10) return null;
+
+    const pivot = aug[i][i];
+    for (let j = 0; j < 2 * n; j++) aug[i][j] /= pivot;
+
+    for (let k = 0; k < n; k++) {
+      if (k === i) continue;
+      const factor = aug[k][i];
+      for (let j = 0; j < 2 * n; j++) {
+        aug[k][j] -= factor * aug[i][j];
       }
     }
   }
-  
-  // Re-normalize
-  const sum = Object.values(adjusted).reduce((s, w) => s + Math.max(0, w), 0);
-  if (sum > 0) {
-    for (const t of Object.keys(adjusted)) {
-      adjusted[t] = Math.max(0, adjusted[t]) / sum;
+
+  return aug.map(row => row.slice(n));
+}
+
+function multiplyMatrixVector(matrix: number[][], vector: number[]): number[] {
+  return matrix.map(row => row.reduce((sum, val, i) => sum + val * vector[i], 0));
+}
+
+function multiplyQuadratic(weights: number[], matrix: number[][]): number {
+  let sum = 0;
+  const n = weights.length;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      sum += weights[i] * matrix[i][j] * weights[j];
     }
   }
-  
-  // Re-check constraints after normalization
-  for (const [sector, limits] of Object.entries(sectorLimits)) {
-    const sectorAssets = assets.filter(a => a.sector === sector);
-    const sectorWeight = sectorAssets.reduce((s, a) => s + (adjusted[a.ticker] || 0), 0);
-    if (sectorWeight > limits.max && sectorWeight > 0) {
-      const scale = limits.max / sectorWeight;
-      for (const a of sectorAssets) {
-        adjusted[a.ticker] = (adjusted[a.ticker] || 0) * scale;
-      }
+  return sum;
+}
+
+function clampWeights(weights: number[], min: number, max: number): number[] {
+  const clamped = weights.map(w => Math.max(min, Math.min(max, w)));
+  const sum = clamped.reduce((a, b) => a + b, 0);
+  if (sum > 0) return clamped.map(w => w / sum);
+  return clamped;
+}
+
+function normalizeWeights(weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (sum > 0) return weights.map(w => w / sum);
+  return weights;
+}
+
+function calculatePortfolioReturn(assets: AssetReturn[], weights: number[]): number {
+  return assets.reduce((sum, a, i) => sum + a.expectedReturn * weights[i], 0);
+}
+
+function calculatePortfolioVolatility(covMatrix: CovarianceMatrix, weights: number[]): number {
+  return Math.sqrt(multiplyQuadratic(weights, covMatrix.matrix));
+}
+
+function minVarianceForTargetReturn(
+  assets: AssetReturn[],
+  covMatrix: CovarianceMatrix,
+  targetReturn: number
+): OptimizationResult | null {
+  const { symbols, matrix } = covMatrix;
+  const n = symbols.length;
+
+  // 简化: 使用等权重附近的解，通过调整找最接近目标收益的组合
+  const inv = invertMatrix(matrix);
+  if (!inv) return null;
+
+  const ones = new Array(n).fill(1);
+  const expectedReturns = assets.map(a => a.expectedReturn);
+
+  // 拉格朗日乘数法
+  const A = multiplyQuadratic(ones, matrix);
+  const B = ones.reduce((sum, _, i) => sum + expectedReturns.reduce((s, r, j) => s + inv[i][j] * r, 0), 0);
+  const C = multiplyQuadratic(expectedReturns, inv);
+
+  const denom = A * C - B * B;
+  if (Math.abs(denom) < 1e-10) return null;
+
+  const lambda = (C - B * targetReturn) / denom;
+  const gamma = (A * targetReturn - B) / denom;
+
+  const weights: number[] = [];
+  for (let i = 0; i < n; i++) {
+    let w = 0;
+    for (let j = 0; j < n; j++) {
+      w += inv[i][j] * (lambda * ones[j] + gamma * expectedReturns[j]);
     }
+    weights.push(w);
   }
-  
-  // Final normalization
-  const finalSum = Object.values(adjusted).reduce((s, w) => s + Math.max(0, w), 0);
-  if (finalSum > 0) {
-    for (const t of Object.keys(adjusted)) {
-      adjusted[t] = Math.max(0, adjusted[t]) / finalSum;
-    }
-  }
-  
-  return adjusted;
+
+  const clamped = clampWeights(weights, 0, 1);
+  const portRet = calculatePortfolioReturn(assets, clamped);
+  const portVol = calculatePortfolioVolatility(covMatrix, clamped);
+  const portWeights = Object.fromEntries(symbols.map((s, i) => [s, clamped[i]]));
+
+  return { weights: portWeights, expectedReturn: portRet, volatility: portVol, sharpeRatio: 0 };
 }
