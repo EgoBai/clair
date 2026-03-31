@@ -6400,3 +6400,73 @@
 - 新增测试: 129个
 - 累计测试文件: 1100
 - 累计测试: 26,487
+
+## Round 610-616 — 高级量化+风险管理引擎
+
+### Round 610 — GARCH波动率建模引擎 — `garchEngine.test.ts` (22 tests)
+- GARCH(1,1)极大似然估计
+- EGARCH(杠杆效应/非对称波动)
+- GJR-GARCH
+- 波动率预测
+- 波动率聚类检测
+- 历史波动率(年化)
+
+### Round 611 — 期权链分析引擎 — `optionChainEngine.test.ts` (14 tests)
+- Black-Scholes定价(看涨/看跌平价)
+- Greeks计算(Delta/Gamma/Vega/Theta)
+- 隐含波动率(二分法回推)
+- 波动率微笑
+- Delta对冲比率
+- 期权组合P&L
+
+### Round 612 — 微观结构流动性引擎 — `liquidityEngine.test.ts` (10 tests)
+- Amihud非流动性比率
+- Roll (1984)有效价差估计
+- 换手率
+- High-Low价差代理
+- Pastor-Stambaugh流动性
+- 流动性调整VaR
+
+### Round 613 — 高频交易信号引擎 — `hftSignalEngine.test.ts` (14 tests)
+- 短期价格冲击
+- VPIN(知情交易概率)
+- 有毒流量检测
+- 日内模式分析
+- 已实现偏度和峰度
+- 微观结构噪声估计
+
+### Round 614 — 收益分解与归因引擎 — `returnAttributionEngine.test.ts` (11 tests)
+- Brinson收益归因(配置/选择/交互)
+- 因子归因(alpha + 因子贡献)
+- 收益分解(股息/盈利/估值倍数)
+- 滚动Sharpe比率
+- 信息系数(IC/ Rank IC)
+
+### Round 615 — 尾部风险与极端事件引擎 — `tailRiskEngine.test.ts` (12 tests)
+- 参数VaR
+- Cornish-Fisher VaR(调整偏度峰度)
+- 期望损失(ES/CVaR)
+- 极值理论(GEV)
+- 尾部风险比率
+- 最大回撤统计(幅度/持续时间)
+- 压力测试(股市冲击+利率冲击)
+
+### Round 616 — 另类数据信号引擎 — `alternativeDataEngine.test.ts` (11 tests)
+- NLP情绪分析(正面/负面/中性)
+- 活动指数(卫星/另类数据偏差)
+- 社交媒体热度
+- 专利申请活动
+- 供应链中断评分
+- 综合另类数据信号(加权融合)
+
+### 测试结果
+- 1107 test files passed, 1 skipped
+- 26,568 tests passed, 14 skipped
+- 新增 81 个测试 (Round 610-616)
+- 新增 7 个测试文件
+
+### 累计 (Round 600-616)
+- 新增引擎: 17个
+- 新增测试: 210个
+- 累计测试文件: 1107
+- 累计测试: 26,568
