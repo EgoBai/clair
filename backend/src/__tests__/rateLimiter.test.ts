@@ -1,170 +1,208 @@
-/**
- * 高级限流策略测试
- */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  SlidingWindowRateLimiter,
+  FixedWindowRateLimiter,
+  TokenBucketLimiter,
+  MultiTierRateLimiter,
+} from '../middleware/rateLimiter';
 
-class TokenBucket {
-  private tokens: number;
-  private lastRefill: number;
-  constructor(private capacity: number, private refillRate: number, startTokens?: number) {
-    this.tokens = startTokens ?? capacity;
-    this.lastRefill = 0;
-  }
+describe('SlidingWindowRateLimiter', () => {
+  let limiter: SlidingWindowRateLimiter;
 
-  tryConsume(now: number): boolean {
-    const elapsed = (now - this.lastRefill) / 1000;
-    this.tokens = Math.min(this.capacity, this.tokens + elapsed * this.refillRate);
-    this.lastRefill = now;
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
-      return true;
-    }
-    return false;
-  }
-
-  getTokens(): number {
-    return this.tokens;
-  }
-}
-
-class SlidingWindowLog {
-  private timestamps: number[] = [];
-  constructor(private windowMs: number, private maxRequests: number) {}
-
-  allowRequest(now: number): boolean {
-    const windowStart = now - this.windowMs;
-    this.timestamps = this.timestamps.filter(t => t >= windowStart);
-    if (this.timestamps.length >= this.maxRequests) return false;
-    this.timestamps.push(now);
-    return true;
-  }
-
-  getCurrentCount(now: number): number {
-    const windowStart = now - this.windowMs;
-    this.timestamps = this.timestamps.filter(t => t >= windowStart);
-    return this.timestamps.length;
-  }
-}
-
-class LeakyBucket {
-  private queue: number[] = [];
-  private lastLeak: number;
-  constructor(private capacity: number, private leakRatePerSec: number) {
-    this.lastLeak = 0;
-  }
-
-  tryEnqueue(timestamp: number): boolean {
-    this.leak(timestamp);
-    if (this.queue.length < this.capacity) {
-      this.queue.push(timestamp);
-      return true;
-    }
-    return false;
-  }
-
-  private leak(now: number): void {
-    const elapsed = (now - this.lastLeak) / 1000;
-    const toLeak = Math.floor(elapsed * this.leakRatePerSec);
-    this.queue.splice(0, Math.min(toLeak, this.queue.length));
-    this.lastLeak = now;
-  }
-
-  getQueueSize(): number {
-    return this.queue.length;
-  }
-}
-
-describe('高级限流策略', () => {
-  describe('令牌桶', () => {
-    it('初始满桶', () => {
-      const bucket = new TokenBucket(10, 1);
-      expect(bucket.getTokens()).toBe(10);
-    });
-
-    it('消耗令牌', () => {
-      const bucket = new TokenBucket(5, 1);
-      expect(bucket.tryConsume(0)).toBe(true);
-      expect(bucket.getTokens()).toBeCloseTo(4);
-    });
-
-    it('桶空拒绝', () => {
-      const bucket = new TokenBucket(1, 1);
-      bucket.tryConsume(0);
-      expect(bucket.tryConsume(100)).toBe(false);
-    });
-
-    it('令牌恢复', () => {
-      const bucket = new TokenBucket(5, 1);
-      bucket.tryConsume(0);
-      bucket.tryConsume(100);
-      expect(bucket.tryConsume(2100)).toBe(true);
-    });
-
-    it('桶上限不溢出', () => {
-      const bucket = new TokenBucket(5, 100);
-      bucket.tryConsume(10000); // long elapsed time
-      expect(bucket.getTokens()).toBeLessThanOrEqual(5);
-    });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    limiter = new SlidingWindowRateLimiter({ windowMs: 1000, maxRequests: 3 });
   });
 
-  describe('滑动窗口日志', () => {
-    it('窗口内允许请求', () => {
-      const limiter = new SlidingWindowLog(1000, 5);
-      expect(limiter.allowRequest(0)).toBe(true);
-      expect(limiter.allowRequest(100)).toBe(true);
-    });
-
-    it('超限拒绝', () => {
-      const limiter = new SlidingWindowLog(1000, 2);
-      limiter.allowRequest(0);
-      limiter.allowRequest(100);
-      expect(limiter.allowRequest(200)).toBe(false);
-    });
-
-    it('窗口外过期释放', () => {
-      const limiter = new SlidingWindowLog(1000, 2);
-      limiter.allowRequest(0);
-      limiter.allowRequest(100);
-      expect(limiter.allowRequest(1100)).toBe(true);
-    });
-
-    it('当前计数正确', () => {
-      const limiter = new SlidingWindowLog(1000, 10);
-      limiter.allowRequest(0);
-      limiter.allowRequest(100);
-      limiter.allowRequest(200);
-      expect(limiter.getCurrentCount(300)).toBe(3);
-    });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  describe('漏桶', () => {
-    it('队列未满接受', () => {
-      const bucket = new LeakyBucket(5, 1);
-      expect(bucket.tryEnqueue(0)).toBe(true);
-    });
+  it('should allow requests within limit', () => {
+    expect(limiter.check('user1').allowed).toBe(true);
+    expect(limiter.check('user1').allowed).toBe(true);
+    expect(limiter.check('user1').allowed).toBe(true);
+  });
 
-    it('队列满拒绝', () => {
-      const bucket = new LeakyBucket(2, 1);
-      bucket.tryEnqueue(0);
-      bucket.tryEnqueue(100);
-      expect(bucket.tryEnqueue(200)).toBe(false);
-    });
+  it('should block requests exceeding limit', () => {
+    limiter.check('user1');
+    limiter.check('user1');
+    limiter.check('user1');
+    const result = limiter.check('user1');
+    expect(result.allowed).toBe(false);
+    expect(result.retryAfter).toBeGreaterThan(0);
+  });
 
-    it('漏出释放空间', () => {
-      const bucket = new LeakyBucket(2, 10); // 10/s 漏出率 = 1 per 100ms
-      bucket.tryEnqueue(0);
-      bucket.tryEnqueue(50);
-      // only 50ms elapsed, floor(0.05*10)=0 leak → still 2 items → reject
-      expect(bucket.tryEnqueue(80)).toBe(false);
-      // 200ms later = floor(0.28*10)=2 leaks → both drained → accept
-      expect(bucket.tryEnqueue(280)).toBe(true);
-    });
+  it('should track remaining correctly', () => {
+    const r1 = limiter.check('user1');
+    expect(r1.state.remaining).toBe(2);
+    limiter.check('user1');
+    const r3 = limiter.check('user1');
+    expect(r3.state.remaining).toBe(0);
+  });
 
-    it('队列大小跟踪', () => {
-      const bucket = new LeakyBucket(10, 1);
-      bucket.tryEnqueue(0);
-      bucket.tryEnqueue(100);
-      expect(bucket.getQueueSize()).toBe(2);
-    });
+  it('should allow requests after window expires', () => {
+    limiter.check('user1');
+    limiter.check('user1');
+    limiter.check('user1');
+    expect(limiter.check('user1').allowed).toBe(false);
+
+    vi.advanceTimersByTime(1100);
+    expect(limiter.check('user1').allowed).toBe(true);
+  });
+
+  it('should isolate different keys', () => {
+    limiter.check('user1');
+    limiter.check('user1');
+    limiter.check('user1');
+    expect(limiter.check('user1').allowed).toBe(false);
+    expect(limiter.check('user2').allowed).toBe(true);
+  });
+
+  it('should reset key', () => {
+    limiter.check('user1');
+    limiter.check('user1');
+    limiter.check('user1');
+    expect(limiter.check('user1').allowed).toBe(false);
+    limiter.reset('user1');
+    expect(limiter.check('user1').allowed).toBe(true);
+  });
+
+  it('should cleanup expired entries', () => {
+    limiter.check('user1');
+    vi.advanceTimersByTime(1500);
+    const cleaned = limiter.cleanup();
+    expect(cleaned).toBeGreaterThan(0);
+  });
+
+  it('should return null state for unknown key', () => {
+    expect(limiter.getState('unknown')).toBeNull();
+  });
+
+  it('should return state for known key', () => {
+    limiter.check('user1');
+    const state = limiter.getState('user1');
+    expect(state).not.toBeNull();
+    expect(state!.count).toBe(1);
+  });
+
+  it('should get stats', () => {
+    limiter.check('user1');
+    limiter.check('user2');
+    const stats = limiter.getStats();
+    expect(stats.totalKeys).toBe(2);
+    expect(stats.totalRequests).toBe(2);
+  });
+});
+
+describe('FixedWindowRateLimiter', () => {
+  let limiter: FixedWindowRateLimiter;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    limiter = new FixedWindowRateLimiter(1000, 3);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should allow within limit', () => {
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(true);
+  });
+
+  it('should block over limit', () => {
+    limiter.check('k');
+    limiter.check('k');
+    limiter.check('k');
+    expect(limiter.check('k').allowed).toBe(false);
+  });
+
+  it('should reset after window', () => {
+    limiter.check('k');
+    limiter.check('k');
+    limiter.check('k');
+    expect(limiter.check('k').allowed).toBe(false);
+    vi.advanceTimersByTime(1100);
+    expect(limiter.check('k').allowed).toBe(true);
+  });
+
+  it('should reset manually', () => {
+    limiter.check('k');
+    limiter.check('k');
+    limiter.check('k');
+    limiter.reset('k');
+    expect(limiter.check('k').allowed).toBe(true);
+  });
+});
+
+describe('TokenBucketLimiter', () => {
+  let limiter: TokenBucketLimiter;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    limiter = new TokenBucketLimiter(5, 1); // 5 tokens, 1 per second
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should allow requests when tokens available', () => {
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(true);
+  });
+
+  it('should block when no tokens', () => {
+    for (let i = 0; i < 5; i++) limiter.check('k');
+    expect(limiter.check('k').allowed).toBe(false);
+  });
+
+  it('should refill tokens over time', () => {
+    for (let i = 0; i < 5; i++) limiter.check('k');
+    expect(limiter.check('k').allowed).toBe(false);
+    vi.advanceTimersByTime(2000); // refill 2 tokens
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(true);
+    expect(limiter.check('k').allowed).toBe(false);
+  });
+
+  it('should not exceed capacity', () => {
+    vi.advanceTimersByTime(10000); // way more than capacity
+    const state = limiter.check('k');
+    expect(state.state.remaining).toBeLessThanOrEqual(5);
+  });
+
+  it('should reset bucket', () => {
+    for (let i = 0; i < 5; i++) limiter.check('k');
+    limiter.reset('k');
+    expect(limiter.check('k').allowed).toBe(true);
+  });
+});
+
+describe('MultiTierRateLimiter', () => {
+  it('should allow when all tiers allow', () => {
+    const multi = new MultiTierRateLimiter();
+    multi.addTier('short', new FixedWindowRateLimiter(1000, 10));
+    multi.addTier('long', new FixedWindowRateLimiter(60_000, 100));
+
+    expect(multi.check('k').allowed).toBe(true);
+  });
+
+  it('should block when any tier blocks', () => {
+    const multi = new MultiTierRateLimiter();
+    multi.addTier('strict', new FixedWindowRateLimiter(1000, 2));
+    multi.addTier('lenient', new FixedWindowRateLimiter(1000, 100));
+
+    multi.check('k');
+    multi.check('k');
+    const result = multi.check('k');
+    expect(result.allowed).toBe(false);
+    expect(result.blockedBy).toBe('strict');
   });
 });

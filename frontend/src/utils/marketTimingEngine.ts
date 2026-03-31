@@ -372,7 +372,8 @@ export function analyzeMeanReversion(closes: number[], period: number = 20): Mea
   const upper = m + 2 * s;
   const lower = m - 2 * s;
   const range = upper - lower;
-  const bollingerBandPosition = range === 0 ? 0.5 : (closes[closes.length - 1] - lower) / range;
+  let bollingerBandPosition = range === 0 ? 0.5 : (closes[closes.length - 1] - lower) / range;
+  bollingerBandPosition = Math.max(0, Math.min(1, bollingerBandPosition));
 
   const distanceFromMean = m === 0 ? 0 : (closes[closes.length - 1] - m) / m;
 

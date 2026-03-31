@@ -11,60 +11,66 @@ describe('withRetry', () => {
   });
 
   it('should return result on first success', async () => {
+    vi.useRealTimers();
     const fn = vi.fn().mockResolvedValue('ok');
-    const p = withRetry(fn);
-    await vi.advanceTimersByTimeAsync(10);
-    const result = await p;
+    const result = await withRetry(fn);
     expect(result.result).toBe('ok');
     expect(result.attempts).toBe(1);
+    vi.useFakeTimers();
   });
 
   it('should retry on failure and succeed', async () => {
+    vi.useRealTimers();
     const fn = vi.fn()
       .mockRejectedValueOnce(new Error('fail'))
       .mockResolvedValue('ok');
 
-    const p = withRetry(fn, { baseDelay: 100, maxRetries: 3, jitter: false });
-    await vi.advanceTimersByTimeAsync(500);
-    const result = await p;
+    const result = await withRetry(fn, { baseDelay: 0, maxRetries: 3, jitter: false });
     expect(result.result).toBe('ok');
     expect(result.attempts).toBe(2);
+    vi.useFakeTimers();
   });
 
   it('should throw after max retries exceeded', async () => {
+    vi.useRealTimers();
     const fn = vi.fn().mockRejectedValue(new Error('always fail'));
-    const p = withRetry(fn, { maxRetries: 2, baseDelay: 50, jitter: false });
-
-    await vi.advanceTimersByTimeAsync(500);
-    await expect(p).rejects.toThrow('always fail');
+    await expect(
+      withRetry(fn, { maxRetries: 2, baseDelay: 0, jitter: false })
+    ).rejects.toThrow('always fail');
+    vi.useFakeTimers();
   });
 
   it('should respect retryCondition', async () => {
+    vi.useRealTimers();
     const fn = vi.fn().mockRejectedValue(new Error('no retry'));
     const retryCondition = vi.fn().mockReturnValue(false);
 
-    const p = withRetry(fn, { maxRetries: 3, retryCondition, baseDelay: 10 });
-    await vi.advanceTimersByTimeAsync(100);
-    await expect(p).rejects.toThrow('no retry');
+    await expect(
+      withRetry(fn, { maxRetries: 3, retryCondition, baseDelay: 0, jitter: false })
+    ).rejects.toThrow('no retry');
     expect(fn).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
   });
 
   it('should call onRetry callback', async () => {
+    vi.useRealTimers();
     const fn = vi.fn()
       .mockRejectedValueOnce(new Error('fail'))
       .mockResolvedValue('ok');
 
     const onRetry = vi.fn();
-    const p = withRetry(fn, { baseDelay: 50, onRetry, jitter: false });
-    await vi.advanceTimersByTimeAsync(200);
-    await p;
+    const result = await withRetry(fn, { baseDelay: 0, onRetry, jitter: false });
+    expect(result.result).toBe('ok');
     expect(onRetry).toHaveBeenCalled();
+    vi.useFakeTimers();
   });
 
   it('should track total time', async () => {
+    vi.useRealTimers();
     const fn = vi.fn().mockResolvedValue('ok');
     const result = await withRetry(fn);
     expect(result.totalTime).toBeGreaterThanOrEqual(0);
+    vi.useFakeTimers();
   });
 });
 
