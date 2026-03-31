@@ -1,112 +1,186 @@
-import { describe, it, expect } from 'vitest';
-import {
-  calculateSectorMomentum,
-  detectRotationSignals,
-  calculateCapitalFlows,
-  calculateRelativeStrength,
-  SectorSnapshot,
-} from '../utils/sectorRotationEngine';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { SectorRotationEngine } from '../utils/sectorRotationEngine';
+import type { SectorData } from '../utils/sectorRotationEngine';
 
-function makeSnap(overrides: Partial<SectorSnapshot> = {}): SectorSnapshot {
-  return {
-    sector: 'Tech',
+describe('SectorRotationEngine', () => {
+  let engine: SectorRotationEngine;
+
+  const createSector = (overrides: Partial<SectorData> = {}): SectorData => ({
+    name: '半导体',
+    code: 'BK0536',
+    change: 2.5,
+    volume: 5000000,
+    turnover: 800000,
+    advancers: 35,
+    decliners: 10,
+    netInflow: 50000,
+    avgPE: 45,
     timestamp: Date.now(),
-    change: 1.5,
-    volume: 1000000,
-    turnover: 500000,
-    upCount: 30,
-    downCount: 10,
-    leadingStocks: [],
     ...overrides,
-  };
-}
-
-describe('calculateSectorMomentum', () => {
-  it('calculates composite momentum', () => {
-    const history = [
-      makeSnap({ sector: 'Tech', timestamp: 3, change: 2 }),
-      makeSnap({ sector: 'Tech', timestamp: 2, change: 1 }),
-      makeSnap({ sector: 'Tech', timestamp: 1, change: -1 }),
-      makeSnap({ sector: 'Finance', timestamp: 3, change: -2 }),
-      makeSnap({ sector: 'Finance', timestamp: 2, change: -1 }),
-      makeSnap({ sector: 'Finance', timestamp: 1, change: 0 }),
-    ];
-    const momentum = calculateSectorMomentum(history);
-    expect(momentum).toHaveLength(2);
-    expect(momentum[0].rank).toBe(1);
-    expect(momentum.find(m => m.sector === 'Tech')!.trend).toBe('up');
   });
 
-  it('handles single snapshot', () => {
-    const history = [makeSnap({ sector: 'A', change: 5 })];
-    const momentum = calculateSectorMomentum(history);
-    expect(momentum).toHaveLength(1);
-    expect(momentum[0].momentum1D).toBe(5);
-  });
-});
-
-describe('detectRotationSignals', () => {
-  it('detects rotation from laggard to leader', () => {
-    const momentum = [
-      { sector: 'Tech', momentum1D: 3, momentum5D: 2, momentum20D: 1, compositeMomentum: 2.5, rank: 1, trend: 'up' as const },
-      { sector: 'Energy', momentum1D: -3, momentum5D: -2, momentum20D: -1, compositeMomentum: -2.5, rank: 2, trend: 'down' as const },
-    ];
-    const signals = detectRotationSignals(momentum);
-    expect(signals).toHaveLength(1);
-    expect(signals[0].fromSector).toBe('Energy');
-    expect(signals[0].toSector).toBe('Tech');
+  beforeEach(() => {
+    engine = new SectorRotationEngine();
   });
 
-  it('returns empty for no rotation', () => {
-    const momentum = [
-      { sector: 'A', momentum1D: 0, momentum5D: 0, momentum20D: 0, compositeMomentum: 0, rank: 1, trend: 'sideways' as const },
-    ];
-    expect(detectRotationSignals(momentum)).toHaveLength(0);
+  describe('数据更新', () => {
+    it('应该更新单个板块数据', () => {
+      const sector = createSector();
+      engine.updateData(sector);
+      const rs = engine.calculateRelativeStrength('BK0536');
+      expect(rs).toBeGreaterThanOrEqual(0);
+      expect(rs).toBeLessThanOrEqual(100);
+    });
+
+    it('应该批量更新板块数据', () => {
+      const sectors = [
+        createSector({ code: 'BK0536', name: '半导体' }),
+        createSector({ code: 'BK0437', name: '新能源' }),
+      ];
+      engine.batchUpdate(sectors);
+      expect(engine.calculateRelativeStrength('BK0536')).toBeGreaterThanOrEqual(0);
+      expect(engine.calculateRelativeStrength('BK0437')).toBeGreaterThanOrEqual(0);
+    });
+
+    it('应该限制历史数据长度', () => {
+      for (let i = 0; i < 50; i++) {
+        engine.updateData(createSector({ change: i, timestamp: Date.now() + i }));
+      }
+      // 不应抛出错误
+      const rs = engine.calculateRelativeStrength('BK0536', 10);
+      expect(typeof rs).toBe('number');
+    });
   });
 
-  it('detects early phase', () => {
-    const momentum = [
-      { sector: 'A', momentum1D: 5, momentum5D: 2, momentum20D: 1, compositeMomentum: 3, rank: 1, trend: 'up' as const },
-      { sector: 'B', momentum1D: -5, momentum5D: -2, momentum20D: -1, compositeMomentum: -3, rank: 2, trend: 'down' as const },
-    ];
-    const signals = detectRotationSignals(momentum);
-    expect(signals[0].phase).toBe('early');
-  });
-});
+  describe('相对强度', () => {
+    it('应该计算RS指标', () => {
+      for (let i = 0; i < 10; i++) {
+        engine.updateData(createSector({ change: Math.random() * 4 - 1 }));
+      }
+      const rs = engine.calculateRelativeStrength('BK0536', 5);
+      expect(rs).toBeGreaterThanOrEqual(0);
+      expect(rs).toBeLessThanOrEqual(100);
+    });
 
-describe('calculateCapitalFlows', () => {
-  it('calculates net flow', () => {
-    const snapshots = [
-      makeSnap({ sector: 'Tech', timestamp: 1, change: 2, turnover: 100 }),
-      makeSnap({ sector: 'Tech', timestamp: 2, change: -1, turnover: 50 }),
-    ];
-    const flows = calculateCapitalFlows(snapshots);
-    expect(flows).toHaveLength(1);
-    expect(flows[0].netFlow).toBeGreaterThan(0); // more inflow than outflow
-  });
+    it('数据不足时应返回50', () => {
+      engine.updateData(createSector());
+      const rs = engine.calculateRelativeStrength('BK0536', 5);
+      expect(rs).toBe(50);
+    });
 
-  it('ranks by net flow', () => {
-    const snapshots = [
-      makeSnap({ sector: 'A', timestamp: 1, change: 5, turnover: 1000 }),
-      makeSnap({ sector: 'B', timestamp: 1, change: -5, turnover: 1000 }),
-    ];
-    const flows = calculateCapitalFlows(snapshots);
-    expect(flows[0].sector).toBe('A');
-  });
-});
-
-describe('calculateRelativeStrength', () => {
-  it('calculates RS for outperforming sector', () => {
-    const rs = calculateRelativeStrength([110, 100], [105, 100]);
-    expect(rs).toBeGreaterThan(0);
+    it('不存在的板块应返回50', () => {
+      const rs = engine.calculateRelativeStrength('NOTEXIST', 5);
+      expect(rs).toBe(50);
+    });
   });
 
-  it('calculates RS for underperforming sector', () => {
-    const rs = calculateRelativeStrength([95, 100], [105, 100]);
-    expect(rs).toBeLessThan(0);
+  describe('动量计算', () => {
+    it('应该计算正向动量', () => {
+      for (let i = 0; i < 5; i++) {
+        engine.updateData(createSector({ change: 3, netInflow: 30000 }));
+      }
+      const momentum = engine.calculateMomentum('BK0536');
+      expect(momentum).toBeGreaterThan(0);
+    });
+
+    it('应该计算负向动量', () => {
+      for (let i = 0; i < 5; i++) {
+        engine.updateData(createSector({ change: -3, netInflow: -30000 }));
+      }
+      const momentum = engine.calculateMomentum('BK0536');
+      expect(momentum).toBeLessThan(0);
+    });
   });
 
-  it('returns 0 for insufficient data', () => {
-    expect(calculateRelativeStrength([100], [100])).toBe(0);
+  describe('轮动信号', () => {
+    it('应该检测流入信号', () => {
+      for (let i = 0; i < 10; i++) {
+        engine.updateData(createSector({ change: 4, netInflow: 80000 }));
+      }
+      const signal = engine.detectRotation('BK0536');
+      expect(signal.type).toBe('rotate_in');
+      expect(signal.score).toBeGreaterThan(0);
+      expect(signal.reason).toBeTruthy();
+    });
+
+    it('应该检测流出信号', () => {
+      for (let i = 0; i < 10; i++) {
+        engine.updateData(createSector({ change: -4, netInflow: -80000 }));
+      }
+      const signal = engine.detectRotation('BK0536');
+      expect(signal.type).toBe('rotate_out');
+    });
+
+    it('数据不足时返回watch', () => {
+      engine.updateData(createSector());
+      const signal = engine.detectRotation('BK0536');
+      expect(signal.type).toBe('watch');
+      expect(signal.confidence).toBe(0);
+    });
+
+    it('应该包含持续天数', () => {
+      for (let i = 0; i < 5; i++) {
+        engine.updateData(createSector({ change: 2 }));
+      }
+      const signal = engine.detectRotation('BK0536');
+      expect(signal.duration).toBe(5);
+    });
+  });
+
+  describe('热度图', () => {
+    it('应该生成板块热度排名', () => {
+      engine.updateData(createSector({ code: 'BK0536', name: '半导体', change: 2 }));
+      engine.updateData(createSector({ code: 'BK0536', name: '半导体', change: 3, netInflow: 50000 }));
+      engine.updateData(createSector({ code: 'BK0437', name: '新能源', change: 1 }));
+      engine.updateData(createSector({ code: 'BK0437', name: '新能源', change: -1, netInflow: -20000 }));
+
+      const heatmap = engine.generateHeatmap();
+      expect(heatmap.length).toBeGreaterThanOrEqual(2);
+      expect(heatmap[0].rank).toBe(1);
+      expect(heatmap[0].heat).toBeGreaterThanOrEqual(heatmap[1].heat);
+    });
+
+    it('应该包含趋势信息', () => {
+      engine.updateData(createSector({ change: 2 }));
+      engine.updateData(createSector({ change: 3, netInflow: 30000 }));
+
+      const heatmap = engine.generateHeatmap();
+      expect(['rising', 'falling', 'stable']).toContain(heatmap[0].trend);
+    });
+  });
+
+  describe('轮动建议', () => {
+    it('应该分类建议', () => {
+      // 买入信号
+      for (let i = 0; i < 10; i++) {
+        engine.updateData(createSector({ code: 'BUY', change: 4, netInflow: 80000 }));
+      }
+      // 卖出信号
+      for (let i = 0; i < 10; i++) {
+        engine.updateData(createSector({ code: 'SELL', change: -4, netInflow: -80000 }));
+      }
+
+      const advice = engine.getRotationAdvice(['BUY', 'SELL']);
+      expect(advice.buy).toContain('BUY');
+      expect(advice.sell).toContain('SELL');
+    });
+
+    it('应该返回所有分类', () => {
+      engine.updateData(createSector({ code: 'A', change: 0, netInflow: 0 }));
+      const advice = engine.getRotationAdvice(['A']);
+      expect(Array.isArray(advice.buy)).toBe(true);
+      expect(Array.isArray(advice.hold)).toBe(true);
+      expect(Array.isArray(advice.sell)).toBe(true);
+      expect(Array.isArray(advice.watch)).toBe(true);
+    });
+  });
+
+  describe('数据清理', () => {
+    it('应该清除历史数据', () => {
+      engine.updateData(createSector());
+      engine.clearHistory();
+      const rs = engine.calculateRelativeStrength('BK0536');
+      expect(rs).toBe(50);
+    });
   });
 });

@@ -1,209 +1,231 @@
 /**
- * 量化因子引擎
- * 多因子模型构建、因子暴露度计算、因子收益归因
+ * 量化因子评分引擎
+ * 多因子模型综合评分系统
  */
 
-export interface Factor {
+export interface FactorScore {
   name: string;
-  category: 'value' | 'growth' | 'momentum' | 'quality' | 'size' | 'volatility' | 'liquidity';
-  values: { ticker: string; value: number }[];
+  value: number;
+  weight: number;
+  score: number;   // 0-100
+  percentile: number;
 }
 
-export interface FactorExposure {
-  ticker: string;
-  exposures: { [factorName: string]: number };
-  expectedReturn: number;
-  risk: number;
+export interface FactorConfig {
+  momentum: { weight: number; lookback: number };
+  value: { weight: number };
+  quality: { weight: number };
+  volatility: { weight: number; window: number };
+  growth: { weight: number };
+  sentiment: { weight: number };
 }
 
-export interface FactorReturn {
-  factorName: string;
-  periodReturn: number;
-  tStat: number;
-  significant: boolean;
+export interface StockFactors {
+  symbol: string;
+  returns1M: number;
+  returns3M: number;
+  returns6M: number;
+  returns12M: number;
+  pe: number;
+  pb: number;
+  ps: number;
+  roe: number;
+  grossMargin: number;
+  debtToEquity: number;
+  revenueGrowth: number;
+  earningsGrowth: number;
+  volatility20D: number;
+  volatility60D: number;
+  analystRating: number;    // 1-5
+  shortInterest: number;    // 做空比例
+  institutionalHolding: number; // 机构持仓比例
 }
 
-export interface FactorModel {
-  factors: Factor[];
-  returns: FactorReturn[];
-  rSquared: number;
-  residualRisk: number;
+export interface QuantScoreResult {
+  symbol: string;
+  totalScore: number;
+  grade: 'A+' | 'A' | 'B+' | 'B' | 'C' | 'D' | 'F';
+  factors: FactorScore[];
+  recommendation: 'strong_buy' | 'buy' | 'hold' | 'sell' | 'strong_sell';
 }
 
-export interface FactorIC {
-  factorName: string;
-  ic: number; // Information Coefficient
-  ir: number; // Information Ratio
-  rankIC: number;
-  icStd: number;
-}
-
-export function calculateZScore(values: number[]): number[] {
-  const mean = values.reduce((s, v) => s + v, 0) / values.length;
-  const std = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1 || 1));
-  return std > 0 ? values.map(v => (v - mean) / std) : values.map(() => 0);
-}
-
-export function normalizeFactor(factor: Factor): Factor {
-  const vals = factor.values.map(v => v.value);
-  const zScores = calculateZScore(vals);
-  return {
-    ...factor,
-    values: factor.values.map((v, i) => ({ ticker: v.ticker, value: zScores[i] })),
+export class QuantFactorEngine {
+  private config: FactorConfig = {
+    momentum: { weight: 0.25, lookback: 60 },
+    value: { weight: 0.2 },
+    quality: { weight: 0.2 },
+    volatility: { weight: 0.15, window: 20 },
+    growth: { weight: 0.1 },
+    sentiment: { weight: 0.1 },
   };
-}
 
-export function winsorize(values: number[], limit: number = 3): number[] {
-  const mean = values.reduce((s, v) => s + v, 0) / values.length;
-  const std = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1 || 1));
-  return values.map(v => {
-    if (v > mean + limit * std) return mean + limit * std;
-    if (v < mean - limit * std) return mean - limit * std;
-    return v;
-  });
-}
+  /**
+   * 计算动量因子得分
+   */
+  private scoreMomentum(factors: StockFactors): FactorScore {
+    const r1m = factors.returns1M * 100;
+    const r3m = factors.returns3M * 100;
+    const r6m = factors.returns6M * 100;
 
-export function calculateFactorExposures(
-  factors: Factor[],
-  ticker: string
-): FactorExposure {
-  const exposures: { [key: string]: number } = {};
-  for (const factor of factors) {
-    const val = factor.values.find(v => v.ticker === ticker);
-    exposures[factor.name] = val?.value || 0;
-  }
-  
-  // Simple expected return from factor exposures
-  const expectedReturn = Object.values(exposures).reduce((s, e) => s + e, 0) / (Object.keys(exposures).length || 1);
-  const risk = Math.sqrt(Object.values(exposures).reduce((s, e) => s + e ** 2, 0) / (Object.keys(exposures).length || 1));
-  
-  return { ticker, exposures, expectedReturn, risk };
-}
+    // 加权动量
+    const weightedMomentum = r1m * 0.5 + r3m * 0.3 + r6m * 0.2;
+    const score = Math.max(0, Math.min(100, 50 + weightedMomentum * 2));
 
-export function calculateFactorReturns(
-  factors: Factor[],
-  stockReturns: { ticker: string; return: number }[]
-): FactorReturn[] {
-  return factors.map(factor => {
-    const vals = factor.values.map(v => {
-      const ret = stockReturns.find(r => r.ticker === v.ticker);
-      return { factorValue: v.value, stockReturn: ret?.return || 0 };
-    });
-    
-    // Simple cross-sectional regression approximation
-    const n = vals.length;
-    if (n < 2) return { factorName: factor.name, periodReturn: 0, tStat: 0, significant: false };
-    
-    const meanX = vals.reduce((s, v) => s + v.factorValue, 0) / n;
-    const meanY = vals.reduce((s, v) => s + v.stockReturn, 0) / n;
-    
-    let num = 0, den = 0;
-    for (const v of vals) {
-      num += (v.factorValue - meanX) * (v.stockReturn - meanY);
-      den += (v.factorValue - meanX) ** 2;
-    }
-    
-    const beta = den !== 0 ? num / den : 0;
-    const residuals = vals.map(v => v.stockReturn - beta * v.factorValue);
-    const residualVar = residuals.reduce((s, r) => s + r ** 2, 0) / (n - 2 || 1);
-    const se = den > 0 ? Math.sqrt(residualVar / den) : 0;
-    const tStat = se !== 0 ? beta / se : 0;
-    
     return {
-      factorName: factor.name,
-      periodReturn: beta,
-      tStat,
-      significant: Math.abs(tStat) > 1.96,
+      name: '动量',
+      value: weightedMomentum,
+      weight: this.config.momentum.weight,
+      score: Math.round(score),
+      percentile: Math.round(score),
     };
-  });
-}
-
-export function calculateFactorIC(
-  factor: Factor,
-  forwardReturns: { ticker: string; return: number }[]
-): FactorIC {
-  const paired = factor.values.map(v => {
-    const ret = forwardReturns.find(r => r.ticker === v.ticker);
-    return { factorValue: v.value, stockReturn: ret?.return || 0 };
-  }).filter(p => p.factorValue !== undefined && p.stockReturn !== undefined);
-  
-  if (paired.length < 3) {
-    return { factorName: factor.name, ic: 0, ir: 0, rankIC: 0, icStd: 0 };
   }
-  
-  // Pearson IC
-  const n = paired.length;
-  const meanX = paired.reduce((s, p) => s + p.factorValue, 0) / n;
-  const meanY = paired.reduce((s, p) => s + p.stockReturn, 0) / n;
-  let num = 0, denX = 0, denY = 0;
-  for (const p of paired) {
-    num += (p.factorValue - meanX) * (p.stockReturn - meanY);
-    denX += (p.factorValue - meanX) ** 2;
-    denY += (p.stockReturn - meanY) ** 2;
+
+  /**
+   * 计算估值因子得分
+   */
+  private scoreValue(factors: StockFactors): FactorScore {
+    // PE、PB、PS越低越好（价值股）
+    const peScore = factors.pe > 0 ? Math.max(0, 100 - factors.pe * 2) : 50;
+    const pbScore = factors.pb > 0 ? Math.max(0, 100 - factors.pb * 15) : 50;
+    const psScore = factors.ps > 0 ? Math.max(0, 100 - factors.ps * 5) : 50;
+
+    const avg = (peScore + pbScore + psScore) / 3;
+
+    return {
+      name: '估值',
+      value: factors.pe,
+      weight: this.config.value.weight,
+      score: Math.round(avg),
+      percentile: Math.round(avg),
+    };
   }
-  const ic = denX > 0 && denY > 0 ? num / Math.sqrt(denX * denY) : 0;
-  
-  // Rank IC (Spearman)
-  const sortedFactor = [...paired].sort((a, b) => a.factorValue - b.factorValue);
-  const sortedReturn = [...paired].sort((a, b) => a.stockReturn - b.stockReturn);
-  let d2Sum = 0;
-  for (let i = 0; i < n; i++) {
-    const d = sortedFactor.indexOf(paired[i]) - sortedReturn.indexOf(paired[i]);
-    d2Sum += d * d;
+
+  /**
+   * 计算质量因子得分
+   */
+  private scoreQuality(factors: StockFactors): FactorScore {
+    const roeScore = Math.min(100, factors.roe * 500); // 20% ROE → 100分
+    const marginScore = Math.min(100, factors.grossMargin * 200);
+    const debtScore = Math.max(0, 100 - factors.debtToEquity * 50);
+
+    const avg = (roeScore * 0.4 + marginScore * 0.3 + debtScore * 0.3);
+
+    return {
+      name: '质量',
+      value: factors.roe,
+      weight: this.config.quality.weight,
+      score: Math.round(avg),
+      percentile: Math.round(avg),
+    };
   }
-  const rankIC = 1 - (6 * d2Sum) / (n * (n * n - 1));
-  
-  return { factorName: factor.name, ic, ir: ic / (Math.abs(ic) * 0.3 || 1), rankIC, icStd: 0.3 };
+
+  /**
+   * 计算波动率因子得分（低波动溢价）
+   */
+  private scoreVolatility(factors: StockFactors): FactorScore {
+    const volScore = Math.max(0, 100 - factors.volatility20D * 200);
+
+    return {
+      name: '波动率',
+      value: factors.volatility20D,
+      weight: this.config.volatility.weight,
+      score: Math.round(volScore),
+      percentile: Math.round(volScore),
+    };
+  }
+
+  /**
+   * 计算成长因子得分
+   */
+  private scoreGrowth(factors: StockFactors): FactorScore {
+    const revGrowth = Math.min(100, Math.max(0, 50 + factors.revenueGrowth * 100));
+    const earnGrowth = Math.min(100, Math.max(0, 50 + factors.earningsGrowth * 100));
+    const avg = (revGrowth + earnGrowth) / 2;
+
+    return {
+      name: '成长',
+      value: factors.revenueGrowth,
+      weight: this.config.growth.weight,
+      score: Math.round(avg),
+      percentile: Math.round(avg),
+    };
+  }
+
+  /**
+   * 计算情绪因子得分
+   */
+  private scoreSentiment(factors: StockFactors): FactorScore {
+    const analystScore = factors.analystRating * 20; // 1-5 → 20-100
+    const shortScore = Math.max(0, 100 - factors.shortInterest * 500);
+    const instScore = factors.institutionalHolding * 100;
+
+    const avg = (analystScore * 0.4 + shortScore * 0.3 + instScore * 0.3);
+
+    return {
+      name: '情绪',
+      value: factors.analystRating,
+      weight: this.config.sentiment.weight,
+      score: Math.round(avg),
+      percentile: Math.round(avg),
+    };
+  }
+
+  /**
+   * 综合评分
+   */
+  scoreStock(factors: StockFactors): QuantScoreResult {
+    const factorScores = [
+      this.scoreMomentum(factors),
+      this.scoreValue(factors),
+      this.scoreQuality(factors),
+      this.scoreVolatility(factors),
+      this.scoreGrowth(factors),
+      this.scoreSentiment(factors),
+    ];
+
+    // 加权总分
+    const totalScore = Math.round(
+      factorScores.reduce((sum, f) => sum + f.score * f.weight, 0) * 100
+    ) / 100;
+
+    // 等级
+    let grade: QuantScoreResult['grade'];
+    if (totalScore >= 85) grade = 'A+';
+    else if (totalScore >= 75) grade = 'A';
+    else if (totalScore >= 65) grade = 'B+';
+    else if (totalScore >= 55) grade = 'B';
+    else if (totalScore >= 45) grade = 'C';
+    else if (totalScore >= 35) grade = 'D';
+    else grade = 'F';
+
+    // 推荐
+    let recommendation: QuantScoreResult['recommendation'];
+    if (totalScore >= 80) recommendation = 'strong_buy';
+    else if (totalScore >= 65) recommendation = 'buy';
+    else if (totalScore >= 45) recommendation = 'hold';
+    else if (totalScore >= 30) recommendation = 'sell';
+    else recommendation = 'strong_sell';
+
+    return {
+      symbol: factors.symbol,
+      totalScore,
+      grade,
+      factors: factorScores,
+      recommendation,
+    };
+  }
+
+  /**
+   * 批量评分
+   */
+  batchScore(stocks: StockFactors[]): QuantScoreResult[] {
+    return stocks.map(s => this.scoreStock(s)).sort((a, b) => b.totalScore - a.totalScore);
+  }
+
+  updateConfig(config: Partial<FactorConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
 }
 
-export function buildMultiFactorModel(
-  factors: Factor[],
-  stockReturns: { ticker: string; return: number }[]
-): FactorModel {
-  const returns = calculateFactorReturns(factors, stockReturns);
-  
-  // Calculate R-squared (simplified)
-  const totalVariance = stockReturns.reduce((s, r) => s + r.return ** 2, 0);
-  const explainedVariance = returns.reduce((s, r) => s + r.periodReturn ** 2, 0);
-  const rSquared = totalVariance > 0 ? Math.min(1, explainedVariance / totalVariance) : 0;
-  
-  const residualRisk = Math.sqrt(Math.max(0, 1 - rSquared));
-  
-  return { factors, returns, rSquared, residualRisk };
-}
-
-export function neutralizeFactors(
-  exposures: FactorExposure[],
-  factorsToNeutralize: string[]
-): FactorExposure[] {
-  return exposures.map(exp => {
-    const newExposures = { ...exp.exposures };
-    for (const f of factorsToNeutralize) {
-      newExposures[f] = 0;
-    }
-    
-    const expectedReturn = Object.values(newExposures).reduce((s, e) => s + e, 0) / (Object.keys(newExposures).length || 1);
-    const risk = Math.sqrt(Object.values(newExposures).reduce((s, e) => s + e ** 2, 0) / (Object.keys(newExposures).length || 1));
-    
-    return { ...exp, exposures: newExposures, expectedReturn, risk };
-  });
-}
-
-export function compositeFactorScore(
-  exposures: FactorExposure[],
-  weights: { [factorName: string]: number }
-): { ticker: string; score: number; rank: number }[] {
-  const scores = exposures.map(exp => {
-    let score = 0;
-    let totalWeight = 0;
-    for (const [factor, weight] of Object.entries(weights)) {
-      score += (exp.exposures[factor] || 0) * weight;
-      totalWeight += Math.abs(weight);
-    }
-    return { ticker: exp.ticker, score: totalWeight > 0 ? score / totalWeight : 0, rank: 0 };
-  });
-  
-  scores.sort((a, b) => b.score - a.score);
-  scores.forEach((s, i) => s.rank = i + 1);
-  return scores;
-}
+export const quantFactorEngine = new QuantFactorEngine();
+export default QuantFactorEngine;

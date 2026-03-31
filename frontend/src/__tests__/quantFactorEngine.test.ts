@@ -1,193 +1,141 @@
-import { describe, it, expect } from 'vitest';
-import {
-  calculateZScore,
-  normalizeFactor,
-  winsorize,
-  calculateFactorExposures,
-  calculateFactorReturns,
-  calculateFactorIC,
-  buildMultiFactorModel,
-  neutralizeFactors,
-  compositeFactorScore,
-  type Factor,
-  type FactorExposure,
-} from '../utils/quantFactorEngine';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { QuantFactorEngine } from '../utils/quantFactorEngine';
+import type { StockFactors } from '../utils/quantFactorEngine';
 
 describe('QuantFactorEngine', () => {
-  const factors: Factor[] = [
-    { name: 'PE', category: 'value', values: [
-      { ticker: 'A', value: 10 }, { ticker: 'B', value: 15 }, { ticker: 'C', value: 20 },
-      { ticker: 'D', value: 25 }, { ticker: 'E', value: 30 },
-    ]},
-    { name: 'ROE', category: 'quality', values: [
-      { ticker: 'A', value: 0.2 }, { ticker: 'B', value: 0.15 }, { ticker: 'C', value: 0.1 },
-      { ticker: 'D', value: 0.25 }, { ticker: 'E', value: 0.18 },
-    ]},
-    { name: 'Momentum', category: 'momentum', values: [
-      { ticker: 'A', value: 0.1 }, { ticker: 'B', value: -0.05 }, { ticker: 'C', value: 0.15 },
-      { ticker: 'D', value: 0.08 }, { ticker: 'E', value: -0.02 },
-    ]},
-  ];
+  let engine: QuantFactorEngine;
 
-  const stockReturns = [
-    { ticker: 'A', return: 0.08 }, { ticker: 'B', return: -0.03 }, { ticker: 'C', return: 0.12 },
-    { ticker: 'D', return: 0.05 }, { ticker: 'E', return: -0.01 },
-  ];
-
-  describe('calculateZScore', () => {
-    it('should calculate z-scores', () => {
-      const zScores = calculateZScore([1, 2, 3, 4, 5]);
-      expect(zScores.reduce((s, z) => s + z, 0)).toBeCloseTo(0, 5);
-    });
-
-    it('should return zeros for identical values', () => {
-      const zScores = calculateZScore([5, 5, 5]);
-      expect(zScores.every(z => z === 0)).toBe(true);
-    });
-
-    it('should handle empty array', () => {
-      expect(calculateZScore([])).toEqual([]);
-    });
+  const createFactors = (overrides: Partial<StockFactors> = {}): StockFactors => ({
+    symbol: '000001',
+    returns1M: 0.05,
+    returns3M: 0.1,
+    returns6M: 0.15,
+    returns12M: 0.2,
+    pe: 15,
+    pb: 2,
+    ps: 3,
+    roe: 0.15,
+    grossMargin: 0.4,
+    debtToEquity: 0.5,
+    revenueGrowth: 0.1,
+    earningsGrowth: 0.15,
+    volatility20D: 0.2,
+    volatility60D: 0.18,
+    analystRating: 4,
+    shortInterest: 0.02,
+    institutionalHolding: 0.6,
+    ...overrides,
   });
 
-  describe('normalizeFactor', () => {
-    it('should normalize factor values to z-scores', () => {
-      const normalized = normalizeFactor(factors[0]);
-      expect(normalized.values.length).toBe(factors[0].values.length);
-      expect(normalized.name).toBe('PE');
-    });
-
-    it('should preserve ticker mapping', () => {
-      const normalized = normalizeFactor(factors[0]);
-      expect(normalized.values.map(v => v.ticker)).toEqual(['A', 'B', 'C', 'D', 'E']);
-    });
+  beforeEach(() => {
+    engine = new QuantFactorEngine();
   });
 
-  describe('winsorize', () => {
-    it('should cap extreme values', () => {
-      const values = Array(20).fill(2).concat([10000]);
-      const result = winsorize(values, 2);
-      expect(result[20]).toBeLessThan(10000);
+  describe('单股评分', () => {
+    it('应该计算综合得分', () => {
+      const result = engine.scoreStock(createFactors());
+      expect(result.totalScore).toBeGreaterThan(0);
+      expect(result.totalScore).toBeLessThanOrEqual(100);
     });
 
-    it('should not modify values within bounds', () => {
-      const values = [2, 3, 3, 3, 4];
-      const result = winsorize(values, 3);
-      expect(result[0]).toBe(2);
-      expect(result[4]).toBe(4);
+    it('应该分配等级', () => {
+      const result = engine.scoreStock(createFactors());
+      expect(['A+', 'A', 'B+', 'B', 'C', 'D', 'F']).toContain(result.grade);
     });
 
-    it('should use default limit of 3', () => {
-      const values = Array(20).fill(2).concat([100000]);
-      const result = winsorize(values);
-      expect(result[20]).toBeLessThan(100000);
-    });
-  });
-
-  describe('calculateFactorExposures', () => {
-    it('should calculate exposures for a ticker', () => {
-      const exposure = calculateFactorExposures(factors, 'A');
-      expect(exposure.ticker).toBe('A');
-      expect(exposure.exposures['PE']).toBe(10);
-      expect(exposure.exposures['ROE']).toBe(0.2);
+    it('应该给出推荐', () => {
+      const result = engine.scoreStock(createFactors());
+      expect(['strong_buy', 'buy', 'hold', 'sell', 'strong_sell']).toContain(result.recommendation);
     });
 
-    it('should calculate expected return and risk', () => {
-      const exposure = calculateFactorExposures(factors, 'A');
-      expect(typeof exposure.expectedReturn).toBe('number');
-      expect(typeof exposure.risk).toBe('number');
+    it('应该包含因子明细', () => {
+      const result = engine.scoreStock(createFactors());
+      expect(result.factors.length).toBe(6);
+      expect(result.factors.map(f => f.name)).toEqual(
+        expect.arrayContaining(['动量', '估值', '质量', '波动率', '成长', '情绪'])
+      );
     });
 
-    it('should handle missing ticker', () => {
-      const exposure = calculateFactorExposures(factors, 'X');
-      expect(exposure.exposures['PE']).toBe(0);
-    });
-  });
-
-  describe('calculateFactorReturns', () => {
-    it('should calculate factor returns', () => {
-      const returns = calculateFactorReturns(factors, stockReturns);
-      expect(returns.length).toBe(factors.length);
-      for (const r of returns) {
-        expect(typeof r.periodReturn).toBe('number');
-        expect(typeof r.tStat).toBe('number');
-        expect(typeof r.significant).toBe('boolean');
-      }
-    });
-
-    it('should flag significant factors', () => {
-      const returns = calculateFactorReturns(factors, stockReturns);
-      for (const r of returns) {
-        expect(r.significant).toBe(Math.abs(r.tStat) > 1.96);
+    it('每个因子应有权重和得分', () => {
+      const result = engine.scoreStock(createFactors());
+      for (const factor of result.factors) {
+        expect(factor.weight).toBeGreaterThan(0);
+        expect(factor.score).toBeGreaterThanOrEqual(0);
+        expect(factor.score).toBeLessThanOrEqual(100);
       }
     });
   });
 
-  describe('calculateFactorIC', () => {
-    it('should calculate IC', () => {
-      const ic = calculateFactorIC(factors[0], stockReturns);
-      expect(ic.factorName).toBe('PE');
-      expect(ic.ic).toBeGreaterThanOrEqual(-1);
-      expect(ic.ic).toBeLessThanOrEqual(1);
-    });
-
-    it('should calculate rank IC', () => {
-      const ic = calculateFactorIC(factors[0], stockReturns);
-      expect(ic.rankIC).toBeGreaterThanOrEqual(-1);
-      expect(ic.rankIC).toBeLessThanOrEqual(1);
-    });
-
-    it('should return zeros for insufficient data', () => {
-      const smallFactor: Factor = { name: 'test', category: 'value', values: [{ ticker: 'A', value: 1 }] };
-      const ic = calculateFactorIC(smallFactor, [{ ticker: 'A', return: 0.1 }]);
-      expect(ic.ic).toBe(0);
+  describe('高质量股票', () => {
+    it('应该获得高分', () => {
+      const result = engine.scoreStock(createFactors({
+        returns1M: 0.1,
+        returns3M: 0.25,
+        returns6M: 0.4,
+        roe: 0.25,
+        grossMargin: 0.6,
+        debtToEquity: 0.2,
+        pe: 10,
+        analystRating: 5,
+        revenueGrowth: 0.3,
+        earningsGrowth: 0.4,
+      }));
+      expect(result.totalScore).toBeGreaterThan(60);
     });
   });
 
-  describe('buildMultiFactorModel', () => {
-    it('should build model', () => {
-      const model = buildMultiFactorModel(factors, stockReturns);
-      expect(model.factors.length).toBe(factors.length);
-      expect(model.returns.length).toBe(factors.length);
-      expect(model.rSquared).toBeGreaterThanOrEqual(0);
-      expect(model.rSquared).toBeLessThanOrEqual(1);
-    });
-
-    it('should include residual risk', () => {
-      const model = buildMultiFactorModel(factors, stockReturns);
-      expect(model.residualRisk).toBeGreaterThanOrEqual(0);
+  describe('低质量股票', () => {
+    it('应该获得低分', () => {
+      const result = engine.scoreStock(createFactors({
+        returns1M: -0.15,
+        returns3M: -0.3,
+        roe: 0.02,
+        grossMargin: 0.1,
+        debtToEquity: 2,
+        pe: 100,
+        analystRating: 1,
+        revenueGrowth: -0.2,
+        earningsGrowth: -0.3,
+      }));
+      expect(result.totalScore).toBeLessThan(50);
     });
   });
 
-  describe('neutralizeFactors', () => {
-    it('should set neutralized factors to 0', () => {
-      const exposures: FactorExposure[] = [
-        { ticker: 'A', exposures: { PE: 1, ROE: 0.5, Momentum: 0.2 }, expectedReturn: 0.5, risk: 0.5 },
+  describe('批量评分', () => {
+    it('应该按分数排序', () => {
+      const stocks = [
+        createFactors({ symbol: 'LOW', pe: 100, returns1M: -0.2, roe: 0.01 }),
+        createFactors({ symbol: 'HIGH', pe: 8, returns1M: 0.15, roe: 0.3 }),
+        createFactors({ symbol: 'MID', pe: 20, returns1M: 0.02, roe: 0.12 }),
       ];
-      const result = neutralizeFactors(exposures, ['PE']);
-      expect(result[0].exposures['PE']).toBe(0);
-      expect(result[0].exposures['ROE']).toBe(0.5);
+      const results = engine.batchScore(stocks);
+      expect(results[0].symbol).toBe('HIGH');
+      expect(results[results.length - 1].symbol).toBe('LOW');
     });
   });
 
-  describe('compositeFactorScore', () => {
-    it('should calculate composite scores', () => {
-      const exposures: FactorExposure[] = factors[0].values.map(v => 
-        calculateFactorExposures(factors, v.ticker)
-      );
-      const scores = compositeFactorScore(exposures, { PE: 0.5, ROE: 0.3, Momentum: 0.2 });
-      expect(scores.length).toBe(exposures.length);
-      expect(scores[0].rank).toBe(1);
+  describe('配置', () => {
+    it('应该更新配置', () => {
+      engine.updateConfig({ momentum: { weight: 0.4, lookback: 30 } });
+      const result = engine.scoreStock(createFactors());
+      expect(result.factors.find(f => f.name === '动量')!.weight).toBe(0.4);
+    });
+  });
+
+  describe('边界条件', () => {
+    it('应该处理零值', () => {
+      const result = engine.scoreStock(createFactors({
+        pe: 0, pb: 0, ps: 0, roe: 0,
+        returns1M: 0, returns3M: 0, returns6M: 0,
+      }));
+      expect(result.totalScore).toBeGreaterThanOrEqual(0);
     });
 
-    it('should sort by score descending', () => {
-      const exposures: FactorExposure[] = factors[0].values.map(v => 
-        calculateFactorExposures(factors, v.ticker)
-      );
-      const scores = compositeFactorScore(exposures, { PE: 1 });
-      for (let i = 1; i < scores.length; i++) {
-        expect(scores[i - 1].score).toBeGreaterThanOrEqual(scores[i].score);
-      }
+    it('应该处理极端值', () => {
+      const result = engine.scoreStock(createFactors({
+        pe: 1000, roe: -1, returns1M: -0.99,
+      }));
+      expect(result.totalScore).toBeGreaterThanOrEqual(0);
     });
   });
 });
