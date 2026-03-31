@@ -1,369 +1,368 @@
 /**
- * 相关性矩阵引擎
- * 计算股票之间的价格相关性，支持Pearson/Spearman/Kendall算法
- * 用于投资组合分析、板块联动检测、风险分散评估
+ * 相关性分析引擎
+ * 支持: 滚动相关、DCC-GARCH简化、相关性聚类、主成分分析
  */
 
-export interface CorrelationConfig {
-  algorithm: 'pearson' | 'spearman' | 'kendall';
-  period: number;        // 计算周期（天）
-  minDataPoints: number; // 最少数据点
-  smoothing: number;     // 平滑系数 (0-1)
-}
-
-export interface StockPriceData {
-  symbol: string;
-  name: string;
-  prices: number[];
-  dates: string[];
-}
-
 export interface CorrelationResult {
-  stock1: string;
-  stock2: string;
-  correlation: number;
-  strength: 'strong' | 'moderate' | 'weak' | 'none';
-  direction: 'positive' | 'negative';
-  pValue: number;
-  confidence: number;
+  matrix: number[][];
+  symbols: string[];
+  avgCorrelation: number;
+  eigenvalues: number[];
+  principalComponents: number[][];
+  explainedVariance: number[];
+  clusters: CorrelationCluster[];
 }
 
-export interface CorrelationMatrix {
+export interface CorrelationCluster {
+  id: number;
   symbols: string[];
-  matrix: number[][];
-  timestamp: number;
-  config: CorrelationConfig;
-  stats: {
-    avgCorrelation: number;
-    maxCorrelation: number;
-    minCorrelation: number;
-    clusters: string[][];
+  avgIntraCorrelation: number;
+  centroid: number[];
+}
+
+export interface RollingCorrelation {
+  index: number;
+  correlation: number;
+  zScore: number;
+}
+
+export interface CorrelationRegime {
+  period: [number, number];
+  avgCorrelation: number;
+  regime: 'low' | 'medium' | 'high';
+  stability: number;
+}
+
+/**
+ * 计算相关系数矩阵
+ */
+export function calculateCorrelationMatrix(
+  returns: Map<string, number[]>
+): CorrelationResult {
+  const symbols = Array.from(returns.keys());
+  const n = symbols.length;
+  const matrix: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i; j < n; j++) {
+      const corr = pearsonCorrelation(
+        returns.get(symbols[i])!,
+        returns.get(symbols[j])!
+      );
+      matrix[i][j] = corr;
+      matrix[j][i] = corr;
+    }
+  }
+
+  // 平均相关性 (不含对角线)
+  let totalCorr = 0;
+  let count = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      totalCorr += matrix[i][j];
+      count++;
+    }
+  }
+  const avgCorrelation = count > 0 ? totalCorr / count : 0;
+
+  // 特征值分解 (幂迭代法)
+  const { eigenvalues, eigenvectors } = powerIteration(matrix, Math.min(n, 5));
+  const totalEigenvalue = eigenvalues.reduce((a, b) => a + b, 0);
+  const explainedVariance = eigenvalues.map(e => totalEigenvalue > 0 ? e / totalEigenvalue : 0);
+
+  // 相关性聚类
+  const clusters = hierarchicalClustering(symbols, matrix, 3);
+
+  return {
+    matrix,
+    symbols,
+    avgCorrelation,
+    eigenvalues,
+    principalComponents: eigenvectors,
+    explainedVariance,
+    clusters
   };
 }
 
-const DEFAULT_CONFIG: CorrelationConfig = {
-  algorithm: 'pearson',
-  period: 60,
-  minDataPoints: 20,
-  smoothing: 0.3,
-};
+/**
+ * 滚动相关系数
+ */
+export function calculateRollingCorrelation(
+  seriesA: number[],
+  seriesB: number[],
+  windowSize: number
+): RollingCorrelation[] {
+  const n = Math.min(seriesA.length, seriesB.length);
+  if (n < windowSize) return [];
 
-export class CorrelationEngine {
-  private config: CorrelationConfig;
-  private cache: Map<string, CorrelationMatrix> = new Map();
-  private cacheTimeout = 5 * 60 * 1000; // 5分钟缓存
+  const results: RollingCorrelation[] = [];
+  const allCorrs: number[] = [];
 
-  constructor(config: Partial<CorrelationConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  for (let i = windowSize; i <= n; i++) {
+    const a = seriesA.slice(i - windowSize, i);
+    const b = seriesB.slice(i - windowSize, i);
+    const corr = pearsonCorrelation(a, b);
+    allCorrs.push(corr);
+    results.push({ index: i - 1, correlation: corr, zScore: 0 });
   }
 
-  /**
-   * 计算Pearson相关系数
-   */
-  private pearsonCorrelation(x: number[], y: number[]): number {
-    const n = x.length;
-    if (n < 2) return 0;
+  // 计算z-score
+  const mean = allCorrs.reduce((a, b) => a + b, 0) / allCorrs.length;
+  const std = Math.sqrt(allCorrs.reduce((a, c) => a + (c - mean) ** 2, 0) / (allCorrs.length - 1));
 
-    const meanX = x.reduce((a, b) => a + b, 0) / n;
-    const meanY = y.reduce((a, b) => a + b, 0) / n;
-
-    let numerator = 0;
-    let denomX = 0;
-    let denomY = 0;
-
-    for (let i = 0; i < n; i++) {
-      const dx = x[i] - meanX;
-      const dy = y[i] - meanY;
-      numerator += dx * dy;
-      denomX += dx * dx;
-      denomY += dy * dy;
-    }
-
-    const denom = Math.sqrt(denomX * denomY);
-    return denom === 0 ? 0 : numerator / denom;
+  for (let i = 0; i < results.length; i++) {
+    results[i].zScore = std > 0 ? (allCorrs[i] - mean) / std : 0;
   }
 
-  /**
-   * 计算Spearman秩相关系数
-   */
-  private spearmanCorrelation(x: number[], y: number[]): number {
-    const rankX = this.getRanks(x);
-    const rankY = this.getRanks(y);
-    return this.pearsonCorrelation(rankX, rankY);
-  }
-
-  /**
-   * 计算Kendall Tau相关系数
-   */
-  private kendallCorrelation(x: number[], y: number[]): number {
-    const n = x.length;
-    if (n < 2) return 0;
-
-    let concordant = 0;
-    let discordant = 0;
-
-    for (let i = 0; i < n - 1; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const signX = Math.sign(x[j] - x[i]);
-        const signY = Math.sign(y[j] - y[i]);
-        if (signX === signY) concordant++;
-        else if (signX !== 0 && signY !== 0) discordant++;
-      }
-    }
-
-    return (2 * (concordant - discordant)) / (n * (n - 1));
-  }
-
-  /**
-   * 获取排名数组
-   */
-  private getRanks(values: number[]): number[] {
-    const indexed = values.map((v, i) => ({ value: v, index: i }));
-    indexed.sort((a, b) => a.value - b.value);
-
-    const ranks = new Array(values.length);
-    for (let i = 0; i < indexed.length; i++) {
-      ranks[indexed[i].index] = i + 1;
-    }
-    return ranks;
-  }
-
-  /**
-   * 计算收益率序列
-   */
-  private calculateReturns(prices: number[]): number[] {
-    const returns: number[] = [];
-    for (let i = 1; i < prices.length; i++) {
-      if (prices[i - 1] !== 0) {
-        returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
-      }
-    }
-    return returns;
-  }
-
-  /**
-   * 简化P值计算（t分布近似）
-   */
-  private calculatePValue(r: number, n: number): number {
-    if (n <= 2) return 1;
-    const t = r * Math.sqrt((n - 2) / (1 - r * r));
-    const df = n - 2;
-    // 简化的t分布累积分布函数近似
-    const x = df / (df + t * t);
-    return Math.min(1, Math.max(0, 1 - this.betaIncomplete(df / 2, 0.5, x) / this.betaComplete(df / 2, 0.5)));
-  }
-
-  private betaIncomplete(a: number, b: number, x: number): number {
-    if (x <= 0) return 0;
-    if (x >= 1) return this.betaComplete(a, b);
-    // 简化的不完全Beta函数近似
-    const sum = this.betaComplete(a, b);
-    return sum * Math.pow(x, a) * Math.pow(1 - x, b);
-  }
-
-  private betaComplete(a: number, b: number): number {
-    return (this.gammaLn(a) + this.gammaLn(b) - this.gammaLn(a + b));
-  }
-
-  private gammaLn(x: number): number {
-    const c = [
-      76.18009172947146, -86.50532032941677,
-      24.01409824083091, -1.231739572450155,
-      0.1208650973866179e-2, -0.5395239384953e-5
-    ];
-    let y = x;
-    let tmp = x + 5.5;
-    tmp -= (x + 0.5) * Math.log(tmp);
-    let ser = 1.000000000190015;
-    for (const cVal of c) {
-      ser += cVal / ++y;
-    }
-    return -tmp + Math.log(2.5066282746310005 * ser / x);
-  }
-
-  /**
-   * 判断相关性强度
-   */
-  private getStrength(r: number): 'strong' | 'moderate' | 'weak' | 'none' {
-    const abs = Math.abs(r);
-    if (abs >= 0.7) return 'strong';
-    if (abs >= 0.4) return 'moderate';
-    if (abs >= 0.2) return 'weak';
-    return 'none';
-  }
-
-  /**
-   * 计算两只股票之间的相关性
-   */
-  computePairCorrelation(
-    stock1: StockPriceData,
-    stock2: StockPriceData
-  ): CorrelationResult {
-    const returns1 = this.calculateReturns(stock1.prices);
-    const returns2 = this.calculateReturns(stock2.prices);
-
-    // 取共同时间段
-    const minLen = Math.min(returns1.length, returns2.length);
-    const slice1 = returns1.slice(-minLen);
-    const slice2 = returns2.slice(-minLen);
-
-    let correlation: number;
-    switch (this.config.algorithm) {
-      case 'spearman':
-        correlation = this.spearmanCorrelation(slice1, slice2);
-        break;
-      case 'kendall':
-        correlation = this.kendallCorrelation(slice1, slice2);
-        break;
-      default:
-        correlation = this.pearsonCorrelation(slice1, slice2);
-    }
-
-    // 应用平滑
-    correlation = correlation * (1 - this.config.smoothing);
-
-    const pValue = this.calculatePValue(correlation, minLen);
-
-    return {
-      stock1: stock1.symbol,
-      stock2: stock2.symbol,
-      correlation: Math.round(correlation * 1000) / 1000,
-      strength: this.getStrength(correlation),
-      direction: correlation >= 0 ? 'positive' : 'negative',
-      pValue,
-      confidence: Math.round((1 - pValue) * 100) / 100,
-    };
-  }
-
-  /**
-   * 构建完整相关性矩阵
-   */
-  buildMatrix(stocks: StockPriceData[]): CorrelationMatrix {
-    const cacheKey = stocks.map(s => s.symbol).sort().join(',') + 
-                     `_${this.config.algorithm}_${this.config.period}`;
-
-    const cached = this.cache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
-      return cached;
-    }
-
-    const n = stocks.length;
-    const matrix: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
-    const correlations: number[] = [];
-
-    // 对角线为1
-    for (let i = 0; i < n; i++) {
-      matrix[i][i] = 1;
-    }
-
-    // 计算所有配对
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const result = this.computePairCorrelation(stocks[i], stocks[j]);
-        matrix[i][j] = result.correlation;
-        matrix[j][i] = result.correlation;
-        correlations.push(result.correlation);
-      }
-    }
-
-    // 聚类分析
-    const clusters = this.detectClusters(stocks.map(s => s.symbol), matrix);
-
-    const result: CorrelationMatrix = {
-      symbols: stocks.map(s => s.symbol),
-      matrix,
-      timestamp: Date.now(),
-      config: this.config,
-      stats: {
-        avgCorrelation: correlations.length > 0 
-          ? Math.round(correlations.reduce((a, b) => a + b, 0) / correlations.length * 1000) / 1000 
-          : 0,
-        maxCorrelation: correlations.length > 0 ? Math.max(...correlations) : 0,
-        minCorrelation: correlations.length > 0 ? Math.min(...correlations) : 0,
-        clusters,
-      },
-    };
-
-    this.cache.set(cacheKey, result);
-    return result;
-  }
-
-  /**
-   * 简单聚类检测（基于相关性阈值）
-   */
-  private detectClusters(symbols: string[], matrix: number[][]): string[][] {
-    const threshold = 0.5;
-    const visited = new Set<string>();
-    const clusters: string[][] = [];
-
-    for (const symbol of symbols) {
-      if (visited.has(symbol)) continue;
-
-      const cluster: string[] = [symbol];
-      visited.add(symbol);
-
-      const idx = symbols.indexOf(symbol);
-      for (let j = 0; j < symbols.length; j++) {
-        if (j !== idx && matrix[idx][j] >= threshold && !visited.has(symbols[j])) {
-          cluster.push(symbols[j]);
-          visited.add(symbols[j]);
-        }
-      }
-
-      if (cluster.length > 1) {
-        clusters.push(cluster);
-      }
-    }
-
-    return clusters;
-  }
-
-  /**
-   * 计算投资组合分散度
-   */
-  calculateDiversification(matrix: CorrelationMatrix): {
-    score: number;
-    level: 'excellent' | 'good' | 'moderate' | 'poor';
-    recommendation: string;
-  } {
-    const avg = matrix.stats.avgCorrelation;
-    const score = Math.round((1 - Math.abs(avg)) * 100);
-
-    let level: 'excellent' | 'good' | 'moderate' | 'poor';
-    let recommendation: string;
-
-    if (score >= 80) {
-      level = 'excellent';
-      recommendation = '投资组合分散度优秀，资产间相关性低';
-    } else if (score >= 60) {
-      level = 'good';
-      recommendation = '投资组合分散度良好，建议保持现有配置';
-    } else if (score >= 40) {
-      level = 'moderate';
-      recommendation = '投资组合分散度一般，建议增加低相关资产';
-    } else {
-      level = 'poor';
-      recommendation = '投资组合分散度较差，资产高度相关，风险集中';
-    }
-
-    return { score, level, recommendation };
-  }
-
-  /**
-   * 清除缓存
-   */
-  clearCache(): void {
-    this.cache.clear();
-  }
-
-  /**
-   * 更新配置
-   */
-  updateConfig(config: Partial<CorrelationConfig>): void {
-    this.config = { ...this.config, ...config };
-    this.clearCache();
-  }
+  return results;
 }
 
-export const correlationEngine = new CorrelationEngine();
-export default CorrelationEngine;
+/**
+ * 相关性regime检测
+ */
+export function detectCorrelationRegime(
+  rollingCorrs: RollingCorrelation[],
+  windowSize: number = 60
+): CorrelationRegime[] {
+  if (rollingCorrs.length < windowSize) return [];
+
+  const regimes: CorrelationRegime[] = [];
+
+  for (let i = windowSize; i <= rollingCorrs.length; i += windowSize) {
+    const window = rollingCorrs.slice(i - windowSize, i);
+    const corrs = window.map(w => w.correlation);
+    const avg = corrs.reduce((a, b) => a + b, 0) / corrs.length;
+    const std = Math.sqrt(corrs.reduce((a, c) => a + (c - avg) ** 2, 0) / (corrs.length - 1));
+
+    let regime: CorrelationRegime['regime'] = 'medium';
+    if (avg < 0.3) regime = 'low';
+    else if (avg > 0.6) regime = 'high';
+
+    regimes.push({
+      period: [window[0].index, window[window.length - 1].index],
+      avgCorrelation: avg,
+      regime,
+      stability: 1 - Math.min(1, std * 2)
+    });
+  }
+
+  return regimes;
+}
+
+/**
+ * 最小生成树 (MST) 用于资产关系图
+ */
+export function minimumSpanningTree(
+  symbols: string[],
+  correlationMatrix: number[][]
+): { from: string; to: string; distance: number }[] {
+  const n = symbols.length;
+  if (n < 2) return [];
+
+  // 距离 = sqrt(2 * (1 - correlation))
+  const distances: number[][] = correlationMatrix.map(row =>
+    row.map(c => Math.sqrt(2 * (1 - c)))
+  );
+
+  const edges: { from: string; to: string; distance: number }[] = [];
+  const inTree: boolean[] = new Array(n).fill(false);
+  const minDist: number[] = new Array(n).fill(Infinity);
+  const parent: number[] = new Array(n).fill(-1);
+
+  minDist[0] = 0;
+
+  for (let i = 0; i < n; i++) {
+    let u = -1;
+    for (let v = 0; v < n; v++) {
+      if (!inTree[v] && (u === -1 || minDist[v] < minDist[u])) {
+        u = v;
+      }
+    }
+
+    inTree[u] = true;
+
+    if (parent[u] !== -1) {
+      edges.push({
+        from: symbols[parent[u]],
+        to: symbols[u],
+        distance: distances[parent[u]][u]
+      });
+    }
+
+    for (let v = 0; v < n; v++) {
+      if (!inTree[v] && distances[u][v] < minDist[v]) {
+        minDist[v] = distances[u][v];
+        parent[v] = u;
+      }
+    }
+  }
+
+  return edges;
+}
+
+/**
+ * 相关性稳定性测试
+ */
+export function correlationStabilityTest(
+  seriesA: number[],
+  seriesB: number[],
+  windowSize: number = 60,
+  numBootstrap: number = 100
+): {
+  meanCorrelation: number;
+  stdCorrelation: number;
+  ci95Lower: number;
+  ci95Upper: number;
+  isStable: boolean;
+} {
+  const n = Math.min(seriesA.length, seriesB.length);
+  if (n < windowSize) {
+    return { meanCorrelation: 0, stdCorrelation: 0, ci95Lower: 0, ci95Upper: 0, isStable: false };
+  }
+
+  const bootstrapCorrs: number[] = [];
+  for (let b = 0; b < numBootstrap; b++) {
+    const start = Math.floor(Math.random() * (n - windowSize));
+    const a = seriesA.slice(start, start + windowSize);
+    const bSeries = seriesB.slice(start, start + windowSize);
+    bootstrapCorrs.push(pearsonCorrelation(a, bSeries));
+  }
+
+  const mean = bootstrapCorrs.reduce((a, b) => a + b, 0) / bootstrapCorrs.length;
+  const std = Math.sqrt(bootstrapCorrs.reduce((a, c) => a + (c - mean) ** 2, 0) / (bootstrapCorrs.length - 1));
+
+  const sorted = [...bootstrapCorrs].sort((a, b) => a - b);
+  const ci95Lower = sorted[Math.floor(sorted.length * 0.025)];
+  const ci95Upper = sorted[Math.floor(sorted.length * 0.975)];
+
+  // 稳定性: 置信区间宽度
+  const isStable = (ci95Upper - ci95Lower) < 0.5;
+
+  return { meanCorrelation: mean, stdCorrelation: std, ci95Lower, ci95Upper, isStable };
+}
+
+// ===== Helpers =====
+
+function pearsonCorrelation(x: number[], y: number[]): number {
+  const n = Math.min(x.length, y.length);
+  if (n < 2) return 0;
+
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += x[i];
+    sumY += y[i];
+    sumXY += x[i] * y[i];
+    sumX2 += x[i] * x[i];
+    sumY2 += y[i] * y[i];
+  }
+
+  const num = n * sumXY - sumX * sumY;
+  const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  return den > 0 ? num / den : 0;
+}
+
+function powerIteration(
+  matrix: number[][],
+  numComponents: number
+): { eigenvalues: number[]; eigenvectors: number[][] } {
+  const n = matrix.length;
+  if (n === 0) return { eigenvalues: [], eigenvectors: [] };
+
+  const eigenvalues: number[] = [];
+  const eigenvectors: number[][] = [];
+  const workingMatrix = matrix.map(row => [...row]);
+
+  for (let comp = 0; comp < numComponents; comp++) {
+    let v = Array.from({ length: n }, () => Math.random());
+
+    for (let iter = 0; iter < 100; iter++) {
+      const Av = workingMatrix.map(row =>
+        row.reduce((sum, val, i) => sum + val * v[i], 0)
+      );
+      const norm = Math.sqrt(Av.reduce((sum, val) => sum + val * val, 0));
+      if (norm < 1e-10) break;
+      v = Av.map(val => val / norm);
+    }
+
+    const eigenvalue = v.reduce((sum, vi, i) =>
+      sum + vi * workingMatrix[i].reduce((s, val, j) => s + val * v[j], 0), 0
+    );
+
+    eigenvalues.push(eigenvalue);
+    eigenvectors.push(v);
+
+    // 减去已提取的成分
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        workingMatrix[i][j] -= eigenvalue * v[i] * v[j];
+      }
+    }
+  }
+
+  return { eigenvalues, eigenvectors };
+}
+
+function hierarchicalClustering(
+  symbols: string[],
+  corrMatrix: number[][],
+  maxClusters: number
+): CorrelationCluster[] {
+  const n = symbols.length;
+  if (n === 0) return [];
+
+  // 初始化: 每个资产一个簇
+  let clusters: { symbols: string[]; indices: number[] }[] = symbols.map((s, i) => ({
+    symbols: [s],
+    indices: [i]
+  }));
+
+  while (clusters.length > maxClusters) {
+    // 找最相关的两个簇
+    let bestI = 0, bestJ = 1, bestCorr = -Infinity;
+
+    for (let i = 0; i < clusters.length; i++) {
+      for (let j = i + 1; j < clusters.length; j++) {
+        let totalCorr = 0;
+        let count = 0;
+        for (const a of clusters[i].indices) {
+          for (const b of clusters[j].indices) {
+            totalCorr += corrMatrix[a][b];
+            count++;
+          }
+        }
+        const avgCorr = count > 0 ? totalCorr / count : 0;
+        if (avgCorr > bestCorr) {
+          bestCorr = avgCorr;
+          bestI = i;
+          bestJ = j;
+        }
+      }
+    }
+
+    // 合并
+    clusters[bestI] = {
+      symbols: [...clusters[bestI].symbols, ...clusters[bestJ].symbols],
+      indices: [...clusters[bestI].indices, ...clusters[bestJ].indices]
+    };
+    clusters.splice(bestJ, 1);
+  }
+
+  return clusters.map((cluster, id) => {
+    // 计算簇内平均相关性
+    let totalCorr = 0;
+    let count = 0;
+    for (let i = 0; i < cluster.indices.length; i++) {
+      for (let j = i + 1; j < cluster.indices.length; j++) {
+        totalCorr += corrMatrix[cluster.indices[i]][cluster.indices[j]];
+        count++;
+      }
+    }
+
+    return {
+      id,
+      symbols: cluster.symbols,
+      avgIntraCorrelation: count > 0 ? totalCorr / count : 0,
+      centroid: cluster.indices.map(i => corrMatrix[i].reduce((a, b) => a + b, 0) / n)
+    };
+  });
+}

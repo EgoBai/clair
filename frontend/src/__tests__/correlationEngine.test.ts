@@ -1,245 +1,169 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { CorrelationEngine } from '../utils/correlationEngine';
+import { describe, it, expect } from 'vitest';
+import {
+  calculateCorrelationMatrix,
+  calculateRollingCorrelation,
+  detectCorrelationRegime,
+  minimumSpanningTree,
+  correlationStabilityTest,
+} from '../utils/correlationEngine';
 
-describe('CorrelationEngine', () => {
-  let engine: CorrelationEngine;
+function generateReturns(n: number, mean: number = 0, vol: number = 0.02): number[] {
+  return Array.from({ length: n }, () => mean + (Math.random() - 0.5) * 2 * vol);
+}
 
-  const createStock = (symbol: string, name: string, prices: number[]) => ({
-    symbol,
-    name,
-    prices,
-    dates: prices.map((_, i) => `2024-01-${String(i + 1).padStart(2, '0')}`),
-  });
+function generateCorrelatedReturns(n: number, base: number[], correlation: number): number[] {
+  return base.map(r => r * correlation + (Math.random() - 0.5) * 0.02 * (1 - correlation));
+}
 
-  beforeEach(() => {
-    engine = new CorrelationEngine({ minDataPoints: 5, smoothing: 0 });
-  });
-
-  describe('Pearson相关性', () => {
-    it('应该计算完全正相关', () => {
-      const stock1 = createStock('000001', '平安银行', [10, 11, 12, 13, 14, 15]);
-      const stock2 = createStock('000002', '万科A', [20, 22, 24, 26, 28, 30]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBeGreaterThan(0.9);
-      expect(result.strength).toBe('strong');
-      expect(result.direction).toBe('positive');
+describe('相关性分析引擎', () => {
+  describe('calculateCorrelationMatrix', () => {
+    it('should have 1 on diagonal', () => {
+      const returns = new Map([
+        ['A', generateReturns(100)],
+        ['B', generateReturns(100)],
+      ]);
+      const result = calculateCorrelationMatrix(returns);
+      expect(result.matrix[0][0]).toBeCloseTo(1, 5);
+      expect(result.matrix[1][1]).toBeCloseTo(1, 5);
     });
 
-    it('应该计算负相关', () => {
-      const stock1 = createStock('000001', '平安银行', [10, 12, 10, 15, 9, 14]);
-      const stock2 = createStock('000003', 'PT金田', [30, 25, 32, 22, 34, 20]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBeLessThan(0);
-      expect(result.direction).toBe('negative');
+    it('should detect high correlation', () => {
+      const base = generateReturns(200);
+      const returns = new Map([
+        ['A', base],
+        ['B', generateCorrelatedReturns(200, base, 0.95)],
+      ]);
+      const result = calculateCorrelationMatrix(returns);
+      expect(result.matrix[0][1]).toBeGreaterThan(0.7);
     });
 
-    it('应该处理波动相关性', () => {
-      const stock1 = createStock('000001', '平安银行', [10, 12, 8, 15, 9, 14]);
-      const stock2 = createStock('000004', '国农科技', [20, 24, 16, 30, 18, 28]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBeGreaterThan(0.5);
-      expect(result.strength).toBe('strong');
+    it('should be symmetric', () => {
+      const returns = new Map([
+        ['A', generateReturns(100)],
+        ['B', generateReturns(100)],
+        ['C', generateReturns(100)],
+      ]);
+      const result = calculateCorrelationMatrix(returns);
+      expect(result.matrix[0][1]).toBeCloseTo(result.matrix[1][0], 10);
+      expect(result.matrix[0][2]).toBeCloseTo(result.matrix[2][0], 10);
     });
 
-    it('应该处理相同价格', () => {
-      const stock1 = createStock('000001', '平安银行', [10, 10, 10, 10, 10]);
-      const stock2 = createStock('000002', '万科A', [20, 22, 24, 26, 28]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBe(0);
+    it('should compute avg correlation', () => {
+      const base = generateReturns(100);
+      const returns = new Map([
+        ['A', base],
+        ['B', generateCorrelatedReturns(100, base, 0.8)],
+        ['C', generateReturns(100)],
+      ]);
+      const result = calculateCorrelationMatrix(returns);
+      expect(result.avgCorrelation).toBeDefined();
     });
 
-    it('应该包含置信度', () => {
-      const stock1 = createStock('000001', '平安银行', [10, 11, 12, 13, 14, 15]);
-      const stock2 = createStock('000002', '万科A', [20, 22, 24, 26, 28, 30]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(result.confidence).toBeGreaterThanOrEqual(0);
-      expect(result.confidence).toBeLessThanOrEqual(1);
-      expect(result.pValue).toBeGreaterThanOrEqual(0);
-      expect(result.pValue).toBeLessThanOrEqual(1);
-    });
-  });
-
-  describe('Spearman相关性', () => {
-    it('应该使用Spearman算法', () => {
-      const engine2 = new CorrelationEngine({ algorithm: 'spearman', minDataPoints: 5, smoothing: 0 });
-      const stock1 = createStock('000001', '平安银行', [10, 11, 12, 13, 14]);
-      const stock2 = createStock('000002', '万科A', [20, 22, 24, 26, 28]);
-
-      const result = engine2.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBeGreaterThan(0);
-      expect(result.strength).toBe('strong');
+    it('should return clusters', () => {
+      const returns = new Map([
+        ['A', generateReturns(100)],
+        ['B', generateReturns(100)],
+        ['C', generateReturns(100)],
+        ['D', generateReturns(100)],
+      ]);
+      const result = calculateCorrelationMatrix(returns);
+      expect(result.clusters.length).toBeLessThanOrEqual(3);
     });
   });
 
-  describe('Kendall相关性', () => {
-    it('应该使用Kendall算法', () => {
-      const engine2 = new CorrelationEngine({ algorithm: 'kendall', minDataPoints: 5, smoothing: 0 });
-      const stock1 = createStock('000001', '平安银行', [10, 11, 12, 13, 14]);
-      const stock2 = createStock('000002', '万科A', [20, 22, 24, 26, 28]);
+  describe('calculateRollingCorrelation', () => {
+    it('should return rolling correlations', () => {
+      const a = generateReturns(100);
+      const b = generateReturns(100);
+      const result = calculateRollingCorrelation(a, b, 20);
+      expect(result.length).toBe(81);
+      for (const r of result) {
+        expect(r.correlation).toBeGreaterThanOrEqual(-1);
+        expect(r.correlation).toBeLessThanOrEqual(1);
+      }
+    });
 
-      const result = engine2.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBeGreaterThan(0);
+    it('should compute z-scores', () => {
+      const a = generateReturns(100);
+      const b = generateReturns(100);
+      const result = calculateRollingCorrelation(a, b, 20);
+      for (const r of result) {
+        expect(typeof r.zScore).toBe('number');
+      }
+    });
+
+    it('should return empty for short data', () => {
+      const result = calculateRollingCorrelation([1, 2], [1, 2], 20);
+      expect(result.length).toBe(0);
     });
   });
 
-  describe('矩阵构建', () => {
-    it('应该构建相关性矩阵', () => {
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28]),
-        createStock('000003', 'PT金田', [5, 6, 7, 8, 9]),
+  describe('detectCorrelationRegime', () => {
+    it('should detect regimes', () => {
+      const corrs: { index: number; correlation: number; zScore: number }[] =
+        Array.from({ length: 120 }, (_, i) => ({
+          index: i,
+          correlation: 0.3 + Math.random() * 0.4,
+          zScore: 0
+        }));
+
+      const regimes = detectCorrelationRegime(corrs, 60);
+      expect(regimes.length).toBeGreaterThan(0);
+      for (const r of regimes) {
+        expect(['low', 'medium', 'high']).toContain(r.regime);
+        expect(r.stability).toBeGreaterThanOrEqual(0);
+        expect(r.stability).toBeLessThanOrEqual(1);
+      }
+    });
+  });
+
+  describe('minimumSpanningTree', () => {
+    it('should return n-1 edges', () => {
+      const symbols = ['A', 'B', 'C', 'D'];
+      const matrix = [
+        [1, 0.8, 0.3, 0.1],
+        [0.8, 1, 0.4, 0.2],
+        [0.3, 0.4, 1, 0.7],
+        [0.1, 0.2, 0.7, 1],
       ];
-
-      const matrix = engine.buildMatrix(stocks);
-      expect(matrix.symbols).toHaveLength(3);
-      expect(matrix.matrix).toHaveLength(3);
-      expect(matrix.matrix[0]).toHaveLength(3);
-      // 对角线为1
-      expect(matrix.matrix[0][0]).toBe(1);
-      expect(matrix.matrix[1][1]).toBe(1);
-      expect(matrix.matrix[2][2]).toBe(1);
-      // 对称性
-      expect(matrix.matrix[0][1]).toBe(matrix.matrix[1][0]);
-      expect(matrix.matrix[0][2]).toBe(matrix.matrix[2][0]);
+      const edges = minimumSpanningTree(symbols, matrix);
+      expect(edges.length).toBe(3);
     });
 
-    it('应该计算矩阵统计信息', () => {
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28]),
-        createStock('000003', 'PT金田', [5, 6, 7, 8, 9]),
+    it('should use highest correlations', () => {
+      const symbols = ['A', 'B', 'C'];
+      const matrix = [
+        [1, 0.9, 0.1],
+        [0.9, 1, 0.2],
+        [0.1, 0.2, 1],
       ];
-
-      const matrix = engine.buildMatrix(stocks);
-      expect(matrix.stats.avgCorrelation).toBeDefined();
-      expect(matrix.stats.maxCorrelation).toBeGreaterThanOrEqual(matrix.stats.minCorrelation);
-      expect(matrix.timestamp).toBeGreaterThan(0);
+      const edges = minimumSpanningTree(symbols, matrix);
+      // A-B应该有最小距离(最高相关)
+      expect(edges.some(e =>
+        (e.from === 'A' && e.to === 'B') || (e.from === 'B' && e.to === 'A')
+      )).toBe(true);
     });
 
-    it('应该检测聚类', () => {
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14, 15]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28, 30]),
-        createStock('000003', 'PT金田', [100, 50, 100, 50, 100, 50]),
-      ];
-
-      const matrix = engine.buildMatrix(stocks);
-      expect(Array.isArray(matrix.stats.clusters)).toBe(true);
+    it('should handle empty', () => {
+      expect(minimumSpanningTree([], [])).toEqual([]);
     });
   });
 
-  describe('投资组合分散度', () => {
-    it('应该评估分散度', () => {
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28]),
-      ];
+  describe('correlationStabilityTest', () => {
+    it('should return stability metrics', () => {
+      const a = generateReturns(200);
+      const b = generateCorrelatedReturns(200, a, 0.5);
+      const result = correlationStabilityTest(a, b, 60, 50);
 
-      const matrix = engine.buildMatrix(stocks);
-      const div = engine.calculateDiversification(matrix);
-      expect(div.score).toBeGreaterThanOrEqual(0);
-      expect(div.score).toBeLessThanOrEqual(100);
-      expect(['excellent', 'good', 'moderate', 'poor']).toContain(div.level);
-      expect(div.recommendation).toBeTruthy();
-    });
-  });
-
-  describe('缓存', () => {
-    it('应该缓存矩阵结果', () => {
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28]),
-      ];
-
-      const m1 = engine.buildMatrix(stocks);
-      const m2 = engine.buildMatrix(stocks);
-      expect(m1.timestamp).toBe(m2.timestamp);
+      expect(result.meanCorrelation).toBeGreaterThan(-1);
+      expect(result.meanCorrelation).toBeLessThan(1);
+      expect(result.stdCorrelation).toBeGreaterThanOrEqual(0);
+      expect(result.ci95Lower).toBeLessThanOrEqual(result.ci95Upper);
     });
 
-    it('应该清除缓存', () => {
-      engine.clearCache();
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28]),
-      ];
-
-      const m = engine.buildMatrix(stocks);
-      expect(m.timestamp).toBeGreaterThan(0);
-    });
-  });
-
-  describe('配置', () => {
-    it('应该更新配置', () => {
-      engine.updateConfig({ algorithm: 'spearman', period: 30 });
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28]),
-      ];
-
-      const matrix = engine.buildMatrix(stocks);
-      expect(matrix.config.algorithm).toBe('spearman');
-      expect(matrix.config.period).toBe(30);
-    });
-
-    it('应该使用默认配置', () => {
-      const stocks = [
-        createStock('000001', '平安银行', [10, 11, 12, 13, 14]),
-        createStock('000002', '万科A', [20, 22, 24, 26, 28]),
-      ];
-
-      const matrix = engine.buildMatrix(stocks);
-      expect(matrix.config.algorithm).toBe('pearson');
-      expect(matrix.config.period).toBe(60);
-    });
-  });
-
-  describe('边界条件', () => {
-    it('应该处理空数据', () => {
-      const stock1 = createStock('000001', '平安银行', []);
-      const stock2 = createStock('000002', '万科A', []);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBe(0);
-    });
-
-    it('应该处理单个价格', () => {
-      const stock1 = createStock('000001', '平安银行', [10]);
-      const stock2 = createStock('000002', '万科A', [20]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(result.correlation).toBe(0);
-    });
-
-    it('应该处理不等长数据', () => {
-      const stock1 = createStock('000001', '平安银行', [10, 11, 12]);
-      const stock2 = createStock('000002', '万科A', [20, 22, 24, 26, 28]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(typeof result.correlation).toBe('number');
-    });
-
-    it('应该处理零价格', () => {
-      const stock1 = createStock('000001', '平安银行', [0, 10, 0, 15, 0]);
-      const stock2 = createStock('000002', '万科A', [20, 22, 24, 26, 28]);
-
-      const result = engine.computePairCorrelation(stock1, stock2);
-      expect(typeof result.correlation).toBe('number');
-    });
-
-    it('应该处理大矩阵', () => {
-      const stocks = Array.from({ length: 20 }, (_, i) =>
-        createStock(`0000${String(i).padStart(2, '0')}`, `股票${i}`,
-          Array.from({ length: 10 }, () => Math.random() * 100))
-      );
-
-      const matrix = engine.buildMatrix(stocks);
-      expect(matrix.symbols).toHaveLength(20);
-      expect(matrix.matrix).toHaveLength(20);
+    it('should handle short data', () => {
+      const result = correlationStabilityTest([1, 2], [1, 2], 60);
+      expect(result.isStable).toBe(false);
     });
   });
 });

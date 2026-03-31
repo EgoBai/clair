@@ -1,181 +1,204 @@
 import { describe, it, expect } from 'vitest';
+import {
+  calculatePortfolioRisk,
+  calculateStopLoss,
+  calculatePositionSize,
+  checkRiskLimits,
+  type Position,
+  type StopLossConfig,
+  type PositionSizeConfig,
+  type RiskLimit,
+} from '../utils/riskManagementEngine';
 
-// 风险管理引擎测试
+function createPosition(overrides: Partial<Position> = {}): Position {
+  return {
+    symbol: 'TEST',
+    quantity: 100,
+    avgCost: 100,
+    currentPrice: 105,
+    sector: 'Tech',
+    ...overrides
+  };
+}
+
 describe('风险管理引擎', () => {
-  describe('VaR计算', () => {
-    function historicalVaR(returns: number[], confidence: number): number {
-      if (returns.length === 0) return 0;
-      const sorted = [...returns].sort((a, b) => a - b);
-      const index = Math.floor((1 - confidence) * sorted.length);
-      return -sorted[Math.min(index, sorted.length - 1)];
-    }
-
-    function parametricVaR(mean: number, stdDev: number, confidence: number): number {
-      const zScores: Record<number, number> = { 0.9: 1.282, 0.95: 1.645, 0.99: 2.326 };
-      const z = zScores[confidence] || 1.645;
-      return -(mean - z * stdDev);
-    }
-
-    it('历史VaR为正', () => {
-      const returns = Array.from({ length: 100 }, () => (Math.random() - 0.5) * 0.04);
-      expect(historicalVaR(returns, 0.95)).toBeGreaterThanOrEqual(0);
-    });
-
-    it('更高置信度VaR更大', () => {
-      const returns = Array.from({ length: 100 }, (_, i) => (i - 50) / 5000);
-      expect(historicalVaR(returns, 0.99)).toBeGreaterThanOrEqual(historicalVaR(returns, 0.95));
-    });
-
-    it('空数据返回零', () => {
-      expect(historicalVaR([], 0.95)).toBe(0);
-    });
-
-    it('参数VaR随波动率增大', () => {
-      expect(parametricVaR(0, 0.02, 0.95)).toBeLessThan(parametricVaR(0, 0.04, 0.95));
-    });
-
-    it('参数VaR为正', () => {
-      expect(parametricVaR(0.001, 0.02, 0.95)).toBeGreaterThan(0);
-    });
-  });
-
-  describe('CVaR/ES计算', () => {
-    function expectedShortfall(returns: number[], confidence: number): number {
-      if (returns.length === 0) return 0;
-      const sorted = [...returns].sort((a, b) => a - b);
-      const cutoff = Math.floor((1 - confidence) * sorted.length);
-      const tail = sorted.slice(0, cutoff + 1);
-      if (tail.length === 0) return 0;
-      return -tail.reduce((a, b) => a + b, 0) / tail.length;
-    }
-
-    it('ES大于等于VaR', () => {
-      const returns = Array.from({ length: 100 }, () => (Math.random() - 0.5) * 0.04);
-      const sorted = [...returns].sort((a, b) => a - b);
-      const varIndex = Math.floor(0.05 * sorted.length);
-      const var95 = -sorted[varIndex];
-      const es95 = expectedShortfall(returns, 0.95);
-      expect(es95).toBeGreaterThanOrEqual(var95 * 0.9);
-    });
-
-    it('空数据返回零', () => {
-      expect(expectedShortfall([], 0.95)).toBe(0);
-    });
-
-    it('ES为正', () => {
-      const returns = Array.from({ length: 100 }, () => (Math.random() - 0.5) * 0.04);
-      expect(expectedShortfall(returns, 0.95)).toBeGreaterThanOrEqual(0);
-    });
-  });
-
-  describe('止损策略', () => {
-    function trailingStop(currentPrice: number, highestPrice: number, stopPercent: number): { triggered: boolean; stopPrice: number } {
-      const stopPrice = highestPrice * (1 - stopPercent);
-      return { triggered: currentPrice <= stopPrice, stopPrice };
-    }
-
-    function fixedStop(currentPrice: number, entryPrice: number, stopPercent: number): { triggered: boolean; stopPrice: number } {
-      const stopPrice = entryPrice * (1 - stopPercent);
-      return { triggered: currentPrice <= stopPrice, stopPrice };
-    }
-
-    it('追踪止损触发', () => {
-      expect(trailingStop(90, 100, 0.05).triggered).toBe(true);
-    });
-
-    it('追踪止损未触发', () => {
-      expect(trailingStop(96, 100, 0.05).triggered).toBe(false);
-    });
-
-    it('固定止损触发', () => {
-      expect(fixedStop(94, 100, 0.05).triggered).toBe(true);
-    });
-
-    it('固定止损未触发', () => {
-      expect(fixedStop(96, 100, 0.05).triggered).toBe(false);
-    });
-
-    it('追踪止损价随最高价上升', () => {
-      const s1 = trailingStop(100, 100, 0.05);
-      const s2 = trailingStop(100, 110, 0.05);
-      expect(s2.stopPrice).toBeGreaterThan(s1.stopPrice);
-    });
-  });
-
-  describe('仓位管理', () => {
-    function kellyCriterion(winRate: number, winLossRatio: number): number {
-      if (winLossRatio === 0) return 0;
-      const kelly = winRate - (1 - winRate) / winLossRatio;
-      return Math.max(0, Math.min(kelly, 1));
-    }
-
-    function fixedFractional(capital: number, riskPerTrade: number, stopLoss: number): number {
-      if (stopLoss === 0) return 0;
-      const riskAmount = capital * riskPerTrade;
-      return Math.floor(riskAmount / stopLoss);
-    }
-
-    it('Kelly公式正结果', () => {
-      expect(kellyCriterion(0.6, 2)).toBeGreaterThan(0);
-    });
-
-    it('Kelly公式负结果返回0', () => {
-      expect(kellyCriterion(0.3, 1)).toBe(0);
-    });
-
-    it('Kelly在0-1之间', () => {
-      const k = kellyCriterion(0.55, 1.5);
-      expect(k).toBeGreaterThanOrEqual(0);
-      expect(k).toBeLessThanOrEqual(1);
-    });
-
-    it('零盈亏比返回0', () => {
-      expect(kellyCriterion(0.6, 0)).toBe(0);
-    });
-
-    it('固定分数法计算仓位', () => {
-      expect(fixedFractional(100000, 0.02, 500)).toBe(4);
-    });
-
-    it('零止损返回零仓位', () => {
-      expect(fixedFractional(100000, 0.02, 0)).toBe(0);
-    });
-  });
-
-  describe('压力测试', () => {
-    interface Position { symbol: string; weight: number; beta: number; }
-
-    function stressTest(positions: Position[], scenario: { marketReturn: number; volatilityMultiplier: number }): { portfolioImpact: number; worstPosition: string } {
-      let totalImpact = 0;
-      let maxImpact = 0;
-      let worstPosition = '';
-      for (const pos of positions) {
-        const impact = pos.weight * pos.beta * scenario.marketReturn;
-        totalImpact += impact;
-        if (impact < maxImpact) { maxImpact = impact; worstPosition = pos.symbol; }
-      }
-      return { portfolioImpact: totalImpact, worstPosition };
-    }
-
-    it('市场下跌组合受影响', () => {
-      const positions: Position[] = [
-        { symbol: 'A', weight: 0.5, beta: 1.2 },
-        { symbol: 'B', weight: 0.5, beta: 0.8 },
+  describe('calculatePortfolioRisk', () => {
+    it('should calculate total PnL', () => {
+      const positions = [
+        createPosition({ symbol: 'A', quantity: 100, avgCost: 100, currentPrice: 110 }),
+        createPosition({ symbol: 'B', quantity: 50, avgCost: 200, currentPrice: 190 }),
       ];
-      const result = stressTest(positions, { marketReturn: -0.2, volatilityMultiplier: 2 });
-      expect(result.portfolioImpact).toBeLessThan(0);
+      const marketReturns = Array(60).fill(0.001);
+      const portReturns = Array(60).fill(0.002);
+
+      const risk = calculatePortfolioRisk(positions, marketReturns, portReturns);
+      expect(risk.totalValue).toBe(100 * 110 + 50 * 190);
+      expect(risk.totalPnL).toBe(100 * 10 + 50 * (-10));
     });
 
-    it('市场上涨组合正收益', () => {
-      const positions: Position[] = [
-        { symbol: 'A', weight: 1, beta: 1 },
+    it('should calculate VaR', () => {
+      const positions = [createPosition()];
+      const marketReturns = Array(60).fill(0.001);
+      const portReturns = Array.from({ length: 60 }, () => (Math.random() - 0.5) * 0.04);
+
+      const risk = calculatePortfolioRisk(positions, marketReturns, portReturns);
+      expect(risk.var95).toBeGreaterThanOrEqual(0);
+      expect(risk.var99).toBeGreaterThanOrEqual(risk.var95);
+    });
+
+    it('should calculate drawdown', () => {
+      const positions = [createPosition()];
+      const marketReturns = Array(60).fill(0.001);
+      const portReturns = [0.01, 0.01, -0.05, -0.03, 0.02, 0.01, -0.02, ...Array(53).fill(0.001)];
+
+      const risk = calculatePortfolioRisk(positions, marketReturns, portReturns);
+      expect(risk.maxDrawdown).toBeGreaterThan(0);
+      expect(risk.currentDrawdown).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should calculate sector exposure', () => {
+      const positions = [
+        createPosition({ symbol: 'A', quantity: 100, currentPrice: 100, sector: 'Tech' }),
+        createPosition({ symbol: 'B', quantity: 100, currentPrice: 100, sector: 'Finance' }),
       ];
-      const result = stressTest(positions, { marketReturn: 0.1, volatilityMultiplier: 1 });
-      expect(result.portfolioImpact).toBeCloseTo(0.1, 5);
+
+      const risk = calculatePortfolioRisk(positions, [], []);
+      expect(risk.sectorExposure.get('Tech')).toBeCloseTo(0.5, 5);
+      expect(risk.sectorExposure.get('Finance')).toBeCloseTo(0.5, 5);
     });
 
-    it('空组合零影响', () => {
-      expect(stressTest([], { marketReturn: -0.5, volatilityMultiplier: 3 }).portfolioImpact).toBe(0);
+    it('should handle empty positions', () => {
+      const risk = calculatePortfolioRisk([], [], []);
+      expect(risk.totalValue).toBe(0);
+      expect(risk.totalPnL).toBe(0);
+    });
+  });
+
+  describe('calculateStopLoss', () => {
+    it('fixed stop loss', () => {
+      const config: StopLossConfig = { type: 'fixed', value: 0.05 };
+      const stop = calculateStopLoss(100, 105, 108, 2, config);
+      expect(stop).toBeCloseTo(95, 5);
+    });
+
+    it('trailing stop loss', () => {
+      const config: StopLossConfig = { type: 'trailing', value: 0.05 };
+      const stop = calculateStopLoss(100, 105, 110, 2, config);
+      expect(stop).toBeCloseTo(104.5, 1); // 110 * 0.95
+    });
+
+    it('ATR stop loss', () => {
+      const config: StopLossConfig = { type: 'atr', value: 2 };
+      const stop = calculateStopLoss(100, 105, 108, 3, config);
+      expect(stop).toBeCloseTo(99, 5); // 105 - 3*2
+    });
+  });
+
+  describe('calculatePositionSize', () => {
+    it('fixed percentage', () => {
+      const config: PositionSizeConfig = {
+        method: 'fixed_pct',
+        maxPositionPct: 0.2,
+        riskPerTrade: 0.02,
+        maxCorrelatedExposure: 0.4,
+      };
+      const shares = calculatePositionSize(100000, 100, 95, config);
+      expect(shares).toBe(200); // 100000 * 0.2 / 100
+    });
+
+    it('risk parity', () => {
+      const config: PositionSizeConfig = {
+        method: 'risk_parity',
+        maxPositionPct: 0.5,
+        riskPerTrade: 0.02,
+        maxCorrelatedExposure: 0.4,
+      };
+      const shares = calculatePositionSize(100000, 100, 95, config);
+      // riskAmount = 100000 * 0.02 = 2000, riskPerShare = 5, shares = 400
+      // maxShares = 100000 * 0.5 / 100 = 500, so 400 < 500
+      expect(shares).toBe(400);
+    });
+
+    it('should respect max position limit', () => {
+      const config: PositionSizeConfig = {
+        method: 'risk_parity',
+        maxPositionPct: 0.1,
+        riskPerTrade: 0.1,
+        maxCorrelatedExposure: 0.4,
+      };
+      const shares = calculatePositionSize(100000, 100, 99, config);
+      // risk_parity would give 100000*0.1/1 = 10000, but max is 100000*0.1/100 = 100
+      expect(shares).toBeLessThanOrEqual(100);
+    });
+
+    it('should return 0 for zero risk per share', () => {
+      const config: PositionSizeConfig = {
+        method: 'risk_parity',
+        maxPositionPct: 0.2,
+        riskPerTrade: 0.02,
+        maxCorrelatedExposure: 0.4,
+      };
+      const shares = calculatePositionSize(100000, 100, 100, config);
+      expect(shares).toBe(0);
+    });
+  });
+
+  describe('checkRiskLimits', () => {
+    it('should alert on high drawdown', () => {
+      const risk = {
+        totalValue: 100000, totalPnL: 5000, totalPnLPct: 0.05,
+        var95: 5000, var99: 8000, cvar95: 6000,
+        maxDrawdown: 0.15, currentDrawdown: 0.09,
+        beta: 1.1, trackingError: 0.05, concentrationRisk: 0.3,
+        sectorExposure: new Map([['Tech', 0.5]]),
+        correlationRisk: 0.6,
+      };
+
+      const limits: RiskLimit = {
+        maxDrawdown: 0.1, maxDailyLoss: 0.03, maxPositionSize: 0.25,
+        maxSectorExposure: 0.4, maxCorrelation: 0.5, maxLeverage: 2,
+      };
+
+      const alerts = checkRiskLimits(risk, limits, []);
+      expect(alerts.some(a => a.type === 'drawdown')).toBe(true);
+    });
+
+    it('should alert on sector concentration', () => {
+      const risk = {
+        totalValue: 100000, totalPnL: 0, totalPnLPct: 0,
+        var95: 0, var99: 0, cvar95: 0,
+        maxDrawdown: 0, currentDrawdown: 0,
+        beta: 1, trackingError: 0, concentrationRisk: 0.2,
+        sectorExposure: new Map([['Tech', 0.6]]),
+        correlationRisk: 0.3,
+      };
+
+      const limits: RiskLimit = {
+        maxDrawdown: 0.2, maxDailyLoss: 0.05, maxPositionSize: 0.3,
+        maxSectorExposure: 0.4, maxCorrelation: 0.5, maxLeverage: 2,
+      };
+
+      const alerts = checkRiskLimits(risk, limits, []);
+      expect(alerts.some(a => a.type === 'sector_exposure')).toBe(true);
+    });
+
+    it('should return no alerts for safe portfolio', () => {
+      const risk = {
+        totalValue: 100000, totalPnL: 1000, totalPnLPct: 0.01,
+        var95: 1000, var99: 2000, cvar95: 1500,
+        maxDrawdown: 0.05, currentDrawdown: 0.01,
+        beta: 1, trackingError: 0.02, concentrationRisk: 0.1,
+        sectorExposure: new Map([['Tech', 0.3]]),
+        correlationRisk: 0.2,
+      };
+
+      const limits: RiskLimit = {
+        maxDrawdown: 0.2, maxDailyLoss: 0.05, maxPositionSize: 0.3,
+        maxSectorExposure: 0.5, maxCorrelation: 0.7, maxLeverage: 2,
+      };
+
+      const alerts = checkRiskLimits(risk, limits, []);
+      expect(alerts.length).toBe(0);
     });
   });
 });
