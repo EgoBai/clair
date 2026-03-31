@@ -6316,3 +6316,87 @@
 - 25,683 tests passed, 14 skipped
 - 1个预存API测试失败(非本次新增)
 - 测试耗时: ~28秒
+
+## Round 600-609 — 高级量化分析引擎
+
+### Round 600 — 协整分析与配对价差引擎 — `cointegrationEngine.test.ts` (19 tests)
+- Engle-Granger两步法协整检验
+- 价差Z-Score计算
+- 配对交易信号(做多/做空/平仓)
+- 均值回归半衰期(Half-life)
+- 滚动相关性
+
+### Round 601 — 自适应卡尔曼滤波引擎 — `kalmanFilterEngine.test.ts` (10 tests)
+- 基础卡尔曼滤波(平滑/趋势跟踪)
+- 自适应卡尔曼滤波(噪声自适应)
+- 卡尔曼平滑(Rauch-Tung-Striebel)
+- 2D卡尔曼(位置+速度估计)
+
+### Round 602 — 隐马尔可夫模型状态识别引擎 — `hmmRegimeEngine.test.ts` (11 tests)
+- Viterbi解码(最优路径)
+- 前向算法(状态概率)
+- 状态持续时间分析
+- Baum-Welch初始化
+
+### Round 603 — 微观结构分析引擎 — `microstructureEngine.test.ts` (20 tests)
+- 订单流不平衡(OFI)
+- Kyle Lambda价格冲击
+- 交易量分布
+- 已实现波动率(Realized Volatility)
+- VWAP计算
+
+### Round 604 — 自适应移动平均引擎 — `adaptiveMAEngine.test.ts` (13 tests)
+- KAMA(Kaufman自适应移动平均)
+- VIDYA(可变指数动态平均)
+- TEMA(三重指数移动平均)
+- HMA(Hull移动平均)
+- MAMA(Mesa自适应移动平均)
+
+### Round 605 — 斐波那契回撤/延伸引擎 — `fibonacciEngine.test.ts` (12 tests)
+- 回撤水平计算(0.236/0.382/0.5/0.618/0.786)
+- 延伸水平计算(1.272/1.618/2.618)
+- 摆动高低点检测
+- 斐波那契时区
+- 斐波那契汇聚区域
+
+### Round 606 — 一目均衡表引擎 — `ichimokuEngine.test.ts` (9 tests)
+- 转换线/基准线/先行带A/B
+- 价格相对云层位置
+- TK交叉信号
+- 一目强度评分(0-100)
+- 云层厚度/基准线弹跳
+
+### Round 607 — 威科夫方法分析引擎 — `wyckoffEngine.test.ts` (12 tests)
+- 量价分析(VSA): effort_up/down, no_demand/supply, stopping_volume
+- 威科夫阶段检测(积累/上涨/派发/下跌)
+- 综合人分析(吸筹/派发/中性)
+- 因果关系分析
+
+### Round 608 — 聪明钱指数引擎 — `smartMoneyEngine.test.ts` (10 tests)
+- 聪明钱指数(SMI)
+- 大单检测
+- 累积/派发线(A/D Line)
+- Chaikin资金流(CMF)
+- 轻松运动指标(EMV)
+- 资金流背离检测
+
+### Round 609 — 暗池活动分析引擎 — `darkPoolEngine.test.ts` (13 tests)
+- 暗池成交量比率
+- 暗池溢价(bps)
+- 大宗交易检测
+- 交易所分布统计
+- Kyle Lambda暗池影响
+- 信息泄露率
+- 执行质量分析
+
+### 测试结果
+- 1100 test files passed, 1 skipped
+- 26,487 tests passed, 14 skipped
+- 新增 129 个测试 (Round 600-609)
+- 新增 10 个测试文件
+
+### 累计 (Round 600-609)
+- 新增引擎: 10个
+- 新增测试: 129个
+- 累计测试文件: 1100
+- 累计测试: 26,487
