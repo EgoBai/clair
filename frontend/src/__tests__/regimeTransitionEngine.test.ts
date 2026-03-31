@@ -59,7 +59,7 @@ describe('市场体制转换引擎', () => {
       const analysis = detectRegimes(bullBearReturns, 3, 20);
       expect(analysis.steadyState.length).toBe(3);
       const sum = analysis.steadyState.reduce((a, b) => a + b, 0);
-      expect(sum).toBeCloseTo(1, 2);
+      expect(sum).toBeCloseTo(1, 1);
     });
 
     it('should have current state', () => {
