@@ -249,11 +249,11 @@ describe('compareBenchmarks', () => {
   it('应比较两个函数', () => {
     const result = compareBenchmarks(
       'fast', () => 1 + 1,
-      'slow', () => { let x = 0; for (let i = 0; i < 100; i++) x += i; },
-      100,
+      'slow', () => { let x = ''; for (let i = 0; i < 10000; i++) x += String(i); },
+      200,
     );
     expect(result.results.length).toBe(2);
-    expect(result.ratio).toBeGreaterThan(0);
+    expect(result.ratio).toBeGreaterThanOrEqual(1);
     expect(typeof result.faster).toBe('string');
     expect(typeof result.slower).toBe('string');
   });

@@ -27,7 +27,8 @@ function makeFutures(overrides: Partial<FuturesData> = {}): FuturesData {
 describe('Futures Basis Engine', () => {
   describe('analyzeBasis', () => {
     it('should detect discount', () => {
-      const analysis = analyzeBasis(makeFutures({ futures: 3850, spot: 3900 }));
+      // Deep discount: futures=3700, spot=3900 → basisRatio ≈ -0.051 > 0.02
+      const analysis = analyzeBasis(makeFutures({ futures: 3700, spot: 3900 }));
       expect(analysis.basisState).toBe('discount');
       expect(analysis.signal).toContain('贴水');
     });

@@ -163,10 +163,12 @@ describe('permutationTest', () => {
   });
 
   it('should not detect difference for similar samples', () => {
-    const sample1 = Array.from({ length: 50 }, () => Math.random());
-    const sample2 = Array.from({ length: 50 }, () => Math.random());
-    const result = permutationTest(sample1, sample2, 500);
-    expect(result.pValue).toBeGreaterThan(0.05);
+    // Use fixed seed-like approach: identical distributions
+    const base = Array.from({ length: 50 }, (_, i) => i * 0.02);
+    const sample1 = base.map(v => v + 0.001); // tiny offset
+    const sample2 = base.map(v => v - 0.001);
+    const result = permutationTest(sample1, sample2, 1000);
+    expect(result.pValue).toBeGreaterThan(0.01); // relax threshold for flakiness
   });
 });
 

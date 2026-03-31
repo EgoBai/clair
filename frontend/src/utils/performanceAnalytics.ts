@@ -435,9 +435,9 @@ export function compareBenchmarks(
 
   const faster = result1.avgTime < result2.avgTime ? name1 : name2;
   const slower = result1.avgTime < result2.avgTime ? name2 : name1;
-  const ratio = Math.round(
-    (Math.max(result1.avgTime, result2.avgTime) / Math.min(result1.avgTime, result2.avgTime)) * 100,
-  ) / 100;
+  const minTime = Math.min(result1.avgTime, result2.avgTime);
+  const maxTime = Math.max(result1.avgTime, result2.avgTime);
+  const ratio = minTime > 0 ? Math.round((maxTime / minTime) * 100) / 100 : Infinity;
 
   return { faster, slower, ratio, results: [result1, result2] };
 }
