@@ -69,10 +69,14 @@ const AppLayout: React.FC = () => {
     // 投资工具
     { key: '/watchlist', icon: <StarOutlined />, label: '自选股' },
     { key: '/screener', icon: <FilterOutlined />, label: '选股器' },
+    { key: '/advanced-screener', icon: <FilterOutlined />, label: '高级选股' },
     { key: '/backtest', icon: <ThunderboltOutlined />, label: '策略回测' },
     { key: '/portfolio', icon: <WalletOutlined />, label: '投资组合' },
+    { key: '/compare', icon: <BarChartOutlined />, label: '股票对比' },
+    { key: '/financials', icon: <DollarOutlined />, label: '财务分析' },
     { type: 'divider' as const },
     // 深度数据
+    { key: '/sectors', icon: <FundOutlined />, label: '板块分析' },
     { key: '/margin', icon: <DollarOutlined />, label: '融资融券' },
     { key: '/top-traders', icon: <TrophyOutlined />, label: '龙虎榜' },
     { key: '/block-trades', icon: <SwapOutlined />, label: '大宗交易' },
@@ -88,6 +92,7 @@ const AppLayout: React.FC = () => {
     { type: 'divider' as const },
     // 个性化
     { key: '/dashboard', icon: <DashboardOutlined />, label: '自定义仪表盘' },
+    { key: '/settings', icon: <DesktopOutlined />, label: '设置' },
   ];
 
   const handleMenuClick = useCallback(({ key }: { key: string }) => {

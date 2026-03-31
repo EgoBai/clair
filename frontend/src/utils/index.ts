@@ -3,7 +3,7 @@
  */
 
 export * from '../../shared/formatters';
-export { chartThemeManager, LIGHT_THEME, DARK_THEME, getEChartsThemeOption, getKLineChartTheme, getMAColor } from './chartTheme';
+export { chartThemeManager, LIGHT_THEME, DARK_THEME, useEChartsTheme, getKLineChartTheme, getMAColor } from './chartTheme';
 export { sampleData, sampleLTTB, sampleUniform, sampleAdaptive, processInChunks, calculateVirtualRange, renderProfiler } from './chartPerformance';
 export { initWebVitals, getMetrics, getPerformanceScore, getFormattedReport } from './webVitals';
 export * from './accessibility';

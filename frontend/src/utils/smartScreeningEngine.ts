@@ -97,6 +97,19 @@ export function screenStocks(
   criteria: ScreeningCriteria[],
   minScore: number = 50
 ): ScreeningResult[] {
+  // 空 criteria 时返回所有股票（无筛选条件 = 全部通过）
+  if (criteria.length === 0) {
+    return stocks.map(stock => ({
+      stock: stock.code,
+      name: stock.name,
+      score: 0,
+      matchedCriteria: 0,
+      totalCriteria: 0,
+      highlights: [],
+      riskFlags: [],
+    }));
+  }
+
   const results: ScreeningResult[] = [];
 
   for (const stock of stocks) {

@@ -100,7 +100,7 @@ const HomePage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const formatMarketCap = (cap: number) => {
     if (cap >= 1e12) return `${(cap / 1e12).toFixed(2)}万亿`;

@@ -57,7 +57,7 @@ export interface ExecutionQuality {
   avgFillPrice: number;
   slippage: number;
   slippageBps: number;
-  implementation shortfall: number;
+  'implementation shortfall': number;
   timingCost: number;
   qualityScore: number; // 0-100
 }

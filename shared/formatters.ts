@@ -155,12 +155,9 @@ export const getColorByChange = (value?: number | null): string => {
 
 /**
  * 获取涨跌文字（带符号，2位小数）
+ * @deprecated 使用 formatChange 替代
  */
-export const getChangeText = (value?: number | null): string => {
-  if (value === undefined || value === null) return '-';
-  const sign = value >= 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}`;
-};
+export const getChangeText = formatChange;
 
 /**
  * 判断市场颜色

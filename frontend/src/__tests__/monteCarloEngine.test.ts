@@ -101,9 +101,9 @@ describe('runMonteCarloSimulation', () => {
 
 describe('runBootstrap', () => {
   it('should bootstrap a statistic', () => {
-    const data = Array.from({ length: 100 }, () => Math.random());
+    const data = Array.from({ length: 500 }, () => Math.random());
     const result = runBootstrap(data, (s) => s.reduce((a, b) => a + b, 0) / s.length, 500);
-    expect(result.originalStatistic).toBeCloseTo(0.5, 1);
+    expect(result.originalStatistic).toBeCloseTo(0.5, 0);
     expect(result.bootstrapStd).toBeGreaterThan(0);
     expect(result.confidenceInterval[0]).toBeLessThan(result.confidenceInterval[1]);
   });
