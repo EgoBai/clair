@@ -491,3 +491,164 @@ export function sanitizeURLParams(url: string): string {
     return '';
   }
 }
+
+// ==================== 速率限制 ====================
+
+export interface RateLimitConfig {
+  maxRequests: number;
+  windowMs: number;
+  blockDurationMs: number;
+}
+
+export interface RateLimitState {
+  requests: number[];
+  blockedUntil: number | null;
+}
+
+export class RateLimiter {
+  private config: RateLimitConfig;
+  private state: RateLimitState;
+
+  constructor(config: Partial<RateLimitConfig> = {}) {
+    this.config = {
+      maxRequests: config.maxRequests ?? 60,
+      windowMs: config.windowMs ?? 60000,
+      blockDurationMs: config.blockDurationMs ?? 300000,
+    };
+    this.state = { requests: [], blockedUntil: null };
+  }
+
+  check(now: number = Date.now()): { allowed: boolean; remaining: number; resetAt: number } {
+    if (this.state.blockedUntil && now < this.state.blockedUntil) {
+      return { allowed: false, remaining: 0, resetAt: this.state.blockedUntil };
+    }
+
+    if (this.state.blockedUntil && now >= this.state.blockedUntil) {
+      this.state.blockedUntil = null;
+      this.state.requests = [];
+    }
+
+    const cutoff = now - this.config.windowMs;
+    this.state.requests = this.state.requests.filter(t => t > cutoff);
+    const remaining = this.config.maxRequests - this.state.requests.length;
+    const resetAt = this.state.requests.length > 0
+      ? this.state.requests[0] + this.config.windowMs
+      : now + this.config.windowMs;
+
+    if (remaining <= 0) {
+      this.state.blockedUntil = now + this.config.blockDurationMs;
+      return { allowed: false, remaining: 0, resetAt: this.state.blockedUntil };
+    }
+
+    this.state.requests.push(now);
+    return { allowed: true, remaining: remaining - 1, resetAt };
+  }
+
+  reset(): void {
+    this.state = { requests: [], blockedUntil: null };
+  }
+
+  getState(): RateLimitState {
+    return { ...this.state, requests: [...this.state.requests] };
+  }
+}
+
+// ==================== 请求签名 ====================
+
+/**
+ * 生成请求签名（简单HMAC-like）
+ */
+export function signRequest(
+  method: string,
+  path: string,
+  body: string,
+  timestamp: number,
+  secret: string
+): string {
+  const payload = `${method.toUpperCase()}:${path}:${body}:${timestamp}`;
+  // 使用简单哈希（生产环境应使用Web Crypto API）
+  let hash = 0;
+  const combined = payload + secret;
+  for (let i = 0; i < combined.length; i++) {
+    const char = combined.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+/**
+ * 验证请求签名
+ */
+export function verifyRequestSignature(
+  method: string,
+  path: string,
+  body: string,
+  timestamp: number,
+  secret: string,
+  signature: string,
+  maxAgeMs: number = 300000
+): { valid: boolean; reason?: string } {
+  if (Math.abs(Date.now() - timestamp) > maxAgeMs) {
+    return { valid: false, reason: 'timestamp_expired' };
+  }
+
+  const expected = signRequest(method, path, body, timestamp, secret);
+  if (expected !== signature) {
+    return { valid: false, reason: 'signature_mismatch' };
+  }
+
+  return { valid: true };
+}
+
+// ==================== 会话安全 ====================
+
+export interface SessionConfig {
+  maxIdleMs: number;
+  maxAgeMs: number;
+  regenerateOnAuth: boolean;
+}
+
+export class SessionGuard {
+  private config: SessionConfig;
+  private createdAt: number;
+  private lastActiveAt: number;
+
+  constructor(config: Partial<SessionConfig> = {}) {
+    this.config = {
+      maxIdleMs: config.maxIdleMs ?? 1800000, // 30 min
+      maxAgeMs: config.maxAgeMs ?? 86400000, // 24h
+      regenerateOnAuth: config.regenerateOnAuth ?? true,
+    };
+    const now = Date.now();
+    this.createdAt = now;
+    this.lastActiveAt = now;
+  }
+
+  touch(): void {
+    this.lastActiveAt = Date.now();
+  }
+
+  isValid(now: number = Date.now()): { valid: boolean; reason?: string } {
+    if (now - this.createdAt > this.config.maxAgeMs) {
+      return { valid: false, reason: 'session_expired' };
+    }
+    if (now - this.lastActiveAt > this.config.maxIdleMs) {
+      return { valid: false, reason: 'session_idle' };
+    }
+    return { valid: true };
+  }
+
+  getRemainingTime(now: number = Date.now()): { maxAge: number; idle: number } {
+    return {
+      maxAge: Math.max(0, this.config.maxAgeMs - (now - this.createdAt)),
+      idle: Math.max(0, this.config.maxIdleMs - (now - this.lastActiveAt)),
+    };
+  }
+
+  reset(): void {
+    const now = Date.now();
+    this.createdAt = now;
+    this.lastActiveAt = now;
+  }
+}

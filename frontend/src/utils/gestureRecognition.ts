@@ -236,3 +236,151 @@ export class GestureSequenceAnalyzer {
     return Math.sqrt(Math.pow(p.x - projX, 2) + Math.pow(p.y - projY, 2));
   }
 }
+
+/**
+ * 旋转手势检测
+ */
+export interface RotationResult {
+  angle: number; // degrees
+  center: { x: number; y: number };
+  direction: 'clockwise' | 'counterclockwise';
+}
+
+export function detectRotation(
+  start1: TouchPoint, start2: TouchPoint,
+  end1: TouchPoint, end2: TouchPoint
+): RotationResult {
+  const startAngle = Math.atan2(start2.y - start1.y, start2.x - start1.x);
+  const endAngle = Math.atan2(end2.y - end1.y, end2.x - end1.x);
+
+  let angleDiff = (endAngle - startAngle) * (180 / Math.PI);
+  if (angleDiff > 180) angleDiff -= 360;
+  if (angleDiff < -180) angleDiff += 360;
+
+  return {
+    angle: Math.abs(angleDiff),
+    center: {
+      x: (end1.x + end2.x) / 2,
+      y: (end1.y + end2.y) / 2,
+    },
+    direction: angleDiff >= 0 ? 'clockwise' : 'counterclockwise',
+  };
+}
+
+/**
+ * Flick（快速轻扫）手势检测
+ * 区别于swipe：flick更强调速度而非距离
+ */
+export interface FlickResult {
+  direction: 'left' | 'right' | 'up' | 'down';
+  velocity: number;
+  momentum: number;
+}
+
+export function detectFlick(
+  points: TouchPoint[],
+  config: Partial<{ minVelocity: number; maxDuration: number }> = {}
+): FlickResult | null {
+  const minVelocity = config.minVelocity ?? 0.5;
+  const maxDuration = config.maxDuration ?? 200;
+
+  if (points.length < 2) return null;
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const duration = last.timestamp - first.timestamp;
+
+  if (duration > maxDuration || duration === 0) return null;
+
+  const dx = last.x - first.x;
+  const dy = last.y - first.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const velocity = distance / duration;
+
+  if (velocity < minVelocity) return null;
+
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+  let direction: FlickResult['direction'];
+  if (angle >= -45 && angle < 45) direction = 'right';
+  else if (angle >= 45 && angle < 135) direction = 'down';
+  else if (angle >= -135 && angle < -45) direction = 'up';
+  else direction = 'left';
+
+  return {
+    direction,
+    velocity,
+    momentum: velocity * distance,
+  };
+}
+
+/**
+ * 手势速度追踪器
+ */
+export class VelocityTracker {
+  private points: TouchPoint[] = [];
+  private windowMs: number;
+
+  constructor(windowMs: number = 100) {
+    this.windowMs = windowMs;
+  }
+
+  add(point: TouchPoint): void {
+    this.points.push(point);
+    const cutoff = point.timestamp - this.windowMs;
+    this.points = this.points.filter(p => p.timestamp >= cutoff);
+  }
+
+  getVelocity(): { vx: number; vy: number; speed: number } {
+    if (this.points.length < 2) return { vx: 0, vy: 0, speed: 0 };
+
+    const first = this.points[0];
+    const last = this.points[this.points.length - 1];
+    const dt = last.timestamp - first.timestamp;
+
+    if (dt === 0) return { vx: 0, vy: 0, speed: 0 };
+
+    const vx = (last.x - first.x) / dt;
+    const vy = (last.y - first.y) / dt;
+    return {
+      vx,
+      vy,
+      speed: Math.sqrt(vx * vx + vy * vy),
+    };
+  }
+
+  reset(): void {
+    this.points = [];
+  }
+}
+
+/**
+ * 多指点击检测
+ */
+export interface MultiTapResult {
+  count: number;
+  positions: { x: number; y: number }[];
+  simultaneous: boolean;
+}
+
+export function detectMultiTap(
+  touchPoints: TouchPoint[][],
+  tolerance: { timeMs: number; distancePx: number } = { timeMs: 100, distancePx: 50 }
+): MultiTapResult | null {
+  if (touchPoints.length < 2) return null;
+
+  const endTimes = touchPoints.map(seq => seq[seq.length - 1].timestamp);
+  const maxDelta = Math.max(...endTimes) - Math.min(...endTimes);
+  if (maxDelta > tolerance.timeMs) return null;
+
+  const positions = touchPoints.map(seq => {
+    const end = seq[seq.length - 1];
+    return { x: end.x, y: end.y };
+  });
+
+  return {
+    count: touchPoints.length,
+    positions,
+    simultaneous: maxDelta < tolerance.timeMs / 2,
+  };
+}
+

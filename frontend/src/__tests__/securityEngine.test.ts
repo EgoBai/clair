@@ -23,6 +23,10 @@ import {
   getDefaultCSP,
   isSafeURL,
   sanitizeURLParams,
+  RateLimiter,
+  signRequest,
+  verifyRequestSignature,
+  SessionGuard,
 } from '../utils/securityEngine';
 
 // ==================== XSS防护测试 ====================
@@ -394,5 +398,152 @@ describe('sanitizeURLParams', () => {
   it('应移除XSS参数', () => {
     const result = sanitizeURLParams('https://example.com?q=<script>alert(1)</script>');
     expect(result).not.toContain('script');
+  });
+});
+
+// ==================== 速率限制测试 ====================
+
+describe('RateLimiter', () => {
+  
+
+  it('允许正常请求', () => {
+    const limiter = new RateLimiter({ maxRequests: 5, windowMs: 1000 });
+    const r = limiter.check();
+    expect(r.allowed).toBe(true);
+    expect(r.remaining).toBe(4);
+  });
+
+  it('在达到限制后阻止请求', () => {
+    const limiter = new RateLimiter({ maxRequests: 2, windowMs: 1000, blockDurationMs: 5000 });
+    let now = 1000;
+    expect(limiter.check(now).allowed).toBe(true);
+    expect(limiter.check(now + 1).allowed).toBe(true);
+    expect(limiter.check(now + 2).allowed).toBe(false);
+  });
+
+  it('窗口过期后重置', () => {
+    const limiter = new RateLimiter({ maxRequests: 2, windowMs: 500, blockDurationMs: 100 });
+    let t = 100000;
+    expect(limiter.check(t).allowed).toBe(true);
+    expect(limiter.check(t + 1).allowed).toBe(true);
+    expect(limiter.check(t + 2).allowed).toBe(false);
+    // After block duration and window expire
+    expect(limiter.check(t + 1000).allowed).toBe(true);
+  });
+
+  it('阻止持续到期后恢复', () => {
+    const limiter = new RateLimiter({ maxRequests: 1, windowMs: 1000, blockDurationMs: 2000 });
+    expect(limiter.check(1000).allowed).toBe(true);
+    expect(limiter.check(1001).allowed).toBe(false);
+    expect(limiter.check(3002).allowed).toBe(true);
+  });
+
+  it('重置后清除状态', () => {
+    const limiter = new RateLimiter({ maxRequests: 1 });
+    limiter.check();
+    limiter.reset();
+    expect(limiter.check().remaining).toBe(0);
+  });
+
+  it('返回正确的状态', () => {
+    const limiter = new RateLimiter({ maxRequests: 5 });
+    limiter.check();
+    limiter.check();
+    const state = limiter.getState();
+    expect(state.requests).toHaveLength(2);
+    expect(state.blockedUntil).toBeNull();
+  });
+});
+
+// ==================== 请求签名测试 ====================
+
+describe('signRequest / verifyRequestSignature', () => {
+  
+
+  it('生成一致的签名', () => {
+    const now = Date.now();
+    const s1 = signRequest('GET', '/api/stocks', '', now, 'secret');
+    const s2 = signRequest('GET', '/api/stocks', '', now, 'secret');
+    expect(s1).toBe(s2);
+  });
+
+  it('不同参数产生不同签名', () => {
+    const now = Date.now();
+    const s1 = signRequest('GET', '/api/stocks', '', now, 'secret1');
+    const s2 = signRequest('GET', '/api/stocks', '', now, 'secret2');
+    expect(s1).not.toBe(s2);
+  });
+
+  it('验证有效签名', () => {
+    const now = Date.now();
+    const sig = signRequest('POST', '/api/order', '{"amount":100}', now, 'key');
+    const result = verifyRequestSignature('POST', '/api/order', '{"amount":100}', now, 'key', sig);
+    expect(result.valid).toBe(true);
+  });
+
+  it('拒绝过期签名', () => {
+    const oldTs = Date.now() - 120000;
+    const sig = signRequest('GET', '/api', '', oldTs, 'key');
+    const result = verifyRequestSignature('GET', '/api', '', oldTs, 'key', sig, 60000);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe('timestamp_expired');
+  });
+
+  it('拒绝错误签名', () => {
+    const now = Date.now();
+    const result = verifyRequestSignature('GET', '/api', '', now, 'key', 'wrong_sig', 300000);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe('signature_mismatch');
+  });
+});
+
+// ==================== 会话安全测试 ====================
+
+describe('SessionGuard', () => {
+  
+
+  it('初始状态有效', () => {
+    const guard = new SessionGuard();
+    expect(guard.isValid().valid).toBe(true);
+  });
+
+  it('检测会话过期', () => {
+    const guard = new SessionGuard({ maxAgeMs: 1000 });
+    const now = Date.now();
+    expect(guard.isValid(now).valid).toBe(true);
+    expect(guard.isValid(now + 2000).valid).toBe(false);
+  });
+
+  it('检测空闲超时', () => {
+    const guard = new SessionGuard({ maxIdleMs: 1000 });
+    const now = Date.now();
+    guard.touch();
+    expect(guard.isValid(now).valid).toBe(true);
+    expect(guard.isValid(now + 2000).valid).toBe(false);
+  });
+
+  it('touch刷新空闲时间', () => {
+    const guard = new SessionGuard({ maxIdleMs: 1000 });
+    let now = 1000;
+    guard.touch();
+    now += 500;
+    guard.touch();
+    expect(guard.isValid(now + 500).valid).toBe(true);
+  });
+
+  it('返回剩余时间', () => {
+    const guard = new SessionGuard({ maxIdleMs: 5000, maxAgeMs: 10000 });
+    guard.touch();
+    const remaining = guard.getRemainingTime();
+    expect(remaining.maxAge).toBeLessThanOrEqual(10000);
+    expect(remaining.idle).toBeLessThanOrEqual(5000);
+  });
+
+  it('reset重置会话', () => {
+    const guard = new SessionGuard({ maxAgeMs: 1000 });
+    const t1 = Date.now();
+    guard.reset();
+    expect(guard.isValid(t1).valid).toBe(true);
+    expect(guard.isValid(t1 + 500).valid).toBe(true);
   });
 });

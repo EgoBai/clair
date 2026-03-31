@@ -5,6 +5,10 @@ import {
   DoubleTapDetector,
   LongPressDetector,
   GestureSequenceAnalyzer,
+  detectRotation,
+  detectFlick,
+  VelocityTracker,
+  detectMultiTap,
 } from '../utils/gestureRecognition';
 
 describe('detectSwipe', () => {
@@ -210,5 +214,170 @@ describe('GestureSequenceAnalyzer', () => {
     const analyzer = new GestureSequenceAnalyzer();
     analyzer.addPoint({ x: 0, y: 0, timestamp: 0 });
     expect(analyzer.detectShape()).toBe('unknown');
+  });
+});
+
+describe('detectRotation', () => {
+  
+
+  it('detects clockwise rotation', () => {
+    const r = detectRotation(
+      { x: 0, y: 0, timestamp: 0 }, { x: 100, y: 0, timestamp: 0 },
+      { x: 0, y: 0, timestamp: 100 }, { x: 0, y: 100, timestamp: 100 }
+    );
+    expect(r.direction).toBe('clockwise');
+    expect(r.angle).toBeCloseTo(90, 0);
+  });
+
+  it('detects counterclockwise rotation', () => {
+    const r = detectRotation(
+      { x: 0, y: 0, timestamp: 0 }, { x: 100, y: 0, timestamp: 0 },
+      { x: 0, y: 0, timestamp: 100 }, { x: 0, y: -100, timestamp: 100 }
+    );
+    expect(r.direction).toBe('counterclockwise');
+    expect(r.angle).toBeCloseTo(90, 0);
+  });
+
+  it('computes center of rotation', () => {
+    const r = detectRotation(
+      { x: 0, y: 0, timestamp: 0 }, { x: 100, y: 0, timestamp: 0 },
+      { x: 0, y: 0, timestamp: 100 }, { x: 0, y: 100, timestamp: 100 }
+    );
+    expect(r.center.x).toBeCloseTo(0, 0);
+    expect(r.center.y).toBeCloseTo(50, 0);
+  });
+});
+
+describe('detectFlick', () => {
+  
+
+  it('detects fast flick', () => {
+    const points = [
+      { x: 0, y: 0, timestamp: 0 },
+      { x: 50, y: 0, timestamp: 50 },
+      { x: 100, y: 0, timestamp: 100 },
+    ];
+    const r = detectFlick(points);
+    expect(r).not.toBeNull();
+    expect(r!.direction).toBe('right');
+    expect(r!.velocity).toBeGreaterThan(0.5);
+  });
+
+  it('rejects slow movements', () => {
+    const points = [
+      { x: 0, y: 0, timestamp: 0 },
+      { x: 50, y: 0, timestamp: 500 },
+    ];
+    const r = detectFlick(points);
+    expect(r).toBeNull();
+  });
+
+  it('detects downward flick', () => {
+    const points = [
+      { x: 0, y: 0, timestamp: 0 },
+      { x: 0, y: 100, timestamp: 80 },
+    ];
+    const r = detectFlick(points);
+    expect(r!.direction).toBe('down');
+  });
+
+  it('detects upward flick', () => {
+    const points = [
+      { x: 0, y: 100, timestamp: 0 },
+      { x: 0, y: 0, timestamp: 80 },
+    ];
+    const r = detectFlick(points);
+    expect(r!.direction).toBe('up');
+  });
+
+  it('detects leftward flick', () => {
+    const points = [
+      { x: 100, y: 0, timestamp: 0 },
+      { x: 0, y: 0, timestamp: 80 },
+    ];
+    const r = detectFlick(points);
+    expect(r!.direction).toBe('left');
+  });
+
+  it('returns null for single point', () => {
+    expect(detectFlick([{ x: 0, y: 0, timestamp: 0 }])).toBeNull();
+  });
+});
+
+describe('VelocityTracker', () => {
+  
+
+  it('tracks velocity over window', () => {
+    const tracker = new VelocityTracker(100);
+    tracker.add({ x: 0, y: 0, timestamp: 0 });
+    tracker.add({ x: 100, y: 50, timestamp: 100 });
+    const v = tracker.getVelocity();
+    expect(v.vx).toBeCloseTo(1, 1);
+    expect(v.vy).toBeCloseTo(0.5, 1);
+    expect(v.speed).toBeGreaterThan(0);
+  });
+
+  it('discards old points outside window', () => {
+    const tracker = new VelocityTracker(80);
+    tracker.add({ x: 0, y: 0, timestamp: 0 });
+    tracker.add({ x: 10, y: 10, timestamp: 30 });
+    tracker.add({ x: 100, y: 100, timestamp: 100 });
+    const v = tracker.getVelocity();
+    // window=80, cutoff=100-80=20. Point at t=0 is removed, t=30 and t=100 remain
+    expect(v.vx).toBeGreaterThan(0);
+  });
+
+  it('returns zero for single point', () => {
+    const tracker = new VelocityTracker(100);
+    tracker.add({ x: 0, y: 0, timestamp: 0 });
+    const v = tracker.getVelocity();
+    expect(v.speed).toBe(0);
+  });
+
+  it('resets properly', () => {
+    const tracker = new VelocityTracker(100);
+    tracker.add({ x: 0, y: 0, timestamp: 0 });
+    tracker.add({ x: 100, y: 0, timestamp: 50 });
+    tracker.reset();
+    const v = tracker.getVelocity();
+    expect(v.speed).toBe(0);
+  });
+});
+
+describe('detectMultiTap', () => {
+  
+
+  it('detects two simultaneous taps', () => {
+    const taps = [
+      [{ x: 50, y: 50, timestamp: 0 }, { x: 50, y: 50, timestamp: 50 }],
+      [{ x: 150, y: 150, timestamp: 10 }, { x: 150, y: 150, timestamp: 60 }],
+    ];
+    const r = detectMultiTap(taps);
+    expect(r).not.toBeNull();
+    expect(r!.count).toBe(2);
+    expect(r!.simultaneous).toBe(true);
+  });
+
+  it('rejects non-simultaneous taps', () => {
+    const taps = [
+      [{ x: 50, y: 50, timestamp: 0 }, { x: 50, y: 50, timestamp: 50 }],
+      [{ x: 150, y: 150, timestamp: 200 }, { x: 150, y: 150, timestamp: 250 }],
+    ];
+    const r = detectMultiTap(taps);
+    expect(r).toBeNull();
+  });
+
+  it('returns null for single tap', () => {
+    expect(detectMultiTap([[{ x: 0, y: 0, timestamp: 0 }]])).toBeNull();
+  });
+
+  it('detects three simultaneous taps', () => {
+    const taps = [
+      [{ x: 50, y: 50, timestamp: 0 }],
+      [{ x: 150, y: 50, timestamp: 5 }],
+      [{ x: 250, y: 50, timestamp: 10 }],
+    ];
+    const r = detectMultiTap(taps);
+    expect(r!.count).toBe(3);
   });
 });
