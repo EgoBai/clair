@@ -5,13 +5,16 @@ describe('成交量形态引擎', () => {
   const makeCandles = (n: number): VolumeCandle[] =>
     Array.from({ length: n }, (_, i) => {
       const base = 10 + Math.sin(i * 0.2) * 1;
-      const vol = i === 25 ? 50000 : 5000 + Math.random() * 3000; // spike at 25
+      const isSpike = i === 25;
+      const vol = isSpike ? 60000 : 5000 + Math.random() * 3000;
+      const open = base;
+      const close = isSpike ? base * 1.05 : base + (Math.random() - 0.5) * 0.3;
       return {
         date: `2024-${String(Math.floor(i / 30) + 1).padStart(2, '0')}-${String((i % 30) + 1).padStart(2, '0')}`,
-        open: base,
-        high: base + Math.random() * 0.5,
-        low: base - Math.random() * 0.5,
-        close: base + (Math.random() - 0.5) * 0.3,
+        open,
+        high: Math.max(open, close) + Math.random() * 0.3,
+        low: Math.min(open, close) - Math.random() * 0.3,
+        close,
         volume: Math.floor(vol),
       };
     });

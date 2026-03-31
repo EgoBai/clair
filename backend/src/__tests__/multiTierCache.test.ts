@@ -366,16 +366,22 @@ describe('Multi-Tier Cache', () => {
   });
 
   it('should evict LRU', () => {
+    vi.useFakeTimers();
     const smallCache = new MultiTierCache();
     smallCache.addTier({ name: 'L1', maxSize: 3, currentSize: 0, defaultTTL: 60000, strategy: 'lru' });
     smallCache.set('k1', 'v1');
+    vi.advanceTimersByTime(1);
     smallCache.set('k2', 'v2');
+    vi.advanceTimersByTime(1);
     smallCache.set('k3', 'v3');
+    vi.advanceTimersByTime(10);
     // Access k1 to make it recently used
     smallCache.get('k1');
+    vi.advanceTimersByTime(10);
     smallCache.set('k4', 'v4'); // Should evict k2 (least recently used)
     expect(smallCache.has('k1')).toBe(true);
     expect(smallCache.has('k4')).toBe(true);
+    vi.useRealTimers();
   });
 
   it('should list keys', () => {
