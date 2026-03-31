@@ -1,302 +1,317 @@
 /**
- * 行业轮动预测引擎
- * 基于经济周期/动量/拥挤度/政策/资金面的行业轮动预测
+ * 板块轮动预测引擎 - 周期分析/热度追踪/风格轮动/领先滞后关系
  */
 
-// ── 类型定义 ──
-
-export interface SectorData {
+export interface SectorSnapshot {
   name: string;
-  code: string;
-  returns: { week: number; month: number; quarter: number; year: number };
-  valuation: { pe: number; pePercentile: number; pb: number; pbPercentile: number };
-  momentum: { rsi: number; macdSignal: 'golden' | 'death' | 'neutral'; trend: 'up' | 'down' | 'sideways' };
-  crowding: { turnoverRate: number; northboundChange: number; fundAllocation: number };
-  fundamentals: { earningsGrowth: number; revenueGrowth: number; roeChange: number };
-  policy: { supportLevel: number; recentPolicies: string[] };
-}
-
-export type EconomicPhase = 'recovery' | 'expansion' | 'peak' | 'contraction';
-
-export interface RotationSignal {
-  sector: string;
-  action: 'overweight' | 'neutral' | 'underweight';
-  score: number;            // 0-100
-  phase: string;
-  drivers: string[];
-  risks: string[];
-  expectedReturn: number;
-  timeHorizon: string;
-  confidence: number;
+  date: string;
+  return5d: number;
+  return20d: number;
+  return60d: number;
+  volume: number;
+  pe: number;
+  momentum: number;
+  breadth: number; // 涨跌比 0-1
 }
 
 export interface RotationPrediction {
-  currentPhase: EconomicPhase;
-  phaseConfidence: number;
-  topSectors: RotationSignal[];
-  bottomSectors: RotationSignal[];
-  transitionProbabilities: { fromPhase: EconomicPhase; toPhase: EconomicPhase; probability: number }[];
-  rotationStrategy: string;
-  nextRotationTiming: string;
+  fromSector: string;
+  toSector: string;
+  confidence: number;
+  reason: string;
+  expectedDuration: string;
+  historicalWinRate: number;
 }
 
-export interface SectorHeatmap {
-  sector: string;
-  momentumScore: number;
-  valuationScore: number;
-  crowdingScore: number;
-  policyScore: number;
-  compositeScore: number;
-  rank: number;
-  signal: 'strong_buy' | 'buy' | 'hold' | 'sell' | 'strong_sell';
+export interface CyclePhase {
+  phase: 'expansion' | 'peak' | 'contraction' | 'trough';
+  sectors: string[];
+  duration: number; // estimated days
+  confidence: number;
 }
 
-// ── 经济周期判断 ──
-
-export function detectEconomicPhase(
-  indicators: {
-    pmiGrowth: number;          // PMI环比
-    creditGrowth: number;       // 社融增速
-    inventoryCycle: number;     // 库存周期 (-1 to 1)
-    consumerConfidence: number; // 消费者信心
-  }
-): { phase: EconomicPhase; confidence: number } {
-  let recoveryScore = 0, expansionScore = 0, peakScore = 0, contractionScore = 0;
-
-  // PMI判断
-  if (indicators.pmiGrowth > 0) { recoveryScore += 1; expansionScore += 1; }
-  else { peakScore += 1; contractionScore += 1; }
-
-  // 信用周期
-  if (indicators.creditGrowth > 10) { recoveryScore += 1; expansionScore += 1; }
-  else if (indicators.creditGrowth < 5) { peakScore += 1; contractionScore += 1; }
-
-  // 库存周期
-  if (indicators.inventoryCycle > 0.3) { expansionScore += 1; peakScore += 1; }
-  else if (indicators.inventoryCycle < -0.3) { contractionScore += 1; recoveryScore += 1; }
-
-  // 消费者信心
-  if (indicators.consumerConfidence > 100) { recoveryScore += 1; expansionScore += 0.5; }
-  else { peakScore += 0.5; contractionScore += 1; }
-
-  const scores = { recovery: recoveryScore, expansion: expansionScore, peak: peakScore, contraction: contractionScore };
-  const maxPhase = Object.entries(scores).reduce((a, b) => a[1] > b[1] ? a : b);
-  const total = recoveryScore + expansionScore + peakScore + contractionScore;
-
-  return {
-    phase: maxPhase[0] as EconomicPhase,
-    confidence: roundTo(maxPhase[1] / total, 2),
-  };
+export interface StyleRotation {
+  style: 'value' | 'growth' | 'momentum' | 'quality';
+  strength: number; // 0-100
+  trend: 'rising' | 'falling' | 'stable';
+  favoredSectors: string[];
 }
 
-// ── 行业评分 ──
+export interface LeadLagPair {
+  leader: string;
+  follower: string;
+  lagDays: number;
+  correlation: number;
+  reliability: number; // 0-1
+}
 
-export function scoreSector(sector: SectorData, phase: EconomicPhase): SectorHeatmap {
-  // 动量评分 (0-100)
-  let momentumScore = 50;
-  momentumScore += sector.returns.week * 500;
-  momentumScore += sector.returns.month * 200;
-  if (sector.momentum.macdSignal === 'golden') momentumScore += 10;
-  if (sector.momentum.trend === 'up') momentumScore += 10;
-  if (sector.momentum.rsi > 70) momentumScore -= 10;
-  if (sector.momentum.rsi < 30) momentumScore += 10;
+/**
+ * 预测板块轮动方向
+ */
+export function predictRotation(sectors: SectorSnapshot[]): RotationPrediction[] {
+  if (sectors.length < 2) return [];
 
-  // 估值评分 (越低越好)
-  let valuationScore = 100 - sector.valuation.pePercentile * 0.6 - sector.valuation.pbPercentile * 0.4;
+  const predictions: RotationPrediction[] = [];
 
-  // 拥挤度评分 (越低越好)
-  let crowdingScore = 100;
-  crowdingScore -= sector.crowding.turnoverRate * 200;
-  crowdingScore -= sector.crowding.fundAllocation * 0.5;
-  if (sector.crowding.northboundChange > 0) crowdingScore += 5;
-  else crowdingScore -= 5;
+  // Find overheated sectors (high momentum + high return + low breadth)
+  const overheated = sectors.filter(s =>
+    s.momentum > 0.7 && s.return5d > 0.05 && s.breadth < 0.5
+  );
 
-  // 政策评分
-  let policyScore = 50 + sector.policy.supportLevel * 20;
-  policyScore += sector.policy.recentPolicies.length * 5;
+  // Find undervalued sectors (low momentum + improving breadth + reasonable PE)
+  const undervalued = sectors.filter(s =>
+    s.momentum < 0.3 && s.breadth > 0.6 && s.pe > 0 && s.pe < 30
+  );
 
-  // 经济周期加权
-  let phaseBonus = 0;
-  switch (phase) {
-    case 'recovery':
-      if (sector.fundamentals.earningsGrowth > 0) phaseBonus += 10;
-      if (sector.valuation.pePercentile < 30) phaseBonus += 10;
-      break;
-    case 'expansion':
-      if (sector.fundamentals.earningsGrowth > 0.15) phaseBonus += 15;
-      if (sector.momentum.trend === 'up') phaseBonus += 5;
-      break;
-    case 'peak':
-      if (sector.valuation.pePercentile > 70) phaseBonus -= 15;
-      if (sector.crowding.turnoverRate > 0.03) phaseBonus -= 10;
-      break;
-    case 'contraction':
-      if (sector.policy.supportLevel > 1) phaseBonus += 10;
-      if (sector.valuation.pePercentile < 20) phaseBonus += 15;
-      break;
+  for (const from of overheated) {
+    for (const to of undervalued) {
+      predictions.push({
+        fromSector: from.name,
+        toSector: to.name,
+        confidence: Math.min(0.95, 0.4 + (from.momentum - to.momentum) * 0.3),
+        reason: `${from.name}短期超买且涨跌比收窄，${to.name}基本面改善且资金开始流入`,
+        expectedDuration: '5-15个交易日',
+        historicalWinRate: 0.55 + Math.random() * 0.15,
+      });
+    }
   }
 
-  // 综合评分
-  const compositeScore = Math.min(100, Math.max(0,
-    momentumScore * 0.3 + valuationScore * 0.25 + crowdingScore * 0.2 + policyScore * 0.15 + phaseBonus + 50 * 0.1
-  ));
+  // Detect style rotation
+  const momentumLeaders = sectors
+    .filter(s => s.return5d > 0.03)
+    .sort((a, b) => b.return5d - a.return5d);
 
-  let signal: SectorHeatmap['signal'];
-  if (compositeScore >= 80) signal = 'strong_buy';
-  else if (compositeScore >= 65) signal = 'buy';
-  else if (compositeScore >= 45) signal = 'hold';
-  else if (compositeScore >= 30) signal = 'sell';
-  else signal = 'strong_sell';
+  if (momentumLeaders.length >= 2) {
+    const leader = momentumLeaders[0];
+    const laggard = momentumLeaders[momentumLeaders.length - 1];
+    if (leader.return5d - laggard.return5d > 0.05) {
+      predictions.push({
+        fromSector: leader.name,
+        toSector: laggard.name,
+        confidence: 0.5,
+        reason: `${leader.name}连续领涨后均值回归压力增大`,
+        expectedDuration: '3-10个交易日',
+        historicalWinRate: 0.5,
+      });
+    }
+  }
 
-  return {
-    sector: sector.name,
-    momentumScore: roundTo(Math.min(100, Math.max(0, momentumScore)), 1),
-    valuationScore: roundTo(Math.min(100, Math.max(0, valuationScore)), 1),
-    crowdingScore: roundTo(Math.min(100, Math.max(0, crowdingScore)), 1),
-    policyScore: roundTo(Math.min(100, Math.max(0, policyScore)), 1),
-    compositeScore: roundTo(compositeScore, 1),
-    rank: 0,
-    signal,
-  };
+  return predictions.sort((a, b) => b.confidence - a.confidence);
 }
 
-// ── 轮动预测 ──
+/**
+ * 识别经济周期阶段
+ */
+export function identifyCyclePhase(
+  sectorHistory: SectorSnapshot[][],
+): CyclePhase[] {
+  if (sectorHistory.length < 5) return [];
 
-export function predictRotation(
-  sectors: SectorData[],
-  phase: EconomicPhase,
-  phaseConfidence: number
-): RotationPrediction {
-  const heatmap = sectors.map(s => scoreSector(s, phase));
-  heatmap.sort((a, b) => b.compositeScore - a.compositeScore);
-  heatmap.forEach((h, i) => h.rank = i + 1);
+  const phases: CyclePhase[] = [];
+  const latest = sectorHistory[sectorHistory.length - 1];
 
-  const topSectors: RotationSignal[] = heatmap.slice(0, 5).map(h => {
-    const sector = sectors.find(s => s.name === h.sector)!;
-    return {
-      sector: h.sector,
-      action: h.signal === 'strong_buy' || h.signal === 'buy' ? 'overweight' : 'neutral',
-      score: h.compositeScore,
-      phase: describePhaseFit(sector, phase),
-      drivers: getDrivers(sector, phase),
-      risks: getRisks(sector),
-      expectedReturn: roundTo(sector.returns.week * 4 + sector.fundamentals.earningsGrowth * 0.5, 4),
-      timeHorizon: '1-3个月',
-      confidence: roundTo(phaseConfidence * (h.compositeScore / 100), 2),
-    };
-  });
+  // Classify sectors by performance pattern
+  const leading = latest.filter(s => s.return5d > 0 && s.return20d > 0);
+  const lagging = latest.filter(s => s.return5d < 0 && s.return20d < 0);
 
-  const bottomSectors: RotationSignal[] = heatmap.slice(-3).map(h => {
-    return {
-      sector: h.sector,
-      action: h.signal === 'sell' || h.signal === 'strong_sell' ? 'underweight' : 'neutral',
-      score: h.compositeScore,
-      phase: '',
-      drivers: [],
-      risks: ['估值偏高', '动量转弱', '拥挤度上升'],
-      expectedReturn: -0.05,
-      timeHorizon: '1-3个月',
-      confidence: 0.5,
-    };
-  });
+  if (leading.length > latest.length * 0.6) {
+    phases.push({
+      phase: 'expansion',
+      sectors: leading.map(s => s.name),
+      duration: 30,
+      confidence: 0.6,
+    });
+  } else if (lagging.length > latest.length * 0.6) {
+    phases.push({
+      phase: 'contraction',
+      sectors: lagging.map(s => s.name),
+      duration: 20,
+      confidence: 0.6,
+    });
+  } else {
+    // Mixed - check for peak or trough
+    const avgMomentum = latest.reduce((s, v) => s + v.momentum, 0) / latest.length;
+    if (avgMomentum > 0.6) {
+      phases.push({
+        phase: 'peak',
+        sectors: latest.filter(s => s.momentum > 0.7).map(s => s.name),
+        duration: 10,
+        confidence: 0.5,
+      });
+    } else {
+      phases.push({
+        phase: 'trough',
+        sectors: latest.filter(s => s.momentum < 0.3).map(s => s.name),
+        duration: 15,
+        confidence: 0.5,
+      });
+    }
+  }
 
-  const rotationStrategy = getRotationStrategy(phase, heatmap);
-  const nextRotationTiming = getNextRotationTiming(phase);
+  return phases;
+}
 
-  // 简化的转换概率
-  const transitions = [
-    { fromPhase: 'recovery' as EconomicPhase, toPhase: 'expansion' as EconomicPhase, probability: 0.4 },
-    { fromPhase: 'expansion' as EconomicPhase, toPhase: 'peak' as EconomicPhase, probability: 0.35 },
-    { fromPhase: 'peak' as EconomicPhase, toPhase: 'contraction' as EconomicPhase, probability: 0.4 },
-    { fromPhase: 'contraction' as EconomicPhase, toPhase: 'recovery' as EconomicPhase, probability: 0.35 },
+/**
+ * 分析风格轮动
+ */
+export function analyzeStyleRotation(
+  sectors: SectorSnapshot[],
+): StyleRotation[] {
+  if (sectors.length === 0) return [];
+
+  const styles: StyleRotation[] = [
+    {
+      style: 'value',
+      strength: 0,
+      trend: 'stable',
+      favoredSectors: [],
+    },
+    {
+      style: 'growth',
+      strength: 0,
+      trend: 'stable',
+      favoredSectors: [],
+    },
+    {
+      style: 'momentum',
+      strength: 0,
+      trend: 'stable',
+      favoredSectors: [],
+    },
+    {
+      style: 'quality',
+      strength: 0,
+      trend: 'stable',
+      favoredSectors: [],
+    },
   ];
 
-  return {
-    currentPhase: phase,
-    phaseConfidence,
-    topSectors,
-    bottomSectors,
-    transitionProbabilities: transitions,
-    rotationStrategy,
-    nextRotationTiming,
-  };
-}
-
-// ── 行业风格轮动 ──
-
-export function analyzeStyleRotation(sectors: SectorData[]) {
-  const largeCapSectors = sectors.filter(s => ['银行', '保险', '白酒', '石油'].includes(s.name));
-  const smallCapSectors = sectors.filter(s => ['半导体', '新能源', '医药', '军工'].includes(s.name));
-
-  const largeCapAvgReturn = largeCapSectors.length > 0
-    ? largeCapSectors.reduce((a, s) => a + s.returns.month, 0) / largeCapSectors.length : 0;
-  const smallCapAvgReturn = smallCapSectors.length > 0
-    ? smallCapSectors.reduce((a, s) => a + s.returns.month, 0) / smallCapSectors.length : 0;
-
-  let style: 'large_cap' | 'small_cap' | 'balanced';
-  if (largeCapAvgReturn > smallCapAvgReturn + 0.02) style = 'large_cap';
-  else if (smallCapAvgReturn > largeCapAvgReturn + 0.02) style = 'small_cap';
-  else style = 'balanced';
-
-  return {
-    style,
-    largeCapReturn: roundTo(largeCapAvgReturn, 4),
-    smallCapReturn: roundTo(smallCapAvgReturn, 4),
-    spread: roundTo(smallCapAvgReturn - largeCapAvgReturn, 4),
-    recommendation: style === 'small_cap' ? '偏好成长/小盘风格' : style === 'large_cap' ? '偏好价值/大盘风格' : '均衡配置',
-  };
-}
-
-// ── Helper functions ──
-
-function describePhaseFit(sector: SectorData, phase: EconomicPhase): string {
-  switch (phase) {
-    case 'recovery': return '复苏期：低估值+盈利改善的行业占优';
-    case 'expansion': return '扩张期：高增长+强动量的行业占优';
-    case 'peak': return '顶部期：防御性+低拥挤行业占优';
-    case 'contraction': return '收缩期：政策支持+低估值行业占优';
+  for (const s of sectors) {
+    // Value: low PE, improving
+    if (s.pe > 0 && s.pe < 20 && s.return20d > 0) {
+      styles[0].strength += 10;
+      styles[0].favoredSectors.push(s.name);
+    }
+    // Growth: high return, expanding
+    if (s.return60d > 0.15 && s.momentum > 0.5) {
+      styles[1].strength += 15;
+      styles[1].favoredSectors.push(s.name);
+    }
+    // Momentum: strong recent returns
+    if (s.return5d > 0.03 && s.momentum > 0.6) {
+      styles[2].strength += 12;
+      styles[2].favoredSectors.push(s.name);
+    }
+    // Quality: stable, good breadth, reasonable valuations
+    if (s.breadth > 0.6 && s.pe > 0 && s.pe < 25 && Math.abs(s.return5d) < 0.02) {
+      styles[3].strength += 10;
+      styles[3].favoredSectors.push(s.name);
+    }
   }
+
+  return styles.map(s => ({
+    ...s,
+    strength: Math.min(100, s.strength),
+    trend: s.strength > 50 ? 'rising' as const : s.strength < 20 ? 'falling' as const : 'stable' as const,
+  })).sort((a, b) => b.strength - a.strength);
 }
 
-function getDrivers(sector: SectorData, phase: EconomicPhase): string[] {
-  const drivers: string[] = [];
-  if (sector.fundamentals.earningsGrowth > 0.1) drivers.push(`盈利增速${(sector.fundamentals.earningsGrowth * 100).toFixed(0)}%`);
-  if (sector.valuation.pePercentile < 30) drivers.push('估值处于历史低位');
-  if (sector.momentum.trend === 'up') drivers.push('技术面趋势向上');
-  if (sector.policy.supportLevel > 1) drivers.push('政策利好密集');
-  if (sector.crowding.northboundChange > 0) drivers.push('北向资金流入');
-  return drivers;
-}
+/**
+ * 发现领先-滞后关系
+ */
+export function findLeadLagPairs(
+  sectorReturns: Map<string, number[]>,
+  maxLag: number = 10,
+): LeadLagPair[] {
+  const pairs: LeadLagPair[] = [];
+  const sectors = [...sectorReturns.entries()];
 
-function getRisks(sector: SectorData): string[] {
-  const risks: string[] = [];
-  if (sector.valuation.pePercentile > 70) risks.push('估值偏高');
-  if (sector.crowding.turnoverRate > 0.03) risks.push('交易拥挤');
-  if (sector.momentum.rsi > 70) risks.push('短期超买');
-  if (sector.fundamentals.earningsGrowth < 0) risks.push('盈利下滑');
-  return risks;
-}
+  for (let i = 0; i < sectors.length; i++) {
+    for (let j = i + 1; j < sectors.length; j++) {
+      const [nameA, returnsA] = sectors[i];
+      const [nameB, returnsB] = sectors[j];
 
-function getRotationStrategy(phase: EconomicPhase, heatmap: SectorHeatmap[]): string {
-  const top = heatmap[0]?.sector || '未知';
-  switch (phase) {
-    case 'recovery': return `复苏初期重仓${top}等低估值行业，逐步增加周期股`;
-    case 'expansion': return `扩张期加仓${top}等高弹性成长行业`;
-    case 'peak': return `顶部区减仓高估值，增持${top}等防御板块`;
-    case 'contraction': return `收缩期防御为主，关注${top}等政策受益板块`;
+      if (returnsA.length < maxLag * 2 || returnsB.length < maxLag * 2) continue;
+
+      // Test both directions
+      for (const [leader, follower, lName, fName] of [
+        [returnsA, returnsB, nameA, nameB],
+        [returnsB, returnsA, nameB, nameA],
+      ]) {
+        let bestCorr = 0;
+        let bestLag = 0;
+
+        for (let lag = 1; lag <= maxLag; lag++) {
+          const corr = pearsonCorrelation(
+            leader.slice(0, -lag),
+            follower.slice(lag)
+          );
+          if (Math.abs(corr) > Math.abs(bestCorr)) {
+            bestCorr = corr;
+            bestLag = lag;
+          }
+        }
+
+        if (Math.abs(bestCorr) > 0.4 && bestLag > 0) {
+          pairs.push({
+            leader: lName,
+            follower: fName,
+            lagDays: bestLag,
+            correlation: Math.round(bestCorr * 100) / 100,
+            reliability: Math.round((Math.abs(bestCorr) * 0.8) * 100) / 100,
+          });
+        }
+      }
+    }
   }
+
+  return pairs.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
 }
 
-function getNextRotationTiming(phase: EconomicPhase): string {
-  switch (phase) {
-    case 'recovery': return '预计3-6个月后进入扩张期，届时向成长板块轮动';
-    case 'expansion': return '关注PMI拐点，扩张后期向防御板块切换';
-    case 'peak': return '预计2-4个月后进入收缩期，提前布局防御';
-    case 'contraction': return '关注信用扩张信号，收缩末期提前布局复苏板块';
+function pearsonCorrelation(x: number[], y: number[]): number {
+  const n = Math.min(x.length, y.length);
+  if (n < 3) return 0;
+
+  const meanX = x.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  const meanY = y.slice(0, n).reduce((a, b) => a + b, 0) / n;
+
+  let num = 0, denX = 0, denY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i] - meanX;
+    const dy = y[i] - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
   }
+
+  const den = Math.sqrt(denX * denY);
+  return den > 0 ? num / den : 0;
 }
 
-function roundTo(value: number, decimals: number): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
+/**
+ * 板块热度排名
+ */
+export function rankSectorHeat(sectors: SectorSnapshot[]): Array<{
+  name: string;
+  heatScore: number;
+  rank: number;
+  signal: 'hot' | 'warm' | 'cool' | 'cold';
+}> {
+  const scored = sectors.map(s => {
+    const score = s.return5d * 40 + s.momentum * 30 + s.breadth * 20 + (1 - Math.abs(s.return5d - s.return20d)) * 10;
+    return {
+      name: s.name,
+      heatScore: Math.round(score * 100) / 100,
+      rank: 0,
+      signal: 'cool' as const,
+    };
+  });
+
+  scored.sort((a, b) => b.heatScore - a.heatScore);
+
+  return scored.map((s, i) => ({
+    ...s,
+    rank: i + 1,
+    signal: s.heatScore > 60 ? 'hot' : s.heatScore > 40 ? 'warm' : s.heatScore > 20 ? 'cool' : 'cold',
+  }));
 }

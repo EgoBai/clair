@@ -1,212 +1,172 @@
 /**
- * 配对交易引擎
- * 支持: 协整检验、价差建模、Z-Score信号、半衰期计算
+ * 统计套利配对交易引擎 - 协整检验/Z-Score信号/均值回归/对冲比率
  */
 
-export interface PairData {
-  symbolA: string;
-  symbolB: string;
-  pricesA: number[];
-  pricesB: number[];
+export interface PriceSeries {
+  symbol: string;
+  prices: number[];
+  timestamps: string[];
 }
 
 export interface CointegrationResult {
+  symbol1: string;
+  symbol2: string;
+  adfStatistic: number;
+  pValue: number;
   isCointegrated: boolean;
+  halfLife: number; // days
   hedgeRatio: number;
+  spread: number[];
   spreadMean: number;
   spreadStd: number;
-  adfStatistic: number;
-  adfCriticalValue: number;
-  halfLife: number;
-  hurstExponent: number;
-  pValue: number;
 }
 
-export interface SpreadSignal {
-  index: number;
+export interface PairsSignal {
+  time: string;
+  signal: 'long_spread' | 'short_spread' | 'exit';
   zScore: number;
-  signal: 'long' | 'short' | 'exit' | 'hold';
-  spread: number;
-  hedgeRatio: number;
+  spreadValue: number;
+  expectedReturn: number;
+  confidence: number;
 }
 
-export interface PairsBacktestResult {
+export interface PairsBacktest {
+  pair: [string, string];
   totalReturn: number;
   annualizedReturn: number;
   sharpeRatio: number;
   maxDrawdown: number;
-  numTrades: number;
   winRate: number;
-  avgHoldingPeriod: number;
-  signals: SpreadSignal[];
-}
-
-export interface PairRanking {
-  pair: PairData;
-  cointegration: CointegrationResult;
-  score: number; // 综合评分
+  avgHoldingDays: number;
+  numTrades: number;
+  signals: PairsSignal[];
 }
 
 /**
- * 计算最优对冲比率 (OLS回归)
- */
-export function calculateHedgeRatio(pricesA: number[], pricesB: number[]): number {
-  const n = Math.min(pricesA.length, pricesB.length);
-  if (n < 2) return 1;
-
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-  for (let i = 0; i < n; i++) {
-    sumX += pricesB[i];
-    sumY += pricesA[i];
-    sumXY += pricesB[i] * pricesA[i];
-    sumX2 += pricesB[i] * pricesB[i];
-  }
-
-  const denom = n * sumX2 - sumX * sumX;
-  if (Math.abs(denom) < 1e-10) return 1;
-
-  return (n * sumXY - sumX * sumY) / denom;
-}
-
-/**
- * 计算价差序列
- */
-export function calculateSpread(
-  pricesA: number[],
-  pricesB: number[],
-  hedgeRatio: number
-): number[] {
-  const n = Math.min(pricesA.length, pricesB.length);
-  const spread: number[] = [];
-  for (let i = 0; i < n; i++) {
-    spread.push(pricesA[i] - hedgeRatio * pricesB[i]);
-  }
-  return spread;
-}
-
-/**
- * 协整性检验 (ADF检验简化版)
+ * 计算协整关系
  */
 export function testCointegration(
-  pricesA: number[],
-  pricesB: number[],
-  criticalValue: number = -3.4
+  series1: PriceSeries,
+  series2: PriceSeries,
 ): CointegrationResult {
-  const hedgeRatio = calculateHedgeRatio(pricesA, pricesB);
-  const spread = calculateSpread(pricesA, pricesB, hedgeRatio);
-
-  const n = spread.length;
-  if (n < 20) {
+  const len = Math.min(series1.prices.length, series2.prices.length);
+  if (len < 10) {
     return {
-      isCointegrated: false,
-      hedgeRatio,
-      spreadMean: 0,
-      spreadStd: 0,
-      adfStatistic: 0,
-      adfCriticalValue: criticalValue,
-      halfLife: 0,
-      hurstExponent: 0.5,
-      pValue: 1
+      symbol1: series1.symbol, symbol2: series2.symbol,
+      adfStatistic: 0, pValue: 1, isCointegrated: false,
+      halfLife: 0, hedgeRatio: 0, spread: [], spreadMean: 0, spreadStd: 0,
     };
   }
 
-  const mean = spread.reduce((a, b) => a + b, 0) / n;
-  const variance = spread.reduce((a, s) => a + (s - mean) ** 2, 0) / (n - 1);
-  const std = Math.sqrt(variance);
+  const x = series1.prices.slice(0, len);
+  const y = series2.prices.slice(0, len);
 
-  // ADF检验: Δspread_t = α + β*spread_{t-1} + ε
-  const deltaY: number[] = [];
-  const laggedY: number[] = [];
-  for (let i = 1; i < n; i++) {
-    deltaY.push(spread[i] - spread[i - 1]);
-    laggedY.push(spread[i - 1]);
+  // OLS hedge ratio: y = alpha + beta * x
+  const meanX = x.reduce((a, b) => a + b, 0) / len;
+  const meanY = y.reduce((a, b) => a + b, 0) / len;
+  let num = 0, den = 0;
+  for (let i = 0; i < len; i++) {
+    num += (x[i] - meanX) * (y[i] - meanY);
+    den += (x[i] - meanX) ** 2;
   }
+  const hedgeRatio = den > 0 ? num / den : 1;
 
-  const m = deltaY.length;
-  let sumLag = 0, sumDelta = 0, sumLagDelta = 0, sumLag2 = 0;
-  for (let i = 0; i < m; i++) {
-    sumLag += laggedY[i];
-    sumDelta += deltaY[i];
-    sumLagDelta += laggedY[i] * deltaY[i];
-    sumLag2 += laggedY[i] * laggedY[i];
+  // Spread: y - beta * x
+  const spread = y.map((yi, i) => yi - hedgeRatio * x[i]);
+  const spreadMean = spread.reduce((a, b) => a + b, 0) / len;
+  const spreadStd = Math.sqrt(spread.reduce((s, v) => s + (v - spreadMean) ** 2, 0) / len);
+
+  // Simplified ADF test (lag-1 autocorrelation)
+  let sumDiff = 0, sumLag = 0;
+  for (let i = 1; i < len; i++) {
+    sumDiff += (spread[i] - spread[i - 1]) * spread[i - 1];
+    sumLag += spread[i - 1] ** 2;
   }
+  const rho = sumLag > 0 ? sumDiff / sumLag : 0;
+  const adfStatistic = rho * Math.sqrt(len);
+  const pValue = Math.max(0.001, Math.min(1, 0.5 - Math.abs(adfStatistic) * 0.1));
+  const isCointegrated = pValue < 0.05;
 
-  const denom = m * sumLag2 - sumLag * sumLag;
-  const beta = Math.abs(denom) > 1e-10 ? (m * sumLagDelta - sumLag * sumDelta) / denom : 0;
-
-  // 残差标准差
-  const alpha = (sumDelta - beta * sumLag) / m;
-  const residuals: number[] = [];
-  for (let i = 0; i < m; i++) {
-    residuals.push(deltaY[i] - alpha - beta * laggedY[i]);
-  }
-  const resStd = Math.sqrt(residuals.reduce((a, r) => a + r * r, 0) / (m - 2));
-
-  // SE(β)
-  const seBeta = Math.abs(denom) > 1e-10 ? resStd / Math.sqrt(sumLag2 - sumLag * sumLag / m) : 1;
-  const adfStatistic = seBeta > 0 ? beta / seBeta : 0;
-
-  // 半衰期
-  const halfLife = beta < 0 ? -Math.log(2) / beta : Infinity;
-
-  // Hurst指数 (简化)
-  const hurstExponent = calculateHurst(spread);
-
-  // p值 (简化: 基于统计量)
-  const pValue = adfStatistic < criticalValue ? 0.01 : 0.5;
+  // Half-life of mean reversion
+  const halfLife = rho < 0 ? Math.round((-Math.log(2) / rho) * 100) / 100 : 0;
 
   return {
-    isCointegrated: adfStatistic < criticalValue,
-    hedgeRatio,
-    spreadMean: mean,
-    spreadStd: std,
-    adfStatistic,
-    adfCriticalValue: criticalValue,
-    halfLife: Math.min(halfLife, 1000),
-    hurstExponent,
-    pValue
+    symbol1: series1.symbol,
+    symbol2: series2.symbol,
+    adfStatistic: Math.round(adfStatistic * 1000) / 1000,
+    pValue: Math.round(pValue * 1000) / 1000,
+    isCointegrated,
+    halfLife: Math.min(365, Math.max(0, halfLife)),
+    hedgeRatio: Math.round(hedgeRatio * 10000) / 10000,
+    spread,
+    spreadMean: Math.round(spreadMean * 10000) / 10000,
+    spreadStd: Math.round(spreadStd * 10000) / 10000,
   };
 }
 
 /**
- * 生成交易信号
+ * 生成Z-Score交易信号
  */
-export function generateSpreadSignals(
-  spread: number[],
-  mean: number,
-  std: number,
-  entryZScore: number = 2.0,
-  exitZScore: number = 0.5,
-  hedgeRatio: number = 1
-): SpreadSignal[] {
-  const signals: SpreadSignal[] = [];
-  let position: 'long' | 'short' | null = null;
+export function generatePairsSignals(
+  cointegration: CointegrationResult,
+  timestamps: string[],
+  entryThreshold: number = 2.0,
+  exitThreshold: number = 0.5,
+): PairsSignal[] {
+  const signals: PairsSignal[] = [];
+  if (cointegration.spreadStd === 0) return signals;
 
-  for (let i = 0; i < spread.length; i++) {
-    const zScore = std > 0 ? (spread[i] - mean) / std : 0;
-    let signal: SpreadSignal['signal'] = 'hold';
+  let inPosition = false;
+  let positionType: 'long_spread' | 'short_spread' | null = null;
 
-    if (position === null) {
-      if (zScore < -entryZScore) {
-        signal = 'long'; // 价差过低，做多A做空B
-        position = 'long';
-      } else if (zScore > entryZScore) {
-        signal = 'short'; // 价差过高，做空A做多B
-        position = 'short';
+  for (let i = 0; i < cointegration.spread.length; i++) {
+    const zScore = (cointegration.spread[i] - cointegration.spreadMean) / cointegration.spreadStd;
+
+    if (!inPosition) {
+      if (zScore > entryThreshold) {
+        // Spread too high, short the spread
+        signals.push({
+          time: timestamps[i] || `day_${i}`,
+          signal: 'short_spread',
+          zScore: Math.round(zScore * 100) / 100,
+          spreadValue: Math.round(cointegration.spread[i] * 100) / 100,
+          expectedReturn: Math.round((cointegration.spreadMean - cointegration.spread[i]) / cointegration.spreadStd * 100) / 100,
+          confidence: Math.min(1, Math.abs(zScore) / 3),
+        });
+        inPosition = true;
+        positionType = 'short_spread';
+      } else if (zScore < -entryThreshold) {
+        // Spread too low, long the spread
+        signals.push({
+          time: timestamps[i] || `day_${i}`,
+          signal: 'long_spread',
+          zScore: Math.round(zScore * 100) / 100,
+          spreadValue: Math.round(cointegration.spread[i] * 100) / 100,
+          expectedReturn: Math.round((cointegration.spreadMean - cointegration.spread[i]) / cointegration.spreadStd * 100) / 100,
+          confidence: Math.min(1, Math.abs(zScore) / 3),
+        });
+        inPosition = true;
+        positionType = 'long_spread';
       }
-    } else if (position === 'long') {
-      if (zScore >= -exitZScore) {
-        signal = 'exit';
-        position = null;
-      }
-    } else if (position === 'short') {
-      if (zScore <= exitZScore) {
-        signal = 'exit';
-        position = null;
+    } else {
+      // Exit when z-score reverts
+      const shouldExit =
+        (positionType === 'short_spread' && zScore < exitThreshold) ||
+        (positionType === 'long_spread' && zScore > -exitThreshold);
+
+      if (shouldExit) {
+        signals.push({
+          time: timestamps[i] || `day_${i}`,
+          signal: 'exit',
+          zScore: Math.round(zScore * 100) / 100,
+          spreadValue: Math.round(cointegration.spread[i] * 100) / 100,
+          expectedReturn: 0,
+          confidence: 0.8,
+        });
+        inPosition = false;
+        positionType = null;
       }
     }
-
-    signals.push({ index: i, zScore, signal, spread: spread[i], hedgeRatio });
   }
 
   return signals;
@@ -216,170 +176,122 @@ export function generateSpreadSignals(
  * 配对交易回测
  */
 export function backtestPairs(
-  pricesA: number[],
-  pricesB: number[],
   cointegration: CointegrationResult,
-  entryZScore: number = 2.0,
-  exitZScore: number = 0.5
-): PairsBacktestResult {
-  const spread = calculateSpread(pricesA, pricesB, cointegration.hedgeRatio);
-  const signals = generateSpreadSignals(
-    spread,
-    cointegration.spreadMean,
-    cointegration.spreadStd,
-    entryZScore,
-    exitZScore,
-    cointegration.hedgeRatio
-  );
+  timestamps: string[],
+  entryThreshold: number = 2.0,
+  exitThreshold: number = 0.5,
+): PairsBacktest {
+  const signals = generatePairsSignals(cointegration, timestamps, entryThreshold, exitThreshold);
 
-  // 计算收益
   let totalReturn = 0;
-  let numTrades = 0;
+  let trades = 0;
   let wins = 0;
-  let holdingPeriods: number[] = [];
+  let holdingDays = 0;
   let entryIndex = 0;
-  let entrySpread = 0;
-  let position: 'long' | 'short' | null = null;
-
-  const dailyReturns: number[] = [];
+  const returns: number[] = [];
+  let peak = 0;
+  let maxDD = 0;
 
   for (let i = 0; i < signals.length; i++) {
-    const s = signals[i];
-
-    if (s.signal === 'long' || s.signal === 'short') {
-      position = s.signal;
+    const sig = signals[i];
+    if (sig.signal !== 'exit') {
       entryIndex = i;
-      entrySpread = s.spread;
-    } else if (s.signal === 'exit' && position) {
-      const pnl = position === 'long'
-        ? (s.spread - entrySpread) / Math.abs(entrySpread)
-        : (entrySpread - s.spread) / Math.abs(entrySpread);
-
-      totalReturn += pnl;
-      numTrades++;
-      if (pnl > 0) wins++;
-      holdingPeriods.push(i - entryIndex);
-      position = null;
-    }
-
-    // 日收益
-    if (i > 0) {
-      const dailyR = (signals[i].spread - signals[i - 1].spread) / Math.abs(signals[i - 1].spread || 1);
-      dailyReturns.push(position === 'long' ? dailyR : position === 'short' ? -dailyR : 0);
+    } else {
+      // Find corresponding entry
+      for (let j = entryIndex; j >= 0; j--) {
+        if (signals[j].signal !== 'exit') {
+          const ret = sig.zScore - signals[j].zScore;
+          const tradeReturn = signals[j].signal === 'short_spread' ? -ret : ret;
+          totalReturn += tradeReturn;
+          returns.push(tradeReturn);
+          if (tradeReturn > 0) wins++;
+          trades++;
+          holdingDays += i - j;
+          break;
+        }
+      }
     }
   }
 
-  const mean = dailyReturns.length > 0 ? dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length : 0;
-  const std = dailyReturns.length > 1
-    ? Math.sqrt(dailyReturns.reduce((a, r) => a + (r - mean) ** 2, 0) / (dailyReturns.length - 1))
-    : 0;
-  const sharpe = std > 0 ? (mean * 252) / (std * Math.sqrt(252)) : 0;
-
-  // 最大回撤
-  let peak = 0;
-  let cumReturn = 0;
-  let maxDD = 0;
-  for (const r of dailyReturns) {
-    cumReturn += r;
-    if (cumReturn > peak) peak = cumReturn;
-    const dd = peak - cumReturn;
-    if (dd > maxDD) maxDD = dd;
+  // Compute Sharpe and max DD
+  if (returns.length > 0) {
+    const meanRet = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const stdRet = Math.sqrt(returns.reduce((s, r) => s + (r - meanRet) ** 2, 0) / returns.length);
+    let cumRet = 0;
+    for (const r of returns) {
+      cumRet += r;
+      peak = Math.max(peak, cumRet);
+      maxDD = Math.min(maxDD, cumRet - peak);
+    }
   }
 
-  const avgHolding = holdingPeriods.length > 0
-    ? holdingPeriods.reduce((a, b) => a + b, 0) / holdingPeriods.length
-    : 0;
+  const annualizedReturn = trades > 0 ? Math.round((totalReturn / trades) * 252 * 100) / 100 : 0;
 
   return {
-    totalReturn,
-    annualizedReturn: totalReturn * 252 / Math.max(spread.length, 1),
-    sharpeRatio: sharpe,
-    maxDrawdown: maxDD,
-    numTrades,
-    winRate: numTrades > 0 ? wins / numTrades : 0,
-    avgHoldingPeriod: avgHolding,
-    signals
+    pair: [cointegration.symbol1, cointegration.symbol2],
+    totalReturn: Math.round(totalReturn * 10000) / 10000,
+    annualizedReturn,
+    sharpeRatio: returns.length > 1
+      ? Math.round((returns.reduce((a, b) => a + b, 0) / returns.length) /
+         (Math.sqrt(returns.reduce((s, r) => s + r ** 2, 0) / returns.length - (returns.reduce((a, b) => a + b, 0) / returns.length) ** 2) || 1) * 100) / 100
+      : 0,
+    maxDrawdown: Math.round(maxDD * 10000) / 10000,
+    winRate: trades > 0 ? Math.round((wins / trades) * 100) / 100 : 0,
+    avgHoldingDays: trades > 0 ? Math.round(holdingDays / trades) : 0,
+    numTrades: trades,
+    signals,
   };
 }
 
 /**
- * 排序配对 (筛选最佳交易对)
+ * 计算最优对冲比率
  */
-export function rankPairs(
-  pairs: PairData[],
-  maxHalfLife: number = 60,
-  minHurstDivergence: number = 0.3
-): PairRanking[] {
-  const rankings: PairRanking[] = [];
+export function calculateOptimalHedgeRatio(
+  series1: number[],
+  series2: number[],
+  method: 'ols' | 'kalman' | 'rolling' = 'ols',
+  window: number = 60,
+): number[] {
+  const len = Math.min(series1.length, series2.length);
+  if (len < 2) return [];
 
-  for (const pair of pairs) {
-    const ci = testCointegration(pair.pricesA, pair.pricesB);
-
-    // 综合评分:
-    // - 协整性 (ADF < critical)
-    // - 半衰期适中 (5-60天)
-    // - Hurst < 0.5 (均值回归)
-    let score = 0;
-    if (ci.isCointegrated) score += 40;
-    if (ci.halfLife > 5 && ci.halfLife < maxHalfLife) score += 20;
-    if (ci.hurstExponent < 0.5) score += 20;
-    score += Math.max(0, (ci.hurstExponent - 0.5) * -40); // Hurst越低越好
-    score += Math.min(20, Math.abs(ci.adfStatistic) * 2);
-
-    rankings.push({ pair, cointegration: ci, score });
-  }
-
-  return rankings.sort((a, b) => b.score - a.score);
-}
-
-// ===== Helper =====
-
-function calculateHurst(prices: number[]): number {
-  if (prices.length < 20) return 0.5;
-
-  const returns: number[] = [];
-  for (let i = 1; i < prices.length; i++) {
-    if (Math.abs(prices[i - 1]) > 1e-10) {
-      returns.push(prices[i] - prices[i - 1]);
+  if (method === 'ols') {
+    // Global OLS
+    const meanX = series1.slice(0, len).reduce((a, b) => a + b, 0) / len;
+    const meanY = series2.slice(0, len).reduce((a, b) => a + b, 0) / len;
+    let num = 0, den = 0;
+    for (let i = 0; i < len; i++) {
+      num += (series1[i] - meanX) * (series2[i] - meanY);
+      den += (series1[i] - meanX) ** 2;
     }
+    const beta = den > 0 ? num / den : 1;
+    return Array(len).fill(Math.round(beta * 10000) / 10000);
   }
 
-  const lags: number[] = [];
-  const rsValues: number[] = [];
+  // Rolling OLS
+  const result: number[] = [];
+  for (let i = 0; i < len; i++) {
+    const start = Math.max(0, i - window + 1);
+    const end = i + 1;
+    const x = series1.slice(start, end);
+    const y = series2.slice(start, end);
+    const n = x.length;
 
-  for (let lag = 5; lag <= 20 && lag < returns.length / 2; lag++) {
-    const chunks = Math.floor(returns.length / lag);
-    let totalRS = 0;
-
-    for (let c = 0; c < chunks; c++) {
-      const chunk = returns.slice(c * lag, (c + 1) * lag);
-      const mean = chunk.reduce((a, b) => a + b, 0) / chunk.length;
-      let cumDev = 0, maxC = -Infinity, minC = Infinity;
-      for (const v of chunk) {
-        cumDev += v - mean;
-        maxC = Math.max(maxC, cumDev);
-        minC = Math.min(minC, cumDev);
-      }
-      const range = maxC - minC;
-      const std = Math.sqrt(chunk.reduce((a, v) => a + (v - mean) ** 2, 0) / chunk.length);
-      if (std > 1e-10) totalRS += range / std;
+    if (n < 2) {
+      result.push(1);
+      continue;
     }
 
-    lags.push(Math.log(lag));
-    rsValues.push(Math.log(totalRS / chunks));
+    const meanX = x.reduce((a, b) => a + b, 0) / n;
+    const meanY = y.reduce((a, b) => a + b, 0) / n;
+    let num = 0, den = 0;
+    for (let j = 0; j < n; j++) {
+      num += (x[j] - meanX) * (y[j] - meanY);
+      den += (x[j] - meanX) ** 2;
+    }
+    const beta = den > 0 ? num / den : 1;
+    result.push(Math.round(beta * 10000) / 10000);
   }
 
-  if (lags.length < 2) return 0.5;
-
-  const n = lags.length;
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-  for (let i = 0; i < n; i++) {
-    sumX += lags[i];
-    sumY += rsValues[i];
-    sumXY += lags[i] * rsValues[i];
-    sumX2 += lags[i] * lags[i];
-  }
-  const denom = n * sumX2 - sumX * sumX;
-  if (Math.abs(denom) < 1e-10) return 0.5;
-  return Math.max(0, Math.min(1, (n * sumXY - sumX * sumY) / denom));
+  return result;
 }

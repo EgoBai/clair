@@ -1,206 +1,145 @@
 import { describe, it, expect } from 'vitest';
 import {
-  createOrder,
-  executeOrder,
-  generateTWAPOrders,
-  generateVAWAPOrders,
-  generateIcebergOrders,
-  executionQuality,
+  generateTWAPSchedule,
+  generateVWAPSchedule,
+  generateIcebergSlices,
+  simulateExecution,
+  selectOptimalAlgo,
+  type AlgoOrder,
 } from '../utils/algoTradingEngine';
-import type { Order, ExecutionResult } from '../utils/algoTradingEngine';
 
-describe('Algorithmic Trading Engine', () => {
-  describe('createOrder', () => {
-    it('should create market order', () => {
-      const order = createOrder({
-        symbol: 'AAPL',
-        side: 'buy',
-        type: 'market',
-        quantity: 100,
-      });
+function makeOrder(overrides: Partial<AlgoOrder> = {}): AlgoOrder {
+  return {
+    id: 'order-1',
+    stockCode: '000001',
+    side: 'buy',
+    totalQuantity: 10000,
+    startTime: '09:30:00',
+    endTime: '15:00:00',
+    urgency: 'medium',
+    ...overrides,
+  };
+}
 
-      expect(order.symbol).toBe('AAPL');
-      expect(order.side).toBe('buy');
-      expect(order.type).toBe('market');
-      expect(order.quantity).toBe(100);
-      expect(order.status).toBe('pending');
-      expect(order.filledQuantity).toBe(0);
-    });
-
-    it('should create limit order', () => {
-      const order = createOrder({
-        symbol: 'MSFT',
-        side: 'sell',
-        type: 'limit',
-        quantity: 50,
-        price: 300,
-      });
-
-      expect(order.price).toBe(300);
-      expect(order.side).toBe('sell');
-    });
-
-    it('should create stop order', () => {
-      const order = createOrder({
-        symbol: 'GOOGL',
-        side: 'sell',
-        type: 'stop',
-        quantity: 25,
-        stopPrice: 140,
-      });
-
-      expect(order.stopPrice).toBe(140);
-    });
-
-    it('should default to GTC', () => {
-      const order = createOrder({ symbol: 'X', side: 'buy', type: 'market', quantity: 10 });
-      expect(order.timeInForce).toBe('GTC');
-    });
+describe('AlgoTradingEngine', () => {
+  it('should generate TWAP schedule', () => {
+    const order = makeOrder();
+    const schedule = generateTWAPSchedule(order, 5);
+    expect(schedule.length).toBe(5);
+    const totalQty = schedule.reduce((s, sl) => s + sl.quantity, 0);
+    expect(totalQty).toBe(10000);
+    // Times should be sequential
+    expect(schedule[0].time < schedule[1].time).toBe(true);
   });
 
-  describe('executeOrder', () => {
-    it('should execute market order', () => {
-      const order = createOrder({ symbol: 'AAPL', side: 'buy', type: 'market', quantity: 100 });
-      const result = executeOrder(order, 150, 149.95, 150.05);
-
-      expect(result.executed).toBe(true);
-      expect(result.fillPrice).toBe(150.05); // Ask price
-      expect(result.fillQuantity).toBe(100);
-      expect(result.commission).toBeGreaterThan(0);
-    });
-
-    it('should execute limit order when price hits', () => {
-      const order = createOrder({ symbol: 'AAPL', side: 'buy', type: 'limit', quantity: 100, price: 150 });
-      const result = executeOrder(order, 149.5, 149.45, 149.55);
-
-      expect(result.executed).toBe(true);
-      expect(result.fillPrice).toBeLessThanOrEqual(150);
-    });
-
-    it('should not execute limit order when price not hit', () => {
-      const order = createOrder({ symbol: 'AAPL', side: 'buy', type: 'limit', quantity: 100, price: 148 });
-      const result = executeOrder(order, 150, 149.95, 150.05);
-
-      expect(result.executed).toBe(false);
-    });
-
-    it('should execute stop order when triggered', () => {
-      const order = createOrder({ symbol: 'AAPL', side: 'sell', type: 'stop', quantity: 100, stopPrice: 148 });
-      const result = executeOrder(order, 147, 146.95, 147.05);
-
-      expect(result.executed).toBe(true);
-    });
-
-    it('should not re-execute filled orders', () => {
-      const order = createOrder({ symbol: 'AAPL', side: 'buy', type: 'market', quantity: 100 });
-      order.status = 'filled';
-      const result = executeOrder(order, 150);
-
-      expect(result.executed).toBe(false);
-    });
+  it('should generate TWAP with remainder distribution', () => {
+    const order = makeOrder({ totalQuantity: 13 });
+    const schedule = generateTWAPSchedule(order, 5);
+    const totalQty = schedule.reduce((s, sl) => s + sl.quantity, 0);
+    expect(totalQty).toBe(13);
+    // First 3 slices should get the extra
+    expect(schedule[0].quantity).toBe(3);
+    expect(schedule[1].quantity).toBe(3);
+    expect(schedule[2].quantity).toBe(3);
+    expect(schedule[3].quantity).toBe(2);
   });
 
-  describe('generateTWAPOrders', () => {
-    it('should generate TWAP slices', () => {
-      const orders = generateTWAPOrders({
-        totalQuantity: 1000,
-        duration: 60,
-        numSlices: 10,
-        symbol: 'AAPL',
-        side: 'buy',
-      });
-
-      expect(orders).toHaveLength(10);
-      const totalQty = orders.reduce((s, o) => s + o.quantity, 0);
-      expect(totalQty).toBe(1000);
-    });
-
-    it('should handle uneven splits', () => {
-      const orders = generateTWAPOrders({
-        totalQuantity: 103,
-        duration: 60,
-        numSlices: 10,
-        symbol: 'AAPL',
-        side: 'sell',
-      });
-
-      const totalQty = orders.reduce((s, o) => s + o.quantity, 0);
-      expect(totalQty).toBe(103);
-    });
+  it('should generate VWAP schedule', () => {
+    const order = makeOrder();
+    const volumeProfile = [
+      { time: '09:30:00', volumePercent: 30 },
+      { time: '10:00:00', volumePercent: 25 },
+      { time: '11:00:00', volumePercent: 20 },
+      { time: '14:00:00', volumePercent: 25 },
+    ];
+    const schedule = generateVWAPSchedule(order, volumeProfile);
+    expect(schedule.length).toBe(4);
+    // First slot should have highest allocation
+    expect(schedule[0].quantity).toBeGreaterThanOrEqual(schedule[2].quantity);
   });
 
-  describe('generateVAWAPOrders', () => {
-    it('should generate VWAP slices', () => {
-      const orders = generateVAWAPOrders({
-        totalQuantity: 1000,
-        symbol: 'AAPL',
-        side: 'buy',
-        volumeProfile: [100, 200, 300, 250, 150],
-      });
-
-      expect(orders.length).toBeGreaterThan(0);
-      // Earlier periods with higher volume should get more shares
-      const totalQty = orders.reduce((s, o) => s + o.quantity, 0);
-      expect(totalQty).toBeCloseTo(1000, -1);
-    });
+  it('should generate iceberg slices', () => {
+    const order = makeOrder({ totalQuantity: 50000 });
+    const config = { displaySize: 5000, refreshThreshold: 0.2, minDisplaySize: 1000, randomizeSize: false };
+    const slices = generateIcebergSlices(order, config);
+    expect(slices.length).toBeGreaterThan(0);
+    for (const s of slices) {
+      expect(s.displayQty).toBeGreaterThan(0);
+    }
   });
 
-  describe('generateIcebergOrders', () => {
-    it('should generate iceberg slices', () => {
-      const orders = generateIcebergOrders({
-        totalQuantity: 10000,
-        displayQuantity: 500,
-        symbol: 'AAPL',
-        side: 'buy',
-        price: 150,
-      });
-
-      expect(orders.length).toBe(20); // 10000 / 500
-      expect(orders.every(o => o.quantity <= 500)).toBe(true);
-      const totalQty = orders.reduce((s, o) => s + o.quantity, 0);
-      expect(totalQty).toBe(10000);
-    });
+  it('should handle small iceberg orders', () => {
+    const order = makeOrder({ totalQuantity: 500 });
+    const config = { displaySize: 1000, refreshThreshold: 0.2, minDisplaySize: 100, randomizeSize: false };
+    const slices = generateIcebergSlices(order, config);
+    expect(slices.length).toBe(1);
+    expect(slices[0].displayQty).toBe(500);
   });
 
-  describe('executionQuality', () => {
-    it('should calculate execution quality', () => {
-      const executions: ExecutionResult[] = [
-        { orderId: '1', executed: true, fillPrice: 150.02, fillQuantity: 100, slippage: 0.0001, commission: 4.5, timestamp: '' },
-        { orderId: '2', executed: true, fillPrice: 150.05, fillQuantity: 100, slippage: 0.0003, commission: 4.5, timestamp: '' },
-      ];
-
-      const quality = executionQuality(executions, 150);
-
-      expect(quality.avgSlippage).toBeCloseTo(0.0002, 4);
-      expect(quality.totalCommission).toBe(9);
-      expect(quality.fillRate).toBe(1);
-      expect(quality.implementationShortfall).toBeGreaterThan(0);
-    });
-
-    it('should handle empty executions', () => {
-      const quality = executionQuality([], 150);
-      expect(quality.avgSlippage).toBe(0);
-      expect(quality.fillRate).toBe(0);
-    });
+  it('should simulate execution', () => {
+    const order = makeOrder({ totalQuantity: 5000 });
+    const marketData = Array.from({ length: 20 }, (_, i) => ({
+      time: `09:${(30 + i).toString().padStart(2, '0')}:00`,
+      price: 10 + i * 0.01,
+      volume: 50000,
+    }));
+    const result = simulateExecution(order, marketData, 0.05);
+    expect(result.orderId).toBe('order-1');
+    expect(result.totalFilled).toBeGreaterThan(0);
+    expect(result.avgPrice).toBeGreaterThan(0);
+    expect(result.vwap).toBeGreaterThan(0);
+    expect(result.slices.length).toBeGreaterThan(0);
+    expect(result.costAnalysis.total).toBeGreaterThanOrEqual(0);
   });
 
-  describe('edge cases', () => {
-    it('should handle stop_limit order', () => {
-      const order = createOrder({
-        symbol: 'AAPL', side: 'buy', type: 'stop_limit',
-        quantity: 100, stopPrice: 155, price: 156,
-      });
-      // Price below stop, should not trigger
-      const result = executeOrder(order, 150);
-      expect(result.executed).toBe(false);
+  it('should handle empty market data', () => {
+    const order = makeOrder();
+    const result = simulateExecution(order, []);
+    expect(result.totalFilled).toBe(0);
+    expect(result.avgPrice).toBe(0);
+  });
 
-      // Price above stop but above limit
-      const result2 = executeOrder(order, 157);
-      expect(result2.executed).toBe(false);
-
-      // Price above stop and at/below limit
-      const result3 = executeOrder(order, 155.5);
-      expect(result3.executed).toBe(true);
+  it('should select snipe for high urgency + tight spread', () => {
+    const order = makeOrder({ urgency: 'high' });
+    const algo = selectOptimalAlgo(order, {
+      volatility: 0.02,
+      liquidity: 0.8,
+      spread: 0.0005,
+      trend: 'flat',
     });
+    expect(algo.strategy).toBe('snipe');
+  });
+
+  it('should select TWAP for low vol + high liquidity', () => {
+    const order = makeOrder({ urgency: 'low' });
+    const algo = selectOptimalAlgo(order, {
+      volatility: 0.01,
+      liquidity: 0.9,
+      spread: 0.002,
+      trend: 'flat',
+    });
+    expect(algo.strategy).toBe('twap');
+  });
+
+  it('should select VWAP for high volatility', () => {
+    const order = makeOrder();
+    const algo = selectOptimalAlgo(order, {
+      volatility: 0.04,
+      liquidity: 0.5,
+      spread: 0.002,
+      trend: 'up',
+    });
+    expect(algo.strategy).toBe('vwap');
+  });
+
+  it('should select Iceberg for large orders', () => {
+    const order = makeOrder({ totalQuantity: 500000, urgency: 'low' });
+    const algo = selectOptimalAlgo(order, {
+      volatility: 0.02,
+      liquidity: 0.5,
+      spread: 0.002,
+      trend: 'flat',
+    });
+    expect(algo.strategy).toBe('iceberg');
   });
 });

@@ -1,284 +1,309 @@
 /**
- * Algorithmic Trading Engine
- *
- * Order management, execution algorithms, and trading simulation.
+ * 算法交易执行引擎 - TWAP/VWAP/冰山指令/狙击策略/PoV
  */
 
-export type OrderType = 'market' | 'limit' | 'stop' | 'stop_limit' | 'trailing_stop';
-export type OrderSide = 'buy' | 'sell';
-export type OrderStatus = 'pending' | 'partial' | 'filled' | 'cancelled' | 'rejected';
-export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'DAY';
-
-export interface Order {
+export interface AlgoOrder {
   id: string;
-  symbol: string;
-  side: OrderSide;
-  type: OrderType;
+  stockCode: string;
+  side: 'buy' | 'sell';
+  totalQuantity: number;
+  limitPrice?: number;
+  startTime: string;
+  endTime: string;
+  urgency: 'low' | 'medium' | 'high';
+}
+
+export interface ExecutionSlice {
+  time: string;
   quantity: number;
-  price?: number;
-  stopPrice?: number;
-  trailingAmount?: number;
-  status: OrderStatus;
-  filledQuantity: number;
-  avgFillPrice: number;
-  timeInForce: TimeInForce;
-  createdAt: string;
-  updatedAt: string;
+  price: number;
+  filled: boolean;
+  orderRef: string;
 }
 
-export interface ExecutionResult {
+export interface AlgoResult {
   orderId: string;
-  executed: boolean;
-  fillPrice: number;
-  fillQuantity: number;
-  slippage: number;
-  commission: number;
-  timestamp: string;
-}
-
-export interface TWAPConfig {
-  totalQuantity: number;
-  duration: number; // minutes
-  numSlices: number;
-  symbol: string;
-  side: OrderSide;
-}
-
-export interface VWAPConfig {
-  totalQuantity: number;
-  symbol: string;
-  side: OrderSide;
-  volumeProfile: number[]; // expected volume per period
+  strategy: string;
+  totalFilled: number;
+  avgPrice: number;
+  vwap: number;
+  arrivalPrice: number;
+  implementationShortfall: number;
+  participationRate: number;
+  executionTime: number; // seconds
+  slices: ExecutionSlice[];
+  costAnalysis: {
+    marketImpact: number;
+    timing: number;
+    spread: number;
+    total: number;
+  };
 }
 
 export interface IcebergConfig {
-  totalQuantity: number;
-  displayQuantity: number;
-  symbol: string;
-  side: OrderSide;
-  price: number;
-}
-
-let orderIdCounter = 0;
-function nextOrderId(): string {
-  return `ORD_${++orderIdCounter}_${Date.now()}`;
+  displaySize: number;
+  refreshThreshold: number; // percentage
+  minDisplaySize: number;
+  randomizeSize: boolean;
 }
 
 /**
- * Create a new order
+ * TWAP执行计划
  */
-export function createOrder(params: {
-  symbol: string;
-  side: OrderSide;
-  type: OrderType;
-  quantity: number;
-  price?: number;
-  stopPrice?: number;
-  trailingAmount?: number;
-  timeInForce?: TimeInForce;
-}): Order {
-  const now = new Date().toISOString();
-  return {
-    id: nextOrderId(),
-    symbol: params.symbol,
-    side: params.side,
-    type: params.type,
-    quantity: params.quantity,
-    price: params.price,
-    stopPrice: params.stopPrice,
-    trailingAmount: params.trailingAmount,
-    status: 'pending',
-    filledQuantity: 0,
-    avgFillPrice: 0,
-    timeInForce: params.timeInForce || 'GTC',
-    createdAt: now,
-    updatedAt: now,
-  };
+export function generateTWAPSchedule(
+  order: AlgoOrder,
+  numSlices: number = 10,
+): Array<{ time: string; quantity: number }> {
+  const startTime = new Date(`2025-01-01T${order.startTime}`).getTime();
+  const endTime = new Date(`2025-01-01T${order.endTime}`).getTime();
+  const duration = endTime - startTime;
+  const sliceInterval = duration / numSlices;
+
+  const baseQty = Math.floor(order.totalQuantity / numSlices);
+  const remainder = order.totalQuantity - baseQty * numSlices;
+
+  const schedule: Array<{ time: string; quantity: number }> = [];
+  for (let i = 0; i < numSlices; i++) {
+    const t = new Date(startTime + i * sliceInterval);
+    const hours = t.getHours().toString().padStart(2, '0');
+    const mins = t.getMinutes().toString().padStart(2, '0');
+    const secs = t.getSeconds().toString().padStart(2, '0');
+    schedule.push({
+      time: `${hours}:${mins}:${secs}`,
+      quantity: i < remainder ? baseQty + 1 : baseQty,
+    });
+  }
+
+  return schedule;
 }
 
 /**
- * Simulate order execution against market price
+ * VWAP执行计划 - 按成交量分布分配
  */
-export function executeOrder(
-  order: Order,
-  currentPrice: number,
-  bidPrice?: number,
-  askPrice?: number
-): ExecutionResult {
-  const timestamp = new Date().toISOString();
+export function generateVWAPSchedule(
+  order: AlgoOrder,
+  volumeProfile: Array<{ time: string; volumePercent: number }>,
+): Array<{ time: string; quantity: number }> {
+  const totalPercent = volumeProfile.reduce((s, v) => s + v.volumePercent, 0);
+  let remaining = order.totalQuantity;
 
-  if (order.status === 'filled' || order.status === 'cancelled') {
-    return { orderId: order.id, executed: false, fillPrice: 0, fillQuantity: 0, slippage: 0, commission: 0, timestamp };
+  return volumeProfile.map((vp, i) => {
+    const qty = i < volumeProfile.length - 1
+      ? Math.floor(order.totalQuantity * (vp.volumePercent / totalPercent))
+      : remaining;
+    remaining -= qty;
+    return { time: vp.time, quantity: qty };
+  });
+}
+
+/**
+ * 冰山指令切片
+ */
+export function generateIcebergSlices(
+  order: AlgoOrder,
+  config: IcebergConfig,
+): Array<{ displayQty: number; hiddenQty: number }> {
+  const slices: Array<{ displayQty: number; hiddenQty: number }> = [];
+  let remaining = order.totalQuantity;
+
+  while (remaining > 0) {
+    let displayQty = config.displaySize;
+    if (config.randomizeSize) {
+      const variance = displayQty * 0.2;
+      displayQty = Math.floor(displayQty + (Math.random() - 0.5) * variance);
+      displayQty = Math.max(config.minDisplaySize, displayQty);
+    }
+
+    displayQty = Math.min(displayQty, remaining);
+    const hiddenQty = Math.min(remaining - displayQty, displayQty * 3);
+    slices.push({ displayQty, hiddenQty: Math.max(0, hiddenQty) });
+    remaining -= displayQty + Math.max(0, hiddenQty);
   }
 
-  let fillPrice = 0;
-  let shouldFill = false;
+  return slices;
+}
 
-  switch (order.type) {
-    case 'market':
-      fillPrice = order.side === 'buy' ? (askPrice || currentPrice * 1.0005) : (bidPrice || currentPrice * 0.9995);
-      shouldFill = true;
-      break;
-
-    case 'limit':
-      if (order.price) {
-        if (order.side === 'buy' && currentPrice <= order.price) {
-          fillPrice = Math.min(order.price, askPrice || currentPrice);
-          shouldFill = true;
-        } else if (order.side === 'sell' && currentPrice >= order.price) {
-          fillPrice = Math.max(order.price, bidPrice || currentPrice);
-          shouldFill = true;
-        }
-      }
-      break;
-
-    case 'stop':
-      if (order.stopPrice) {
-        if (order.side === 'buy' && currentPrice >= order.stopPrice) {
-          fillPrice = askPrice || currentPrice * 1.0005;
-          shouldFill = true;
-        } else if (order.side === 'sell' && currentPrice <= order.stopPrice) {
-          fillPrice = bidPrice || currentPrice * 0.9995;
-          shouldFill = true;
-        }
-      }
-      break;
-
-    case 'stop_limit':
-      if (order.stopPrice && order.price) {
-        const triggered = order.side === 'buy' ? currentPrice >= order.stopPrice : currentPrice <= order.stopPrice;
-        if (triggered) {
-          const canFill = order.side === 'buy' ? currentPrice <= order.price : currentPrice >= order.price;
-          if (canFill) {
-            fillPrice = order.price;
-            shouldFill = true;
-          }
-        }
-      }
-      break;
-
-    case 'trailing_stop':
-      // Simplified: trigger at currentPrice +/- trailingAmount
-      if (order.trailingAmount) {
-        // Assume trailing stop is at the edge
-        fillPrice = currentPrice;
-        shouldFill = false; // Would need tracking
-      }
-      break;
+/**
+ * 模拟执行并计算绩效
+ */
+export function simulateExecution(
+  order: AlgoOrder,
+  marketData: Array<{ time: string; price: number; volume: number }>,
+  participationTarget: number = 0.1,
+): AlgoResult {
+  if (marketData.length === 0) {
+    return {
+      orderId: order.id,
+      strategy: 'simulation',
+      totalFilled: 0,
+      avgPrice: 0,
+      vwap: 0,
+      arrivalPrice: 0,
+      implementationShortfall: 0,
+      participationRate: 0,
+      executionTime: 0,
+      slices: [],
+      costAnalysis: { marketImpact: 0, timing: 0, spread: 0, total: 0 },
+    };
   }
 
-  if (!shouldFill) {
-    return { orderId: order.id, executed: false, fillPrice: 0, fillQuantity: 0, slippage: 0, commission: 0, timestamp };
+  const arrivalPrice = marketData[0].price;
+  const slices: ExecutionSlice[] = [];
+  let totalFilled = 0;
+  let totalCost = 0;
+  let remaining = order.totalQuantity;
+
+  for (const tick of marketData) {
+    if (remaining <= 0) break;
+
+    const maxParticipation = tick.volume * participationTarget;
+    const fillQty = Math.min(remaining, Math.floor(maxParticipation));
+    if (fillQty <= 0) continue;
+
+    // Apply slight slippage for urgency
+    const slippage = order.urgency === 'high' ? 0.001 : order.urgency === 'medium' ? 0.0005 : 0;
+    const fillPrice = order.side === 'buy'
+      ? tick.price * (1 + slippage)
+      : tick.price * (1 - slippage);
+
+    slices.push({
+      time: tick.time,
+      quantity: fillQty,
+      price: Math.round(fillPrice * 100) / 100,
+      filled: true,
+      orderRef: `${order.id}-${slices.length}`,
+    });
+
+    totalFilled += fillQty;
+    totalCost += fillQty * fillPrice;
+    remaining -= fillQty;
   }
 
-  const fillQuantity = order.quantity - order.filledQuantity;
-  const slippage = Math.abs(fillPrice - currentPrice) / currentPrice;
-  const commission = Math.max(5, fillPrice * fillQuantity * 0.0003);
+  const avgPrice = totalFilled > 0 ? Math.round((totalCost / totalFilled) * 100) / 100 : 0;
+
+  // VWAP calculation
+  const totalVol = marketData.reduce((s, d) => s + d.volume, 0);
+  const vwap = totalVol > 0
+    ? Math.round((marketData.reduce((s, d) => s + d.price * d.volume, 0) / totalVol) * 100) / 100
+    : avgPrice;
+
+  // Implementation shortfall
+  const isValue = order.side === 'buy'
+    ? (avgPrice - arrivalPrice) / arrivalPrice
+    : (arrivalPrice - avgPrice) / arrivalPrice;
+
+  // Cost breakdown (simplified)
+  const spread = 0.0005; // 5bps
+  const marketImpact = Math.abs(isValue) * 0.5;
+  const timing = Math.abs(isValue) - marketImpact - spread;
 
   return {
     orderId: order.id,
-    executed: true,
-    fillPrice,
-    fillQuantity,
-    slippage,
-    commission,
-    timestamp,
+    strategy: 'pov',
+    totalFilled,
+    avgPrice,
+    vwap,
+    arrivalPrice,
+    implementationShortfall: Math.round(isValue * 10000) / 10000,
+    participationRate: totalFilled / (totalVol || 1),
+    executionTime: slices.length > 0
+      ? (new Date(`2025-01-01T${slices[slices.length - 1].time}`).getTime() -
+         new Date(`2025-01-01T${slices[0].time}`).getTime()) / 1000
+      : 0,
+    slices,
+    costAnalysis: {
+      marketImpact: Math.round(marketImpact * 10000) / 10000,
+      timing: Math.round(Math.max(0, timing) * 10000) / 10000,
+      spread,
+      total: Math.round((marketImpact + Math.max(0, timing) + spread) * 10000) / 10000,
+    },
   };
 }
 
 /**
- * Generate TWAP child orders
+ * 狙击策略 - 寻找最优执行时机
  */
-export function generateTWAPOrders(config: TWAPConfig): Order[] {
-  const sliceQty = Math.floor(config.totalQuantity / config.numSlices);
-  const remainder = config.totalQuantity - sliceQty * config.numSlices;
-  const orders: Order[] = [];
+export function snipeExecution(
+  order: AlgoOrder,
+  marketData: Array<{ time: string; price: number; volume: number; bid: number; ask: number }>,
+  targetSpread: number = 0.001,
+): Array<{ time: string; score: number; recommendation: 'execute' | 'wait' }> {
+  return marketData.map(tick => {
+    const spread = (tick.ask - tick.bid) / ((tick.bid + tick.ask) / 2);
+    const liquidity = tick.volume > 10000 ? 1 : tick.volume / 10000;
+    const spreadScore = spread <= targetSpread ? 1 : targetSpread / spread;
 
-  for (let i = 0; i < config.numSlices; i++) {
-    const qty = sliceQty + (i < remainder ? 1 : 0);
-    orders.push(createOrder({
-      symbol: config.symbol,
-      side: config.side,
-      type: 'limit',
-      quantity: qty,
-      timeInForce: 'IOC',
-    }));
-  }
+    const score = Math.round((spreadScore * 0.5 + liquidity * 0.5) * 100) / 100;
 
-  return orders;
+    return {
+      time: tick.time,
+      score,
+      recommendation: score > 0.7 ? 'execute' : 'wait',
+    };
+  });
+}
+
+// Helper (unused in actual - midPrice would be computed inline)
+function midPrice(bid: number, ask: number): number {
+  return (bid + ask) / 2;
 }
 
 /**
- * Generate VWAP child orders
+ * 选择最优算法
  */
-export function generateVAWAPOrders(config: VWAPConfig): Order[] {
-  const totalVolume = config.volumeProfile.reduce((s, v) => s + v, 0);
-  const orders: Order[] = [];
-
-  for (let i = 0; i < config.volumeProfile.length; i++) {
-    const share = config.volumeProfile[i] / totalVolume;
-    const qty = Math.round(config.totalQuantity * share);
-    if (qty > 0) {
-      orders.push(createOrder({
-        symbol: config.symbol,
-        side: config.side,
-        type: 'limit',
-        quantity: qty,
-        timeInForce: 'IOC',
-      }));
-    }
-  }
-
-  return orders;
-}
-
-/**
- * Generate iceberg order slices
- */
-export function generateIcebergOrders(config: IcebergConfig): Order[] {
-  const orders: Order[] = [];
-  let remaining = config.totalQuantity;
-
-  while (remaining > 0) {
-    const qty = Math.min(config.displayQuantity, remaining);
-    orders.push(createOrder({
-      symbol: config.symbol,
-      side: config.side,
-      type: 'limit',
-      quantity: qty,
-      price: config.price,
-      timeInForce: 'IOC',
-    }));
-    remaining -= qty;
-  }
-
-  return orders;
-}
-
-/**
- * Calculate execution quality metrics
- */
-export function executionQuality(
-  executions: ExecutionResult[],
-  arrivalPrice: number
+export function selectOptimalAlgo(
+  order: AlgoOrder,
+  marketConditions: {
+    volatility: number;
+    liquidity: number;
+    spread: number;
+    trend: 'up' | 'down' | 'flat';
+  },
 ): {
-  avgSlippage: number;
-  totalCommission: number;
-  implementationShortfall: number;
-  fillRate: number;
+  strategy: 'twap' | 'vwap' | 'iceberg' | 'pov' | 'snipe';
+  reason: string;
+  params: Record<string, number>;
 } {
-  const filled = executions.filter(e => e.executed);
-  const avgSlippage = filled.length === 0 ? 0 : filled.reduce((s, e) => s + e.slippage, 0) / filled.length;
-  const totalCommission = executions.reduce((s, e) => s + e.commission, 0);
+  // High urgency + tight spread → snipe
+  if (order.urgency === 'high' && marketConditions.spread < 0.001) {
+    return {
+      strategy: 'snipe',
+      reason: '高紧急度+窄价差，适合狙击策略',
+      params: { targetSpread: marketConditions.spread },
+    };
+  }
 
-  const totalQty = executions.reduce((s, e) => s + e.fillQuantity, 0);
-  const avgFillPrice = totalQty === 0 ? 0
-    : executions.reduce((s, e) => s + e.fillPrice * e.fillQuantity, 0) / totalQty;
+  // Low volatility + good liquidity → TWAP
+  if (marketConditions.volatility < 0.02 && marketConditions.liquidity > 0.7) {
+    return {
+      strategy: 'twap',
+      reason: '低波动+高流动性，适合TWAP均匀执行',
+      params: { numSlices: order.urgency === 'low' ? 20 : 10 },
+    };
+  }
 
-  const side = executions.length > 0 ? 1 : 0; // assume buy
-  const implementationShortfall = (avgFillPrice - arrivalPrice) / arrivalPrice * side;
+  // High volatility → VWAP (follow volume)
+  if (marketConditions.volatility > 0.03) {
+    return {
+      strategy: 'vwap',
+      reason: '高波动环境，跟随成交量分布执行',
+      params: { participationRate: 0.15 },
+    };
+  }
 
-  const fillRate = executions.length === 0 ? 0 : filled.length / executions.length;
+  // Large order → Iceberg
+  if (order.totalQuantity > 100000) {
+    return {
+      strategy: 'iceberg',
+      reason: '大单拆分，减少市场冲击',
+      params: { displaySize: Math.floor(order.totalQuantity * 0.05) },
+    };
+  }
 
-  return { avgSlippage, totalCommission, implementationShortfall, fillRate };
+  // Default → POV
+  return {
+    strategy: 'pov',
+    reason: '默认参与率策略',
+    params: { participationRate: 0.1 },
+  };
 }

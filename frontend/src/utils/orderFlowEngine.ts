@@ -1,79 +1,37 @@
 /**
- * Order Flow Analysis Engine
- *
- * Analyzes order flow imbalance, volume profile, delta analysis,
- * trade classification, and liquidity metrics.
+ * 订单流分析引擎 - 逐笔成交分析/买卖压力/CVP/足迹图
  */
 
-// ==================== Types ====================
-
-export interface Tick {
-  timestamp: number;
+export interface TickTrade {
   price: number;
   volume: number;
-  isBuy: boolean; // buyer-initiated = true
+  time: string;
+  direction: 'buy' | 'sell' | 'neutral';
+  amount: number;
 }
 
-export interface OrderFlowBar {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
+export interface OrderFlowResult {
   buyVolume: number;
   sellVolume: number;
+  netFlow: number;
+  buyPressure: number; // 0-1
+  sellPressure: number;
   delta: number;
   cumulativeDelta: number;
-  imbalance: number;
-  poc: number; // point of control price
+  imbalanceRatio: number;
+  vwap: number;
+  poc: number; // Point of Control price
+  valueAreaHigh: number;
+  valueAreaLow: number;
 }
 
-export interface VolumeProfileLevel {
+export interface CVPLevel {
   price: number;
-  totalVolume: number;
   buyVolume: number;
   sellVolume: number;
   delta: number;
-  percentOfTotal: number;
-}
-
-export interface VolumeProfile {
-  levels: VolumeProfileLevel[];
-  poc: number; // price with highest volume
-  valueAreaHigh: number;
-  valueAreaLow: number;
   totalVolume: number;
-  totalDelta: number;
-  imbalance: number;
-}
-
-export interface DeltaAnalysis {
-  cumulativeDelta: number[];
-  deltaMA: number;
-  deltaDivergence: boolean;
-  absorptionPoints: number[];
-  exhaustionPoints: number[];
-  trendConfirmation: 'bullish' | 'bearish' | 'neutral';
-}
-
-export interface LiquidityMetrics {
-  bidAskSpread: number;
-  effectiveSpread: number;
-  depthImbalance: number;
-  turnoverRate: number;
-  amihudIlliquidity: number;
-  kyleLambda: number;
-  liquidityScore: number; // 0-100
-}
-
-export interface TradeClassification {
-  aggressiveBuys: number;
-  aggressiveSells: number;
-  passiveBuys: number;
-  passiveSells: number;
-  buyPressure: number; // -1 to 1
-  institutionalFlow: number;
-  retailFlow: number;
+  buyPercent: number;
 }
 
 export interface FootprintBar {
@@ -81,488 +39,254 @@ export interface FootprintBar {
   buyVolume: number;
   sellVolume: number;
   delta: number;
-  rowImbalance: boolean;
+  imbalance: 'buy' | 'sell' | 'neutral';
+  isPOC: boolean;
 }
 
-export interface ImbalanceZone {
-  startPrice: number;
-  endPrice: number;
-  totalDelta: number;
-  significance: number;
-  type: 'buying' | 'selling';
+export interface LargeOrderAlert {
+  time: string;
+  price: number;
+  volume: number;
+  direction: 'buy' | 'sell';
+  significance: 'high' | 'extreme';
 }
-
-// ==================== Helpers ====================
-
-function mean(arr: number[]): number {
-  return arr.length === 0 ? 0 : arr.reduce((s, v) => s + v, 0) / arr.length;
-}
-
-function std(arr: number[]): number {
-  if (arr.length < 2) return 0;
-  const m = mean(arr);
-  return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - 1));
-}
-
-// ==================== Core Functions ====================
 
 /**
- * Classify ticks using Lee-Ready algorithm
+ * 分析订单流
  */
-export function classifyTicks(ticks: Tick[]): Tick[] {
-  if (ticks.length === 0) return [];
-
-  // Mid-price proxy: rolling average
-  const midPrices: number[] = [];
-  let cumSum = 0;
-  for (let i = 0; i < ticks.length; i++) {
-    cumSum += ticks[i].price;
-    midPrices.push(cumSum / (i + 1));
+export function analyzeOrderFlow(trades: TickTrade[]): OrderFlowResult {
+  if (trades.length === 0) {
+    return {
+      buyVolume: 0, sellVolume: 0, netFlow: 0,
+      buyPressure: 0.5, sellPressure: 0.5,
+      delta: 0, cumulativeDelta: 0, imbalanceRatio: 1,
+      vwap: 0, poc: 0, valueAreaHigh: 0, valueAreaLow: 0,
+    };
   }
 
-  return ticks.map((tick, i) => {
-    const mid = midPrices[i];
-    // If price > mid, buyer-initiated; if < mid, seller-initiated
-    // If equal, use tick rule (compare to previous tick)
-    let isBuy = tick.isBuy;
-    if (tick.price > mid) isBuy = true;
-    else if (tick.price < mid) isBuy = false;
-    else if (i > 0) {
-      isBuy = tick.price >= ticks[i - 1].price;
-    }
+  let buyVolume = 0;
+  let sellVolume = 0;
+  let totalAmount = 0;
+  let totalVol = 0;
 
-    return { ...tick, isBuy };
-  });
+  for (const t of trades) {
+    if (t.direction === 'buy') buyVolume += t.volume;
+    else if (t.direction === 'sell') sellVolume += t.volume;
+    totalAmount += t.amount;
+    totalVol += t.volume;
+  }
+
+  const total = buyVolume + sellVolume || 1;
+  const buyPressure = Math.round((buyVolume / total) * 1000) / 1000;
+  const sellPressure = Math.round((1 - buyPressure) * 1000) / 1000;
+  const delta = buyVolume - sellVolume;
+  const imbalanceRatio = sellVolume > 0 ? Math.round((buyVolume / sellVolume) * 100) / 100 : buyVolume > 0 ? Infinity : 1;
+  const vwap = totalVol > 0 ? Math.round((totalAmount / totalVol) * 100) / 100 : 0;
+
+  // Cumulative delta
+  let cumDelta = 0;
+  const deltaSeries: number[] = [];
+  for (const t of trades) {
+    const d = t.direction === 'buy' ? t.volume : t.direction === 'sell' ? -t.volume : 0;
+    cumDelta += d;
+    deltaSeries.push(cumDelta);
+  }
+
+  // POC via price volume distribution
+  const priceVolMap = new Map<number, number>();
+  for (const t of trades) {
+    const rounded = Math.round(t.price * 100) / 100;
+    priceVolMap.set(rounded, (priceVolMap.get(rounded) || 0) + t.volume);
+  }
+
+  let poc = trades[0].price;
+  let maxVol = 0;
+  for (const [price, vol] of priceVolMap) {
+    if (vol > maxVol) {
+      maxVol = vol;
+      poc = price;
+    }
+  }
+
+  // Value area (70% of volume around POC)
+  const sortedPrices = [...priceVolMap.entries()].sort((a, b) => b[1] - a[1]);
+  let vaVol = 0;
+  const targetVA = totalVol * 0.7;
+  const vaPrices: number[] = [];
+  for (const [price, vol] of sortedPrices) {
+    vaVol += vol;
+    vaPrices.push(price);
+    if (vaVol >= targetVA) break;
+  }
+  const valueAreaHigh = vaPrices.length > 0 ? Math.max(...vaPrices) : poc;
+  const valueAreaLow = vaPrices.length > 0 ? Math.min(...vaPrices) : poc;
+
+  return {
+    buyVolume, sellVolume, netFlow: delta,
+    buyPressure, sellPressure, delta,
+    cumulativeDelta: cumDelta,
+    imbalanceRatio,
+    vwap, poc: Math.round(poc * 100) / 100,
+    valueAreaHigh: Math.round(valueAreaHigh * 100) / 100,
+    valueAreaLow: Math.round(valueAreaLow * 100) / 100,
+  };
 }
 
 /**
- * Build order flow bars from ticks
+ * 计算CVP (成交量分布)
  */
-export function buildOrderFlowBars(
-  ticks: Tick[],
-  barSize: number = 60000 // ms
-): OrderFlowBar[] {
-  if (ticks.length === 0) return [];
+export function computeCVP(trades: TickTrade[], tickSize: number = 0.01): CVPLevel[] {
+  if (trades.length === 0) return [];
 
-  const bars: OrderFlowBar[] = [];
-  let currentBar: {
-    startTime: number;
-    prices: number[];
-    buyVolume: number;
-    sellVolume: number;
-  } | null = null;
+  const priceMap = new Map<number, { buy: number; sell: number }>();
 
-  let cumulativeDelta = 0;
+  for (const t of trades) {
+    const rounded = Math.round(t.price / tickSize) * tickSize;
+    const key = Math.round(rounded * 100) / 100;
+    if (!priceMap.has(key)) priceMap.set(key, { buy: 0, sell: 0 });
+    const entry = priceMap.get(key)!;
+    if (t.direction === 'buy') entry.buy += t.volume;
+    else if (t.direction === 'sell') entry.sell += t.volume;
+    else {
+      entry.buy += Math.floor(t.volume / 2);
+      entry.sell += t.volume - Math.floor(t.volume / 2);
+    }
+  }
 
-  const flushBar = () => {
-    if (!currentBar || currentBar.prices.length === 0) return;
-
-    const delta = currentBar.buyVolume - currentBar.sellVolume;
-    cumulativeDelta += delta;
-    const totalVol = currentBar.buyVolume + currentBar.sellVolume;
-    const imbalance = totalVol === 0 ? 0 : delta / totalVol;
-
-    bars.push({
-      timestamp: currentBar.startTime,
-      open: currentBar.prices[0],
-      high: Math.max(...currentBar.prices),
-      low: Math.min(...currentBar.prices),
-      close: currentBar.prices[currentBar.prices.length - 1],
-      buyVolume: currentBar.buyVolume,
-      sellVolume: currentBar.sellVolume,
-      delta,
-      cumulativeDelta,
-      imbalance,
-      poc: mean(currentBar.prices),
+  const levels: CVPLevel[] = [];
+  for (const [price, { buy, sell }] of priceMap) {
+    const total = buy + sell;
+    levels.push({
+      price,
+      buyVolume: buy,
+      sellVolume: sell,
+      delta: buy - sell,
+      totalVolume: total,
+      buyPercent: total > 0 ? Math.round((buy / total) * 1000) / 10 : 50,
     });
-  };
-
-  for (const tick of ticks) {
-    const barStart = Math.floor(tick.timestamp / barSize) * barSize;
-
-    if (!currentBar || currentBar.startTime !== barStart) {
-      flushBar();
-      currentBar = { startTime: barStart, prices: [], buyVolume: 0, sellVolume: 0 };
-    }
-
-    currentBar.prices.push(tick.price);
-    if (tick.isBuy) currentBar.buyVolume += tick.volume;
-    else currentBar.sellVolume += tick.volume;
   }
 
-  flushBar();
-  return bars;
+  return levels.sort((a, b) => b.totalVolume - a.totalVolume);
 }
 
 /**
- * Calculate volume profile
+ * 生成足迹图数据
  */
-export function calculateVolumeProfile(
-  ticks: Tick[],
-  priceStep: number = 0.01,
-  numLevels: number = 50
-): VolumeProfile {
-  if (ticks.length === 0) {
-    return { levels: [], poc: 0, valueAreaHigh: 0, valueAreaLow: 0, totalVolume: 0, totalDelta: 0, imbalance: 0 };
-  }
-
-  const prices = ticks.map(t => t.price);
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-
-  // Create price levels
-  const priceRange = maxPrice - minPrice;
-  const step = priceRange / numLevels || priceStep;
-  const levels: VolumeProfileLevel[] = [];
-
-  for (let p = minPrice; p <= maxPrice + step; p += step) {
-    levels.push({ price: p, totalVolume: 0, buyVolume: 0, sellVolume: 0, delta: 0, percentOfTotal: 0 });
-  }
-
-  // Accumulate volumes
-  let totalVolume = 0;
-  let totalDelta = 0;
-
-  for (const tick of ticks) {
-    const idx = Math.min(
-      Math.floor((tick.price - minPrice) / step),
-      levels.length - 1
-    );
-    if (idx >= 0 && idx < levels.length) {
-      levels[idx].totalVolume += tick.volume;
-      if (tick.isBuy) levels[idx].buyVolume += tick.volume;
-      else levels[idx].sellVolume += tick.volume;
-      levels[idx].delta = levels[idx].buyVolume - levels[idx].sellVolume;
-      totalVolume += tick.volume;
-      totalDelta += tick.isBuy ? tick.volume : -tick.volume;
-    }
-  }
-
-  // Percent of total
-  for (const level of levels) {
-    level.percentOfTotal = totalVolume === 0 ? 0 : level.totalVolume / totalVolume;
-  }
-
-  // POC: price with highest volume
-  const pocLevel = levels.reduce((max, l) => l.totalVolume > max.totalVolume ? l : max, levels[0]);
-
-  // Value area: 70% of volume around POC
-  const sortedByVolume = [...levels].sort((a, b) => b.totalVolume - a.totalVolume);
-  let vaVolume = 0;
-  const vaTarget = totalVolume * 0.7;
-  const vaLevels: number[] = [];
-
-  for (const l of sortedByVolume) {
-    vaVolume += l.totalVolume;
-    vaLevels.push(l.price);
-    if (vaVolume >= vaTarget) break;
-  }
-
-  const imbalance = totalVolume === 0 ? 0 : totalDelta / totalVolume;
-
-  return {
-    levels: levels.filter(l => l.totalVolume > 0),
-    poc: pocLevel?.price || 0,
-    valueAreaHigh: vaLevels.length > 0 ? Math.max(...vaLevels) : 0,
-    valueAreaLow: vaLevels.length > 0 ? Math.min(...vaLevels) : 0,
-    totalVolume,
-    totalDelta,
-    imbalance,
-  };
-}
-
-/**
- * Analyze delta (buy-sell pressure)
- */
-export function analyzeDelta(ticks: Tick[], maPeriod: number = 20): DeltaAnalysis {
-  const bars = buildOrderFlowBars(ticks, 1000); // 1-second bars
-  const cumulativeDelta = bars.map(b => b.cumulativeDelta);
-
-  const deltaMA = cumulativeDelta.length >= maPeriod
-    ? mean(cumulativeDelta.slice(-maPeriod))
-    : mean(cumulativeDelta);
-
-  // Divergence: price rising but delta falling (or vice versa)
-  const prices = bars.map(b => b.close);
-  const deltaDivergence = detectDivergence(prices, cumulativeDelta);
-
-  // Absorption: large volume at price level without price movement
-  const absorptionPoints: number[] = [];
-  for (let i = 1; i < bars.length; i++) {
-    const priceChange = Math.abs(bars[i].close - bars[i - 1].close);
-    const volumeRatio = (bars[i].buyVolume + bars[i].sellVolume) /
-      Math.max(1, mean(bars.slice(Math.max(0, i - 5), i).map(b => b.buyVolume + b.sellVolume)));
-    if (priceChange < 0.001 && volumeRatio > 2) {
-      absorptionPoints.push(i);
-    }
-  }
-
-  // Exhaustion: high delta but price reversal
-  const exhaustionPoints: number[] = [];
-  for (let i = 2; i < bars.length; i++) {
-    const prevDelta = bars[i - 1].delta;
-    const currDelta = bars[i].delta;
-    if (Math.abs(prevDelta) > Math.abs(currDelta) * 2 &&
-        ((prevDelta > 0 && bars[i].close < bars[i - 1].close) ||
-         (prevDelta < 0 && bars[i].close > bars[i - 1].close))) {
-      exhaustionPoints.push(i);
-    }
-  }
-
-  const lastDelta = cumulativeDelta[cumulativeDelta.length - 1] || 0;
-  let trendConfirmation: DeltaAnalysis['trendConfirmation'];
-  if (lastDelta > deltaMA * 1.1) trendConfirmation = 'bullish';
-  else if (lastDelta < deltaMA * 0.9) trendConfirmation = 'bearish';
-  else trendConfirmation = 'neutral';
-
-  return {
-    cumulativeDelta,
-    deltaMA,
-    deltaDivergence,
-    absorptionPoints,
-    exhaustionPoints,
-    trendConfirmation,
-  };
-}
-
-/**
- * Calculate liquidity metrics
- */
-export function calculateLiquidity(
-  ticks: Tick[],
-  bidPrices: number[],
-  askPrices: number[],
-  volumes: number[]
-): LiquidityMetrics {
-  // Bid-ask spread
-  const spreads = bidPrices.map((b, i) => (askPrices[i] || b) - b);
-  const bidAskSpread = mean(spreads);
-
-  // Effective spread: 2 * |price - mid|
-  const mids = bidPrices.map((b, i) => (b + (askPrices[i] || b)) / 2);
-  const effectiveSpreads = ticks.map((t, i) => 2 * Math.abs(t.price - (mids[i] || t.price)));
-  const effectiveSpread = mean(effectiveSpreads);
-
-  // Depth imbalance
-  const depthImbalance = volumes.length > 0 ? std(volumes) / Math.max(0.001, mean(volumes)) : 0;
-
-  // Amihud illiquidity: |return| / dollar volume
-  const returns: number[] = [];
-  const dollarVolumes: number[] = [];
-  for (let i = 1; i < ticks.length; i++) {
-    const ret = Math.abs((ticks[i].price - ticks[i - 1].price) / ticks[i - 1].price);
-    const dv = ticks[i].price * ticks[i].volume;
-    returns.push(ret);
-    dollarVolumes.push(dv);
-  }
-  const avgDollarVol = mean(dollarVolumes);
-  const amihudIlliquidity = avgDollarVol === 0 ? 0 : mean(returns) / avgDollarVol;
-
-  // Kyle's lambda: price impact per unit volume
-  const priceChanges: number[] = [];
-  const signedVolumes: number[] = [];
-  for (let i = 1; i < ticks.length; i++) {
-    priceChanges.push(ticks[i].price - ticks[i - 1].price);
-    signedVolumes.push(ticks[i].isBuy ? ticks[i].volume : -ticks[i].volume);
-  }
-  const cov = priceChanges.length >= 2
-    ? priceChanges.reduce((s, p, i) => s + (p - mean(priceChanges)) * (signedVolumes[i] - mean(signedVolumes)), 0) / priceChanges.length
-    : 0;
-  const volVar = signedVolumes.length >= 2
-    ? signedVolumes.reduce((s, v) => s + (v - mean(signedVolumes)) ** 2, 0) / signedVolumes.length
-    : 1;
-  const kyleLambda = volVar === 0 ? 0 : Math.abs(cov / volVar);
-
-  // Liquidity score
-  const spreadScore = Math.max(0, 100 - bidAskSpread * 1000);
-  const depthScore = Math.max(0, 100 - depthImbalance * 10);
-  const liquidityScore = (spreadScore + depthScore) / 2;
-
-  return {
-    bidAskSpread,
-    effectiveSpread,
-    depthImbalance,
-    turnoverRate: avgDollarVol === 0 ? 0 : mean(volumes) / avgDollarVol,
-    amihudIlliquidity,
-    kyleLambda,
-    liquidityScore: Math.min(100, Math.max(0, liquidityScore)),
-  };
-}
-
-/**
- * Classify trades (institutional vs retail)
- */
-export function classifyTrades(ticks: Tick[], avgVolume: number = 1000): TradeClassification {
-  let aggressiveBuys = 0, aggressiveSells = 0;
-  let passiveBuys = 0, passiveSells = 0;
-  let institutionalVolume = 0, retailVolume = 0;
-
-  const largeThreshold = avgVolume * 5;
-
-  for (const tick of ticks) {
-    if (tick.isBuy) {
-      if (tick.volume > avgVolume) aggressiveBuys++;
-      else passiveBuys++;
-    } else {
-      if (tick.volume > avgVolume) aggressiveSells++;
-      else passiveSells++;
-    }
-
-    if (tick.volume > largeThreshold) {
-      institutionalVolume += tick.volume;
-    } else {
-      retailVolume += tick.volume;
-    }
-  }
-
-  const total = ticks.length || 1;
-  const buyPressure = (aggressiveBuys - aggressiveSells) / total;
-  const totalVolume = institutionalVolume + retailVolume || 1;
-
-  return {
-    aggressiveBuys,
-    aggressiveSells,
-    passiveBuys,
-    passiveSells,
-    buyPressure,
-    institutionalFlow: institutionalVolume / totalVolume,
-    retailFlow: retailVolume / totalVolume,
-  };
-}
-
-/**
- * Build footprint chart data
- */
-export function buildFootprint(
-  ticks: Tick[],
-  priceStep: number = 0.01
+export function generateFootprint(
+  trades: TickTrade[],
+  barsize: number = 10,
+  tickSize: number = 0.01,
 ): FootprintBar[] {
-  if (ticks.length === 0) return [];
-
-  const prices = ticks.map(t => t.price);
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-
-  const priceMap = new Map<number, { buyVolume: number; sellVolume: number }>();
-
-  for (const tick of ticks) {
-    const rounded = Math.round(tick.price / priceStep) * priceStep;
-    if (!priceMap.has(rounded)) {
-      priceMap.set(rounded, { buyVolume: 0, sellVolume: 0 });
-    }
-    const entry = priceMap.get(rounded)!;
-    if (tick.isBuy) entry.buyVolume += tick.volume;
-    else entry.sellVolume += tick.volume;
-  }
+  if (trades.length === 0) return [];
 
   const bars: FootprintBar[] = [];
-  const sortedPrices = Array.from(priceMap.keys()).sort((a, b) => a - b);
 
-  for (let i = 0; i < sortedPrices.length; i++) {
-    const price = sortedPrices[i];
-    const entry = priceMap.get(price)!;
-    const delta = entry.buyVolume - entry.sellVolume;
+  for (let i = 0; i < trades.length; i += barsize) {
+    const chunk = trades.slice(i, i + barsize);
+    const priceMap = new Map<number, { buy: number; sell: number }>();
 
-    // Row imbalance: compare with adjacent
-    let rowImbalance = false;
-    if (i > 0) {
-      const prevEntry = priceMap.get(sortedPrices[i - 1])!;
-      const prevDelta = prevEntry.buyVolume - prevEntry.sellVolume;
-      rowImbalance = Math.sign(delta) !== Math.sign(prevDelta) && Math.abs(delta) > Math.abs(prevDelta) * 1.5;
+    for (const t of chunk) {
+      const rounded = Math.round(t.price / tickSize) * tickSize;
+      const key = Math.round(rounded * 100) / 100;
+      if (!priceMap.has(key)) priceMap.set(key, { buy: 0, sell: 0 });
+      const entry = priceMap.get(key)!;
+      if (t.direction === 'buy') entry.buy += t.volume;
+      else entry.sell += t.volume;
     }
 
-    bars.push({
-      price,
-      buyVolume: entry.buyVolume,
-      sellVolume: entry.sellVolume,
-      delta,
-      rowImbalance,
-    });
+    let pocPrice = 0;
+    let maxTotal = 0;
+
+    for (const [price, { buy, sell }] of priceMap) {
+      const total = buy + sell;
+      if (total > maxTotal) {
+        maxTotal = total;
+        pocPrice = price;
+      }
+
+      const delta = buy - sell;
+      const absImbalance = Math.abs(buy - sell);
+      const minSide = Math.min(buy, sell);
+      const hasImbalance = minSide > 0 ? absImbalance / minSide > 2 : absImbalance > 0;
+
+      bars.push({
+        price,
+        buyVolume: buy,
+        sellVolume: sell,
+        delta,
+        imbalance: hasImbalance ? (delta > 0 ? 'buy' : 'sell') : 'neutral',
+        isPOC: false,
+      });
+    }
+
+    // Mark POC
+    for (const bar of bars) {
+      if (Math.abs(bar.price - pocPrice) < tickSize) {
+        bar.isPOC = true;
+      }
+    }
   }
 
   return bars;
 }
 
 /**
- * Detect imbalance zones
+ * 检测大单
  */
-export function detectImbalanceZones(
-  footprint: FootprintBar[],
-  threshold: number = 0.7
-): ImbalanceZone[] {
-  const zones: ImbalanceZone[] = [];
-  let currentZone: {
-    startPrice: number;
-    endPrice: number;
-    totalDelta: number;
-    count: number;
-    type: 'buying' | 'selling';
-  } | null = null;
+export function detectLargeOrders(
+  trades: TickTrade[],
+  volumeThreshold: number = 100000,
+): LargeOrderAlert[] {
+  const alerts: LargeOrderAlert[] = [];
 
-  for (const bar of footprint) {
-    const totalVol = bar.buyVolume + bar.sellVolume;
-    if (totalVol === 0) continue;
-
-    const imbalanceRatio = Math.abs(bar.delta) / totalVol;
-    if (imbalanceRatio < threshold) {
-      if (currentZone) {
-        zones.push({
-          startPrice: currentZone.startPrice,
-          endPrice: currentZone.endPrice,
-          totalDelta: currentZone.totalDelta,
-          significance: Math.abs(currentZone.totalDelta) / currentZone.count,
-          type: currentZone.type,
-        });
-        currentZone = null;
-      }
-      continue;
-    }
-
-    const type = bar.delta > 0 ? 'buying' : 'selling';
-
-    if (currentZone && currentZone.type === type) {
-      currentZone.endPrice = bar.price;
-      currentZone.totalDelta += bar.delta;
-      currentZone.count++;
-    } else {
-      if (currentZone) {
-        zones.push({
-          startPrice: currentZone.startPrice,
-          endPrice: currentZone.endPrice,
-          totalDelta: currentZone.totalDelta,
-          significance: Math.abs(currentZone.totalDelta) / currentZone.count,
-          type: currentZone.type,
-        });
-      }
-      currentZone = { startPrice: bar.price, endPrice: bar.price, totalDelta: bar.delta, count: 1, type };
+  for (const t of trades) {
+    if (t.volume >= volumeThreshold * 3) {
+      alerts.push({
+        time: t.time,
+        price: t.price,
+        volume: t.volume,
+        direction: t.direction === 'neutral' ? 'buy' : t.direction,
+        significance: 'extreme',
+      });
+    } else if (t.volume >= volumeThreshold) {
+      alerts.push({
+        time: t.time,
+        price: t.price,
+        volume: t.volume,
+        direction: t.direction === 'neutral' ? 'buy' : t.direction,
+        significance: 'high',
+      });
     }
   }
 
-  if (currentZone) {
-    zones.push({
-      startPrice: currentZone.startPrice,
-      endPrice: currentZone.endPrice,
-      totalDelta: currentZone.totalDelta,
-      significance: Math.abs(currentZone.totalDelta) / currentZone.count,
-      type: currentZone.type,
-    });
-  }
-
-  return zones;
+  return alerts;
 }
 
-// ==================== Internal Helpers ====================
+/**
+ * 买卖压力热力图数据
+ */
+export function computePressureHeatmap(
+  trades: TickTrade[],
+  timeWindowMs: number = 60000,
+): Array<{ time: string; buyPressure: number; sellPressure: number; volume: number }> {
+  if (trades.length === 0) return [];
 
-function detectDivergence(prices: number[], indicator: number[]): boolean {
-  if (prices.length < 10 || indicator.length < 10) return false;
+  const sorted = [...trades].sort((a, b) => a.time.localeCompare(b.time));
+  const windows = new Map<string, { buy: number; sell: number; total: number }>();
 
-  const lastPrices = prices.slice(-10);
-  const lastIndicator = indicator.slice(-10);
+  for (const t of sorted) {
+    const windowKey = t.time.slice(0, 8); // HH:MM:SS grouping
+    if (!windows.has(windowKey)) windows.set(windowKey, { buy: 0, sell: 0, total: 0 });
+    const w = windows.get(windowKey)!;
+    if (t.direction === 'buy') w.buy += t.volume;
+    else if (t.direction === 'sell') w.sell += t.volume;
+    w.total += t.volume;
+  }
 
-  const priceDirection = lastPrices[lastPrices.length - 1] - lastPrices[0];
-  const indicatorDirection = lastIndicator[lastIndicator.length - 1] - lastIndicator[0];
-
-  // Divergence: price up but indicator down, or vice versa
-  return (priceDirection > 0 && indicatorDirection < 0) ||
-         (priceDirection < 0 && indicatorDirection > 0);
+  return [...windows.entries()].map(([time, { buy, sell, total }]) => ({
+    time,
+    buyPressure: total > 0 ? Math.round((buy / total) * 1000) / 1000 : 0.5,
+    sellPressure: total > 0 ? Math.round((sell / total) * 1000) / 1000 : 0.5,
+    volume: total,
+  }));
 }

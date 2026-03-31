@@ -1,144 +1,113 @@
 import { describe, it, expect } from 'vitest';
 import {
-  detectEconomicPhase,
-  scoreSector,
   predictRotation,
+  identifyCyclePhase,
   analyzeStyleRotation,
-  type SectorData,
-  type EconomicPhase,
+  findLeadLagPairs,
+  rankSectorHeat,
+  type SectorSnapshot,
 } from '../utils/sectorRotationPredictEngine';
 
-function makeSector(name: string, overrides: Partial<SectorData> = {}): SectorData {
+function makeSector(overrides: Partial<SectorSnapshot> = {}): SectorSnapshot {
   return {
-    name,
-    code: `BK${name}`,
-    returns: { week: 0.02, month: 0.05, quarter: 0.1, year: 0.2 },
-    valuation: { pe: 25, pePercentile: 40, pb: 2.5, pbPercentile: 35 },
-    momentum: { rsi: 55, macdSignal: 'golden', trend: 'up' },
-    crowding: { turnoverRate: 0.02, northboundChange: 0.05, fundAllocation: 30 },
-    fundamentals: { earningsGrowth: 0.15, revenueGrowth: 0.12, roeChange: 0.02 },
-    policy: { supportLevel: 1, recentPolicies: ['政策A'] },
+    name: '科技',
+    date: '2025-01-15',
+    return5d: 0.02,
+    return20d: 0.05,
+    return60d: 0.10,
+    volume: 1000000,
+    pe: 25,
+    momentum: 0.5,
+    breadth: 0.6,
     ...overrides,
   };
 }
 
-describe('sectorRotationPredictEngine', () => {
-  describe('detectEconomicPhase', () => {
-    it('should detect recovery', () => {
-      const result = detectEconomicPhase({
-        pmiGrowth: 1, creditGrowth: 12, inventoryCycle: -0.5, consumerConfidence: 105,
-      });
-      expect(result.phase).toBe('recovery');
-      expect(result.confidence).toBeGreaterThan(0);
-    });
+describe('SectorRotationPredictEngine', () => {
+  const sectors: SectorSnapshot[] = [
+    makeSector({ name: '科技', return5d: 0.08, momentum: 0.8, breadth: 0.4, pe: 35 }),
+    makeSector({ name: '消费', return5d: -0.02, momentum: 0.2, breadth: 0.7, pe: 18 }),
+    makeSector({ name: '金融', return5d: 0.01, momentum: 0.4, breadth: 0.6, pe: 12 }),
+    makeSector({ name: '医药', return5d: -0.03, momentum: 0.15, breadth: 0.75, pe: 22 }),
+    makeSector({ name: '新能源', return5d: 0.06, momentum: 0.75, breadth: 0.35, pe: 40 }),
+  ];
 
-    it('should detect expansion', () => {
-      const result = detectEconomicPhase({
-        pmiGrowth: 2, creditGrowth: 15, inventoryCycle: 0.5, consumerConfidence: 110,
-      });
-      expect(['recovery', 'expansion']).toContain(result.phase);
-    });
-
-    it('should detect contraction', () => {
-      const result = detectEconomicPhase({
-        pmiGrowth: -2, creditGrowth: 3, inventoryCycle: -0.5, consumerConfidence: 90,
-      });
-      expect(['contraction', 'peak']).toContain(result.phase);
-    });
-
-    it('should return confidence 0-1', () => {
-      const result = detectEconomicPhase({
-        pmiGrowth: 0, creditGrowth: 8, inventoryCycle: 0, consumerConfidence: 100,
-      });
-      expect(result.confidence).toBeGreaterThanOrEqual(0);
-      expect(result.confidence).toBeLessThanOrEqual(1);
-    });
+  it('should predict rotation from overheated to undervalued', () => {
+    const predictions = predictRotation(sectors);
+    expect(predictions.length).toBeGreaterThan(0);
+    for (const p of predictions) {
+      expect(p.confidence).toBeGreaterThan(0);
+      expect(p.confidence).toBeLessThanOrEqual(0.95);
+      expect(p.reason).toBeTruthy();
+      expect(p.expectedDuration).toBeTruthy();
+    }
   });
 
-  describe('scoreSector', () => {
-    it('should score sector 0-100', () => {
-      const sector = makeSector('科技');
-      const result = scoreSector(sector, 'expansion');
-      expect(result.compositeScore).toBeGreaterThanOrEqual(0);
-      expect(result.compositeScore).toBeLessThanOrEqual(100);
-    });
-
-    it('should include all score components', () => {
-      const sector = makeSector('科技');
-      const result = scoreSector(sector, 'expansion');
-      expect(result.momentumScore).toBeDefined();
-      expect(result.valuationScore).toBeDefined();
-      expect(result.crowdingScore).toBeDefined();
-      expect(result.policyScore).toBeDefined();
-    });
-
-    it('should assign signal', () => {
-      const sector = makeSector('科技');
-      const result = scoreSector(sector, 'expansion');
-      expect(['strong_buy', 'buy', 'hold', 'sell', 'strong_sell']).toContain(result.signal);
-    });
-
-    it('should boost undervalued sectors in recovery', () => {
-      const cheap = makeSector('银行', { valuation: { pe: 8, pePercentile: 10, pb: 0.8, pbPercentile: 10 } });
-      const expensive = makeSector('科技', { valuation: { pe: 80, pePercentile: 90, pb: 10, pbPercentile: 90 } });
-      const cheapScore = scoreSector(cheap, 'recovery');
-      const expensiveScore = scoreSector(expensive, 'recovery');
-      expect(cheapScore.valuationScore).toBeGreaterThan(expensiveScore.valuationScore);
-    });
+  it('should handle empty sectors', () => {
+    expect(predictRotation([])).toHaveLength(0);
   });
 
-  describe('predictRotation', () => {
-    it('should return top and bottom sectors', () => {
-      const sectors = [
-        makeSector('科技'), makeSector('银行'), makeSector('医药'),
-        makeSector('消费'), makeSector('新能源'),
-      ];
-      const result = predictRotation(sectors, 'expansion', 0.7);
-      expect(result.topSectors.length).toBeGreaterThan(0);
-      expect(result.bottomSectors.length).toBeGreaterThan(0);
-    });
-
-    it('should include rotation strategy', () => {
-      const sectors = [makeSector('科技')];
-      const result = predictRotation(sectors, 'recovery', 0.7);
-      expect(result.rotationStrategy.length).toBeGreaterThan(0);
-    });
-
-    it('should include transition probabilities', () => {
-      const sectors = [makeSector('科技')];
-      const result = predictRotation(sectors, 'expansion', 0.7);
-      expect(result.transitionProbabilities.length).toBe(4);
-    });
-
-    it('should include next rotation timing', () => {
-      const sectors = [makeSector('科技')];
-      const result = predictRotation(sectors, 'recovery', 0.7);
-      expect(result.nextRotationTiming.length).toBeGreaterThan(0);
-    });
+  it('should handle single sector', () => {
+    expect(predictRotation([makeSector()])).toHaveLength(0);
   });
 
-  describe('analyzeStyleRotation', () => {
-    it('should determine style preference', () => {
-      const sectors = [
-        makeSector('银行', { returns: { week: 0.05, month: 0.1, quarter: 0.15, year: 0.3 } }),
-        makeSector('半导体', { returns: { week: 0.01, month: 0.02, quarter: 0.05, year: 0.1 } }),
-      ];
-      const result = analyzeStyleRotation(sectors);
-      expect(['large_cap', 'small_cap', 'balanced']).toContain(result.style);
-    });
+  it('should identify cycle phases', () => {
+    const history = Array(6).fill(sectors);
+    const phases = identifyCyclePhase(history);
+    expect(phases.length).toBeGreaterThan(0);
+    expect(['expansion', 'peak', 'contraction', 'trough']).toContain(phases[0].phase);
+  });
 
-    it('should calculate spread', () => {
-      const sectors = [
-        makeSector('银行'), makeSector('半导体'),
-      ];
-      const result = analyzeStyleRotation(sectors);
-      expect(typeof result.spread).toBe('number');
-    });
+  it('should return empty for insufficient history', () => {
+    expect(identifyCyclePhase([sectors])).toHaveLength(0);
+  });
 
-    it('should provide recommendation', () => {
-      const sectors = [makeSector('银行'), makeSector('半导体')];
-      const result = analyzeStyleRotation(sectors);
-      expect(result.recommendation.length).toBeGreaterThan(0);
-    });
+  it('should analyze style rotation', () => {
+    const styles = analyzeStyleRotation(sectors);
+    expect(styles.length).toBe(4);
+    const styleNames = styles.map(s => s.style);
+    expect(styleNames).toContain('value');
+    expect(styleNames).toContain('growth');
+    expect(styleNames).toContain('momentum');
+    expect(styleNames).toContain('quality');
+    // Should be sorted by strength
+    for (let i = 1; i < styles.length; i++) {
+      expect(styles[i - 1].strength).toBeGreaterThanOrEqual(styles[i].strength);
+    }
+  });
+
+  it('should handle empty sectors for style rotation', () => {
+    expect(analyzeStyleRotation([])).toHaveLength(0);
+  });
+
+  it('should find lead-lag pairs', () => {
+    const sectorReturns = new Map<string, number[]>();
+    // Create correlated series with lag
+    const base = Array.from({ length: 40 }, (_, i) => Math.sin(i * 0.3) * 0.02);
+    sectorReturns.set('科技', base);
+    sectorReturns.set('金融', base.map((_, i) => i >= 3 ? base[i - 3] * 0.8 + Math.random() * 0.005 : 0));
+
+    const pairs = findLeadLagPairs(sectorReturns, 5);
+    // May or may not find pairs depending on data
+    expect(Array.isArray(pairs)).toBe(true);
+  });
+
+  it('should handle insufficient data for lead-lag', () => {
+    const sectorReturns = new Map([
+      ['A', [0.01, 0.02]],
+      ['B', [0.01, 0.02]],
+    ]);
+    expect(findLeadLagPairs(sectorReturns, 5)).toHaveLength(0);
+  });
+
+  it('should rank sector heat', () => {
+    const ranked = rankSectorHeat(sectors);
+    expect(ranked.length).toBe(sectors.length);
+    expect(ranked[0].rank).toBe(1);
+    for (let i = 1; i < ranked.length; i++) {
+      expect(ranked[i - 1].heatScore).toBeGreaterThanOrEqual(ranked[i].heatScore);
+      expect(ranked[i].rank).toBe(i + 1);
+    }
+    expect(['hot', 'warm', 'cool', 'cold']).toContain(ranked[0].signal);
   });
 });
