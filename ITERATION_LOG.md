@@ -5733,3 +5733,133 @@
 - 928 test files passed, 1 skipped, 0 failed
 - 23,989 tests passed, 14 skipped
 - 新增 191 个测试 (Round 371-380)
+
+## Round 396-410 — 批量引擎扩展 2026-03-31 14:34-15:13
+
+### 新增 (15个引擎 + 15个测试 = 30个文件)
+
+**Round 396 — 板块动量轮动引擎** — `sectorMomentumRotationEngine.ts` + test (27 tests)
+- 多周期动量排名(MA加权)
+- 轮动信号检测(领先/滞后/跟随/反转)
+- 动量传导链分析
+- 板块聚集效应(轮动阶段判断)
+- 综合轮动分析(市场阶段/轮动强度)
+
+**Round 397 — 筹码分布引擎** — `chipDistributionEngine.ts` + test (34 tests)
+- 筹码密集区/稀疏区识别
+- 获利盘/套牢盘比例
+- 基尼系数/HHI集中度评分
+- 支撑/阻力位推断(峰谷法)
+- 筹码峰谷分析
+- 筹码迁移追踪(流入/流出/方向)
+
+**Round 398 — 板块资金流引擎** — `sectorFundFlowEngine.ts` + test (31 tests)
+- 主力/散户/北向资金流向
+- 板块资金净流入排名
+- 资金流向趋势(动量/一致性)
+- 信号检测(主力进出/背离/大单/散户恐慌)
+- 资金流集中度(HERF)
+- 大单追踪(机构/散户/混合)
+- 资金流向背离检测
+
+**Round 399 — 趋势跟踪策略引擎** — `trendFollowingEngine.ts` + test (37 tests)
+- 多均线系统(MA5/10/20/60/120/250)
+- 金叉/死叉信号检测
+- 趋势强度评分(均线排列度/ADX)
+- 趋势阶段判断(筑底/主升/派发/下跌)
+- 止损止盈计算(ATR/百分比/均线法)
+- 回撤分析(最大回撤/水下曲线)
+- ATR计算
+
+**Round 400 — 量化因子回测引擎** — `quantFactorBacktestEngine.ts` + test (31 tests)
+- IC/IR分析(Pearson/Spearman)
+- 分层回测(Quantile)
+- 因子衰减分析
+- 换手率影响分析
+- 多因子合成
+
+**Round 401 — 异动监控引擎** — `anomalyMonitorEngine.ts` + test (27 tests)
+- 涨跌停检测(主板10%/创业板20%)
+- 放量异动检测
+- 盘中急拉急跌
+- 尾盘异动
+- 买卖价差异常
+- 综合异动扫描/汇总
+
+**Round 402 — 财报分析引擎** — `financialReportEngine.ts` + test (29 tests)
+- 同比/环比增长分析
+- 杜邦分析(净利率×周转率×杠杆)
+- 财务健康评分(流动性/偿债/盈利/效率)
+- 财务预警信号(收入下降/利润率压缩/现金流错配/高杠杆等)
+
+**Round 403 — 股东行为分析引擎** — `shareholderBehaviorEngine.ts` + test (24 tests)
+- 大股东增减持分析
+- 管理层持股追踪
+- 股权质押风险评估(平仓线/风险等级)
+- 解禁压力分析(吸收天数/压力等级)
+- 股东集中度变化
+
+**Round 404 — 舆情聚合引擎** — `sentimentAggregationEngine.ts` + test (22 tests)
+- 多源新闻情绪分析(正/负/中性)
+- 时效性衰减权重
+- 股票舆情聚合(热度/趋势/关键话题)
+- 突发事件检测(紧急度/影响力)
+- 板块情绪对比
+
+**Round 405 — 板块联动引擎** — `sectorLinkageEngine.ts` + test (25 tests)
+- 上下游产业链关系(预定义10条链)
+- 溢出效应计算
+- 传导路径分析(DFS搜索)
+- 板块联动聚类
+- 受影响板块预测
+
+**Round 406 — 市场宽度指标引擎** — `marketBreadthIndicatorEngine.ts` + test (23 tests)
+- 涨跌比/涨跌线
+- McClellan振荡器(EMA19-EMA39)
+- TRIN(Arms Index)
+- Breadth Thrust
+- 均线宽度(MA20/60/200)
+- 综合宽度评分/信号检测
+
+**Round 407 — 高频数据流引擎** — `highFrequencyEngine.ts` + test (23 tests)
+- VWAP计算(含标准差带)
+- 订单流失衡(买卖量/压力)
+- 成交量分布(POC/Value Area)
+- 微观价格模式(涨跌比/震荡/动量/均值回归)
+- 价格冲击模型(Kyle Lambda)
+
+**Round 408 — 策略绩效归因引擎** — `strategyPerformanceEngine.ts` + test (22 tests)
+- 风险调整收益(Sharpe/Sortino/Calmar)
+- 最大回撤(金额/持续天数)
+- 胜率/盈亏比/利润因子
+- 基准归因(Alpha/Beta/TE/IR/Treynor)
+- 滚动窗口分析
+- 月度收益矩阵
+
+### 测试结果
+- 951 test files passed, 1 skipped
+- 24,607 tests passed, 14 skipped
+- 新增 369 个测试 (Round 396-410)
+
+## Round 411-412 — 事件/套利扩展 2026-03-31 15:17-15:25
+
+**Round 411 — 事件驱动策略引擎** — `eventDrivenStrategyEngine.ts` + test (23 tests)
+- 业绩预告/快报评估
+- 分红事件评估(股息率)
+- 送转事件评估(高送转)
+- 重组事件评估(关联交易惩罚)
+- 事件组合策略(风险分散)
+- 历史事件影响分析
+
+**Round 412 — ETF套利V2引擎** — `etfArbitrageV2Engine.ts` + test (19 tests)
+- 实时溢价折价监控
+- 精确套利成本(佣金/滑点/冲击/印花税)
+- 一级市场申购赎回套利
+- 跨市场套利(LOF/ETF)
+- 可行性评分/风险评估
+- 套利监控面板
+
+### 测试结果
+- 953 test files passed, 1 skipped
+- 24,649 tests passed, 14 skipped
+- 新增 42 个测试 (Round 411-412)

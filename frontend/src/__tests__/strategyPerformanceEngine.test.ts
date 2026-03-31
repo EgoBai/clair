@@ -1,213 +1,151 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calculatePerformance,
-  sectorAttribution,
-  analyzeDrawdowns,
-  tradeAttribution,
+  calculatePerformanceMetrics,
+  calculateAttribution,
+  calculateRollingWindow,
+  calculateMonthlyMatrix,
   type DailyReturn,
-  type Trade,
 } from '../utils/strategyPerformanceEngine';
 
-function makeReturn(overrides: Partial<DailyReturn> = {}): DailyReturn {
-  return {
-    date: '2026-01-01',
-    strategyReturn: 0.01,
-    benchmarkReturn: 0.005,
-    positions: [{ ticker: '600519', weight: 0.5, return: 0.02 }],
-    ...overrides,
-  };
+function generateReturns(count: number): DailyReturn[] {
+  return Array.from({ length: count }, (_, i) => ({
+    date: `2026-${String(Math.floor(i / 20) + 1).padStart(2, '0')}-${String((i % 20) + 1).padStart(2, '0')}`,
+    strategyReturn: (Math.random() - 0.48) * 0.03,
+    benchmarkReturn: (Math.random() - 0.5) * 0.02,
+    riskFreeRate: 0.0001,
+  }));
 }
 
-function makeTrade(overrides: Partial<Trade> = {}): Trade {
-  return {
-    ticker: '600519',
-    side: 'buy',
-    price: 100,
-    quantity: 100,
-    date: '2026-01-01',
-    sector: '白酒',
-    fees: 5,
-    ...overrides,
-  };
-}
+const mockReturns = generateReturns(120);
 
-describe('Strategy Performance Engine', () => {
-  describe('calculatePerformance', () => {
-    it('should return zero metrics for empty returns', () => {
-      const metrics = calculatePerformance([]);
+describe('策略绩效归因引擎', () => {
+  describe('calculatePerformanceMetrics', () => {
+    it('should calculate total return', () => {
+      const metrics = calculatePerformanceMetrics(mockReturns);
+      expect(typeof metrics.totalReturn).toBe('number');
+    });
+
+    it('should calculate Sharpe ratio', () => {
+      const metrics = calculatePerformanceMetrics(mockReturns);
+      expect(typeof metrics.sharpeRatio).toBe('number');
+    });
+
+    it('should calculate max drawdown >= 0', () => {
+      const metrics = calculatePerformanceMetrics(mockReturns);
+      expect(metrics.maxDrawdown).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should calculate win rate 0-1', () => {
+      const metrics = calculatePerformanceMetrics(mockReturns);
+      expect(metrics.winRate).toBeGreaterThanOrEqual(0);
+      expect(metrics.winRate).toBeLessThanOrEqual(1);
+    });
+
+    it('should handle empty returns', () => {
+      const metrics = calculatePerformanceMetrics([]);
       expect(metrics.totalReturn).toBe(0);
       expect(metrics.sharpeRatio).toBe(0);
     });
 
-    it('should calculate total return', () => {
-      const returns = [
-        makeReturn({ strategyReturn: 0.01 }),
-        makeReturn({ strategyReturn: 0.02 }),
-        makeReturn({ strategyReturn: -0.005 }),
-      ];
-      const metrics = calculatePerformance(returns);
-
-      // (1.01 * 1.02 * 0.995) - 1 = 0.0248...
-      expect(metrics.totalReturn).toBeCloseTo(0.0249, 2);
+    it('should calculate profit factor', () => {
+      const metrics = calculatePerformanceMetrics(mockReturns);
+      expect(metrics.profitFactor).toBeGreaterThanOrEqual(0);
     });
 
-    it('should calculate volatility', () => {
-      const returns = Array.from({ length: 30 }, (_, i) =>
-        makeReturn({ strategyReturn: (i % 2 === 0 ? 0.01 : -0.01) })
-      );
-      const metrics = calculatePerformance(returns);
-      expect(metrics.volatility).toBeGreaterThan(0);
-    });
-
-    it('should calculate Sharpe ratio', () => {
-      const returns = Array.from({ length: 30 }, () =>
-        makeReturn({ strategyReturn: 0.005 })
-      );
-      const metrics = calculatePerformance(returns);
-      expect(metrics.sharpeRatio).toBeGreaterThan(0);
-    });
-
-    it('should calculate max drawdown', () => {
-      const returns = [
-        makeReturn({ strategyReturn: 0.1 }),
-        makeReturn({ strategyReturn: 0.1 }),
-        makeReturn({ strategyReturn: -0.15 }),
-        makeReturn({ strategyReturn: -0.1 }),
-      ];
-      const metrics = calculatePerformance(returns);
-      expect(metrics.maxDrawdown).toBeGreaterThan(0);
-    });
-
-    it('should calculate win rate', () => {
-      const returns = [
-        makeReturn({ strategyReturn: 0.01 }),
-        makeReturn({ strategyReturn: 0.02 }),
-        makeReturn({ strategyReturn: -0.005 }),
-      ];
-      const metrics = calculatePerformance(returns);
-      expect(metrics.winRate).toBeCloseTo(2/3, 2);
-    });
-
-    it('should calculate beta', () => {
-      const returns = Array.from({ length: 20 }, (_, i) =>
-        makeReturn({
-          strategyReturn: i * 0.001,
-          benchmarkReturn: i * 0.0005,
-        })
-      );
-      const metrics = calculatePerformance(returns);
-      expect(typeof metrics.beta).toBe('number');
-      expect(typeof metrics.alpha).toBe('number');
+    it('should identify best and worst days', () => {
+      const metrics = calculatePerformanceMetrics(mockReturns);
+      expect(metrics.bestDay).toBeGreaterThanOrEqual(metrics.worstDay);
     });
 
     it('should calculate Sortino ratio', () => {
-      const returns = Array.from({ length: 30 }, (_, i) =>
-        makeReturn({ strategyReturn: i % 3 === 0 ? -0.005 : 0.01 })
-      );
-      const metrics = calculatePerformance(returns);
+      const metrics = calculatePerformanceMetrics(mockReturns);
       expect(typeof metrics.sortinoRatio).toBe('number');
     });
 
-    it('should calculate profit factor', () => {
-      const returns = [
-        makeReturn({ strategyReturn: 0.02 }),
-        makeReturn({ strategyReturn: 0.01 }),
-        makeReturn({ strategyReturn: -0.005 }),
-      ];
-      const metrics = calculatePerformance(returns);
-      expect(metrics.profitFactor).toBeGreaterThan(0);
+    it('should calculate Calmar ratio', () => {
+      const metrics = calculatePerformanceMetrics(mockReturns);
+      expect(typeof metrics.calmarRatio).toBe('number');
     });
   });
 
-  describe('sectorAttribution', () => {
-    it('should calculate sector contributions', () => {
-      const returns = [
-        makeReturn({
-          positions: [
-            { ticker: '科技', weight: 0.5, return: 0.02 },
-            { ticker: '金融', weight: 0.5, return: -0.01 },
-          ],
-        }),
-      ];
-      const benchWeights = new Map([
-        ['科技', 0.3],
-        ['金融', 0.7],
-      ]);
+  describe('calculateAttribution', () => {
+    it('should calculate alpha and beta', () => {
+      const result = calculateAttribution(mockReturns);
+      expect(typeof result.alpha).toBe('number');
+      expect(typeof result.beta).toBe('number');
+    });
 
-      const result = sectorAttribution(returns, benchWeights);
+    it('should calculate tracking error', () => {
+      const result = calculateAttribution(mockReturns);
+      expect(result.trackingError).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should calculate information ratio', () => {
+      const result = calculateAttribution(mockReturns);
+      expect(typeof result.informationRatio).toBe('number');
+    });
+
+    it('should handle insufficient data', () => {
+      const result = calculateAttribution([mockReturns[0]]);
+      expect(result.alpha).toBe(0);
+      expect(result.beta).toBe(0);
+    });
+
+    it('should decompose into selection/allocation/interaction', () => {
+      const result = calculateAttribution(mockReturns);
+      expect(typeof result.selectionEffect).toBe('number');
+      expect(typeof result.allocationEffect).toBe('number');
+      expect(typeof result.interactionEffect).toBe('number');
+    });
+  });
+
+  describe('calculateRollingWindow', () => {
+    it('should calculate rolling metrics', () => {
+      const result = calculateRollingWindow(mockReturns, 60);
+      expect(result.sharpe.length).toBeGreaterThan(0);
+      expect(result.returns.length).toBe(result.sharpe.length);
+    });
+
+    it('should have matching date arrays', () => {
+      const result = calculateRollingWindow(mockReturns, 60);
+      expect(result.dates.length).toBe(result.sharpe.length);
+    });
+
+    it('should support different window sizes', () => {
+      const w30 = calculateRollingWindow(mockReturns, 30);
+      const w60 = calculateRollingWindow(mockReturns, 60);
+      expect(w30.sharpe.length).toBeGreaterThan(w60.sharpe.length);
+    });
+
+    it('should handle data shorter than window', () => {
+      const result = calculateRollingWindow(mockReturns.slice(0, 10), 60);
+      expect(result.sharpe).toHaveLength(0);
+    });
+  });
+
+  describe('calculateMonthlyMatrix', () => {
+    it('should generate monthly matrix', () => {
+      const result = calculateMonthlyMatrix(mockReturns);
       expect(result.length).toBeGreaterThan(0);
-      result.forEach(s => {
-        expect(typeof s.contribution).toBe('number');
-        expect(typeof s.selection).toBe('number');
-        expect(typeof s.allocation).toBe('number');
+    });
+
+    it('should have 12 months per year', () => {
+      const result = calculateMonthlyMatrix(mockReturns);
+      result.forEach(y => {
+        expect(y.months).toHaveLength(12);
       });
     });
-  });
 
-  describe('analyzeDrawdowns', () => {
-    it('should identify drawdowns', () => {
-      const returns = [
-        makeReturn({ strategyReturn: 0.1 }),
-        makeReturn({ strategyReturn: 0.1 }),
-        makeReturn({ strategyReturn: -0.15 }),
-        makeReturn({ strategyReturn: 0.1 }),
-        makeReturn({ strategyReturn: 0.1 }),
-      ];
-      const result = analyzeDrawdowns(returns);
-
-      expect(result.maxDrawdown).toBeGreaterThan(0);
-      expect(result.drawdowns.length).toBeGreaterThan(0);
+    it('should calculate YTD return', () => {
+      const result = calculateMonthlyMatrix(mockReturns);
+      result.forEach(y => {
+        expect(typeof y.ytd).toBe('number');
+      });
     });
 
-    it('should track current drawdown', () => {
-      const returns = [
-        makeReturn({ strategyReturn: 0.1 }),
-        makeReturn({ strategyReturn: -0.1 }),
-      ];
-      const result = analyzeDrawdowns(returns);
-      expect(result.currentDrawdown).toBeGreaterThan(0);
-    });
-
-    it('should handle no drawdown', () => {
-      const returns = [
-        makeReturn({ strategyReturn: 0.01 }),
-        makeReturn({ strategyReturn: 0.02 }),
-        makeReturn({ strategyReturn: 0.01 }),
-      ];
-      const result = analyzeDrawdowns(returns);
-      expect(result.maxDrawdown).toBe(0);
-    });
-  });
-
-  describe('tradeAttribution', () => {
-    it('should calculate trade statistics', () => {
-      const trades = [
-        makeTrade({ ticker: 'A', side: 'buy', price: 100, quantity: 100 }),
-        makeTrade({ ticker: 'A', side: 'sell', price: 110, quantity: 100 }),
-        makeTrade({ ticker: 'B', side: 'buy', price: 50, quantity: 200 }),
-        makeTrade({ ticker: 'B', side: 'sell', price: 45, quantity: 200 }),
-      ];
-      const result = tradeAttribution(trades);
-
-      expect(result.totalTrades).toBeGreaterThan(0);
-      expect(result.winningTrades).toBeGreaterThan(0);
-      expect(result.losingTrades).toBeGreaterThan(0);
-      expect(result.bestTrade.pnl).toBeGreaterThan(0);
-      expect(result.worstTrade.pnl).toBeLessThan(0);
-    });
-
-    it('should group by sector', () => {
-      const trades = [
-        makeTrade({ sector: '科技' }),
-        makeTrade({ sector: '金融', ticker: 'X' }),
-      ];
-      const result = tradeAttribution(trades);
-      expect(result.bySector.length).toBeGreaterThan(0);
-    });
-
-    it('should handle empty trades', () => {
-      const result = tradeAttribution([]);
-      expect(result.totalTrades).toBe(0);
+    it('should handle empty returns', () => {
+      const result = calculateMonthlyMatrix([]);
+      expect(result).toHaveLength(0);
     });
   });
 });

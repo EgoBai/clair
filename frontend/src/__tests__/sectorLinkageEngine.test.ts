@@ -1,122 +1,193 @@
 import { describe, it, expect } from 'vitest';
 import {
-  analyzeSectorLinkage,
-  analyzeLeaderFollower,
-  type SectorStock,
+  getDirectRelations,
+  calculateSpillover,
+  findPropagationPaths,
+  clusterLinkedSectors,
+  predictAffectedSectors,
+  getAllRelations,
 } from '../utils/sectorLinkageEngine';
 
-function makeStock(overrides: Partial<SectorStock> = {}): SectorStock {
-  return {
-    ticker: '600519',
-    name: '贵州茅台',
-    sector: '白酒',
-    price: 1800,
-    change: 2.5,
-    volume: 5e7,
-    isLeader: false,
-    correlation: 0.8,
-    ...overrides,
-  };
-}
-
-describe('Sector Linkage Engine', () => {
-  describe('analyzeSectorLinkage', () => {
-    it('should return null for insufficient stocks', () => {
-      expect(analyzeSectorLinkage([makeStock()])).toBeNull();
+describe('板块联动引擎', () => {
+  describe('getDirectRelations', () => {
+    it('should find upstream sectors', () => {
+      const result = getDirectRelations('新能源');
+      expect(result.upstream.length).toBeGreaterThan(0);
+      expect(result.upstream[0].upstream).toBe('有色金属');
     });
 
-    it('should calculate linkage metrics', () => {
-      const stocks = [
-        makeStock({ ticker: 'A', change: 3 }),
-        makeStock({ ticker: 'B', change: 2.5 }),
-        makeStock({ ticker: 'C', change: 2 }),
-        makeStock({ ticker: 'D', change: -0.5 }),
-      ];
-      const result = analyzeSectorLinkage(stocks);
-
-      expect(result).not.toBeNull();
-      expect(result!.sector).toBe('白酒');
-      expect(result!.riseCount).toBe(3);
-      expect(result!.fallCount).toBe(1);
-      expect(result!.riseRatio).toBe(0.75);
-      expect(result!.linkageStrength).toBeGreaterThan(0);
+    it('should find downstream sectors', () => {
+      const result = getDirectRelations('有色金属');
+      expect(result.downstream.length).toBeGreaterThan(0);
     });
 
-    it('should identify leader stock', () => {
-      const stocks = [
-        makeStock({ ticker: 'LEADER', change: 5, volume: 1e8 }),
-        makeStock({ ticker: 'FOLLOWER', change: 2, volume: 1e7 }),
-        makeStock({ ticker: 'WEAK', change: 0.5, volume: 1e6 }),
-      ];
-      const result = analyzeSectorLinkage(stocks);
-      expect(result!.leaderStock).toBe('LEADER');
-      expect(result!.leaderChange).toBe(5);
-    });
-
-    it('should determine momentum', () => {
-      const strongUp = [
-        makeStock({ change: 4 }),
-        makeStock({ change: 5 }),
-        makeStock({ change: 3 }),
-        makeStock({ change: 4 }),
-      ];
-      const result = analyzeSectorLinkage(strongUp);
-      expect(result!.momentum).toBe('strong_up');
-    });
-
-    it('should determine signal', () => {
-      const active = [
-        makeStock({ change: 2 }),
-        makeStock({ change: 2.5 }),
-        makeStock({ change: 1.8 }),
-        makeStock({ change: 2.2 }),
-      ];
-      const result = analyzeSectorLinkage(active);
-      expect(['active', 'watch']).toContain(result!.signal);
-    });
-
-    it('should handle down momentum', () => {
-      const stocks = [
-        makeStock({ change: -4 }),
-        makeStock({ change: -3 }),
-        makeStock({ change: -5 }),
-      ];
-      const result = analyzeSectorLinkage(stocks);
-      expect(['down', 'strong_down']).toContain(result!.momentum);
+    it('should return empty for unknown sector', () => {
+      const result = getDirectRelations('未知板块');
+      expect(result.upstream).toHaveLength(0);
+      expect(result.downstream).toHaveLength(0);
     });
   });
 
-  describe('analyzeLeaderFollower', () => {
-    it('should return null for insufficient stocks', () => {
-      expect(analyzeLeaderFollower([makeStock()])).toBeNull();
-    });
-
-    it('should identify leader and followers', () => {
-      const stocks = [
-        makeStock({ ticker: 'LEADER', change: 5, volume: 1e8 }),
-        makeStock({ ticker: 'F1', change: 2 }),
-        makeStock({ ticker: 'F2', change: -1 }),
-      ];
-      const result = analyzeLeaderFollower(stocks);
-
+  describe('calculateSpillover', () => {
+    it('should calculate spillover for related sectors', () => {
+      const result = calculateSpillover('有色金属', 5, '新能源', 0.7);
       expect(result).not.toBeNull();
-      expect(result!.leader.ticker).toBe('LEADER');
-      expect(result!.followers.length).toBe(2);
-      expect(result!.leaderAlpha).toBeGreaterThan(0);
+      expect(result!.magnitude).toBeGreaterThan(0);
+      expect(result!.direction).toBe('positive');
     });
 
-    it('should calculate follow strength', () => {
-      const stocks = [
-        makeStock({ ticker: 'L', change: 5, volume: 1e8 }),
-        makeStock({ ticker: 'F', change: 3 }), // same direction
-        makeStock({ ticker: 'R', change: -2 }), // reverse
-      ];
-      const result = analyzeLeaderFollower(stocks);
+    it('should handle negative correlation', () => {
+      const result = calculateSpillover('有色金属', 5, '新能源', -0.7);
+      expect(result).not.toBeNull();
+      expect(result!.direction).toBe('negative');
+    });
 
-      const sameDir = result!.followers.find(f => f.stock.ticker === 'F');
-      const reverse = result!.followers.find(f => f.stock.ticker === 'R');
+    it('should return null for unrelated sectors', () => {
+      const result = calculateSpillover('银行', 5, '半导体', 0.5);
+      expect(result).toBeNull();
+    });
 
-      expect(sameDir!.followStrength).toBeGreaterThan(reverse!.followStrength);
+    it('should include half life', () => {
+      const result = calculateSpillover('有色金属', 5, '新能源', 0.7);
+      expect(result!.halfLife).toBeGreaterThan(0);
+    });
+  });
+
+  describe('findPropagationPaths', () => {
+    it('should find paths from sector', () => {
+      const paths = findPropagationPaths('原油', 3);
+      expect(paths.length).toBeGreaterThan(0);
+    });
+
+    it('should start with origin sector', () => {
+      const paths = findPropagationPaths('原油', 3);
+      paths.forEach(p => {
+        expect(p.path[0]).toBe('原油');
+      });
+    });
+
+    it('should sort by expected impact', () => {
+      const paths = findPropagationPaths('原油', 3);
+      for (let i = 1; i < paths.length; i++) {
+        expect(paths[i - 1].expectedImpact).toBeGreaterThanOrEqual(paths[i].expectedImpact);
+      }
+    });
+
+    it('should limit results', () => {
+      const paths = findPropagationPaths('原油', 4);
+      expect(paths.length).toBeLessThanOrEqual(20);
+    });
+
+    it('should have valid strength and lag', () => {
+      const paths = findPropagationPaths('原油', 3);
+      paths.forEach(p => {
+        expect(p.totalStrength).toBeGreaterThan(0);
+        expect(p.totalStrength).toBeLessThanOrEqual(1);
+        expect(p.totalLag).toBeGreaterThan(0);
+      });
+    });
+
+    it('should return empty for unknown sector', () => {
+      const paths = findPropagationPaths('未知板块', 3);
+      expect(paths).toHaveLength(0);
+    });
+  });
+
+  describe('clusterLinkedSectors', () => {
+    const sectorReturns = new Map([
+      ['有色金属', 5],
+      ['新能源', 3],
+      ['半导体', 2],
+      ['消费电子', 1],
+      ['银行', -1],
+    ]);
+
+    it('should find clusters of linked sectors', () => {
+      const clusters = clusterLinkedSectors(sectorReturns);
+      expect(clusters.length).toBeGreaterThan(0);
+    });
+
+    it('should include multiple sectors per cluster', () => {
+      const clusters = clusterLinkedSectors(sectorReturns);
+      clusters.forEach(c => {
+        expect(c.sectors.length).toBeGreaterThanOrEqual(2);
+      });
+    });
+
+    it('should have valid correlation values', () => {
+      const clusters = clusterLinkedSectors(sectorReturns);
+      clusters.forEach(c => {
+        expect(c.internalCorrelation).toBeGreaterThanOrEqual(0);
+        expect(c.internalCorrelation).toBeLessThanOrEqual(1);
+      });
+    });
+
+    it('should sort by cluster strength', () => {
+      const clusters = clusterLinkedSectors(sectorReturns);
+      for (let i = 1; i < clusters.length; i++) {
+        expect(clusters[i - 1].clusterStrength).toBeGreaterThanOrEqual(clusters[i].clusterStrength);
+      }
+    });
+
+    it('should handle empty map', () => {
+      const clusters = clusterLinkedSectors(new Map());
+      expect(clusters).toHaveLength(0);
+    });
+  });
+
+  describe('predictAffectedSectors', () => {
+    it('should predict downstream impact', () => {
+      const result = predictAffectedSectors('有色金属', 5);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result[0].sector).toBe('新能源');
+    });
+
+    it('should include lag days', () => {
+      const result = predictAffectedSectors('有色金属', 5);
+      result.forEach(r => {
+        expect(r.lagDays).toBeGreaterThan(0);
+      });
+    });
+
+    it('should include confidence score', () => {
+      const result = predictAffectedSectors('有色金属', 5);
+      result.forEach(r => {
+        expect(r.confidence).toBeGreaterThan(0);
+        expect(r.confidence).toBeLessThanOrEqual(100);
+      });
+    });
+
+    it('should handle unknown sector', () => {
+      const result = predictAffectedSectors('未知板块', 5);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should sort by absolute impact', () => {
+      const result = predictAffectedSectors('原油', 3);
+      for (let i = 1; i < result.length; i++) {
+        expect(Math.abs(result[i - 1].expectedImpact)).toBeGreaterThanOrEqual(
+          Math.abs(result[i].expectedImpact)
+        );
+      }
+    });
+  });
+
+  describe('getAllRelations', () => {
+    it('should return all predefined relations', () => {
+      const relations = getAllRelations();
+      expect(relations.length).toBeGreaterThan(0);
+    });
+
+    it('should have valid structure', () => {
+      const relations = getAllRelations();
+      relations.forEach(r => {
+        expect(r.upstream).toBeTruthy();
+        expect(r.downstream).toBeTruthy();
+        expect(r.strength).toBeGreaterThan(0);
+        expect(r.strength).toBeLessThanOrEqual(1);
+        expect(r.correlation).toBeGreaterThan(-1);
+        expect(r.correlation).toBeLessThanOrEqual(1);
+      });
     });
   });
 });

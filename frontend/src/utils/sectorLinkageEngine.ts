@@ -1,265 +1,247 @@
 /**
- * 板块联动分析引擎
- * 板块内部联动强度/龙头效应/板块轮动信号/传导路径
+ * 板块联动引擎 (Sector Linkage Engine)
+ * - 上下游产业链联动
+ * - 板块间溢出效应
+ * - 板块轮动预测
+ * - 联动强度计算
+ * - 传导路径分析
  */
 
-export interface SectorStock {
-  ticker: string;
-  name: string;
-  sector: string;
-  price: number;
-  change: number;
-  volume: number;
-  isLeader: boolean;       // 是否龙头
-  correlation: number;     // 与板块相关性
+export interface SectorRelation {
+  upstream: string;
+  downstream: string;
+  strength: number;     // 0-1
+  lagDays: number;
+  correlation: number;
 }
 
-export interface SectorLinkage {
-  sector: string;
-  stocks: SectorStock[];
-  avgChange: number;
-  riseCount: number;
-  fallCount: number;
-  riseRatio: number;
-  linkageStrength: number; // 0-1, 联动强度
-  leaderStock: string;
-  leaderChange: number;
-  leaderEffect: number;    // 龙头带动效应 0-1
-  momentum: 'strong_up' | 'up' | 'neutral' | 'down' | 'strong_down';
-  signal: 'active' | 'watch' | 'weak' | 'avoid';
-}
-
-export interface CrossSectorLink {
+export interface SpilloverEffect {
   source: string;
   target: string;
-  leadLag: number;        // 正数=source领先, 负数=target领先 (分钟)
-  correlation: number;
-  causality: 'upstream' | 'downstream' | 'parallel' | 'independent';
-  strength: number;
+  type: 'price' | 'volume' | 'sentiment';
+  magnitude: number;
+  direction: 'positive' | 'negative';
+  halfLife: number;     // 半衰期（天）
 }
 
-export interface SectorRotationChain {
-  chain: string[];
-  currentLeader: string;
-  expectedNext: string;
-  confidence: number;
-  historicalAccuracy: number;
+export interface ChainPath {
+  path: string[];
+  totalStrength: number;
+  totalLag: number;
+  expectedImpact: number;
 }
 
-export interface LeaderFollowerAnalysis {
-  leader: SectorStock;
-  followers: {
-    stock: SectorStock;
-    lagMinutes: number;
-    correlation: number;
-    followStrength: number;
-  }[];
-  leaderAlpha: number;  // 龙头超额收益
-  averageLag: number;
+export interface LinkageCluster {
+  sectors: string[];
+  internalCorrelation: number;
+  leadSector: string;
+  clusterStrength: number;
 }
+
+// 预定义产业链关系
+const INDUSTRY_CHAINS: SectorRelation[] = [
+  { upstream: '有色金属', downstream: '新能源', strength: 0.8, lagDays: 3, correlation: 0.7 },
+  { upstream: '化工', downstream: '医药', strength: 0.6, lagDays: 5, correlation: 0.5 },
+  { upstream: '半导体', downstream: '消费电子', strength: 0.85, lagDays: 2, correlation: 0.75 },
+  { upstream: '钢铁', downstream: '基建', strength: 0.7, lagDays: 4, correlation: 0.6 },
+  { upstream: '煤炭', downstream: '电力', strength: 0.75, lagDays: 2, correlation: 0.65 },
+  { upstream: '银行', downstream: '房地产', strength: 0.8, lagDays: 3, correlation: 0.7 },
+  { upstream: '原油', downstream: '化工', strength: 0.85, lagDays: 1, correlation: 0.8 },
+  { upstream: '芯片', downstream: '汽车', strength: 0.7, lagDays: 5, correlation: 0.55 },
+  { upstream: '锂矿', downstream: '锂电池', strength: 0.9, lagDays: 2, correlation: 0.85 },
+  { upstream: '光伏硅料', downstream: '光伏组件', strength: 0.85, lagDays: 3, correlation: 0.8 },
+];
 
 /**
- * 分析板块联动
+ * 获取直接上下游关系
  */
-export function analyzeSectorLinkage(stocks: SectorStock[]): SectorLinkage | null {
-  if (stocks.length < 3) return null;
-
-  const sector = stocks[0].sector;
-  const changes = stocks.map(s => s.change);
-  const avgChange = changes.reduce((s, c) => s + c, 0) / changes.length;
-
-  const riseCount = stocks.filter(s => s.change > 0).length;
-  const fallCount = stocks.filter(s => s.change < 0).length;
-  const riseRatio = riseCount / stocks.length;
-
-  // 联动强度: 涨跌同向的比例
-  const sameDirection = stocks.filter(s =>
-    (s.change > 0 && avgChange > 0) || (s.change < 0 && avgChange < 0) || s.change === avgChange
-  ).length;
-  const linkageStrength = sameDirection / stocks.length;
-
-  // 龙头识别: 涨幅最大且成交量最大的
-  const sorted = [...stocks].sort((a, b) => {
-    const scoreA = Math.abs(a.change) * 0.7 + (a.volume / 1e8) * 0.3;
-    const scoreB = Math.abs(b.change) * 0.7 + (b.volume / 1e8) * 0.3;
-    return scoreB - scoreA;
-  });
-
-  const leader = sorted[0];
-
-  // 龙头效应: 龙头涨跌幅与板块均值的相关性
-  const leaderEffect = leader.change !== 0
-    ? Math.min(1, Math.abs(avgChange / leader.change))
-    : 0.5;
-
-  let momentum: SectorLinkage['momentum'];
-  if (avgChange > 3 && riseRatio > 0.7) momentum = 'strong_up';
-  else if (avgChange > 0.5) momentum = 'up';
-  else if (avgChange < -3 && riseRatio < 0.3) momentum = 'strong_down';
-  else if (avgChange < -0.5) momentum = 'down';
-  else momentum = 'neutral';
-
-  let signal: SectorLinkage['signal'];
-  if (linkageStrength > 0.7 && (momentum === 'strong_up' || momentum === 'up')) signal = 'active';
-  else if (linkageStrength > 0.5) signal = 'watch';
-  else if (linkageStrength < 0.3) signal = 'avoid';
-  else signal = 'weak';
-
+export function getDirectRelations(sector: string): {
+  upstream: SectorRelation[];
+  downstream: SectorRelation[];
+} {
   return {
-    sector,
-    stocks,
-    avgChange,
-    riseCount,
-    fallCount,
-    riseRatio,
-    linkageStrength,
-    leaderStock: leader.ticker,
-    leaderChange: leader.change,
-    leaderEffect,
-    momentum,
-    signal,
+    upstream: INDUSTRY_CHAINS.filter(r => r.downstream === sector),
+    downstream: INDUSTRY_CHAINS.filter(r => r.upstream === sector),
   };
 }
 
 /**
- * 板块间联动分析
+ * 计算溢出效应
  */
-export function analyzeCrossSectorLinkage(
-  sectorA: SectorLinkage,
-  sectorB: SectorLinkage,
-  priceHistory: Map<string, number[]> // sector -> price series
-): CrossSectorLink {
-  const historyA = priceHistory.get(sectorA.sector) ?? [];
-  const historyB = priceHistory.get(sectorB.sector) ?? [];
+export function calculateSpillover(
+  source: string,
+  sourceReturn: number,
+  target: string,
+  correlation: number
+): SpilloverEffect | null {
+  const relation = INDUSTRY_CHAINS.find(
+    r => (r.upstream === source && r.downstream === target) ||
+         (r.downstream === source && r.upstream === target)
+  );
 
-  // 计算相关性
-  const len = Math.min(historyA.length, historyB.length);
-  let correlation = 0;
-  if (len > 5) {
-    const meanA = historyA.slice(0, len).reduce((s, v) => s + v, 0) / len;
-    const meanB = historyB.slice(0, len).reduce((s, v) => s + v, 0) / len;
-    let cov = 0, varA = 0, varB = 0;
-    for (let i = 0; i < len; i++) {
-      const da = historyA[i] - meanA;
-      const db = historyB[i] - meanB;
-      cov += da * db;
-      varA += da * da;
-      varB += db * db;
+  if (!relation) return null;
+
+  const magnitude = Math.abs(sourceReturn) * relation.strength * Math.abs(correlation);
+  const direction = correlation >= 0 ? 'positive' : 'negative';
+
+  return {
+    source,
+    target,
+    type: 'price',
+    magnitude: Math.round(magnitude * 100) / 100,
+    direction,
+    halfLife: relation.lagDays * 1.5,
+  };
+}
+
+/**
+ * 传导路径分析
+ */
+export function findPropagationPaths(
+  start: string,
+  maxDepth: number = 4
+): ChainPath[] {
+  const paths: ChainPath[] = [];
+  const visited = new Set<string>();
+
+  function dfs(current: string, path: string[], strength: number, lag: number) {
+    if (path.length > maxDepth) return;
+
+    if (path.length > 1) {
+      paths.push({
+        path: [...path],
+        totalStrength: Math.round(strength * 100) / 100,
+        totalLag: lag,
+        expectedImpact: Math.round(strength * 100 / Math.max(lag, 1)) / 100,
+      });
     }
-    correlation = varA > 0 && varB > 0 ? cov / Math.sqrt(varA * varB) : 0;
-  }
 
-  // 领先滞后 (简化: 看当前动量)
-  const leadLag = sectorA.avgChange > sectorB.avgChange ? 1 : -1;
+    visited.add(current);
 
-  let causality: CrossSectorLink['causality'];
-  if (Math.abs(correlation) > 0.7) {
-    causality = leadLag > 0 ? 'upstream' : 'downstream';
-  } else if (Math.abs(correlation) > 0.4) {
-    causality = 'parallel';
-  } else {
-    causality = 'independent';
-  }
+    for (const chain of INDUSTRY_CHAINS) {
+      let next: string | null = null;
+      let newStrength = strength;
+      let newLag = lag;
 
-  return {
-    source: sectorA.sector,
-    target: sectorB.sector,
-    leadLag,
-    correlation,
-    causality,
-    strength: Math.abs(correlation),
-  };
-}
-
-/**
- * 龙头跟风分析
- */
-export function analyzeLeaderFollower(
-  stocks: SectorStock[]
-): LeaderFollowerAnalysis | null {
-  if (stocks.length < 3) return null;
-
-  // 找龙头
-  const leader = stocks.reduce((best, s) => {
-    const score = Math.abs(s.change) * 0.6 + (s.volume / 1e7) * 0.4;
-    const bestScore = Math.abs(best.change) * 0.6 + (best.volume / 1e7) * 0.4;
-    return score > bestScore ? s : best;
-  });
-
-  // 跟风分析
-  const followers = stocks
-    .filter(s => s.ticker !== leader.ticker)
-    .map(s => {
-      const sameDirection = (leader.change > 0 && s.change > 0) ||
-        (leader.change < 0 && s.change < 0);
-      const followStrength = sameDirection
-        ? Math.min(1, Math.abs(s.change / (leader.change || 1)))
-        : 0;
-
-      return {
-        stock: s,
-        lagMinutes: 0, // 需要时序数据
-        correlation: s.correlation,
-        followStrength,
-      };
-    })
-    .sort((a, b) => b.followStrength - a.followStrength);
-
-  const leaderAlpha = leader.change - stocks.reduce((s, st) => s + st.change, 0) / stocks.length;
-
-  return {
-    leader,
-    followers,
-    leaderAlpha,
-    averageLag: 0,
-  };
-}
-
-/**
- * 板块轮动链
- */
-export function buildRotationChain(
-  sectorHistory: Map<string, number[][]> // sector -> [day][return]
-): SectorRotationChain[] {
-  const sectors = Array.from(sectorHistory.keys());
-  const chains: SectorRotationChain[] = [];
-
-  for (let i = 0; i < sectors.length; i++) {
-    const histI = sectorHistory.get(sectors[i]) ?? [];
-    if (histI.length < 10) continue;
-
-    let bestNext = '';
-    let bestCorr = -1;
-
-    for (let j = 0; j < sectors.length; j++) {
-      if (i === j) continue;
-      const histJ = sectorHistory.get(sectors[j]) ?? [];
-
-      // 检查 I 领先 J 一个周期
-      const len = Math.min(histI.length - 1, histJ.length);
-      if (len < 5) continue;
-
-      let corr = 0;
-      for (let k = 0; k < len; k++) {
-        corr += histI[k][0] * histJ[k + 1]?.[0] ?? 0;
+      if (chain.upstream === current && !visited.has(chain.downstream)) {
+        next = chain.downstream;
+        newStrength *= chain.strength;
+        newLag += chain.lagDays;
+      } else if (chain.downstream === current && !visited.has(chain.upstream)) {
+        next = chain.upstream;
+        newStrength *= chain.strength * 0.7; // 反向传导衰减更多
+        newLag += chain.lagDays + 1;
       }
 
-      if (corr > bestCorr) {
-        bestCorr = corr;
-        bestNext = sectors[j];
+      if (next) {
+        dfs(next, [...path, next], newStrength, newLag);
       }
     }
 
-    if (bestNext && bestCorr > 0) {
-      chains.push({
-        chain: [sectors[i], bestNext],
-        currentLeader: sectors[i],
-        expectedNext: bestNext,
-        confidence: Math.min(1, bestCorr / 10),
-        historicalAccuracy: 0.5,
+    visited.delete(current);
+  }
+
+  dfs(start, [start], 1, 0);
+  return paths.sort((a, b) => b.expectedImpact - a.expectedImpact).slice(0, 20);
+}
+
+/**
+ * 板块联动聚类
+ */
+export function clusterLinkedSectors(
+  sectorReturns: Map<string, number>
+): LinkageCluster[] {
+  const sectors = [...sectorReturns.keys()];
+  const clusters: LinkageCluster[] = [];
+  const assigned = new Set<string>();
+
+  for (const sector of sectors) {
+    if (assigned.has(sector)) continue;
+
+    const related: string[] = [sector];
+    const relations = INDUSTRY_CHAINS.filter(
+      r => r.upstream === sector || r.downstream === sector
+    );
+
+    for (const rel of relations) {
+      const other = rel.upstream === sector ? rel.downstream : rel.upstream;
+      if (!assigned.has(other) && sectors.includes(other) && rel.strength > 0.6) {
+        related.push(other);
+      }
+    }
+
+    if (related.length >= 2) {
+      // 找领先板块
+      let leadSector = sector;
+      let bestStrength = 0;
+      for (const rel of relations) {
+        if (rel.strength > bestStrength && related.includes(rel.upstream) && related.includes(rel.downstream)) {
+          bestStrength = rel.strength;
+          leadSector = rel.upstream;
+        }
+      }
+
+      // 内部相关性
+      const avgCorrelation = relations
+        .filter(r => related.includes(r.upstream) && related.includes(r.downstream))
+        .reduce((s, r) => s + r.correlation, 0) / Math.max(1, related.length - 1);
+
+      const avgStrength = relations
+        .filter(r => related.includes(r.upstream) && related.includes(r.downstream))
+        .reduce((s, r) => s + r.strength, 0) / Math.max(1, related.length - 1);
+
+      clusters.push({
+        sectors: related,
+        internalCorrelation: Math.round(avgCorrelation * 100) / 100,
+        leadSector,
+        clusterStrength: Math.round(avgStrength * 100) / 100,
+      });
+
+      related.forEach(s => assigned.add(s));
+    }
+  }
+
+  return clusters.sort((a, b) => b.clusterStrength - a.clusterStrength);
+}
+
+/**
+ * 预测受影响板块
+ */
+export function predictAffectedSectors(
+  changedSector: string,
+  changePercent: number
+): { sector: string; expectedImpact: number; lagDays: number; confidence: number }[] {
+  const results: { sector: string; expectedImpact: number; lagDays: number; confidence: number }[] = [];
+
+  for (const chain of INDUSTRY_CHAINS) {
+    let target: string | null = null;
+    let direction = 1;
+
+    if (chain.upstream === changedSector) {
+      target = chain.downstream;
+      direction = 1;
+    } else if (chain.downstream === changedSector) {
+      target = chain.upstream;
+      direction = 0.7; // 下游对上游的反向影响较弱
+    }
+
+    if (target) {
+      const impact = changePercent * chain.strength * chain.correlation * direction;
+      results.push({
+        sector: target,
+        expectedImpact: Math.round(impact * 100) / 100,
+        lagDays: chain.lagDays,
+        confidence: Math.round(chain.strength * chain.correlation * 100),
       });
     }
   }
 
-  return chains.sort((a, b) => b.confidence - a.confidence);
+  return results.sort((a, b) => Math.abs(b.expectedImpact) - Math.abs(a.expectedImpact));
+}
+
+/**
+ * 获取所有板块关系
+ */
+export function getAllRelations(): SectorRelation[] {
+  return [...INDUSTRY_CHAINS];
 }

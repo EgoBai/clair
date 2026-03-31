@@ -1,183 +1,275 @@
 /**
- * 股东行为分析引擎
- * 增持/减持/质押/冻结/解禁/回购行为分析与信号
+ * 股东行为分析引擎 (Shareholder Behavior Engine)
+ * - 大股东增减持分析
+ * - 机构持仓变化
+ * - 管理层持股追踪
+ * - 股权质押风险
+ * - 解禁压力分析
+ * - 股东人数变化
  */
 
-export type ShareholderAction = 'increase' | 'decrease' | 'pledge' | 'unfreeze' | 'buyback' | 'freeze';
-
-export interface ShareholderEvent {
+export interface ShareholderChange {
+  shareholder: string;
+  type: 'increase' | 'decrease' | 'new' | 'exit';
+  shares: number;
+  pctChange: number;
+  avgPrice: number;
+  totalAmount: number;
   date: string;
-  code: string;
-  shareholderName: string;
-  shareholderType: 'major' | 'executive' | 'institution' | 'employee';
-  action: ShareholderAction;
-  shares: number;           // 涉及股数(万股)
-  price?: number;
-  ratio: number;            // 占总股本比例
-  holdingAfter?: number;    // 变动后持股比例
-  reason: string;
 }
 
-export interface ShareholderBehaviorAnalysis {
-  code: string;
-  overallSignal: 'bullish' | 'bearish' | 'neutral';
-  recentActions: { action: ShareholderAction; count: number; netShares: number }[];
-  insiderSentiment: number;  // 内部人情绪 -1 to 1
-  pledgeRisk: number;        // 质押风险 0-1
-  buybackSignal: { active: boolean; avgPrice: number; progress: number };
-  keyInsights: string[];
-  riskFactors: string[];
+export interface InsiderTrade {
+  name: string;
+  role: 'chairman' | 'ceo' | 'cfo' | 'director' | 'supervisor' | 'executive';
+  type: 'buy' | 'sell';
+  shares: number;
+  price: number;
+  amount: number;
+  date: string;
+  holdingAfter: number;
 }
 
-export interface BuybackAnalysis {
-  code: string;
-  announced: boolean;
-  planAmount: number;       // 计划金额(万元)
-  completedAmount: number;
-  progress: number;
-  avgBuybackPrice: number;
+export interface PledgeRisk {
+  shareholder: string;
+  pledgedShares: number;
+  totalHolding: number;
+  pledgeRatio: number; // 质押率
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  warningPrice: number;
+  closingPrice: number;
+  distanceToWarning: number; // 距平仓线%
+}
+
+export interface UnlockPressure {
+  date: string;
+  shares: number;
+  pctOfTotal: number;
+  avgCost: number;
   currentPrice: number;
-  priceVsBuyback: number;
-  isAccretive: boolean;     // 是否有利于股东
-  signal: 'strong_positive' | 'positive' | 'neutral' | 'negative';
+  profitLoss: number;
+  pressureLevel: 'low' | 'medium' | 'high';
 }
 
-export interface PledgeAnalysis {
-  code: string;
-  totalPledgedRatio: number;
-  majorShareholderPledge: number;
-  alertLevel: 'normal' | 'warning' | 'danger';
-  marginCallRisk: number;
-  nearWarningLine: boolean;
+export interface ConcentrationChange {
+  period: string;
+  shareholderCount: number;
+  avgHoldingPerPerson: number;
+  top10Pct: number;
+  concentration: 'increasing' | 'decreasing' | 'stable';
+  giniCoefficient: number;
 }
 
-// ── 股东行为分析 ──
+/**
+ * 分析大股东增减持
+ */
+export function analyzeShareholderChanges(
+  changes: ShareholderChange[]
+): {
+  totalIncrease: number;
+  totalDecrease: number;
+  netChange: number;
+  signals: { type: 'bullish' | 'bearish' | 'neutral'; description: string; strength: number }[];
+} {
+  const increases = changes.filter(c => c.type === 'increase');
+  const decreases = changes.filter(c => c.type === 'decrease');
 
-export function analyzeShareholderBehavior(code: string, events: ShareholderEvent[]): ShareholderBehaviorAnalysis {
-  const codeEvents = events.filter(e => e.code === code);
+  const totalIncrease = increases.reduce((s, c) => s + c.totalAmount, 0);
+  const totalDecrease = decreases.reduce((s, c) => s + c.totalAmount, 0);
+  const netChange = totalIncrease - totalDecrease;
 
-  // 统计各类行为
-  const actionCounts = new Map<ShareholderAction, { count: number; netShares: number }>();
-  for (const e of codeEvents) {
-    const existing = actionCounts.get(e.action) || { count: 0, netShares: 0 };
-    existing.count++;
-    existing.netShares += e.action === 'increase' || e.action === 'buyback' ? e.shares : -e.shares;
-    actionCounts.set(e.action, existing);
+  const signals: { type: 'bullish' | 'bearish' | 'neutral'; description: string; strength: number }[] = [];
+
+  // 大额增持信号
+  for (const inc of increases) {
+    if (inc.pctChange > 1) {
+      signals.push({
+        type: 'bullish',
+        description: `${inc.shareholder}增持${inc.pctChange.toFixed(1)}%，金额${(inc.totalAmount / 10000).toFixed(0)}万元`,
+        strength: Math.min(100, Math.round(inc.pctChange * 20 + inc.totalAmount / 100000)),
+      });
+    }
   }
 
-  const recentActions = [...actionCounts.entries()].map(([action, data]) => ({ action, ...data }));
+  // 大额减持信号
+  for (const dec of decreases) {
+    if (dec.pctChange > 1) {
+      signals.push({
+        type: 'bearish',
+        description: `${dec.shareholder}减持${dec.pctChange.toFixed(1)}%`,
+        strength: Math.min(100, Math.round(dec.pctChange * 20 + dec.totalAmount / 100000)),
+      });
+    }
+  }
 
-  // 内部人情绪
-  const increases = codeEvents.filter(e => e.action === 'increase').reduce((a, e) => a + e.shares, 0);
-  const decreases = codeEvents.filter(e => e.action === 'decrease').reduce((a, e) => a + e.shares, 0);
-  const totalShares = increases + decreases;
-  const insiderSentiment = totalShares > 0 ? roundTo((increases - decreases) / totalShares, 2) : 0;
+  // 净增持/减持总判断
+  if (netChange > 0) {
+    signals.push({
+      type: 'bullish',
+      description: `股东净增持${(netChange / 10000).toFixed(0)}万元`,
+      strength: Math.min(100, Math.round(netChange / 100000)),
+    });
+  } else if (netChange < 0) {
+    signals.push({
+      type: 'bearish',
+      description: `股东净减持${(Math.abs(netChange) / 10000).toFixed(0)}万元`,
+      strength: Math.min(100, Math.round(Math.abs(netChange) / 100000)),
+    });
+  }
 
-  // 质押风险
-  const pledgeEvents = codeEvents.filter(e => e.action === 'pledge');
-  const pledgeRisk = Math.min(1, pledgeEvents.reduce((a, e) => a + e.ratio, 0) / 0.5);
+  return { totalIncrease, totalDecrease, netChange, signals };
+}
 
-  // 回购信号
-  const buybackEvents = codeEvents.filter(e => e.action === 'buyback');
-  const buybackActive = buybackEvents.length > 0;
-  const avgBuybackPrice = buybackActive
-    ? buybackEvents.reduce((a, e) => a + (e.price || 0) * e.shares, 0) / buybackEvents.reduce((a, e) => a + e.shares, 0)
-    : 0;
+/**
+ * 管理层交易分析
+ */
+export function analyzeInsiderTrades(trades: InsiderTrade[]): {
+  buyCount: number;
+  sellCount: number;
+  netAmount: number;
+  signals: { type: string; description: string }[];
+} {
+  const buys = trades.filter(t => t.type === 'buy');
+  const sells = trades.filter(t => t.type === 'sell');
 
-  // 关键洞察
-  const keyInsights: string[] = [];
-  if (increases > decreases * 2) keyInsights.push('内部人大幅净增持，看好后市');
-  if (buybackActive) keyInsights.push('公司实施回购，估值有支撑');
-  if (codeEvents.some(e => e.action === 'increase' && e.shareholderType === 'executive'))
-    keyInsights.push('高管增持，信心充足');
+  const buyAmount = buys.reduce((s, t) => s + t.amount, 0);
+  const sellAmount = sells.reduce((s, t) => s + t.amount, 0);
 
-  const riskFactors: string[] = [];
-  if (decreases > increases * 2) riskFactors.push('大股东减持压力较大');
-  if (pledgeRisk > 0.6) riskFactors.push('股权质押比例过高');
-  if (codeEvents.some(e => e.action === 'freeze')) riskFactors.push('股权被冻结');
+  const signals: { type: string; description: string }[] = [];
 
-  let overallSignal: ShareholderBehaviorAnalysis['overallSignal'];
-  if (insiderSentiment > 0.3 || buybackActive) overallSignal = 'bullish';
-  else if (insiderSentiment < -0.3 || pledgeRisk > 0.6) overallSignal = 'bearish';
-  else overallSignal = 'neutral';
+  if (buys.length > sells.length && buyAmount > sellAmount) {
+    signals.push({ type: 'bullish', description: '管理层净买入，看好公司前景' });
+  }
+
+  if (sells.length > buys.length * 2) {
+    signals.push({ type: 'bearish', description: '管理层集中减持，需关注' });
+  }
+
+  // 高管大额减持
+  for (const sell of sells) {
+    if (sell.amount > 1000000) {
+      signals.push({
+        type: 'bearish',
+        description: `${sell.role} ${sell.name}减持${(sell.amount / 10000).toFixed(0)}万元`,
+      });
+    }
+  }
 
   return {
-    code,
-    overallSignal,
-    recentActions,
-    insiderSentiment,
-    pledgeRisk: roundTo(pledgeRisk, 2),
-    buybackSignal: { active: buybackActive, avgPrice: roundTo(avgBuybackPrice, 2), progress: buybackActive ? 0.5 : 0 },
-    keyInsights,
-    riskFactors,
+    buyCount: buys.length,
+    sellCount: sells.length,
+    netAmount: buyAmount - sellAmount,
+    signals,
   };
 }
 
-// ── 回购分析 ──
+/**
+ * 质押风险评估
+ */
+export function assessPledgeRisk(
+  pledges: PledgeRisk[]
+): {
+  overallRisk: 'low' | 'medium' | 'high' | 'critical';
+  totalPledgedPct: number;
+  highRiskList: PledgeRisk[];
+  avgPledgeRatio: number;
+} {
+  if (pledges.length === 0) {
+    return { overallRisk: 'low', totalPledgedPct: 0, highRiskList: [], avgPledgeRatio: 0 };
+  }
 
-export function analyzeBuyback(code: string, events: ShareholderEvent[], currentPrice: number): BuybackAnalysis {
-  const buybackEvents = events.filter(e => e.code === code && e.action === 'buyback');
-  const announced = buybackEvents.length > 0;
+  for (const p of pledges) {
+    const distToWarning = (p.closingPrice - p.warningPrice) / p.closingPrice * 100;
+    p.distanceToWarning = distToWarning;
 
-  const planAmount = announced ? buybackEvents.reduce((a, e) => a + (e.price || 0) * e.shares * 100, 0) : 0;
-  const completedAmount = planAmount * 0.5;
-  const progress = planAmount > 0 ? completedAmount / planAmount : 0;
+    if (distToWarning < 10) p.riskLevel = 'critical';
+    else if (distToWarning < 20) p.riskLevel = 'high';
+    else if (distToWarning < 30) p.riskLevel = 'medium';
+    else p.riskLevel = 'low';
+  }
 
-  const avgBuybackPrice = announced
-    ? buybackEvents.reduce((a, e) => a + (e.price || 0) * e.shares, 0) / Math.max(buybackEvents.reduce((a, e) => a + e.shares, 0), 1)
-    : 0;
+  const totalPledged = pledges.reduce((s, p) => s + p.pledgedShares, 0);
+  const totalHolding = pledges.reduce((s, p) => s + p.totalHolding, 0);
+  const totalPledgedPct = totalHolding > 0 ? totalPledged / totalHolding * 100 : 0;
+  const avgPledgeRatio = pledges.reduce((s, p) => s + p.pledgeRatio, 0) / pledges.length;
 
-  const priceVsBuyback = avgBuybackPrice > 0 ? (currentPrice - avgBuybackPrice) / avgBuybackPrice : 0;
-  const isAccretive = currentPrice < avgBuybackPrice;
+  const highRiskList = pledges.filter(p => p.riskLevel === 'critical' || p.riskLevel === 'high');
 
-  let signal: BuybackAnalysis['signal'];
-  if (isAccretive && progress < 0.5) signal = 'strong_positive';
-  else if (isAccretive) signal = 'positive';
-  else if (priceVsBuyback > 0.3) signal = 'negative';
-  else signal = 'neutral';
+  let overallRisk: 'low' | 'medium' | 'high' | 'critical';
+  if (highRiskList.length > 0 || totalPledgedPct > 50) overallRisk = 'critical';
+  else if (totalPledgedPct > 30) overallRisk = 'high';
+  else if (totalPledgedPct > 15) overallRisk = 'medium';
+  else overallRisk = 'low';
 
-  return {
-    code,
-    announced,
-    planAmount: roundTo(planAmount, 0),
-    completedAmount: roundTo(completedAmount, 0),
-    progress: roundTo(progress, 2),
-    avgBuybackPrice: roundTo(avgBuybackPrice, 2),
-    currentPrice,
-    priceVsBuyback: roundTo(priceVsBuyback, 4),
-    isAccretive,
-    signal,
-  };
+  return { overallRisk, totalPledgedPct, highRiskList, avgPledgeRatio };
 }
 
-// ── 质押分析 ──
+/**
+ * 解禁压力分析
+ */
+export function analyzeUnlockPressure(
+  unlocks: UnlockPressure[],
+  avgDailyVolume: number
+): {
+  totalPressure: number;
+  highPressureDays: UnlockPressure[];
+  worstDay: UnlockPressure | null;
+  avgPressureLevel: string;
+} {
+  for (const u of unlocks) {
+    const daysToAbsorb = avgDailyVolume > 0 ? u.shares / avgDailyVolume : 0;
+    u.profitLoss = (u.currentPrice - u.avgCost) / u.avgCost * 100;
 
-export function analyzePledge(code: string, events: ShareholderEvent[]): PledgeAnalysis {
-  const pledgeEvents = events.filter(e => e.code === code && e.action === 'pledge');
-  const totalPledgedRatio = pledgeEvents.reduce((a, e) => a + e.ratio, 0);
-  const majorPledge = pledgeEvents
-    .filter(e => e.shareholderType === 'major')
-    .reduce((a, e) => a + e.ratio, 0);
+    if (daysToAbsorb > 10 || u.pctOfTotal > 5) u.pressureLevel = 'high';
+    else if (daysToAbsorb > 5 || u.pctOfTotal > 2) u.pressureLevel = 'medium';
+    else u.pressureLevel = 'low';
+  }
 
-  let alertLevel: PledgeAnalysis['alertLevel'];
-  if (totalPledgedRatio > 0.5) alertLevel = 'danger';
-  else if (totalPledgedRatio > 0.3) alertLevel = 'warning';
-  else alertLevel = 'normal';
+  const totalPressure = unlocks.reduce((s, u) => s + u.pctOfTotal, 0);
+  const highPressureDays = unlocks.filter(u => u.pressureLevel === 'high');
+  const worstDay = unlocks.length > 0
+    ? unlocks.reduce((max, u) => u.pctOfTotal > max.pctOfTotal ? u : max, unlocks[0])
+    : null;
 
-  const marginCallRisk = Math.min(1, totalPledgedRatio * 1.5);
-  const nearWarningLine = totalPledgedRatio > 0.4;
+  const highCount = highPressureDays.length;
+  const avgPressureLevel = highCount > unlocks.length * 0.5 ? 'high'
+    : highCount > 0 ? 'medium' : 'low';
 
-  return {
-    code,
-    totalPledgedRatio: roundTo(totalPledgedRatio, 4),
-    majorShareholderPledge: roundTo(majorPledge, 4),
-    alertLevel,
-    marginCallRisk: roundTo(marginCallRisk, 2),
-    nearWarningLine,
-  };
+  return { totalPressure, highPressureDays, worstDay, avgPressureLevel };
 }
 
-function roundTo(value: number, decimals: number): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
+/**
+ * 股东集中度变化分析
+ */
+export function analyzeConcentration(
+  periods: ConcentrationChange[]
+): {
+  trend: 'increasing' | 'decreasing' | 'stable';
+  latestConcentration: number;
+  signal: string;
+} {
+  if (periods.length < 2) {
+    return { trend: 'stable', latestConcentration: 0, signal: '数据不足' };
+  }
+
+  const latest = periods[periods.length - 1];
+  const previous = periods[periods.length - 2];
+
+  const countChange = latest.shareholderCount - previous.shareholderCount;
+  const top10Change = latest.top10Pct - previous.top10Pct;
+
+  let trend: 'increasing' | 'decreasing' | 'stable';
+  if (top10Change > 2) trend = 'increasing';
+  else if (top10Change < -2) trend = 'decreasing';
+  else trend = 'stable';
+
+  let signal: string;
+  if (trend === 'increasing' && countChange < 0) {
+    signal = '股东人数减少且筹码集中度提升，可能有机构吸筹';
+  } else if (trend === 'decreasing' && countChange > 0) {
+    signal = '股东人数增加且筹码分散，可能有主力派发';
+  } else {
+    signal = '股东结构稳定';
+  }
+
+  return { trend, latestConcentration: latest.top10Pct, signal };
 }
