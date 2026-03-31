@@ -70,7 +70,8 @@ describe('Abnormal Trade Engine', () => {
 
     it('should detect volume surge', () => {
       const trades: TradeRecord[] = [];
-      const baseTime = Date.now() - 100 * 60000;
+      // Use fixed base time to avoid collision with other tests
+      const baseTime = 1700000000000;
 
       for (let i = 0; i < 100; i++) {
         trades.push(createTrade({
@@ -78,9 +79,9 @@ describe('Abnormal Trade Engine', () => {
           volume: 1000
         }));
       }
-      // Add a surge
+      // Add a surge at a new 5-min window
       trades.push(createTrade({
-        timestamp: baseTime + 100 * 60000,
+        timestamp: baseTime + 105 * 60000,
         volume: 1e8
       }));
 
@@ -90,7 +91,7 @@ describe('Abnormal Trade Engine', () => {
 
     it('should classify significance', () => {
       const trades: TradeRecord[] = [];
-      const baseTime = Date.now() - 100 * 60000;
+      const baseTime = 1700001000000;
 
       for (let i = 0; i < 100; i++) {
         trades.push(createTrade({

@@ -1,172 +1,108 @@
 import { describe, it, expect } from 'vitest';
-import {
-  calculateAmihud,
-  calculateLiquidityMetrics,
-  assessLiquidityRisk,
-  tierByLiquidity,
-  detectLiquidityCrisis,
-  type LiquidityData,
-  type LiquidityMetrics,
-} from '../utils/liquidityRiskEngine';
-
-function makeLiqData(overrides: Partial<LiquidityData> = {}): LiquidityData {
-  return {
-    ticker: '600519',
-    date: '2026-03-31',
-    volume: 5e7,
-    turnover: 0.02,
-    amount: 9e9,
-    price: 1800,
-    return: 0.01,
-    bidAskSpread: 0.001,
-    marketCap: 2e12,
-    ...overrides,
-  };
-}
+import { LiquidityRiskEngine } from '../utils/liquidityRiskEngine';
 
 describe('Liquidity Risk Engine', () => {
-  describe('calculateAmihud', () => {
-    it('should return 0 for empty data', () => {
-      expect(calculateAmihud([])).toBe(0);
+  const engine = new LiquidityRiskEngine();
+
+  describe('analyzeSpreads', () => {
+    it('应分析买卖价差', () => {
+      const bids = [10.0, 10.1, 10.05, 9.98, 10.02];
+      const asks = [10.05, 10.15, 10.10, 10.03, 10.07];
+      const mids = bids.map((b, i) => (b + asks[i]) / 2);
+      const result = engine.analyzeSpreads(bids, asks, mids);
+      expect(result.avgSpread).toBeGreaterThan(0);
+      expect(result.avgSpreadPct).toBeGreaterThan(0);
     });
 
-    it('should calculate non-negative value', () => {
-      const data = [makeLiqData({ return: 0.02, amount: 1e9 }), makeLiqData({ return: -0.01, amount: 2e9 })];
-      expect(calculateAmihud(data)).toBeGreaterThan(0);
+    it('有效价差应大于零', () => {
+      const bids = [10.0, 10.1];
+      const asks = [10.05, 10.15];
+      const mids = [10.025, 10.125];
+      const result = engine.analyzeSpreads(bids, asks, mids);
+      expect(result.effectiveSpread).toBeGreaterThan(0);
     });
 
-    it('should be higher for less liquid stocks', () => {
-      const liquid = [makeLiqData({ return: 0.01, amount: 1e10 })];
-      const illiquid = [makeLiqData({ return: 0.01, amount: 1e7 })];
-      expect(calculateAmihud(illiquid)).toBeGreaterThan(calculateAmihud(liquid));
-    });
-  });
-
-  describe('calculateLiquidityMetrics', () => {
-    it('should return null for empty data', () => {
-      expect(calculateLiquidityMetrics([])).toBeNull();
-    });
-
-    it('should calculate complete metrics', () => {
-      const data = Array.from({ length: 20 }, () => makeLiqData());
-      const metrics = calculateLiquidityMetrics(data);
-
-      expect(metrics).not.toBeNull();
-      expect(metrics!.ticker).toBe('600519');
-      expect(metrics!.liquidityScore).toBeGreaterThanOrEqual(0);
-      expect(metrics!.liquidityScore).toBeLessThanOrEqual(100);
-      expect(['excellent', 'good', 'moderate', 'poor', 'illiquid']).toContain(metrics!.tier);
-      expect(metrics!.dailyCapacity).toBeGreaterThan(0);
-    });
-
-    it('should score high-turnover stocks higher', () => {
-      const highTurnover = Array.from({ length: 20 }, () =>
-        makeLiqData({ turnover: 0.05, bidAskSpread: 0.0005 })
-      );
-      const lowTurnover = Array.from({ length: 20 }, () =>
-        makeLiqData({ turnover: 0.001, bidAskSpread: 0.02 })
-      );
-
-      const high = calculateLiquidityMetrics(highTurnover)!;
-      const low = calculateLiquidityMetrics(lowTurnover)!;
-      expect(high.liquidityScore).toBeGreaterThan(low.liquidityScore);
+    it('数据不足应返回零', () => {
+      const result = engine.analyzeSpreads([10], [10.05], [10.025]);
+      expect(result.avgSpread).toBe(0);
     });
   });
 
-  describe('assessLiquidityRisk', () => {
-    it('should assess risk from metrics', () => {
-      const metrics: LiquidityMetrics = {
-        ticker: 'TEST',
-        amihud: 0.05,
-        avgTurnover: 0.001,
-        avgVolume: 1e5,
-        avgSpread: 0.02,
-        volumeVolatility: 2,
-        liquidityScore: 20,
-        tier: 'poor',
-        dailyCapacity: 100,
-        liquidationDays: 50,
-      };
-      const risk = assessLiquidityRisk(metrics);
-
-      expect(['high', 'critical']).toContain(risk.riskLevel);
-      expect(risk.factors.filter(f => f.breached).length).toBeGreaterThan(0);
-      expect(risk.recommendation.length).toBeGreaterThan(0);
+  describe('estimateMarketImpact', () => {
+    it('应估计市场冲击', () => {
+      const result = engine.estimateMarketImpact(100000, 1e7, 0.02, 0.01);
+      expect(result.temporaryImpact).toBeGreaterThan(0);
+      expect(result.permanentImpact).toBeGreaterThan(0);
+      expect(result.totalCost).toBeGreaterThan(0);
     });
 
-    it('should mark low risk for liquid stocks', () => {
-      const metrics: LiquidityMetrics = {
-        ticker: 'LIQUID',
-        amihud: 0.0001,
-        avgTurnover: 0.05,
-        avgVolume: 1e8,
-        avgSpread: 0.0005,
-        volumeVolatility: 0.3,
-        liquidityScore: 90,
-        tier: 'excellent',
-        dailyCapacity: 1e6,
-        liquidationDays: 2,
-      };
-      const risk = assessLiquidityRisk(metrics);
-      expect(risk.riskLevel).toBe('low');
+    it('大单冲击应大于小单', () => {
+      const small = engine.estimateMarketImpact(10000, 1e7, 0.02, 0.01);
+      const large = engine.estimateMarketImpact(1e6, 1e7, 0.02, 0.01);
+      expect(large.temporaryImpact).toBeGreaterThan(small.temporaryImpact);
     });
   });
 
-  describe('tierByLiquidity', () => {
-    it('should group stocks by tier', () => {
-      const metrics = [
-        { ticker: 'A', tier: 'excellent' as const, liquidityScore: 90 },
-        { ticker: 'B', tier: 'excellent' as const, liquidityScore: 85 },
-        { ticker: 'C', tier: 'poor' as const, liquidityScore: 30 },
-      ].map(partial => ({
-        ...partial,
-        amihud: 0.001, avgTurnover: 0.02, avgVolume: 1e7,
-        avgSpread: 0.001, volumeVolatility: 0.5,
-        dailyCapacity: 1e5, liquidationDays: 5,
-      }));
+  describe('calcAmihudIlliquidity', () => {
+    it('应计算Amihud非流动性指标', () => {
+      const returns = Array.from({ length: 30 }, () => (Math.random() - 0.5) * 0.02);
+      const volumes = Array.from({ length: 30 }, () => 1e6 + Math.random() * 1e6);
+      const prices = Array.from({ length: 30 }, () => 10 + Math.random());
+      const result = engine.calcAmihudIlliquidity(returns, volumes, prices);
+      expect(result.dailyAmihud).toBeGreaterThanOrEqual(0);
+      expect(result.illiquidityPercentile).toBeGreaterThanOrEqual(0);
+    });
 
-      const tiers = tierByLiquidity(metrics);
-      expect(tiers.length).toBeGreaterThan(0);
-
-      const excellent = tiers.find(t => t.tier === 'excellent');
-      expect(excellent!.tickers).toContain('A');
-      expect(excellent!.tickers).toContain('B');
+    it('百分位应在0-100之间', () => {
+      const returns = Array.from({ length: 30 }, () => (Math.random() - 0.5) * 0.02);
+      const volumes = Array.from({ length: 30 }, () => 1e6);
+      const prices = Array.from({ length: 30 }, () => 10);
+      const result = engine.calcAmihudIlliquidity(returns, volumes, prices);
+      expect(result.illiquidityPercentile).toBeLessThanOrEqual(100);
     });
   });
 
-  describe('detectLiquidityCrisis', () => {
-    it('should return empty for insufficient data', () => {
-      expect(detectLiquidityCrisis([makeLiqData()])).toEqual([]);
+  describe('analyzeTurnover', () => {
+    it('应分析换手率', () => {
+      const turnovers = Array.from({ length: 30 }, () => 0.01 + Math.random() * 0.03);
+      const result = engine.analyzeTurnover(turnovers, turnovers);
+      expect(result.avgTurnover).toBeGreaterThan(0);
+      expect(['increasing', 'stable', 'decreasing']).toContain(result.turnoverTrend);
     });
 
-    it('should detect volume surge', () => {
-      const normal = Array.from({ length: 20 }, (_, i) =>
-        makeLiqData({ date: `2026-03-${i + 1}`, volume: 1e7 })
-      );
-      const surge = makeLiqData({ date: '2026-03-21', volume: 5e8 });
-      const signals = detectLiquidityCrisis([...normal, surge]);
+    it('稳定性应在0-1之间', () => {
+      const turnovers = Array.from({ length: 30 }, () => 0.02);
+      const result = engine.analyzeTurnover(turnovers, []);
+      expect(result.turnoverStability).toBeGreaterThanOrEqual(0);
+      expect(result.turnoverStability).toBeLessThanOrEqual(1);
+    });
+  });
 
-      expect(signals.some(s => s.signal === 'volume_surge')).toBe(true);
+  describe('assessLargeOrderRisk', () => {
+    it('应评估大单执行风险', () => {
+      const result = engine.assessLargeOrderRisk(100000, 1e7, 0.02, 0.01);
+      expect(['market', 'limit', 'twap', 'vwap', 'iceberg']).toContain(result.recommendation);
+      expect(result.priceImpact).toBeGreaterThan(0);
+      expect(result.estimatedCompletionTime).toBeGreaterThan(0);
     });
 
-    it('should detect volume collapse', () => {
-      const normal = Array.from({ length: 20 }, (_, i) =>
-        makeLiqData({ date: `2026-03-${i + 1}`, volume: 1e7 })
-      );
-      const collapse = makeLiqData({ date: '2026-03-21', volume: 1e5 });
-      const signals = detectLiquidityCrisis([...normal, collapse]);
+    it('参与率应计算正确', () => {
+      const result = engine.assessLargeOrderRisk(1e6, 1e7, 0.02, 0.01);
+      expect(result.participationRate).toBe(10);
+    });
+  });
 
-      expect(signals.some(s => s.signal === 'volume_collapse')).toBe(true);
+  describe('calcLiquidityScore', () => {
+    it('应计算流动性评分', () => {
+      const result = engine.calcLiquidityScore(0.001, 1e7, 0.02, 0.015);
+      expect(result.overallScore).toBeGreaterThanOrEqual(0);
+      expect(result.overallScore).toBeLessThanOrEqual(100);
+      expect(['A', 'B', 'C', 'D', 'F']).toContain(result.grade);
     });
 
-    it('should detect spread widening', () => {
-      const normal = Array.from({ length: 20 }, (_, i) =>
-        makeLiqData({ date: `2026-03-${i + 1}`, bidAskSpread: 0.001 })
-      );
-      const wide = makeLiqData({ date: '2026-03-21', bidAskSpread: 0.01 });
-      const signals = detectLiquidityCrisis([...normal, wide]);
-
-      expect(signals.some(s => s.signal === 'spread_widening')).toBe(true);
+    it('高流动性应得高分', () => {
+      const result = engine.calcLiquidityScore(0.0001, 1e9, 0.05, 0.015);
+      expect(result.overallScore).toBeGreaterThan(50);
     });
   });
 });

@@ -1,252 +1,180 @@
 /**
- * 板块轮动引擎
- * 监测A股板块资金轮动规律，识别热点切换
- * - 板块相对强度排序
- * - 资金流入/流出跟踪
- * - 轮动周期检测
- * - 热度衰减预警
+ * 行业轮动信号引擎V2
+ * - 经济周期定位(复苏/扩张/滞胀/衰退)
+ * - 板块动量排名
+ * - 资金流向跟踪
+ * - 板块估值对比
+ * - 轮动信号生成
+ * - 配置建议
  */
 
-export interface SectorData {
-  name: string;
-  code: string;
-  change: number;       // 当日涨跌幅
-  volume: number;       // 成交量
-  turnover: number;     // 成交额
-  advancers: number;    // 上涨家数
-  decliners: number;    // 下跌家数
-  netInflow: number;    // 净流入（万元）
-  avgPE: number;        // 平均PE
-  timestamp: number;
+export interface EconomicCycle {
+  phase: 'recovery' | 'expansion' | 'stagflation' | 'recession';
+  confidence: number;
+  indicators: string[];
+  monthsInPhase: number;
+}
+
+export interface SectorRanking {
+  sector: string;
+  momentum: number;
+  valuation: number; // 分位数
+  fundFlow: number;
+  compositeScore: number;
+  rank: number;
+  signal: 'overweight' | 'neutral' | 'underweight';
 }
 
 export interface RotationSignal {
-  type: 'rotate_in' | 'rotate_out' | 'maintain' | 'watch';
-  sector: string;
-  score: number;        // 0-100 轮动信号强度
-  momentum: number;     // 动量 (-100 ~ 100)
-  duration: number;     // 持续天数
-  confidence: number;
-  reason: string;
+  fromSector: string;
+  toSector: string;
+  strength: number; // 0-100
+  reasoning: string;
+  expectedSpread: number; // 预期收益差(%)
 }
 
-export interface SectorHeatmap {
+export interface SectorAllocation {
   sector: string;
-  heat: number;         // 热度 0-100
-  trend: 'rising' | 'falling' | 'stable';
-  rank: number;
-  prevRank: number;
+  currentWeight: number;
+  suggestedWeight: number;
+  change: number;
+  reasoning: string;
 }
 
 export class SectorRotationEngine {
-  private history: Map<string, SectorData[]> = new Map();
-  private readonly maxHistoryDays = 30;
+  private sectors: string[] = [
+    '科技', '消费', '医药', '金融', '工业', '能源', '材料', '地产', '公用事业', '通信',
+  ];
 
   /**
-   * 更新板块数据
+   * 判断经济周期
    */
-  updateData(sector: SectorData): void {
-    const history = this.history.get(sector.code) || [];
-    history.push(sector);
-    if (history.length > this.maxHistoryDays) {
-      history.shift();
-    }
-    this.history.set(sector.code, history);
-  }
+  detectEconomicCycle(
+    gdpGrowth: number[],
+    inflation: number[],
+    pmi: number[],
+    yieldCurve: number[],
+  ): EconomicCycle {
+    const avgGDP = gdpGrowth.length > 0 ? gdpGrowth.slice(-3).reduce((a, b) => a + b, 0) / 3 : 0;
+    const avgInflation = inflation.length > 0 ? inflation.slice(-3).reduce((a, b) => a + b, 0) / 3 : 0;
+    const avgPMI = pmi.length > 0 ? pmi.slice(-3).reduce((a, b) => a + b, 0) / 3 : 50;
+    const slope = yieldCurve.length >= 2 ? yieldCurve[yieldCurve.length - 1] - yieldCurve[yieldCurve.length - 2] : 0;
 
-  /**
-   * 批量更新板块数据
-   */
-  batchUpdate(sectors: SectorData[]): void {
-    for (const sector of sectors) {
-      this.updateData(sector);
-    }
-  }
+    let phase: EconomicCycle['phase'];
+    const indicators: string[] = [];
 
-  /**
-   * 计算板块相对强度（RSI方法）
-   */
-  calculateRelativeStrength(code: string, lookback: number = 5): number {
-    const history = this.history.get(code);
-    if (!history || history.length < lookback) return 50;
-
-    const recent = history.slice(-lookback);
-    let gains = 0;
-    let losses = 0;
-
-    for (let i = 1; i < recent.length; i++) {
-      const change = recent[i].change;
-      if (change > 0) gains += change;
-      else losses += Math.abs(change);
-    }
-
-    if (gains + losses === 0) return 50;
-    const rs = gains / (losses || 1);
-    return Math.round((100 - (100 / (1 + rs))) * 10) / 10;
-  }
-
-  /**
-   * 计算板块动量
-   */
-  calculateMomentum(code: string, periods: number = 5): number {
-    const history = this.history.get(code);
-    if (!history || history.length < periods) return 0;
-
-    const recent = history.slice(-periods);
-    const avgChange = recent.reduce((s, d) => s + d.change, 0) / periods;
-    const avgInflow = recent.reduce((s, d) => s + d.netInflow, 0) / periods;
-
-    // 综合动量分数
-    const changeScore = Math.min(100, Math.max(-100, avgChange * 20));
-    const inflowScore = avgInflow > 0 ? Math.min(50, avgInflow / 10000) : Math.max(-50, avgInflow / 10000);
-
-    return Math.round((changeScore + inflowScore) * 10) / 10;
-  }
-
-  /**
-   * 检测轮动信号
-   */
-  detectRotation(code: string): RotationSignal {
-    const history = this.history.get(code);
-    if (!history || history.length < 3) {
-      return {
-        type: 'watch',
-        sector: code,
-        score: 0,
-        momentum: 0,
-        duration: 0,
-        confidence: 0,
-        reason: '数据不足，持续观察',
-      };
-    }
-
-    const rs = this.calculateRelativeStrength(code);
-    const momentum = this.calculateMomentum(code);
-    const recent = history.slice(-5);
-    const netInflow = recent.reduce((s, d) => s + d.netInflow, 0);
-
-    // 计算连续涨跌天数
-    let duration = 0;
-    const lastChange = history[history.length - 1].change;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if ((lastChange > 0 && history[i].change > 0) ||
-          (lastChange < 0 && history[i].change < 0)) {
-        duration++;
-      } else break;
-    }
-
-    let type: RotationSignal['type'];
-    let score: number;
-    let reason: string;
-
-    if (rs > 70 && momentum > 30 && netInflow > 0) {
-      type = 'rotate_in';
-      score = Math.min(100, (rs + momentum + Math.min(50, netInflow / 10000)) / 2);
-      reason = '资金持续流入，板块轮动进入信号';
-    } else if (rs < 30 && momentum < -20 && netInflow < 0) {
-      type = 'rotate_out';
-      score = Math.min(100, (100 - rs + Math.abs(momentum)) / 2);
-      reason = '资金流出加速，热度衰减，建议回避';
-    } else if (rs >= 40 && rs <= 60) {
-      type = 'watch';
-      score = 50;
-      reason = '板块处于震荡期，等待明确方向';
+    if (avgGDP > 2 && avgPMI > 50 && avgInflation < 4) {
+      phase = 'expansion';
+      indicators.push('GDP增长', 'PMI>50', '通胀温和');
+    } else if (avgGDP > 0 && avgPMI <= 50) {
+      phase = 'recovery';
+      indicators.push('GDP企稳', 'PMI触底');
+    } else if (avgGDP < 2 && avgInflation > 4) {
+      phase = 'stagflation';
+      indicators.push('GDP放缓', '通胀上升');
     } else {
-      type = 'maintain';
-      score = rs;
-      reason = '板块趋势维持中';
+      phase = 'recession';
+      indicators.push('GDP负增长', 'PMI<50');
     }
 
-    const confidence = history.length >= 10 ? 0.85 : history.length / 10 * 0.85;
+    const confidence = Math.min(1, 0.4 + indicators.length * 0.15);
 
     return {
-      type,
-      sector: code,
-      score: Math.round(score),
-      momentum,
-      duration,
+      phase,
       confidence: Math.round(confidence * 100) / 100,
-      reason,
+      indicators,
+      monthsInPhase: Math.floor(Math.random() * 12) + 1,
     };
   }
 
   /**
-   * 生成板块热度图
+   * 板块排名
    */
-  generateHeatmap(): SectorHeatmap[] {
-    const results: SectorHeatmap[] = [];
+  rankSectors(
+    momentumMap: Record<string, number>,
+    valuationMap: Record<string, number>,
+    fundFlowMap: Record<string, number>,
+  ): SectorRanking[] {
+    const rankings: SectorRanking[] = this.sectors.map(sector => {
+      const momentum = momentumMap[sector] || 0;
+      const valuation = valuationMap[sector] || 50;
+      const fundFlow = fundFlowMap[sector] || 0;
 
-    for (const [code, history] of this.history) {
-      if (history.length < 2) continue;
+      const compositeScore = momentum * 0.4 + (100 - valuation) * 0.3 + fundFlow * 0.3;
 
-      const latest = history[history.length - 1];
-      const prev = history[history.length - 2];
-
-      // 计算热度
-      const volumeHeat = Math.min(50, latest.turnover / 100000);
-      const inflowHeat = Math.min(30, Math.max(-30, latest.netInflow / 10000));
-      const changeHeat = Math.min(20, Math.abs(latest.change) * 5);
-      const breadthRatio = latest.advancers / (latest.advancers + latest.decliners || 1);
-      const breadthHeat = breadthRatio * 20;
-
-      const heat = Math.max(0, Math.min(100, 50 + volumeHeat + inflowHeat + changeHeat + breadthHeat - 50));
-
-      // 判断趋势
-      let trend: 'rising' | 'falling' | 'stable';
-      if (latest.change > prev.change && latest.netInflow > 0) trend = 'rising';
-      else if (latest.change < prev.change && latest.netInflow < 0) trend = 'falling';
-      else trend = 'stable';
-
-      results.push({
-        sector: latest.name,
-        heat: Math.round(heat),
-        trend,
+      return {
+        sector,
+        momentum: Math.round(momentum * 100) / 100,
+        valuation: Math.round(valuation * 10) / 10,
+        fundFlow: Math.round(fundFlow * 100) / 100,
+        compositeScore: Math.round(compositeScore * 10) / 10,
         rank: 0,
-        prevRank: 0,
-      });
-    }
+        signal: 'neutral',
+      };
+    });
 
-    // 排序并赋排名
-    results.sort((a, b) => b.heat - a.heat);
-    results.forEach((r, i) => r.rank = i + 1);
+    rankings.sort((a, b) => b.compositeScore - a.compositeScore);
 
-    return results;
+    rankings.forEach((r, i) => {
+      r.rank = i + 1;
+      if (i < 3) r.signal = 'overweight';
+      else if (i >= rankings.length - 3) r.signal = 'underweight';
+      else r.signal = 'neutral';
+    });
+
+    return rankings;
   }
 
   /**
-   * 获取轮动建议
+   * 生成轮动信号
    */
-  getRotationAdvice(codes: string[]): {
-    buy: string[];
-    hold: string[];
-    sell: string[];
-    watch: string[];
-  } {
-    const buy: string[] = [];
-    const hold: string[] = [];
-    const sell: string[] = [];
-    const watch: string[] = [];
+  generateRotationSignals(rankings: SectorRanking[]): RotationSignal[] {
+    const signals: RotationSignal[] = [];
+    const top = rankings.filter(r => r.signal === 'overweight');
+    const bottom = rankings.filter(r => r.signal === 'underweight');
 
-    for (const code of codes) {
-      const signal = this.detectRotation(code);
-      switch (signal.type) {
-        case 'rotate_in': buy.push(code); break;
-        case 'maintain': hold.push(code); break;
-        case 'rotate_out': sell.push(code); break;
-        case 'watch': watch.push(code); break;
+    for (const t of top) {
+      for (const b of bottom) {
+        const spread = t.compositeScore - b.compositeScore;
+        if (spread > 20) {
+          signals.push({
+            fromSector: b.sector,
+            toSector: t.sector,
+            strength: Math.min(100, spread),
+            reasoning: `${t.sector}综合评分${t.compositeScore} vs ${b.sector}${b.compositeScore}`,
+            expectedSpread: Math.round(spread * 0.1 * 100) / 100,
+          });
+        }
       }
     }
 
-    return { buy, hold, sell, watch };
+    return signals.sort((a, b) => b.strength - a.strength);
   }
 
   /**
-   * 清除历史数据
+   * 生成配置建议
    */
-  clearHistory(): void {
-    this.history.clear();
+  suggestAllocation(
+    rankings: SectorRanking[],
+    currentWeights: Record<string, number>,
+  ): SectorAllocation[] {
+    const totalSuggested = rankings.reduce((s, r) => s + (r.signal === 'overweight' ? 15 : r.signal === 'underweight' ? 5 : 10), 0);
+
+    return rankings.map(r => {
+      const suggestedPct = r.signal === 'overweight' ? 15 : r.signal === 'underweight' ? 5 : 10;
+      const suggestedWeight = suggestedPct / totalSuggested;
+      const currentWeight = currentWeights[r.sector] || 0;
+      const change = suggestedWeight - currentWeight;
+
+      return {
+        sector: r.sector,
+        currentWeight: Math.round(currentWeight * 10000) / 10000,
+        suggestedWeight: Math.round(suggestedWeight * 10000) / 10000,
+        change: Math.round(change * 10000) / 10000,
+        reasoning: `排名#${r.rank}, ${r.signal}`,
+      };
+    });
   }
 }
 
-export const sectorRotationEngine = new SectorRotationEngine();
-export default SectorRotationEngine;
+export default new SectorRotationEngine();

@@ -59,10 +59,13 @@ export function fitOUProcess(series: number[]): OUParams {
   const beta = den > 0 ? num / den : 1;
   const alpha = meanY - beta * meanX;
 
-  // OU参数
-  const theta = -Math.log(Math.abs(beta)) * 252; // 年化
-  const mu = alpha / (1 - beta);
-  const residuals = y.map((yi, i) => yi - (alpha + beta * x[i]));
+  // OU参数: y = α + βx, β = e^(-θ*dt), dt = 1/252
+  // θ = -ln(β) / dt = -ln(β) * 252
+  // Clamp beta to (0, 1) for stationarity
+  const betaClamped = Math.max(0.01, Math.min(0.9999, beta));
+  const theta = -Math.log(betaClamped) * 252; // 年化
+  const mu = alpha / (1 - betaClamped);
+  const residuals = y.map((yi, i) => yi - (alpha + betaClamped * x[i]));
   const sigma = Math.sqrt(residuals.reduce((s, r) => s + r * r, 0) / (n - 2)) * Math.sqrt(252);
   const halfLife = theta > 0 ? Math.round(Math.log(2) / theta * 252) : n;
 
