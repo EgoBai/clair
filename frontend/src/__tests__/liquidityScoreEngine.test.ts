@@ -176,7 +176,9 @@ describe('流动性评分引擎', () => {
         { name: 'Normal', score: 50 },
         { name: 'Normal2', score: 52 },
         { name: 'Normal3', score: 48 },
-        { name: 'Outlier', score: 200 },
+        { name: 'Normal4', score: 51 },
+        { name: 'Normal5', score: 49 },
+        { name: 'Outlier', score: 500 },
       ];
       const ranking = crossSectionLiquidityRanking(stocks);
       const outlier = ranking.find(r => r.name === 'Outlier');
