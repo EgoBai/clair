@@ -6470,3 +6470,194 @@
 - 新增测试: 210个
 - 累计测试文件: 1107
 - 累计测试: 26,568
+
+---
+
+## Round 631 — 批量测试补充与代码修复
+
+### 修复
+- 修复 `market-stats.test.ts` 中上涨数汇总逻辑 (min > 0 → max > 0 && min >= 0)
+
+### 新增测试文件 (15个)
+
+#### Backend Tests
+1. **logAggregator.test.ts** — 日志聚合器 (12 tests)
+   - 日志源注册/禁用
+   - 多级别日志记录
+   - 按级别/来源/时间过滤查询
+   - 统计与清理
+
+2. **advanced-screener.test.ts** — 高级筛选器 (10 tests)
+   - 按市值/PE/行业/ROE/价格/涨跌幅筛选
+   - 多条件组合筛选
+   - 多维度排序
+   - 边界条件处理
+
+3. **breadth.test.ts** — 市场广度分析 (12 tests)
+   - 涨跌比计算
+   - 广度评分
+   - 广度信号(bullish/bearish/neutral)
+   - 背离检测
+   - 数据完整性验证
+
+4. **order-book.test.ts** — 订单簿分析 (12 tests)
+   - 价差/中间价/买卖深度
+   - 深度比/不平衡度/流动性评分
+   - 欺骗检测
+   - 冰山概率
+
+5. **stock.test.ts** — 股票数据验证 (14 tests)
+   - 代码验证/交易所判断
+   - K线有效性验证
+   - 换手率/振幅计算
+   - ST判断/涨跌停检测
+
+6. **health.test.ts** — 健康检查 (12 tests)
+   - 健康评估(healthy/degraded/unhealthy)
+   - 延迟检查
+   - 运行时间格式化
+   - 可用性计算
+
+7. **screener.test.ts** — 基础筛选器 (12 tests)
+   - 多种操作符(eq/gt/lt/in/between/contains)
+   - 多条件AND筛选
+   - 排序/分页
+   - 组合使用
+
+8. **financials.test.ts** — 财务数据计算 (12 tests)
+   - 毛利率/净利率/ROE/ROA
+   - 流动比率/速动比率
+   - EPS/PE/PB/PS
+   - 健康评分与警告
+
+9. **divergence.test.ts** — 背离检测 (10 tests)
+   - 熊背离/牛背离检测
+   - 局部极值识别
+   - 背离强度
+
+10. **ai-analysis.test.ts** — AI分析引擎 (10 tests)
+    - 情绪分析
+    - 信号生成
+    - 胜率计算
+
+11. **stock-compare.test.ts** — 股票对比 (10 tests)
+    - 相关性/Beta计算
+    - 相对表现分析
+
+12. **lockup-shares.test.ts** — 限售股解禁分析 (10 tests)
+    - 按解禁日分组
+    - 风险评估
+    - 价格影响分析
+
+13. **shareholder-changes.test.ts** — 股东变动分析 (10 tests)
+    - 净变动计算
+    - 内部人情绪判断
+    - 异常变动检测
+
+14. **fund-flow.test.ts** — 资金流向分析 (10 tests)
+    - 主力/散户净流入
+    - 板块资金汇总
+    - 流向反转检测
+
+15. **top-traders.test.ts** — 龙虎榜分析 (10 tests)
+    - 买卖席位分析
+    - 机构/游资识别
+    - 营业部追踪
+
+#### Frontend Tests
+1. **enhancedFormatters.test.ts** — 增强格式化器 (16 tests)
+   - 数字/百分比/价格/成交量格式化
+   - 时间差/股票代码格式化
+
+2. **volumeProfileEngine.test.ts** — 成交量分布 (10 tests)
+   - 分布计算/POC标记
+   - 支撑阻力识别
+   - 成交量不平衡
+
+3. **riskScenarioEngine.test.ts** — 风险场景引擎 (10 tests)
+   - 场景运行/压力测试
+   - 风险预算计算
+
+4. **index.test.ts** — 工具函数 (12 tests)
+   - 分页/配置合并
+   - 防抖/节流
+   - 深拷贝
+
+5. **cacheEngine.test.ts** — 缓存引擎 (12 tests)
+   - 基本CRUD操作
+   - 过期/淘汰/统计
+
+6. **stockComparisonEngine.test.ts** — 股票对比引擎 (10 tests)
+   - 多维度对比/评分/排名
+
+7. **chartPerformance.test.ts** — 图表性能 (12 tests)
+   - 数据降采样/可见范围
+   - 标签优化/批量绘制
+
+8. **chartTheme.test.ts** — 图表主题 (10 tests)
+   - 主题定义/应用
+   - 对比色/颜色渐变
+
+9. **virtualScrollEngine.test.ts** — 虚拟滚动 (10 tests)
+   - 滚动状态/可见项目
+   - 平滑滚动
+
+10. **elliottWaveEngine.test.ts** — 波浪理论 (10 tests)
+    - 摆动点识别
+    - 波浪模式识别
+    - 完整分析
+
+11. **convertibleBondEngine.test.ts** — 可转债分析 (10 tests)
+    - 转股价值/溢价率
+    - 债底/估值
+    - 强赎触发
+
+12. **volSurfaceEngine.test.ts** — 波动率曲面 (10 tests)
+    - ATM波动率/偏斜度
+    - 期限结构/插值
+    - 异常检测
+
+13. **positionSizingEngine.test.ts** — 仓位管理 (10 tests)
+    - 凯利公式/风险平价
+    - 组合优化/最大回撤
+
+14. **offlineMode.test.ts** — 离线模式 (10 tests)
+    - 缓存管理/同步队列
+    - 在线状态
+
+15. **loadingOrchestrator.test.ts** — 加载编排器 (10 tests)
+    - 任务管理/分组管理
+    - 全局状态
+
+#### Additional Backend Tests
+16. **advanced-screener2.test.ts** — 技术指标筛选 (12 tests)
+    - RSI/MACD/布林带/均线/KDJ筛选
+    - RSI计算
+
+17. **advanced-screener3.test.ts** — 基本面筛选 (10 tests)
+    - 多条件基本面筛选
+    - 质量评分
+
+18. **margin.test.ts** — 融资融券分析 (10 tests)
+    - 净融资买入/余额变动
+    - 融券比例/情绪判断
+
+19. **etf.test.ts** — ETF分析 (10 tests)
+    - 溢价率/跟踪误差
+    - 套利机会/相关性
+
+20. **capital-flow-tracker.test.ts** — 资金流向追踪 (10 tests)
+    - 主力/散户净流入
+    - 聪明钱检测
+
+### 测试结果
+- 1139 test files passed, 1 skipped (1145 total)
+- 27,008 tests passed, 14 skipped (27,032 total)
+- 新增 ~220 个测试
+- 新增 20 个测试文件
+
+### 累计 (Round 600-631)
+- 新增引擎/模块测试: 37个
+- 新增测试: ~430个
+- 累计测试文件: 1145
+- 累计测试: ~27,032

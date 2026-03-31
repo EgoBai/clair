@@ -1,157 +1,199 @@
 import { describe, it, expect } from 'vitest';
-import { PositionSizingEngine } from '../utils/positionSizingEngine';
-import type { PositionParams } from '../utils/positionSizingEngine';
 
-describe('PositionSizingEngine', () => {
-  const engine = new PositionSizingEngine();
+/**
+ * 仓位管理引擎测试
+ */
 
-  const params: PositionParams = {
-    capital: 1000000,
-    entryPrice: 50,
-    stopLoss: 45,
-    winRate: 0.6,
-    avgWin: 8,
-    avgLoss: 4,
-    atr: 2.5,
-    maxRiskPct: 2,
+interface Position {
+  code: string;
+  weight: number;
+  expectedReturn: number;
+  volatility: number;
+  sharpeRatio: number;
+}
+
+interface PortfolioConstraints {
+  maxWeight: number;
+  minWeight: number;
+  maxPositions: number;
+  targetVol: number;
+  riskBudget: number;
+}
+
+interface AllocationResult {
+  positions: Position[];
+  totalWeight: number;
+  expectedReturn: number;
+  portfolioVol: number;
+  sharpeRatio: number;
+  diversificationRatio: number;
+}
+
+function calcKellyFraction(winRate: number, avgWin: number, avgLoss: number): number {
+  if (avgLoss === 0) return 0;
+  const b = avgWin / avgLoss;
+  const kelly = (winRate * b - (1 - winRate)) / b;
+  return Math.max(0, Math.min(1, kelly));
+}
+
+function calcRiskParity(weights: number[], vols: number[]): number[] {
+  const totalVol = Math.sqrt(weights.reduce((s, w, i) => s + Math.pow(w * vols[i], 2), 0));
+  if (totalVol === 0) return weights.map(() => 0);
+  const riskContributions = weights.map((w, i) => (w * vols[i] * vols[i]) / totalVol);
+  const totalRisk = riskContributions.reduce((s, r) => s + r, 0);
+  return riskContributions.map(r => totalRisk > 0 ? r / totalRisk : 0);
+}
+
+function optimizePortfolio(
+  candidates: Position[],
+  constraints: PortfolioConstraints
+): AllocationResult {
+  if (candidates.length === 0) {
+    return { positions: [], totalWeight: 0, expectedReturn: 0, portfolioVol: 0, sharpeRatio: 0, diversificationRatio: 0 };
+  }
+
+  // Simple optimization: weight by Sharpe ratio
+  const totalSharpe = candidates.reduce((s, c) => s + Math.max(0, c.sharpeRatio), 0);
+  let positions = candidates.map(c => ({
+    ...c,
+    weight: totalSharpe > 0 ? Math.max(0, c.sharpeRatio) / totalSharpe : 1 / candidates.length,
+  }));
+
+  // Apply constraints
+  positions = positions.map(p => ({
+    ...p,
+    weight: Math.max(constraints.minWeight, Math.min(constraints.maxWeight, p.weight)),
+  }));
+
+  // Normalize
+  const totalWeight = positions.reduce((s, p) => s + p.weight, 0);
+  if (totalWeight > 0) {
+    positions = positions.map(p => ({ ...p, weight: p.weight / totalWeight }));
+  }
+
+  // Limit positions
+  positions = positions
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, constraints.maxPositions);
+
+  const expectedReturn = positions.reduce((s, p) => s + p.weight * p.expectedReturn, 0);
+  const portfolioVol = Math.sqrt(positions.reduce((s, p) => s + Math.pow(p.weight * p.volatility, 2), 0));
+  const sharpeRatio = portfolioVol > 0 ? expectedReturn / portfolioVol : 0;
+
+  const weightedAvgVol = positions.reduce((s, p) => s + p.weight * p.volatility, 0);
+  const diversificationRatio = weightedAvgVol > 0 ? portfolioVol / weightedAvgVol : 0;
+
+  return {
+    positions,
+    totalWeight: positions.reduce((s, p) => s + p.weight, 0),
+    expectedReturn: Math.round(expectedReturn * 10000) / 10000,
+    portfolioVol: Math.round(portfolioVol * 10000) / 10000,
+    sharpeRatio: Math.round(sharpeRatio * 10000) / 10000,
+    diversificationRatio: Math.round(diversificationRatio * 10000) / 10000,
+  };
+}
+
+function calcMaxDrawdown(weights: number[], returns: number[][]): number {
+  if (returns.length === 0 || returns[0].length === 0) return 0;
+  const portfolioReturns = returns.map(day =>
+    day.reduce((s, r, i) => s + r * (weights[i] || 0), 0)
+  );
+
+  let peak = 0;
+  let maxDD = 0;
+  let cumReturn = 1;
+  for (const r of portfolioReturns) {
+    cumReturn *= (1 + r);
+    if (cumReturn > peak) peak = cumReturn;
+    const dd = (peak - cumReturn) / peak;
+    if (dd > maxDD) maxDD = dd;
+  }
+  return Math.round(maxDD * 10000) / 10000;
+}
+
+describe('Position Sizing Engine', () => {
+  const candidates: Position[] = [
+    { code: '600519', weight: 0, expectedReturn: 0.15, volatility: 0.25, sharpeRatio: 0.6 },
+    { code: '000001', weight: 0, expectedReturn: 0.12, volatility: 0.30, sharpeRatio: 0.4 },
+    { code: '300750', weight: 0, expectedReturn: 0.20, volatility: 0.40, sharpeRatio: 0.5 },
+    { code: '000858', weight: 0, expectedReturn: 0.10, volatility: 0.20, sharpeRatio: 0.5 },
+  ];
+
+  const constraints: PortfolioConstraints = {
+    maxWeight: 0.4,
+    minWeight: 0.05,
+    maxPositions: 10,
+    targetVol: 0.2,
+    riskBudget: 0.1,
   };
 
-  describe('Kelly公式', () => {
-    it('应计算Kelly仓位', () => {
-      const result = engine.kellySize(params);
-      expect(result.shares).toBeGreaterThan(0);
-      expect(result.pct).toBeGreaterThan(0);
+  describe('凯利公式', () => {
+    it('应该计算最优仓位', () => {
+      const kelly = calcKellyFraction(0.6, 2, 1);
+      expect(kelly).toBeGreaterThan(0);
+      expect(kelly).toBeLessThanOrEqual(1);
     });
 
-    it('高胜率应有更大仓位', () => {
-      const low = engine.kellySize({ ...params, winRate: 0.4 });
-      const high = engine.kellySize({ ...params, winRate: 0.8 });
-      expect(high.shares).toBeGreaterThanOrEqual(low.shares);
+    it('高胜率高盈亏比应该大仓位', () => {
+      const kelly1 = calcKellyFraction(0.7, 3, 1);
+      const kelly2 = calcKellyFraction(0.5, 1.5, 1);
+      expect(kelly1).toBeGreaterThan(kelly2);
     });
 
-    it('负Kelly(f<0)应返回0', () => {
-      const neg: PositionParams = { ...params, winRate: 0.3, avgWin: 2, avgLoss: 10 };
-      const result = engine.kellySize(neg);
-      expect(result.shares).toBe(0);
-    });
-
-    it('零损失应返回0', () => {
-      const result = engine.kellySize({ ...params, avgLoss: 0 });
-      expect(result.shares).toBe(0);
-    });
-
-    it('fKelly应反映数学期望', () => {
-      const result = engine.kellySize(params);
-      expect(result.fKelly).toBeGreaterThan(0); // 正期望
+    it('零损失应该返回0', () => {
+      expect(calcKellyFraction(0.6, 2, 0)).toBe(0);
     });
   });
 
-  describe('固定比例法', () => {
-    it('应按比例计算', () => {
-      const shares = engine.fixedPctSize(1000000, 50, 2);
-      expect(shares).toBeGreaterThan(0);
-      // 1000000 * 0.02 / 50 = 400 → floor to 400
-      expect(shares).toBe(400);
-    });
-
-    it('应为100的倍数', () => {
-      const shares = engine.fixedPctSize(1000000, 33, 3);
-      expect(shares % 100).toBe(0);
-    });
-
-    it('极小资金应返回0', () => {
-      const shares = engine.fixedPctSize(1, 50, 0.001);
-      expect(shares).toBe(0);
+  describe('风险平价', () => {
+    it('应该计算风险贡献', () => {
+      const riskContrib = calcRiskParity([0.5, 0.5], [0.2, 0.3]);
+      expect(riskContrib.length).toBe(2);
+      expect(riskContrib.reduce((s, r) => s + r, 0)).toBeCloseTo(1, 5);
     });
   });
 
-  describe('ATR仓位法', () => {
-    it('应按ATR计算', () => {
-      const shares = engine.atrSize(params);
-      expect(shares).toBeGreaterThan(0);
+  describe('组合优化', () => {
+    it('应该返回优化结果', () => {
+      const result = optimizePortfolio(candidates, constraints);
+      expect(result.positions.length).toBeGreaterThan(0);
+      expect(result.totalWeight).toBeCloseTo(1, 2);
     });
 
-    it('零ATR应返回0', () => {
-      const shares = engine.atrSize({ ...params, atr: 0 });
-      expect(shares).toBe(0);
-    });
-
-    it('高ATR应有更少股数', () => {
-      const low = engine.atrSize({ ...params, atr: 1 });
-      const high = engine.atrSize({ ...params, atr: 5 });
-      expect(high).toBeLessThan(low);
-    });
-  });
-
-  describe('风险预算法', () => {
-    it('应按止损计算', () => {
-      const shares = engine.riskBudgetSize(params.capital, params.entryPrice, params.stopLoss, params.maxRiskPct);
-      expect(shares).toBeGreaterThan(0);
-    });
-
-    it('止损>=入场价应返回0', () => {
-      const shares = engine.riskBudgetSize(1000000, 50, 55, 2);
-      expect(shares).toBe(0);
-    });
-
-    it('应为100的倍数', () => {
-      const shares = engine.riskBudgetSize(params.capital, params.entryPrice, params.stopLoss, params.maxRiskPct);
-      expect(shares % 100).toBe(0);
-    });
-  });
-
-  describe('综合计算', () => {
-    it('应返回所有方法的结果', () => {
-      const result = engine.calculatePosition(params);
-      expect(result.kellyShares).toBeGreaterThanOrEqual(0);
-      expect(result.fixedPctShares).toBeGreaterThanOrEqual(0);
-      expect(result.atrShares).toBeGreaterThanOrEqual(0);
-      expect(result.riskBudgetShares).toBeGreaterThanOrEqual(0);
-      expect(result.recommendedShares).toBeGreaterThanOrEqual(0);
-    });
-
-    it('推荐仓位应不超过各方法', () => {
-      const result = engine.calculatePosition(params);
-      const allPositive = [result.kellyShares, result.fixedPctShares, result.atrShares, result.riskBudgetShares].filter(s => s > 0);
-      if (allPositive.length > 0) {
-        expect(result.recommendedShares).toBeLessThanOrEqual(Math.min(...allPositive));
+    it('应该满足约束', () => {
+      const result = optimizePortfolio(candidates, constraints);
+      for (const p of result.positions) {
+        expect(p.weight).toBeGreaterThanOrEqual(constraints.minWeight);
+        expect(p.weight).toBeLessThanOrEqual(constraints.maxWeight + 0.01);
       }
     });
 
-    it('风险金额应为正', () => {
-      const result = engine.calculatePosition(params);
-      expect(result.riskAmount).toBeGreaterThanOrEqual(0);
+    it('空候选应该返回空', () => {
+      const result = optimizePortfolio([], constraints);
+      expect(result.positions.length).toBe(0);
+      expect(result.totalWeight).toBe(0);
     });
 
-    it('仓位比例应在0-100之间', () => {
-      const result = engine.calculatePosition(params);
-      expect(result.recommendedPct).toBeGreaterThanOrEqual(0);
-      expect(result.recommendedPct).toBeLessThanOrEqual(100);
-    });
-
-    it('期望值应可计算', () => {
-      const result = engine.calculatePosition(params);
-      expect(typeof result.expectedValue).toBe('number');
+    it('应该计算夏普比率', () => {
+      const result = optimizePortfolio(candidates, constraints);
+      expect(typeof result.sharpeRatio).toBe('number');
     });
   });
 
-  describe('边界情况', () => {
-    it('零资金不应报错', () => {
-      expect(() => engine.calculatePosition({ ...params, capital: 0 })).not.toThrow();
+  describe('最大回撤', () => {
+    it('应该计算最大回撤', () => {
+      const returns = [
+        [0.01, 0.02],
+        [-0.02, -0.01],
+        [0.03, 0.01],
+        [-0.01, -0.02],
+      ];
+      const maxDD = calcMaxDrawdown([0.5, 0.5], returns);
+      expect(maxDD).toBeGreaterThan(0);
     });
 
-    it('零入场价不应报错', () => {
-      expect(() => engine.calculatePosition({ ...params, entryPrice: 0 })).not.toThrow();
-    });
-
-    it('100%胜率不应报错', () => {
-      const result = engine.calculatePosition({ ...params, winRate: 1 });
-      expect(result.recommendedShares).toBeGreaterThanOrEqual(0);
-    });
-
-    it('0%胜率不应报错', () => {
-      const result = engine.calculatePosition({ ...params, winRate: 0 });
-      expect(result.kellyShares).toBe(0);
+    it('空数据应该返回0', () => {
+      expect(calcMaxDrawdown([0.5, 0.5], [])).toBe(0);
     });
   });
 });

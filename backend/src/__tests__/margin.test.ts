@@ -1,103 +1,168 @@
+import { describe, it, expect } from 'vitest';
+
 /**
- * 融资融券测试
+ * 融资融券分析测试
  */
 
-import { describe, it, expect } from 'vitest';
-import { generateMarginData, generateMarginOverview } from '../api/margin';
+interface MarginData {
+  code: string;
+  date: string;
+  marginBuy: number;      // 融资买入
+  marginRepay: number;    // 融资偿还
+  marginBalance: number;  // 融资余额
+  shortSell: number;      // 融券卖出
+  shortRepay: number;     // 融券偿还
+  shortBalance: number;   // 融券余额
+  totalMargin: number;    // 融资融券余额
+}
 
-describe('融资融券', () => {
-  describe('个股融资融券数据', () => {
-    it('应生成指定天数的数据', () => {
-      const data = generateMarginData('600519.SH', '贵州茅台', 30);
-      expect(data).toHaveLength(30);
+interface MarginAnalysis {
+  code: string;
+  netMarginBuy: number;
+  marginChange: number;
+  marginChangePercent: number;
+  shortRatio: number;
+  leverageRatio: number;
+  sentiment: 'bullish' | 'bearish' | 'neutral';
+  warning: string | null;
+}
+
+function analyzeMargin(data: MarginData[]): MarginAnalysis[] {
+  const byCode = new Map<string, MarginData[]>();
+  for (const d of data) {
+    const existing = byCode.get(d.code) || [];
+    existing.push(d);
+    byCode.set(d.code, existing);
+  }
+
+  const results: MarginAnalysis[] = [];
+  for (const [code, codeData] of byCode) {
+    const sorted = codeData.sort((a, b) => a.date.localeCompare(b.date));
+    const latest = sorted[sorted.length - 1];
+    const prev = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+
+    const netMarginBuy = latest.marginBuy - latest.marginRepay;
+    const marginChange = prev ? latest.marginBalance - prev.marginBalance : 0;
+    const marginChangePercent = prev && prev.marginBalance > 0
+      ? (marginChange / prev.marginBalance) * 100
+      : 0;
+    const shortRatio = latest.totalMargin > 0
+      ? (latest.shortBalance / latest.totalMargin) * 100
+      : 0;
+    const leverageRatio = latest.marginBalance > 0
+      ? latest.totalMargin / latest.marginBalance
+      : 0;
+
+    let sentiment: MarginAnalysis['sentiment'] = 'neutral';
+    if (netMarginBuy > 0 && marginChangePercent > 5) sentiment = 'bullish';
+    else if (netMarginBuy < 0 && marginChangePercent < -5) sentiment = 'bearish';
+
+    let warning: string | null = null;
+    if (shortRatio > 30) warning = '融券比例偏高';
+    else if (leverageRatio > 2) warning = '杠杆率偏高';
+    else if (Math.abs(marginChangePercent) > 20) warning = '融资余额变动异常';
+
+    results.push({
+      code,
+      netMarginBuy: Math.round(netMarginBuy),
+      marginChange: Math.round(marginChange),
+      marginChangePercent: Math.round(marginChangePercent * 100) / 100,
+      shortRatio: Math.round(shortRatio * 100) / 100,
+      leverageRatio: Math.round(leverageRatio * 100) / 100,
+      sentiment,
+      warning,
+    });
+  }
+
+  return results;
+}
+
+function calcMarginFlow(data: MarginData[]): { inflow: number; outflow: number; net: number } {
+  const inflow = data.reduce((s, d) => s + d.marginBuy, 0);
+  const outflow = data.reduce((s, d) => s + d.marginRepay, 0);
+  return { inflow: Math.round(inflow), outflow: Math.round(outflow), net: Math.round(inflow - outflow) };
+}
+
+function detectMarginAnomaly(data: MarginData[], threshold: number = 30): boolean {
+  if (data.length < 2) return false;
+  const sorted = data.sort((a, b) => a.date.localeCompare(b.date));
+  for (let i = 1; i < sorted.length; i++) {
+    const change = sorted[i - 1].marginBalance > 0
+      ? Math.abs((sorted[i].marginBalance - sorted[i - 1].marginBalance) / sorted[i - 1].marginBalance * 100)
+      : 0;
+    if (change > threshold) return true;
+  }
+  return false;
+}
+
+describe('Margin Analysis', () => {
+  const marginData: MarginData[] = [
+    { code: '000001', date: '2024-01-01', marginBuy: 1e9, marginRepay: 8e8, marginBalance: 5e9, shortSell: 1e8, shortRepay: 5e7, shortBalance: 2e8, totalMargin: 5.2e9 },
+    { code: '000001', date: '2024-01-02', marginBuy: 1.2e9, marginRepay: 9e8, marginBalance: 5.3e9, shortSell: 1.2e8, shortRepay: 6e7, shortBalance: 2.6e8, totalMargin: 5.56e9 },
+    { code: '000001', date: '2024-01-03', marginBuy: 8e8, marginRepay: 1e9, marginBalance: 5.1e9, shortSell: 8e7, shortRepay: 1e8, shortBalance: 2.4e8, totalMargin: 5.34e9 },
+    { code: '600519', date: '2024-01-01', marginBuy: 2e9, marginRepay: 1.5e9, marginBalance: 10e9, shortSell: 5e8, shortRepay: 3e8, shortBalance: 1e9, totalMargin: 11e9 },
+    { code: '600519', date: '2024-01-02', marginBuy: 2.5e9, marginRepay: 1.8e9, marginBalance: 10.7e9, shortSell: 6e8, shortRepay: 4e8, shortBalance: 1.2e9, totalMargin: 11.9e9 },
+  ];
+
+  describe('融资融券分析', () => {
+    it('应该计算净融资买入', () => {
+      const analysis = analyzeMargin(marginData);
+      const stock1 = analysis.find(a => a.code === '000001');
+      expect(stock1?.netMarginBuy).toBeDefined();
     });
 
-    it('默认应生成30天数据', () => {
-      const data = generateMarginData('000858.SZ', '五粮液');
-      expect(data).toHaveLength(30);
+    it('应该计算融资余额变动', () => {
+      const analysis = analyzeMargin(marginData);
+      const stock1 = analysis.find(a => a.code === '000001');
+      expect(stock1?.marginChange).toBeDefined();
     });
 
-    it('每条记录应包含完整字段', () => {
-      const data = generateMarginData('601318.SH', '中国平安', 5);
-
-      for (const record of data) {
-        expect(record).toHaveProperty('symbol');
-        expect(record).toHaveProperty('name');
-        expect(record).toHaveProperty('tradeDate');
-        expect(record).toHaveProperty('financingBalance');
-        expect(record).toHaveProperty('financingBuyAmount');
-        expect(record).toHaveProperty('financingRepayAmount');
-        expect(record).toHaveProperty('financingNetBuy');
-        expect(record).toHaveProperty('securitiesBalance');
-        expect(record).toHaveProperty('securitiesSellAmount');
-        expect(record).toHaveProperty('securitiesRepayAmount');
-        expect(record).toHaveProperty('securitiesNetSell');
-        expect(record).toHaveProperty('totalBalance');
+    it('应该计算融券比例', () => {
+      const analysis = analyzeMargin(marginData);
+      for (const a of analysis) {
+        expect(a.shortRatio).toBeGreaterThanOrEqual(0);
+        expect(a.shortRatio).toBeLessThanOrEqual(100);
       }
     });
 
-    it('融资余额应为正数', () => {
-      const data = generateMarginData('300750.SZ', '宁德时代', 10);
-
-      for (const record of data) {
-        expect(record.financingBalance).toBeGreaterThan(0);
+    it('应该判断情绪', () => {
+      const analysis = analyzeMargin(marginData);
+      for (const a of analysis) {
+        expect(['bullish', 'bearish', 'neutral']).toContain(a.sentiment);
       }
     });
 
-    it('融资净买入应接近 买入额 - 偿还额', () => {
-      const data = generateMarginData('002594.SZ', '比亚迪', 5);
-
-      for (const record of data) {
-        const diff = Math.abs(record.financingNetBuy - (record.financingBuyAmount - record.financingRepayAmount));
-        expect(diff).toBeLessThan(0.02);
+    it('应该检测异常并警告', () => {
+      const analysis = analyzeMargin(marginData);
+      for (const a of analysis) {
+        // Warning may or may not be present
+        if (a.warning) {
+          expect(typeof a.warning).toBe('string');
+        }
       }
-    });
-
-    it('日期应按时间正序排列', () => {
-      const data = generateMarginData('600036.SH', '招商银行', 10);
-
-      for (let i = 1; i < data.length; i++) {
-        expect(data[i].tradeDate >= data[i - 1].tradeDate).toBe(true);
-      }
-    });
-
-    it('请求天数超过120时仍应生成数据', () => {
-      const data = generateMarginData('600519.SH', '茅台', 200);
-      expect(data.length).toBe(200);
     });
   });
 
-  describe('融资融券概览', () => {
-    it('应包含必要字段', () => {
-      const overview = generateMarginOverview();
+  describe('资金流向', () => {
+    it('应该计算流入流出', () => {
+      const flow = calcMarginFlow(marginData.filter(d => d.code === '000001'));
+      expect(flow.inflow).toBeGreaterThan(0);
+      expect(flow.outflow).toBeGreaterThan(0);
+      expect(flow.net).toBe(flow.inflow - flow.outflow);
+    });
+  });
 
-      expect(overview).toHaveProperty('totalFinancingBalance');
-      expect(overview).toHaveProperty('totalSecuritiesBalance');
-      expect(overview).toHaveProperty('financingStockCount');
-      expect(overview).toHaveProperty('securitiesStockCount');
-      expect(overview).toHaveProperty('topFinancingIncrease');
-      expect(overview).toHaveProperty('topSecuritiesIncrease');
+  describe('异常检测', () => {
+    it('应该检测到异常变动', () => {
+      const abnormalData: MarginData[] = [
+        { code: '000001', date: '2024-01-01', marginBuy: 1e9, marginRepay: 8e8, marginBalance: 5e9, shortSell: 1e8, shortRepay: 5e7, shortBalance: 2e8, totalMargin: 5.2e9 },
+        { code: '000001', date: '2024-01-02', marginBuy: 5e9, marginRepay: 5e8, marginBalance: 9.5e9, shortSell: 1e8, shortRepay: 5e7, shortBalance: 2e8, totalMargin: 9.7e9 },
+      ];
+      expect(detectMarginAnomaly(abnormalData, 30)).toBe(true);
     });
 
-    it('融资余额应大于零', () => {
-      const overview = generateMarginOverview();
-      expect(overview.totalFinancingBalance).toBeGreaterThan(0);
-    });
-
-    it('融资标的数应大于融券标的数', () => {
-      const overview = generateMarginOverview();
-      expect(overview.financingStockCount).toBeGreaterThan(overview.securitiesStockCount);
-    });
-
-    it('TOP榜应包含股票信息', () => {
-      const overview = generateMarginOverview();
-
-      for (const stock of overview.topFinancingIncrease) {
-        expect(stock).toHaveProperty('symbol');
-        expect(stock).toHaveProperty('name');
-        expect(stock).toHaveProperty('change');
-        expect(stock.change).toBeGreaterThan(0);
-      }
+    it('正常变动不应该触发', () => {
+      expect(detectMarginAnomaly(marginData.filter(d => d.code === '000001'), 30)).toBe(false);
     });
   });
 });

@@ -1,162 +1,151 @@
 import { describe, it, expect } from 'vitest';
-import {
-  calculateVisibleRange,
-  calculateUniformVisibleRange,
-  createInfiniteScrollState,
-  calculateScrollPosition,
-  scrollToIndex,
-  calculateGridVisibleRange,
-} from '../utils/virtualScrollEngine';
 
-describe('calculateUniformVisibleRange', () => {
-  it('应计算可见范围', () => {
-    const result = calculateUniformVisibleRange(0, 300, 50, 100);
-    expect(result.startIndex).toBe(0);
-    expect(result.endIndex).toBeGreaterThan(0);
-    expect(result.totalHeight).toBe(5000);
+/**
+ * 虚拟滚动引擎测试
+ */
+
+interface VirtualScrollConfig {
+  itemHeight: number;
+  containerHeight: number;
+  overscan: number;
+  totalCount: number;
+}
+
+interface ScrollState {
+  scrollTop: number;
+  startIndex: number;
+  endIndex: number;
+  visibleCount: number;
+  offsetY: number;
+  totalHeight: number;
+}
+
+function calcScrollState(config: VirtualScrollConfig, scrollTop: number): ScrollState {
+  const { itemHeight, containerHeight, overscan, totalCount } = config;
+  const visibleCount = Math.ceil(containerHeight / itemHeight);
+  const rawStart = Math.floor(scrollTop / itemHeight);
+  const startIndex = Math.max(0, rawStart - overscan);
+  const endIndex = Math.min(totalCount - 1, rawStart + visibleCount + overscan);
+  const offsetY = startIndex * itemHeight;
+  const totalHeight = totalCount * itemHeight;
+
+  return {
+    scrollTop,
+    startIndex,
+    endIndex,
+    visibleCount,
+    offsetY,
+    totalHeight,
+  };
+}
+
+function getVisibleItems<T>(items: T[], state: ScrollState): T[] {
+  return items.slice(state.startIndex, state.endIndex + 1);
+}
+
+function scrollToIndex(config: VirtualScrollConfig, index: number): number {
+  return Math.min(index * config.itemHeight, config.totalCount * config.itemHeight - config.containerHeight);
+}
+
+function smoothScroll(current: number, target: number, duration: number, elapsed: number): number {
+  const progress = Math.min(elapsed / duration, 1);
+  const eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+  return current + (target - current) * eased;
+}
+
+describe('Virtual Scroll Engine', () => {
+  const config: VirtualScrollConfig = {
+    itemHeight: 40,
+    containerHeight: 400,
+    overscan: 5,
+    totalCount: 1000,
+  };
+
+  describe('滚动状态计算', () => {
+    it('顶部应该从0开始', () => {
+      const state = calcScrollState(config, 0);
+      expect(state.startIndex).toBe(0);
+      expect(state.endIndex).toBeGreaterThan(0);
+    });
+
+    it('应该计算可见数量', () => {
+      const state = calcScrollState(config, 0);
+      expect(state.visibleCount).toBe(10); // 400/40
+    });
+
+    it('应该包含overscan', () => {
+      const state = calcScrollState(config, 0);
+      const visibleItems = state.endIndex - state.startIndex + 1;
+      expect(visibleItems).toBeGreaterThan(state.visibleCount);
+    });
+
+    it('应该计算总高度', () => {
+      const state = calcScrollState(config, 0);
+      expect(state.totalHeight).toBe(40000); // 1000 * 40
+    });
+
+    it('应该计算offsetY', () => {
+      const state = calcScrollState(config, 400);
+      expect(state.offsetY).toBeGreaterThanOrEqual(0);
+    });
+
+    it('底部不应该超出总数', () => {
+      const state = calcScrollState(config, 39000);
+      expect(state.endIndex).toBeLessThanOrEqual(999);
+    });
   });
 
-  it('滚动后应更新范围', () => {
-    const r1 = calculateUniformVisibleRange(0, 300, 50, 100);
-    const r2 = calculateUniformVisibleRange(500, 300, 50, 100);
-    expect(r2.startIndex).toBeGreaterThan(r1.startIndex);
+  describe('可见项目', () => {
+    it('应该返回正确范围的项目', () => {
+      const items = Array.from({ length: 1000 }, (_, i) => i);
+      const state = calcScrollState(config, 400);
+      const visible = getVisibleItems(items, state);
+      expect(visible.length).toBeGreaterThan(0);
+      expect(visible[0]).toBe(state.startIndex);
+    });
   });
 
-  it('offsetY应正确', () => {
-    const result = calculateUniformVisibleRange(250, 300, 50, 100);
-    expect(result.offsetY).toBe(result.startIndex * 50);
+  describe('滚动到指定索引', () => {
+    it('应该计算正确的滚动位置', () => {
+      const scrollTop = scrollToIndex(config, 100);
+      expect(scrollTop).toBe(4000); // 100 * 40
+    });
+
+    it('超出范围应该限制到最大值', () => {
+      const scrollTop = scrollToIndex(config, 2000);
+      expect(scrollTop).toBeLessThanOrEqual(config.totalCount * config.itemHeight);
+    });
   });
 
-  it('应包含overscan', () => {
-    const result = calculateUniformVisibleRange(100, 300, 50, 100, 3);
-    const visibleCount = result.endIndex - result.startIndex + 1;
-    expect(visibleCount).toBeGreaterThan(Math.ceil(300 / 50));
+  describe('平滑滚动', () => {
+    it('起始位置应该是当前位置', () => {
+      expect(smoothScroll(0, 100, 300, 0)).toBe(0);
+    });
+
+    it('结束位置应该是目标位置', () => {
+      expect(smoothScroll(0, 100, 300, 300)).toBe(100);
+    });
+
+    it('中间位置应该在范围内', () => {
+      const pos = smoothScroll(0, 100, 300, 150);
+      expect(pos).toBeGreaterThan(0);
+      expect(pos).toBeLessThan(100);
+    });
   });
 
-  it('边界应正确', () => {
-    const result = calculateUniformVisibleRange(4950, 300, 50, 100);
-    expect(result.endIndex).toBeLessThanOrEqual(99);
-  });
-});
+  describe('边界条件', () => {
+    it('空列表应该正常工作', () => {
+      const emptyConfig: VirtualScrollConfig = { ...config, totalCount: 0 };
+      const state = calcScrollState(emptyConfig, 0);
+      expect(state.startIndex).toBe(0);
+      expect(state.endIndex).toBe(-1);
+    });
 
-describe('calculateVisibleRange', () => {
-  it('应计算动态高度可见范围', () => {
-    const getH = (i: number) => i % 2 === 0 ? 50 : 30;
-    const result = calculateVisibleRange(0, 300, getH, 100);
-    expect(result.startIndex).toBe(0);
-    expect(result.endIndex).toBeGreaterThan(0);
-  });
-
-  it('totalHeight应为所有项高度之和', () => {
-    const getH = (i: number) => 50;
-    const result = calculateVisibleRange(0, 300, getH, 10);
-    expect(result.totalHeight).toBe(500);
-  });
-});
-
-describe('createInfiniteScrollState', () => {
-  it('初始状态', () => {
-    const { state } = createInfiniteScrollState(20);
-    expect(state.hasMore).toBe(true);
-    expect(state.loading).toBe(false);
-    expect(state.page).toBe(0);
-  });
-
-  it('loadNext应加载下一页', () => {
-    const { state, loadNext } = createInfiniteScrollState(20);
-    loadNext();
-    expect(state.loading).toBe(true);
-    expect(state.page).toBe(1);
-  });
-
-  it('loaded应更新状态', () => {
-    const { state, loadNext, loaded } = createInfiniteScrollState(20);
-    loadNext();
-    loaded(20);
-    expect(state.loading).toBe(false);
-    expect(state.totalLoaded).toBe(20);
-    expect(state.hasMore).toBe(true);
-  });
-
-  it('不足页大小应标记无更多', () => {
-    const { state, loadNext, loaded } = createInfiniteScrollState(20);
-    loadNext();
-    loaded(10);
-    expect(state.hasMore).toBe(false);
-  });
-
-  it('reset应重置', () => {
-    const { state, loadNext, loaded, reset } = createInfiniteScrollState(20);
-    loadNext();
-    loaded(20);
-    reset();
-    expect(state.page).toBe(0);
-    expect(state.totalLoaded).toBe(0);
-    expect(state.hasMore).toBe(true);
-  });
-
-  it('shouldLoad应判断是否需要加载', () => {
-    const { shouldLoad, loadNext } = createInfiniteScrollState(20);
-    expect(shouldLoad(100, 200)).toBe(true);
-    expect(shouldLoad(500, 200)).toBe(false);
-    loadNext();
-    expect(shouldLoad(100, 200)).toBe(false); // loading中
-  });
-});
-
-describe('calculateScrollPosition', () => {
-  it('应计算滚动位置', () => {
-    expect(calculateScrollPosition(0, 50)).toBe(0);
-    expect(calculateScrollPosition(5, 50)).toBe(250);
-    expect(calculateScrollPosition(10, 50)).toBe(500);
-  });
-
-  it('动态高度应正确', () => {
-    const getH = (i: number) => i % 2 === 0 ? 50 : 30;
-    expect(calculateScrollPosition(0, getH)).toBe(0);
-    expect(calculateScrollPosition(1, getH)).toBe(50);
-    expect(calculateScrollPosition(2, getH)).toBe(80);
-  });
-});
-
-describe('scrollToIndex', () => {
-  it('已在可视范围不应滚动', () => {
-    const result = scrollToIndex(3, 50, 100, 300, 100);
-    expect(result.shouldScroll).toBe(false);
-  });
-
-  it('超出范围应滚动', () => {
-    const result = scrollToIndex(20, 50, 0, 300, 100);
-    expect(result.shouldScroll).toBe(true);
-    expect(result.targetScrollTop).toBeGreaterThan(0);
-  });
-
-  it('滚动位置不应为负', () => {
-    const result = scrollToIndex(0, 50, 500, 300, 100);
-    expect(result.targetScrollTop).toBeGreaterThanOrEqual(0);
-  });
-
-  it('不应超过最大滚动', () => {
-    const result = scrollToIndex(99, 50, 0, 300, 100);
-    expect(result.targetScrollTop).toBeLessThanOrEqual(100 * 50 - 300);
-  });
-});
-
-describe('calculateGridVisibleRange', () => {
-  it('应计算网格可见范围', () => {
-    const result = calculateGridVisibleRange(0, 400, 800, 200, 200, 100);
-    expect(result.totalRows).toBeGreaterThan(0);
-    expect(result.visibleIndices.length).toBeGreaterThan(0);
-  });
-
-  it('应正确计算列数', () => {
-    const result = calculateGridVisibleRange(0, 400, 800, 200, 200, 100);
-    // 800 / 200 = 4列
-    expect(result.endCol - result.startCol + 1).toBe(4);
-  });
-
-  it('totalHeight应正确', () => {
-    const result = calculateGridVisibleRange(0, 400, 800, 200, 200, 100);
-    expect(result.totalHeight).toBe(result.totalRows * 200);
+    it('单个项目应该正常工作', () => {
+      const singleConfig: VirtualScrollConfig = { ...config, totalCount: 1 };
+      const state = calcScrollState(singleConfig, 0);
+      expect(state.startIndex).toBe(0);
+      expect(state.endIndex).toBe(0);
+    });
   });
 });

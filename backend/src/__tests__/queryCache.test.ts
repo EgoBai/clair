@@ -100,4 +100,51 @@ describe('QueryCache', () => {
     expect(top[0].key).toBe('hot');
     expect(top[0].hits).toBe(2);
   });
+
+  it('容量限制应淘汰旧缓存', async () => {
+    const smallCache = new QueryCache(2);
+    const fn = async () => 'result';
+    await smallCache.query('k1', fn, 5000);
+    await smallCache.query('k2', fn, 5000);
+    await smallCache.query('k3', fn, 5000);
+    const stats = smallCache.getStats();
+    expect(stats.cacheSize).toBeLessThanOrEqual(3);
+  });
+
+  it('并行相同key应只执行一次', async () => {
+    let callCount = 0;
+    const fn = async () => {
+      callCount++;
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return callCount;
+    };
+    const [r1, r2] = await Promise.all([
+      cache.query('concurrent', fn, 5000),
+      cache.query('concurrent', fn, 5000),
+    ]);
+    expect(r1).toBe(r2);
+  });
+
+  it('多次失效应幂等', async () => {
+    const fn = async () => 'result';
+    await cache.query('key', fn, 5000);
+    cache.invalidate('key');
+    cache.invalidate('key');
+    cache.invalidate('nonexistent');
+    const stats = cache.getStats();
+    expect(stats.cacheMisses).toBe(1);
+  });
+
+  it('getStats应返回完整统计', async () => {
+    const fn = async () => 'v';
+    await cache.query('a', fn, 5000);
+    await cache.query('a', fn, 5000);
+    const stats = cache.getStats();
+    expect(stats).toHaveProperty('cacheHits');
+    expect(stats).toHaveProperty('cacheMisses');
+    expect(stats).toHaveProperty('hitRate');
+    expect(stats).toHaveProperty('cacheSize');
+    expect(stats.hitRate).toBeGreaterThanOrEqual(0);
+    expect(stats.hitRate).toBeLessThanOrEqual(1);
+  });
 });

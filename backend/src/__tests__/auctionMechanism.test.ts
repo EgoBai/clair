@@ -84,5 +84,86 @@ describe('集合竞价引擎', () => {
       const sells: Order[] = [{ price: 10, quantity: 50, side: 'sell' }];
       expect(calcOrderImbalance(buys, sells)).toBe(500);
     });
+
+    it('卖方大于买方应返回负值', () => {
+      const buys: Order[] = [{ price: 10, quantity: 50, side: 'buy' }];
+      const sells: Order[] = [{ price: 10, quantity: 100, side: 'sell' }];
+      expect(calcOrderImbalance(buys, sells)).toBe(-500);
+    });
+
+    it('双方为空应返回0', () => {
+      expect(calcOrderImbalance([], [])).toBe(0);
+    });
+  });
+
+  describe('撮合边界', () => {
+    it('单笔买单应正确撮合', () => {
+      const buys: Order[] = [{ price: 10, quantity: 100, side: 'buy' }];
+      const sells: Order[] = [{ price: 10, quantity: 100, side: 'sell' }];
+      const result = matchAuctionOrders(buys, sells);
+      expect(result.matchedQty).toBe(100);
+      expect(result.matchedPrice).toBe(10);
+      expect(result.buyImbalance).toBe(0);
+    });
+
+    it('多档位价格应选择成交量最大', () => {
+      const buys: Order[] = [
+        { price: 10.5, quantity: 50, side: 'buy' },
+        { price: 10.0, quantity: 300, side: 'buy' },
+        { price: 9.5, quantity: 200, side: 'buy' },
+      ];
+      const sells: Order[] = [
+        { price: 10.0, quantity: 250, side: 'sell' },
+        { price: 10.5, quantity: 100, side: 'sell' },
+      ];
+      const result = matchAuctionOrders(buys, sells);
+      expect(result.matchedQty).toBeGreaterThanOrEqual(250);
+    });
+
+    it('相同成交量时应选更高价格', () => {
+      const buys: Order[] = [
+        { price: 10.2, quantity: 100, side: 'buy' },
+        { price: 10.0, quantity: 100, side: 'buy' },
+      ];
+      const sells: Order[] = [
+        { price: 10.0, quantity: 100, side: 'sell' },
+        { price: 10.2, quantity: 50, side: 'sell' },
+      ];
+      const result = matchAuctionOrders(buys, sells);
+      // 10.0: buy=200, sell=100, match=100
+      // 10.2: buy=100, sell=0, match=0
+      // 最大成交量100，价格10.0
+      expect(result.matchedQty).toBe(100);
+    });
+
+    it('极端价格差应正确处理', () => {
+      const buys: Order[] = [{ price: 100, quantity: 10, side: 'buy' }];
+      const sells: Order[] = [{ price: 1, quantity: 10, side: 'sell' }];
+      const result = matchAuctionOrders(buys, sells);
+      expect(result.matchedQty).toBe(10);
+    });
+  });
+
+  describe('VWAP边界', () => {
+    it('单笔订单VWAP等于价格', () => {
+      const orders: Order[] = [{ price: 15.5, quantity: 1000, side: 'buy' }];
+      expect(calcVWAP(orders)).toBe(15.5);
+    });
+
+    it('同价不同量应为该价格', () => {
+      const orders: Order[] = [
+        { price: 10, quantity: 100, side: 'buy' },
+        { price: 10, quantity: 200, side: 'buy' },
+      ];
+      expect(calcVWAP(orders)).toBe(10);
+    });
+
+    it('大量级订单应精确计算', () => {
+      const orders: Order[] = [
+        { price: 9.99, quantity: 1000000, side: 'buy' },
+        { price: 10.01, quantity: 1000000, side: 'buy' },
+      ];
+      expect(calcVWAP(orders)).toBeCloseTo(10, 4);
+    });
   });
 });
