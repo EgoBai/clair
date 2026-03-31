@@ -1,158 +1,174 @@
 import { describe, it, expect } from 'vitest';
-import {
-  normalCDF,
-  normalPDF,
-  calculateGreeks,
-  impliedVolatility,
-  portfolioGreeks,
-  OptionParams,
-} from '../utils/optionsGreeksEngine';
+import { OptionsGreeksEngine } from '../utils/optionsGreeksEngine';
+import type { OptionParams } from '../utils/optionsGreeksEngine';
 
-describe('normalCDF', () => {
-  it('returns 0.5 at zero', () => {
-    expect(normalCDF(0)).toBeCloseTo(0.5, 2);
-  });
+describe('OptionsGreeksEngine', () => {
+  const engine = new OptionsGreeksEngine();
 
-  it('approaches 1 for large positive', () => {
-    expect(normalCDF(5)).toBeCloseTo(1, 3);
-  });
-
-  it('approaches 0 for large negative', () => {
-    expect(normalCDF(-5)).toBeCloseTo(0, 3);
-  });
-
-  it('is symmetric', () => {
-    expect(normalCDF(1) + normalCDF(-1)).toBeCloseTo(1, 5);
-  });
-});
-
-describe('normalPDF', () => {
-  it('peaks at zero', () => {
-    expect(normalPDF(0)).toBeCloseTo(0.3989, 3);
-  });
-
-  it('is symmetric', () => {
-    expect(normalPDF(1)).toBeCloseTo(normalPDF(-1), 5);
-  });
-});
-
-describe('calculateGreeks', () => {
-  const baseParams: OptionParams = {
+  const callParams: OptionParams = {
+    type: 'call',
     spot: 100,
     strike: 100,
-    timeToExpiry: 0.25, // 3 months
+    timeToExpiry: 0.5,
     riskFreeRate: 0.05,
     volatility: 0.2,
-    type: 'call',
   };
 
-  it('prices ATM call correctly', () => {
-    const greeks = calculateGreeks(baseParams);
-    expect(greeks.price).toBeGreaterThan(0);
-    expect(greeks.price).toBeLessThan(baseParams.spot);
-  });
+  const putParams: OptionParams = {
+    type: 'put',
+    spot: 100,
+    strike: 100,
+    timeToExpiry: 0.5,
+    riskFreeRate: 0.05,
+    volatility: 0.2,
+  };
 
-  it('delta between 0 and 1 for call', () => {
-    const greeks = calculateGreeks(baseParams);
-    expect(greeks.delta).toBeGreaterThan(0);
-    expect(greeks.delta).toBeLessThan(1);
-  });
-
-  it('ATM call has delta near 0.5', () => {
-    const greeks = calculateGreeks(baseParams);
-    expect(greeks.delta).toBeGreaterThan(0.45);
-    expect(greeks.delta).toBeLessThan(0.65);
-  });
-
-  it('gamma is positive', () => {
-    const greeks = calculateGreeks(baseParams);
-    expect(greeks.gamma).toBeGreaterThan(0);
-  });
-
-  it('theta is negative (time decay)', () => {
-    const greeks = calculateGreeks(baseParams);
-    expect(greeks.theta).toBeLessThan(0);
-  });
-
-  it('vega is positive', () => {
-    const greeks = calculateGreeks(baseParams);
-    expect(greeks.vega).toBeGreaterThan(0);
-  });
-
-  it('put delta between -1 and 0', () => {
-    const greeks = calculateGreeks({ ...baseParams, type: 'put' });
-    expect(greeks.delta).toBeLessThan(0);
-    expect(greeks.delta).toBeGreaterThan(-1);
-  });
-
-  it('put-call parity holds approximately', () => {
-    const call = calculateGreeks(baseParams);
-    const put = calculateGreeks({ ...baseParams, type: 'put' });
-    const S = baseParams.spot;
-    const K = baseParams.strike;
-    const T = baseParams.timeToExpiry;
-    const r = baseParams.riskFreeRate;
-    // C - P ≈ S - K * e^(-rT)
-    const diff = call.price - put.price;
-    const expected = S - K * Math.exp(-r * T);
-    expect(diff).toBeCloseTo(expected, 1);
-  });
-
-  it('handles expired option', () => {
-    const greeks = calculateGreeks({ ...baseParams, strike: 90, timeToExpiry: 0 });
-    expect(greeks.intrinsicValue).toBe(10); // S=100, K=90
-    expect(greeks.timeValue).toBe(0);
-  });
-
-  it('computes moneyness', () => {
-    const greeks = calculateGreeks(baseParams);
-    expect(greeks.moneyness).toBe(1);
-  });
-
-  it('ITM call has higher delta', () => {
-    const itm = calculateGreeks({ ...baseParams, strike: 90 });
-    const atm = calculateGreeks(baseParams);
-    expect(itm.delta).toBeGreaterThan(atm.delta);
-  });
-});
-
-describe('impliedVolatility', () => {
-  it('recovers known volatility', () => {
-    const params: Omit<import('../utils/optionsGreeksEngine').OptionParams, 'volatility'> = {
-      spot: 100, strike: 100, timeToExpiry: 0.25, riskFreeRate: 0.05, type: 'call',
-    };
-    const { price } = calculateGreeks({ ...params, volatility: 0.25 });
-    const iv = impliedVolatility(price, params);
-    expect(iv).toBeCloseTo(0.25, 2);
-  });
-
-  it('returns null if cannot converge', () => {
-    const iv = impliedVolatility(-100, {
-      spot: 100, strike: 100, timeToExpiry: 0.25, riskFreeRate: 0.05, type: 'call',
+  describe('看涨期权Greeks', () => {
+    it('应该计算正确的价格', () => {
+      const greeks = engine.calculateGreeks(callParams);
+      expect(greeks.price).toBeGreaterThan(0);
+      expect(greeks.price).toBeCloseTo(6.89, 1); // ATM call约6.89
     });
-    expect(iv).toBeNull();
-  });
-});
 
-describe('portfolioGreeks', () => {
-  it('sums positions', () => {
-    const positions = [
-      {
-        params: { spot: 100, strike: 100, timeToExpiry: 0.25, riskFreeRate: 0.05, volatility: 0.2, type: 'call' as const },
-        quantity: 2,
-      },
-      {
-        params: { spot: 100, strike: 100, timeToExpiry: 0.25, riskFreeRate: 0.05, volatility: 0.2, type: 'put' as const },
-        quantity: -1,
-      },
-    ];
-    const greeks = portfolioGreeks(positions);
-    expect(greeks.delta).not.toBe(0);
+    it('Delta应在0-1之间', () => {
+      const greeks = engine.calculateGreeks(callParams);
+      expect(greeks.delta).toBeGreaterThan(0);
+      expect(greeks.delta).toBeLessThanOrEqual(1);
+      expect(greeks.delta).toBeCloseTo(0.61, 1); // ATM约0.61
+    });
+
+    it('Gamma应为正数', () => {
+      const greeks = engine.calculateGreeks(callParams);
+      expect(greeks.gamma).toBeGreaterThan(0);
+    });
+
+    it('Theta应为负数(时间衰减)', () => {
+      const greeks = engine.calculateGreeks(callParams);
+      expect(greeks.theta).toBeLessThan(0);
+    });
+
+    it('Vega应为正数', () => {
+      const greeks = engine.calculateGreeks(callParams);
+      expect(greeks.vega).toBeGreaterThan(0);
+    });
+
+    it('内在价值+时间价值=期权价格', () => {
+      const greeks = engine.calculateGreeks(callParams);
+      expect(greeks.intrinsicValue + greeks.timeValue).toBeCloseTo(greeks.price, 2);
+    });
   });
 
-  it('handles empty portfolio', () => {
-    const greeks = portfolioGreeks([]);
-    expect(greeks.price).toBe(0);
-    expect(greeks.delta).toBe(0);
+  describe('看跌期权Greeks', () => {
+    it('Delta应在-1到0之间', () => {
+      const greeks = engine.calculateGreeks(putParams);
+      expect(greeks.delta).toBeGreaterThan(-1);
+      expect(greeks.delta).toBeLessThanOrEqual(0);
+    });
+
+    it('Gamma应为正数', () => {
+      const greeks = engine.calculateGreeks(putParams);
+      expect(greeks.gamma).toBeGreaterThan(0);
+    });
+
+    it('价格应满足Put-Call Parity', () => {
+      const callGreeks = engine.calculateGreeks(callParams);
+      const putGreeks = engine.calculateGreeks(putParams);
+      const { spot, strike, timeToExpiry, riskFreeRate } = callParams;
+      // C - P = S - K * e^(-rT)
+      const parity = callGreeks.price - putGreeks.price;
+      const expected = spot - strike * Math.exp(-riskFreeRate * timeToExpiry);
+      expect(parity).toBeCloseTo(expected, 2);
+    });
+  });
+
+  describe('实值/虚值期权', () => {
+    it('实值看涨Delta应>0.5', () => {
+      const itm = engine.calculateGreeks({ ...callParams, spot: 110, strike: 100 });
+      expect(itm.delta).toBeGreaterThan(0.5);
+    });
+
+    it('虚值看涨Delta应<0.5', () => {
+      const otm = engine.calculateGreeks({ ...callParams, spot: 90, strike: 100 });
+      expect(otm.delta).toBeLessThan(0.5);
+    });
+
+    it('深度实值看涨Delta接近1', () => {
+      const deepItm = engine.calculateGreeks({ ...callParams, spot: 200, strike: 100 });
+      expect(deepItm.delta).toBeGreaterThan(0.95);
+    });
+
+    it('深度虚值看涨Delta接近0', () => {
+      const deepOtm = engine.calculateGreeks({ ...callParams, spot: 50, strike: 100 });
+      expect(deepOtm.delta).toBeLessThan(0.05);
+    });
+  });
+
+  describe('到期处理', () => {
+    it('到期时期权价值等于内在价值', () => {
+      const expired = engine.calculateGreeks({ ...callParams, timeToExpiry: 0 });
+      expect(expired.price).toBe(expired.intrinsicValue);
+      expect(expired.timeValue).toBe(0);
+      expect(expired.gamma).toBe(0);
+      expect(expired.vega).toBe(0);
+    });
+
+    it('到期实值看涨Delta为1', () => {
+      const expired = engine.calculateGreeks({ ...callParams, spot: 110, timeToExpiry: 0 });
+      expect(expired.delta).toBe(1);
+    });
+  });
+
+  describe('隐含波动率反算', () => {
+    it('应该反算出正确的波动率', () => {
+      const greeks = engine.calculateGreeks(callParams);
+      const iv = engine.impliedVolatility(greeks.price, callParams);
+      expect(iv).toBeCloseTo(callParams.volatility, 1);
+    });
+
+    it('无法收敛时应返回合理值', () => {
+      const iv = engine.impliedVolatility(-1, callParams); // 负价格不可能
+      expect(iv).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Greeks敏感度', () => {
+    it('应该计算Gamma(二阶导数)', () => {
+      const sens = engine.calculateSensitivity(callParams);
+      expect(sens.spotChange.gamma).toBeGreaterThan(0);
+    });
+
+    it('应该计算Vomma(波动率敏感度)', () => {
+      const sens = engine.calculateSensitivity(callParams);
+      expect(typeof sens.volChange.vomma).toBe('number');
+    });
+
+    it('应该计算Charm(Delta衰减)', () => {
+      const sens = engine.calculateSensitivity(callParams);
+      expect(typeof sens.timeDecay.charm).toBe('number');
+    });
+  });
+
+  describe('组合Greeks', () => {
+    it('应该汇总多个头寸', () => {
+      const positions = [
+        { params: callParams, quantity: 1 },
+        { params: putParams, quantity: -1 },
+      ];
+      const portfolio = engine.portfolioGreeks(positions);
+      expect(portfolio.price).toBeGreaterThan(0);
+      expect(portfolio.delta).toBeGreaterThan(0); // 买call卖put = 合成多头
+    });
+
+    it('空头头寸应该反转符号', () => {
+      const long = engine.calculateGreeks(callParams);
+      const portfolio = engine.portfolioGreeks([{ params: callParams, quantity: -1 }]);
+      expect(portfolio.delta).toBeCloseTo(-long.delta, 3);
+    });
+
+    it('空组合应返回零', () => {
+      const portfolio = engine.portfolioGreeks([]);
+      expect(portfolio.price).toBe(0);
+      expect(portfolio.delta).toBe(0);
+    });
   });
 });

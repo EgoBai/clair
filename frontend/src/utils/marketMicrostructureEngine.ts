@@ -1,449 +1,184 @@
 /**
- * Market Microstructure Analysis Engine
- * 市场微观结构分析引擎 - 订单流分析、流动性分析、市场冲击模型
+ * 市场微观结构分析引擎
+ * - 买卖价差分析
+ * - 订单簿不平衡
+ * - 流动性指标
+ * - 价格冲击估计
  */
 
 export interface OrderBookLevel {
   price: number;
-  quantity: number;
-  orders: number;
+  volume: number;
 }
 
 export interface OrderBook {
-  symbol: string;
-  timestamp: number;
   bids: OrderBookLevel[];
   asks: OrderBookLevel[];
+  timestamp: number;
 }
 
 export interface TradeTick {
-  timestamp: number;
   price: number;
-  quantity: number;
-  direction: 'buy' | 'sell' | 'unknown';
-  aggressor: 'bid' | 'ask' | 'unknown';
-}
-
-export interface LiquidityMetrics {
-  bidAskSpread: number;
-  bidAskSpreadPercent: number;
-  bidDepth: number;
-  askDepth: number;
-  depthImbalance: number;
-  effectiveSpread: number;
-  realizedSpread: number;
-  priceImpact: number;
-  liquidityScore: number;
-}
-
-export interface VolumeProfile {
-  priceLevel: number;
   volume: number;
-  buyVolume: number;
-  sellVolume: number;
-  poc: boolean; // Point of Control
-  valueAreaHigh: number;
-  valueAreaLow: number;
-}
-
-export interface OrderFlowImbalance {
   timestamp: number;
-  buyVolume: number;
-  sellVolume: number;
-  netFlow: number;
-  cumulativeFlow: number;
-  delta: number;
+  aggressor: 'buy' | 'sell';
 }
 
-export interface MarketImpactModel {
-  symbol: string;
-  temporaryImpact: number;
-  permanentImpact: number;
-  totalImpact: number;
-  participationRate: number;
-  optimalExecutionTime: number;
-}
-
-export interface TWAPResult {
-  slices: { time: string; price: number; quantity: number }[];
-  averagePrice: number;
-  totalQuantity: number;
-  benchmark: number;
-  slippage: number;
+export interface MicrostructureResult {
+  spread: number;            // 绝对价差
+  spreadBps: number;         // 基点价差
+  midPrice: number;          // 中间价
+  orderImbalance: number;    // -1到1, 正=买方压力
+  liquidityScore: number;    // 0-100
+  effectiveSpread: number;   // 有效价差
+  priceImpact: number;       // 价格冲击(bps)
+  depth: { bid: number; ask: number }; // 买卖深度
 }
 
 export interface VWAPResult {
-  averagePrice: number;
-  totalVolume: number;
-  benchmark: number;
-  slippage: number;
-  participationRate: number;
+  vwap: number;
+  twap: number;
+  participation: number;   // 参与率(%)
+  slippage: number;        // 滑点(bps)
 }
 
-export function calculateBidAskSpread(bids: OrderBookLevel[], asks: OrderBookLevel[]): number {
-  if (bids.length === 0 || asks.length === 0) return 0;
-  return asks[0].price - bids[0].price;
-}
+export class MarketMicrostructureEngine {
+  /**
+   * 分析订单簿微观结构
+   */
+  analyzeOrderBook(book: OrderBook, levels: number = 5): MicrostructureResult {
+    const topBids = book.bids.slice(0, levels);
+    const topAsks = book.asks.slice(0, levels);
 
-export function calculateMidPrice(bids: OrderBookLevel[], asks: OrderBookLevel[]): number {
-  if (bids.length === 0 || asks.length === 0) return 0;
-  return (asks[0].price + bids[0].price) / 2;
-}
-
-export function calculateWeightedMidPrice(bids: OrderBookLevel[], asks: OrderBookLevel[]): number {
-  if (bids.length === 0 || asks.length === 0) return 0;
-  const bidWeight = bids[0].quantity;
-  const askWeight = asks[0].quantity;
-  const total = bidWeight + askWeight;
-  if (total === 0) return calculateMidPrice(bids, asks);
-  return (bids[0].price * askWeight + asks[0].price * bidWeight) / total;
-}
-
-export function calculateOrderBookImbalance(
-  bids: OrderBookLevel[],
-  asks: OrderBookLevel[],
-  levels: number = 5
-): number {
-  const bidDepth = bids.slice(0, levels).reduce((sum, b) => sum + b.quantity, 0);
-  const askDepth = asks.slice(0, levels).reduce((sum, a) => sum + a.quantity, 0);
-  const total = bidDepth + askDepth;
-  return total > 0 ? (bidDepth - askDepth) / total : 0;
-}
-
-export function calculateDepth(bids: OrderBookLevel[], asks: OrderBookLevel[], levels: number = 5): {
-  bidDepth: number;
-  askDepth: number;
-  totalDepth: number;
-} {
-  const bidDepth = bids.slice(0, levels).reduce((sum, b) => sum + b.quantity, 0);
-  const askDepth = asks.slice(0, levels).reduce((sum, a) => sum + a.quantity, 0);
-  return { bidDepth, askDepth, totalDepth: bidDepth + askDepth };
-}
-
-export function calculateLiquidityMetrics(orderBook: OrderBook): LiquidityMetrics {
-  const { bids, asks } = orderBook;
-  const spread = calculateBidAskSpread(bids, asks);
-  const mid = calculateMidPrice(bids, asks);
-  const spreadPercent = mid > 0 ? spread / mid * 100 : 0;
-  const { bidDepth, askDepth } = calculateDepth(bids, asks);
-  const imbalance = calculateOrderBookImbalance(bids, asks);
-
-  // Simplified effective spread (using first level)
-  const effectiveSpread = spread;
-  // Simplified realized spread
-  const realizedSpread = spread * 0.5;
-  // Price impact estimate
-  const priceImpact = imbalance * spread * 0.1;
-  // Liquidity score (0-100)
-  const liquidityScore = Math.min(100, Math.max(0,
-    100 - spreadPercent * 10 - Math.abs(imbalance) * 20
-  ));
-
-  return {
-    bidAskSpread: spread,
-    bidAskSpreadPercent: spreadPercent,
-    bidDepth,
-    askDepth,
-    depthImbalance: imbalance,
-    effectiveSpread,
-    realizedSpread,
-    priceImpact,
-    liquidityScore,
-  };
-}
-
-export function calculateVolumeProfile(
-  ticks: TradeTick[],
-  priceStep: number = 0.01
-): VolumeProfile[] {
-  if (ticks.length === 0) return [];
-
-  const priceVolumes = new Map<number, { volume: number; buyVolume: number; sellVolume: number }>();
-
-  for (const tick of ticks) {
-    const level = Math.round(tick.price / priceStep) * priceStep;
-    const existing = priceVolumes.get(level) ?? { volume: 0, buyVolume: 0, sellVolume: 0 };
-    existing.volume += tick.quantity;
-    if (tick.direction === 'buy') existing.buyVolume += tick.quantity;
-    else if (tick.direction === 'sell') existing.sellVolume += tick.quantity;
-    priceVolumes.set(level, existing);
-  }
-
-  const profiles: VolumeProfile[] = [];
-  let maxVolume = 0;
-  let pocPrice = 0;
-
-  for (const [priceLevel, data] of priceVolumes) {
-    profiles.push({
-      priceLevel,
-      volume: data.volume,
-      buyVolume: data.buyVolume,
-      sellVolume: data.sellVolume,
-      poc: false,
-      valueAreaHigh: 0,
-      valueAreaLow: 0,
-    });
-    if (data.volume > maxVolume) {
-      maxVolume = data.volume;
-      pocPrice = priceLevel;
+    if (topBids.length === 0 || topAsks.length === 0) {
+      return {
+        spread: 0, spreadBps: 0, midPrice: 0, orderImbalance: 0,
+        liquidityScore: 0, effectiveSpread: 0, priceImpact: 0,
+        depth: { bid: 0, ask: 0 },
+      };
     }
+
+    const bestBid = topBids[0].price;
+    const bestAsk = topAsks[0].price;
+    const spread = bestAsk - bestBid;
+    const midPrice = (bestBid + bestAsk) / 2;
+    const spreadBps = midPrice > 0 ? Math.round(spread / midPrice * 10000 * 100) / 100 : 0;
+
+    // 买卖深度
+    const bidDepth = topBids.reduce((s, l) => s + l.volume, 0);
+    const askDepth = topAsks.reduce((s, l) => s + l.volume, 0);
+
+    // 订单不平衡
+    const totalDepth = bidDepth + askDepth;
+    const orderImbalance = totalDepth > 0 ? Math.round((bidDepth - askDepth) / totalDepth * 10000) / 10000 : 0;
+
+    // 流动性评分
+    let liquidityScore = 50;
+    if (spreadBps < 5) liquidityScore += 20;
+    else if (spreadBps > 50) liquidityScore -= 20;
+    if (totalDepth > 100000) liquidityScore += 15;
+    else if (totalDepth < 10000) liquidityScore -= 15;
+    liquidityScore = Math.max(0, Math.min(100, liquidityScore));
+
+    // 有效价差 = 2 * |成交价 - 中间价|
+    const effectiveSpread = spread; // 简化
+
+    // 价格冲击估计 = spread / sqrt(depth)
+    const priceImpact = totalDepth > 0 ? Math.round(spread / Math.sqrt(totalDepth / 1000) * 10000) / 10000 : 0;
+
+    return {
+      spread: Math.round(spread * 10000) / 10000,
+      spreadBps,
+      midPrice: Math.round(midPrice * 10000) / 10000,
+      orderImbalance,
+      liquidityScore,
+      effectiveSpread: Math.round(effectiveSpread * 10000) / 10000,
+      priceImpact,
+      depth: { bid: bidDepth, ask: askDepth },
+    };
   }
 
-  // Mark POC
-  for (const p of profiles) {
-    if (p.priceLevel === pocPrice) p.poc = true;
-  }
+  /**
+   * VWAP/TWAP计算
+   */
+  calculateVWAP(ticks: TradeTick[], targetVolume: number): VWAPResult {
+    if (ticks.length === 0) return { vwap: 0, twap: 0, participation: 0, slippage: 0 };
 
-  // Calculate Value Area (70% of volume around POC)
-  const sorted = [...profiles].sort((a, b) => a.priceLevel - b.priceLevel);
-  const totalVolume = sorted.reduce((s, p) => s + p.volume, 0);
-  const targetVolume = totalVolume * 0.7;
-  let accumulatedVolume = 0;
-  let vah = pocPrice;
-  let val = pocPrice;
-
-  const pocIdx = sorted.findIndex(p => p.poc);
-  let upIdx = pocIdx;
-  let downIdx = pocIdx;
-  accumulatedVolume = sorted[pocIdx].volume;
-
-  while (accumulatedVolume < targetVolume && (upIdx < sorted.length - 1 || downIdx > 0)) {
-    const upVol = upIdx < sorted.length - 1 ? sorted[upIdx + 1].volume : 0;
-    const downVol = downIdx > 0 ? sorted[downIdx - 1].volume : 0;
-
-    if (upVol >= downVol && upIdx < sorted.length - 1) {
-      upIdx++;
-      accumulatedVolume += sorted[upIdx].volume;
-      vah = sorted[upIdx].priceLevel;
-    } else if (downIdx > 0) {
-      downIdx--;
-      accumulatedVolume += sorted[downIdx].volume;
-      val = sorted[downIdx].priceLevel;
+    // VWAP
+    let totalValue = 0, totalVolume = 0;
+    for (const t of ticks) {
+      totalValue += t.price * t.volume;
+      totalVolume += t.volume;
     }
+    const vwap = totalVolume > 0 ? totalValue / totalVolume : 0;
+
+    // TWAP
+    const twap = ticks.reduce((s, t) => s + t.price, 0) / ticks.length;
+
+    // 参与率
+    const participation = targetVolume > 0 ? Math.round(totalVolume / targetVolume * 10000) / 100 : 0;
+
+    // 滑点 = |VWAP - TWAP| / TWAP * 10000
+    const slippage = twap > 0 ? Math.round(Math.abs(vwap - twap) / twap * 10000 * 100) / 100 : 0;
+
+    return {
+      vwap: Math.round(vwap * 10000) / 10000,
+      twap: Math.round(twap * 10000) / 10000,
+      participation,
+      slippage,
+    };
   }
 
-  for (const p of profiles) {
-    p.valueAreaHigh = vah;
-    p.valueAreaLow = val;
+  /**
+   * 买卖压力分析
+   */
+  analyzeBuySellPressure(ticks: TradeTick[]): { buyPressure: number; sellPressure: number; netPressure: number; aggressorRatio: number } {
+    if (ticks.length === 0) return { buyPressure: 0, sellPressure: 0, netPressure: 0, aggressorRatio: 0.5 };
+
+    const buyVolume = ticks.filter(t => t.aggressor === 'buy').reduce((s, t) => s + t.volume, 0);
+    const sellVolume = ticks.filter(t => t.aggressor === 'sell').reduce((s, t) => s + t.volume, 0);
+    const totalVolume = buyVolume + sellVolume;
+
+    const buyPressure = totalVolume > 0 ? Math.round(buyVolume / totalVolume * 100) / 100 : 0;
+    const sellPressure = totalVolume > 0 ? Math.round(sellVolume / totalVolume * 100) / 100 : 0;
+    const netPressure = Math.round((buyPressure - sellPressure) * 100) / 100;
+    const aggressorRatio = totalVolume > 0 ? Math.round(buyVolume / totalVolume * 100) / 100 : 0.5;
+
+    return { buyPressure, sellPressure, netPressure, aggressorRatio };
   }
 
-  return profiles.sort((a, b) => b.priceLevel - a.priceLevel);
-}
+  /**
+   * 最优执行策略估计
+   */
+  estimateOptimalExecution(totalShares: number, book: OrderBook, urgency: 'low' | 'medium' | 'high'): { slices: number; timeEstimate: number; expectedCost: number } {
+    const depth = book.bids.reduce((s, l) => s + l.volume, 0) + book.asks.reduce((s, l) => s + l.volume, 0);
+    const avgSliceSize = depth > 0 ? Math.max(100, Math.floor(depth / 20)) : totalShares;
 
-export function calculateOrderFlowImbalance(
-  ticks: TradeTick[],
-  windowSeconds: number = 60
-): OrderFlowImbalance[] {
-  if (ticks.length === 0) return [];
-
-  const sorted = [...ticks].sort((a, b) => a.timestamp - b.timestamp);
-  const startTime = sorted[0].timestamp;
-  const endTime = sorted[sorted.length - 1].timestamp;
-  const results: OrderFlowImbalance[] = [];
-  let cumulativeFlow = 0;
-
-  for (let t = startTime; t <= endTime; t += windowSeconds * 1000) {
-    const windowTicks = sorted.filter(tick => tick.timestamp >= t && tick.timestamp < t + windowSeconds * 1000);
-    const buyVolume = windowTicks.filter(tick => tick.direction === 'buy').reduce((s, tick) => s + tick.quantity, 0);
-    const sellVolume = windowTicks.filter(tick => tick.direction === 'sell').reduce((s, tick) => s + tick.quantity, 0);
-    const netFlow = buyVolume - sellVolume;
-    cumulativeFlow += netFlow;
-
-    results.push({
-      timestamp: t,
-      buyVolume,
-      sellVolume,
-      netFlow,
-      cumulativeFlow,
-      delta: buyVolume + sellVolume > 0 ? netFlow / (buyVolume + sellVolume) : 0,
-    });
-  }
-
-  return results;
-}
-
-export function estimateMarketImpact(
-  orderSize: number,
-  avgDailyVolume: number,
-  volatility: number,
-  spread: number
-): MarketImpactModel {
-  const participationRate = avgDailyVolume > 0 ? orderSize / avgDailyVolume : 0;
-  // Almgren-Chriss inspired model
-  const temporaryImpact = spread * 0.5 * Math.pow(participationRate, 0.5);
-  const permanentImpact = volatility * participationRate * 0.1;
-  const totalImpact = temporaryImpact + permanentImpact;
-  // Optimal execution time (hours) to keep participation under 10%
-  const optimalExecutionTime = participationRate > 0.1
-    ? orderSize / (avgDailyVolume * 0.1 / 6.5)
-    : 0;
-
-  return {
-    symbol: '',
-    temporaryImpact,
-    permanentImpact,
-    totalImpact,
-    participationRate,
-    optimalExecutionTime,
-  };
-}
-
-export function calculateTWAP(
-  ticks: TradeTick[],
-  targetQuantity: number,
-  startTime: number,
-  endTime: number,
-  slices: number = 10
-): TWAPResult {
-  const sliceDuration = (endTime - startTime) / slices;
-  const sliceResults: { time: string; price: number; quantity: number }[] = [];
-  let totalQty = 0;
-  let totalPriceQty = 0;
-
-  for (let i = 0; i < slices; i++) {
-    const sliceStart = startTime + i * sliceDuration;
-    const sliceEnd = sliceStart + sliceDuration;
-    const sliceTicks = ticks.filter(t => t.timestamp >= sliceStart && t.timestamp < sliceEnd);
-
-    const sliceQty = Math.min(targetQuantity / slices, targetQuantity - totalQty);
-    const avgPrice = sliceTicks.length > 0
-      ? sliceTicks.reduce((s, t) => s + t.price * t.quantity, 0) / sliceTicks.reduce((s, t) => s + t.quantity, 0)
-      : (sliceTicks.length > 0 ? sliceTicks[0].price : 0);
-
-    sliceResults.push({
-      time: new Date(sliceStart).toISOString(),
-      price: avgPrice,
-      quantity: sliceQty,
-    });
-
-    totalQty += sliceQty;
-    totalPriceQty += avgPrice * sliceQty;
-  }
-
-  const averagePrice = totalQty > 0 ? totalPriceQty / totalQty : 0;
-  const benchmark = ticks.length > 0
-    ? ticks.reduce((s, t) => s + t.price, 0) / ticks.length
-    : 0;
-
-  return {
-    slices: sliceResults,
-    averagePrice,
-    totalQuantity: totalQty,
-    benchmark,
-    slippage: averagePrice - benchmark,
-  };
-}
-
-export function calculateVWAP(
-  ticks: TradeTick[],
-  startTime?: number,
-  endTime?: number
-): VWAPResult {
-  const filtered = ticks.filter(t => {
-    if (startTime && t.timestamp < startTime) return false;
-    if (endTime && t.timestamp > endTime) return false;
-    return true;
-  });
-
-  let totalPriceVolume = 0;
-  let totalVolume = 0;
-
-  for (const tick of filtered) {
-    totalPriceVolume += tick.price * tick.quantity;
-    totalVolume += tick.quantity;
-  }
-
-  const averagePrice = totalVolume > 0 ? totalPriceVolume / totalVolume : 0;
-  const benchmark = filtered.length > 0
-    ? filtered.reduce((s, t) => s + t.price, 0) / filtered.length
-    : 0;
-
-  return {
-    averagePrice,
-    totalVolume,
-    benchmark,
-    slippage: averagePrice - benchmark,
-    participationRate: 0,
-  };
-}
-
-export function classifyTradeDirection(
-  trade: TradeTick,
-  bid: number,
-  ask: number
-): 'buy' | 'sell' | 'unknown' {
-  if (trade.price >= ask) return 'buy';
-  if (trade.price <= bid) return 'sell';
-  if (trade.price === bid && trade.price === ask) return 'unknown';
-  return trade.price > (bid + ask) / 2 ? 'buy' : 'sell';
-}
-
-export function calculateKyleLambda(
-  ticks: TradeTick[],
-  returnsWindow: number = 10
-): number {
-  if (ticks.length < returnsWindow + 1) return 0;
-
-  const sorted = [...ticks].sort((a, b) => a.timestamp - b.timestamp);
-  const returns: number[] = [];
-  const signedVolumes: number[] = [];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const ret = (sorted[i].price - sorted[i - 1].price) / sorted[i - 1].price;
-    const signedVol = sorted[i].direction === 'buy' ? sorted[i].quantity : -sorted[i].quantity;
-    returns.push(ret);
-    signedVolumes.push(signedVol);
-  }
-
-  // Kyle's lambda = cov(return, signed volume) / var(signed volume)
-  const n = returns.length;
-  const meanRet = returns.reduce((a, b) => a + b, 0) / n;
-  const meanVol = signedVolumes.reduce((a, b) => a + b, 0) / n;
-
-  let cov = 0;
-  let varVol = 0;
-  for (let i = 0; i < n; i++) {
-    cov += (returns[i] - meanRet) * (signedVolumes[i] - meanVol);
-    varVol += (signedVolumes[i] - meanVol) ** 2;
-  }
-
-  return varVol > 0 ? cov / varVol : 0;
-}
-
-export function calculateAmihudIlliquidity(
-  prices: number[],
-  volumes: number[]
-): number {
-  const n = Math.min(prices.length, volumes.length);
-  if (n < 2) return 0;
-
-  let totalRatio = 0;
-  let count = 0;
-
-  for (let i = 1; i < n; i++) {
-    const ret = Math.abs((prices[i] - prices[i - 1]) / prices[i - 1]);
-    const dollarVolume = prices[i] * volumes[i];
-    if (dollarVolume > 0) {
-      totalRatio += ret / dollarVolume;
-      count++;
+    let slices: number, timeEstimate: number;
+    switch (urgency) {
+      case 'low':
+        slices = Math.ceil(totalShares / avgSliceSize);
+        timeEstimate = slices * 60; // 每片1分钟
+        break;
+      case 'medium':
+        slices = Math.ceil(totalShares / (avgSliceSize * 2));
+        timeEstimate = slices * 30;
+        break;
+      case 'high':
+        slices = Math.ceil(totalShares / (avgSliceSize * 5));
+        timeEstimate = slices * 10;
+        break;
     }
-  }
 
-  return count > 0 ? totalRatio / count : 0;
+    // 预期交易成本(bps)
+    const spread = book.asks.length > 0 && book.bids.length > 0 ? book.asks[0].price - book.bids[0].price : 0;
+    const midPrice = book.asks.length > 0 && book.bids.length > 0 ? (book.asks[0].price + book.bids[0].price) / 2 : 1;
+    const spreadCost = midPrice > 0 ? spread / midPrice * 10000 / 2 : 0;
+    const impactCost = totalShares / Math.max(1, depth) * 10;
+    const expectedCost = Math.round((spreadCost + impactCost) * 100) / 100;
+
+    return { slices, timeEstimate, expectedCost };
+  }
 }
 
-export function calculateRollSpread(
-  prices: number[]
-): number {
-  if (prices.length < 3) return 0;
-
-  let cov = 0;
-  for (let i = 1; i < prices.length; i++) {
-    const dp1 = prices[i] - prices[i - 1];
-    const dp2 = i >= 2 ? prices[i - 1] - prices[i - 2] : 0;
-    cov += dp1 * dp2;
-  }
-  cov /= prices.length - 1;
-
-  return cov < 0 ? 2 * Math.sqrt(-cov) : 0;
-}
+export default new MarketMicrostructureEngine();

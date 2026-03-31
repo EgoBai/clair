@@ -1,358 +1,250 @@
 /**
  * 配对交易引擎
- * - 协整检验(ADF/KPSS近似)
- * - 价差计算与标准化
- * - 均值回归信号
- * - 半衰期计算
- * - 配对评分(协整强度+相关性+流动性)
- * - 进出场信号
- * - 风险控制
+ * - 协整性检验
+ * - 价差/Z-Score计算
+ * - 交易信号生成
+ * - 回测绩效
  */
+
+export interface PairData {
+  assetA: number[];
+  assetB: number[];
+  timestamps: string[];
+}
 
 export interface CointegrationResult {
   isCointegrated: boolean;
-  adfStatistic: number;
-  pValue: number; // 近似p值
-  halfLife: number;
   hedgeRatio: number;
+  spreadMean: number;
+  spreadStd: number;
+  halfLife: number;
+  adfStatistic: number;
+  pValue: number;
 }
 
-export interface SpreadAnalysis {
-  mean: number;
-  std: number;
-  currentZScore: number;
-  maxZScore: number;
-  minZScore: number;
-  meanReversionStrength: number;
-}
-
-export interface PairSignal {
-  action: 'long_spread' | 'short_spread' | 'close' | 'hold';
+export interface SpreadSignal {
+  timestamp: string;
+  spread: number;
   zScore: number;
-  entryThreshold: number;
-  exitThreshold: number;
-  stopLoss: number;
+  signal: 'long_spread' | 'short_spread' | 'exit' | 'hold';
   confidence: number;
 }
 
-export interface PairScore {
-  cointegrationScore: number; // 0-100
-  correlationScore: number; // 0-100
-  liquidityScore: number; // 0-100
-  totalScore: number; // 0-100
-  rating: 'excellent' | 'good' | 'fair' | 'poor';
-}
-
-export interface PairsBacktest {
-  totalTrades: number;
-  winRate: number;
-  avgReturn: number;
-  maxDrawdown: number;
+export interface PairsBacktestResult {
+  totalReturn: number;
+  annualizedReturn: number;
   sharpeRatio: number;
+  maxDrawdown: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  totalTrades: number;
   profitFactor: number;
-  avgHoldingDays: number;
 }
 
 export class PairsTradingEngine {
-  private entryZ: number;
-  private exitZ: number;
-  private stopZ: number;
+  /**
+   * 简单线性回归
+   */
+  private linearRegression(x: number[], y: number[]): { slope: number; intercept: number; residuals: number[] } {
+    const n = Math.min(x.length, y.length);
+    const xMean = x.slice(0, n).reduce((a, b) => a + b, 0) / n;
+    const yMean = y.slice(0, n).reduce((a, b) => a + b, 0) / n;
 
-  constructor(entryZ = 2.0, exitZ = 0.5, stopZ = 3.5) {
-    this.entryZ = entryZ;
-    this.exitZ = exitZ;
-    this.stopZ = stopZ;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) {
+      num += (x[i] - xMean) * (y[i] - yMean);
+      den += (x[i] - xMean) ** 2;
+    }
+
+    const slope = den > 0 ? num / den : 0;
+    const intercept = yMean - slope * xMean;
+    const residuals = [];
+    for (let i = 0; i < n; i++) {
+      residuals.push(y[i] - (slope * x[i] + intercept));
+    }
+
+    return { slope, intercept, residuals };
   }
 
   /**
-   * 协整检验(ADF近似)
+   * 协整性检验(简化ADF)
    */
-  testCointegration(series1: number[], series2: number[]): CointegrationResult {
-    if (series1.length !== series2.length || series1.length < 30) {
-      return { isCointegrated: false, adfStatistic: 0, pValue: 1, halfLife: 0, hedgeRatio: 0 };
+  testCointegration(data: PairData, lookback: number = 60): CointegrationResult {
+    const a = data.assetA.slice(-lookback);
+    const b = data.assetB.slice(-lookback);
+
+    // 回归 B ~ A
+    const reg = this.linearRegression(a, b);
+    const hedgeRatio = Math.round(reg.slope * 10000) / 10000;
+    const spread = reg.residuals;
+
+    const n = spread.length;
+    const spreadMean = spread.reduce((s, v) => s + v, 0) / n;
+    const spreadVar = spread.reduce((s, v) => s + (v - spreadMean) ** 2, 0) / n;
+    const spreadStd = Math.sqrt(spreadVar);
+
+    // 半衰期(AR(1)模型)
+    let num = 0, den = 0;
+    for (let i = 1; i < n; i++) {
+      num += (spread[i - 1] - spreadMean) * (spread[i] - spread[i - 1]);
+      den += (spread[i - 1] - spreadMean) ** 2;
     }
+    const beta = den > 0 ? num / den : 0;
+    const halfLife = beta < 0 ? Math.round(-Math.log(2) / Math.log(1 + beta) * 100) / 100 : n;
 
-    // OLS回归: series1 = α + β * series2 + ε
-    const { beta: hedgeRatio, residuals } = this.olsRegress(series1, series2);
+    // ADF统计量(简化)
+    const adfStatistic = Math.round(beta / (spreadStd / Math.sqrt(n)) * 100) / 100;
 
-    // ADF检验残差
-    const { adfStatistic, pValue } = this.adfTest(residuals);
-
-    // 半衰期
-    const halfLife = this.calcHalfLife(residuals);
-
-    // 协整判断: ADF统计量 < -3.0 近似 p < 0.05
-    const isCointegrated = adfStatistic < -3.0 && halfLife > 0 && halfLife < 120;
+    // 简化p值判断
+    const isCointegrated = adfStatistic < -2.5 && halfLife > 0 && halfLife < 100;
+    const pValue = isCointegrated ? 0.05 : 0.5;
 
     return {
       isCointegrated,
-      adfStatistic: Math.round(adfStatistic * 1000) / 1000,
-      pValue: Math.round(pValue * 10000) / 10000,
-      halfLife: Math.round(halfLife * 10) / 10,
-      hedgeRatio: Math.round(hedgeRatio * 10000) / 10000,
+      hedgeRatio,
+      spreadMean: Math.round(spreadMean * 10000) / 10000,
+      spreadStd: Math.round(spreadStd * 10000) / 10000,
+      halfLife,
+      adfStatistic,
+      pValue,
     };
   }
 
   /**
-   * 分析价差
+   * 生成价差交易信号
    */
-  analyzeSpread(series1: number[], series2: number[], hedgeRatio?: number): SpreadAnalysis {
-    const hr = hedgeRatio ?? this.olsRegress(series1, series2).beta;
-    const spread = series1.map((s1, i) => s1 - hr * series2[i]);
-
-    const mean = spread.reduce((a, b) => a + b, 0) / spread.length;
-    const std = Math.sqrt(spread.reduce((s, v) => s + (v - mean) ** 2, 0) / (spread.length - 1));
-
-    const zScores = spread.map(s => std > 0 ? (s - mean) / std : 0);
-    const currentZScore = zScores[zScores.length - 1];
-    const maxZScore = Math.max(...zScores);
-    const minZScore = Math.min(...zScores);
-
-    // 均值回归强度: AR(1)系数
-    const ar1 = this.calcAR1(spread);
-    const meanReversionStrength = Math.max(0, 1 - ar1);
-
-    return {
-      mean: Math.round(mean * 10000) / 10000,
-      std: Math.round(std * 10000) / 10000,
-      currentZScore: Math.round(currentZScore * 100) / 100,
-      maxZScore: Math.round(maxZScore * 100) / 100,
-      minZScore: Math.round(minZScore * 100) / 100,
-      meanReversionStrength: Math.round(meanReversionStrength * 10000) / 10000,
-    };
-  }
-
-  /**
-   * 生成交易信号
-   */
-  generateSignal(spread: SpreadAnalysis, lookback = 60): PairSignal {
-    const z = spread.currentZScore;
-
-    let action: PairSignal['action'];
-    let confidence: number;
-
-    if (z > this.entryZ) {
-      action = 'short_spread';
-      confidence = Math.min(1, 0.5 + (z - this.entryZ) / 4);
-    } else if (z < -this.entryZ) {
-      action = 'long_spread';
-      confidence = Math.min(1, 0.5 + (-z - this.entryZ) / 4);
-    } else if (Math.abs(z) < this.exitZ) {
-      action = 'close';
-      confidence = 0.8;
-    } else {
-      action = 'hold';
-      confidence = 0.5;
-    }
-
-    return {
-      action,
-      zScore: z,
-      entryThreshold: this.entryZ,
-      exitThreshold: this.exitZ,
-      stopLoss: this.stopZ,
-      confidence: Math.round(confidence * 100) / 100,
-    };
-  }
-
-  /**
-   * 配对评分
-   */
-  scorePair(
-    series1: number[],
-    series2: number[],
-    avgVolume1: number,
-    avgVolume2: number,
-  ): PairScore {
-    const coint = this.testCointegration(series1, series2);
-
-    // 协整评分
-    const cointegrationScore = coint.isCointegrated
-      ? Math.min(100, Math.max(0, (Math.abs(coint.adfStatistic) - 2) * 25))
-      : 0;
-
-    // 相关性评分
-    const corr = this.calcCorrelation(series1, series2);
-    const correlationScore = Math.abs(corr) * 100;
-
-    // 流动性评分(对数体积)
-    const avgVol = (avgVolume1 + avgVolume2) / 2;
-    const liquidityScore = Math.min(100, Math.log10(avgVol + 1) * 20);
-
-    const totalScore = cointegrationScore * 0.5 + correlationScore * 0.3 + liquidityScore * 0.2;
-
-    let rating: PairScore['rating'];
-    if (totalScore > 75) rating = 'excellent';
-    else if (totalScore > 55) rating = 'good';
-    else if (totalScore > 35) rating = 'fair';
-    else rating = 'poor';
-
-    return {
-      cointegrationScore: Math.round(cointegrationScore * 10) / 10,
-      correlationScore: Math.round(correlationScore * 10) / 10,
-      liquidityScore: Math.round(liquidityScore * 10) / 10,
-      totalScore: Math.round(totalScore * 10) / 10,
-      rating,
-    };
-  }
-
-  /**
-   * 配对交易回测
-   */
-  backtestPairs(
-    series1: number[],
-    series2: number[],
+  generateSignals(
+    data: PairData,
+    hedgeRatio: number,
+    entryThreshold: number = 2,
+    exitThreshold: number = 0.5,
     lookback: number = 60,
-  ): PairsBacktest {
-    if (series1.length < lookback + 20) {
-      return { totalTrades: 0, winRate: 0, avgReturn: 0, maxDrawdown: 0, sharpeRatio: 0, profitFactor: 0, avgHoldingDays: 0 };
+  ): SpreadSignal[] {
+    const signals: SpreadSignal[] = [];
+    const n = data.assetA.length;
+
+    // 计算滚动均值和标准差
+    for (let i = lookback; i < n; i++) {
+      const windowA = data.assetA.slice(i - lookback, i);
+      const windowB = data.assetB.slice(i - lookback, i);
+
+      const spreads = windowA.map((a, j) => a - hedgeRatio * windowB[j]);
+      const mean = spreads.reduce((s, v) => s + v, 0) / spreads.length;
+      const std = Math.sqrt(spreads.reduce((s, v) => s + (v - mean) ** 2, 0) / spreads.length);
+
+      const currentSpread = data.assetA[i] - hedgeRatio * data.assetB[i];
+      const zScore = std > 0 ? (currentSpread - mean) / std : 0;
+
+      let signal: SpreadSignal['signal'];
+      let confidence: number;
+
+      if (zScore > entryThreshold) {
+        signal = 'short_spread';
+        confidence = Math.min(1, Math.abs(zScore) / 3);
+      } else if (zScore < -entryThreshold) {
+        signal = 'long_spread';
+        confidence = Math.min(1, Math.abs(zScore) / 3);
+      } else if (Math.abs(zScore) < exitThreshold) {
+        signal = 'exit';
+        confidence = 1 - Math.abs(zScore) / exitThreshold;
+      } else {
+        signal = 'hold';
+        confidence = 0;
+      }
+
+      signals.push({
+        timestamp: data.timestamps[i] || `${i}`,
+        spread: Math.round(currentSpread * 10000) / 10000,
+        zScore: Math.round(zScore * 10000) / 10000,
+        signal,
+        confidence: Math.round(confidence * 100) / 100,
+      });
     }
 
-    const { beta: hr } = this.olsRegress(series1, series2);
-    const spread = series1.map((s1, i) => s1 - hr * series2[i]);
+    return signals;
+  }
 
-    const trades: Array<{ return: number; days: number }> = [];
-    let position = 0;
-    let entryIdx = 0;
+  /**
+   * 简化回测
+   */
+  backtest(signals: SpreadSignal[], data: PairData, hedgeRatio: number): PairsBacktestResult {
+    let position = 0; // 1=long spread, -1=short spread
+    let entrySpread = 0;
+    const returns: number[] = [];
+    let wins = 0, losses = 0, totalTrades = 0;
+    let totalWin = 0, totalLoss = 0;
 
-    for (let i = lookback; i < spread.length; i++) {
-      const window = spread.slice(i - lookback, i);
-      const mean = window.reduce((a, b) => a + b, 0) / lookback;
-      const std = Math.sqrt(window.reduce((s, v) => s + (v - mean) ** 2, 0) / (lookback - 1));
-      const z = std > 0 ? (spread[i] - mean) / std : 0;
+    for (let i = 1; i < signals.length; i++) {
+      const sig = signals[i];
+      const prevIdx = i + 60; // offset for lookback
 
       if (position === 0) {
-        if (z > this.entryZ) { position = -1; entryIdx = i; }
-        else if (z < -this.entryZ) { position = 1; entryIdx = i; }
-      } else if (position === 1) {
-        if (z >= this.exitZ || z < -this.stopZ) {
-          trades.push({ return: (spread[i] - spread[entryIdx]) / Math.abs(spread[entryIdx] || 1), days: i - entryIdx });
-          position = 0;
-        }
+        if (sig.signal === 'long_spread') { position = 1; entrySpread = sig.spread; }
+        else if (sig.signal === 'short_spread') { position = -1; entrySpread = sig.spread; }
       } else {
-        if (z <= -this.exitZ || z > this.stopZ) {
-          trades.push({ return: (spread[entryIdx] - spread[i]) / Math.abs(spread[entryIdx] || 1), days: i - entryIdx });
+        const pnl = position * (sig.spread - entrySpread);
+        returns.push(pnl);
+
+        if (sig.signal === 'exit' || (position === 1 && sig.zScore > 0) || (position === -1 && sig.zScore < 0)) {
+          totalTrades++;
+          if (pnl >= 0) { wins++; totalWin += pnl; }
+          else { losses++; totalLoss += Math.abs(pnl); }
           position = 0;
         }
       }
     }
 
-    if (trades.length === 0) {
-      return { totalTrades: 0, winRate: 0, avgReturn: 0, maxDrawdown: 0, sharpeRatio: 0, profitFactor: 0, avgHoldingDays: 0 };
+    const totalReturn = returns.reduce((a, b) => a + b, 0);
+    const mean = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+    const std = returns.length > 1 ? Math.sqrt(returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length) : 1;
+    const sharpeRatio = std > 0 ? mean / std * Math.sqrt(252) : 0;
+
+    // Max drawdown
+    let peak = 0, cumReturn = 0, maxDD = 0;
+    for (const r of returns) {
+      cumReturn += r;
+      if (cumReturn > peak) peak = cumReturn;
+      const dd = peak - cumReturn;
+      if (dd > maxDD) maxDD = dd;
     }
 
-    const returns = trades.map(t => t.return);
-    const winRate = returns.filter(r => r > 0).length / returns.length;
-    const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const avgHoldingDays = trades.reduce((s, t) => s + t.days, 0) / trades.length;
-
-    let peak = 0, cumRet = 0, maxDD = 0;
-    returns.forEach(r => { cumRet += r; peak = Math.max(peak, cumRet); maxDD = Math.min(maxDD, cumRet - peak); });
-
-    const stdRet = Math.sqrt(returns.reduce((s, r) => s + (r - avgReturn) ** 2, 0) / (returns.length - 1));
-    const sharpeRatio = stdRet > 0 ? (avgReturn / stdRet) * Math.sqrt(252 / avgHoldingDays) : 0;
-
-    const wins = returns.filter(r => r > 0).reduce((a, b) => a + b, 0);
-    const losses = Math.abs(returns.filter(r => r < 0).reduce((a, b) => a + b, 0));
-
     return {
-      totalTrades: trades.length,
-      winRate: Math.round(winRate * 10000) / 10000,
-      avgReturn: Math.round(avgReturn * 10000) / 10000,
+      totalReturn: Math.round(totalReturn * 10000) / 10000,
+      annualizedReturn: Math.round(totalReturn / Math.max(1, signals.length) * 252 * 10000) / 10000,
+      sharpeRatio: Math.round(sharpeRatio * 10000) / 10000,
       maxDrawdown: Math.round(maxDD * 10000) / 10000,
-      sharpeRatio: Math.round(sharpeRatio * 100) / 100,
-      profitFactor: losses > 0 ? Math.round((wins / losses) * 100) / 100 : wins > 0 ? 10 : 0,
-      avgHoldingDays: Math.round(avgHoldingDays * 10) / 10,
+      winRate: totalTrades > 0 ? Math.round(wins / totalTrades * 100) / 100 : 0,
+      avgWin: wins > 0 ? Math.round(totalWin / wins * 10000) / 10000 : 0,
+      avgLoss: losses > 0 ? Math.round(totalLoss / losses * 10000) / 10000 : 0,
+      totalTrades,
+      profitFactor: totalLoss > 0 ? Math.round(totalWin / totalLoss * 10000) / 10000 : totalWin > 0 ? Infinity : 0,
     };
   }
 
-  // --- Helpers ---
-
-  private olsRegress(y: number[], x: number[]): { alpha: number; beta: number; residuals: number[] } {
-    const n = x.length;
-    const meanX = x.reduce((a, b) => a + b, 0) / n;
-    const meanY = y.reduce((a, b) => a + b, 0) / n;
-
-    let num = 0, den = 0;
-    for (let i = 0; i < n; i++) {
-      num += (x[i] - meanX) * (y[i] - meanY);
-      den += (x[i] - meanX) ** 2;
+  /**
+   * 最优对冲比例(最小方差)
+   */
+  optimalHedgeRatio(assetA: number[], assetB: number[]): number {
+    const n = Math.min(assetA.length, assetB.length);
+    const returnsA = [];
+    const returnsB = [];
+    for (let i = 1; i < n; i++) {
+      returnsA.push(assetA[i] / assetA[i - 1] - 1);
+      returnsB.push(assetB[i] / assetB[i - 1] - 1);
     }
-    const beta = den > 0 ? num / den : 0;
-    const alpha = meanY - beta * meanX;
-    const residuals = y.map((yi, i) => yi - (alpha + beta * x[i]));
 
-    return { alpha, beta, residuals };
-  }
+    const m = returnsA.length;
+    const meanA = returnsA.reduce((a, b) => a + b, 0) / m;
+    const meanB = returnsB.reduce((a, b) => a + b, 0) / m;
 
-  private adfTest(series: number[]): { adfStatistic: number; pValue: number } {
-    const n = series.length;
-    const y = series.slice(1);
-    const x = series.slice(0, -1);
-    const dy = y.map((yi, i) => yi - x[i]);
-
-    const meanX = x.reduce((a, b) => a + b, 0) / x.length;
-    const meanDy = dy.reduce((a, b) => a + b, 0) / dy.length;
-
-    let num = 0, den = 0;
-    for (let i = 0; i < x.length; i++) {
-      num += (x[i] - meanX) * (dy[i] - meanDy);
-      den += (x[i] - meanX) ** 2;
+    let cov = 0, varB = 0;
+    for (let i = 0; i < m; i++) {
+      cov += (returnsA[i] - meanA) * (returnsB[i] - meanB);
+      varB += (returnsB[i] - meanB) ** 2;
     }
-    const gamma = den > 0 ? num / den : 0;
 
-    const residuals = dy.map((d, i) => d - (meanDy + gamma * (x[i] - meanX)));
-    const se = Math.sqrt(residuals.reduce((s, r) => s + r * r, 0) / (n - 2) / den);
-    const adfStatistic = se > 0 ? gamma / se : 0;
-
-    // 简化p值估计
-    const pValue = adfStatistic < -3.5 ? 0.01 : adfStatistic < -3.0 ? 0.05 : adfStatistic < -2.6 ? 0.1 : 0.5;
-
-    return { adfStatistic, pValue };
-  }
-
-  private calcHalfLife(series: number[]): number {
-    const y = series.slice(1);
-    const x = series.slice(0, -1);
-    const dy = y.map((yi, i) => yi - x[i]);
-
-    const meanX = x.reduce((a, b) => a + b, 0) / x.length;
-    const meanDy = dy.reduce((a, b) => a + b, 0) / dy.length;
-
-    let num = 0, den = 0;
-    for (let i = 0; i < x.length; i++) {
-      num += (x[i] - meanX) * (dy[i] - meanDy);
-      den += (x[i] - meanX) ** 2;
-    }
-    const gamma = den > 0 ? num / den : 0;
-
-    return gamma < 0 ? Math.round(-Math.log(2) / gamma * 10) / 10 : 999;
-  }
-
-  private calcAR1(series: number[]): number {
-    const x = series.slice(0, -1);
-    const y = series.slice(1);
-    const meanX = x.reduce((a, b) => a + b, 0) / x.length;
-    const meanY = y.reduce((a, b) => a + b, 0) / y.length;
-    let num = 0, den = 0;
-    for (let i = 0; i < x.length; i++) {
-      num += (x[i] - meanX) * (y[i] - meanY);
-      den += (x[i] - meanX) ** 2;
-    }
-    return den > 0 ? num / den : 0;
-  }
-
-  private calcCorrelation(a: number[], b: number[]): number {
-    const n = Math.min(a.length, b.length);
-    const meanA = a.slice(0, n).reduce((x, y) => x + y, 0) / n;
-    const meanB = b.slice(0, n).reduce((x, y) => x + y, 0) / n;
-    let num = 0, denA = 0, denB = 0;
-    for (let i = 0; i < n; i++) {
-      num += (a[i] - meanA) * (b[i] - meanB);
-      denA += (a[i] - meanA) ** 2;
-      denB += (b[i] - meanB) ** 2;
-    }
-    return denA > 0 && denB > 0 ? num / Math.sqrt(denA * denB) : 0;
+    return varB > 0 ? Math.round(cov / varB * 10000) / 10000 : 1;
   }
 }
 

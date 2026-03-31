@@ -1,186 +1,232 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { SectorRotationEngine } from '../utils/sectorRotationEngine';
-import type { SectorData } from '../utils/sectorRotationEngine';
+import type { SectorRanking } from '../utils/sectorRotationEngine';
 
 describe('SectorRotationEngine', () => {
-  let engine: SectorRotationEngine;
+  const engine = new SectorRotationEngine();
 
-  const createSector = (overrides: Partial<SectorData> = {}): SectorData => ({
-    name: '半导体',
-    code: 'BK0536',
-    change: 2.5,
-    volume: 5000000,
-    turnover: 800000,
-    advancers: 35,
-    decliners: 10,
-    netInflow: 50000,
-    avgPE: 45,
-    timestamp: Date.now(),
-    ...overrides,
-  });
-
-  beforeEach(() => {
-    engine = new SectorRotationEngine();
-  });
-
-  describe('数据更新', () => {
-    it('应该更新单个板块数据', () => {
-      const sector = createSector();
-      engine.updateData(sector);
-      const rs = engine.calculateRelativeStrength('BK0536');
-      expect(rs).toBeGreaterThanOrEqual(0);
-      expect(rs).toBeLessThanOrEqual(100);
+  describe('经济周期判断', () => {
+    it('应该检测扩张期', () => {
+      const result = engine.detectEconomicCycle(
+        [3, 3.5, 4],    // GDP增长
+        [2, 2.5, 3],    // 温和通胀
+        [52, 53, 54],   // PMI > 50
+        [1.5, 1.6],     // 收益率曲线
+      );
+      expect(result.phase).toBe('expansion');
+      expect(result.confidence).toBeGreaterThan(0);
+      expect(result.indicators.length).toBeGreaterThan(0);
     });
 
-    it('应该批量更新板块数据', () => {
-      const sectors = [
-        createSector({ code: 'BK0536', name: '半导体' }),
-        createSector({ code: 'BK0437', name: '新能源' }),
-      ];
-      engine.batchUpdate(sectors);
-      expect(engine.calculateRelativeStrength('BK0536')).toBeGreaterThanOrEqual(0);
-      expect(engine.calculateRelativeStrength('BK0437')).toBeGreaterThanOrEqual(0);
+    it('应该检测复苏期', () => {
+      const result = engine.detectEconomicCycle(
+        [0.5, 1, 1.5],   // GDP企稳
+        [1, 1.5, 2],     // 低通胀
+        [48, 49, 50],    // PMI触底
+        [1.2, 1.3],
+      );
+      expect(result.phase).toBe('recovery');
+      expect(result.confidence).toBeGreaterThan(0);
     });
 
-    it('应该限制历史数据长度', () => {
-      for (let i = 0; i < 50; i++) {
-        engine.updateData(createSector({ change: i, timestamp: Date.now() + i }));
-      }
-      // 不应抛出错误
-      const rs = engine.calculateRelativeStrength('BK0536', 10);
-      expect(typeof rs).toBe('number');
-    });
-  });
-
-  describe('相对强度', () => {
-    it('应该计算RS指标', () => {
-      for (let i = 0; i < 10; i++) {
-        engine.updateData(createSector({ change: Math.random() * 4 - 1 }));
-      }
-      const rs = engine.calculateRelativeStrength('BK0536', 5);
-      expect(rs).toBeGreaterThanOrEqual(0);
-      expect(rs).toBeLessThanOrEqual(100);
+    it('应该检测滞胀期', () => {
+      const result = engine.detectEconomicCycle(
+        [1, 1.5, 1],     // GDP放缓
+        [5, 5.5, 6],     // 高通胀
+        [51, 52, 53],
+        [1.5, 1.4],
+      );
+      expect(result.phase).toBe('stagflation');
+      expect(result.indicators).toContain('通胀上升');
     });
 
-    it('数据不足时应返回50', () => {
-      engine.updateData(createSector());
-      const rs = engine.calculateRelativeStrength('BK0536', 5);
-      expect(rs).toBe(50);
+    it('应该检测衰退期', () => {
+      const result = engine.detectEconomicCycle(
+        [-1, -0.5, -1],  // GDP负增长
+        [1, 1, 0.5],
+        [45, 46, 47],    // PMI < 50
+        [1.5, 1.3],
+      );
+      expect(result.phase).toBe('recession');
+      expect(result.indicators).toContain('PMI<50');
     });
 
-    it('不存在的板块应返回50', () => {
-      const rs = engine.calculateRelativeStrength('NOTEXIST', 5);
-      expect(rs).toBe(50);
+    it('应该返回置信度', () => {
+      const result = engine.detectEconomicCycle([3], [2], [52], [1.5]);
+      expect(result.confidence).toBeGreaterThan(0);
+      expect(result.confidence).toBeLessThanOrEqual(1);
+    });
+
+    it('应该包含阶段持续月数', () => {
+      const result = engine.detectEconomicCycle([3], [2], [52], [1.5]);
+      expect(result.monthsInPhase).toBeGreaterThan(0);
     });
   });
 
-  describe('动量计算', () => {
-    it('应该计算正向动量', () => {
-      for (let i = 0; i < 5; i++) {
-        engine.updateData(createSector({ change: 3, netInflow: 30000 }));
-      }
-      const momentum = engine.calculateMomentum('BK0536');
-      expect(momentum).toBeGreaterThan(0);
+  describe('板块排名', () => {
+    it('应该按综合评分排序', () => {
+      const momentumMap: Record<string, number> = { '科技': 80, '消费': 50, '金融': 30 };
+      const valuationMap: Record<string, number> = { '科技': 30, '消费': 50, '金融': 70 };
+      const fundFlowMap: Record<string, number> = { '科技': 70, '消费': 40, '金融': 20 };
+
+      const rankings = engine.rankSectors(momentumMap, valuationMap, fundFlowMap);
+      expect(rankings.length).toBe(10); // 10个板块
+      expect(rankings[0].rank).toBe(1);
+      // 科技应排在前面（高动量、低估值、高资金流）
+      const techRank = rankings.find(r => r.sector === '科技');
+      const financeRank = rankings.find(r => r.sector === '金融');
+      expect(techRank!.rank).toBeLessThan(financeRank!.rank);
     });
 
-    it('应该计算负向动量', () => {
-      for (let i = 0; i < 5; i++) {
-        engine.updateData(createSector({ change: -3, netInflow: -30000 }));
-      }
-      const momentum = engine.calculateMomentum('BK0536');
-      expect(momentum).toBeLessThan(0);
+    it('应该标记超配/低配信号', () => {
+      const rankings = engine.rankSectors({}, {}, {});
+      const overweight = rankings.filter(r => r.signal === 'overweight');
+      const underweight = rankings.filter(r => r.signal === 'underweight');
+      expect(overweight.length).toBe(3);  // 前3名
+      expect(underweight.length).toBe(3); // 后3名
+    });
+
+    it('应该计算综合评分', () => {
+      const rankings = engine.rankSectors(
+        { '科技': 80 },
+        { '科技': 20 },  // 低估值=高分
+        { '科技': 60 },
+      );
+      const tech = rankings.find(r => r.sector === '科技');
+      expect(tech!.compositeScore).toBeGreaterThan(0);
+      expect(tech!.momentum).toBe(80);
+      expect(tech!.valuation).toBe(20);
+      expect(tech!.fundFlow).toBe(60);
+    });
+
+    it('缺失数据应使用默认值', () => {
+      const rankings = engine.rankSectors({}, {}, {});
+      expect(rankings.length).toBe(10);
+      rankings.forEach(r => {
+        expect(r.momentum).toBe(0);
+        expect(r.valuation).toBe(50);
+        expect(r.fundFlow).toBe(0);
+      });
     });
   });
 
   describe('轮动信号', () => {
-    it('应该检测流入信号', () => {
-      for (let i = 0; i < 10; i++) {
-        engine.updateData(createSector({ change: 4, netInflow: 80000 }));
-      }
-      const signal = engine.detectRotation('BK0536');
-      expect(signal.type).toBe('rotate_in');
-      expect(signal.score).toBeGreaterThan(0);
-      expect(signal.reason).toBeTruthy();
+    it('应该生成轮动信号', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 80, valuation: 20, fundFlow: 70, compositeScore: 85, rank: 1, signal: 'overweight' },
+        { sector: '消费', momentum: 50, valuation: 50, fundFlow: 40, compositeScore: 50, rank: 5, signal: 'neutral' },
+        { sector: '金融', momentum: 20, valuation: 80, fundFlow: 10, compositeScore: 15, rank: 10, signal: 'underweight' },
+      ];
+
+      const signals = engine.generateRotationSignals(rankings);
+      expect(signals.length).toBeGreaterThan(0);
+      expect(signals[0].fromSector).toBe('金融');
+      expect(signals[0].toSector).toBe('科技');
+      expect(signals[0].strength).toBeGreaterThan(20);
     });
 
-    it('应该检测流出信号', () => {
-      for (let i = 0; i < 10; i++) {
-        engine.updateData(createSector({ change: -4, netInflow: -80000 }));
-      }
-      const signal = engine.detectRotation('BK0536');
-      expect(signal.type).toBe('rotate_out');
+    it('评分差不足20时不生成信号', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 55, valuation: 45, fundFlow: 55, compositeScore: 55, rank: 1, signal: 'overweight' },
+        { sector: '金融', momentum: 45, valuation: 55, fundFlow: 45, compositeScore: 45, rank: 10, signal: 'underweight' },
+      ];
+
+      const signals = engine.generateRotationSignals(rankings);
+      expect(signals.length).toBe(0);
     });
 
-    it('数据不足时返回watch', () => {
-      engine.updateData(createSector());
-      const signal = engine.detectRotation('BK0536');
-      expect(signal.type).toBe('watch');
-      expect(signal.confidence).toBe(0);
+    it('信号应包含预期收益差', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 90, valuation: 10, fundFlow: 90, compositeScore: 95, rank: 1, signal: 'overweight' },
+        { sector: '金融', momentum: 10, valuation: 90, fundFlow: 10, compositeScore: 5, rank: 10, signal: 'underweight' },
+      ];
+
+      const signals = engine.generateRotationSignals(rankings);
+      expect(signals.length).toBeGreaterThan(0);
+      expect(signals[0].expectedSpread).toBeGreaterThan(0);
     });
 
-    it('应该包含持续天数', () => {
-      for (let i = 0; i < 5; i++) {
-        engine.updateData(createSector({ change: 2 }));
+    it('信号应按强度排序', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 90, valuation: 10, fundFlow: 90, compositeScore: 95, rank: 1, signal: 'overweight' },
+        { sector: '消费', momentum: 80, valuation: 20, fundFlow: 80, compositeScore: 85, rank: 2, signal: 'overweight' },
+        { sector: '地产', momentum: 15, valuation: 85, fundFlow: 15, compositeScore: 10, rank: 9, signal: 'underweight' },
+        { sector: '金融', momentum: 10, valuation: 90, fundFlow: 10, compositeScore: 5, rank: 10, signal: 'underweight' },
+      ];
+
+      const signals = engine.generateRotationSignals(rankings);
+      for (let i = 1; i < signals.length; i++) {
+        expect(signals[i - 1].strength).toBeGreaterThanOrEqual(signals[i].strength);
       }
-      const signal = engine.detectRotation('BK0536');
-      expect(signal.duration).toBe(5);
     });
   });
 
-  describe('热度图', () => {
-    it('应该生成板块热度排名', () => {
-      engine.updateData(createSector({ code: 'BK0536', name: '半导体', change: 2 }));
-      engine.updateData(createSector({ code: 'BK0536', name: '半导体', change: 3, netInflow: 50000 }));
-      engine.updateData(createSector({ code: 'BK0437', name: '新能源', change: 1 }));
-      engine.updateData(createSector({ code: 'BK0437', name: '新能源', change: -1, netInflow: -20000 }));
+  describe('配置建议', () => {
+    it('应该生成配置建议', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 80, valuation: 20, fundFlow: 70, compositeScore: 85, rank: 1, signal: 'overweight' },
+        { sector: '消费', momentum: 50, valuation: 50, fundFlow: 40, compositeScore: 50, rank: 5, signal: 'neutral' },
+        { sector: '金融', momentum: 20, valuation: 80, fundFlow: 10, compositeScore: 15, rank: 10, signal: 'underweight' },
+      ];
 
-      const heatmap = engine.generateHeatmap();
-      expect(heatmap.length).toBeGreaterThanOrEqual(2);
-      expect(heatmap[0].rank).toBe(1);
-      expect(heatmap[0].heat).toBeGreaterThanOrEqual(heatmap[1].heat);
+      const allocation = engine.suggestAllocation(rankings, { '科技': 0.3, '消费': 0.4, '金融': 0.3 });
+      expect(allocation.length).toBe(3);
+      allocation.forEach(a => {
+        expect(a.suggestedWeight).toBeGreaterThan(0);
+        expect(typeof a.change).toBe('number');
+        expect(a.reasoning).toBeTruthy();
+      });
     });
 
-    it('应该包含趋势信息', () => {
-      engine.updateData(createSector({ change: 2 }));
-      engine.updateData(createSector({ change: 3, netInflow: 30000 }));
+    it('超配板块权重应高于低配板块', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 80, valuation: 20, fundFlow: 70, compositeScore: 85, rank: 1, signal: 'overweight' },
+        { sector: '金融', momentum: 20, valuation: 80, fundFlow: 10, compositeScore: 15, rank: 10, signal: 'underweight' },
+      ];
 
-      const heatmap = engine.generateHeatmap();
-      expect(['rising', 'falling', 'stable']).toContain(heatmap[0].trend);
+      const allocation = engine.suggestAllocation(rankings, {});
+      const techAlloc = allocation.find(a => a.sector === '科技')!;
+      const financeAlloc = allocation.find(a => a.sector === '金融')!;
+      expect(techAlloc.suggestedWeight).toBeGreaterThan(financeAlloc.suggestedWeight);
+    });
+
+    it('应计算权重变化量', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 80, valuation: 20, fundFlow: 70, compositeScore: 85, rank: 1, signal: 'overweight' },
+      ];
+
+      const allocation = engine.suggestAllocation(rankings, { '科技': 0.5 });
+      expect(allocation[0].change).not.toBe(0);
+    });
+
+    it('无当前权重时使用0', () => {
+      const rankings: SectorRanking[] = [
+        { sector: '科技', momentum: 80, valuation: 20, fundFlow: 70, compositeScore: 85, rank: 1, signal: 'overweight' },
+      ];
+
+      const allocation = engine.suggestAllocation(rankings, {});
+      expect(allocation[0].currentWeight).toBe(0);
     });
   });
 
-  describe('轮动建议', () => {
-    it('应该分类建议', () => {
-      // 买入信号
-      for (let i = 0; i < 10; i++) {
-        engine.updateData(createSector({ code: 'BUY', change: 4, netInflow: 80000 }));
-      }
-      // 卖出信号
-      for (let i = 0; i < 10; i++) {
-        engine.updateData(createSector({ code: 'SELL', change: -4, netInflow: -80000 }));
-      }
-
-      const advice = engine.getRotationAdvice(['BUY', 'SELL']);
-      expect(advice.buy).toContain('BUY');
-      expect(advice.sell).toContain('SELL');
+  describe('边界情况', () => {
+    it('空数据不应报错', () => {
+      expect(() => engine.rankSectors({}, {}, {})).not.toThrow();
+      expect(() => engine.generateRotationSignals([])).not.toThrow();
+      expect(() => engine.suggestAllocation([], {})).not.toThrow();
     });
 
-    it('应该返回所有分类', () => {
-      engine.updateData(createSector({ code: 'A', change: 0, netInflow: 0 }));
-      const advice = engine.getRotationAdvice(['A']);
-      expect(Array.isArray(advice.buy)).toBe(true);
-      expect(Array.isArray(advice.hold)).toBe(true);
-      expect(Array.isArray(advice.sell)).toBe(true);
-      expect(Array.isArray(advice.watch)).toBe(true);
+    it('收益率曲线不足时不应报错', () => {
+      expect(() => engine.detectEconomicCycle([], [], [], [])).not.toThrow();
     });
-  });
 
-  describe('数据清理', () => {
-    it('应该清除历史数据', () => {
-      engine.updateData(createSector());
-      engine.clearHistory();
-      const rs = engine.calculateRelativeStrength('BK0536');
-      expect(rs).toBe(50);
+    it('单个板块排名', () => {
+      const rankings = engine.rankSectors(
+        { '科技': 50 },
+        { '科技': 50 },
+        { '科技': 50 },
+      );
+      expect(rankings.length).toBe(10); // 总是返回所有板块
     });
   });
 });

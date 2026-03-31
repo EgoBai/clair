@@ -1,339 +1,231 @@
 /**
- * Walk-Forward Optimization & Monte Carlo Simulation Engine
- * 滚动优化与蒙特卡洛模拟引擎
+ * 蒙特卡洛模拟引擎
+ * - 股价路径模拟
+ * - 投资组合分布
+ * - VaR/CVaR估计
+ * - 期权定价
  */
 
-export interface WalkForwardWindow {
-  trainStart: number;
-  trainEnd: number;
-  testStart: number;
-  testEnd: number;
-  trainSize: number;
-  testSize: number;
-}
-
-export interface WalkForwardResult {
-  windows: WalkForwardWindow[];
-  inSampleMetrics: Record<string, number[]>;
-  outOfSampleMetrics: Record<string, number[]>;
-  robustness: number;
-  overfitting: number;
-}
-
-export interface MonteCarloConfig {
-  simulations: number;
-  timeSteps: number;
+export interface MonteCarloParams {
   initialValue: number;
-  drift: number;
-  volatility: number;
-  seed?: number;
+  expectedReturn: number;  // 年化
+  volatility: number;      // 年化
+  timeHorizon: number;     // 年
+  steps: number;           // 时间步数
+  simulations: number;     // 模拟次数
 }
 
 export interface MonteCarloResult {
   paths: number[][];
-  finalValues: number[];
-  mean: number;
-  median: number;
-  std: number;
+  statistics: {
+    mean: number;
+    median: number;
+    stdDev: number;
+    skewness: number;
+    kurtosis: number;
+    min: number;
+    max: number;
+  };
   percentiles: Record<number, number>;
   var95: number;
-  var99: number;
-  maxDrawdownDistribution: number[];
+  cvar95: number;
 }
 
-export interface BootstrapResult {
-  originalStatistic: number;
-  bootstrapMean: number;
-  bootstrapStd: number;
-  confidenceInterval: [number, number];
-  pValue: number;
+export interface PortfolioSimResult {
+  finalValues: number[];
+  expectedReturn: number;
+  risk: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  probLoss: number;
 }
 
-// Simple seeded random for reproducibility
-class SeededRandom {
-  private state: number;
+export class MonteCarloEngine {
+  private seed: number = 42;
 
-  constructor(seed: number = Date.now()) {
-    this.state = seed;
+  // 简单伪随机数生成器(可重复)
+  private random(): number {
+    this.seed = (this.seed * 16807) % 2147483647;
+    return this.seed / 2147483647;
   }
 
-  next(): number {
-    this.state = (this.state * 1664525 + 1013904223) & 0xffffffff;
-    return (this.state >>> 0) / 0xffffffff;
+  // Box-Muller正态随机数
+  private normalRandom(): number {
+    const u1 = this.random();
+    const u2 = this.random();
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   }
 
-  nextGaussian(): number {
-    const u1 = this.next();
-    const u2 = this.next();
-    return Math.sqrt(-2 * Math.log(u1 || 0.0001)) * Math.cos(2 * Math.PI * u2);
-  }
-}
+  /**
+   * 模拟股价路径(几何布朗运动)
+   */
+  simulatePaths(params: MonteCarloParams): MonteCarloResult {
+    const { initialValue, expectedReturn, volatility, timeHorizon, steps, simulations } = params;
+    const dt = timeHorizon / steps;
+    const drift = (expectedReturn - 0.5 * volatility ** 2) * dt;
+    const diffusion = volatility * Math.sqrt(dt);
 
-export function generateWalkForwardWindows(
-  totalLength: number,
-  trainSize: number,
-  testSize: number,
-  stepSize?: number
-): WalkForwardWindow[] {
-  const step = stepSize ?? testSize;
-  const windows: WalkForwardWindow[] = [];
+    const paths: number[][] = [];
+    const finalValues: number[] = [];
 
-  let trainStart = 0;
-  while (trainStart + trainSize + testSize <= totalLength) {
-    const trainEnd = trainStart + trainSize;
-    const testStart = trainEnd;
-    const testEnd = Math.min(testStart + testSize, totalLength);
+    for (let sim = 0; sim < simulations; sim++) {
+      const path = [initialValue];
+      let price = initialValue;
 
-    windows.push({
-      trainStart,
-      trainEnd,
-      testStart,
-      testEnd,
-      trainSize,
-      testSize: testEnd - testStart,
-    });
+      for (let step = 0; step < steps; step++) {
+        price *= Math.exp(drift + diffusion * this.normalRandom());
+        path.push(price);
+      }
 
-    trainStart += step;
-  }
-
-  return windows;
-}
-
-export function expandingWindow(
-  totalLength: number,
-  minTrainSize: number,
-  testSize: number
-): WalkForwardWindow[] {
-  const windows: WalkForwardWindow[] = [];
-  let trainEnd = minTrainSize;
-
-  while (trainEnd + testSize <= totalLength) {
-    windows.push({
-      trainStart: 0,
-      trainEnd,
-      testStart: trainEnd,
-      testEnd: Math.min(trainEnd + testSize, totalLength),
-      trainSize: trainEnd,
-      testSize: Math.min(testSize, totalLength - trainEnd),
-    });
-    trainEnd += testSize;
-  }
-
-  return windows;
-}
-
-export function runMonteCarloSimulation(config: MonteCarloConfig): MonteCarloResult {
-  const rng = new SeededRandom(config.seed);
-  const paths: number[][] = [];
-  const finalValues: number[] = [];
-  const maxDrawdowns: number[] = [];
-
-  const dt = 1 / 252; // Daily
-
-  for (let sim = 0; sim < config.simulations; sim++) {
-    const path: number[] = [config.initialValue];
-    let peak = config.initialValue;
-    let maxDd = 0;
-
-    for (let step = 0; step < config.timeSteps; step++) {
-      const z = rng.nextGaussian();
-      const newValue = path[step] * Math.exp(
-        (config.drift - 0.5 * config.volatility ** 2) * dt +
-        config.volatility * Math.sqrt(dt) * z
-      );
-      path.push(newValue);
-
-      if (newValue > peak) peak = newValue;
-      const dd = (peak - newValue) / peak;
-      if (dd > maxDd) maxDd = dd;
+      paths.push(path);
+      finalValues.push(price);
     }
 
-    paths.push(path);
-    finalValues.push(path[path.length - 1]);
-    maxDrawdowns.push(maxDd);
-  }
+    // 统计
+    finalValues.sort((a, b) => a - b);
+    const mean = finalValues.reduce((a, b) => a + b, 0) / simulations;
+    const median = finalValues[Math.floor(simulations / 2)];
+    const variance = finalValues.reduce((s, v) => s + (v - mean) ** 2, 0) / simulations;
+    const stdDev = Math.sqrt(variance);
 
-  finalValues.sort((a, b) => a - b);
-  const mean = finalValues.reduce((a, b) => a + b, 0) / finalValues.length;
-  const median = finalValues[Math.floor(finalValues.length / 2)];
-  const std = Math.sqrt(finalValues.reduce((s, v) => s + (v - mean) ** 2, 0) / finalValues.length);
+    const m3 = finalValues.reduce((s, v) => s + ((v - mean) / stdDev) ** 3, 0) / simulations;
+    const m4 = finalValues.reduce((s, v) => s + ((v - mean) / stdDev) ** 4, 0) / simulations;
 
-  const percentiles: Record<number, number> = {};
-  for (const p of [1, 5, 10, 25, 50, 75, 90, 95, 99]) {
-    const idx = Math.floor(finalValues.length * p / 100);
-    percentiles[p] = finalValues[Math.min(idx, finalValues.length - 1)];
-  }
-
-  maxDrawdowns.sort((a, b) => a - b);
-
-  return {
-    paths,
-    finalValues,
-    mean,
-    median,
-    std,
-    percentiles,
-    var95: config.initialValue - percentiles[5],
-    var99: config.initialValue - percentiles[1],
-    maxDrawdownDistribution: maxDrawdowns,
-  };
-}
-
-export function runBootstrap(
-  data: number[],
-  statistic: (sample: number[]) => number,
-  nBootstrap: number = 1000,
-  confidenceLevel: number = 0.95
-): BootstrapResult {
-  const originalStatistic = statistic(data);
-  const bootstrapStats: number[] = [];
-  const rng = new SeededRandom();
-
-  for (let b = 0; b < nBootstrap; b++) {
-    const sample: number[] = [];
-    for (let i = 0; i < data.length; i++) {
-      const idx = Math.floor(rng.next() * data.length);
-      sample.push(data[idx]);
-    }
-    bootstrapStats.push(statistic(sample));
-  }
-
-  bootstrapStats.sort((a, b) => a - b);
-  const mean = bootstrapStats.reduce((a, b) => a + b, 0) / bootstrapStats.length;
-  const std = Math.sqrt(bootstrapStats.reduce((s, v) => s + (v - mean) ** 2, 0) / bootstrapStats.length);
-
-  const lowerIdx = Math.floor(bootstrapStats.length * (1 - confidenceLevel) / 2);
-  const upperIdx = Math.floor(bootstrapStats.length * (1 + confidenceLevel) / 2);
-
-  const pValue = bootstrapStats.filter(s => s >= originalStatistic).length / nBootstrap;
-
-  return {
-    originalStatistic,
-    bootstrapMean: mean,
-    bootstrapStd: std,
-    confidenceInterval: [bootstrapStats[lowerIdx], bootstrapStats[Math.min(upperIdx, bootstrapStats.length - 1)]],
-    pValue: Math.min(pValue, 1 - pValue) * 2,
-  };
-}
-
-export function walkForwardOptimization<T>(
-  data: number[][],
-  labels: number[],
-  optimize: (trainData: number[][], trainLabels: number[]) => T,
-  evaluate: (params: T, testData: number[][], testLabels: number[]) => number,
-  windows: WalkForwardWindow[]
-): WalkForwardResult {
-  const inSampleMetrics: Record<string, number[]> = { sharpe: [], returns: [], winRate: [] };
-  const outOfSampleMetrics: Record<string, number[]> = { sharpe: [], returns: [], winRate: [] };
-
-  for (const window of windows) {
-    const trainData = data.slice(window.trainStart, window.trainEnd);
-    const trainLabels = labels.slice(window.trainStart, window.trainEnd);
-    const testData = data.slice(window.testStart, window.testEnd);
-    const testLabels = labels.slice(window.testStart, window.testEnd);
-
-    if (trainData.length === 0 || testData.length === 0) continue;
-
-    const params = optimize(trainData, trainLabels);
-    const inSampleScore = evaluate(params, trainData, trainLabels);
-    const outOfSampleScore = evaluate(params, testData, testLabels);
-
-    inSampleMetrics.returns.push(inSampleScore);
-    outOfSampleMetrics.returns.push(outOfSampleScore);
-  }
-
-  const avgInSample = inSampleMetrics.returns.length > 0
-    ? inSampleMetrics.returns.reduce((a, b) => a + b, 0) / inSampleMetrics.returns.length
-    : 0;
-  const avgOutOfSample = outOfSampleMetrics.returns.length > 0
-    ? outOfSampleMetrics.returns.reduce((a, b) => a + b, 0) / outOfSampleMetrics.returns.length
-    : 0;
-
-  const robustness = avgInSample !== 0 ? avgOutOfSample / avgInSample : 0;
-  const overfitting = avgInSample - avgOutOfSample;
-
-  return {
-    windows,
-    inSampleMetrics,
-    outOfSampleMetrics,
-    robustness,
-    overfitting,
-  };
-}
-
-export function calculateConfidenceInterval(
-  data: number[],
-  confidenceLevel: number = 0.95
-): { mean: number; lower: number; upper: number; std: number } {
-  const n = data.length;
-  const mean = data.reduce((a, b) => a + b, 0) / n;
-  const std = Math.sqrt(data.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1));
-  const se = std / Math.sqrt(n);
-
-  // t-distribution approximation (for large n, z ≈ t)
-  const z = confidenceLevel === 0.95 ? 1.96 : confidenceLevel === 0.99 ? 2.576 : 1.645;
-
-  return {
-    mean,
-    lower: mean - z * se,
-    upper: mean + z * se,
-    std,
-  };
-}
-
-export function permutationTest(
-  sample1: number[],
-  sample2: number[],
-  nPermutations: number = 1000
-): { observedDiff: number; pValue: number; permutationDiffs: number[] } {
-  const rng = new SeededRandom();
-  const observedDiff = sample1.reduce((a, b) => a + b, 0) / sample1.length -
-    sample2.reduce((a, b) => a + b, 0) / sample2.length;
-
-  const combined = [...sample1, ...sample2];
-  const n1 = sample1.length;
-  const permutationDiffs: number[] = [];
-
-  for (let p = 0; p < nPermutations; p++) {
-    // Shuffle
-    const shuffled = [...combined];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(rng.next() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    // 百分位数
+    const percentiles: Record<number, number> = {};
+    for (const p of [1, 5, 10, 25, 50, 75, 90, 95, 99]) {
+      const idx = Math.floor(simulations * p / 100);
+      percentiles[p] = Math.round(finalValues[Math.min(idx, simulations - 1)] * 100) / 100;
     }
 
-    const perm1 = shuffled.slice(0, n1);
-    const perm2 = shuffled.slice(n1);
-    const diff = perm1.reduce((a, b) => a + b, 0) / n1 - perm2.reduce((a, b) => a + b, 0) / perm2.length;
-    permutationDiffs.push(diff);
+    // VaR/CVaR
+    const var95 = initialValue - percentiles[5];
+    const worstFivePct = finalValues.slice(0, Math.max(1, Math.floor(simulations * 0.05)));
+    const cvar95 = initialValue - worstFivePct.reduce((a, b) => a + b, 0) / worstFivePct.length;
+
+    return {
+      paths,
+      statistics: {
+        mean: Math.round(mean * 100) / 100,
+        median: Math.round(median * 100) / 100,
+        stdDev: Math.round(stdDev * 100) / 100,
+        skewness: Math.round(m3 * 10000) / 10000,
+        kurtosis: Math.round(m4 * 10000) / 10000,
+        min: Math.round(finalValues[0] * 100) / 100,
+        max: Math.round(finalValues[simulations - 1] * 100) / 100,
+      },
+      percentiles,
+      var95: Math.round(var95 * 100) / 100,
+      cvar95: Math.round(cvar95 * 100) / 100,
+    };
   }
 
-  const pValue = permutationDiffs.filter(d => Math.abs(d) >= Math.abs(observedDiff)).length / nPermutations;
+  /**
+   * 投资组合蒙特卡洛模拟
+   */
+  simulatePortfolio(
+    weights: number[],
+    expectedReturns: number[],
+    covarianceMatrix: number[][],
+    initialValue: number,
+    timeHorizon: number,
+    simulations: number,
+  ): PortfolioSimResult {
+    const n = weights.length;
+    const finalValues: number[] = [];
 
-  return { observedDiff, pValue, permutationDiffs };
-}
+    // 组合预期收益和波动率
+    let portReturn = 0;
+    for (let i = 0; i < n; i++) portReturn += weights[i] * expectedReturns[i];
 
-export function simulateGeometricBrownianMotion(
-  s0: number,
-  mu: number,
-  sigma: number,
-  T: number,
-  steps: number,
-  paths: number = 1000,
-  seed?: number
-): number[][] {
-  const rng = new SeededRandom(seed);
-  const dt = T / steps;
-  const result: number[][] = [];
-
-  for (let p = 0; p < paths; p++) {
-    const path: number[] = [s0];
-    for (let i = 1; i <= steps; i++) {
-      const z = rng.nextGaussian();
-      path.push(path[i - 1] * Math.exp((mu - 0.5 * sigma ** 2) * dt + sigma * Math.sqrt(dt) * z));
+    let portVariance = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        portVariance += weights[i] * weights[j] * covarianceMatrix[i][j];
+      }
     }
-    result.push(path);
+    const portVol = Math.sqrt(portVariance);
+
+    // 模拟
+    const dt = timeHorizon;
+    const drift = (portReturn - 0.5 * portVol ** 2) * dt;
+    const diffusion = portVol * Math.sqrt(dt);
+
+    let peakValue = initialValue;
+    let maxDrawdown = 0;
+
+    for (let sim = 0; sim < simulations; sim++) {
+      let value = initialValue;
+      const z = this.normalRandom();
+      value *= Math.exp(drift + diffusion * z);
+      finalValues.push(value);
+
+      if (value > peakValue) peakValue = value;
+      const drawdown = (peakValue - value) / peakValue;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    }
+
+    finalValues.sort((a, b) => a - b);
+    const mean = finalValues.reduce((a, b) => a + b, 0) / simulations;
+    const variance = finalValues.reduce((s, v) => s + (v - mean) ** 2, 0) / simulations;
+    const risk = Math.sqrt(variance);
+    const expectedReturnPct = (mean - initialValue) / initialValue;
+    const sharpeRatio = risk > 0 ? expectedReturnPct / (risk / initialValue) : 0;
+    const probLoss = finalValues.filter(v => v < initialValue).length / simulations;
+
+    return {
+      finalValues,
+      expectedReturn: Math.round(expectedReturnPct * 10000) / 10000,
+      risk: Math.round(risk * 100) / 100,
+      sharpeRatio: Math.round(sharpeRatio * 10000) / 10000,
+      maxDrawdown: Math.round(maxDrawdown * 10000) / 10000,
+      probLoss: Math.round(probLoss * 10000) / 10000,
+    };
   }
 
-  return result;
+  /**
+   * 蒙特卡洛期权定价
+   */
+  priceOption(
+    spot: number,
+    strike: number,
+    rate: number,
+    volatility: number,
+    timeToExpiry: number,
+    type: 'call' | 'put',
+    simulations: number = 10000,
+  ): { price: number; stdError: number } {
+    const drift = (rate - 0.5 * volatility ** 2) * timeToExpiry;
+    const diffusion = volatility * Math.sqrt(timeToExpiry);
+
+    let totalPayoff = 0;
+    let totalPayoffSq = 0;
+
+    for (let i = 0; i < simulations; i++) {
+      const finalPrice = spot * Math.exp(drift + diffusion * this.normalRandom());
+      const payoff = type === 'call' ? Math.max(0, finalPrice - strike) : Math.max(0, strike - finalPrice);
+      totalPayoff += payoff;
+      totalPayoffSq += payoff ** 2;
+    }
+
+    const avgPayoff = totalPayoff / simulations;
+    const price = Math.exp(-rate * timeToExpiry) * avgPayoff;
+
+    const variance = totalPayoffSq / simulations - avgPayoff ** 2;
+    const stdError = Math.exp(-rate * timeToExpiry) * Math.sqrt(variance / simulations);
+
+    return {
+      price: Math.round(price * 10000) / 10000,
+      stdError: Math.round(stdError * 10000) / 10000,
+    };
+  }
+
+  /**
+   * 重置随机种子
+   */
+  setSeed(seed: number): void {
+    this.seed = seed;
+  }
 }
+
+export default new MonteCarloEngine();

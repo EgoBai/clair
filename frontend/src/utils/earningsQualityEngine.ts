@@ -1,185 +1,170 @@
 /**
- * Earnings Quality Engine
- * 
- * 盈利质量分析引擎 - 分析公司盈利质量、可持续性、现金流匹配
+ * 盈利质量评估引擎
+ * - 收入质量分析
+ * - 利润可持续性
+ * - 应收账款健康度
+ * - 盈利惊喜预测
+ * - 综合盈利质量评分
  */
 
 export interface EarningsData {
-  quarter: string;
-  revenue: number;
-  netIncome: number;
-  operatingCashFlow: number;
-  capex: number;
-  depreciation: number;
-  accountsReceivable: number;
-  inventory: number;
-  grossMargin: number;
-  operatingMargin: number;
-  netMargin: number;
-  oneTimeItems: number;
+  revenue: number;          // 营业收入
+  netIncome: number;        // 净利润
+  operatingCashFlow: number; // 经营现金流
+  accountsReceivable: number; // 应收账款
+  inventory: number;        // 存货
+  totalAssets: number;      // 总资产
+  revenueGrowth: number;    // 收入增长率(%)
+  earningsGrowth: number;   // 利润增长率(%)
+  grossMargin: number;      // 毛利率(%)
+  operatingMargin: number;  // 营业利润率(%)
+  accrualsRatio: number;    // 应计比率
 }
 
 export interface EarningsQualityResult {
-  score: number; // 0-100
-  cashConversionRatio: number;
-  accrualRatio: number;
-  marginTrend: 'improving' | 'stable' | 'deteriorating';
-  revenueQuality: 'high' | 'medium' | 'low';
-  sustainabilityScore: number;
+  overallScore: number;       // 综合评分(0-100)
+  revenueQuality: number;     // 收入质量(0-100)
+  earningsSustainability: number; // 利润可持续性(0-100)
+  cashConversion: number;     // 现金转化率
+  accrualRisk: 'low' | 'medium' | 'high';
   redFlags: string[];
+  greenFlags: string[];
   qualityGrade: 'A' | 'B' | 'C' | 'D' | 'F';
 }
 
-// ===== Cash Conversion =====
-
-export function cashConversionRatio(
-  netIncome: number,
-  operatingCashFlow: number
-): number {
-  if (netIncome <= 0) return operatingCashFlow >= 0 ? 1 : -1;
-  return operatingCashFlow / netIncome;
+export interface EarningsSurpriseEstimate {
+  expectedEPS: number;
+  beatProbability: number;   // 0-1
+  expectedSurprise: number;  // 预期惊喜幅度(%)
+  confidence: number;        // 置信度(0-1)
 }
 
-// ===== Accrual Ratio =====
+export class EarningsQualityEngine {
+  /**
+   * 评估盈利质量
+   */
+  assessQuality(data: EarningsData): EarningsQualityResult {
+    const redFlags: string[] = [];
+    const greenFlags: string[] = [];
 
-export function accrualRatio(
-  netIncome: number,
-  operatingCashFlow: number,
-  avgAssets: number
-): number {
-  if (avgAssets <= 0) return 0;
-  return (netIncome - operatingCashFlow) / avgAssets;
-}
+    // 收入质量
+    let revenueQuality = 50;
+    const arToRevenue = data.revenue > 0 ? data.accountsReceivable / data.revenue : 0;
+    if (arToRevenue < 0.15) { revenueQuality += 15; greenFlags.push('应收账款占比低'); }
+    else if (arToRevenue > 0.4) { revenueQuality -= 20; redFlags.push('应收账款占比过高'); }
 
-// ===== Margin Analysis =====
+    if (data.revenueGrowth > 10) { revenueQuality += 15; greenFlags.push('收入高增长'); }
+    else if (data.revenueGrowth < -5) { revenueQuality -= 15; redFlags.push('收入萎缩'); }
 
-export function analyzeMarginTrend(
-  data: EarningsData[]
-): 'improving' | 'stable' | 'deteriorating' {
-  if (data.length < 2) return 'stable';
+    if (data.grossMargin > 40) { revenueQuality += 10; greenFlags.push('高毛利率'); }
+    if (data.operatingMargin > 15) { revenueQuality += 10; greenFlags.push('高营业利润率'); }
 
-  const recent = data.slice(-4);
-  const margins = recent.map((d) => d.netMargin);
+    revenueQuality = Math.max(0, Math.min(100, revenueQuality));
 
-  const avgFirst = margins.slice(0, Math.floor(margins.length / 2)).reduce((s, m) => s + m, 0) /
-    Math.max(1, Math.floor(margins.length / 2));
-  const avgSecond = margins.slice(Math.floor(margins.length / 2)).reduce((s, m) => s + m, 0) /
-    Math.max(1, margins.length - Math.floor(margins.length / 2));
+    // 利润可持续性
+    let earningsSustainability = 50;
+    const cashCoverage = data.netIncome > 0 ? data.operatingCashFlow / data.netIncome : 0;
+    if (cashCoverage > 1.2) { earningsSustainability += 20; greenFlags.push('现金流覆盖利润'); }
+    else if (cashCoverage < 0.8 && data.netIncome > 0) { earningsSustainability -= 20; redFlags.push('利润缺乏现金流支撑'); }
 
-  const diff = avgSecond - avgFirst;
+    if (data.earningsGrowth > 0 && data.revenueGrowth > 0) {
+      const ratio = data.earningsGrowth / Math.max(0.1, data.revenueGrowth);
+      if (ratio > 0.8 && ratio < 2) { earningsSustainability += 10; greenFlags.push('利润与收入同步增长'); }
+    }
 
-  if (diff > 0.01) return 'improving';
-  if (diff < -0.01) return 'deteriorating';
-  return 'stable';
-}
+    if (Math.abs(data.earningsGrowth - data.revenueGrowth) > 30) {
+      earningsSustainability -= 10; redFlags.push('利润与收入增长不匹配');
+    }
 
-// ===== Revenue Quality =====
+    earningsSustainability = Math.max(0, Math.min(100, earningsSustainability));
 
-export function assessRevenueQuality(data: EarningsData): 'high' | 'medium' | 'low' {
-  const arRatio = data.accountsReceivable / data.revenue;
-  const inventoryRatio = data.inventory / data.revenue;
+    // 现金转化率
+    const cashConversion = data.netIncome > 0 ? Math.round(data.operatingCashFlow / data.netIncome * 100) / 100 : 0;
 
-  if (arRatio < 0.15 && inventoryRatio < 0.1) return 'high';
-  if (arRatio < 0.3 && inventoryRatio < 0.2) return 'medium';
-  return 'low';
-}
+    // 应计风险
+    let accrualRisk: 'low' | 'medium' | 'high';
+    if (data.accrualsRatio < 0.05) accrualRisk = 'low';
+    else if (data.accrualsRatio < 0.15) accrualRisk = 'medium';
+    else { accrualRisk = 'high'; redFlags.push('高应计比率'); }
 
-// ===== Red Flag Detection =====
+    // 综合评分
+    const overallScore = Math.round((revenueQuality * 0.4 + earningsSustainability * 0.4 + (100 - data.accrualsRatio * 500) * 0.2));
+    const clampedScore = Math.max(0, Math.min(100, overallScore));
 
-export function detectRedFlags(data: EarningsData[]): string[] {
-  const flags: string[] = [];
-  if (data.length === 0) return flags;
+    // 等级
+    let qualityGrade: 'A' | 'B' | 'C' | 'D' | 'F';
+    if (clampedScore >= 85) qualityGrade = 'A';
+    else if (clampedScore >= 70) qualityGrade = 'B';
+    else if (clampedScore >= 55) qualityGrade = 'C';
+    else if (clampedScore >= 40) qualityGrade = 'D';
+    else qualityGrade = 'F';
 
-  const latest = data[data.length - 1];
-
-  // Cash flow not matching earnings
-  const ccr = cashConversionRatio(latest.netIncome, latest.operatingCashFlow);
-  if (ccr < 0.5 && latest.netIncome > 0) flags.push('现金流与利润严重不匹配');
-
-  // Large one-time items
-  if (Math.abs(latest.oneTimeItems) > Math.abs(latest.netIncome) * 0.3) {
-    flags.push('一次性损益占比过高');
-  }
-
-  // Inventory growing faster than revenue
-  if (data.length >= 2) {
-    const prev = data[data.length - 2];
-    const invGrowth = (latest.inventory - prev.inventory) / prev.inventory;
-    const revGrowth = (latest.revenue - prev.revenue) / prev.revenue;
-    if (invGrowth > revGrowth * 1.5) flags.push('存货增速远超收入增速');
-  }
-
-  // Declining margins
-  const trend = analyzeMarginTrend(data);
-  if (trend === 'deteriorating') flags.push('利润率持续下降');
-
-  return flags;
-}
-
-// ===== Full Quality Analysis =====
-
-export function analyzeEarningsQuality(
-  data: EarningsData[]
-): EarningsQualityResult {
-  if (data.length === 0) {
     return {
-      score: 0,
-      cashConversionRatio: 0,
-      accrualRatio: 0,
-      marginTrend: 'stable',
-      revenueQuality: 'low',
-      sustainabilityScore: 0,
-      redFlags: ['无数据'],
-      qualityGrade: 'F',
+      overallScore: clampedScore,
+      revenueQuality,
+      earningsSustainability,
+      cashConversion,
+      accrualRisk,
+      redFlags,
+      greenFlags,
+      qualityGrade,
     };
   }
 
-  const latest = data[data.length - 1];
-  const avgAssets = (latest.accountsReceivable + latest.inventory) * 2;
+  /**
+   * 盈利惊喜预测
+   */
+  estimateSurprise(historical: EarningsData[], analystEPS: number): EarningsSurpriseEstimate {
+    if (historical.length === 0) {
+      return { expectedEPS: analystEPS, beatProbability: 0.5, expectedSurprise: 0, confidence: 0 };
+    }
 
-  const ccr = cashConversionRatio(latest.netIncome, latest.operatingCashFlow);
-  const ar = accrualRatio(latest.netIncome, latest.operatingCashFlow, avgAssets);
-  const marginTrend = analyzeMarginTrend(data);
-  const revenueQuality = assessRevenueQuality(latest);
-  const redFlags = detectRedFlags(data);
+    // 历史beat率
+    const avgCashCoverage = historical.reduce((s, d) => s + (d.netIncome > 0 ? d.operatingCashFlow / d.netIncome : 0), 0) / historical.length;
+    const avgMarginTrend = historical.slice(-3).reduce((s, d) => s + d.operatingMargin, 0) / Math.min(3, historical.length);
 
-  // Score calculation
-  let score = 50;
-  if (ccr > 1) score += 15;
-  else if (ccr > 0.8) score += 10;
-  else if (ccr < 0.5) score -= 15;
+    let beatProbability = 0.5;
+    if (avgCashCoverage > 1.1) beatProbability += 0.15;
+    if (avgMarginTrend > 15) beatProbability += 0.1;
+    beatProbability = Math.min(0.95, Math.max(0.05, beatProbability));
 
-  if (marginTrend === 'improving') score += 10;
-  if (marginTrend === 'deteriorating') score -= 10;
+    const marginDirection = historical.length >= 2 ? (historical[historical.length - 1].operatingMargin - historical[historical.length - 2].operatingMargin) : 0;
+    const expectedSurprise = Math.round(marginDirection * 0.5 * 100) / 100;
+    const expectedEPS = Math.round(analystEPS * (1 + expectedSurprise / 100) * 100) / 100;
 
-  if (revenueQuality === 'high') score += 10;
-  if (revenueQuality === 'low') score -= 10;
+    const confidence = Math.min(1, 0.3 + historical.length * 0.1);
 
-  score -= redFlags.length * 8;
-  score = Math.max(0, Math.min(100, score));
+    return {
+      expectedEPS,
+      beatProbability: Math.round(beatProbability * 100) / 100,
+      expectedSurprise,
+      confidence: Math.round(confidence * 100) / 100,
+    };
+  }
 
-  // Sustainability score
-  let sustainabilityScore = 70;
-  if (Math.abs(ar) < 0.02) sustainabilityScore += 15;
-  if (ccr > 0.9) sustainabilityScore += 15;
-  sustainabilityScore = Math.max(0, Math.min(100, sustainabilityScore));
+  /**
+   * 比较多期盈利趋势
+   */
+  analyzeTrend(quarterly: EarningsData[]): { trend: 'improving' | 'stable' | 'deteriorating'; momentum: number; consistency: number } {
+    if (quarterly.length < 2) return { trend: 'stable', momentum: 0, consistency: 50 };
 
-  // Grade
-  let qualityGrade: 'A' | 'B' | 'C' | 'D' | 'F';
-  if (score >= 85) qualityGrade = 'A';
-  else if (score >= 70) qualityGrade = 'B';
-  else if (score >= 50) qualityGrade = 'C';
-  else if (score >= 30) qualityGrade = 'D';
-  else qualityGrade = 'F';
+    const margins = quarterly.map(q => q.operatingMargin);
+    const changes = [];
+    for (let i = 1; i < margins.length; i++) {
+      changes.push(margins[i] - margins[i - 1]);
+    }
 
-  return {
-    score,
-    cashConversionRatio: Math.round(ccr * 100) / 100,
-    accrualRatio: Math.round(ar * 10000) / 10000,
-    marginTrend,
-    revenueQuality,
-    sustainabilityScore,
-    redFlags,
-    qualityGrade,
-  };
+    const avgChange = changes.reduce((a, b) => a + b, 0) / changes.length;
+    const positiveCount = changes.filter(c => c > 0).length;
+    const consistency = Math.round(positiveCount / changes.length * 100);
+
+    let trend: 'improving' | 'stable' | 'deteriorating';
+    if (avgChange > 1) trend = 'improving';
+    else if (avgChange < -1) trend = 'deteriorating';
+    else trend = 'stable';
+
+    return { trend, momentum: Math.round(avgChange * 100) / 100, consistency };
+  }
 }
+
+export default new EarningsQualityEngine();

@@ -1,207 +1,233 @@
 /**
- * Risk Parity Portfolio Engine
- *
- * 风险平价组合优化、波动率估计、再平衡信号
+ * 风险平价引擎
+ * - 等风险贡献权重
+ * - 最大分散化组合
+ * - 最小方差组合
+ * - 风险预算分配
  */
 
-export interface AssetReturn {
-  symbol: string;
-  returns: number[];
+export interface AssetData {
+  name: string;
+  expectedReturn: number;
+  volatility: number;
 }
 
 export interface CovarianceMatrix {
-  symbols: string[];
+  assets: string[];
   matrix: number[][];
 }
 
-export interface PortfolioWeight {
-  symbol: string;
-  weight: number;
-  riskContribution: number;
-}
-
 export interface RiskParityResult {
-  weights: PortfolioWeight[];
-  totalRisk: number;
-  diversificationRatio: number;
+  weights: Record<string, number>;
+  riskContributions: Record<string, number>;
+  portfolioVolatility: number;
+  portfolioReturn: number;
   sharpeRatio: number;
-  maxDrawdown: number;
-  rebalanceNeeded: boolean;
+  diversificationRatio: number;
 }
 
-/**
- * 计算收益率的年化波动率
- */
-export function calculateVolatility(returns: number[], annualize: boolean = true): number {
-  if (returns.length < 2) return 0;
-  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
-  const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / (returns.length - 1);
-  const std = Math.sqrt(variance);
-  return annualize ? std * Math.sqrt(252) : std;
+export interface RiskBudget {
+  asset: string;
+  targetRiskPct: number; // 目标风险贡献百分比
 }
 
-/**
- * 计算协方差矩阵
- */
-export function calculateCovarianceMatrix(assets: AssetReturn[]): CovarianceMatrix {
-  const symbols = assets.map(a => a.symbol);
-  const n = symbols.length;
-  const minLen = Math.min(...assets.map(a => a.returns.length));
+export class RiskParityEngine {
+  /**
+   * 等风险贡献权重(迭代法)
+   */
+  calculateRiskParity(assets: AssetData[], covMatrix: CovarianceMatrix): RiskParityResult {
+    const n = assets.length;
+    if (n === 0) return this.emptyResult();
 
-  const matrix: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+    // 初始权重 = 1/n
+    let weights = Array(n).fill(1 / n);
 
-  for (let i = 0; i < n; i++) {
-    for (let j = i; j < n; j++) {
-      const ri = assets[i].returns.slice(0, minLen);
-      const rj = assets[j].returns.slice(0, minLen);
+    // 迭代求解等风险贡献
+    for (let iter = 0; iter < 100; iter++) {
+      const riskContribs = this.calcRiskContributions(weights, covMatrix.matrix);
+      const targetRisk = 1 / n;
 
-      const meanI = ri.reduce((s, v) => s + v, 0) / minLen;
-      const meanJ = rj.reduce((s, v) => s + v, 0) / minLen;
-
-      let cov = 0;
-      for (let k = 0; k < minLen; k++) {
-        cov += (ri[k] - meanI) * (rj[k] - meanJ);
+      const newWeights = [];
+      for (let i = 0; i < n; i++) {
+        const adjust = riskContribs[i] > 0 ? targetRisk / riskContribs[i] : 1;
+        newWeights.push(weights[i] * Math.pow(adjust, 0.5));
       }
-      cov /= (minLen - 1);
 
-      matrix[i][j] = cov;
-      matrix[j][i] = cov;
+      // 归一化
+      const sum = newWeights.reduce((a, b) => a + b, 0);
+      weights = newWeights.map(w => w / sum);
     }
+
+    return this.buildResult(assets, weights, covMatrix.matrix);
   }
 
-  return { symbols, matrix };
-}
+  /**
+   * 最大分散化组合
+   */
+  calculateMaxDiversification(assets: AssetData[], covMatrix: CovarianceMatrix): RiskParityResult {
+    const n = assets.length;
+    if (n === 0) return this.emptyResult();
 
-/**
- * 风险平价权重计算（迭代法）
- */
-export function calculateRiskParityWeights(
-  covMatrix: CovarianceMatrix,
-  maxIterations: number = 100,
-  tolerance: number = 1e-8
-): number[] {
-  const n = covMatrix.symbols.length;
-  if (n === 0) return [];
-  if (n === 1) return [1];
+    const vols = assets.map(a => a.volatility);
 
-  // Start with equal weights
-  let weights = new Array(n).fill(1 / n);
+    // 初始: 按1/vol加权
+    let weights = vols.map(v => v > 0 ? 1 / v : 0.01);
+    const sum = weights.reduce((a, b) => a + b, 0);
+    weights = weights.map(w => w / sum);
 
-  for (let iter = 0; iter < maxIterations; iter++) {
-    // Calculate portfolio variance
-    const variance = portfolioVariance(weights, covMatrix.matrix);
-    if (variance <= 0) break;
+    // 迭代优化分散化比率
+    for (let iter = 0; iter < 50; iter++) {
+      const portVol = this.portfolioVol(weights, covMatrix.matrix);
+      const weightedVol = weights.reduce((s, w, i) => s + w * vols[i], 0);
 
-    // Calculate marginal risk contributions
-    const marginalRisk: number[] = [];
-    for (let i = 0; i < n; i++) {
-      let sum = 0;
-      for (let j = 0; j < n; j++) {
-        sum += weights[j] * covMatrix.matrix[i][j];
+      // 梯度方向
+      const grad = [];
+      for (let i = 0; i < n; i++) {
+        const marginalRisk = this.marginalRisk(weights, covMatrix.matrix, i);
+        grad.push(vols[i] / weightedVol - marginalRisk / portVol);
       }
-      marginalRisk.push(sum / Math.sqrt(variance));
+
+      // 更新权重
+      for (let i = 0; i < n; i++) {
+        weights[i] += grad[i] * 0.1;
+        weights[i] = Math.max(0.01, weights[i]);
+      }
+
+      const newSum = weights.reduce((a, b) => a + b, 0);
+      weights = weights.map(w => w / newSum);
     }
 
-    // Risk contribution = w_i * MRC_i
-    const riskContrib = weights.map((w, i) => w * marginalRisk[i]);
-    const targetRisk = Math.sqrt(variance) / n;
+    return this.buildResult(assets, weights, covMatrix.matrix);
+  }
 
-    // Update weights
-    let newWeights = weights.map((w, i) => {
-      return w * Math.pow(targetRisk / (riskContrib[i] || tolerance), 0.5);
+  /**
+   * 最小方差组合
+   */
+  calculateMinVariance(assets: AssetData[], covMatrix: CovarianceMatrix): RiskParityResult {
+    const n = assets.length;
+    if (n === 0) return this.emptyResult();
+
+    // 初始: 等权
+    let weights = Array(n).fill(1 / n);
+
+    // 梯度下降最小化方差
+    for (let iter = 0; iter < 100; iter++) {
+      const grad = [];
+      for (let i = 0; i < n; i++) {
+        let g = 0;
+        for (let j = 0; j < n; j++) {
+          g += weights[j] * covMatrix.matrix[i][j];
+        }
+        grad.push(g);
+      }
+
+      for (let i = 0; i < n; i++) {
+        weights[i] -= grad[i] * 0.01;
+        weights[i] = Math.max(0.01, weights[i]);
+      }
+
+      const sum = weights.reduce((a, b) => a + b, 0);
+      weights = weights.map(w => w / sum);
+    }
+
+    return this.buildResult(assets, weights, covMatrix.matrix);
+  }
+
+  /**
+   * 自定义风险预算
+   */
+  calculateRiskBudget(assets: AssetData[], covMatrix: CovarianceMatrix, budgets: RiskBudget[]): RiskParityResult {
+    const n = assets.length;
+    if (n === 0) return this.emptyResult();
+
+    const targets = assets.map(a => {
+      const b = budgets.find(bu => bu.asset === a.name);
+      return b ? b.targetRiskPct : 1 / n;
     });
 
-    // Normalize
-    const sum = newWeights.reduce((s, v) => s + v, 0);
-    newWeights = newWeights.map(w => w / sum);
+    // 归一化目标
+    const targetSum = targets.reduce((a, b) => a + b, 0);
+    const normTargets = targets.map(t => t / targetSum);
 
-    // Check convergence
-    const maxDiff = Math.max(...newWeights.map((w, i) => Math.abs(w - weights[i])));
-    weights = newWeights;
+    let weights = Array(n).fill(1 / n);
 
-    if (maxDiff < tolerance) break;
-  }
+    for (let iter = 0; iter < 100; iter++) {
+      const riskContribs = this.calcRiskContributions(weights, covMatrix.matrix);
 
-  return weights.map(w => Math.round(w * 10000) / 10000);
-}
+      const newWeights = [];
+      for (let i = 0; i < n; i++) {
+        const adjust = riskContribs[i] > 0 ? normTargets[i] / riskContribs[i] : 1;
+        newWeights.push(weights[i] * Math.pow(adjust, 0.5));
+      }
 
-function portfolioVariance(weights: number[][], covMatrix: number[][]): number {
-  const n = weights.length;
-  let variance = 0;
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      variance += weights[i] * weights[j] * covMatrix[i][j];
+      const sum = newWeights.reduce((a, b) => a + b, 0);
+      weights = newWeights.map(w => w / sum);
     }
+
+    return this.buildResult(assets, weights, covMatrix.matrix);
   }
-  return variance;
-}
 
-/**
- * 完整风险平价分析
- */
-export function analyzeRiskParity(
-  assets: AssetReturn[],
-  currentWeights?: number[]
-): RiskParityResult {
-  const covMatrix = calculateCovarianceMatrix(assets);
-  const weights = calculateRiskParityWeights(covMatrix);
-
-  const n = assets.length;
-  const totalRisk = Math.sqrt(portfolioVariance(weights, covMatrix.matrix)) * Math.sqrt(252);
-
-  // Risk contributions
-  const riskContribs: number[] = [];
-  const variance = portfolioVariance(weights, covMatrix.matrix);
-  for (let i = 0; i < n; i++) {
-    let sum = 0;
-    for (let j = 0; j < n; j++) {
-      sum += weights[j] * covMatrix.matrix[i][j];
+  // 辅助方法
+  private portfolioVol(weights: number[], cov: number[][]): number {
+    let variance = 0;
+    for (let i = 0; i < weights.length; i++) {
+      for (let j = 0; j < weights.length; j++) {
+        variance += weights[i] * weights[j] * cov[i][j];
+      }
     }
-    const mrc = sum / Math.sqrt(variance);
-    riskContribs.push(weights[i] * mrc / Math.sqrt(variance) * Math.sqrt(252));
+    return Math.sqrt(Math.max(0, variance));
   }
 
-  // Diversification ratio
-  const individualRisks = assets.map(a => calculateVolatility(a.returns));
-  const weightedRisk = weights.reduce((s, w, i) => s + w * individualRisks[i], 0);
-  const diversificationRatio = weightedRisk > 0 ? weightedRisk / totalRisk : 1;
-
-  // Sharpe ratio (assume 3% risk-free rate)
-  const portfolioReturns = assets[0].returns.map((_, ti) =>
-    weights.reduce((s, w, ai) => s + w * assets[ai].returns[ti], 0)
-  );
-  const meanReturn = portfolioReturns.reduce((s, r) => s + r, 0) / portfolioReturns.length * 252;
-  const vol = calculateVolatility(portfolioReturns);
-  const sharpeRatio = vol > 0 ? (meanReturn - 0.03) / vol : 0;
-
-  // Max drawdown
-  let peak = 0;
-  let maxDD = 0;
-  let cumReturn = 1;
-  for (const r of portfolioReturns) {
-    cumReturn *= (1 + r);
-    if (cumReturn > peak) peak = cumReturn;
-    const dd = (peak - cumReturn) / peak;
-    if (dd > maxDD) maxDD = dd;
+  private marginalRisk(weights: number[], cov: number[][], i: number): number {
+    let mr = 0;
+    for (let j = 0; j < weights.length; j++) {
+      mr += weights[j] * cov[i][j];
+    }
+    const portVol = this.portfolioVol(weights, cov);
+    return portVol > 0 ? mr / portVol : 0;
   }
 
-  // Rebalance check
-  let rebalanceNeeded = false;
-  if (currentWeights && currentWeights.length === n) {
-    const maxDrift = Math.max(...weights.map((w, i) => Math.abs(w - (currentWeights[i] || 0))));
-    rebalanceNeeded = maxDrift > 0.05;
+  private calcRiskContributions(weights: number[], cov: number[][]): number[] {
+    const portVol = this.portfolioVol(weights, cov);
+    if (portVol === 0) return weights.map(() => 1 / weights.length);
+
+    const mrc = [];
+    for (let i = 0; i < weights.length; i++) {
+      mrc.push(this.marginalRisk(weights, cov, i));
+    }
+
+    const rc = weights.map((w, i) => w * mrc[i]);
+    const totalRC = rc.reduce((a, b) => a + Math.abs(b), 0);
+    return totalRC > 0 ? rc.map(r => Math.abs(r) / totalRC) : weights.map(() => 1 / weights.length);
   }
 
-  return {
-    weights: weights.map((w, i) => ({
-      symbol: covMatrix.symbols[i],
-      weight: w,
-      riskContribution: riskContribs[i] || 0,
-    })),
-    totalRisk: Math.round(totalRisk * 10000) / 10000,
-    diversificationRatio: Math.round(diversificationRatio * 100) / 100,
-    sharpeRatio: Math.round(sharpeRatio * 100) / 100,
-    maxDrawdown: Math.round(maxDD * 10000) / 100,
-    rebalanceNeeded,
-  };
+  private buildResult(assets: AssetData[], weights: number[], cov: number[][]): RiskParityResult {
+    const n = assets.length;
+    const weightMap: Record<string, number> = {};
+    assets.forEach((a, i) => { weightMap[a.name] = Math.round(weights[i] * 10000) / 10000; });
+
+    const riskContribs = this.calcRiskContributions(weights, cov);
+    const rcMap: Record<string, number> = {};
+    assets.forEach((a, i) => { rcMap[a.name] = Math.round(riskContribs[i] * 10000) / 10000; });
+
+    const portVol = this.portfolioVol(weights, cov);
+    const portReturn = weights.reduce((s, w, i) => s + w * assets[i].expectedReturn, 0);
+    const weightedVol = weights.reduce((s, w, i) => s + w * assets[i].volatility, 0);
+    const divRatio = portVol > 0 ? weightedVol / portVol : 1;
+
+    return {
+      weights: weightMap,
+      riskContributions: rcMap,
+      portfolioVolatility: Math.round(portVol * 10000) / 10000,
+      portfolioReturn: Math.round(portReturn * 10000) / 10000,
+      sharpeRatio: portVol > 0 ? Math.round(portReturn / portVol * 10000) / 10000 : 0,
+      diversificationRatio: Math.round(divRatio * 10000) / 10000,
+    };
+  }
+
+  private emptyResult(): RiskParityResult {
+    return { weights: {}, riskContributions: {}, portfolioVolatility: 0, portfolioReturn: 0, sharpeRatio: 0, diversificationRatio: 0 };
+  }
 }
+
+export default new RiskParityEngine();

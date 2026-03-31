@@ -1,272 +1,221 @@
 import { describe, it, expect } from 'vitest';
-import {
-  calculateBidAskSpread,
-  calculateMidPrice,
-  calculateWeightedMidPrice,
-  calculateOrderBookImbalance,
-  calculateDepth,
-  calculateLiquidityMetrics,
-  calculateVolumeProfile,
-  calculateOrderFlowImbalance,
-  estimateMarketImpact,
-  calculateTWAP,
-  calculateVWAP,
-  classifyTradeDirection,
-  calculateKyleLambda,
-  calculateAmihudIlliquidity,
-  calculateRollSpread,
-  type OrderBook,
-  type OrderBookLevel,
-  type TradeTick,
-} from '../utils/marketMicrostructureEngine';
+import { MarketMicrostructureEngine } from '../utils/marketMicrostructureEngine';
+import type { OrderBook, TradeTick } from '../utils/marketMicrostructureEngine';
 
-const mockBids: OrderBookLevel[] = [
-  { price: 10.00, quantity: 500, orders: 5 },
-  { price: 9.99, quantity: 800, orders: 8 },
-  { price: 9.98, quantity: 1200, orders: 12 },
-  { price: 9.97, quantity: 600, orders: 6 },
-  { price: 9.96, quantity: 400, orders: 4 },
-];
+describe('MarketMicrostructureEngine', () => {
+  const engine = new MarketMicrostructureEngine();
 
-const mockAsks: OrderBookLevel[] = [
-  { price: 10.01, quantity: 400, orders: 4 },
-  { price: 10.02, quantity: 700, orders: 7 },
-  { price: 10.03, quantity: 1000, orders: 10 },
-  { price: 10.04, quantity: 500, orders: 5 },
-  { price: 10.05, quantity: 300, orders: 3 },
-];
-
-const mockOrderBook: OrderBook = {
-  symbol: 'TEST',
-  timestamp: Date.now(),
-  bids: mockBids,
-  asks: mockAsks,
-};
-
-const mockTicks: TradeTick[] = [
-  { timestamp: 1000, price: 10.00, quantity: 100, direction: 'buy', aggressor: 'ask' },
-  { timestamp: 2000, price: 10.01, quantity: 200, direction: 'buy', aggressor: 'ask' },
-  { timestamp: 3000, price: 10.00, quantity: 150, direction: 'sell', aggressor: 'bid' },
-  { timestamp: 4000, price: 9.99, quantity: 300, direction: 'sell', aggressor: 'bid' },
-  { timestamp: 5000, price: 10.01, quantity: 250, direction: 'buy', aggressor: 'ask' },
-  { timestamp: 6000, price: 10.02, quantity: 100, direction: 'buy', aggressor: 'ask' },
-];
-
-describe('calculateBidAskSpread', () => {
-  it('should calculate spread', () => {
-    const spread = calculateBidAskSpread(mockBids, mockAsks);
-    expect(spread).toBeCloseTo(0.01, 5);
+  const makeOrderBook = (): OrderBook => ({
+    bids: [
+      { price: 10.00, volume: 5000 },
+      { price: 9.99, volume: 8000 },
+      { price: 9.98, volume: 10000 },
+    ],
+    asks: [
+      { price: 10.02, volume: 4000 },
+      { price: 10.03, volume: 6000 },
+      { price: 10.04, volume: 9000 },
+    ],
+    timestamp: Date.now(),
   });
 
-  it('should return 0 for empty books', () => {
-    expect(calculateBidAskSpread([], mockAsks)).toBe(0);
-    expect(calculateBidAskSpread(mockBids, [])).toBe(0);
-  });
-});
-
-describe('calculateMidPrice', () => {
-  it('should calculate mid price', () => {
-    const mid = calculateMidPrice(mockBids, mockAsks);
-    expect(mid).toBeCloseTo(10.005, 5);
+  const makeTick = (overrides: Partial<TradeTick> = {}): TradeTick => ({
+    price: 10.01,
+    volume: 1000,
+    timestamp: Date.now(),
+    aggressor: 'buy',
+    ...overrides,
   });
 
-  it('should return 0 for empty books', () => {
-    expect(calculateMidPrice([], [])).toBe(0);
-  });
-});
+  describe('订单簿分析', () => {
+    it('应计算买卖价差', () => {
+      const result = engine.analyzeOrderBook(makeOrderBook());
+      expect(result.spread).toBeCloseTo(0.02, 2);
+      expect(result.midPrice).toBeCloseTo(10.01, 2);
+    });
 
-describe('calculateWeightedMidPrice', () => {
-  it('should calculate weighted mid price', () => {
-    const wmid = calculateWeightedMidPrice(mockBids, mockAsks);
-    expect(wmid).toBeGreaterThan(mockBids[0].price);
-    expect(wmid).toBeLessThan(mockAsks[0].price);
-  });
+    it('价差应为正值', () => {
+      const result = engine.analyzeOrderBook(makeOrderBook());
+      expect(result.spread).toBeGreaterThan(0);
+      expect(result.spreadBps).toBeGreaterThan(0);
+    });
 
-  it('should fall back to mid when quantities are zero', () => {
-    const emptyBids: OrderBookLevel[] = [{ price: 10, quantity: 0, orders: 0 }];
-    const emptyAsks: OrderBookLevel[] = [{ price: 10.01, quantity: 0, orders: 0 }];
-    const wmid = calculateWeightedMidPrice(emptyBids, emptyAsks);
-    expect(wmid).toBeCloseTo(10.005, 5);
-  });
-});
+    it('应计算订单不平衡', () => {
+      const result = engine.analyzeOrderBook(makeOrderBook());
+      expect(result.orderImbalance).toBeGreaterThan(-1);
+      expect(result.orderImbalance).toBeLessThan(1);
+    });
 
-describe('calculateOrderBookImbalance', () => {
-  it('should calculate imbalance', () => {
-    const imbalance = calculateOrderBookImbalance(mockBids, mockAsks);
-    expect(imbalance).toBeGreaterThan(-1);
-    expect(imbalance).toBeLessThan(1);
-  });
+    it('应计算买卖深度', () => {
+      const result = engine.analyzeOrderBook(makeOrderBook());
+      expect(result.depth.bid).toBe(23000); // 5000+8000+10000
+      expect(result.depth.ask).toBe(19000); // 4000+6000+9000
+    });
 
-  it('should return 0 for empty books', () => {
-    expect(calculateOrderBookImbalance([], [])).toBe(0);
-  });
-});
+    it('流动性评分应在0-100之间', () => {
+      const result = engine.analyzeOrderBook(makeOrderBook());
+      expect(result.liquidityScore).toBeGreaterThanOrEqual(0);
+      expect(result.liquidityScore).toBeLessThanOrEqual(100);
+    });
 
-describe('calculateDepth', () => {
-  it('should calculate depth at specified levels', () => {
-    const depth = calculateDepth(mockBids, mockAsks, 3);
-    expect(depth.bidDepth).toBe(500 + 800 + 1200);
-    expect(depth.askDepth).toBe(400 + 700 + 1000);
-    expect(depth.totalDepth).toBe(depth.bidDepth + depth.askDepth);
-  });
-});
+    it('窄价差应有高流动性', () => {
+      const tightBook: OrderBook = {
+        bids: [{ price: 10.000, volume: 100000 }],
+        asks: [{ price: 10.001, volume: 100000 }],
+        timestamp: Date.now(),
+      };
+      const result = engine.analyzeOrderBook(tightBook);
+      expect(result.liquidityScore).toBeGreaterThan(60);
+    });
 
-describe('calculateLiquidityMetrics', () => {
-  it('should calculate comprehensive liquidity metrics', () => {
-    const metrics = calculateLiquidityMetrics(mockOrderBook);
-    expect(metrics.bidAskSpread).toBeCloseTo(0.01, 5);
-    expect(metrics.bidAskSpreadPercent).toBeGreaterThan(0);
-    expect(metrics.bidDepth).toBeGreaterThan(0);
-    expect(metrics.askDepth).toBeGreaterThan(0);
-    expect(metrics.liquidityScore).toBeGreaterThanOrEqual(0);
-    expect(metrics.liquidityScore).toBeLessThanOrEqual(100);
-  });
-});
+    it('空订单簿不应报错', () => {
+      const empty: OrderBook = { bids: [], asks: [], timestamp: Date.now() };
+      const result = engine.analyzeOrderBook(empty);
+      expect(result.spread).toBe(0);
+    });
 
-describe('calculateVolumeProfile', () => {
-  it('should calculate volume profile', () => {
-    const profile = calculateVolumeProfile(mockTicks, 0.01);
-    expect(profile.length).toBeGreaterThan(0);
-    const poc = profile.find(p => p.poc);
-    expect(poc).toBeDefined();
-    expect(poc!.volume).toBeGreaterThan(0);
-  });
-
-  it('should return empty for no ticks', () => {
-    expect(calculateVolumeProfile([])).toEqual([]);
-  });
-
-  it('should have value area', () => {
-    const profile = calculateVolumeProfile(mockTicks);
-    if (profile.length > 0) {
-      expect(profile[0].valueAreaHigh).toBeGreaterThanOrEqual(profile[0].valueAreaLow);
-    }
-  });
-});
-
-describe('calculateOrderFlowImbalance', () => {
-  it('should calculate order flow imbalance', () => {
-    const flow = calculateOrderFlowImbalance(mockTicks, 3);
-    expect(flow.length).toBeGreaterThan(0);
-    flow.forEach(f => {
-      expect(f.buyVolume).toBeGreaterThanOrEqual(0);
-      expect(f.sellVolume).toBeGreaterThanOrEqual(0);
-      expect(f.netFlow).toBe(f.buyVolume - f.sellVolume);
+    it('应限制分析深度', () => {
+      const result = engine.analyzeOrderBook(makeOrderBook(), 2);
+      expect(result.depth.bid).toBe(13000); // 只取前2层
     });
   });
 
-  it('should return empty for no ticks', () => {
-    expect(calculateOrderFlowImbalance([])).toEqual([]);
+  describe('VWAP/TWAP', () => {
+    it('应计算VWAP', () => {
+      const ticks = [
+        makeTick({ price: 10, volume: 1000 }),
+        makeTick({ price: 10.05, volume: 2000 }),
+        makeTick({ price: 10.02, volume: 1000 }),
+      ];
+      const result = engine.calculateVWAP(ticks, 5000);
+      expect(result.vwap).toBeGreaterThan(0);
+      expect(result.vwap).toBeCloseTo(10.03, 1);
+    });
+
+    it('应计算TWAP', () => {
+      const ticks = [
+        makeTick({ price: 10 }),
+        makeTick({ price: 10.1 }),
+        makeTick({ price: 10.2 }),
+      ];
+      const result = engine.calculateVWAP(ticks, 3000);
+      expect(result.twap).toBeCloseTo(10.1, 1);
+    });
+
+    it('应计算参与率', () => {
+      const ticks = [makeTick({ volume: 2500 })];
+      const result = engine.calculateVWAP(ticks, 10000);
+      expect(result.participation).toBe(25);
+    });
+
+    it('空数据应返回零', () => {
+      const result = engine.calculateVWAP([], 1000);
+      expect(result.vwap).toBe(0);
+      expect(result.twap).toBe(0);
+    });
+
+    it('所有价格相同时滑点应为0', () => {
+      const ticks = [
+        makeTick({ price: 10 }),
+        makeTick({ price: 10 }),
+        makeTick({ price: 10 }),
+      ];
+      const result = engine.calculateVWAP(ticks, 3000);
+      expect(result.slippage).toBe(0);
+    });
   });
 
-  it('should track cumulative flow', () => {
-    const flow = calculateOrderFlowImbalance(mockTicks, 3);
-    if (flow.length > 1) {
-      expect(flow[flow.length - 1].cumulativeFlow).toBe(
-        flow.reduce((s, f) => s + f.netFlow, 0)
-      );
-    }
-  });
-});
+  describe('买卖压力', () => {
+    it('应计算买入压力', () => {
+      const ticks = [
+        makeTick({ aggressor: 'buy', volume: 3000 }),
+        makeTick({ aggressor: 'sell', volume: 1000 }),
+      ];
+      const result = engine.analyzeBuySellPressure(ticks);
+      expect(result.buyPressure).toBeGreaterThan(result.sellPressure);
+      expect(result.netPressure).toBeGreaterThan(0);
+    });
 
-describe('estimateMarketImpact', () => {
-  it('should estimate market impact', () => {
-    const impact = estimateMarketImpact(10000, 1000000, 0.02, 0.01);
-    expect(impact.temporaryImpact).toBeGreaterThan(0);
-    expect(impact.permanentImpact).toBeGreaterThanOrEqual(0);
-    expect(impact.totalImpact).toBeGreaterThan(0);
-    expect(impact.participationRate).toBeCloseTo(0.01, 5);
-  });
+    it('应计算卖出压力', () => {
+      const ticks = [
+        makeTick({ aggressor: 'buy', volume: 1000 }),
+        makeTick({ aggressor: 'sell', volume: 3000 }),
+      ];
+      const result = engine.analyzeBuySellPressure(ticks);
+      expect(result.sellPressure).toBeGreaterThan(result.buyPressure);
+      expect(result.netPressure).toBeLessThan(0);
+    });
 
-  it('should handle zero daily volume', () => {
-    const impact = estimateMarketImpact(100, 0, 0.02, 0.01);
-    expect(impact.participationRate).toBe(0);
-  });
-});
+    it('买卖平衡应有接近0的净压力', () => {
+      const ticks = [
+        makeTick({ aggressor: 'buy', volume: 2000 }),
+        makeTick({ aggressor: 'sell', volume: 2000 }),
+      ];
+      const result = engine.analyzeBuySellPressure(ticks);
+      expect(result.netPressure).toBeCloseTo(0, 1);
+    });
 
-describe('calculateTWAP', () => {
-  it('should calculate TWAP', () => {
-    const result = calculateTWAP(mockTicks, 1000, 0, 10000, 5);
-    expect(result.slices.length).toBe(5);
-    expect(result.averagePrice).toBeGreaterThan(0);
-    expect(result.totalQuantity).toBe(1000);
-  });
-});
+    it('空tick应返回中性', () => {
+      const result = engine.analyzeBuySellPressure([]);
+      expect(result.aggressorRatio).toBe(0.5);
+    });
 
-describe('calculateVWAP', () => {
-  it('should calculate VWAP', () => {
-    const result = calculateVWAP(mockTicks);
-    expect(result.averagePrice).toBeGreaterThan(0);
-    expect(result.totalVolume).toBe(
-      mockTicks.reduce((s, t) => s + t.quantity, 0)
-    );
-  });
-
-  it('should filter by time range', () => {
-    const result = calculateVWAP(mockTicks, 2000, 5000);
-    expect(result.totalVolume).toBeLessThan(
-      mockTicks.reduce((s, t) => s + t.quantity, 0)
-    );
-  });
-});
-
-describe('classifyTradeDirection', () => {
-  it('should classify at ask as buy', () => {
-    expect(classifyTradeDirection(
-      { timestamp: 0, price: 10.01, quantity: 100, direction: 'unknown', aggressor: 'unknown' },
-      10.00, 10.01
-    )).toBe('buy');
+    it('aggressorRatio应在0-1之间', () => {
+      const ticks = [makeTick({ aggressor: 'buy' }), makeTick({ aggressor: 'sell' })];
+      const result = engine.analyzeBuySellPressure(ticks);
+      expect(result.aggressorRatio).toBeGreaterThanOrEqual(0);
+      expect(result.aggressorRatio).toBeLessThanOrEqual(1);
+    });
   });
 
-  it('should classify at bid as sell', () => {
-    expect(classifyTradeDirection(
-      { timestamp: 0, price: 10.00, quantity: 100, direction: 'unknown', aggressor: 'unknown' },
-      10.00, 10.01
-    )).toBe('sell');
+  describe('最优执行策略', () => {
+    it('应返回执行参数', () => {
+      const exec = engine.estimateOptimalExecution(50000, makeOrderBook(), 'medium');
+      expect(exec.slices).toBeGreaterThan(0);
+      expect(exec.timeEstimate).toBeGreaterThan(0);
+      expect(exec.expectedCost).toBeGreaterThan(0);
+    });
+
+    it('紧急程度越高，切片越少', () => {
+      const low = engine.estimateOptimalExecution(50000, makeOrderBook(), 'low');
+      const high = engine.estimateOptimalExecution(50000, makeOrderBook(), 'high');
+      expect(low.slices).toBeGreaterThanOrEqual(high.slices);
+    });
+
+    it('紧急程度越高，时间越短', () => {
+      const low = engine.estimateOptimalExecution(50000, makeOrderBook(), 'low');
+      const high = engine.estimateOptimalExecution(50000, makeOrderBook(), 'high');
+      expect(low.timeEstimate).toBeGreaterThanOrEqual(high.timeEstimate);
+    });
+
+    it('空订单簿不应报错', () => {
+      const empty: OrderBook = { bids: [], asks: [], timestamp: Date.now() };
+      expect(() => engine.estimateOptimalExecution(10000, empty, 'medium')).not.toThrow();
+    });
   });
 
-  it('should classify mid-price trades', () => {
-    const result = classifyTradeDirection(
-      { timestamp: 0, price: 10.005, quantity: 100, direction: 'unknown', aggressor: 'unknown' },
-      10.00, 10.01
-    );
-    expect(['buy', 'sell', 'unknown']).toContain(result);
-  });
-});
+  describe('边界情况', () => {
+    it('单边订单簿不应报错', () => {
+      const halfBook: OrderBook = {
+        bids: [{ price: 10, volume: 5000 }],
+        asks: [],
+        timestamp: Date.now(),
+      };
+      expect(() => engine.analyzeOrderBook(halfBook)).not.toThrow();
+    });
 
-describe('calculateKyleLambda', () => {
-  it('should calculate Kyle lambda', () => {
-    const lambda = calculateKyleLambda(mockTicks);
-    expect(typeof lambda).toBe('number');
-  });
+    it('零价格不应报错', () => {
+      const book: OrderBook = {
+        bids: [{ price: 0, volume: 1000 }],
+        asks: [{ price: 0, volume: 1000 }],
+        timestamp: Date.now(),
+      };
+      const result = engine.analyzeOrderBook(book);
+      expect(result.midPrice).toBe(0);
+    });
 
-  it('should return 0 for insufficient data', () => {
-    expect(calculateKyleLambda([mockTicks[0]])).toBe(0);
-  });
-});
-
-describe('calculateAmihudIlliquidity', () => {
-  it('should calculate Amihud illiquidity ratio', () => {
-    const prices = [10, 10.01, 9.99, 10.02, 10.00];
-    const volumes = [10000, 15000, 12000, 18000, 14000];
-    const illiq = calculateAmihudIlliquidity(prices, volumes);
-    expect(illiq).toBeGreaterThan(0);
-  });
-
-  it('should return 0 for insufficient data', () => {
-    expect(calculateAmihudIlliquidity([10], [1000])).toBe(0);
-  });
-});
-
-describe('calculateRollSpread', () => {
-  it('should calculate Roll spread', () => {
-    const prices = [10, 10.01, 10.00, 9.99, 10.01, 10.02, 10.00, 9.98, 10.01];
-    const spread = calculateRollSpread(prices);
-    expect(typeof spread).toBe('number');
-    expect(spread).toBeGreaterThanOrEqual(0);
-  });
-
-  it('should return 0 for insufficient data', () => {
-    expect(calculateRollSpread([10, 10.01])).toBe(0);
+    it('零成交量tick不应报错', () => {
+      expect(() => engine.calculateVWAP([makeTick({ volume: 0 })], 100)).not.toThrow();
+    });
   });
 });

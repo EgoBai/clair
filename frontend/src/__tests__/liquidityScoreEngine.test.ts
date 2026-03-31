@@ -1,188 +1,166 @@
 import { describe, it, expect } from 'vitest';
-import {
-  calculateAmihud,
-  calculateTurnoverRate,
-  estimateBidAskSpread,
-  calculateLiquidityScore,
-  calculateLiquidityTrend,
-  crossSectionLiquidityRanking,
-} from '../utils/liquidityScoreEngine';
+import { LiquidityScoreEngine } from '../utils/liquidityScoreEngine';
+import type { LiquidityData } from '../utils/liquidityScoreEngine';
 
-function generateMockData(days: number) {
-  const dailyVolume: number[] = [];
-  const dailyReturn: number[] = [];
-  const dailyPrice: number[] = [];
-  const totalShares: number[] = [];
-  let price = 100;
+describe('LiquidityScoreEngine', () => {
+  const engine = new LiquidityScoreEngine();
 
-  for (let i = 0; i < days; i++) {
-    const ret = (Math.random() - 0.5) * 0.04;
-    price *= (1 + ret);
-    dailyVolume.push(Math.floor(100000 + Math.random() * 500000));
-    dailyReturn.push(ret);
-    dailyPrice.push(price);
-    totalShares.push(10000000);
-  }
-  return { dailyVolume, dailyReturn, dailyPrice, totalShares };
-}
+  const liquidStock: LiquidityData = {
+    code: '000001',
+    name: '平安银行',
+    price: 12,
+    avgVolume: 50000000,
+    avgTurnover: 600000000,
+    turnoverRate: 2.5,
+    freeFloat: 200000000000,
+    dailyReturn: 0.02,
+    dailyVolume: 55000000,
+  };
 
-const mockData = generateMockData(100);
+  const illiquidStock: LiquidityData = {
+    code: '000999',
+    name: '小盘股',
+    price: 5,
+    avgVolume: 100000,
+    avgTurnover: 500000,
+    turnoverRate: 0.05,
+    freeFloat: 500000000,
+    dailyReturn: 0.01,
+    dailyVolume: 80000,
+  };
 
-describe('流动性评分引擎', () => {
-  describe('calculateAmihud', () => {
-    it('should calculate Amihud ratios', () => {
-      const result = calculateAmihud(
-        [0.01, -0.02, 0.005],
-        [100000, 200000, 150000],
-        [100, 102, 101]
-      );
-      expect(result.length).toBe(3);
-      result.forEach(r => expect(r).toBeGreaterThanOrEqual(0));
+  describe('流动性评分', () => {
+    it('高流动性股票应得高分', () => {
+      const score = engine.calculateScore(liquidStock);
+      expect(score.compositeScore).toBeGreaterThan(50);
+      expect(['high', 'medium']).toContain(score.tier);
     });
 
-    it('should handle zero volume', () => {
-      const result = calculateAmihud([0.01], [0], [100]);
-      expect(result[0]).toBe(0);
-    });
-  });
-
-  describe('calculateTurnoverRate', () => {
-    it('should calculate turnover rates', () => {
-      const result = calculateTurnoverRate([100000, 200000], [10000000, 10000000]);
-      expect(result).toEqual([0.01, 0.02]);
+    it('低流动性股票应得相对低分', () => {
+      const score = engine.calculateScore(illiquidStock);
+      const liquidScore = engine.calculateScore(liquidStock);
+      expect(score.compositeScore).toBeLessThan(liquidScore.compositeScore);
     });
 
-    it('should handle zero shares', () => {
-      const result = calculateTurnoverRate([100000], [0]);
-      expect(result[0]).toBe(0);
-    });
-  });
-
-  describe('estimateBidAskSpread', () => {
-    it('should estimate spread from returns', () => {
-      const returns = Array.from({ length: 100 }, () => (Math.random() - 0.5) * 0.02);
-      const spread = estimateBidAskSpread(returns);
-      expect(spread).toBeGreaterThanOrEqual(0);
+    it('评分应在0-100之间', () => {
+      const score1 = engine.calculateScore(liquidStock);
+      const score2 = engine.calculateScore(illiquidStock);
+      expect(score1.compositeScore).toBeGreaterThanOrEqual(0);
+      expect(score1.compositeScore).toBeLessThanOrEqual(100);
+      expect(score2.compositeScore).toBeGreaterThanOrEqual(0);
+      expect(score2.compositeScore).toBeLessThanOrEqual(100);
     });
 
-    it('should handle short data', () => {
-      expect(estimateBidAskSpread([0.01])).toBe(0);
+    it('应包含所有子评分', () => {
+      const score = engine.calculateScore(liquidStock);
+      expect(score.volumeScore).toBeGreaterThanOrEqual(0);
+      expect(score.turnoverScore).toBeGreaterThanOrEqual(0);
+      expect(score.turnoverRateScore).toBeGreaterThanOrEqual(0);
+      expect(score.amihudScore).toBeGreaterThanOrEqual(0);
     });
 
-    it('should handle empty data', () => {
-      expect(estimateBidAskSpread([])).toBe(0);
+    it('tier应有效', () => {
+      const score = engine.calculateScore(liquidStock);
+      expect(['high', 'medium', 'low', 'illiquid']).toContain(score.tier);
+    });
+
+    it('ADV应为正', () => {
+      const score = engine.calculateScore(liquidStock);
+      expect(score.adv).toBeGreaterThan(0);
     });
   });
 
-  describe('calculateLiquidityScore', () => {
-    it('should calculate comprehensive score', () => {
-      const score = calculateLiquidityScore(mockData);
-      expect(score.totalScore).toBeGreaterThanOrEqual(0);
-      expect(score.totalScore).toBeLessThanOrEqual(100);
-      expect(['A', 'B', 'C', 'D', 'E']).toContain(score.grade);
-      expect(['low', 'medium', 'high', 'critical']).toContain(score.riskLevel);
+  describe('批量排名', () => {
+    it('应返回排名结果', () => {
+      const ranking = engine.rankLiquidity([liquidStock, illiquidStock]);
+      expect(ranking.rankings.length).toBe(2);
+      expect(ranking.rankings[0].compositeScore).toBeGreaterThanOrEqual(ranking.rankings[1].compositeScore);
     });
 
-    it('should have valid factor scores', () => {
-      const score = calculateLiquidityScore(mockData);
-      expect(score.factorScores.volume).toBeGreaterThanOrEqual(0);
-      expect(score.factorScores.turnover).toBeGreaterThanOrEqual(0);
-      expect(score.factorScores.priceImpact).toBeGreaterThanOrEqual(0);
-      expect(score.factorScores.consistency).toBeGreaterThanOrEqual(0);
-      expect(score.factorScores.spread).toBeGreaterThanOrEqual(0);
+    it('应计算市场统计', () => {
+      const ranking = engine.rankLiquidity([liquidStock, illiquidStock]);
+      expect(ranking.marketStats.medianADV).toBeGreaterThan(0);
+      expect(ranking.marketStats.avgTurnoverRate).toBeGreaterThan(0);
+      expect(ranking.marketStats.illiquidPct).toBeGreaterThanOrEqual(0);
+      expect(ranking.marketStats.illiquidPct).toBeLessThanOrEqual(1);
     });
 
-    it('should include metrics', () => {
-      const score = calculateLiquidityScore(mockData);
-      expect(score.metrics.turnoverRate).toBeGreaterThanOrEqual(0);
-      expect(score.metrics.amihudRatio).toBeGreaterThanOrEqual(0);
+    it('空数据应返回空', () => {
+      const ranking = engine.rankLiquidity([]);
+      expect(ranking.rankings).toEqual([]);
+      expect(ranking.marketStats.medianADV).toBe(0);
     });
 
-    it('should have trading recommendation', () => {
-      const score = calculateLiquidityScore(mockData);
-      expect(score.tradingRecommendation).toBeTruthy();
-    });
-
-    it('should handle empty data', () => {
-      const score = calculateLiquidityScore({
-        dailyVolume: [], dailyReturn: [], dailyPrice: [], totalShares: [],
-      });
-      expect(score.totalScore).toBe(0);
-      expect(score.grade).toBe('E');
-    });
-
-    it('should score high-volume stocks higher', () => {
-      const highVol = generateMockData(100);
-      highVol.dailyVolume = highVol.dailyVolume.map(v => v * 10);
-      const lowVol = generateMockData(100);
-      lowVol.dailyVolume = lowVol.dailyVolume.map(v => v / 10);
-
-      const highScore = calculateLiquidityScore(highVol);
-      const lowScore = calculateLiquidityScore(lowVol);
-      expect(highScore.totalScore).toBeGreaterThanOrEqual(lowScore.totalScore);
-    });
-  });
-
-  describe('calculateLiquidityTrend', () => {
-    it('should calculate trends', () => {
-      const scores = Array.from({ length: 50 }, () => 50 + Math.random() * 30);
-      const dates = scores.map((_, i) => `2026-01-${String(i + 1).padStart(2, '0')}`);
-      const trends = calculateLiquidityTrend(scores, dates);
-      expect(trends.length).toBe(50);
-      trends.forEach(t => {
-        expect(['improving', 'stable', 'deteriorating']).toContain(t.trend);
-        expect(t.ma5).toBeGreaterThan(0);
-        expect(t.ma20).toBeGreaterThan(0);
-      });
-    });
-
-    it('should detect improving trend', () => {
-      const scores = Array.from({ length: 30 }, (_, i) => 30 + i); // Rising
-      const trends = calculateLiquidityTrend(scores, []);
-      const lastTrend = trends[trends.length - 1];
-      expect(lastTrend.trend).toBe('improving');
-    });
-  });
-
-  describe('crossSectionLiquidityRanking', () => {
-    it('should rank stocks by liquidity', () => {
+    it('应按综合评分降序排列', () => {
       const stocks = [
-        { name: 'A', score: 80 },
-        { name: 'B', score: 60 },
-        { name: 'C', score: 90 },
-        { name: 'D', score: 40 },
+        { ...liquidStock, code: 'A' },
+        { ...illiquidStock, code: 'B' },
+        { ...liquidStock, code: 'C', avgVolume: 100000000 },
       ];
-      const ranking = crossSectionLiquidityRanking(stocks);
-      expect(ranking.length).toBe(4);
-      expect(ranking[0].name).toBe('C');
-      expect(ranking[0].rank).toBe(1);
-      expect(ranking[3].name).toBe('D');
+      const ranking = engine.rankLiquidity(stocks);
+      for (let i = 1; i < ranking.rankings.length; i++) {
+        expect(ranking.rankings[i - 1].compositeScore).toBeGreaterThanOrEqual(ranking.rankings[i].compositeScore);
+      }
+    });
+  });
+
+  describe('流动性预警', () => {
+    it('正常股票应为低风险', () => {
+      const risk = engine.checkLiquidityRisk(liquidStock, Array.from({ length: 20 }, () => 50000000));
+      expect(risk.risk).toBe('low');
     });
 
-    it('should calculate percentiles', () => {
-      const stocks = Array.from({ length: 100 }, (_, i) => ({
-        name: `Stock${i}`,
-        score: Math.random() * 100,
-      }));
-      const ranking = crossSectionLiquidityRanking(stocks);
-      ranking.forEach(r => {
-        expect(r.percentile).toBeGreaterThanOrEqual(0);
-        expect(r.percentile).toBeLessThanOrEqual(100);
-      });
+    it('成交量萎缩应触发预警', () => {
+      const history = [
+        ...Array.from({ length: 15 }, () => 50000000),
+        ...Array.from({ length: 5 }, () => 1000000), // 近期萎缩
+      ];
+      const risk = engine.checkLiquidityRisk(liquidStock, history);
+      expect(risk.risk).not.toBe('low');
+      expect(risk.signals.length).toBeGreaterThan(0);
     });
 
-    it('should detect outliers', () => {
-      const stocks = [
-        { name: 'Normal', score: 50 },
-        { name: 'Normal2', score: 52 },
-        { name: 'Normal3', score: 48 },
-        { name: 'Normal4', score: 51 },
-        { name: 'Normal5', score: 49 },
-        { name: 'Outlier', score: 500 },
-      ];
-      const ranking = crossSectionLiquidityRanking(stocks);
-      const outlier = ranking.find(r => r.name === 'Outlier');
-      expect(outlier?.isOutlier).toBe(true);
+    it('极低换手率应触发预警', () => {
+      const risk = engine.checkLiquidityRisk(illiquidStock, [100000]);
+      expect(risk.signals.some(s => s.includes('换手率'))).toBe(true);
+    });
+
+    it('低成交额应触发预警', () => {
+      const lowTurnover: LiquidityData = { ...liquidStock, avgTurnover: 5000000 };
+      const risk = engine.checkLiquidityRisk(lowTurnover, [50000]);
+      expect(risk.signals.some(s => s.includes('成交额'))).toBe(true);
+    });
+
+    it('历史数据不足不应报错', () => {
+      const risk = engine.checkLiquidityRisk(liquidStock, [50000000]);
+      expect(risk.risk).toBeDefined();
+    });
+
+    it('空历史不应报错', () => {
+      const risk = engine.checkLiquidityRisk(liquidStock, []);
+      expect(risk.risk).toBeDefined();
+    });
+  });
+
+  describe('边界情况', () => {
+    it('零成交量不应报错', () => {
+      const zero: LiquidityData = { ...liquidStock, avgVolume: 0, dailyVolume: 0 };
+      expect(() => engine.calculateScore(zero)).not.toThrow();
+    });
+
+    it('零成交额不应报错', () => {
+      const zero: LiquidityData = { ...liquidStock, avgTurnover: 0 };
+      expect(() => engine.calculateScore(zero)).not.toThrow();
+    });
+
+    it('极端换手率不应报错', () => {
+      const extreme: LiquidityData = { ...liquidStock, turnoverRate: 50 };
+      expect(() => engine.calculateScore(extreme)).not.toThrow();
+    });
+
+    it('负收益率不应报错', () => {
+      const neg: LiquidityData = { ...liquidStock, dailyReturn: -0.05 };
+      expect(() => engine.calculateScore(neg)).not.toThrow();
     });
   });
 });

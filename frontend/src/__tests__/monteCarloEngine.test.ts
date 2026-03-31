@@ -1,188 +1,212 @@
 import { describe, it, expect } from 'vitest';
-import {
-  generateWalkForwardWindows,
-  expandingWindow,
-  runMonteCarloSimulation,
-  runBootstrap,
-  walkForwardOptimization,
-  calculateConfidenceInterval,
-  permutationTest,
-  simulateGeometricBrownianMotion,
-} from '../utils/monteCarloEngine';
+import { MonteCarloEngine } from '../utils/monteCarloEngine';
+import type { MonteCarloParams } from '../utils/monteCarloEngine';
 
-describe('generateWalkForwardWindows', () => {
-  it('should generate correct number of windows', () => {
-    const windows = generateWalkForwardWindows(100, 50, 10);
-    expect(windows.length).toBeGreaterThan(0);
-    windows.forEach(w => {
-      expect(w.trainStart).toBeGreaterThanOrEqual(0);
-      expect(w.trainEnd).toBeGreaterThan(w.trainStart);
-      expect(w.testStart).toBe(w.trainEnd);
-      expect(w.testEnd).toBeGreaterThan(w.testStart);
+describe('MonteCarloEngine', () => {
+  const engine = new MonteCarloEngine();
+
+  const defaultParams: MonteCarloParams = {
+    initialValue: 100,
+    expectedReturn: 0.08,
+    volatility: 0.2,
+    timeHorizon: 1,
+    steps: 252,
+    simulations: 1000,
+  };
+
+  describe('股价路径模拟', () => {
+    it('应生成指定数量的路径', () => {
+      const result = engine.simulatePaths(defaultParams);
+      expect(result.paths.length).toBe(1000);
+      expect(result.paths[0].length).toBe(253); // steps + 1
+    });
+
+    it('路径应从初始值开始', () => {
+      const result = engine.simulatePaths(defaultParams);
+      result.paths.forEach(path => {
+        expect(path[0]).toBe(100);
+      });
+    });
+
+    it('均值应在合理范围内', () => {
+      const result = engine.simulatePaths(defaultParams);
+      // 预期均值 ≈ S0 * exp(mu*T) ≈ 100 * exp(0.08) ≈ 108.3
+      expect(result.statistics.mean).toBeGreaterThan(80);
+      expect(result.statistics.mean).toBeLessThan(140);
+    });
+
+    it('最小值应小于最大值', () => {
+      const result = engine.simulatePaths(defaultParams);
+      expect(result.statistics.min).toBeLessThan(result.statistics.max);
+    });
+
+    it('标准差应为正', () => {
+      const result = engine.simulatePaths(defaultParams);
+      expect(result.statistics.stdDev).toBeGreaterThan(0);
+    });
+
+    it('百分位数应单调递增', () => {
+      const result = engine.simulatePaths(defaultParams);
+      const pcts = [1, 5, 10, 25, 50, 75, 90, 95, 99];
+      for (let i = 1; i < pcts.length; i++) {
+        expect(result.percentiles[pcts[i]]).toBeGreaterThanOrEqual(result.percentiles[pcts[i - 1]]);
+      }
+    });
+
+    it('VaR应为正数', () => {
+      const result = engine.simulatePaths(defaultParams);
+      expect(typeof result.var95).toBe('number');
+      expect(result.cvar95).toBeGreaterThanOrEqual(result.var95);
     });
   });
 
-  it('should return empty if not enough data', () => {
-    expect(generateWalkForwardWindows(10, 50, 10).length).toBe(0);
-  });
+  describe('参数敏感性', () => {
+    it('高波动率应有更大标准差', () => {
+      const lowVol = engine.simulatePaths({ ...defaultParams, volatility: 0.1 });
+      const highVol = engine.simulatePaths({ ...defaultParams, volatility: 0.4 });
+      expect(highVol.statistics.stdDev).toBeGreaterThan(lowVol.statistics.stdDev);
+    });
 
-  it('should respect custom step size', () => {
-    const windows = generateWalkForwardWindows(100, 50, 10, 20);
-    expect(windows.length).toBeGreaterThan(0);
-  });
-});
+    it('高预期收益应有更高均值', () => {
+      const lowRet = engine.simulatePaths({ ...defaultParams, expectedReturn: 0.02 });
+      const highRet = engine.simulatePaths({ ...defaultParams, expectedReturn: 0.15 });
+      expect(highRet.statistics.mean).toBeGreaterThan(lowRet.statistics.mean);
+    });
 
-describe('expandingWindow', () => {
-  it('should generate expanding windows', () => {
-    const windows = expandingWindow(100, 30, 10);
-    expect(windows.length).toBeGreaterThan(0);
-    windows.forEach(w => {
-      expect(w.trainStart).toBe(0);
-      expect(w.trainSize).toBe(w.trainEnd);
+    it('更长时间应有更大分散', () => {
+      const short = engine.simulatePaths({ ...defaultParams, timeHorizon: 0.25 });
+      const long = engine.simulatePaths({ ...defaultParams, timeHorizon: 3 });
+      expect(long.statistics.stdDev).toBeGreaterThan(short.statistics.stdDev);
     });
   });
 
-  it('should increase train size across windows', () => {
-    const windows = expandingWindow(100, 30, 10);
-    for (let i = 1; i < windows.length; i++) {
-      expect(windows[i].trainEnd).toBeGreaterThan(windows[i - 1].trainEnd);
-    }
-  });
-});
-
-describe('runMonteCarloSimulation', () => {
-  it('should generate correct number of paths', () => {
-    const result = runMonteCarloSimulation({
-      simulations: 100,
-      timeSteps: 50,
-      initialValue: 100,
-      drift: 0.05,
-      volatility: 0.2,
-      seed: 42,
+  describe('投资组合模拟', () => {
+    it('应计算组合统计', () => {
+      const result = engine.simulatePortfolio(
+        [0.6, 0.4],
+        [0.1, 0.05],
+        [[0.04, 0.01], [0.01, 0.02]],
+        100000,
+        1,
+        1000,
+      );
+      expect(result.finalValues.length).toBe(1000);
+      expect(result.expectedReturn).toBeDefined();
+      expect(result.risk).toBeGreaterThan(0);
     });
-    expect(result.paths.length).toBe(100);
-    expect(result.paths[0].length).toBe(51); // initial + steps
-    expect(result.finalValues.length).toBe(100);
-  });
 
-  it('should calculate percentiles', () => {
-    const result = runMonteCarloSimulation({
-      simulations: 1000,
-      timeSteps: 50,
-      initialValue: 100,
-      drift: 0.05,
-      volatility: 0.2,
-      seed: 42,
+    it('亏损概率应在0-1之间', () => {
+      const result = engine.simulatePortfolio(
+        [0.6, 0.4],
+        [0.1, 0.05],
+        [[0.04, 0.01], [0.01, 0.02]],
+        100000,
+        1,
+        1000,
+      );
+      expect(result.probLoss).toBeGreaterThanOrEqual(0);
+      expect(result.probLoss).toBeLessThanOrEqual(1);
     });
-    expect(result.percentiles[50]).toBeDefined();
-    expect(result.percentiles[5]).toBeLessThan(result.percentiles[95]);
-  });
 
-  it('should calculate VaR', () => {
-    const result = runMonteCarloSimulation({
-      simulations: 1000,
-      timeSteps: 50,
-      initialValue: 100,
-      drift: 0.05,
-      volatility: 0.2,
-      seed: 42,
+    it('最大回撤应在0-1之间', () => {
+      const result = engine.simulatePortfolio(
+        [1],
+        [0.1],
+        [[0.04]],
+        100000,
+        1,
+        1000,
+      );
+      expect(result.maxDrawdown).toBeGreaterThanOrEqual(0);
+      expect(result.maxDrawdown).toBeLessThanOrEqual(1);
     });
-    expect(result.var95).toBeGreaterThan(0);
-    expect(result.var99).toBeGreaterThan(result.var95);
+
+    it('Sharpe比率应可正可负', () => {
+      const result = engine.simulatePortfolio(
+        [1],
+        [-0.05],
+        [[0.04]],
+        100000,
+        1,
+        1000,
+      );
+      expect(typeof result.sharpeRatio).toBe('number');
+    });
   });
 
-  it('should be reproducible with seed', () => {
-    const config = { simulations: 10, timeSteps: 10, initialValue: 100, drift: 0.05, volatility: 0.2, seed: 42 };
-    const r1 = runMonteCarloSimulation(config);
-    const r2 = runMonteCarloSimulation(config);
-    expect(r1.finalValues).toEqual(r2.finalValues);
-  });
-});
+  describe('期权定价', () => {
+    it('看涨期权价格应为正', () => {
+      engine.setSeed(42);
+      const result = engine.priceOption(100, 100, 0.05, 0.2, 1, 'call');
+      expect(result.price).toBeGreaterThan(0);
+    });
 
-describe('runBootstrap', () => {
-  it('should bootstrap a statistic', () => {
-    const data = Array.from({ length: 500 }, () => Math.random());
-    const result = runBootstrap(data, (s) => s.reduce((a, b) => a + b, 0) / s.length, 500);
-    expect(result.originalStatistic).toBeCloseTo(0.5, 0);
-    expect(result.bootstrapStd).toBeGreaterThan(0);
-    expect(result.confidenceInterval[0]).toBeLessThan(result.confidenceInterval[1]);
-  });
+    it('看跌期权价格应为正', () => {
+      engine.setSeed(42);
+      const result = engine.priceOption(100, 100, 0.05, 0.2, 1, 'put');
+      expect(result.price).toBeGreaterThan(0);
+    });
 
-  it('should calculate p-value', () => {
-    const data = Array.from({ length: 100 }, (_, i) => i * 0.01);
-    const result = runBootstrap(data, (s) => s.reduce((a, b) => a + b, 0) / s.length, 500);
-    expect(result.pValue).toBeGreaterThanOrEqual(0);
-    expect(result.pValue).toBeLessThanOrEqual(1);
-  });
-});
+    it('ATM看涨应>ATM看跌(正利率)', () => {
+      engine.setSeed(42);
+      const call = engine.priceOption(100, 100, 0.05, 0.2, 1, 'call', 50000);
+      engine.setSeed(42);
+      const put = engine.priceOption(100, 100, 0.05, 0.2, 1, 'put', 50000);
+      expect(call.price).toBeGreaterThan(put.price);
+    });
 
-describe('walkForwardOptimization', () => {
-  it('should run walk-forward optimization', () => {
-    const data = Array.from({ length: 100 }, () => [Math.random(), Math.random()]);
-    const labels = Array.from({ length: 100 }, () => Math.random() > 0.5 ? 1 : -1);
-    const windows = generateWalkForwardWindows(100, 50, 10);
+    it('深度虚值看涨应接近0', () => {
+      engine.setSeed(42);
+      const result = engine.priceOption(50, 200, 0.05, 0.2, 0.1, 'call');
+      expect(result.price).toBeLessThan(0.1);
+    });
 
-    const result = walkForwardOptimization(
-      data, labels,
-      (trainData) => trainData[0], // Simple "optimizer"
-      (params, testData) => Math.random(), // Random "evaluator"
-      windows
-    );
+    it('标准误应为正', () => {
+      engine.setSeed(42);
+      const result = engine.priceOption(100, 100, 0.05, 0.2, 1, 'call');
+      expect(result.stdError).toBeGreaterThan(0);
+    });
 
-    expect(result.windows).toEqual(windows);
-    expect(typeof result.robustness).toBe('number');
-    expect(typeof result.overfitting).toBe('number');
-  });
-});
-
-describe('calculateConfidenceInterval', () => {
-  it('should calculate 95% CI', () => {
-    const data = Array.from({ length: 1000 }, () => Math.random());
-    const ci = calculateConfidenceInterval(data, 0.95);
-    expect(ci.mean).toBeCloseTo(0.5, 0);
-    expect(ci.lower).toBeLessThan(ci.mean);
-    expect(ci.upper).toBeGreaterThan(ci.mean);
+    it('更多模拟应有更小标准误', () => {
+      engine.setSeed(42);
+      const few = engine.priceOption(100, 100, 0.05, 0.2, 1, 'call', 1000);
+      engine.setSeed(42);
+      const many = engine.priceOption(100, 100, 0.05, 0.2, 1, 'call', 50000);
+      expect(many.stdError).toBeLessThan(few.stdError);
+    });
   });
 
-  it('should calculate 99% CI', () => {
-    const data = Array.from({ length: 100 }, () => Math.random());
-    const ci95 = calculateConfidenceInterval(data, 0.95);
-    const ci99 = calculateConfidenceInterval(data, 0.99);
-    expect(ci99.lower).toBeLessThan(ci95.lower);
-    expect(ci99.upper).toBeGreaterThan(ci95.upper);
-  });
-});
+  describe('随机种子', () => {
+    it('相同种子应产生相同结果', () => {
+      engine.setSeed(123);
+      const r1 = engine.simulatePaths({ ...defaultParams, simulations: 10 });
+      engine.setSeed(123);
+      const r2 = engine.simulatePaths({ ...defaultParams, simulations: 10 });
+      expect(r1.statistics.mean).toBe(r2.statistics.mean);
+    });
 
-describe('permutationTest', () => {
-  it('should detect significant difference', () => {
-    const sample1 = Array.from({ length: 50 }, () => Math.random() + 1);
-    const sample2 = Array.from({ length: 50 }, () => Math.random());
-    const result = permutationTest(sample1, sample2, 500);
-    expect(result.observedDiff).toBeGreaterThan(0);
-    expect(result.pValue).toBeLessThan(0.05);
-  });
-
-  it('should not detect difference for similar samples', () => {
-    // Use fixed seed-like approach: identical distributions
-    const base = Array.from({ length: 50 }, (_, i) => i * 0.02);
-    const sample1 = base.map(v => v + 0.001); // tiny offset
-    const sample2 = base.map(v => v - 0.001);
-    const result = permutationTest(sample1, sample2, 1000);
-    expect(result.pValue).toBeGreaterThan(0.01); // relax threshold for flakiness
-  });
-});
-
-describe('simulateGeometricBrownianMotion', () => {
-  it('should generate paths', () => {
-    const paths = simulateGeometricBrownianMotion(100, 0.05, 0.2, 1, 252, 100, 42);
-    expect(paths.length).toBe(100);
-    expect(paths[0].length).toBe(253);
-    expect(paths[0][0]).toBe(100);
+    it('不同种子应产生不同结果', () => {
+      engine.setSeed(123);
+      const r1 = engine.simulatePaths({ ...defaultParams, simulations: 100 });
+      engine.setSeed(456);
+      const r2 = engine.simulatePaths({ ...defaultParams, simulations: 100 });
+      expect(r1.statistics.mean).not.toBe(r2.statistics.mean);
+    });
   });
 
-  it('should be reproducible', () => {
-    const p1 = simulateGeometricBrownianMotion(100, 0.05, 0.2, 1, 10, 5, 42);
-    const p2 = simulateGeometricBrownianMotion(100, 0.05, 0.2, 1, 10, 5, 42);
-    expect(p1).toEqual(p2);
+  describe('边界情况', () => {
+    it('零波动率应产生确定性路径', () => {
+      const result = engine.simulatePaths({ ...defaultParams, volatility: 0, simulations: 10 });
+      expect(result.statistics.stdDev).toBe(0);
+    });
+
+    it('单次模拟不应报错', () => {
+      const result = engine.simulatePaths({ ...defaultParams, simulations: 1 });
+      expect(result.paths.length).toBe(1);
+    });
+
+    it('零预期收益不应报错', () => {
+      expect(() => engine.simulatePaths({ ...defaultParams, expectedReturn: 0, simulations: 10 })).not.toThrow();
+    });
   });
 });
