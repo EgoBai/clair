@@ -22,3 +22,4 @@ export { getWorkerPool, terminateWorkerPool, workerSort, workerFilter, workerCom
 export { preloadResource, prefetchRoute, preloadImages, LazyImage, LazyComponent, useInView } from './lazyLoader.tsx';
 export { PerformanceBudgetChecker, DEFAULT_BUDGET, getBudgetChecker, setResourcePriority, prioritizeCriticalResources } from './performanceBudget';
 export { IdleScheduler, getIdleScheduler, whenIdle, nextFrame, deferredBatch } from './idleScheduler';
+export { calculateTradeCost, calculateRoundTripCost, calculateBatchTradeCost, compareBrokerCosts, calculateOptimalTradeAmount, DEFAULT_BROKERS, STAMP_DUTY_RATE, TRANSFER_FEE_RATE, HANDLING_FEE_RATE, REGULATORY_FEE_RATE } from './aStockTradeCostEngine';

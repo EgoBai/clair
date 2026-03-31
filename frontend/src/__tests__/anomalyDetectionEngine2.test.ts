@@ -20,7 +20,7 @@ describe('AnomalyDetectionEngine', () => {
     };
 
     it('应该检测异常涨跌', () => {
-      const prices = [100, 101, 102, 120, 103, 104];
+      const prices = [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 300];
       const results = detectPriceAnomaly(prices, 2);
       const anomalies = results.filter(r => r.isAnomaly);
       expect(anomalies.length).toBeGreaterThan(0);

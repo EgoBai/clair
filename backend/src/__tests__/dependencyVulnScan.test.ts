@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
+// ROOT 指向项目根目录 (vitest 从项目根目录运行)
 const ROOT = process.cwd();
 
 function readPkgJson(path: string): Record<string, any> {

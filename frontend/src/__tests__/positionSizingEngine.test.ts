@@ -13,7 +13,7 @@ describe('PositionSizingEngine', () => {
 
     it('应该计算 Kelly 比例', () => {
       const kellyPct = kelly(0.6, 2, 1);
-      expect(kellyPct).toBe(0.4); // (0.6*2 - 0.4)/2 = 0.8/2 = 0.4
+      expect(kellyPct).toBeCloseTo(0.4, 10); // (0.6*2 - 0.4)/2 = 0.8/2 = 0.4
     });
 
     it('胜率50%盈亏比2:1 Kelly应为25%', () => {
@@ -29,7 +29,7 @@ describe('PositionSizingEngine', () => {
     it('通常使用半 Kelly', () => {
       const fullKelly = kelly(0.6, 2, 1);
       const halfKelly = fullKelly / 2;
-      expect(halfKelly).toBe(0.2);
+      expect(halfKelly).toBeCloseTo(0.2, 10);
     });
   });
 
