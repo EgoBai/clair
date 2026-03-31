@@ -199,7 +199,11 @@ export function calculateTrendStrength(
     const priceVsMA = (close - ma20) / ma20 * 100;
     trendScore = Math.max(0, Math.min(100, 50 + priceVsMA * 10));
   }
-  trendScore = trendScore * 0.5 + maAlignment * 100 * 0.3 + adx * 0.2;
+  // 方向性权重更高，ADX做归一化修正而非绝对加成
+  const directionWeight = 0.7;
+  const alignmentWeight = 0.2;
+  const adxWeight = 0.1;
+  trendScore = trendScore * directionWeight + maAlignment * 100 * alignmentWeight + (trendScore >= 50 ? adx : -adx) * adxWeight;
 
   // 持续天数
   let duration = 0;
