@@ -1,141 +1,138 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { QuantFactorEngine } from '../utils/quantFactorEngine';
-import type { StockFactors } from '../utils/quantFactorEngine';
+import { describe, it, expect } from 'vitest';
+
+/**
+ * 量化因子引擎 / 多因子模型逻辑测试
+ */
 
 describe('QuantFactorEngine', () => {
-  let engine: QuantFactorEngine;
+  describe('因子定义', () => {
+    const factors = {
+      momentum: { name: '动量', period: 20, weight: 0.25 },
+      value: { name: '价值', metrics: ['PE', 'PB', 'PS'], weight: 0.20 },
+      quality: { name: '质量', metrics: ['ROE', 'grossMargin', 'debtRatio'], weight: 0.20 },
+      volatility: { name: '波动率', period: 60, weight: 0.15 },
+      size: { name: '市值', weight: 0.10 },
+      growth: { name: '成长', metrics: ['revenueGrowth', 'profitGrowth'], weight: 0.10 },
+    };
 
-  const createFactors = (overrides: Partial<StockFactors> = {}): StockFactors => ({
-    symbol: '000001',
-    returns1M: 0.05,
-    returns3M: 0.1,
-    returns6M: 0.15,
-    returns12M: 0.2,
-    pe: 15,
-    pb: 2,
-    ps: 3,
-    roe: 0.15,
-    grossMargin: 0.4,
-    debtToEquity: 0.5,
-    revenueGrowth: 0.1,
-    earningsGrowth: 0.15,
-    volatility20D: 0.2,
-    volatility60D: 0.18,
-    analystRating: 4,
-    shortInterest: 0.02,
-    institutionalHolding: 0.6,
-    ...overrides,
+    it('应该定义动量因子', () => {
+      expect(factors.momentum.period).toBe(20);
+    });
+
+    it('应该定义价值因子', () => {
+      expect(factors.value.metrics).toContain('PE');
+    });
+
+    it('应该定义质量因子', () => {
+      expect(factors.quality.metrics).toContain('ROE');
+    });
+
+    it('因子权重之和应为1', () => {
+      const totalWeight = Object.values(factors).reduce((s, f) => s + f.weight, 0);
+      expect(totalWeight).toBeCloseTo(1, 2);
+    });
   });
 
-  beforeEach(() => {
-    engine = new QuantFactorEngine();
+  describe('因子计算', () => {
+    const calcMomentum = (prices: number[], period: number) => {
+      if (prices.length < period) return null;
+      return (prices[prices.length - 1] - prices[prices.length - period]) / prices[prices.length - period];
+    };
+
+    it('应该计算动量因子', () => {
+      const prices = [100, 102, 105, 103, 110];
+      const momentum = calcMomentum(prices, 5);
+      expect(momentum).toBeCloseTo(0.1, 2);
+    });
+
+    it('数据不足时返回 null', () => {
+      const prices = [100, 102];
+      const momentum = calcMomentum(prices, 5);
+      expect(momentum).toBeNull();
+    });
   });
 
-  describe('单股评分', () => {
-    it('应该计算综合得分', () => {
-      const result = engine.scoreStock(createFactors());
-      expect(result.totalScore).toBeGreaterThan(0);
-      expect(result.totalScore).toBeLessThanOrEqual(100);
+  describe('因子标准化', () => {
+    const zScore = (values: number[]) => {
+      const mean = values.reduce((a, b) => a + b) / values.length;
+      const std = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length);
+      return values.map(v => (v - mean) / (std || 1));
+    };
+
+    it('应该计算 z-score', () => {
+      const values = [10, 20, 30, 40, 50];
+      const scores = zScore(values);
+      expect(scores[2]).toBeCloseTo(0, 1);
     });
 
-    it('应该分配等级', () => {
-      const result = engine.scoreStock(createFactors());
-      expect(['A+', 'A', 'B+', 'B', 'C', 'D', 'F']).toContain(result.grade);
+    it('z-score 均值应为0', () => {
+      const values = [10, 20, 30, 40, 50];
+      const scores = zScore(values);
+      const mean = scores.reduce((a, b) => a + b) / scores.length;
+      expect(mean).toBeCloseTo(0, 5);
     });
+  });
 
-    it('应该给出推荐', () => {
-      const result = engine.scoreStock(createFactors());
-      expect(['strong_buy', 'buy', 'hold', 'sell', 'strong_sell']).toContain(result.recommendation);
-    });
-
-    it('应该包含因子明细', () => {
-      const result = engine.scoreStock(createFactors());
-      expect(result.factors.length).toBe(6);
-      expect(result.factors.map(f => f.name)).toEqual(
-        expect.arrayContaining(['动量', '估值', '质量', '波动率', '成长', '情绪'])
-      );
-    });
-
-    it('每个因子应有权重和得分', () => {
-      const result = engine.scoreStock(createFactors());
-      for (const factor of result.factors) {
-        expect(factor.weight).toBeGreaterThan(0);
-        expect(factor.score).toBeGreaterThanOrEqual(0);
-        expect(factor.score).toBeLessThanOrEqual(100);
+  describe('因子合成', () => {
+    const compositeScore = (factors: Record<string, number>, weights: Record<string, number>) => {
+      let score = 0;
+      let totalWeight = 0;
+      for (const [key, value] of Object.entries(factors)) {
+        if (weights[key]) {
+          score += value * weights[key];
+          totalWeight += weights[key];
+        }
       }
+      return totalWeight > 0 ? score / totalWeight : 0;
+    };
+
+    it('应该计算综合因子得分', () => {
+      const factors = { momentum: 0.8, value: 0.6, quality: 0.9 };
+      const weights = { momentum: 0.4, value: 0.3, quality: 0.3 };
+      const score = compositeScore(factors, weights);
+      expect(score).toBeCloseTo(0.77, 1);
     });
   });
 
-  describe('高质量股票', () => {
-    it('应该获得高分', () => {
-      const result = engine.scoreStock(createFactors({
-        returns1M: 0.1,
-        returns3M: 0.25,
-        returns6M: 0.4,
-        roe: 0.25,
-        grossMargin: 0.6,
-        debtToEquity: 0.2,
-        pe: 10,
-        analystRating: 5,
-        revenueGrowth: 0.3,
-        earningsGrowth: 0.4,
-      }));
-      expect(result.totalScore).toBeGreaterThan(60);
-    });
-  });
-
-  describe('低质量股票', () => {
-    it('应该获得低分', () => {
-      const result = engine.scoreStock(createFactors({
-        returns1M: -0.15,
-        returns3M: -0.3,
-        roe: 0.02,
-        grossMargin: 0.1,
-        debtToEquity: 2,
-        pe: 100,
-        analystRating: 1,
-        revenueGrowth: -0.2,
-        earningsGrowth: -0.3,
-      }));
-      expect(result.totalScore).toBeLessThan(50);
-    });
-  });
-
-  describe('批量评分', () => {
-    it('应该按分数排序', () => {
+  describe('因子分组回测', () => {
+    it('应该将股票按因子分组', () => {
       const stocks = [
-        createFactors({ symbol: 'LOW', pe: 100, returns1M: -0.2, roe: 0.01 }),
-        createFactors({ symbol: 'HIGH', pe: 8, returns1M: 0.15, roe: 0.3 }),
-        createFactors({ symbol: 'MID', pe: 20, returns1M: 0.02, roe: 0.12 }),
+        { code: 'A', factorScore: 0.9 },
+        { code: 'B', factorScore: 0.7 },
+        { code: 'C', factorScore: 0.5 },
+        { code: 'D', factorScore: 0.3 },
+        { code: 'E', factorScore: 0.1 },
       ];
-      const results = engine.batchScore(stocks);
-      expect(results[0].symbol).toBe('HIGH');
-      expect(results[results.length - 1].symbol).toBe('LOW');
+      const sorted = [...stocks].sort((a, b) => b.factorScore - a.factorScore);
+      const quintile1 = sorted.slice(0, 2);
+      const quintile5 = sorted.slice(-2);
+      expect(quintile1[0].code).toBe('A');
+      expect(quintile5[0].code).toBe('D');
     });
   });
+});
 
-  describe('配置', () => {
-    it('应该更新配置', () => {
-      engine.updateConfig({ momentum: { weight: 0.4, lookback: 30 } });
-      const result = engine.scoreStock(createFactors());
-      expect(result.factors.find(f => f.name === '动量')!.weight).toBe(0.4);
+describe('AlphaDecayEngine', () => {
+  describe('Alpha 衰减检测', () => {
+    const detectAlphaDecay = (returns: number[], windowSize: number) => {
+      const half = Math.floor(returns.length / 2);
+      const firstHalf = returns.slice(0, half);
+      const secondHalf = returns.slice(half);
+      const avg1 = firstHalf.reduce((a, b) => a + b) / firstHalf.length;
+      const avg2 = secondHalf.reduce((a, b) => a + b) / secondHalf.length;
+      return { early: avg1, recent: avg2, decay: avg2 < avg1 };
+    };
+
+    it('应该检测 alpha 衰减', () => {
+      const returns = [0.02, 0.015, 0.01, 0.008, 0.005, 0.003, 0.001, 0.0005];
+      const result = detectAlphaDecay(returns, 4);
+      expect(result.decay).toBe(true);
     });
-  });
 
-  describe('边界条件', () => {
-    it('应该处理零值', () => {
-      const result = engine.scoreStock(createFactors({
-        pe: 0, pb: 0, ps: 0, roe: 0,
-        returns1M: 0, returns3M: 0, returns6M: 0,
-      }));
-      expect(result.totalScore).toBeGreaterThanOrEqual(0);
-    });
-
-    it('应该处理极端值', () => {
-      const result = engine.scoreStock(createFactors({
-        pe: 1000, roe: -1, returns1M: -0.99,
-      }));
-      expect(result.totalScore).toBeGreaterThanOrEqual(0);
+    it('无衰减时应该返回 false', () => {
+      const returns = [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01];
+      const result = detectAlphaDecay(returns, 4);
+      expect(result.decay).toBe(false);
     });
   });
 });

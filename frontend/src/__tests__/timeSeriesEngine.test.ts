@@ -145,10 +145,10 @@ describe('时间序列分析引擎', () => {
     });
 
     it('should return empty for stable series', () => {
-      const series = Array.from({ length: 100 }, () => 100 + (Math.random() - 0.5) * 0.1);
+      const series = Array.from({ length: 100 }, () => 100);
       const cps = detectChangePoints(series, 5);
-      // 稳定序列不应该有变点
-      expect(cps.length).toBeLessThanOrEqual(1);
+      // 完全稳定序列不应该有变点
+      expect(cps.length).toBe(0);
     });
 
     it('should return empty for short data', () => {

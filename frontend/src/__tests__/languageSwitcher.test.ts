@@ -1,125 +1,124 @@
+import { describe, it, expect, vi } from 'vitest';
+
 /**
- * 语言切换组件逻辑测试
+ * LanguageSwitcher 语言切换组件逻辑测试
  */
-import { describe, it, expect } from 'vitest';
 
-describe('LanguageSwitcher Logic', () => {
-  const LOCALE_OPTIONS = [
-    { key: 'zh-CN', label: '中文', flag: '🇨🇳' },
-    { key: 'en-US', label: 'English', flag: '🇺🇸' },
-  ];
+describe('LanguageSwitcher', () => {
+  describe('语言选项配置', () => {
+    const LOCALE_OPTIONS = [
+      { key: 'zh-CN', label: 'Chinese', nativeLabel: '中文', flag: '🇨🇳', dir: 'ltr' as const, group: 'cjk' as const },
+      { key: 'en-US', label: 'English', nativeLabel: 'English', flag: '🇺🇸', dir: 'ltr' as const, group: 'latin' as const },
+      { key: 'ja-JP', label: 'Japanese', nativeLabel: '日本語', flag: '🇯🇵', dir: 'ltr' as const, group: 'cjk' as const },
+      { key: 'ko-KR', label: 'Korean', nativeLabel: '한국어', flag: '🇰🇷', dir: 'ltr' as const, group: 'cjk' as const },
+    ];
 
-  describe('Locale Options', () => {
-    it('should have exactly 2 locale options', () => {
-      expect(LOCALE_OPTIONS).toHaveLength(2);
+    it('应该支持4种语言', () => {
+      expect(LOCALE_OPTIONS).toHaveLength(4);
     });
 
-    it('should have zh-CN as first option', () => {
-      expect(LOCALE_OPTIONS[0].key).toBe('zh-CN');
-      expect(LOCALE_OPTIONS[0].label).toBe('中文');
-      expect(LOCALE_OPTIONS[0].flag).toBe('🇨🇳');
+    it('应该包含中文', () => {
+      const zh = LOCALE_OPTIONS.find(l => l.key === 'zh-CN');
+      expect(zh?.nativeLabel).toBe('中文');
+      expect(zh?.flag).toBe('🇨🇳');
     });
 
-    it('should have en-US as second option', () => {
-      expect(LOCALE_OPTIONS[1].key).toBe('en-US');
-      expect(LOCALE_OPTIONS[1].label).toBe('English');
-      expect(LOCALE_OPTIONS[1].flag).toBe('🇺🇸');
+    it('应该包含英文', () => {
+      const en = LOCALE_OPTIONS.find(l => l.key === 'en-US');
+      expect(en?.nativeLabel).toBe('English');
+      expect(en?.flag).toBe('🇺🇸');
     });
 
-    it('each option should have key, label, and flag', () => {
-      LOCALE_OPTIONS.forEach(opt => {
-        expect(opt.key).toBeTruthy();
-        expect(opt.label).toBeTruthy();
-        expect(opt.flag).toBeTruthy();
-      });
-    });
-  });
-
-  describe('Current Locale Matching', () => {
-    const findCurrent = (locale: string) =>
-      LOCALE_OPTIONS.find(o => o.key === locale) || LOCALE_OPTIONS[0];
-
-    it('should find zh-CN locale', () => {
-      const current = findCurrent('zh-CN');
-      expect(current.key).toBe('zh-CN');
-      expect(current.flag).toBe('🇨🇳');
+    it('应该包含日语', () => {
+      const ja = LOCALE_OPTIONS.find(l => l.key === 'ja-JP');
+      expect(ja?.nativeLabel).toBe('日本語');
+      expect(ja?.flag).toBe('🇯🇵');
     });
 
-    it('should find en-US locale', () => {
-      const current = findCurrent('en-US');
-      expect(current.key).toBe('en-US');
-      expect(current.flag).toBe('🇺🇸');
+    it('应该包含韩语', () => {
+      const ko = LOCALE_OPTIONS.find(l => l.key === 'ko-KR');
+      expect(ko?.nativeLabel).toBe('한국어');
+      expect(ko?.flag).toBe('🇰🇷');
     });
 
-    it('should fallback to zh-CN for unknown locale', () => {
-      const current = findCurrent('fr-FR');
-      expect(current.key).toBe('zh-CN');
+    it('CJK 语言应该分组', () => {
+      const cjk = LOCALE_OPTIONS.filter(l => l.group === 'cjk');
+      expect(cjk).toHaveLength(3);
     });
 
-    it('should fallback to zh-CN for empty string', () => {
-      const current = findCurrent('');
-      expect(current.key).toBe('zh-CN');
+    it('Latin 语言应该分组', () => {
+      const latin = LOCALE_OPTIONS.filter(l => l.group === 'latin');
+      expect(latin).toHaveLength(1);
     });
   });
 
-  describe('Menu Items Generation', () => {
-    const generateMenuItems = (locale: string, setLocale: (l: string) => void) =>
-      LOCALE_OPTIONS.map(opt => ({
-        key: opt.key,
-        label: `${opt.flag} ${opt.label}`,
-        selected: opt.key === locale,
-        onClick: () => setLocale(opt.key),
+  describe('LTR/RTL 方向', () => {
+    it('所有当前语言都应该为 LTR', () => {
+      const RTL_LOCALES: string[] = [];
+      expect(RTL_LOCALES).toHaveLength(0);
+    });
+
+    it('应该预留 RTL 支持接口', () => {
+      const hasRTL = (locale: string) => ['ar', 'he'].includes(locale);
+      expect(hasRTL('ar')).toBe(true);
+      expect(hasRTL('zh-CN')).toBe(false);
+    });
+  });
+
+  describe('快捷键切换', () => {
+    it('应该支持 Alt+L 循环切换语言', () => {
+      const LOCALE_OPTIONS = ['zh-CN', 'en-US', 'ja-JP', 'ko-KR'];
+      const currentIndex = 0;
+      const nextIndex = (currentIndex + 1) % LOCALE_OPTIONS.length;
+      expect(LOCALE_OPTIONS[nextIndex]).toBe('en-US');
+    });
+
+    it('循环到最后应该回到第一个', () => {
+      const LOCALE_OPTIONS = ['zh-CN', 'en-US', 'ja-JP', 'ko-KR'];
+      const currentIndex = 3;
+      const nextIndex = (currentIndex + 1) % LOCALE_OPTIONS.length;
+      expect(LOCALE_OPTIONS[nextIndex]).toBe('zh-CN');
+    });
+  });
+
+  describe('当前语言标识', () => {
+    it('应该能获取当前语言的选项', () => {
+      const LOCALE_OPTIONS = [
+        { key: 'zh-CN', nativeLabel: '中文', flag: '🇨🇳' },
+        { key: 'en-US', nativeLabel: 'English', flag: '🇺🇸' },
+      ];
+      const currentLocale = 'zh-CN';
+      const current = LOCALE_OPTIONS.find(l => l.key === currentLocale);
+      expect(current?.nativeLabel).toBe('中文');
+    });
+
+    it('应该显示当前语言的 flag', () => {
+      const LOCALE_OPTIONS = [
+        { key: 'zh-CN', nativeLabel: '中文', flag: '🇨🇳' },
+        { key: 'en-US', nativeLabel: 'English', flag: '🇺🇸' },
+      ];
+      const currentLocale = 'en-US';
+      const current = LOCALE_OPTIONS.find(l => l.key === currentLocale);
+      expect(current?.flag).toBe('🇺🇸');
+    });
+  });
+
+  describe('菜单数据转换', () => {
+    it('应该将 locale 选项转为 antd menu items', () => {
+      const LOCALE_OPTIONS = [
+        { key: 'zh-CN', nativeLabel: '中文', flag: '🇨🇳' },
+        { key: 'en-US', nativeLabel: 'English', flag: '🇺🇸' },
+      ];
+      
+      const menuItems = LOCALE_OPTIONS.map(locale => ({
+        key: locale.key,
+        label: `${locale.flag} ${locale.nativeLabel}`,
       }));
 
-    it('should generate menu items for all locales', () => {
-      const items = generateMenuItems('zh-CN', () => {});
-      expect(items).toHaveLength(2);
-    });
-
-    it('should mark current locale as selected', () => {
-      const items = generateMenuItems('en-US', () => {});
-      const enItem = items.find(i => i.key === 'en-US');
-      const zhItem = items.find(i => i.key === 'zh-CN');
-      expect(enItem?.selected).toBe(true);
-      expect(zhItem?.selected).toBe(false);
-    });
-
-    it('should include flag and label in display', () => {
-      const items = generateMenuItems('zh-CN', () => {});
-      expect(items[0].label).toContain('🇨🇳');
-      expect(items[0].label).toContain('中文');
-      expect(items[1].label).toContain('🇺🇸');
-      expect(items[1].label).toContain('English');
-    });
-  });
-
-  describe('Locale Validation', () => {
-    const isValidLocale = (locale: string) => LOCALE_OPTIONS.some(o => o.key === locale);
-
-    it('should accept valid locales', () => {
-      expect(isValidLocale('zh-CN')).toBe(true);
-      expect(isValidLocale('en-US')).toBe(true);
-    });
-
-    it('should reject invalid locales', () => {
-      expect(isValidLocale('fr-FR')).toBe(false);
-      expect(isValidLocale('')).toBe(false);
-      expect(isValidLocale('ZH-CN')).toBe(false); // case sensitive
-    });
-  });
-
-  describe('Selected Keys', () => {
-    it('should produce correct selectedKeys array', () => {
-      const locale = 'zh-CN';
-      const selectedKeys = [locale];
-      expect(selectedKeys).toEqual(['zh-CN']);
-    });
-
-    it('should update selectedKeys on locale change', () => {
-      let locale = 'zh-CN';
-      const setLocale = (l: string) => { locale = l; };
-      setLocale('en-US');
-      expect([locale]).toEqual(['en-US']);
+      expect(menuItems[0].key).toBe('zh-CN');
+      expect(menuItems[0].label).toBe('🇨🇳 中文');
+      expect(menuItems[1].key).toBe('en-US');
+      expect(menuItems[1].label).toBe('🇺🇸 English');
     });
   });
 });
