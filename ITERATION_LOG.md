@@ -6661,3 +6661,158 @@
 - 新增测试: ~430个
 - 累计测试文件: 1145
 - 累计测试: ~27,032
+
+## Round 831 - 补充缺失测试覆盖
+
+### 新增测试文件 (16个)
+
+**Frontend 组件测试:**
+1. auth.test.ts — 认证服务 (20 tests)
+   - Token管理/过期检测
+   - 用户信息/登录状态监听
+   - 请求构造/参数配置
+
+2. chartSkeleton.test.ts — 图表骨架屏 (13 tests)
+   - 行数计算/加载状态
+   - 属性配置/样式验证
+
+3. klineChart.test.ts — K线图逻辑 (27 tests)
+   - MA/EMA均线计算
+   - 成交量/额格式化
+   - 涨跌/交叉信号检测
+
+4. useKeyboardShortcuts.test.ts — 键盘快捷键 (20 tests)
+   - 快捷键提示数据
+   - 输入框检测/修饰键组合
+   - 导航路由映射
+
+5. appLayout.test.ts — App布局 (42 tests)
+   - 菜单配置/响应式断点
+   - 搜索/主题/路由匹配
+   - 无障碍/Header/Drawer配置
+
+6. chartComponents.test.ts — 图表组件逻辑 (47 tests)
+   - K线/资金流向/盘口/成交量
+   - 技术指标/股东变化/分时图
+   - 布局组件/错误边界
+
+7. useEnhancedWebSocket.test.ts — 增强WS Hook (24 tests)
+   - 连接状态/重连逻辑
+   - 消息队列/订阅管理
+   - 心跳/错误处理/性能
+
+8. userComponents.test.ts — 用户组件 (38 tests)
+   - 登录/注册/密码重置
+   - 会话管理/用户设置
+   - 表单验证/登录状态
+
+9. customDashboard.test.ts — 自定义仪表盘 (18 tests)
+   - Widget类型/配置
+   - 网格布局/拖拽排序
+   - 布局持久化/响应式
+
+10. enhancedWebsocketService.test.ts — WS服务 (41 tests)
+    - 消息类型/连接状态
+    - 数据源切换/退避计算
+    - 断线补全/心跳机制
+
+11. responsiveLayout.test.ts — 响应式布局 (26 tests)
+    - 断点定义/设备判断
+    - 栅格/间距/侧边栏配置
+    - 表格/图表响应式
+
+**Backend API 测试:**
+12. aiStockSelection.test.ts — AI选股API (27 tests)
+    - 策略配置/股票推荐
+    - 诊断维度/评分等级
+    - 行业轮动/预警建议
+
+13. sectorAnalysis.test.ts — 行业板块分析 (21 tests)
+    - 板块配置/成分股权重
+    - 数据计算/排序/查询
+    - 汇总统计/完整性
+
+14. backtestRoutes.test.ts — 回测API (24 tests)
+    - 参数验证/K线转换
+    - 策略对比/结果结构
+    - 策略参数/限制
+
+15. notifications.test.ts — 通知系统 (30 tests)
+    - 通知类型/优先级/渠道
+    - 创建/查询/标记已读/删除
+    - 配置/错误处理
+
+16. apiDocs.test.ts — API文档端点 (18 tests)
+    - 端点路由/缓存控制
+    - OpenAPI规范/Swagger UI
+    - 信息摘要/自动注册
+
+### 测试结果
+- 1243 test files passed, 1 skipped (1245 total)
+- 28,980 tests passed, 14 skipped (28,995 total)
+- 新增 ~472 个测试
+- 新增 16 个测试文件
+- 1 pre-existing failure (regimeDetection)
+
+### 累计 (Round 831)
+- 累计测试文件: 1245
+- 累计测试: ~28,995
+
+## Round 832 - 页面逻辑测试补充 (第1批)
+
+### 新增测试文件 (9个)
+
+**Frontend 页面逻辑测试:**
+1. homePageLogic.test.ts (20 tests)
+   - 交易时间判断/市值格式化
+   - 涨跌比/饼图数据/涨幅榜排序
+   - 自动刷新间隔
+
+2. stockDetailPageLogic.test.ts (21 tests)
+   - 涨跌颜色/成交量格式化
+   - 自选股判断/K线数据转换
+   - 指标切换/股票代码解析
+
+3. portfolioPageLogic.test.ts (13 tests)
+   - 持仓市值/盈亏计算
+   - 持仓权重/资产配置饼图
+   - 组合汇总/加仓计算
+
+4. marketStatsPageLogic.test.ts (12 tests)
+   - 涨跌家数统计/市场强度
+   - 板块排序/市场宽度
+   - 行业轮动评分/涨跌幅分布
+
+5. backtestPageLogic.test.ts (16 tests)
+   - 策略参数验证/收益率计算
+   - 最大回撤/夏普比率
+   - 胜率统计/年化收益
+
+6. stockComparePageLogic.test.ts (11 tests)
+   - 归一化价格/相对强弱
+   - 对比指标排名/雷达图
+   - 涨跌幅对比表
+
+7. alertsPageLogic.test.ts (11 tests)
+   - 预警条件匹配/优先级
+   - 频率限制/批量评估
+   - 通知格式化
+
+8. screenerPageLogic.test.ts (8 tests)
+   - 单一条件筛选/多条件组合
+   - 多维度排序/分页逻辑
+   - 预设筛选方案
+
+9. newsPageLogic.test.ts (12 tests)
+   - 新闻分类/时间格式化
+   - 关键词搜索/重要性排序
+
+### 测试结果
+- 1253 test files passed, 1 skipped (1254 total)
+- 29,101 tests passed, 14 skipped (29,115 total)
+- 新增 ~120 个测试
+- 新增 9 个测试文件
+
+### 累计 (Round 832)
+- 累计测试文件: 1254
+- 累计测试: ~29,115

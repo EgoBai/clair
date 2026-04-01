@@ -1,166 +1,206 @@
 import { describe, it, expect } from 'vitest';
+import {
+  formatRelativeTime,
+  formatDate,
+  formatDateTime,
+  formatTradingSession,
+  getChangeColor,
+  getCurrencySymbol,
+  formatLargeNumber,
+  getMarketTrendLabel,
+} from '../utils/enhancedFormatters';
 
-/**
- * 增强格式化器测试
- */
+type Locale = 'zh-CN' | 'en-US' | 'ja-JP' | 'ko-KR';
 
-function formatNumber(num: number, decimals: number = 2): string {
-  if (Math.abs(num) >= 1e12) return (num / 1e12).toFixed(decimals) + '万亿';
-  if (Math.abs(num) >= 1e8) return (num / 1e8).toFixed(decimals) + '亿';
-  if (Math.abs(num) >= 1e4) return (num / 1e4).toFixed(decimals) + '万';
-  return num.toFixed(decimals);
-}
+describe('enhancedFormatters', () => {
+  describe('formatRelativeTime', () => {
+    const now = new Date('2024-06-15T12:00:00');
 
-function formatPercent(num: number, showSign: boolean = true): string {
-  const sign = showSign && num > 0 ? '+' : '';
-  return sign + num.toFixed(2) + '%';
-}
-
-function formatPrice(price: number, tickSize: number = 0.01): string {
-  const rounded = Math.round(price / tickSize) * tickSize;
-  return rounded.toFixed(tickSize < 0.01 ? 4 : 2);
-}
-
-function formatVolume(vol: number): string {
-  if (vol >= 1e8) return (vol / 1e8).toFixed(2) + '亿手';
-  if (vol >= 1e4) return (vol / 1e4).toFixed(2) + '万手';
-  return vol.toFixed(0) + '手';
-}
-
-function formatTimeAgo(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return `${seconds}秒前`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟前`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}小时前`;
-  return `${Math.floor(seconds / 86400)}天前`;
-}
-
-function formatStockCode(code: string): string {
-  if (code.startsWith('6') || code.startsWith('9')) return `SH${code}`;
-  if (code.startsWith('0') || code.startsWith('3') || code.startsWith('2')) return `SZ${code}`;
-  if (code.startsWith('8') || code.startsWith('4')) return `BJ${code}`;
-  return code;
-}
-
-describe('Enhanced Formatters', () => {
-  describe('formatNumber', () => {
-    it('应该格式化万亿级别', () => {
-      expect(formatNumber(1.5e12)).toBe('1.50万亿');
-      expect(formatNumber(25000e8)).toBe('2.50万亿');
+    it('should return 刚刚 for zh-CN', () => {
+      const date = new Date('2024-06-15T11:59:30'); // 30s ago
+      expect(formatRelativeTime(date, 'zh-CN', now)).toBe('刚刚');
     });
 
-    it('应该格式化亿级别', () => {
-      expect(formatNumber(5e8)).toBe('5.00亿');
-      expect(formatNumber(1234567890)).toBe('12.35亿');
+    it('should return just now for en-US', () => {
+      const date = new Date('2024-06-15T11:59:30');
+      expect(formatRelativeTime(date, 'en-US', now)).toBe('just now');
     });
 
-    it('应该格式化万级别', () => {
-      expect(formatNumber(50000)).toBe('5.00万');
+    it('should format minutes ago', () => {
+      const date = new Date('2024-06-15T11:55:00'); // 5 min ago
+      expect(formatRelativeTime(date, 'zh-CN', now)).toBe('5分钟前');
+      expect(formatRelativeTime(date, 'en-US', now)).toBe('5 min ago');
     });
 
-    it('应该格式化小数字', () => {
-      expect(formatNumber(1234)).toBe('1234.00');
+    it('should format hours ago', () => {
+      const date = new Date('2024-06-15T10:00:00'); // 2h ago
+      expect(formatRelativeTime(date, 'zh-CN', now)).toBe('2小时前');
+      expect(formatRelativeTime(date, 'en-US', now)).toBe('2h ago');
     });
 
-    it('应该支持自定义小数位', () => {
-      expect(formatNumber(5e8, 0)).toBe('5亿');
-      expect(formatNumber(5e8, 4)).toBe('5.0000亿');
+    it('should format days ago', () => {
+      const date = new Date('2024-06-13T12:00:00'); // 2d ago
+      expect(formatRelativeTime(date, 'zh-CN', now)).toBe('2天前');
+      expect(formatRelativeTime(date, 'en-US', now)).toBe('2d ago');
     });
 
-    it('应该处理负数', () => {
-      expect(formatNumber(-5e8)).toBe('-5.00亿');
+    it('should return future label for future dates', () => {
+      const date = new Date('2024-06-16T12:00:00');
+      expect(formatRelativeTime(date, 'zh-CN', now)).toBe('未来');
     });
 
-    it('应该处理零', () => {
-      expect(formatNumber(0)).toBe('0.00');
+    it('should format Japanese', () => {
+      const date = new Date('2024-06-15T11:55:00');
+      expect(formatRelativeTime(date, 'ja-JP', now)).toBe('5分前');
+    });
+
+    it('should format Korean', () => {
+      const date = new Date('2024-06-15T11:55:00');
+      expect(formatRelativeTime(date, 'ko-KR', now)).toBe('5분 전');
+    });
+
+    it('should accept string dates', () => {
+      const result = formatRelativeTime('2024-06-15T11:59:00', 'zh-CN', now);
+      expect(result).toBe('1分钟前');
     });
   });
 
-  describe('formatPercent', () => {
-    it('应该显示正号', () => {
-      expect(formatPercent(2.35)).toBe('+2.35%');
+  describe('formatDate', () => {
+    it('should format date for zh-CN', () => {
+      const result = formatDate(new Date('2024-01-15'), 'zh-CN');
+      expect(result).toContain('2024');
+      expect(result).toContain('15');
     });
 
-    it('应该显示负号', () => {
-      expect(formatPercent(-1.5)).toBe('-1.50%');
+    it('should format date for en-US', () => {
+      const result = formatDate(new Date('2024-01-15'), 'en-US');
+      expect(result).toContain('2024');
     });
 
-    it('应该不显示正号当showSign为false', () => {
-      expect(formatPercent(2.35, false)).toBe('2.35%');
-    });
-
-    it('零应该不显示符号', () => {
-      expect(formatPercent(0)).toBe('0.00%');
-    });
-  });
-
-  describe('formatPrice', () => {
-    it('应该格式化股票价格', () => {
-      expect(formatPrice(12.34)).toBe('12.34');
-      expect(formatPrice(12.345)).toBe('12.35');
-    });
-
-    it('应该支持不同最小变动单位', () => {
-      expect(formatPrice(12.3456, 0.0001)).toBe('12.3456');
-    });
-
-    it('应该处理整数价格', () => {
-      expect(formatPrice(100)).toBe('100.00');
+    it('should accept string dates', () => {
+      const result = formatDate('2024-01-15', 'en-US');
+      expect(result).toContain('2024');
     });
   });
 
-  describe('formatVolume', () => {
-    it('应该格式化亿手', () => {
-      expect(formatVolume(150000000)).toBe('1.50亿手');
+  describe('formatDateTime', () => {
+    it('should format date and time', () => {
+      const dt = new Date('2024-06-15T10:30:00');
+      const result = formatDateTime(dt, 'zh-CN');
+      expect(result).toContain('2024');
+      expect(result).toContain('10');
+      expect(result).toContain('30');
     });
 
-    it('应该格式化万手', () => {
-      expect(formatVolume(50000)).toBe('5.00万手');
-    });
-
-    it('应该格式化手', () => {
-      expect(formatVolume(500)).toBe('500手');
-    });
-  });
-
-  describe('formatTimeAgo', () => {
-    it('应该格式化秒', () => {
-      const ts = Date.now() - 30000;
-      expect(formatTimeAgo(ts)).toBe('30秒前');
-    });
-
-    it('应该格式化分钟', () => {
-      const ts = Date.now() - 5 * 60000;
-      expect(formatTimeAgo(ts)).toBe('5分钟前');
-    });
-
-    it('应该格式化小时', () => {
-      const ts = Date.now() - 3 * 3600000;
-      expect(formatTimeAgo(ts)).toBe('3小时前');
-    });
-
-    it('应该格式化天', () => {
-      const ts = Date.now() - 2 * 86400000;
-      expect(formatTimeAgo(ts)).toBe('2天前');
+    it('should work for en-US', () => {
+      const dt = new Date('2024-06-15T10:30:00');
+      const result = formatDateTime(dt, 'en-US');
+      expect(result).toContain('2024');
     });
   });
 
-  describe('formatStockCode', () => {
-    it('应该标记上海股票', () => {
-      expect(formatStockCode('600519')).toBe('SH600519');
-      expect(formatStockCode('900901')).toBe('SH900901');
+  describe('formatTradingSession', () => {
+    it('should show open status', () => {
+      expect(formatTradingSession(true, 'zh-CN')).toBe('交易中');
+      expect(formatTradingSession(true, 'en-US')).toBe('Market Open');
+      expect(formatTradingSession(true, 'ja-JP')).toBe('取引中');
+      expect(formatTradingSession(true, 'ko-KR')).toBe('거래 중');
     });
 
-    it('应该标记深圳股票', () => {
-      expect(formatStockCode('000001')).toBe('SZ000001');
-      expect(formatStockCode('300750')).toBe('SZ300750');
-      expect(formatStockCode('200001')).toBe('SZ200001');
+    it('should show closed status', () => {
+      expect(formatTradingSession(false, 'zh-CN')).toBe('已休市');
+      expect(formatTradingSession(false, 'en-US')).toBe('Market Closed');
+    });
+  });
+
+  describe('getChangeColor', () => {
+    it('should return red for positive in CJK locales', () => {
+      expect(getChangeColor(1, 'zh-CN')).toBe('#ef4444');
+      expect(getChangeColor(1, 'ja-JP')).toBe('#ef4444');
+      expect(getChangeColor(1, 'ko-KR')).toBe('#ef4444');
     });
 
-    it('应该标记北京股票', () => {
-      expect(formatStockCode('830001')).toBe('BJ830001');
-      expect(formatStockCode('430001')).toBe('BJ430001');
+    it('should return green for negative in CJK locales', () => {
+      expect(getChangeColor(-1, 'zh-CN')).toBe('#22c55e');
+    });
+
+    it('should return green for positive in en-US', () => {
+      expect(getChangeColor(1, 'en-US')).toBe('#22c55e');
+    });
+
+    it('should return red for negative in en-US', () => {
+      expect(getChangeColor(-1, 'en-US')).toBe('#ef4444');
+    });
+
+    it('should return gray for zero', () => {
+      expect(getChangeColor(0, 'zh-CN')).toBe('#6b7280');
+      expect(getChangeColor(0, 'en-US')).toBe('#6b7280');
+    });
+  });
+
+  describe('getCurrencySymbol', () => {
+    it('should return correct symbols', () => {
+      expect(getCurrencySymbol('zh-CN')).toBe('¥');
+      expect(getCurrencySymbol('en-US')).toBe('$');
+      expect(getCurrencySymbol('ja-JP')).toBe('¥');
+      expect(getCurrencySymbol('ko-KR')).toBe('₩');
+    });
+  });
+
+  describe('formatLargeNumber', () => {
+    it('should format Chinese compact notation', () => {
+      expect(formatLargeNumber(1e12, 'zh-CN')).toBe('1.00万亿');
+      expect(formatLargeNumber(5e8, 'zh-CN')).toBe('5.00亿');
+      expect(formatLargeNumber(1e4, 'zh-CN')).toBe('1.00万');
+    });
+
+    it('should format English compact notation', () => {
+      expect(formatLargeNumber(1e12, 'en-US')).toBe('1.00T');
+      expect(formatLargeNumber(5e9, 'en-US')).toBe('5.00B');
+      expect(formatLargeNumber(1e6, 'en-US')).toBe('1.00M');
+      expect(formatLargeNumber(1e3, 'en-US')).toBe('1.00K');
+    });
+
+    it('should format Japanese compact notation', () => {
+      expect(formatLargeNumber(1e12, 'ja-JP')).toBe('1.00兆');
+      expect(formatLargeNumber(5e8, 'ja-JP')).toBe('5.00億');
+    });
+
+    it('should format Korean compact notation', () => {
+      expect(formatLargeNumber(1e12, 'ko-KR')).toBe('1.00조');
+      expect(formatLargeNumber(5e8, 'ko-KR')).toBe('5.00억');
+    });
+
+    it('should support custom decimals', () => {
+      expect(formatLargeNumber(1.234e8, 'zh-CN', { decimals: 3 })).toBe('1.234亿');
+    });
+
+    it('should use locale format when compact is false', () => {
+      const result = formatLargeNumber(1234567, 'en-US', { compact: false });
+      expect(result).toContain('1');
+      expect(result).toContain('234');
+    });
+  });
+
+  describe('getMarketTrendLabel', () => {
+    it('should return correct labels for zh-CN', () => {
+      expect(getMarketTrendLabel('up', 'zh-CN')).toBe('上涨');
+      expect(getMarketTrendLabel('down', 'zh-CN')).toBe('下跌');
+      expect(getMarketTrendLabel('flat', 'zh-CN')).toBe('平盘');
+    });
+
+    it('should return correct labels for en-US', () => {
+      expect(getMarketTrendLabel('up', 'en-US')).toBe('Rising');
+      expect(getMarketTrendLabel('down', 'en-US')).toBe('Falling');
+      expect(getMarketTrendLabel('flat', 'en-US')).toBe('Unchanged');
+    });
+
+    it('should return correct labels for ja-JP', () => {
+      expect(getMarketTrendLabel('up', 'ja-JP')).toBe('上昇');
+    });
+
+    it('should return correct labels for ko-KR', () => {
+      expect(getMarketTrendLabel('up', 'ko-KR')).toBe('상승');
     });
   });
 });

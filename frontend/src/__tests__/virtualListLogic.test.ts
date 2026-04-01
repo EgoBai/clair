@@ -1,188 +1,264 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * 虚拟列表组件测试
- * 测试虚拟滚动逻辑、可见区域计算、动态高度
+ * 虚拟列表组件逻辑测试
+ * VirtualList 无限滚动/窗口化渲染逻辑
  */
-describe('Virtual List Logic', () => {
-  describe('Visible Range Calculation', () => {
-    function getVisibleRange(
-      scrollTop: number,
-      viewportHeight: number,
-      itemHeight: number,
-      totalItems: number,
-      overscan: number = 3
-    ) {
-      const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-      const visibleCount = Math.ceil(viewportHeight / itemHeight);
-      const end = Math.min(totalItems - 1, start + visibleCount + overscan * 2);
-      return { start, end, visibleCount };
-    }
 
-    it('should calculate correct start index', () => {
-      const range = getVisibleRange(500, 400, 50, 100);
-      expect(range.start).toBe(Math.max(0, 10 - 3));
-    });
+interface VirtualListConfig {
+  itemHeight: number;
+  containerHeight: number;
+  overscan: number;
+  totalCount: number;
+}
 
-    it('should calculate correct end index', () => {
-      const range = getVisibleRange(0, 400, 50, 100);
-      expect(range.end).toBeLessThan(100);
-    });
+interface VisibleRange {
+  start: number;
+  end: number;
+  offsetY: number;
+}
 
-    it('should apply overscan buffer', () => {
-      const range = getVisibleRange(250, 400, 50, 100, 5);
-      expect(range.start).toBe(0); // max(0, 5-5)
-    });
+function calcVisibleRange(config: VirtualListConfig, scrollTop: number): VisibleRange {
+  const { itemHeight, containerHeight, overscan, totalCount } = config;
+  const visibleCount = Math.ceil(containerHeight / itemHeight);
+  const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
+  const end = Math.min(totalCount - 1, start + visibleCount + overscan * 2);
+  return {
+    start,
+    end,
+    offsetY: start * itemHeight,
+  };
+}
 
-    it('should not exceed total items', () => {
-      const range = getVisibleRange(0, 400, 50, 10);
-      expect(range.end).toBeLessThanOrEqual(9);
-    });
+function calcTotalHeight(config: VirtualListConfig): number {
+  return config.totalCount * config.itemHeight;
+}
 
-    it('should handle scroll at bottom', () => {
-      const range = getVisibleRange(4500, 400, 50, 100);
-      expect(range.end).toBe(99);
-    });
+function calcScrollToIndex(config: VirtualListConfig, index: number): number {
+  const maxScroll = calcTotalHeight(config) - config.containerHeight;
+  const targetScroll = index * config.itemHeight;
+  return Math.max(0, Math.min(maxScroll, targetScroll));
+}
 
-    it('should handle empty list', () => {
-      const range = getVisibleRange(0, 400, 50, 0);
+function isItemVisible(
+  config: VirtualListConfig,
+  scrollTop: number,
+  index: number
+): boolean {
+  const { itemHeight, containerHeight } = config;
+  const itemTop = index * itemHeight;
+  const itemBottom = itemTop + itemHeight;
+  return itemBottom > scrollTop && itemTop < scrollTop + containerHeight;
+}
+
+function shouldLoadMore(
+  totalCount: number,
+  loadedCount: number,
+  threshold: number
+): boolean {
+  return totalCount - loadedCount <= threshold && loadedCount < totalCount;
+}
+
+function calcScrollProgress(
+  scrollTop: number,
+  totalHeight: number,
+  containerHeight: number
+): number {
+  const maxScroll = totalHeight - containerHeight;
+  if (maxScroll <= 0) return 1;
+  return Math.min(1, Math.max(0, scrollTop / maxScroll));
+}
+
+function getStickyIndices(
+  indices: number[],
+  scrollTop: number,
+  itemHeight: number
+): number[] {
+  return indices.filter(idx => idx * itemHeight <= scrollTop);
+}
+
+function debounceScroll(
+  fn: (...args: any[]) => void,
+  delay: number
+): { run: (...args: any[]) => void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    run: (...args: any[]) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delay);
+    },
+    cancel: () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
+}
+
+function estimateItemHeight(
+  heights: number[],
+  defaultHeight: number
+): number[] {
+  const known = heights.filter(h => h > 0);
+  if (known.length === 0) return heights.map(() => defaultHeight);
+  const avg = known.reduce((a, b) => a + b, 0) / known.length;
+  return heights.map(h => (h > 0 ? h : Math.round(avg)));
+}
+
+function calcAccumulatedHeight(heights: number[], upToIndex: number): number {
+  let total = 0;
+  for (let i = 0; i < Math.min(upToIndex, heights.length); i++) {
+    total += heights[i];
+  }
+  return total;
+}
+
+describe('虚拟列表逻辑', () => {
+  describe('calcVisibleRange', () => {
+    const baseConfig: VirtualListConfig = {
+      itemHeight: 50,
+      containerHeight: 500,
+      overscan: 2,
+      totalCount: 1000,
+    };
+
+    it('should calculate range at top', () => {
+      const range = calcVisibleRange(baseConfig, 0);
       expect(range.start).toBe(0);
-      expect(range.end).toBeLessThanOrEqual(0);
+      expect(range.end).toBeGreaterThanOrEqual(11); // 10 visible + 2 overscan
+      expect(range.offsetY).toBe(0);
+    });
+
+    it('should calculate range with scroll', () => {
+      const range = calcVisibleRange(baseConfig, 1000);
+      expect(range.start).toBe(18); // floor(1000/50) - 2 = 18
+      expect(range.offsetY).toBe(900); // 18 * 50
+    });
+
+    it('should not exceed total count', () => {
+      const range = calcVisibleRange({ ...baseConfig, totalCount: 10 }, 0);
+      expect(range.end).toBeLessThan(10);
     });
   });
 
-  describe('Total Height Calculation', () => {
-    function getTotalHeight(itemCount: number, itemHeight: number): number {
-      return itemCount * itemHeight;
-    }
-
-    it('should calculate total height for fixed items', () => {
-      expect(getTotalHeight(100, 50)).toBe(5000);
+  describe('calcTotalHeight', () => {
+    it('should multiply count by item height', () => {
+      expect(calcTotalHeight({ itemHeight: 50, containerHeight: 500, overscan: 2, totalCount: 100 })).toBe(5000);
     });
 
-    it('should handle zero items', () => {
-      expect(getTotalHeight(0, 50)).toBe(0);
-    });
-
-    it('should handle dynamic item heights', () => {
-      const heights = [50, 60, 45, 55, 40];
-      const total = heights.reduce((sum, h) => sum + h, 0);
-      expect(total).toBe(250);
+    it('should handle zero count', () => {
+      expect(calcTotalHeight({ itemHeight: 50, containerHeight: 500, overscan: 2, totalCount: 0 })).toBe(0);
     });
   });
 
-  describe('Scroll Offset', () => {
-    function getOffset(index: number, itemHeight: number): number {
-      return index * itemHeight;
-    }
-
-    it('should calculate correct offset', () => {
-      expect(getOffset(10, 50)).toBe(500);
-      expect(getOffset(0, 50)).toBe(0);
+  describe('calcScrollToIndex', () => {
+    it('should scroll to specific index', () => {
+      expect(calcScrollToIndex({ itemHeight: 50, containerHeight: 500, overscan: 2, totalCount: 100 }, 10)).toBe(500);
     });
 
-    it('should handle dynamic heights with prefix sum', () => {
-      const heights = [50, 60, 45, 55, 40];
-      const prefixSums: number[] = [0];
-      for (let i = 0; i < heights.length; i++) {
-        prefixSums.push(prefixSums[i] + heights[i]);
-      }
-      expect(prefixSums[3]).toBe(155); // 50+60+45
+    it('should not go negative', () => {
+      expect(calcScrollToIndex({ itemHeight: 50, containerHeight: 500, overscan: 2, totalCount: 100 }, -1)).toBe(0);
+    });
+
+    it('should cap at max scroll', () => {
+      const height = calcScrollToIndex({ itemHeight: 50, containerHeight: 500, overscan: 2, totalCount: 10 }, 9);
+      expect(height).toBeLessThanOrEqual(10 * 50 - 500);
     });
   });
 
-  describe('Scroll to Index', () => {
-    function scrollToIndex(
-      index: number,
-      itemHeight: number,
-      viewportHeight: number,
-      totalItems: number,
-      alignment: 'start' | 'center' | 'end' = 'start'
-    ): number {
-      const itemTop = index * itemHeight;
-      const itemBottom = itemTop + itemHeight;
-      const totalHeight = totalItems * itemHeight;
+  describe('isItemVisible', () => {
+    const config: VirtualListConfig = { itemHeight: 50, containerHeight: 500, overscan: 0, totalCount: 100 };
 
-      let scrollTop: number;
-      switch (alignment) {
-        case 'center':
-          scrollTop = itemTop - viewportHeight / 2 + itemHeight / 2;
-          break;
-        case 'end':
-          scrollTop = itemBottom - viewportHeight;
-          break;
-        default:
-          scrollTop = itemTop;
-      }
-
-      return Math.max(0, Math.min(scrollTop, totalHeight - viewportHeight));
-    }
-
-    it('should scroll to start alignment', () => {
-      expect(scrollToIndex(10, 50, 400, 100)).toBe(500);
+    it('should detect visible items', () => {
+      expect(isItemVisible(config, 0, 0)).toBe(true);
+      expect(isItemVisible(config, 0, 9)).toBe(true);
     });
 
-    it('should scroll to center alignment', () => {
-      const scroll = scrollToIndex(10, 50, 400, 100, 'center');
-      expect(scroll).toBe(325); // 500 - 200 + 25
+    it('should detect items above viewport', () => {
+      expect(isItemVisible(config, 500, 0)).toBe(false);
     });
 
-    it('should scroll to end alignment', () => {
-      const scroll = scrollToIndex(10, 50, 400, 100, 'end');
-      expect(scroll).toBe(150); // 550 - 400
-    });
-
-    it('should not scroll below zero', () => {
-      const scroll = scrollToIndex(0, 50, 400, 100, 'center');
-      expect(scroll).toBeGreaterThanOrEqual(0);
-    });
-
-    it('should not scroll beyond max', () => {
-      const scroll = scrollToIndex(99, 50, 400, 100, 'start');
-      expect(scroll).toBeLessThanOrEqual(5000 - 400);
+    it('should detect items below viewport', () => {
+      expect(isItemVisible(config, 0, 20)).toBe(false);
     });
   });
 
-  describe('Item Key Generation', () => {
-    function getItemKey(index: number, data: any[]): string | number {
-      if (data[index] && data[index].id) return data[index].id;
-      return index;
-    }
-
-    it('should use item id when available', () => {
-      const data = [{ id: 'stock_600519' }, { id: 'stock_000858' }];
-      expect(getItemKey(0, data)).toBe('stock_600519');
+  describe('shouldLoadMore', () => {
+    it('should trigger when near end', () => {
+      expect(shouldLoadMore(100, 95, 10)).toBe(true);
+      expect(shouldLoadMore(100, 90, 10)).toBe(true);
     });
 
-    it('should fallback to index', () => {
-      const data = [{}, {}];
-      expect(getItemKey(0, data)).toBe(0);
+    it('should not trigger when far from end', () => {
+      expect(shouldLoadMore(100, 50, 10)).toBe(false);
+    });
+
+    it('should not trigger when fully loaded', () => {
+      expect(shouldLoadMore(100, 100, 10)).toBe(false);
     });
   });
 
-  describe('Scroll Performance', () => {
-    it('should debounce scroll events', () => {
-      let callCount = 0;
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const debounced = () => {
-        callCount++;
-      };
-      // Simple debounce test
-      for (let i = 0; i < 10; i++) {
-        debounced();
-      }
-      expect(callCount).toBe(10);
+  describe('calcScrollProgress', () => {
+    it('should return 0 at top', () => {
+      expect(calcScrollProgress(0, 1000, 500)).toBe(0);
     });
 
-    it('should use requestAnimationFrame for scroll', () => {
-      let rafCalled = false;
-      const mockRaf = (cb: () => void) => {
-        rafCalled = true;
-        cb();
-        return 1;
-      };
-      mockRaf(() => {});
-      expect(rafCalled).toBe(true);
+    it('should return 1 at bottom', () => {
+      expect(calcScrollProgress(500, 1000, 500)).toBe(1);
+    });
+
+    it('should return 0.5 at middle', () => {
+      expect(calcScrollProgress(250, 1000, 500)).toBe(0.5);
+    });
+
+    it('should handle container taller than content', () => {
+      expect(calcScrollProgress(0, 100, 500)).toBe(1);
+    });
+  });
+
+  describe('getStickyIndices', () => {
+    it('should return indices at or above scroll position', () => {
+      const result = getStickyIndices([0, 5, 10, 20], 300, 50);
+      expect(result).toEqual([0, 5]); // 0*50=0, 5*50=250 both <= 300
+    });
+
+    it('should return empty when nothing sticky', () => {
+      const result = getStickyIndices([10, 20], 0, 50);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('estimateItemHeight', () => {
+    it('should use known heights where available', () => {
+      const result = estimateItemHeight([50, 0, 60, 0], 40);
+      expect(result[0]).toBe(50);
+      expect(result[2]).toBe(60);
+    });
+
+    it('should fill unknown with average', () => {
+      const result = estimateItemHeight([50, 0, 60, 0], 40);
+      expect(result[1]).toBe(55); // avg of 50 and 60
+      expect(result[3]).toBe(55);
+    });
+
+    it('should use default when no known heights', () => {
+      const result = estimateItemHeight([0, 0, 0], 40);
+      expect(result.every(h => h === 40)).toBe(true);
+    });
+  });
+
+  describe('calcAccumulatedHeight', () => {
+    it('should sum heights up to index', () => {
+      expect(calcAccumulatedHeight([10, 20, 30, 40], 3)).toBe(60);
+    });
+
+    it('should handle zero index', () => {
+      expect(calcAccumulatedHeight([10, 20, 30], 0)).toBe(0);
+    });
+
+    it('should clamp to array length', () => {
+      expect(calcAccumulatedHeight([10, 20], 10)).toBe(30);
     });
   });
 });

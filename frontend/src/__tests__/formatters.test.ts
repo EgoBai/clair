@@ -1,116 +1,276 @@
-/**
- * 前端测试 - 格式化工具 + 自定义Hooks
- */
-
 import { describe, it, expect } from 'vitest';
 import {
   formatPrice,
-  formatChangePercent,
   formatVolume,
-  formatTurnover,
+  formatAmount,
+  formatPercent,
   formatMarketCap,
+  formatChange,
+  formatPE,
+  formatPB,
+  formatTime,
   formatDate,
-  formatDateTime,
-  formatNumber,
-  formatLargeNumber,
-  getColorByChange,
-  getChangeText,
-} from '../../../shared/formatters';
+  formatRelativeTime,
+  formatStockCode,
+  getChangeColorClass,
+  getChangeColor,
+} from '../utils/formatters';
 
-// ==================== 格式化函数测试 ====================
+describe('formatters', () => {
+  describe('formatPrice', () => {
+    it('should format price with 2 decimals', () => {
+      expect(formatPrice(99.567)).toBe('99.57');
+      expect(formatPrice(100)).toBe('100.00');
+    });
 
-describe('formatPrice', () => {
-  it('应该格式化为2位小数', () => {
-    expect(formatPrice(12.345)).toBe('12.35');
-    expect(formatPrice(100)).toBe('100.00');
+    it('should handle custom decimals', () => {
+      expect(formatPrice(99.567, 3)).toBe('99.567');
+      expect(formatPrice(99.567, 0)).toBe('100');
+    });
+
+    it('should return -- for null/undefined/NaN', () => {
+      expect(formatPrice(null)).toBe('--');
+      expect(formatPrice(undefined)).toBe('--');
+      expect(formatPrice(NaN)).toBe('--');
+    });
+
+    it('should handle zero', () => {
+      expect(formatPrice(0)).toBe('0.00');
+    });
   });
 
-  it('null/undefined应该返回"-"', () => {
-    expect(formatPrice(null as any)).toBe('-');
-    expect(formatPrice(undefined as any)).toBe('-');
-  });
-});
+  describe('formatVolume', () => {
+    it('should format in 亿 for large volumes', () => {
+      expect(formatVolume(1e8)).toBe('1.00亿');
+      expect(formatVolume(5e8)).toBe('5.00亿');
+    });
 
-describe('formatChangePercent', () => {
-  it('正数应该带+号', () => {
-    expect(formatChangePercent(5.67)).toBe('+5.67%');
-  });
+    it('should format in 万 for medium volumes', () => {
+      expect(formatVolume(1e4)).toBe('1.00万');
+      expect(formatVolume(5e5)).toBe('50.00万');
+    });
 
-  it('负数应该带-号', () => {
-    expect(formatChangePercent(-3.21)).toBe('-3.21%');
-  });
+    it('should format small volumes with locale string', () => {
+      expect(formatVolume(1000)).toBe('1,000');
+    });
 
-  it('零应该带+号', () => {
-    expect(formatChangePercent(0)).toBe('+0.00%');
-  });
-});
-
-describe('formatVolume', () => {
-  it('亿以上应该用亿', () => {
-    expect(formatVolume(150000000)).toBe('1.50亿手');
+    it('should return -- for null/undefined/NaN', () => {
+      expect(formatVolume(null)).toBe('--');
+      expect(formatVolume(undefined)).toBe('--');
+      expect(formatVolume(NaN)).toBe('--');
+    });
   });
 
-  it('万以上应该用万', () => {
-    expect(formatVolume(150000)).toBe('15.00万手');
+  describe('formatAmount', () => {
+    it('should format in 万亿 for large amounts', () => {
+      expect(formatAmount(1e12)).toBe('1.00万亿');
+      expect(formatAmount(3.5e12)).toBe('3.50万亿');
+    });
+
+    it('should format in 亿 for medium amounts', () => {
+      expect(formatAmount(1e8)).toBe('1.00亿');
+      expect(formatAmount(9.99e8)).toBe('9.99亿');
+    });
+
+    it('should format in 万 for smaller amounts', () => {
+      expect(formatAmount(1e4)).toBe('1.00万');
+    });
+
+    it('should format small amounts with toFixed', () => {
+      expect(formatAmount(9999)).toBe('9999.00');
+    });
+
+    it('should return -- for null/undefined/NaN', () => {
+      expect(formatAmount(null)).toBe('--');
+      expect(formatAmount(undefined)).toBe('--');
+    });
   });
 
-  it('小数直接显示', () => {
-    expect(formatVolume(500)).toBe('500手');
-  });
-});
+  describe('formatPercent', () => {
+    it('should add + sign for positive values', () => {
+      expect(formatPercent(5.25)).toBe('+5.25%');
+      expect(formatPercent(0.01)).toBe('+0.01%');
+    });
 
-describe('formatTurnover', () => {
-  it('应该正确转换亿/万', () => {
-    expect(formatTurnover(123456789)).toBe('1.23亿');
-    expect(formatTurnover(123456)).toBe('12.35万');
-  });
-});
+    it('should not add sign for negative values', () => {
+      expect(formatPercent(-3.5)).toBe('-3.50%');
+    });
 
-describe('formatMarketCap', () => {
-  it('万亿级别', () => {
-    expect(formatMarketCap(2.5e12)).toBe('2.50万亿');
-  });
+    it('should add + for zero', () => {
+      expect(formatPercent(0)).toBe('+0.00%');
+    });
 
-  it('亿级别', () => {
-    expect(formatMarketCap(5e10)).toBe('500.00亿');
-  });
-});
+    it('should handle custom decimals', () => {
+      expect(formatPercent(5.1234, 3)).toBe('+5.123%');
+    });
 
-describe('formatDate', () => {
-  it('应该格式化为YYYY-MM-DD', () => {
-    const date = new Date('2026-03-24T10:30:00');
-    expect(formatDate(date)).toBe('2026-03-24');
+    it('should return -- for null/undefined/NaN', () => {
+      expect(formatPercent(null)).toBe('--');
+      expect(formatPercent(NaN)).toBe('--');
+    });
   });
 
-  it('字符串输入也应该工作', () => {
-    expect(formatDate('2026-01-01')).toBe('2026-01-01');
-  });
-});
+  describe('formatMarketCap', () => {
+    it('should format in 万亿 for large caps', () => {
+      expect(formatMarketCap(2e12)).toBe('2.00万亿');
+    });
 
-describe('formatLargeNumber', () => {
-  it('应该添加千分位', () => {
-    expect(formatLargeNumber(1234567)).toBe('1,234,567');
-  });
-});
+    it('should format in 亿 for mid caps', () => {
+      expect(formatMarketCap(1e10)).toBe('100.00亿');
+    });
 
-describe('getColorByChange', () => {
-  it('上涨应该返回红色', () => {
-    expect(getColorByChange(5)).toBe('#ef4444');
-  });
+    it('should fallback to formatAmount for small', () => {
+      expect(formatMarketCap(5000)).toBe('5000.00');
+    });
 
-  it('下跌应该返回绿色', () => {
-    expect(getColorByChange(-3)).toBe('#22c55e');
+    it('should return -- for null', () => {
+      expect(formatMarketCap(null)).toBe('--');
+    });
   });
 
-  it('平盘应该返回灰色', () => {
-    expect(getColorByChange(0)).toBe('#6b7280');
-  });
-});
+  describe('formatChange', () => {
+    it('should add + for positive changes', () => {
+      expect(formatChange(1.5)).toBe('+1.50');
+    });
 
-describe('getChangeText', () => {
-  it('应该正确显示涨跌文字', () => {
-    expect(getChangeText(2.5)).toBe('+2.50');
-    expect(getChangeText(-1.3)).toBe('-1.30');
-    expect(getChangeText(0)).toBe('+0.00');
+    it('should not add sign for negative', () => {
+      expect(formatChange(-0.5)).toBe('-0.50');
+    });
+
+    it('should return -- for null', () => {
+      expect(formatChange(null)).toBe('--');
+    });
+  });
+
+  describe('formatPE', () => {
+    it('should format valid PE', () => {
+      expect(formatPE(25.5)).toBe('25.50');
+    });
+
+    it('should return 亏损 for negative PE', () => {
+      expect(formatPE(-10)).toBe('亏损');
+    });
+
+    it('should return -- for null', () => {
+      expect(formatPE(null)).toBe('--');
+    });
+  });
+
+  describe('formatPB', () => {
+    it('should format valid PB', () => {
+      expect(formatPB(3.2)).toBe('3.20');
+    });
+
+    it('should return -- for null', () => {
+      expect(formatPB(null)).toBe('--');
+    });
+  });
+
+  describe('formatTime', () => {
+    it('should format timestamp', () => {
+      const ts = new Date('2024-01-15T10:30:00').getTime();
+      expect(formatTime(ts)).toMatch(/10:30/);
+    });
+
+    it('should return -- for null', () => {
+      expect(formatTime(null)).toBe('--');
+    });
+
+    it('should return -- for invalid', () => {
+      expect(formatTime('invalid')).toBe('--');
+    });
+  });
+
+  describe('formatDate', () => {
+    it('should format date', () => {
+      const date = new Date('2024-01-15').getTime();
+      expect(formatDate(date)).toMatch(/2024/);
+    });
+
+    it('should return -- for null', () => {
+      expect(formatDate(null)).toBe('--');
+    });
+  });
+
+  describe('formatRelativeTime', () => {
+    it('should format seconds ago', () => {
+      const ts = Date.now() - 30000;
+      expect(formatRelativeTime(ts)).toBe('30秒前');
+    });
+
+    it('should format minutes ago', () => {
+      const ts = Date.now() - 120000;
+      expect(formatRelativeTime(ts)).toBe('2分钟前');
+    });
+
+    it('should format hours ago', () => {
+      const ts = Date.now() - 3600000 * 2;
+      expect(formatRelativeTime(ts)).toBe('2小时前');
+    });
+
+    it('should format days ago', () => {
+      const ts = Date.now() - 86400000 * 5;
+      expect(formatRelativeTime(ts)).toBe('5天前');
+    });
+
+    it('should fallback to formatDate for old dates', () => {
+      const ts = Date.now() - 86400000 * 60;
+      expect(formatRelativeTime(ts)).not.toContain('天前');
+    });
+  });
+
+  describe('formatStockCode', () => {
+    it('should normalize code', () => {
+      expect(formatStockCode('600036')).toBe('600036');
+    });
+
+    it('should remove prefix', () => {
+      expect(formatStockCode('sh600036')).toBe('600036');
+      expect(formatStockCode('sz000001')).toBe('000001');
+    });
+
+    it('should handle dots', () => {
+      expect(formatStockCode('600.036')).toBe('600036');
+    });
+
+    it('should return empty for empty input', () => {
+      expect(formatStockCode('')).toBe('');
+    });
+  });
+
+  describe('getChangeColorClass', () => {
+    it('should return stock-up for positive', () => {
+      expect(getChangeColorClass(1)).toBe('stock-up');
+    });
+
+    it('should return stock-down for negative', () => {
+      expect(getChangeColorClass(-1)).toBe('stock-down');
+    });
+
+    it('should return stock-flat for zero', () => {
+      expect(getChangeColorClass(0)).toBe('stock-flat');
+    });
+
+    it('should return empty for null', () => {
+      expect(getChangeColorClass(null)).toBe('');
+    });
+  });
+
+  describe('getChangeColor', () => {
+    it('should return red for positive (China style)', () => {
+      expect(getChangeColor(1)).toBe('#ef4444');
+    });
+
+    it('should return green for negative', () => {
+      expect(getChangeColor(-1)).toBe('#22c55e');
+    });
+
+    it('should return gray for zero', () => {
+      expect(getChangeColor(0)).toBe('#666');
+    });
+
+    it('should return gray for null', () => {
+      expect(getChangeColor(null)).toBe('#666');
+    });
   });
 });
