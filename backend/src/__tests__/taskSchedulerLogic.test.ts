@@ -1,322 +1,178 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * 任务调度引擎逻辑测试
- * TaskScheduler 优先级/并发/重试/超时逻辑
+ * 任务调度器逻辑测试
  */
 
 type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-type TaskPriority = 'critical' | 'high' | 'normal' | 'low';
 
-const PRIORITY_ORDER: Record<TaskPriority, number> = {
-  critical: 0,
-  high: 1,
-  normal: 2,
-  low: 3,
-};
-
-interface TaskDescriptor {
+interface Task {
   id: string;
   name: string;
-  priority: TaskPriority;
+  priority: number;
   status: TaskStatus;
-  createdAt: number;
-  retries: number;
-  maxRetries: number;
+  scheduledAt: number;
   startedAt?: number;
   completedAt?: number;
+  retries: number;
+  maxRetries: number;
+  result?: any;
+  error?: string;
 }
 
-function sortTasksByPriority(tasks: TaskDescriptor[]): TaskDescriptor[] {
-  return [...tasks].sort((a, b) => {
-    const pa = PRIORITY_ORDER[a.priority];
-    const pb = PRIORITY_ORDER[b.priority];
-    if (pa !== pb) return pa - pb;
-    return a.createdAt - b.createdAt;
-  });
-}
+class TaskScheduler {
+  private tasks: Task[] = [];
+  private running = 0;
 
-function canExecuteMore(running: number, concurrency: number): boolean {
-  return running < concurrency;
-}
-
-function shouldRetry(task: TaskDescriptor): boolean {
-  return task.retries < task.maxRetries && task.status !== 'cancelled';
-}
-
-function calcRetryDelay(baseDelay: number, attempt: number): number {
-  return baseDelay * (attempt + 1); // Linear backoff
-}
-
-function calcTaskDuration(task: TaskDescriptor): number | null {
-  if (!task.startedAt || !task.completedAt) return null;
-  return task.completedAt - task.startedAt;
-}
-
-function groupTasksByStatus(tasks: TaskDescriptor[]): Record<TaskStatus, TaskDescriptor[]> {
-  const groups: Record<TaskStatus, TaskDescriptor[]> = {
-    pending: [], running: [], completed: [], failed: [], cancelled: [],
-  };
-  for (const t of tasks) {
-    groups[t.status].push(t);
+  addTask(name: string, priority = 0, maxRetries = 3): Task {
+    const task: Task = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name, priority, status: 'pending', scheduledAt: Date.now(), retries: 0, maxRetries,
+    };
+    this.tasks.push(task);
+    return task;
   }
-  return groups;
+
+  getNext(): Task | null {
+    const pending = this.tasks.filter(t => t.status === 'pending');
+    if (pending.length === 0) return null;
+    pending.sort((a, b) => b.priority - a.priority || a.scheduledAt - b.scheduledAt);
+    return pending[0];
+  }
+
+  startTask(taskId: string): boolean {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task || task.status !== 'pending') return false;
+    task.status = 'running';
+    task.startedAt = Date.now();
+    this.running++;
+    return true;
+  }
+
+  completeTask(taskId: string, result?: any): boolean {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task || task.status !== 'running') return false;
+    task.status = 'completed';
+    task.completedAt = Date.now();
+    task.result = result;
+    this.running--;
+    return true;
+  }
+
+  failTask(taskId: string, error: string): boolean {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task || task.status !== 'running') return false;
+    task.retries++;
+    this.running--;
+    if (task.retries < task.maxRetries) {
+      task.status = 'pending';
+      task.scheduledAt = Date.now() + task.retries * 1000;
+    } else {
+      task.status = 'failed';
+      task.error = error;
+    }
+    return true;
+  }
+
+  cancelTask(taskId: string): boolean {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task || task.status === 'completed' || task.status === 'failed') return false;
+    if (task.status === 'running') this.running--;
+    task.status = 'cancelled';
+    return true;
+  }
+
+  getStats(): { total: number; pending: number; running: number; completed: number; failed: number; cancelled: number; successRate: number } {
+    const counts = { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
+    this.tasks.forEach(t => { if (t.status in counts) counts[t.status as keyof typeof counts]++; });
+    const resolved = counts.completed + counts.failed;
+    return { total: this.tasks.length, ...counts, successRate: resolved > 0 ? counts.completed / resolved : 0 };
+  }
+
+  getQueue(): Task[] {
+    return this.tasks.filter(t => t.status === 'pending').sort((a, b) => b.priority - a.priority);
+  }
 }
 
-function calcStats(tasks: TaskDescriptor[]): {
-  total: number;
-  pending: number;
-  running: number;
-  completed: number;
-  failed: number;
-  cancelled: number;
-  successRate: number;
-  avgDuration: number | null;
-} {
-  const groups = groupTasksByStatus(tasks);
-  const completedTasks = groups.completed;
-  const finishedTasks = [...groups.completed, ...groups.failed];
-
-  const durations = finishedTasks
-    .map(t => calcTaskDuration(t))
-    .filter((d): d is number => d !== null);
-
-  const avgDuration = durations.length > 0
-    ? durations.reduce((a, b) => a + b, 0) / durations.length
-    : null;
-
-  return {
-    total: tasks.length,
-    pending: groups.pending.length,
-    running: groups.running.length,
-    completed: groups.completed.length,
-    failed: groups.failed.length,
-    cancelled: groups.cancelled.length,
-    successRate: finishedTasks.length > 0 ? completedTasks.length / finishedTasks.length : 0,
-    avgDuration,
-  };
-}
-
-function getNextRunnableTask(
-  tasks: TaskDescriptor[],
-  runningCount: number,
-  concurrency: number
-): TaskDescriptor | null {
-  if (runningCount >= concurrency) return null;
-  const pending = tasks.filter(t => t.status === 'pending');
-  if (pending.length === 0) return null;
-  const sorted = sortTasksByPriority(pending);
-  return sorted[0];
-}
-
-function validateConcurrency(concurrency: number): { valid: boolean; reason?: string } {
-  if (!Number.isInteger(concurrency)) return { valid: false, reason: 'must be integer' };
-  if (concurrency < 1) return { valid: false, reason: 'must be >= 1' };
-  if (concurrency > 100) return { valid: false, reason: 'must be <= 100' };
-  return { valid: true };
-}
-
-function validateMaxRetries(maxRetries: number): { valid: boolean; reason?: string } {
-  if (!Number.isInteger(maxRetries)) return { valid: false, reason: 'must be integer' };
-  if (maxRetries < 0) return { valid: false, reason: 'must be >= 0' };
-  if (maxRetries > 10) return { valid: false, reason: 'must be <= 10' };
-  return { valid: true };
-}
-
-function estimateCompletionTime(
-  pendingCount: number,
-  avgDuration: number,
-  concurrency: number
-): number {
-  if (concurrency <= 0 || avgDuration <= 0) return Infinity;
-  const batches = Math.ceil(pendingCount / concurrency);
-  return batches * avgDuration;
-}
-
-function shouldTimeout(startedAt: number, timeout: number, now: number): boolean {
-  return now - startedAt > timeout;
-}
-
-function buildTaskId(counter: number): string {
-  return `task-${counter}`;
-}
-
-describe('任务调度引擎逻辑', () => {
-  const mockTasks: TaskDescriptor[] = [
-    { id: 'task-1', name: 'fetch data', priority: 'high', status: 'pending', createdAt: 100, retries: 0, maxRetries: 3 },
-    { id: 'task-2', name: 'process', priority: 'normal', status: 'running', createdAt: 200, retries: 0, maxRetries: 3, startedAt: 250 },
-    { id: 'task-3', name: 'report', priority: 'low', status: 'completed', createdAt: 50, retries: 0, maxRetries: 3, startedAt: 60, completedAt: 150 },
-    { id: 'task-4', name: 'backup', priority: 'critical', status: 'pending', createdAt: 150, retries: 0, maxRetries: 2 },
-    { id: 'task-5', name: 'cleanup', priority: 'normal', status: 'failed', createdAt: 80, retries: 3, maxRetries: 3, startedAt: 90, completedAt: 200 },
-  ];
-
-  describe('sortTasksByPriority', () => {
-    it('should sort by priority then createdAt', () => {
-      const pending = mockTasks.filter(t => t.status === 'pending');
-      const sorted = sortTasksByPriority(pending);
-      expect(sorted[0].priority).toBe('critical'); // task-4
-      expect(sorted[1].priority).toBe('high'); // task-1
+describe('任务调度器逻辑', () => {
+  describe('TaskScheduler', () => {
+    it('should add and retrieve tasks', () => {
+      const scheduler = new TaskScheduler();
+      const task = scheduler.addTask('test', 5);
+      expect(task.name).toBe('test');
+      expect(task.priority).toBe(5);
+      expect(task.status).toBe('pending');
     });
 
-    it('should handle same priority by createdAt', () => {
-      const tasks: TaskDescriptor[] = [
-        { id: 'a', name: '', priority: 'normal', status: 'pending', createdAt: 200, retries: 0, maxRetries: 0 },
-        { id: 'b', name: '', priority: 'normal', status: 'pending', createdAt: 100, retries: 0, maxRetries: 0 },
-      ];
-      const sorted = sortTasksByPriority(tasks);
-      expect(sorted[0].id).toBe('b');
+    it('should return highest priority next', () => {
+      const scheduler = new TaskScheduler();
+      scheduler.addTask('low', 1);
+      scheduler.addTask('high', 10);
+      const next = scheduler.getNext();
+      expect(next?.name).toBe('high');
     });
 
-    it('should not mutate original', () => {
-      const original = [...mockTasks];
-      sortTasksByPriority(mockTasks);
-      expect(mockTasks.map(t => t.id)).toEqual(original.map(t => t.id));
-    });
-  });
-
-  describe('canExecuteMore', () => {
-    it('should return true below concurrency', () => {
-      expect(canExecuteMore(2, 4)).toBe(true);
+    it('should complete task lifecycle', () => {
+      const scheduler = new TaskScheduler();
+      const task = scheduler.addTask('test');
+      expect(scheduler.startTask(task.id)).toBe(true);
+      expect(task.status).toBe('running');
+      expect(scheduler.completeTask(task.id, 'done')).toBe(true);
+      expect(task.status).toBe('completed');
+      expect(task.result).toBe('done');
     });
 
-    it('should return false at concurrency', () => {
-      expect(canExecuteMore(4, 4)).toBe(false);
+    it('should retry failed tasks', () => {
+      const scheduler = new TaskScheduler();
+      const task = scheduler.addTask('test', 0, 3);
+      scheduler.startTask(task.id);
+      scheduler.failTask(task.id, 'error');
+      expect(task.status).toBe('pending');
+      expect(task.retries).toBe(1);
     });
 
-    it('should return false above concurrency', () => {
-      expect(canExecuteMore(5, 4)).toBe(false);
-    });
-  });
-
-  describe('shouldRetry', () => {
-    it('should allow retry when under max', () => {
-      expect(shouldRetry(mockTasks[0])).toBe(true); // retries=0, max=3
-    });
-
-    it('should deny retry at max', () => {
-      expect(shouldRetry(mockTasks[4])).toBe(false); // retries=3, max=3
+    it('should fail after max retries', () => {
+      const scheduler = new TaskScheduler();
+      const task = scheduler.addTask('test', 0, 2);
+      scheduler.startTask(task.id);
+      scheduler.failTask(task.id, 'e1');
+      scheduler.startTask(task.id);
+      scheduler.failTask(task.id, 'e2');
+      expect(task.status).toBe('failed');
     });
 
-    it('should deny retry for cancelled', () => {
-      const task: TaskDescriptor = { ...mockTasks[0], status: 'cancelled' };
-      expect(shouldRetry(task)).toBe(false);
-    });
-  });
-
-  describe('calcRetryDelay', () => {
-    it('should use linear backoff', () => {
-      expect(calcRetryDelay(1000, 0)).toBe(1000);
-      expect(calcRetryDelay(1000, 1)).toBe(2000);
-      expect(calcRetryDelay(1000, 2)).toBe(3000);
-    });
-  });
-
-  describe('calcTaskDuration', () => {
-    it('should calculate duration', () => {
-      expect(calcTaskDuration(mockTasks[2])).toBe(90); // 150 - 60
+    it('should cancel pending tasks', () => {
+      const scheduler = new TaskScheduler();
+      const task = scheduler.addTask('test');
+      expect(scheduler.cancelTask(task.id)).toBe(true);
+      expect(task.status).toBe('cancelled');
     });
 
-    it('should return null if incomplete', () => {
-      expect(calcTaskDuration(mockTasks[0])).toBeNull();
-    });
-  });
-
-  describe('groupTasksByStatus', () => {
-    it('should group all statuses', () => {
-      const groups = groupTasksByStatus(mockTasks);
-      expect(groups.pending).toHaveLength(2);
-      expect(groups.running).toHaveLength(1);
-      expect(groups.completed).toHaveLength(1);
-      expect(groups.failed).toHaveLength(1);
-    });
-  });
-
-  describe('calcStats', () => {
-    it('should calculate correct stats', () => {
-      const stats = calcStats(mockTasks);
-      expect(stats.total).toBe(5);
-      expect(stats.successRate).toBe(0.5); // 1 completed / 2 finished
+    it('should track stats', () => {
+      const scheduler = new TaskScheduler();
+      scheduler.addTask('a');
+      scheduler.addTask('b');
+      const t = scheduler.addTask('c');
+      scheduler.startTask(t.id);
+      scheduler.completeTask(t.id);
+      const stats = scheduler.getStats();
+      expect(stats.total).toBe(3);
+      expect(stats.completed).toBe(1);
+      expect(stats.pending).toBe(2);
     });
 
-    it('should calculate average duration', () => {
-      const stats = calcStats(mockTasks);
-      expect(stats.avgDuration).toBeGreaterThan(0);
-    });
-  });
-
-  describe('getNextRunnableTask', () => {
-    it('should return highest priority pending', () => {
-      const next = getNextRunnableTask(mockTasks, 1, 4);
-      expect(next?.priority).toBe('critical');
+    it('should return null when queue empty', () => {
+      const scheduler = new TaskScheduler();
+      expect(scheduler.getNext()).toBeNull();
     });
 
-    it('should return null at concurrency', () => {
-      expect(getNextRunnableTask(mockTasks, 4, 4)).toBeNull();
-    });
-
-    it('should return null with no pending', () => {
-      const tasks = mockTasks.filter(t => t.status !== 'pending');
-      expect(getNextRunnableTask(tasks, 0, 4)).toBeNull();
-    });
-  });
-
-  describe('validateConcurrency', () => {
-    it('should accept valid values', () => {
-      expect(validateConcurrency(1).valid).toBe(true);
-      expect(validateConcurrency(4).valid).toBe(true);
-      expect(validateConcurrency(100).valid).toBe(true);
-    });
-
-    it('should reject invalid values', () => {
-      expect(validateConcurrency(0).valid).toBe(false);
-      expect(validateConcurrency(-1).valid).toBe(false);
-      expect(validateConcurrency(101).valid).toBe(false);
-      expect(validateConcurrency(1.5).valid).toBe(false);
-    });
-  });
-
-  describe('validateMaxRetries', () => {
-    it('should accept valid values', () => {
-      expect(validateMaxRetries(0).valid).toBe(true);
-      expect(validateMaxRetries(3).valid).toBe(true);
-      expect(validateMaxRetries(10).valid).toBe(true);
-    });
-
-    it('should reject invalid values', () => {
-      expect(validateMaxRetries(-1).valid).toBe(false);
-      expect(validateMaxRetries(11).valid).toBe(false);
-    });
-  });
-
-  describe('estimateCompletionTime', () => {
-    it('should estimate based on batch count', () => {
-      expect(estimateCompletionTime(10, 100, 2)).toBe(500); // 5 batches * 100ms
-    });
-
-    it('should handle exact batch fit', () => {
-      expect(estimateCompletionTime(8, 100, 4)).toBe(200);
-    });
-
-    it('should return Infinity for invalid inputs', () => {
-      expect(estimateCompletionTime(10, 100, 0)).toBe(Infinity);
-      expect(estimateCompletionTime(10, 0, 2)).toBe(Infinity);
-    });
-  });
-
-  describe('shouldTimeout', () => {
-    it('should return true when exceeded', () => {
-      expect(shouldTimeout(100, 1000, 2000)).toBe(true);
-    });
-
-    it('should return false when within', () => {
-      expect(shouldTimeout(100, 1000, 500)).toBe(false);
-    });
-  });
-
-  describe('buildTaskId', () => {
-    it('should format counter into id', () => {
-      expect(buildTaskId(1)).toBe('task-1');
-      expect(buildTaskId(42)).toBe('task-42');
+    it('queue should sort by priority', () => {
+      const scheduler = new TaskScheduler();
+      scheduler.addTask('low', 1);
+      scheduler.addTask('mid', 5);
+      scheduler.addTask('high', 10);
+      const queue = scheduler.getQueue();
+      expect(queue[0].priority).toBe(10);
     });
   });
 });
