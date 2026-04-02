@@ -185,7 +185,7 @@ export class MLSignalFusionEngine {
     const recentAccuracy = recentCorrect / recentN;
     const decayFactor = recentAccuracy / (accuracy || 1);
 
-    return { name, accuracy, precision, recall, sharpeRatio, maxDrawdown, decayFactor: Math.max(0.1, Math.min(2, decayFactor)) };
+    return { name, accuracy, precision, recall, sharpeRatio, maxDrawdown: maxDD, decayFactor: Math.max(0.1, Math.min(2, decayFactor)) };
   }
 
   /**
