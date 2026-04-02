@@ -1,171 +1,125 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PerformanceMonitor } from '../services/performanceMonitor';
-
-// Mock performance API
-const mockPerformance = {
-  now: vi.fn(() => Date.now()),
-  getEntriesByName: vi.fn(() => []),
-  clearMarks: vi.fn(),
-  clearMeasures: vi.fn(),
-};
-Object.defineProperty(global, 'performance', { value: mockPerformance, writable: true });
+import { describe, it, expect, beforeEach } from 'vitest';
+import { PerformanceMonitor, createPerfMonitor } from '../utils/performanceMonitor';
 
 describe('PerformanceMonitor', () => {
   let monitor: PerformanceMonitor;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    monitor = new PerformanceMonitor();
+    monitor = createPerfMonitor({ maxEntries: 100, slowThreshold: 10 });
   });
 
-  describe('record', () => {
-    it('should record a metric', () => {
-      monitor.record('test', 100, 'ms');
-      const metrics = monitor.getMetrics('test');
-      expect(metrics).toHaveLength(1);
-      expect(metrics[0].value).toBe(100);
+  describe('startMark / endMark', () => {
+    it('should track mark duration', () => {
+      monitor.startMark('test');
+      const result = monitor.endMark('test');
+      expect(result).not.toBeNull();
+      if (!result) return;
+      expect(result.name).toBe('test');
+      expect(result.duration).toBeGreaterThanOrEqual(0);
     });
 
-    it('should record with tags', () => {
-      monitor.record('api_call', 200, 'ms', { endpoint: '/stocks' });
-      const metrics = monitor.getMetrics('api_call');
-      expect(metrics[0].tags).toEqual({ endpoint: '/stocks' });
-    });
-
-    it('should limit max metrics', () => {
-      const m = new PerformanceMonitor();
-      for (let i = 0; i < 600; i++) {
-        m.record('test', i, 'count');
-      }
-      expect(m.getMetrics('test').length).toBeLessThanOrEqual(500);
+    it('should return null for unknown mark', () => {
+      expect(monitor.endMark('nonexistent')).toBeNull();
     });
   });
 
-  describe('timers', () => {
-    it('should measure time with startTimer/endTimer', () => {
-      mockPerformance.now.mockReturnValueOnce(0).mockReturnValueOnce(100);
-      monitor.startTimer('operation');
-      const duration = monitor.endTimer('operation');
-      expect(duration).toBe(100);
-      expect(monitor.getMetrics('operation')).toHaveLength(1);
-    });
-
-    it('should return -1 for unknown timer', () => {
-      const duration = monitor.endTimer('nonexistent');
-      expect(duration).toBe(-1);
-    });
-
-    it('should record tags on endTimer', () => {
-      mockPerformance.now.mockReturnValueOnce(0).mockReturnValueOnce(50);
-      monitor.startTimer('op');
-      monitor.endTimer('op', { type: 'fetch' });
-      expect(monitor.getMetrics('op')[0].tags).toEqual({ type: 'fetch' });
+  describe('measure', () => {
+    it('should measure sync function', () => {
+      let sum = 0;
+      const result = monitor.measure('calc', () => {
+        for (let i = 0; i < 100; i++) sum += i;
+        return sum;
+      });
+      expect(result).toBe(4950);
+      const entries = monitor.getEntries({ name: 'calc' });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('computation');
     });
   });
 
   describe('measureAsync', () => {
-    it('should measure async function duration', async () => {
-      mockPerformance.now.mockReturnValueOnce(0).mockReturnValueOnce(200);
-      const result = await monitor.measureAsync('async_op', async () => {
-        return 'done';
+    it('should measure async function', async () => {
+      const result = await monitor.measureAsync('fetch', async () => {
+        return 42;
       });
-      expect(result).toBe('done');
-      const metrics = monitor.getMetrics('async_op');
-      expect(metrics).toHaveLength(1);
-      expect(metrics[0].tags?.status).toBe('success');
-    });
-
-    it('should record error status on failure', async () => {
-      mockPerformance.now.mockReturnValueOnce(0).mockReturnValueOnce(100);
-      await expect(
-        monitor.measureAsync('fail_op', async () => { throw new Error('fail'); })
-      ).rejects.toThrow('fail');
-      const metrics = monitor.getMetrics('fail_op');
-      expect(metrics[0].tags?.status).toBe('error');
-    });
-  });
-
-  describe('measureSync', () => {
-    it('should measure sync function duration', () => {
-      mockPerformance.now.mockReturnValueOnce(0).mockReturnValueOnce(50);
-      const result = monitor.measureSync('sync_op', () => 42);
       expect(result).toBe(42);
-      expect(monitor.getMetrics('sync_op')).toHaveLength(1);
-    });
-
-    it('should record error on sync failure', () => {
-      mockPerformance.now.mockReturnValueOnce(0).mockReturnValueOnce(10);
-      expect(() =>
-        monitor.measureSync('fail', () => { throw new Error('boom'); })
-      ).toThrow('boom');
-      expect(monitor.getMetrics('fail')[0].tags?.status).toBe('error');
+      const entries = monitor.getEntries({ name: 'fetch' });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('api');
     });
   });
 
-  describe('subscribe', () => {
-    it('should notify observers on record', () => {
-      const cb = vi.fn();
-      monitor.subscribe(cb);
-      monitor.record('test', 1, 'ms');
-      expect(cb).toHaveBeenCalled();
+  describe('getEntries', () => {
+    it('should filter by name', () => {
+      monitor.measure('a', () => 1);
+      monitor.measure('b', () => 2);
+      expect(monitor.getEntries({ name: 'a' })).toHaveLength(1);
+      expect(monitor.getEntries({ name: 'b' })).toHaveLength(1);
     });
 
-    it('should unsubscribe', () => {
-      const cb = vi.fn();
-      const unsub = monitor.subscribe(cb);
-      unsub();
-      monitor.record('test', 1, 'ms');
-      expect(cb).not.toHaveBeenCalled();
+    it('should filter by type', () => {
+      monitor.measure('x', () => 1, 'render');
+      monitor.measure('y', () => 2, 'api');
+      expect(monitor.getEntries({ type: 'render' })).toHaveLength(1);
     });
   });
 
-  describe('analytics', () => {
-    it('should calculate average', () => {
-      monitor.record('latency', 100, 'ms');
-      monitor.record('latency', 200, 'ms');
-      monitor.record('latency', 300, 'ms');
-      expect(monitor.getAverage('latency')).toBe(200);
-    });
-
-    it('should return 0 for unknown metric average', () => {
-      expect(monitor.getAverage('unknown')).toBe(0);
-    });
-
-    it('should calculate P95', () => {
-      for (let i = 1; i <= 100; i++) {
-        monitor.record('latency', i, 'ms');
+  describe('getStats', () => {
+    it('should compute statistics', () => {
+      for (let i = 0; i < 10; i++) {
+        monitor.measure('bench', () => { /* noop */ });
       }
-      const p95 = monitor.getP95('latency');
-      expect(p95).toBeGreaterThanOrEqual(95);
-    });
-
-    it('should return 0 for unknown metric P95', () => {
-      expect(monitor.getP95('unknown')).toBe(0);
+      const stats = monitor.getStats('bench');
+      expect(stats).toHaveLength(1);
+      expect(stats[0].count).toBe(10);
+      expect(stats[0].avgDuration).toBeGreaterThanOrEqual(0);
+      expect(stats[0].p50).toBeDefined();
+      expect(stats[0].p95).toBeDefined();
     });
   });
 
-  describe('report', () => {
-    it('should generate a report', () => {
-      monitor.record('test', 100, 'ms');
-      const report = monitor.generateReport();
-      expect(report.metrics).toHaveLength(1);
-      expect(report.startTime).toBeDefined();
-      expect(report.endTime).toBeDefined();
+  describe('getSlowEntries', () => {
+    it('should return slow entries', () => {
+      monitor.measure('fast', () => 1);
+      // Hard to guarantee slow execution in tests, just check API
+      const slow = monitor.getSlowEntries();
+      expect(Array.isArray(slow)).toBe(true);
+    });
+  });
+
+  describe('getMemoryUsage', () => {
+    it('should return null or memory info', () => {
+      const memory = monitor.getMemoryUsage();
+      // In Node/test env, may be null
+      expect(memory === null || typeof memory.usedJSHeapSize === 'number').toBe(true);
     });
   });
 
   describe('clear', () => {
-    it('should clear all metrics and timers', () => {
-      monitor.record('test', 1, 'ms');
-      monitor.startTimer('t1');
+    it('should clear all entries', () => {
+      monitor.measure('x', () => 1);
       monitor.clear();
-      expect(monitor.getMetrics()).toHaveLength(0);
+      expect(monitor.getEntries()).toHaveLength(0);
     });
   });
 
-  describe('memory', () => {
-    it('should return null without performance.memory', () => {
-      expect(monitor.getMemoryUsage()).toBeNull();
+  describe('getSummary', () => {
+    it('should return summary', () => {
+      monitor.measure('a', () => 1, 'render');
+      monitor.measure('b', () => 2, 'api');
+      const summary = monitor.getSummary();
+      expect(summary.totalEntries).toBe(2);
+      expect(summary.byType['render']).toBe(1);
+      expect(summary.byType['api']).toBe(1);
+    });
+  });
+
+  describe('maxEntries limit', () => {
+    it('should limit entries', () => {
+      for (let i = 0; i < 150; i++) {
+        monitor.measure(`entry-${i}`, () => 1);
+      }
+      expect(monitor.getEntries().length).toBeLessThanOrEqual(100);
     });
   });
 });
