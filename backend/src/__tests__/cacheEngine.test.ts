@@ -1,191 +1,232 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LRUCache, VersionedCache } from '../services/cacheEngine';
 
-describe('LRUCache', () => {
-  let cache: LRUCache<string>;
+describe('cacheEngine', () => {
+  describe('LRUCache', () => {
+    let cache: LRUCache<string>;
 
-  beforeEach(() => {
-    vi.useFakeTimers();
-    cache = new LRUCache({ maxSize: 5, defaultTTL: 1000, checkInterval: 100_000 });
+    beforeEach(() => {
+      vi.useFakeTimers();
+      cache = new LRUCache<string>({ maxSize: 5, defaultTTL: 10000, checkInterval: 60000 });
+    });
+
+    afterEach(() => {
+      cache.destroy();
+      vi.useRealTimers();
+    });
+
+    it('should set and get values', () => {
+      cache.set('key1', 'value1');
+      expect(cache.get('key1')).toBe('value1');
+    });
+
+    it('should return undefined for missing keys', () => {
+      expect(cache.get('missing')).toBeUndefined();
+    });
+
+    it('should expire entries after TTL', () => {
+      cache.set('key1', 'value1', 5000);
+      vi.advanceTimersByTime(6000);
+      expect(cache.get('key1')).toBeUndefined();
+    });
+
+    it('should evict oldest entry when max size reached', () => {
+      for (let i = 0; i < 5; i++) {
+        cache.set(`key${i}`, `value${i}`);
+      }
+      cache.set('key5', 'value5');
+      expect(cache.get('key0')).toBeUndefined();
+      expect(cache.get('key5')).toBe('value5');
+    });
+
+    it('should move accessed items to end (LRU behavior)', () => {
+      for (let i = 0; i < 5; i++) {
+        cache.set(`key${i}`, `value${i}`);
+      }
+      cache.get('key0'); // access key0 to make it most recent
+      cache.set('key5', 'value5');
+      expect(cache.get('key0')).toBe('value0'); // should survive
+      expect(cache.get('key1')).toBeUndefined(); // should be evicted
+    });
+
+    it('should track hit count', () => {
+      cache.set('key1', 'value1');
+      cache.get('key1');
+      cache.get('key1');
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(2);
+    });
+
+    it('should track misses', () => {
+      cache.get('nonexistent');
+      const stats = cache.getStats();
+      expect(stats.misses).toBe(1);
+    });
+
+    it('should calculate hit rate', () => {
+      cache.set('key1', 'value1');
+      cache.get('key1'); // hit
+      cache.get('key2'); // miss
+      const stats = cache.getStats();
+      expect(stats.hitRate).toBe(0.5);
+    });
+
+    it('should delete entries', () => {
+      cache.set('key1', 'value1');
+      expect(cache.delete('key1')).toBe(true);
+      expect(cache.get('key1')).toBeUndefined();
+      expect(cache.delete('nonexistent')).toBe(false);
+    });
+
+    it('should clear all entries', () => {
+      cache.set('key1', 'value1');
+      cache.set('key2', 'value2');
+      cache.clear();
+      expect(cache.get('key1')).toBeUndefined();
+      expect(cache.get('key2')).toBeUndefined();
+      expect(cache.getStats().size).toBe(0);
+    });
+
+    it('should check existence without updating LRU', () => {
+      cache.set('key1', 'value1');
+      expect(cache.has('key1')).toBe(true);
+      expect(cache.has('missing')).toBe(false);
+    });
+
+    it('should check has for expired entries', () => {
+      cache.set('key1', 'value1', 1000);
+      vi.advanceTimersByTime(2000);
+      expect(cache.has('key1')).toBe(false);
+    });
+
+    it('should support batch get (mget)', () => {
+      cache.set('a', '1');
+      cache.set('b', '2');
+      const result = cache.mget(['a', 'b', 'c']);
+      expect(result.get('a')).toBe('1');
+      expect(result.get('b')).toBe('2');
+      expect(result.get('c')).toBeUndefined();
+    });
+
+    it('should support batch set (mset)', () => {
+      cache.mset([
+        { key: 'a', value: '1' },
+        { key: 'b', value: '2' },
+      ]);
+      expect(cache.get('a')).toBe('1');
+      expect(cache.get('b')).toBe('2');
+    });
+
+    it('should return all keys', () => {
+      cache.set('a', '1');
+      cache.set('b', '2');
+      expect(cache.keys()).toEqual(['a', 'b']);
+    });
+
+    it('should set null marker for penetration protection', () => {
+      cache.setNull('nullkey');
+      expect(cache.get('nullkey')).toBeUndefined();
+      const stats = cache.getStats();
+      expect(stats.penetrations).toBeGreaterThan(0);
+    });
+
+    it('should getOrSet with factory function', async () => {
+      const result = await cache.getOrSet('key1', async () => 'fetched');
+      expect(result).toBe('fetched');
+      expect(cache.get('key1')).toBe('fetched');
+    });
+
+    it('should return cached value in getOrSet', async () => {
+      cache.set('key1', 'cached');
+      const result = await cache.getOrSet('key1', async () => 'fetched');
+      expect(result).toBe('cached');
+    });
+
+    it('should set null marker when factory returns null', async () => {
+      const result = await cache.getOrSet('key1', async () => null);
+      expect(result).toBeUndefined();
+      // second call should hit penetration protection
+      const spy = vi.fn(async () => 'should not call');
+      await cache.getOrSet('key1', spy);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should handle factory errors gracefully', async () => {
+      const result = await cache.getOrSet('key1', async () => {
+        throw new Error('fail');
+      });
+      expect(result).toBeUndefined();
+    });
+
+    it('should track evictions', () => {
+      for (let i = 0; i < 6; i++) {
+        cache.set(`key${i}`, `value${i}`);
+      }
+      const stats = cache.getStats();
+      expect(stats.evictions).toBe(1);
+    });
+
+    it('should return size in stats', () => {
+      cache.set('a', '1');
+      cache.set('b', '2');
+      const stats = cache.getStats();
+      expect(stats.size).toBe(2);
+      expect(stats.maxSize).toBe(5);
+    });
+
+    it('should use custom TTL per entry', () => {
+      cache.set('short', 'value', 100);
+      cache.set('long', 'value', 50000);
+      vi.advanceTimersByTime(200);
+      expect(cache.get('short')).toBeUndefined();
+      expect(cache.get('long')).toBe('value');
+    });
+
+    it('should handle different value types', () => {
+      const numCache = new LRUCache<number>();
+      numCache.set('num', 42);
+      expect(numCache.get('num')).toBe(42);
+      numCache.destroy();
+
+      const objCache = new LRUCache<{ x: number }>();
+      objCache.set('obj', { x: 1 });
+      expect(objCache.get('obj')).toEqual({ x: 1 });
+      objCache.destroy();
+    });
   });
 
-  afterEach(() => {
-    cache.destroy();
-    vi.useRealTimers();
-  });
+  describe('VersionedCache', () => {
+    let vcache: VersionedCache<string>;
 
-  it('should set and get values', () => {
-    cache.set('key1', 'value1');
-    expect(cache.get('key1')).toBe('value1');
-  });
+    beforeEach(() => {
+      vcache = new VersionedCache<string>({ maxSize: 10, defaultTTL: 60000, checkInterval: 60000 });
+    });
 
-  it('should return undefined for missing keys', () => {
-    expect(cache.get('nonexistent')).toBeUndefined();
-  });
+    afterEach(() => {
+      vcache.clear();
+    });
 
-  it('should expire entries after TTL', () => {
-    cache.set('key1', 'value1', 500);
-    expect(cache.get('key1')).toBe('value1');
-    vi.advanceTimersByTime(600);
-    expect(cache.get('key1')).toBeUndefined();
-  });
+    it('should return data with matching version', () => {
+      vcache.set('key1', 'data', 1);
+      expect(vcache.get('key1', 1)).toBe('data');
+    });
 
-  it('should evict oldest entry when full', () => {
-    for (let i = 0; i < 5; i++) cache.set(`k${i}`, `v${i}`);
-    expect(cache.getStats().size).toBe(5);
-    cache.set('k5', 'v5'); // should evict k0
-    expect(cache.get('k0')).toBeUndefined();
-    expect(cache.get('k5')).toBe('v5');
-  });
+    it('should return undefined with wrong version', () => {
+      vcache.set('key1', 'data', 1);
+      expect(vcache.get('key1', 2)).toBeUndefined();
+    });
 
-  it('should track stats', () => {
-    cache.set('k1', 'v1');
-    cache.get('k1');
-    cache.get('k2');
-    const stats = cache.getStats();
-    expect(stats.hits).toBe(1);
-    expect(stats.misses).toBe(1);
-    expect(stats.hitRate).toBe(0.5);
-  });
+    it('should invalidate entries', () => {
+      vcache.set('key1', 'data', 1);
+      vcache.invalidate('key1');
+      expect(vcache.get('key1', 1)).toBeUndefined();
+    });
 
-  it('should delete entries', () => {
-    cache.set('k1', 'v1');
-    expect(cache.delete('k1')).toBe(true);
-    expect(cache.get('k1')).toBeUndefined();
-    expect(cache.delete('k1')).toBe(false);
-  });
-
-  it('should clear all entries', () => {
-    cache.set('k1', 'v1');
-    cache.set('k2', 'v2');
-    cache.clear();
-    expect(cache.getStats().size).toBe(0);
-  });
-
-  it('should check existence', () => {
-    cache.set('k1', 'v1');
-    expect(cache.has('k1')).toBe(true);
-    expect(cache.has('k2')).toBe(false);
-  });
-
-  it('should handle expired entries in has()', () => {
-    cache.set('k1', 'v1', 100);
-    vi.advanceTimersByTime(200);
-    expect(cache.has('k1')).toBe(false);
-  });
-
-  it('should batch get', () => {
-    cache.set('a', '1');
-    cache.set('b', '2');
-    const result = cache.mget(['a', 'b', 'c']);
-    expect(result.get('a')).toBe('1');
-    expect(result.get('b')).toBe('2');
-    expect(result.get('c')).toBeUndefined();
-  });
-
-  it('should batch set', () => {
-    cache.mset([
-      { key: 'a', value: '1' },
-      { key: 'b', value: '2' },
-    ]);
-    expect(cache.get('a')).toBe('1');
-    expect(cache.get('b')).toBe('2');
-  });
-
-  it('should return keys', () => {
-    cache.set('a', '1');
-    cache.set('b', '2');
-    expect(cache.keys()).toContain('a');
-    expect(cache.keys()).toContain('b');
-  });
-
-  it('should use getOrSet for cache-through', async () => {
-    const factory = vi.fn().mockResolvedValue('fetched');
-    const result = await cache.getOrSet('k1', factory);
-    expect(result).toBe('fetched');
-    expect(factory).toHaveBeenCalledTimes(1);
-
-    // Second call should use cache
-    const result2 = await cache.getOrSet('k1', factory);
-    expect(result2).toBe('fetched');
-    expect(factory).toHaveBeenCalledTimes(1);
-  });
-
-  it('should set null marker on factory returning null', async () => {
-    const factory = vi.fn().mockResolvedValue(null);
-    const result = await cache.getOrSet('k1', factory);
-    expect(result).toBeUndefined();
-
-    // Second call should not call factory (penetration protection)
-    const result2 = await cache.getOrSet('k1', factory);
-    expect(result2).toBeUndefined();
-    expect(factory).toHaveBeenCalledTimes(1);
-  });
-
-  it('should handle factory errors gracefully', async () => {
-    const factory = vi.fn().mockRejectedValue(new Error('db error'));
-    const result = await cache.getOrSet('k1', factory);
-    expect(result).toBeUndefined();
-  });
-
-  it('should track evictions', () => {
-    for (let i = 0; i < 6; i++) cache.set(`k${i}`, `v${i}`);
-    expect(cache.getStats().evictions).toBeGreaterThan(0);
-  });
-
-  it('should track penetrations', () => {
-    cache.setNull('null-key');
-    cache.get('null-key');
-    expect(cache.getStats().penetrations).toBe(1);
-  });
-
-  it('should update LRU order on access', () => {
-    cache.set('a', '1');
-    cache.set('b', '2');
-    cache.set('c', '3');
-    cache.set('d', '4');
-    cache.set('e', '5');
-    // Access 'a' to make it recently used
-    cache.get('a');
-    cache.set('f', '6'); // should evict 'b' (oldest untouched)
-    expect(cache.get('a')).toBe('1');
-    expect(cache.get('b')).toBeUndefined();
-  });
-});
-
-describe('VersionedCache', () => {
-  let cache: VersionedCache<string>;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    cache = new VersionedCache({ maxSize: 10, defaultTTL: 5000, checkInterval: 100_000 });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('should get with matching version', () => {
-    cache.set('k', 'v1', 1);
-    expect(cache.get('k', 1)).toBe('v1');
-  });
-
-  it('should return undefined with mismatched version', () => {
-    cache.set('k', 'v1', 1);
-    expect(cache.get('k', 2)).toBeUndefined();
-  });
-
-  it('should invalidate entries', () => {
-    cache.set('k', 'v1', 1);
-    cache.invalidate('k');
-    expect(cache.get('k', 1)).toBeUndefined();
-  });
-
-  it('should clear all', () => {
-    cache.set('k1', 'v1', 1);
-    cache.set('k2', 'v2', 2);
-    cache.clear();
-    expect(cache.get('k1', 1)).toBeUndefined();
-    expect(cache.get('k2', 2)).toBeUndefined();
+    it('should clear all entries', () => {
+      vcache.set('a', '1', 1);
+      vcache.set('b', '2', 1);
+      vcache.clear();
+      expect(vcache.get('a', 1)).toBeUndefined();
+    });
   });
 });

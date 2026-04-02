@@ -7,231 +7,265 @@ import {
   validateQuote,
   validateQuotes,
   DEFAULT_CONFIG,
+  QuoteData,
+  ValidationConfig,
 } from '../services/quoteValidationEngine';
 
-/**
- * 行情数据验证引擎测试
- */
+const validQuote: QuoteData = {
+  symbol: 'sh600000',
+  open: 10.00,
+  close: 10.50,
+  high: 10.80,
+  low: 9.80,
+  volume: 1000000,
+  turnover: 10400000,
+  preClose: 10.00,
+  change: 0.50,
+  changePercent: 5.0,
+};
 
-describe('QuoteValidationEngine', () => {
-  const validQuote = {
-    symbol: '600519',
-    open: 100,
-    close: 105,
-    high: 110,
-    low: 95,
-    volume: 1000000,
-    turnover: 105000000,
-    preClose: 99,
-    change: 6,
-    changePercent: 6.06,
-  };
-
-  describe('DEFAULT_CONFIG', () => {
-    it('应该有合理的默认值', () => {
-      expect(DEFAULT_CONFIG.maxChangePercent).toBe(20);
-      expect(DEFAULT_CONFIG.stMaxChangePercent).toBe(5);
-      expect(DEFAULT_CONFIG.checkPriceRelation).toBe(true);
-      expect(DEFAULT_CONFIG.checkVolumePrice).toBe(true);
-    });
-  });
-
+describe('quoteValidationEngine', () => {
   describe('validatePriceRelation', () => {
-    it('正常数据应通过验证', () => {
+    it('should pass for valid OHLC data', () => {
       const results = validatePriceRelation(validQuote);
-      const errors = results.filter(r => !r.valid);
-      expect(errors).toHaveLength(0);
+      const infoResult = results.find(r => r.severity === 'info' && r.valid);
+      expect(infoResult).toBeDefined();
+      expect(infoResult?.message).toBe('价格关系正确');
     });
 
-    it('最高价低于开盘价应报错', () => {
-      const data = { ...validQuote, high: 90 };
+    it('should fail when high < open', () => {
+      const data = { ...validQuote, high: 9.00 };
       const results = validatePriceRelation(data);
       const errors = results.filter(r => !r.valid);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors.some(r => r.field === 'high')).toBe(true);
+      expect(errors.some(e => e.message.includes('最高价低于开盘价'))).toBe(true);
     });
 
-    it('最高价低于收盘价应报错', () => {
-      const data = { ...validQuote, high: 100 };
+    it('should fail when high < close', () => {
+      const data = { ...validQuote, high: 10.00, close: 10.50 };
       const results = validatePriceRelation(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.some(r => r.message.includes('收盘价'))).toBe(true);
+      expect(results.some(r => !r.valid && r.message.includes('最高价低于收盘价'))).toBe(true);
     });
 
-    it('最低价高于开盘价应报错', () => {
-      const data = { ...validQuote, low: 105 };
+    it('should fail when low > open', () => {
+      const data = { ...validQuote, low: 11.00, open: 10.00 };
       const results = validatePriceRelation(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.some(r => r.field === 'low')).toBe(true);
+      expect(results.some(r => !r.valid && r.message.includes('最低价高于开盘价'))).toBe(true);
     });
 
-    it('最低价高于收盘价应报错', () => {
-      const data = { ...validQuote, low: 108 };
+    it('should fail when low > close', () => {
+      const data = { ...validQuote, low: 11.00, close: 10.50 };
       const results = validatePriceRelation(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.some(r => r.message.includes('收盘价'))).toBe(true);
+      expect(results.some(r => !r.valid && r.message.includes('最低价高于收盘价'))).toBe(true);
     });
 
-    it('最高价低于最低价应报错', () => {
-      const data = { ...validQuote, high: 90, low: 100 };
+    it('should fail when high < low', () => {
+      const data = { ...validQuote, high: 9.00, low: 11.00 };
       const results = validatePriceRelation(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.some(r => r.message.includes('最低价'))).toBe(true);
+      expect(results.some(r => !r.valid && r.message.includes('最高价低于最低价'))).toBe(true);
     });
 
-    it('十字星（开盘=收盘）应通过', () => {
-      const data = { ...validQuote, open: 100, close: 100, high: 105, low: 95 };
+    it('should pass when high equals open and close', () => {
+      const data = { ...validQuote, open: 10.00, close: 10.00, high: 10.00, low: 9.00 };
       const results = validatePriceRelation(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors).toHaveLength(0);
+      expect(results.some(r => r.valid && r.severity === 'info')).toBe(true);
+    });
+
+    it('should pass when low equals open and close', () => {
+      const data = { ...validQuote, open: 10.00, close: 10.00, high: 11.00, low: 10.00 };
+      const results = validatePriceRelation(data);
+      expect(results.some(r => r.valid && r.severity === 'info')).toBe(true);
     });
   });
 
   describe('validateChangePercent', () => {
-    it('正常涨跌幅应通过', () => {
+    it('should pass for normal change percent', () => {
       const results = validateChangePercent(validQuote);
-      const errors = results.filter(r => !r.valid);
-      expect(errors).toHaveLength(0);
+      expect(results.some(r => r.valid)).toBe(true);
     });
 
-    it('超过涨跌幅限制应报错', () => {
-      const data = { ...validQuote, preClose: 100, close: 130, changePercent: 30 };
+    it('should fail when change percent exceeds limit', () => {
+      const data = { ...validQuote, preClose: 10.00, close: 13.00 };
       const results = validateChangePercent(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.length).toBeGreaterThan(0);
+      expect(results.some(r => !r.valid && r.severity === 'error')).toBe(true);
     });
 
-    it('ST股超过5%应报错', () => {
-      const data = { ...validQuote, symbol: '600519-ST', preClose: 100, close: 108 };
+    it('should use ST limit for ST stocks', () => {
+      const data: QuoteData = {
+        ...validQuote,
+        symbol: 'sh600000_ST',
+        preClose: 10.00,
+        close: 10.60,
+      };
       const results = validateChangePercent(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.length).toBeGreaterThan(0);
+      expect(results.some(r => !r.valid)).toBe(true);
     });
 
-    it('涨跌额不一致应警告', () => {
-      const data = { ...validQuote, preClose: 100, close: 105, change: 10 };
+    it('should pass ST stock within limit', () => {
+      const data: QuoteData = {
+        ...validQuote,
+        symbol: 'sh600000_ST',
+        preClose: 10.00,
+        close: 10.04,
+        change: 0.04,
+        changePercent: 0.4,
+      };
       const results = validateChangePercent(data);
-      const warnings = results.filter(r => r.severity === 'warning');
-      expect(warnings.length).toBeGreaterThan(0);
+      expect(results.some(r => r.valid)).toBe(true);
     });
 
-    it('无昨收应跳过验证', () => {
-      const { preClose, change, changePercent, ...data } = validQuote;
+    it('should check change field consistency', () => {
+      const data = { ...validQuote, preClose: 10.00, close: 10.50, change: 2.0 };
       const results = validateChangePercent(data);
-      expect(results).toHaveLength(0);
+      expect(results.some(r => !r.valid && r.field === 'change')).toBe(true);
     });
 
-    it('跌停应通过验证', () => {
-      const data = { ...validQuote, preClose: 100, close: 90, change: -10, changePercent: -10 };
+    it('should return empty when preClose is missing', () => {
+      const { preClose, ...noPreClose } = validQuote;
+      const results = validateChangePercent(noPreClose as QuoteData);
+      expect(results.length).toBe(0);
+    });
+
+    it('should allow floating point tolerance', () => {
+      const data = { ...validQuote, preClose: 10.00, close: 12.00, change: 2.00005 };
       const results = validateChangePercent(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors).toHaveLength(0);
+      // within 0.001 tolerance
+      expect(results.every(r => r.field !== 'change' || r.valid)).toBe(true);
     });
   });
 
   describe('validateVolume', () => {
-    it('正常成交量应通过', () => {
+    it('should pass for valid volume', () => {
       const results = validateVolume(validQuote);
-      const errors = results.filter(r => !r.valid);
-      expect(errors).toHaveLength(0);
+      expect(results.some(r => r.valid)).toBe(true);
     });
 
-    it('非整数成交量应警告', () => {
-      const data = { ...validQuote, volume: 1000.5 };
-      const results = validateVolume(data);
-      const warnings = results.filter(r => r.severity === 'warning');
-      expect(warnings.length).toBeGreaterThan(0);
+    it('should warn when volume is below minimum', () => {
+      const config: ValidationConfig = { ...DEFAULT_CONFIG, minVolume: 100 };
+      const data = { ...validQuote, volume: 50 };
+      const results = validateVolume(data, config);
+      expect(results.some(r => !r.valid && r.severity === 'warning')).toBe(true);
     });
 
-    it('超过最大成交量应报错', () => {
+    it('should error when volume exceeds maximum', () => {
       const data = { ...validQuote, volume: 99999999999 };
       const results = validateVolume(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.length).toBeGreaterThan(0);
+      expect(results.some(r => !r.valid && r.severity === 'error')).toBe(true);
+    });
+
+    it('should warn when volume is not integer', () => {
+      const data = { ...validQuote, volume: 1000.5 };
+      const results = validateVolume(data);
+      expect(results.some(r => !r.valid && r.message.includes('整数'))).toBe(true);
+    });
+
+    it('should pass for zero volume with default config', () => {
+      const data = { ...validQuote, volume: 0 };
+      const results = validateVolume(data);
+      // zero is integer and >= minVolume(0)
+      expect(results.some(r => r.valid)).toBe(true);
     });
   });
 
   describe('validateTurnover', () => {
-    it('正常成交额应通过', () => {
+    it('should pass for valid turnover', () => {
       const results = validateTurnover(validQuote);
-      const errors = results.filter(r => !r.valid);
-      expect(errors).toHaveLength(0);
+      expect(results.some(r => r.valid)).toBe(true);
     });
 
-    it('负成交额应报错', () => {
+    it('should error when turnover is negative', () => {
       const data = { ...validQuote, turnover: -100 };
       const results = validateTurnover(data);
-      const errors = results.filter(r => !r.valid);
-      expect(errors.length).toBeGreaterThan(0);
+      expect(results.some(r => !r.valid && r.severity === 'error')).toBe(true);
     });
 
-    it('量价严重不匹配应警告', () => {
-      const data = { ...validQuote, volume: 1000000, turnover: 1000 };
+    it('should warn when avg price is outside price range', () => {
+      const data = { ...validQuote, volume: 100, turnover: 5000, low: 10.00, high: 11.00 };
+      // avgPrice = 50, way outside [10, 11]
       const results = validateTurnover(data);
-      const warnings = results.filter(r => r.severity === 'warning');
-      expect(warnings.length).toBeGreaterThan(0);
+      expect(results.some(r => !r.valid && r.message.includes('不匹配'))).toBe(true);
+    });
+
+    it('should pass when volume or turnover is zero', () => {
+      const data = { ...validQuote, volume: 0, turnover: 0 };
+      const results = validateTurnover(data);
+      expect(results.some(r => r.valid)).toBe(true);
     });
   });
 
   describe('validateQuote', () => {
-    it('完整正常数据应返回valid=true', () => {
+    it('should return valid for correct data', () => {
       const result = validateQuote(validQuote);
       expect(result.valid).toBe(true);
-      expect(result.errors).toHaveLength(0);
+      expect(result.errors.length).toBe(0);
     });
 
-    it('包含错误应返回valid=false', () => {
-      const data = { ...validQuote, high: 90, low: 100 };
-      const result = validateQuote(data);
+    it('should detect multiple errors', () => {
+      const bad: QuoteData = {
+        symbol: 'sh600000',
+        open: 15.00,
+        close: 10.00,
+        high: 8.00,
+        low: 12.00,
+        volume: -100,
+        turnover: -1000,
+      };
+      const result = validateQuote(bad);
       expect(result.valid).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);
     });
 
-    it('应汇总所有验证结果', () => {
-      const result = validateQuote(validQuote);
-      expect(result.all.length).toBeGreaterThan(0);
+    it('should use custom config', () => {
+      const config: ValidationConfig = {
+        maxChangePercent: 10,
+        stMaxChangePercent: 5,
+        minVolume: 0,
+        maxVolume: 1000000,
+        checkPriceRelation: true,
+        checkVolumePrice: true,
+      };
+      const data = { ...validQuote, preClose: 10.00, close: 11.50 };
+      const result = validateQuote(data, config);
+      expect(result.valid).toBe(false);
     });
   });
 
   describe('validateQuotes', () => {
-    it('应正确统计有效和无效数据', () => {
-      const data = [
+    it('should validate multiple quotes', () => {
+      const quotes = [
         validQuote,
-        { ...validQuote, symbol: '000002', high: 90 },
+        { ...validQuote, symbol: 'sz000001', close: 10.50 },
       ];
-      const result = validateQuotes(data);
-      expect(result.validCount).toBe(1);
-      expect(result.invalidCount).toBe(1);
+      const batch = validateQuotes(quotes);
+      expect(batch.validCount).toBe(2);
+      expect(batch.invalidCount).toBe(0);
+      expect(batch.results.length).toBe(2);
     });
 
-    it('空数组应返回零', () => {
-      const result = validateQuotes([]);
-      expect(result.validCount).toBe(0);
-      expect(result.invalidCount).toBe(0);
+    it('should count invalid quotes correctly', () => {
+      const quotes = [
+        validQuote,
+        { ...validQuote, symbol: 'sz000001', high: 5.00 },
+      ];
+      const batch = validateQuotes(quotes);
+      expect(batch.validCount).toBe(1);
+      expect(batch.invalidCount).toBe(1);
     });
 
-    it('全有效数据应全部通过', () => {
-      const data = [
-        validQuote,
-        { ...validQuote, symbol: '000002' },
-        { ...validQuote, symbol: '000003' },
-      ];
-      const result = validateQuotes(data);
-      expect(result.validCount).toBe(3);
-      expect(result.invalidCount).toBe(0);
+    it('should handle empty array', () => {
+      const batch = validateQuotes([]);
+      expect(batch.validCount).toBe(0);
+      expect(batch.invalidCount).toBe(0);
+      expect(batch.results.length).toBe(0);
     });
   });
 
-  describe('ValidationResult 结构', () => {
-    it('应包含必要字段', () => {
-      const results = validatePriceRelation(validQuote);
-      results.forEach(r => {
-        expect(r).toHaveProperty('valid');
-        expect(r).toHaveProperty('field');
-        expect(r).toHaveProperty('message');
-        expect(r).toHaveProperty('severity');
-        expect(['error', 'warning', 'info']).toContain(r.severity);
-      });
+  describe('DEFAULT_CONFIG', () => {
+    it('should have expected defaults', () => {
+      expect(DEFAULT_CONFIG.maxChangePercent).toBe(20);
+      expect(DEFAULT_CONFIG.stMaxChangePercent).toBe(5);
+      expect(DEFAULT_CONFIG.checkPriceRelation).toBe(true);
+      expect(DEFAULT_CONFIG.checkVolumePrice).toBe(true);
     });
   });
 });

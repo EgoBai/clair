@@ -1,130 +1,151 @@
 import { describe, it, expect } from 'vitest';
+import {
+  regressFactor,
+  multiFactorRegression,
+  analyzePortfolioExposure,
+  decomposeReturns,
+  FactorData,
+  StockExposure,
+} from '../services/factorExposureEngine';
 
-/**
- * 因子暴露分析引擎测试
- */
-
-function regressFactor(
-  stockReturns: number[],
-  factorReturns: number[]
-): { beta: number; alpha: number; rSquared: number; residual: number } {
-  const n = Math.min(stockReturns.length, factorReturns.length);
-  if (n < 3) return { beta: 0, alpha: 0, rSquared: 0, residual: 0 };
-  const y = stockReturns.slice(0, n);
-  const x = factorReturns.slice(0, n);
-  const meanY = y.reduce((s, r) => s + r, 0) / n;
-  const meanX = x.reduce((s, r) => s + r, 0) / n;
-  let covXY = 0, varX = 0;
-  for (let i = 0; i < n; i++) {
-    covXY += (x[i] - meanX) * (y[i] - meanY);
-    varX += (x[i] - meanX) ** 2;
-  }
-  const beta = varX > 0 ? covXY / varX : 0;
-  const alpha = meanY - beta * meanX;
-  let ssRes = 0, ssTot = 0;
-  for (let i = 0; i < n; i++) {
-    const pred = alpha + beta * x[i];
-    ssRes += (y[i] - pred) ** 2;
-    ssTot += (y[i] - meanY) ** 2;
-  }
-  const rSquared = ssTot > 0 ? 1 - ssRes / ssTot : 0;
-  const residual = Math.sqrt(ssRes / Math.max(1, n - 2));
-  return { beta: parseFloat(beta.toFixed(6)), alpha: parseFloat(alpha.toFixed(6)), rSquared: parseFloat(rSquared.toFixed(4)), residual: parseFloat(residual.toFixed(6)) };
-}
-
-function analyzeFactorExposures(
-  stockReturns: number[],
-  factors: { name: string; returns: number[] }[]
-): { exposures: Map<string, number>; alpha: number; rSquared: number } {
-  const exposures = new Map<string, number>();
-  let totalAlpha = 0, totalRSquared = 0;
-  for (const factor of factors) {
-    const result = regressFactor(stockReturns, factor.returns);
-    exposures.set(factor.name, result.beta);
-    totalAlpha += result.alpha;
-    totalRSquared += result.rSquared;
-  }
-  return {
-    exposures,
-    alpha: parseFloat((totalAlpha / Math.max(1, factors.length)).toFixed(6)),
-    rSquared: parseFloat((totalRSquared / Math.max(1, factors.length)).toFixed(4)),
-  };
-}
-
-function calculateTrackingError(portfolioReturns: number[], benchmarkReturns: number[]): number {
-  const n = Math.min(portfolioReturns.length, benchmarkReturns.length);
-  if (n < 2) return 0;
-  const diffs = [];
-  for (let i = 0; i < n; i++) {
-    diffs.push(portfolioReturns[i] - benchmarkReturns[i]);
-  }
-  const mean = diffs.reduce((s, v) => s + v, 0) / n;
-  const variance = diffs.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1);
-  return parseFloat((Math.sqrt(variance) * Math.sqrt(252)).toFixed(4));
-}
-
-describe('因子暴露分析引擎', () => {
+describe('factorExposureEngine', () => {
   describe('regressFactor', () => {
     it('should return zeros for insufficient data', () => {
-      expect(regressFactor([1], [1])).toEqual({ beta: 0, alpha: 0, rSquared: 0, residual: 0 });
+      const result = regressFactor([1, 2], [1, 2]);
+      expect(result.beta).toBe(0);
+      expect(result.rSquared).toBe(0);
     });
 
-    it('should find perfect linear relationship', () => {
+    it('should calculate beta for correlated data', () => {
       const x = [1, 2, 3, 4, 5];
       const y = [2, 4, 6, 8, 10]; // y = 2x
       const result = regressFactor(y, x);
       expect(result.beta).toBeCloseTo(2, 1);
+    });
+
+    it('should calculate alpha (intercept)', () => {
+      const x = [1, 2, 3, 4, 5];
+      const y = [3, 5, 7, 9, 11]; // y = 2x + 1
+      const result = regressFactor(y, x);
+      expect(result.alpha).toBeCloseTo(1, 1);
+    });
+
+    it('should calculate R-squared', () => {
+      const x = [1, 2, 3, 4, 5];
+      const y = [2, 4, 6, 8, 10]; // perfect correlation
+      const result = regressFactor(y, x);
       expect(result.rSquared).toBeCloseTo(1, 1);
     });
 
-    it('should find beta=1 for identical returns', () => {
-      const returns = [0.01, -0.02, 0.03, -0.01, 0.02];
-      const result = regressFactor(returns, returns);
-      expect(result.beta).toBeCloseTo(1, 2);
-      expect(result.rSquared).toBeCloseTo(1, 2);
+    it('should handle uncorrelated data', () => {
+      const x = [1, 1, 1, 1, 1]; // constant
+      const y = [1, 2, 3, 4, 5];
+      const result = regressFactor(y, x);
+      expect(result.beta).toBe(0);
     });
 
-    it('should handle negative correlation', () => {
-      const x = [0.01, 0.02, 0.03, 0.04, 0.05];
-      const y = [0.05, 0.04, 0.03, 0.02, 0.01];
+    it('should calculate residual', () => {
+      const x = [1, 2, 3, 4, 5];
+      const y = [2, 4, 6, 8, 10];
       const result = regressFactor(y, x);
-      expect(result.beta).toBeLessThan(0);
+      expect(result.residual).toBeCloseTo(0, 1);
     });
   });
 
-  describe('analyzeFactorExposures', () => {
-    it('should return exposures for multiple factors', () => {
-      const stockReturns = [0.01, -0.02, 0.03, -0.01, 0.02, 0.01, -0.01, 0.02];
-      const factors = [
-        { name: 'market', returns: [0.01, -0.01, 0.02, -0.01, 0.02, 0.01, -0.01, 0.02] },
-        { name: 'size', returns: [0.005, -0.005, 0.01, 0.005, -0.005, 0.01, 0.005, -0.005] },
+  describe('multiFactorRegression', () => {
+    it('should handle empty factors', () => {
+      const result = multiFactorRegression([1, 2, 3], []);
+      expect(result.exposures.size).toBe(0);
+      expect(result.rSquared).toBe(0);
+    });
+
+    it('should calculate exposures for multiple factors', () => {
+      const factors: FactorData[] = [
+        { name: 'market', returns: [0.01, 0.02, 0.01, 0.03, 0.02], description: 'Market' },
+        { name: 'size', returns: [0.005, -0.01, 0.02, 0.01, -0.005], description: 'Size' },
       ];
-      const result = analyzeFactorExposures(stockReturns, factors);
-      expect(result.exposures.size).toBe(2);
+      const stockReturns = [0.015, 0.02, 0.02, 0.03, 0.015];
+      const result = multiFactorRegression(stockReturns, factors);
       expect(result.exposures.has('market')).toBe(true);
       expect(result.exposures.has('size')).toBe(true);
     });
 
-    it('should handle empty factors', () => {
-      const result = analyzeFactorExposures([0.01, 0.02], []);
-      expect(result.exposures.size).toBe(0);
+    it('should have alpha', () => {
+      const factors: FactorData[] = [
+        { name: 'market', returns: [0.01, 0.02, 0.01], description: '' },
+      ];
+      const result = multiFactorRegression([0.02, 0.03, 0.02], factors);
+      expect(typeof result.alpha).toBe('number');
+    });
+
+    it('should have residualVol >= 0', () => {
+      const factors: FactorData[] = [
+        { name: 'f1', returns: [0.01, 0.02, 0.01, 0.02, 0.01], description: '' },
+      ];
+      const result = multiFactorRegression([0.01, 0.02, 0.01, 0.02, 0.01], factors);
+      expect(result.residualVol).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should have rSquared between 0 and 1', () => {
+      const factors: FactorData[] = [
+        { name: 'f1', returns: [0.01, 0.02, 0.03, 0.04, 0.05], description: '' },
+      ];
+      const result = multiFactorRegression([0.01, 0.02, 0.03, 0.04, 0.05], factors);
+      expect(result.rSquared).toBeGreaterThanOrEqual(0);
+      expect(result.rSquared).toBeLessThanOrEqual(1);
     });
   });
 
-  describe('calculateTrackingError', () => {
-    it('should return 0 for identical returns', () => {
-      const returns = [0.01, 0.02, -0.01, 0.03];
-      expect(calculateTrackingError(returns, returns)).toBe(0);
+  describe('analyzePortfolioExposure', () => {
+    it('should calculate total exposures', () => {
+      const stocks: StockExposure[] = [
+        {
+          symbol: 'A', returns: [], alpha: 0.01, rSquared: 0.8, residualVol: 0.02,
+          exposures: new Map([['market', 1.2], ['size', 0.5]]),
+        },
+        {
+          symbol: 'B', returns: [], alpha: 0.02, rSquared: 0.7, residualVol: 0.03,
+          exposures: new Map([['market', 0.8], ['size', -0.3]]),
+        },
+      ];
+      const weights = [0.6, 0.4];
+      const bench = new Map([['market', 1.0], ['size', 0.0]]);
+      const result = analyzePortfolioExposure(stocks, weights, bench);
+
+      expect(result.totalExposures.get('market')).toBeCloseTo(1.04, 2);
+      expect(result.activeExposures.has('market')).toBe(true);
     });
 
-    it('should return positive for different returns', () => {
-      const port = [0.02, 0.03, 0.01, 0.04];
-      const bench = [0.01, 0.02, 0.01, 0.02];
-      expect(calculateTrackingError(port, bench)).toBeGreaterThan(0);
+    it('should calculate alpha', () => {
+      const stocks: StockExposure[] = [
+        { symbol: 'A', returns: [], alpha: 0.02, rSquared: 0, residualVol: 0, exposures: new Map([['f', 1]]) },
+        { symbol: 'B', returns: [], alpha: 0.03, rSquared: 0, residualVol: 0, exposures: new Map([['f', 1]]) },
+      ];
+      const result = analyzePortfolioExposure(stocks, [0.5, 0.5], new Map([['f', 0]]));
+      expect(result.alpha).toBeCloseTo(0.025, 5);
     });
 
-    it('should handle short arrays', () => {
-      expect(calculateTrackingError([0.01], [0.02])).toBe(0);
+    it('should handle empty stocks', () => {
+      const result = analyzePortfolioExposure([], [], new Map());
+      expect(result.totalExposures.size).toBe(0);
+    });
+  });
+
+  describe('decomposeReturns', () => {
+    it('should decompose returns into factors', () => {
+      const factors: FactorData[] = [
+        { name: 'market', returns: [0.01, 0.02, 0.01], description: '' },
+      ];
+      const result = decomposeReturns([0.02, 0.03, 0.02], factors);
+      expect(result.factorContributions.has('market')).toBe(true);
+      expect(typeof result.alpha).toBe('number');
+      expect(result.totalReturn).toBeCloseTo(0.07, 5);
+    });
+
+    it('should handle no factors', () => {
+      const result = decomposeReturns([0.01, 0.02], []);
+      expect(result.factorContributions.size).toBe(0);
+      expect(result.totalReturn).toBeCloseTo(0.03, 5);
     });
   });
 });

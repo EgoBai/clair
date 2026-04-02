@@ -1,165 +1,381 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  Validator,
+  required,
+  isNumber,
+  isString,
+  min,
+  max,
+  minLength,
+  maxLength,
+  pattern,
+  isEmail,
+  oneOf,
+  arrayMinLength,
+  stockCode,
+  stockCodeLoose,
+  price,
+  volume,
+  tradingDate,
+  marketType,
+  validateStockCode,
+  validateEmail,
+  safeParseNumber,
+  safeParseInt,
+} from '../services/validationEngine';
 
-/**
- * 输入验证引擎测试
- * Validator / stock code / price validation
- */
+describe('validationEngine', () => {
+  describe('Validator', () => {
+    let validator: Validator;
 
-type ValidationResult = {
-  valid: boolean;
-  errors: Array<{ field: string; rule: string; message: string; value?: any }>;
-};
+    beforeEach(() => {
+      validator = new Validator();
+    });
 
-type ValidationRule = {
-  name: string;
-  validate: (value: any) => boolean;
-  message: string;
-};
-
-class Validator {
-  private rules: Map<string, ValidationRule[]> = new Map();
-
-  field(name: string, rules: ValidationRule[]): this {
-    const existing = this.rules.get(name) || [];
-    this.rules.set(name, [...existing, ...rules]);
-    return this;
-  }
-
-  validate(data: Record<string, any>): ValidationResult {
-    const errors: ValidationResult['errors'] = [];
-    for (const [fieldName, fieldRules] of this.rules) {
-      const value = data[fieldName];
-      for (const rule of fieldRules) {
-        if (!rule.validate(value)) {
-          errors.push({ field: fieldName, rule: rule.name, message: rule.message, value });
-        }
-      }
-    }
-    return { valid: errors.length === 0, errors };
-  }
-}
-
-// A-stock validation rules
-const rules = {
-  required: { name: 'required', validate: (v: any) => v !== undefined && v !== null && v !== '', message: '必填' },
-  stockCode: { name: 'stockCode', validate: (v: string) => /^[36]\d{5}$/.test(v), message: '股票代码格式错误' },
-  price: { name: 'price', validate: (v: number) => typeof v === 'number' && v > 0 && Number.isFinite(v), message: '价格必须大于0' },
-  quantity: { name: 'quantity', validate: (v: number) => Number.isInteger(v) && v > 0 && v <= 1000000, message: '数量必须为正整数且不超过100万' },
-  percent: { name: 'percent', validate: (v: number) => typeof v === 'number' && v >= -100 && v <= 1000, message: '百分比超出范围' },
-  date: { name: 'date', validate: (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)), message: '日期格式错误' },
-  email: { name: 'email', validate: (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), message: '邮箱格式错误' },
-  phone: { name: 'phone', validate: (v: string) => /^1[3-9]\d{9}$/.test(v), message: '手机号格式错误' },
-};
-
-function validateStockCode(code: string): boolean {
-  return /^[36]\d{5}$/.test(code);
-}
-
-function validatePrice(price: number, tickSize = 0.01): boolean {
-  if (typeof price !== 'number' || price <= 0 || !Number.isFinite(price)) return false;
-  return Math.abs(price % tickSize) < 0.0001 || Math.abs(price % tickSize - tickSize) < 0.0001;
-}
-
-function validateOrderSide(side: string): side is 'buy' | 'sell' {
-  return side === 'buy' || side === 'sell';
-}
-
-function formatStockCode(code: string): string {
-  if (code.startsWith('6')) return `SH${code}`;
-  if (code.startsWith('3') || code.startsWith('0')) return `SZ${code}`;
-  return code;
-}
-
-describe('验证引擎', () => {
-  describe('Validator class', () => {
-    it('should pass with valid data', () => {
-      const v = new Validator()
-        .field('code', [rules.required, rules.stockCode])
-        .field('price', [rules.required, rules.price]);
-      const result = v.validate({ code: '600519', price: 1800 });
+    it('should return valid when all rules pass', () => {
+      validator.field('name', [required()]).field('age', [isNumber()]);
+      const result = validator.validate({ name: 'test', age: 25 });
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
 
-    it('should fail with missing fields', () => {
-      const v = new Validator()
-        .field('code', [rules.required])
-        .field('price', [rules.required]);
-      const result = v.validate({});
+    it('should return errors when rules fail', () => {
+      validator.field('name', [required()]);
+      const result = validator.validate({ name: '' });
       expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0].field).toBe('name');
+    });
+
+    it('should support chaining', () => {
+      const v = validator
+        .field('a', [required()])
+        .field('b', [required()]);
+      expect(v).toBe(validator);
+    });
+
+    it('should accumulate rules for same field', () => {
+      validator.field('x', [required()]).field('x', [isNumber()]);
+      const result = validator.validate({ x: undefined });
       expect(result.errors.length).toBe(2);
     });
 
-    it('should chain multiple fields', () => {
-      const v = new Validator()
-        .field('code', [rules.required, rules.stockCode])
-        .field('price', [rules.required, rules.price])
-        .field('quantity', [rules.required, rules.quantity]);
-      const result = v.validate({ code: '600519', price: 1800, quantity: 100 });
-      expect(result.valid).toBe(true);
+    it('should pass value in error', () => {
+      validator.field('x', [min(10)]);
+      const result = validator.validate({ x: 5 });
+      expect(result.errors[0].value).toBe(5);
+    });
+  });
+
+  describe('required', () => {
+    it('should pass for defined values', () => {
+      const rule = required();
+      expect(rule.validate('hello')).toBe(true);
+      expect(rule.validate(0)).toBe(true);
+      expect(rule.validate(false)).toBe(true);
     });
 
-    it('should accumulate errors from multiple rules', () => {
-      const v = new Validator()
-        .field('code', [rules.required, rules.stockCode]);
-      const result = v.validate({ code: '' });
-      expect(result.errors.length).toBeGreaterThanOrEqual(1);
+    it('should fail for null/undefined/empty', () => {
+      const rule = required();
+      expect(rule.validate(null)).toBe(false);
+      expect(rule.validate(undefined)).toBe(false);
+      expect(rule.validate('')).toBe(false);
+    });
+
+    it('should use custom message', () => {
+      const rule = required('请输入名称');
+      expect(rule.message).toBe('请输入名称');
+    });
+  });
+
+  describe('isNumber', () => {
+    it('should pass for valid numbers', () => {
+      const rule = isNumber();
+      expect(rule.validate(42)).toBe(true);
+      expect(rule.validate(0)).toBe(true);
+      expect(rule.validate(-3.14)).toBe(true);
+    });
+
+    it('should fail for non-numbers', () => {
+      const rule = isNumber();
+      expect(rule.validate('42')).toBe(false);
+      expect(rule.validate(NaN)).toBe(false);
+      expect(rule.validate(null)).toBe(false);
+    });
+  });
+
+  describe('isString', () => {
+    it('should pass for strings', () => {
+      const rule = isString();
+      expect(rule.validate('hello')).toBe(true);
+      expect(rule.validate('')).toBe(true);
+    });
+
+    it('should fail for non-strings', () => {
+      const rule = isString();
+      expect(rule.validate(42)).toBe(false);
+      expect(rule.validate(null)).toBe(false);
+    });
+  });
+
+  describe('min', () => {
+    it('should pass when value >= min', () => {
+      const rule = min(10);
+      expect(rule.validate(10)).toBe(true);
+      expect(rule.validate(15)).toBe(true);
+    });
+
+    it('should fail when value < min', () => {
+      const rule = min(10);
+      expect(rule.validate(5)).toBe(false);
+    });
+
+    it('should use custom message', () => {
+      const rule = min(100, '至少100');
+      expect(rule.message).toBe('至少100');
+    });
+  });
+
+  describe('max', () => {
+    it('should pass when value <= max', () => {
+      const rule = max(100);
+      expect(rule.validate(100)).toBe(true);
+      expect(rule.validate(50)).toBe(true);
+    });
+
+    it('should fail when value > max', () => {
+      const rule = max(100);
+      expect(rule.validate(150)).toBe(false);
+    });
+  });
+
+  describe('minLength', () => {
+    it('should pass for strings with enough chars', () => {
+      const rule = minLength(3);
+      expect(rule.validate('abc')).toBe(true);
+      expect(rule.validate('abcd')).toBe(true);
+    });
+
+    it('should fail for short strings', () => {
+      const rule = minLength(3);
+      expect(rule.validate('ab')).toBe(false);
+    });
+
+    it('should fail for non-strings', () => {
+      const rule = minLength(1);
+      expect(rule.validate(123)).toBe(false);
+    });
+  });
+
+  describe('maxLength', () => {
+    it('should pass for strings within limit', () => {
+      const rule = maxLength(5);
+      expect(rule.validate('abc')).toBe(true);
+      expect(rule.validate('abcde')).toBe(true);
+    });
+
+    it('should fail for too long strings', () => {
+      const rule = maxLength(3);
+      expect(rule.validate('abcd')).toBe(false);
+    });
+  });
+
+  describe('pattern', () => {
+    it('should pass for matching patterns', () => {
+      const rule = pattern(/^\d{6}$/, '必须6位数字');
+      expect(rule.validate('123456')).toBe(true);
+    });
+
+    it('should fail for non-matching patterns', () => {
+      const rule = pattern(/^\d{6}$/);
+      expect(rule.validate('12345')).toBe(false);
+      expect(rule.validate('abcdef')).toBe(false);
+    });
+
+    it('should fail for non-strings', () => {
+      const rule = pattern(/\d+/);
+      expect(rule.validate(123)).toBe(false);
+    });
+  });
+
+  describe('isEmail', () => {
+    it('should pass for valid emails', () => {
+      const rule = isEmail();
+      expect(rule.validate('test@example.com')).toBe(true);
+      expect(rule.validate('user.name+tag@domain.org')).toBe(true);
+    });
+
+    it('should fail for invalid emails', () => {
+      const rule = isEmail();
+      expect(rule.validate('not-email')).toBe(false);
+      expect(rule.validate('@example.com')).toBe(false);
+      expect(rule.validate('test@')).toBe(false);
+    });
+  });
+
+  describe('oneOf', () => {
+    it('should pass for allowed values', () => {
+      const rule = oneOf(['a', 'b', 'c']);
+      expect(rule.validate('b')).toBe(true);
+    });
+
+    it('should fail for disallowed values', () => {
+      const rule = oneOf(['a', 'b']);
+      expect(rule.validate('c')).toBe(false);
+    });
+
+    it('should use custom message', () => {
+      const rule = oneOf([1, 2], '选择1或2');
+      expect(rule.message).toBe('选择1或2');
+    });
+  });
+
+  describe('arrayMinLength', () => {
+    it('should pass for arrays with enough items', () => {
+      const rule = arrayMinLength(2);
+      expect(rule.validate([1, 2, 3])).toBe(true);
+      expect(rule.validate([1, 2])).toBe(true);
+    });
+
+    it('should fail for short arrays', () => {
+      const rule = arrayMinLength(2);
+      expect(rule.validate([1])).toBe(false);
+    });
+
+    it('should fail for non-arrays', () => {
+      const rule = arrayMinLength(1);
+      expect(rule.validate('abc')).toBe(false);
+    });
+  });
+
+  describe('stockCode', () => {
+    it('should pass for valid stock codes', () => {
+      const rule = stockCode();
+      expect(rule.validate('sh600000')).toBe(true);
+      expect(rule.validate('sz000001')).toBe(true);
+      expect(rule.validate('bj830001')).toBe(true);
+    });
+
+    it('should fail for invalid stock codes', () => {
+      const rule = stockCode();
+      expect(rule.validate('600000')).toBe(false);
+      expect(rule.validate('sh60000')).toBe(false);
+      expect(rule.validate('xx600000')).toBe(false);
+    });
+  });
+
+  describe('stockCodeLoose', () => {
+    it('should pass for 6-digit codes', () => {
+      const rule = stockCodeLoose();
+      expect(rule.validate('600000')).toBe(true);
+      expect(rule.validate('000001')).toBe(true);
+    });
+
+    it('should fail for non-6-digit codes', () => {
+      const rule = stockCodeLoose();
+      expect(rule.validate('60000')).toBe(false);
+      expect(rule.validate('sh600000')).toBe(false);
+    });
+  });
+
+  describe('price', () => {
+    it('should pass for valid prices', () => {
+      const rule = price();
+      expect(rule.validate(10.50)).toBe(true);
+      expect(rule.validate(0.01)).toBe(true);
+    });
+
+    it('should fail for invalid prices', () => {
+      const rule = price();
+      expect(rule.validate(0)).toBe(false);
+      expect(rule.validate(-10)).toBe(false);
+      expect(rule.validate(10.123)).toBe(false);
+      expect(rule.validate(Infinity)).toBe(false);
+    });
+  });
+
+  describe('volume', () => {
+    it('should pass for positive integers', () => {
+      const rule = volume();
+      expect(rule.validate(100)).toBe(true);
+      expect(rule.validate(1)).toBe(true);
+    });
+
+    it('should fail for non-integers or non-positive', () => {
+      const rule = volume();
+      expect(rule.validate(0)).toBe(false);
+      expect(rule.validate(-100)).toBe(false);
+      expect(rule.validate(100.5)).toBe(false);
+    });
+  });
+
+  describe('tradingDate', () => {
+    it('should pass for valid dates', () => {
+      const rule = tradingDate();
+      expect(rule.validate('2024-01-15')).toBe(true);
+    });
+
+    it('should fail for invalid dates', () => {
+      const rule = tradingDate();
+      expect(rule.validate('2024/01/15')).toBe(false);
+      expect(rule.validate('2024-13-01')).toBe(false);
+      expect(rule.validate('not-a-date')).toBe(false);
+    });
+  });
+
+  describe('marketType', () => {
+    it('should pass for valid markets', () => {
+      const rule = marketType();
+      expect(rule.validate('sh')).toBe(true);
+      expect(rule.validate('sz')).toBe(true);
+      expect(rule.validate('bj')).toBe(true);
+    });
+
+    it('should fail for invalid markets', () => {
+      const rule = marketType();
+      expect(rule.validate('hk')).toBe(false);
+      expect(rule.validate('us')).toBe(false);
     });
   });
 
   describe('validateStockCode', () => {
-    it('should accept valid Shanghai codes', () => {
-      expect(validateStockCode('600519')).toBe(true);
-      expect(validateStockCode('601398')).toBe(true);
-    });
-
-    it('should accept valid Shenzhen codes', () => {
-      expect(validateStockCode('300750')).toBe(true);
-      expect(validateStockCode('000001')).toBe(false); // starts with 0
-    });
-
-    it('should reject invalid codes', () => {
+    it('should validate 6-digit codes', () => {
+      expect(validateStockCode('600000')).toBe(true);
+      expect(validateStockCode('000001')).toBe(true);
       expect(validateStockCode('12345')).toBe(false);
-      expect(validateStockCode('700519')).toBe(false);
-      expect(validateStockCode('abc')).toBe(false);
+      expect(validateStockCode('abcdef')).toBe(false);
     });
   });
 
-  describe('validatePrice', () => {
-    it('should accept valid prices', () => {
-      expect(validatePrice(10)).toBe(true);
-      expect(validatePrice(0.01)).toBe(true);
-      expect(validatePrice(1800.50)).toBe(true);
-    });
-
-    it('should reject invalid prices', () => {
-      expect(validatePrice(0)).toBe(false);
-      expect(validatePrice(-1)).toBe(false);
-      expect(validatePrice(NaN)).toBe(false);
-      expect(validatePrice(Infinity)).toBe(false);
+  describe('validateEmail', () => {
+    it('should validate email format', () => {
+      expect(validateEmail('test@example.com')).toBe(true);
+      expect(validateEmail('invalid')).toBe(false);
     });
   });
 
-  describe('validateOrderSide', () => {
-    it('should accept buy and sell', () => {
-      expect(validateOrderSide('buy')).toBe(true);
-      expect(validateOrderSide('sell')).toBe(true);
+  describe('safeParseNumber', () => {
+    it('should parse valid numbers', () => {
+      expect(safeParseNumber('42')).toBe(42);
+      expect(safeParseNumber(3.14)).toBe(3.14);
     });
 
-    it('should reject invalid sides', () => {
-      expect(validateOrderSide('hold')).toBe(false);
-      expect(validateOrderSide('')).toBe(false);
+    it('should return fallback for invalid', () => {
+      expect(safeParseNumber('abc')).toBe(0);
+      expect(safeParseNumber(NaN)).toBe(0);
+      expect(safeParseNumber('abc', 99)).toBe(99);
     });
   });
 
-  describe('formatStockCode', () => {
-    it('should prefix Shanghai stocks with SH', () => {
-      expect(formatStockCode('600519')).toBe('SH600519');
+  describe('safeParseInt', () => {
+    it('should parse valid integers', () => {
+      expect(safeParseInt('42')).toBe(42);
+      expect(safeParseInt(3.7)).toBe(3);
     });
 
-    it('should prefix Shenzhen stocks with SZ', () => {
-      expect(formatStockCode('300750')).toBe('SZ300750');
-      expect(formatStockCode('000001')).toBe('SZ000001');
+    it('should return fallback for invalid', () => {
+      expect(safeParseInt('abc')).toBe(0);
+      expect(safeParseInt(undefined, -1)).toBe(-1);
     });
   });
 });

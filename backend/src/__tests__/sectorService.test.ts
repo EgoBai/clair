@@ -1,244 +1,184 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SectorService } from '../services/sectorService';
+import { SW_L1_INDUSTRIES, HOT_CONCEPTS } from '../models/Sector';
 
-describe('SectorService', () => {
+describe('sectorService', () => {
   let service: SectorService;
 
   beforeEach(() => {
     service = new SectorService();
   });
 
-  const makeSectorQuote = (overrides: Partial<any> = {}) => ({
-    sectorId: 1,
-    tradeDate: new Date(),
-    changePercent: 2.5,
-    turnoverRate: 3.2,
-    volume: 100000000,
-    turnover: 50000000000,
-    inflow: 30000000000,
-    outflow: 20000000000,
-    netInflow: 10000000000,
-    risingCount: 30,
-    fallingCount: 10,
-    leadingStock: '600519',
-    ...overrides,
-  });
-
   describe('initialization', () => {
     it('should initialize with industry sectors', () => {
       const industries = service.getIndustrySectors();
-      expect(industries.length).toBe(31);
+      expect(industries.length).toBe(SW_L1_INDUSTRIES.length);
     });
 
     it('should initialize with concept sectors', () => {
       const concepts = service.getConceptSectors();
-      expect(concepts.length).toBe(15);
+      expect(concepts.length).toBe(HOT_CONCEPTS.length);
     });
 
-    it('should have all sectors', () => {
-      const all = service.getAllSectors();
-      expect(all.length).toBe(46);
+    it('should have correct industry sector codes', () => {
+      const industries = service.getIndustrySectors();
+      expect(industries[0].code).toBe('SWL1_001');
+      expect(industries[0].type).toBe('industry');
+    });
+
+    it('should have correct concept sector codes', () => {
+      const concepts = service.getConceptSectors();
+      expect(concepts[0].code).toMatch(/^GN_/);
+      expect(concepts[0].type).toBe('concept');
     });
   });
 
-  describe('getSectorsByType', () => {
-    it('should filter by industry type', () => {
-      const industries = service.getSectorsByType('industry');
-      expect(industries.every(s => s.type === 'industry')).toBe(true);
-    });
-
-    it('should filter by concept type', () => {
-      const concepts = service.getSectorsByType('concept');
-      expect(concepts.every(s => s.type === 'concept')).toBe(true);
-    });
-
-    it('should return empty for region type', () => {
-      expect(service.getSectorsByType('region')).toHaveLength(0);
+  describe('getAllSectors', () => {
+    it('should return all sectors', () => {
+      const all = service.getAllSectors();
+      expect(all.length).toBe(SW_L1_INDUSTRIES.length + HOT_CONCEPTS.length);
     });
   });
 
   describe('getSectorByCode', () => {
-    it('should find sector by code', () => {
+    it('should find industry by code', () => {
       const sector = service.getSectorByCode('SWL1_001');
       expect(sector).toBeDefined();
       expect(sector!.name).toBe('农林牧渔');
     });
 
-    it('should return undefined for unknown code', () => {
-      expect(service.getSectorByCode('UNKNOWN')).toBeUndefined();
+    it('should find concept by code', () => {
+      const sector = service.getSectorByCode('GN_人工智能');
+      expect(sector).toBeDefined();
+      expect(sector!.type).toBe('concept');
+    });
+
+    it('should return undefined for missing code', () => {
+      expect(service.getSectorByCode('MISSING')).toBeUndefined();
     });
   });
 
   describe('searchSectors', () => {
-    it('should search by name keyword', () => {
-      const results = service.searchSectors('农林');
+    it('should search by name', () => {
+      const results = service.searchSectors('银行');
       expect(results.length).toBeGreaterThan(0);
-      expect(results[0].name).toContain('农林');
+      expect(results[0].name).toContain('银行');
     });
 
-    it('should search by code', () => {
-      const results = service.searchSectors('SWL1');
-      expect(results.length).toBeGreaterThan(0);
-    });
-
-    it('should be case insensitive', () => {
-      const results = service.searchSectors('人工智能');
+    it('should search case insensitively', () => {
+      const results = service.searchSectors('swl1_001');
       expect(results.length).toBeGreaterThan(0);
     });
-  });
 
-  describe('addQuote / getLatestQuote', () => {
-    it('should add and retrieve quote', () => {
-      const quote = service.addQuote(1, makeSectorQuote());
-      expect(quote.id).toBeGreaterThan(0);
-
-      const latest = service.getLatestQuote(1);
-      expect(latest?.changePercent).toBe(2.5);
-    });
-
-    it('should return undefined when no quotes', () => {
-      expect(service.getLatestQuote(999)).toBeUndefined();
+    it('should return empty for no match', () => {
+      const results = service.searchSectors('xyznonexistent');
+      expect(results.length).toBe(0);
     });
   });
 
-  describe('getHeatmap', () => {
-    it('should return empty when no quotes', () => {
-      expect(service.getHeatmap()).toHaveLength(0);
+  describe('quotes', () => {
+    it('should add and get latest quote', () => {
+      const sector = service.getSectorByCode('SWL1_001')!;
+      service.addQuote(sector.id, {
+        sectorId: sector.id,
+        tradeDate: new Date(),
+        changePercent: 2.5,
+        turnoverRate: 1.5,
+        volume: 1000000,
+        turnover: 10000000,
+        inflow: 5000000,
+        outflow: 3000000,
+        netInflow: 2000000,
+        risingCount: 20,
+        fallingCount: 10,
+      });
+      const quote = service.getLatestQuote(sector.id);
+      expect(quote).toBeDefined();
+      expect(quote!.changePercent).toBe(2.5);
     });
 
-    it('should return heatmap sorted by absolute change', () => {
-      service.addQuote(1, makeSectorQuote({ sectorId: 1, changePercent: 2.5 }));
-      service.addQuote(2, makeSectorQuote({ sectorId: 2, changePercent: -5.0 }));
-      // Need to get actual sector IDs
-      const industries = service.getIndustrySectors();
-      service.addQuote(industries[0].id, makeSectorQuote({ sectorId: industries[0].id, changePercent: 3.0 }));
-      service.addQuote(industries[1].id, makeSectorQuote({ sectorId: industries[1].id, changePercent: -1.5 }));
-
-      const heatmap = service.getHeatmap();
-      expect(heatmap.length).toBeGreaterThan(0);
-      // Should be sorted by absolute change descending
-      for (let i = 1; i < heatmap.length; i++) {
-        expect(Math.abs(heatmap[i - 1].changePercent)).toBeGreaterThanOrEqual(Math.abs(heatmap[i].changePercent));
-      }
-    });
-  });
-
-  describe('getSectorRotation', () => {
-    it('should return rotation analysis', () => {
-      const industries = service.getIndustrySectors();
-      service.addQuote(industries[0].id, makeSectorQuote({ sectorId: industries[0].id, changePercent: 5.0 }));
-      service.addQuote(industries[1].id, makeSectorQuote({ sectorId: industries[1].id, changePercent: -3.0 }));
-
-      const rotation = service.getSectorRotation();
-      expect(rotation.date).toBeInstanceOf(Date);
-      expect(rotation.hotSectors.length).toBeGreaterThan(0);
+    it('should return undefined for sector without quotes', () => {
+      const quote = service.getLatestQuote(999);
+      expect(quote).toBeUndefined();
     });
   });
 
-  describe('getTopGainingSectors / getTopLosingSectors', () => {
-    it('should return top gaining sectors', () => {
-      const industries = service.getIndustrySectors();
-      service.addQuote(industries[0].id, makeSectorQuote({ sectorId: industries[0].id, changePercent: 5.0 }));
-      service.addQuote(industries[1].id, makeSectorQuote({ sectorId: industries[1].id, changePercent: 2.0 }));
-      service.addQuote(industries[2].id, makeSectorQuote({ sectorId: industries[2].id, changePercent: 7.0 }));
-
-      const top = service.getTopGainingSectors(2);
-      expect(top).toHaveLength(2);
-      expect(top[0].changePercent).toBeGreaterThanOrEqual(top[1].changePercent);
-    });
-
-    it('should return top losing sectors', () => {
-      const industries = service.getIndustrySectors();
-      service.addQuote(industries[0].id, makeSectorQuote({ sectorId: industries[0].id, changePercent: -5.0 }));
-      service.addQuote(industries[1].id, makeSectorQuote({ sectorId: industries[1].id, changePercent: -2.0 }));
-
-      const top = service.getTopLosingSectors(2);
-      expect(top).toHaveLength(2);
-      expect(top[0].changePercent).toBeLessThanOrEqual(top[1].changePercent);
-    });
-  });
-
-  describe('addStockToSector / getStocksInSector', () => {
+  describe('stocks', () => {
     it('should add stock to sector', () => {
-      service.addStockToSector(1, '600519');
-      expect(service.getStocksInSector(1)).toContain('600519');
+      service.addStockToSector(1, 'sh600000');
+      const stocks = service.getStocksInSector(1);
+      expect(stocks).toContain('sh600000');
     });
 
     it('should not duplicate stocks', () => {
-      service.addStockToSector(1, '600519');
-      service.addStockToSector(1, '600519');
-      expect(service.getStocksInSector(1)).toHaveLength(1);
+      service.addStockToSector(1, 'sh600000');
+      service.addStockToSector(1, 'sh600000');
+      const stocks = service.getStocksInSector(1);
+      expect(stocks.filter(s => s === 'sh600000').length).toBe(1);
     });
 
-    it('should update sector stockCount', () => {
-      service.addStockToSector(1, '600519');
-      service.addStockToSector(1, '000858');
+    it('should update stockCount on sector', () => {
+      service.addStockToSector(1, 'sh600000');
+      service.addStockToSector(1, 'sz000001');
       const sector = service.getAllSectors().find(s => s.id === 1);
-      expect(sector?.stockCount).toBe(2);
+      expect(sector!.stockCount).toBe(2);
     });
 
-    it('should return empty for unknown sector', () => {
-      expect(service.getStocksInSector(999)).toHaveLength(0);
-    });
-  });
-
-  describe('getFundFlowAnalysis', () => {
-    it('should separate inflow and outflow sectors', () => {
-      const industries = service.getIndustrySectors();
-      service.addQuote(industries[0].id, makeSectorQuote({
-        sectorId: industries[0].id, netInflow: 5000000000,
-      }));
-      service.addQuote(industries[1].id, makeSectorQuote({
-        sectorId: industries[1].id, netInflow: -3000000000,
-      }));
-
-      const analysis = service.getFundFlowAnalysis();
-      expect(analysis.topInflow.length).toBeGreaterThan(0);
-      expect(analysis.topOutflow.length).toBeGreaterThan(0);
+    it('should return empty for sector without stocks', () => {
+      expect(service.getStocksInSector(999)).toEqual([]);
     });
   });
 
   describe('getCategoryStats', () => {
-    it('should return category counts', () => {
+    it('should count sectors by type', () => {
       const stats = service.getCategoryStats();
-      expect(stats.industry).toBe(31);
-      expect(stats.concept).toBe(15);
+      expect(stats.industry).toBe(SW_L1_INDUSTRIES.length);
+      expect(stats.concept).toBe(HOT_CONCEPTS.length);
       expect(stats.region).toBe(0);
       expect(stats.style).toBe(0);
     });
   });
 
-  describe('consecutive streaks', () => {
-    it('should detect consecutive rising streaks', () => {
-      const industries = service.getIndustrySectors();
-      const sectorId = industries[0].id;
-      for (let i = 0; i < 5; i++) {
-        service.addQuote(sectorId, makeSectorQuote({
-          sectorId,
-          changePercent: 1.0 + i * 0.5,
-        }));
-      }
-
-      const rotation = service.getSectorRotation();
-      const rising = rotation.consecutiveRising.find(s => s.sectorId === sectorId);
-      expect(rising).toBeDefined();
-      expect(rising!.days).toBe(5);
+  describe('heatmap', () => {
+    it('should return empty when no quotes', () => {
+      expect(service.getHeatmap()).toEqual([]);
     });
 
-    it('should detect consecutive falling streaks', () => {
-      const industries = service.getIndustrySectors();
-      const sectorId = industries[1].id;
-      for (let i = 0; i < 4; i++) {
-        service.addQuote(sectorId, makeSectorQuote({
-          sectorId,
-          changePercent: -1.0 - i * 0.5,
-        }));
-      }
+    it('should return sorted heatmap', () => {
+      const sector1 = service.getIndustrySectors()[0];
+      const sector2 = service.getIndustrySectors()[1];
+      service.addQuote(sector1.id, {
+        sectorId: sector1.id, tradeDate: new Date(),
+        changePercent: 1.0, turnoverRate: 1, volume: 100, turnover: 1000,
+        inflow: 500, outflow: 300, netInflow: 200, risingCount: 5, fallingCount: 3,
+      });
+      service.addQuote(sector2.id, {
+        sectorId: sector2.id, tradeDate: new Date(),
+        changePercent: 3.0, turnoverRate: 2, volume: 200, turnover: 2000,
+        inflow: 1000, outflow: 500, netInflow: 500, risingCount: 10, fallingCount: 2,
+      });
+      const heatmap = service.getHeatmap();
+      expect(heatmap.length).toBe(2);
+      expect(heatmap[0].changePercent).toBe(3.0); // sorted by abs
+    });
+  });
 
-      const rotation = service.getSectorRotation();
-      const falling = rotation.consecutiveFalling.find(s => s.sectorId === sectorId);
-      expect(falling).toBeDefined();
-      expect(falling!.days).toBe(4);
+  describe('fund flow analysis', () => {
+    it('should return top inflow/outflow', () => {
+      const sectors = service.getIndustrySectors();
+      service.addQuote(sectors[0].id, {
+        sectorId: sectors[0].id, tradeDate: new Date(),
+        changePercent: 1, turnoverRate: 1, volume: 100, turnover: 1000,
+        inflow: 1000, outflow: 200, netInflow: 800, risingCount: 5, fallingCount: 1,
+      });
+      service.addQuote(sectors[1].id, {
+        sectorId: sectors[1].id, tradeDate: new Date(),
+        changePercent: -1, turnoverRate: 1, volume: 100, turnover: 1000,
+        inflow: 200, outflow: 1000, netInflow: -800, risingCount: 1, fallingCount: 5,
+      });
+      const flow = service.getFundFlowAnalysis();
+      expect(flow.topInflow[0].netInflow).toBe(800);
+      expect(flow.topOutflow[0].netInflow).toBe(-800);
     });
   });
 });

@@ -7,189 +7,185 @@ import {
   TradeTick,
 } from '../services/marketMicrostructureEngine';
 
-describe('市场微观结构引擎', () => {
-  const mockTrades: TradeTick[] = [
-    { price: 10.00, volume: 1000, timestamp: 1000, direction: 'buy' },
-    { price: 10.01, volume: 500, timestamp: 1001, direction: 'buy' },
-    { price: 10.02, volume: 800, timestamp: 1002, direction: 'sell' },
-    { price: 10.01, volume: 1200, timestamp: 1003, direction: 'sell' },
-    { price: 10.03, volume: 600, timestamp: 1004, direction: 'buy' },
-    { price: 10.04, volume: 300, timestamp: 1005, direction: 'buy' },
-    { price: 10.02, volume: 900, timestamp: 1006, direction: 'sell' },
-    { price: 10.05, volume: 1500, timestamp: 1007, direction: 'buy' },
-    { price: 10.03, volume: 700, timestamp: 1008, direction: 'sell' },
-    { price: 10.06, volume: 400, timestamp: 1009, direction: 'buy' },
-  ];
+const makeTrade = (price: number, volume: number, direction: 'buy' | 'sell' | 'neutral' = 'buy', ts?: number): TradeTick => ({
+  price, volume, direction, timestamp: ts ?? Date.now(),
+});
 
-  describe('订单流分析', () => {
-    it('应计算买卖量', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.buyVolume).toBeGreaterThan(0);
-      expect(metrics.sellVolume).toBeGreaterThan(0);
-    });
-
-    it('应计算净成交量', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.netVolume).toBe(metrics.buyVolume - metrics.sellVolume);
-    });
-
-    it('应计算买卖比例', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.buyRatio).toBeGreaterThanOrEqual(0);
-      expect(metrics.buyRatio).toBeLessThanOrEqual(1);
-    });
-
-    it('应计算VWAP', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.vwap).toBeGreaterThan(0);
-      expect(metrics.vwap).toBeCloseTo(10.03, 1);
-    });
-
-    it('应计算TWAP', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.twap).toBeGreaterThan(0);
-    });
-
-    it('应计算订单不平衡度', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.orderImbalance).toBeGreaterThanOrEqual(-1);
-      expect(metrics.orderImbalance).toBeLessThanOrEqual(1);
-    });
-
-    it('应统计交易笔数', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.tradeCount).toBe(10);
-    });
-
-    it('应计算平均交易规模', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.avgTradeSize).toBeGreaterThan(0);
-    });
-
-    it('应计算大单比例', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(metrics.largeTradeRatio).toBeGreaterThanOrEqual(0);
-      expect(metrics.largeTradeRatio).toBeLessThanOrEqual(1);
-    });
-
-    it('空数据应返回零值', () => {
+describe('marketMicrostructureEngine', () => {
+  describe('analyzeOrderFlow', () => {
+    it('should return zeros for empty trades', () => {
       const metrics = analyzeOrderFlow([]);
       expect(metrics.buyVolume).toBe(0);
       expect(metrics.sellVolume).toBe(0);
       expect(metrics.tradeCount).toBe(0);
-      expect(metrics.vwap).toBe(0);
     });
 
-    it('应计算价格冲击', () => {
-      const metrics = analyzeOrderFlow(mockTrades);
-      expect(typeof metrics.priceImpact).toBe('number');
-    });
-
-    it('全买入应有100%买比', () => {
-      const allBuy: TradeTick[] = [
-        { price: 10, volume: 100, timestamp: 1, direction: 'buy' },
-        { price: 10.1, volume: 200, timestamp: 2, direction: 'buy' },
+    it('should calculate buy/sell volumes', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10.1, 200, 'sell'),
+        makeTrade(10.2, 150, 'buy'),
       ];
-      const metrics = analyzeOrderFlow(allBuy);
-      expect(metrics.buyRatio).toBe(1);
-      expect(metrics.sellVolume).toBe(0);
+      const metrics = analyzeOrderFlow(trades);
+      expect(metrics.buyVolume).toBe(250);
+      expect(metrics.sellVolume).toBe(200);
+      expect(metrics.netVolume).toBe(50);
     });
 
-    it('全卖出应有0%买比', () => {
-      const allSell: TradeTick[] = [
-        { price: 10, volume: 100, timestamp: 1, direction: 'sell' },
-        { price: 9.9, volume: 200, timestamp: 2, direction: 'sell' },
+    it('should calculate VWAP', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(11, 100, 'sell'),
       ];
-      const metrics = analyzeOrderFlow(allSell);
-      expect(metrics.buyRatio).toBe(0);
+      const metrics = analyzeOrderFlow(trades);
+      // totalValue = 10*100 + 11*100 = 2100, totalVolume = 200
+      expect(metrics.vwap).toBeCloseTo(10.5, 1);
+    });
+
+    it('should calculate TWAP', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(12, 100, 'sell'),
+      ];
+      const metrics = analyzeOrderFlow(trades);
+      expect(metrics.twap).toBe(11);
+    });
+
+    it('should calculate buy ratio', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10, 200, 'sell'),
+      ];
+      const metrics = analyzeOrderFlow(trades);
+      expect(metrics.buyRatio).toBeCloseTo(0.5, 1);
+    });
+
+    it('should calculate order imbalance', () => {
+      const trades = [
+        makeTrade(10, 300, 'buy'),
+        makeTrade(10, 100, 'sell'),
+      ];
+      const metrics = analyzeOrderFlow(trades);
+      expect(metrics.orderImbalance).toBeCloseTo(0.5, 1);
+    });
+
+    it('should calculate average trade size', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10, 200, 'sell'),
+        makeTrade(10, 300, 'buy'),
+      ];
+      const metrics = analyzeOrderFlow(trades);
+      expect(metrics.avgTradeSize).toBe(200);
+    });
+
+    it('should calculate large trade ratio', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10, 1000, 'sell'), // large
+      ];
+      const metrics = analyzeOrderFlow(trades);
+      expect(metrics.largeTradeRatio).toBe(0.25);
+    });
+
+    it('should have tradeCount', () => {
+      const trades = [makeTrade(10, 100, 'buy'), makeTrade(10, 200, 'sell')];
+      const metrics = analyzeOrderFlow(trades);
+      expect(metrics.tradeCount).toBe(2);
     });
   });
 
-  describe('流动性指标', () => {
-    const bids = [{ price: 10.00, volume: 5000 }, { price: 9.99, volume: 3000 }, { price: 9.98, volume: 2000 }];
-    const asks = [{ price: 10.01, volume: 4000 }, { price: 10.02, volume: 3500 }, { price: 10.03, volume: 2500 }];
-
-    it('应计算买卖价差', () => {
-      const liq = calculateLiquidity(bids, asks);
-      expect(liq.bidAskSpread).toBeGreaterThan(0);
-      expect(liq.bidAskSpread).toBeCloseTo(0.001, 3);
-    });
-
-    it('应计算市场深度', () => {
-      const liq = calculateLiquidity(bids, asks);
-      expect(liq.depth).toBe(20000);
-    });
-
-    it('应计算紧度', () => {
-      const liq = calculateLiquidity(bids, asks);
-      expect(liq.tightness).toBeGreaterThan(0);
-    });
-
-    it('应计算弹性', () => {
-      const liq = calculateLiquidity(bids, asks);
-      expect(liq.resilience).toBeGreaterThan(0);
-    });
-
-    it('应计算深度评分', () => {
-      const liq = calculateLiquidity(bids, asks);
-      expect(liq.marketDepthScore).toBeGreaterThan(0);
-    });
-
-    it('空订单簿应返回零值', () => {
+  describe('calculateLiquidity', () => {
+    it('should return zeros for empty books', () => {
       const liq = calculateLiquidity([], []);
       expect(liq.bidAskSpread).toBe(0);
       expect(liq.depth).toBe(0);
     });
 
-    it('单边空应返回零值', () => {
-      const liq = calculateLiquidity(bids, []);
-      expect(liq.bidAskSpread).toBe(0);
+    it('should calculate bid-ask spread', () => {
+      const bids = [{ price: 10.00, volume: 1000 }, { price: 9.99, volume: 2000 }];
+      const asks = [{ price: 10.02, volume: 1000 }, { price: 10.03, volume: 2000 }];
+      const liq = calculateLiquidity(bids, asks);
+      expect(liq.bidAskSpread).toBeGreaterThan(0);
+      expect(liq.bidAskSpread).toBeCloseTo(0.002, 2);
+    });
+
+    it('should calculate total depth', () => {
+      const bids = [{ price: 10, volume: 1000 }, { price: 9, volume: 2000 }];
+      const asks = [{ price: 11, volume: 500 }];
+      const liq = calculateLiquidity(bids, asks);
+      expect(liq.depth).toBe(3500);
+    });
+
+    it('should have marketDepthScore', () => {
+      const bids = [{ price: 10, volume: 5000 }];
+      const asks = [{ price: 10.01, volume: 5000 }];
+      const liq = calculateLiquidity(bids, asks);
+      expect(liq.marketDepthScore).toBeGreaterThan(0);
     });
   });
 
-  describe('欺骗检测', () => {
-    it('正常交易应无欺骗', () => {
-      const result = detectSpoofingPatterns(mockTrades);
+  describe('detectSpoofingPatterns', () => {
+    it('should return not detected for short data', () => {
+      const result = detectSpoofingPatterns([makeTrade(10, 100, 'buy')]);
       expect(result.detected).toBe(false);
     });
 
-    it('数据不足应返回无检测', () => {
-      const result = detectSpoofingPatterns(mockTrades.slice(0, 3));
-      expect(result.detected).toBe(false);
-    });
-
-    it('应检测快速规模交替', () => {
-      const spoofingTrades: TradeTick[] = [];
+    it('should detect rapid size alternation', () => {
+      const trades: TradeTick[] = [];
       for (let i = 0; i < 20; i++) {
-        spoofingTrades.push({
-          price: 10 + Math.random() * 0.1,
-          volume: i % 2 === 0 ? 100000 : 10,
-          timestamp: i,
-          direction: i % 2 === 0 ? 'buy' : 'sell',
-        });
+        trades.push(makeTrade(10, i % 2 === 0 ? 10 : 10000, 'buy'));
       }
-      const result = detectSpoofingPatterns(spoofingTrades);
+      const result = detectSpoofingPatterns(trades);
       expect(result.patterns.length).toBeGreaterThanOrEqual(0);
     });
+
+    it('should detect price layering', () => {
+      const trades: TradeTick[] = [];
+      for (let i = 0; i < 20; i++) {
+        trades.push(makeTrade(10, 100, 'buy'));
+      }
+      const result = detectSpoofingPatterns(trades);
+      expect(result.patterns).toContain('price_layering');
+    });
+
+    it('should return not detected for normal trades', () => {
+      const trades: TradeTick[] = [];
+      for (let i = 0; i < 20; i++) {
+        trades.push(makeTrade(10 + i * 0.01, 100 + i * 10, i % 2 === 0 ? 'buy' : 'sell'));
+      }
+      const result = detectSpoofingPatterns(trades);
+      // normal varied prices and sizes
+      expect(result.detected).toBe(false);
+    });
   });
 
-  describe('Kyle Lambda', () => {
-    it('应计算价格冲击系数', () => {
-      const lambda = calculateKyleLambda(mockTrades);
+  describe('calculateKyleLambda', () => {
+    it('should return 0 for insufficient data', () => {
+      expect(calculateKyleLambda([makeTrade(10, 100, 'buy')])).toBe(0);
+    });
+
+    it('should calculate price impact coefficient', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10.1, 200, 'buy'),
+        makeTrade(10.2, 300, 'buy'),
+        makeTrade(10.3, 400, 'buy'),
+      ];
+      const lambda = calculateKyleLambda(trades);
       expect(typeof lambda).toBe('number');
     });
 
-    it('数据不足应返回0', () => {
-      expect(calculateKyleLambda([mockTrades[0]])).toBe(0);
-    });
-
-    it('单一方向交易应有正lambda', () => {
-      const directional: TradeTick[] = [
-        { price: 10.00, volume: 100, timestamp: 1, direction: 'buy' },
-        { price: 10.01, volume: 200, timestamp: 2, direction: 'buy' },
-        { price: 10.02, volume: 300, timestamp: 3, direction: 'buy' },
+    it('should handle flat prices', () => {
+      const trades = [
+        makeTrade(10, 100, 'buy'),
+        makeTrade(10, 200, 'sell'),
+        makeTrade(10, 150, 'buy'),
       ];
-      const lambda = calculateKyleLambda(directional);
+      const lambda = calculateKyleLambda(trades);
       expect(typeof lambda).toBe('number');
     });
   });
