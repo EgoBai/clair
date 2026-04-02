@@ -55,6 +55,10 @@ class MockWorker {
   terminate = vi.fn();
 }
 
+// Mock URL.createObjectURL (not available in jsdom)
+globalThis.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+globalThis.URL.revokeObjectURL = vi.fn();
+
 vi.stubGlobal('Worker', MockWorker);
 
 describe('Worker Manager', () => {

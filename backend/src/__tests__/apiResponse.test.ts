@@ -180,6 +180,7 @@ describe('apiResponse', () => {
       const next = vi.fn();
 
       await wrapped(req, res, next);
+      await new Promise(r => setTimeout(r, 0));
       expect(next).toHaveBeenCalledWith(error);
     });
   });
