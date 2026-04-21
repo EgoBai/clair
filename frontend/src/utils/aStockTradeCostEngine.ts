@@ -100,11 +100,9 @@ export function calculateTradeCost(
     ? Math.round(tradeAmount * STAMP_DUTY_RATE * 100) / 100
     : 0;
 
-  // 过户费 (沪市收取，深市免收)
+  // 过户费 (2022年改革后沪深北统一收取)
   let transferFee = 0;
-  if (market === 'sh' || market === 'bj') {
-    transferFee = Math.round(tradeAmount * TRANSFER_FEE_RATE * 100) / 100;
-  }
+  transferFee = Math.round(tradeAmount * TRANSFER_FEE_RATE * 100) / 100;
 
   // 经手费
   const handlingFee = Math.round(tradeAmount * HANDLING_FEE_RATE * 100) / 100;

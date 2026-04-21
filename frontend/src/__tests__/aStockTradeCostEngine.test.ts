@@ -80,9 +80,9 @@ describe('AStockTradeCostEngine', () => {
       expect(shCost.transferFee).toBeGreaterThan(0);
     });
 
-    it('深市不应收取过户费', () => {
+    it('深市也应收取过户费（2022年改革后统一）', () => {
       const szCost = calculateTradeCost(10, 10000, 'buy', 'sz');
-      expect(szCost.transferFee).toBe(0);
+      expect(szCost.transferFee).toBeGreaterThan(0);
     });
 
     it('北交所应收取过户费', () => {
@@ -238,10 +238,10 @@ describe('AStockTradeCostEngine', () => {
       expect(cost.commission).toBe(5); // 最低佣金
     });
 
-    it('不同市场应产生不同成本', () => {
+    it('不同市场买入成本应相同（过户费已统一）', () => {
       const shCost = calculateTradeCost(10, 10000, 'buy', 'sh');
       const szCost = calculateTradeCost(10, 10000, 'buy', 'sz');
-      expect(shCost.totalCost).not.toBe(szCost.totalCost);
+      expect(shCost.totalCost).toBe(szCost.totalCost);
     });
   });
 });

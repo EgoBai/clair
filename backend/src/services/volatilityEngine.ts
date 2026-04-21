@@ -319,7 +319,7 @@ export class VolatilityEngine {
         num += (vols[i] - mean) * (vols[i - 1] - mean);
         den += (vols[i - 1] - mean) ** 2;
       }
-      persistence = den > 0 ? Math.abs(num / den) : 0;
+      persistence = den > 0 ? Math.min(1, Math.abs(num / den)) : 0;
     }
 
     return { regime, currentVol, percentileVol: percentile * 100, trend, persistence };
