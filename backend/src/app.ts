@@ -9,7 +9,8 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { corsMiddleware, corsStatusEndpoint } from './middleware/corsConfig';
 import { createServer } from 'http';
-import { db } from './db/Database';
+import { initDatabase, db, getDb } from './db/dbFactory';
+// db is a lazy proxy, initialized via initDatabase()
 import stockRouter from './api/stock';
 import indicatorRouter from './api/indicators';
 import sectorRouter from './api/sectors';
@@ -131,7 +132,7 @@ app.get('/api/search', asyncHandler(async (req, res) => {
   const stocks = await queryCache.query(
     `search:${q}:${limit}`,
     async () => {
-      const allStocks = await db.connection('stocks')
+      const allStocks = await getDb().connection('stocks')
         .where('is_active', true)
         .select('id', 'symbol', 'name', 'market', 'industry')
         .limit(500);
@@ -140,7 +141,7 @@ app.get('/api/search', asyncHandler(async (req, res) => {
     60000
   );
 
-  const results = searchAndSort(stocks as any[], q).slice(0, limit);
+  const results = searchAndSort(stocks, q).slice(0, limit);
   const userId = parseInt(req.query.userId as string) || 1;
   addSearchHistory(userId, { query: q });
 
@@ -164,6 +165,7 @@ app.get('/api/stats/cache', asyncHandler(async (_req, res) => {
 // ==================== 健康检查 ====================
 app.get('/health', async (_req, res) => {
   try {
+    const db = getDb();
     const health = await db.healthCheck();
     const wsStats = wsService.getSubscriptionStats();
     const poolStats = db.getPoolStats();
@@ -289,31 +291,5 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 // ==================== WebSocket 初始化 ====================
 wsService.initialize(httpServer);
 
-// ==================== 启动服务器 ====================
-httpServer.listen(PORT, () => {
-  console.log(`
-╔══════════════════════════════════════════════════╗
-║   A股行情分析网站 - 后端服务已启动 (v1.7.0)      ║
-╠══════════════════════════════════════════════════╣
-║   HTTP服务:     http://localhost:${PORT}          ║
-║   WebSocket:    ws://localhost:${PORT}            ║
-║   健康检查:     http://localhost:${PORT}/health    ║
-║   Swagger UI:   http://localhost:${PORT}/api-docs ║
-║   ReDoc:        http://localhost:${PORT}/api-docs/redoc ║
-║   OpenAPI JSON: http://localhost:${PORT}/api-docs/openapi.json ║
-╚══════════════════════════════════════════════════╝
-  `);
-});
-
-// ==================== 优雅退出 ====================
-const gracefulShutdown = async (signal: string) => {
-  console.log(`\n收到 ${signal} 信号，正在优雅关闭...`);
-  wsService.shutdown();
-  await db.close();
-  process.exit(0);
-};
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
+// ==================== 导出供 index.ts 使用 ====================
 export { app, httpServer };
