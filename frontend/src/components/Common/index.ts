@@ -2,8 +2,8 @@
  * 统一导出入口 - Common 模块
  */
 
-export { default as ErrorBoundary, withErrorBoundary, getErrorReports, clearErrorReports } from './ErrorBoundary';
-export { default as EnhancedErrorBoundary } from './EnhancedErrorBoundary';
+export { default as ErrorBoundary } from './ErrorBoundary';
+export { default as EnhancedErrorBoundary, withErrorBoundary, getErrorReports, clearErrorReports } from './EnhancedErrorBoundary';
 export { default as ThemeProvider } from './ThemeProvider';
 export { default as Onboarding, resetOnboarding, shouldShowOnboarding } from './Onboarding';
 export { default as LanguageSwitcher } from './LanguageSwitcher';
