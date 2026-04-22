@@ -46,7 +46,7 @@ export function createVWAPPlan(
   endTime: string,
   volumeProfile: VolumeProfile[],
   participationRate: number = 0.1,
-  maxParticipation: number = 0.25
+  _maxParticipation: number = 0.25
 ): ExecutionPlan {
   const startMin = timeToMinutes(startTime);
   const endMin = timeToMinutes(endTime);
@@ -146,7 +146,6 @@ export function adjustExecution(
   remainingShares: number
 ): ExecutionSlice[] {
   const realizedMap = new Map(realizedVolumes.map(rv => [rv.timeSlot, rv.volume]));
-  const totalRealized = realizedVolumes.reduce((s, rv) => s + rv.volume, 0);
 
   // 重分配剩余股数
   const remainingSlices = plan.slices.filter(s => !realizedMap.has(s.timeSlot));
@@ -162,5 +161,5 @@ export function adjustExecution(
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
-  return h * 60 + m;
+  return (h || 0) * 60 + (m || 0);
 }

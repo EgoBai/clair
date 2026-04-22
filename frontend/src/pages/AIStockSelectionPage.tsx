@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import logger from '../utils/logger';
 import {
   Card, Row, Col, Typography, Tag, Space, Button, Segmented, Table,
   Progress, Tooltip, Statistic, Divider, Badge, Spin, Modal, Drawer,
@@ -99,7 +100,7 @@ const AIStockSelectionPage: React.FC = () => {
       if (rotJson.success) setSectorRotation(rotJson.data);
       if (alertJson.success) setAlertSuggestions(alertJson.data.suggestions);
     } catch (err) {
-      console.error('加载AI选股数据失败:', err);
+      logger.error('加载AI选股数据失败:', err);
     } finally {
       setLoading(false);
     }
@@ -216,7 +217,7 @@ const AIStockSelectionPage: React.FC = () => {
       title: '排名',
       key: 'rank',
       width: 60,
-      render: (_: any, __: any, idx: number) => (
+      render: (_: unknown, __: unknown, idx: number) => (
         <Tag color={['#FFD700', '#C0C0C0', '#CD7F32'][idx] || 'default'}>{idx + 1}</Tag>
       ),
     },

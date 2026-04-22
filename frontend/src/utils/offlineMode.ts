@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * 离线模式管理器
  * 
@@ -96,7 +97,7 @@ class OfflineCache {
       };
 
       request.onerror = () => {
-        console.error('[OfflineCache] IndexedDB init failed:', request.error);
+        logger.error('[OfflineCache] IndexedDB init failed:', request.error);
         resolve(); // 降级到内存缓存
       };
     });
@@ -415,7 +416,7 @@ export class OfflineManager {
     payload: Record<string, unknown>
   ): Promise<void> {
     await this.queue.setDatabase((this.cache as any).db);
-    await this.queue.enqueue({ type, payload, timestamp: Date.now() });
+    await this.queue.enqueue({ type, payload, timestamp: Date.now(), maxRetries: 3 });
     const count = await this.queue.getPendingCount();
     this.notifyQueueListeners(count);
   }
@@ -458,7 +459,7 @@ export class OfflineManager {
   private async executeAction(action: OfflineAction): Promise<void> {
     // 根据 action type 执行对应 API 调用
     // 实际实现中会调用具体的 API 方法
-    console.log(`[OfflineQueue] Executing: ${action.type}`, action.payload);
+    // removed: console.log
 
     switch (action.type) {
       case 'add_watchlist':

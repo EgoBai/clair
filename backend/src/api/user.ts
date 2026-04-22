@@ -1,14 +1,16 @@
 /**
  * 用户系统 API
- * 注册/登录/设置/操作历史
- * 参考雪球用户体系
+ * 注册/登录/设置/操作历史/RBAC集成
+ * 对标Linear用户体系 + Notion权限管理
  */
 
 import { Request, Response, Router } from 'express';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { validateBody, validateQuery, schemas } from '../middleware/validation';
+import { RBACEngine, RBACContext } from '../utils/rbacEngine';
 
 const router = Router();
+const rbacEngine = new RBACEngine();
 
 // ==================== 内存用户存储（生产环境应使用数据库）====================
 
@@ -18,6 +20,12 @@ interface User {
   phone?: string;
   nickname: string;
   avatar?: string;
+  roles: string[];          // RBAC角色列表
+  status: 'active' | 'inactive' | 'banned' | 'pending';
+  failedLoginAttempts: number;
+  lockedUntil?: string;
+  mfaEnabled: boolean;
+  mfaSecret?: string;
   settings: UserSettings;
   createdAt: string;
   lastLoginAt: string;
@@ -48,11 +56,44 @@ interface UserAction {
   target: string;
   detail: string;
   timestamp: string;
+  ip?: string;
+  userAgent?: string;
+}
+
+// ===== 会话管理 =====
+
+interface Session {
+  token: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+  ip: string;
+  userAgent: string;
+  lastActiveAt: string;
+}
+
+// ===== 登录尝试限流 =====
+
+interface LoginAttempt {
+  ip: string;
+  count: number;
+  firstAttempt: number;
+  blockedUntil?: number;
 }
 
 const users = new Map<string, User>();
 const tokens = new Map<string, string>(); // token -> userId
+const sessions = new Map<string, Session>(); // token -> session
 const actionHistory = new Map<string, UserAction[]>();
+const loginAttempts = new Map<string, LoginAttempt>(); // ip -> attempts
+
+// 配置常量
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_BLOCK_DURATION = 15 * 60 * 1000; // 15分钟
+const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24小时
+const MAX_CONCURRENT_SESSIONS = 5;
+const MAX_FAILED_ATTEMPTS = 10;
+const ACCOUNT_LOCK_DURATION = 30 * 60 * 1000; // 30分钟
 
 function hashPassword(password: string): string {
   return createHash('sha256').update(password + 'a-stock-salt').digest('hex');

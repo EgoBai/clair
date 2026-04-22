@@ -59,9 +59,9 @@ function handleSort({ data, key, order }) {
   arr.sort((a, b) => {
     const va = typeof key === 'function' ? key(a) : a[key];
     const vb = typeof key === 'function' ? key(b) : b[key];
-    if (va == null && vb == null) return 0;
-    if (va == null) return 1;
-    if (vb == null) return -1;
+    if (va === null && vb === null) return 0;
+    if (va === null) return 1;
+    if (vb === null) return -1;
     const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
     return order === 'desc' ? -cmp : cmp;
   });
@@ -235,7 +235,7 @@ class WorkerPool {
   private workers: Worker[] = [];
   private idleWorkers: Worker[] = [];
   private tasks: Map<string, WorkerTask> = new Map();
-  private queue: Array<{ type: WorkerMessageType; payload: any; resolve: Function; reject: Function }> = [];
+  private queue: Array<{ type: WorkerMessageType; payload: unknown; resolve: Function; reject: Function }> = [];
   private maxWorkers: number;
   private taskTimeout: number;
   private workerUrl: string | null = null;
@@ -268,7 +268,7 @@ class WorkerPool {
       this.processQueue();
     };
 
-    worker.onerror = (err) => {
+    worker.onerror = (_err) => {
       // Worker 异常，重建
       const idx = this.workers.indexOf(worker);
       if (idx >= 0) this.workers.splice(idx, 1);
@@ -297,7 +297,9 @@ class WorkerPool {
       if (!worker) break;
 
       const task = this.queue.shift()!;
-      this.executeOn(worker, task.type, task.payload).then(task.resolve).catch(task.reject);
+      this.executeOn(worker, task.type, task.payload)
+        .then((result: unknown) => task.resolve(result))
+        .catch((error: Error) => task.reject(error));
     }
   }
 

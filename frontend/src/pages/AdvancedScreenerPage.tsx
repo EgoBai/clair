@@ -44,6 +44,24 @@ interface FieldInfo {
   unit: string;
 }
 
+interface AdvancedFilterRequest {
+  groups: ConditionGroup[];
+  logic?: LogicType;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+  page: number;
+  pageSize: number;
+}
+
+interface AdvancedPreset {
+  name: string;
+  icon?: string;
+  description?: string;
+  groups: ConditionGroup[];
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
 // ==================== 常量 ====================
 
 const FIELDS: FieldInfo[] = [
@@ -95,20 +113,33 @@ const QUICK_CONDITIONS: Array<{ name: string; condition: Condition; description:
 
 const API_BASE = '/api';
 
-async function runAdvancedFilter(data: any): Promise<any> {
+interface FilterResult {
+  stocks: StockResult[];
+  pagination: { page: number; pageSize: number; total: number; totalCount: number };
+}
+
+interface StockResult {
+  ts_code: string;
+  name: string;
+  close: number;
+  pct_chg: number;
+  [key: string]: unknown;
+}
+
+async function runAdvancedFilter(data: AdvancedFilterRequest): Promise<FilterResult> {
   const res = await fetch(`${API_BASE}/screener/advanced-filter`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  const json = await res.json();
+  const json = await res.json() as { success: boolean; error?: string; data: FilterResult };
   if (!json.success) throw new Error(json.error);
   return json.data;
 }
 
-async function fetchPresets(): Promise<any> {
+async function fetchPresets(): Promise<AdvancedPreset[]> {
   const res = await fetch(`${API_BASE}/screener/advanced-presets`);
-  const json = await res.json();
+  const json = await res.json() as { success: boolean; error?: string; data: AdvancedPreset[] };
   if (!json.success) throw new Error(json.error);
   return json.data;
 }
@@ -159,9 +190,12 @@ export default function AdvancedScreenerPage() {
     setGroups(newGroups);
   };
 
-  const updateCondition = (groupIndex: number, condIndex: number, key: string, value: any) => {
+  const updateCondition = (groupIndex: number, condIndex: number, key: string, value: string | number | OperatorType | [number, number]) => {
     const newGroups = [...groups];
-    (newGroups[groupIndex].conditions[condIndex] as any)[key] = value;
+    const cond = newGroups[groupIndex].conditions[condIndex];
+    if (key === 'field') cond.field = value as string;
+    else if (key === 'operator') cond.operator = value as OperatorType;
+    else if (key === 'value') cond.value = value as number | [number, number];
     setGroups(newGroups);
   };
 
@@ -185,8 +219,8 @@ export default function AdvancedScreenerPage() {
       });
       setResults(result.stocks);
       setPagination(result.pagination);
-    } catch (err: any) {
-      message.error(err.message || '筛选失败');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '筛选失败');
     } finally {
       setLoading(false);
     }
@@ -214,7 +248,7 @@ export default function AdvancedScreenerPage() {
   };
 
   // 从预设加载
-  const loadPreset = async (preset: any) => {
+  const loadPreset = async (preset: AdvancedPreset) => {
     setGroups(preset.groups);
     setSortBy(preset.sortBy);
     setSortOrder(preset.sortOrder);
@@ -230,8 +264,8 @@ export default function AdvancedScreenerPage() {
       setResults(result.stocks);
       setPagination(result.pagination);
       message.success(`"${preset.name}" 执行完成`);
-    } catch (err: any) {
-      message.error(err.message || '执行失败');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '执行失败');
     } finally {
       setLoading(false);
     }
@@ -252,7 +286,7 @@ export default function AdvancedScreenerPage() {
       title: '排名',
       key: 'rank',
       width: 60,
-      render: (_: any, __: any, index: number) => {
+      render: (_: unknown, __: StockResult, index: number) => {
         const rank = (pagination.page - 1) * pagination.pageSize + index + 1;
         const color = rank <= 3 ? ['#f5222d', '#fa8c16', '#faad14'][rank - 1] : undefined;
         return <Text strong style={{ color }}>{rank}</Text>;
@@ -476,7 +510,7 @@ export default function AdvancedScreenerPage() {
             <List
               size="small"
               dataSource={presets}
-              renderItem={(tpl: any) => (
+              renderItem={(tpl: AdvancedPreset) => (
                 <List.Item
                   style={{ cursor: 'pointer', padding: '8px 12px' }}
                   onClick={() => loadPreset(tpl)}

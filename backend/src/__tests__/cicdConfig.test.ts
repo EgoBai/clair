@@ -6,8 +6,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
-// ROOT 指向项目根目录 (vitest 从 backend/ 运行, 需上溯一级)
-const ROOT = join(process.cwd(), '..');
+// ROOT 指向项目根目录 (可能从根或 backend/ 运行)
+const PROJECT_NAME = 'a-stock-website';
+const ROOT = process.cwd().endsWith('/backend')
+  ? join(process.cwd(), '..')
+  : process.cwd();
 
 describe('CI/CD Pipeline验证', () => {
   describe('GitHub Actions', () => {

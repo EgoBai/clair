@@ -53,7 +53,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
     timer = setTimeout(() => {
       timer = null;
       if (trailing && lastArgs) {
-        return trailingEdge(Date.now());
+        trailingEdge(Date.now());
       }
       lastArgs = null;
     }, delay);

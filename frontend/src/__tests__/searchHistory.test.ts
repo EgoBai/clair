@@ -212,7 +212,7 @@ describe('useSearchHistory Logic', () => {
 
     it('should handle very long queries', () => {
       const longQuery = 'A'.repeat(1000);
-      let history = [longQuery];
+      const history = [longQuery];
       expect(history[0].length).toBe(1000);
     });
   });

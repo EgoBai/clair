@@ -183,9 +183,9 @@ describe('Chart Performance Utils', () => {
         fn();
       };
 
-      batch(() => {});
-      batch(() => {});
-      batch(() => {});
+      batch(() => { );
+      batch(() => { );
+      batch(() => { );
       expect(renderCount).toBe(3);
 
       // With batching
@@ -208,9 +208,9 @@ describe('Chart Performance Utils', () => {
         };
       })();
 
-      scheduledBatch(() => {});
-      scheduledBatch(() => {});
-      scheduledBatch(() => {});
+      scheduledBatch(() => { );
+      scheduledBatch(() => { );
+      scheduledBatch(() => { );
     });
   });
 });

@@ -4,6 +4,7 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import logger from '../../utils/logger';
 import { Button, Result } from 'antd';
 
 interface Props {
@@ -28,7 +29,7 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[ErrorBoundary] 渲染错误:', error, errorInfo);
+    logger.error('[ErrorBoundary] 渲染错误:', error, errorInfo);
     this.setState({ errorInfo });
   }
 

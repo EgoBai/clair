@@ -15,8 +15,8 @@ export interface SortConfig {
 export interface FilterConfig {
   column: string;
   operator: 'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte' | 'contains' | 'startsWith' | 'between' | 'in';
-  value: any;
-  value2?: any;
+  value: unknown;
+  value2?: unknown;
 }
 
 export interface PaginationConfig {
@@ -35,7 +35,7 @@ export interface TableResult<T> {
 /**
  * 数据表格处理器
  */
-export class DataTableProcessor<T extends Record<string, any>> {
+export class DataTableProcessor<T extends Record<string, unknown>> {
   private data: T[];
   private sort: SortConfig | null = null;
   private filters: FilterConfig[] = [];
@@ -94,8 +94,8 @@ export class DataTableProcessor<T extends Record<string, any>> {
     if (this.sort) {
       const { column, direction } = this.sort;
       result.sort((a, b) => {
-        const va = a[column];
-        const vb = b[column];
+        const va = a[column] as number | string;
+        const vb = b[column] as number | string;
         const cmp = va < vb ? -1 : va > vb ? 1 : 0;
         return direction === 'asc' ? cmp : -cmp;
       });
@@ -121,22 +121,24 @@ export class DataTableProcessor<T extends Record<string, any>> {
   /**
    * 获取所有唯一值（用于筛选器）
    */
-  uniqueValues(column: string): any[] {
+  uniqueValues(column: string): unknown[] {
     const values = new Set(this.data.map(row => row[column]));
     return Array.from(values).sort();
   }
 
-  private applyFilter(value: any, config: FilterConfig): boolean {
+  private applyFilter(value: unknown, config: FilterConfig): boolean {
+    const v = value as number;
+    const cv = config.value as number;
     switch (config.operator) {
       case 'eq': return value === config.value;
       case 'ne': return value !== config.value;
-      case 'gt': return value > config.value;
-      case 'lt': return value < config.value;
-      case 'gte': return value >= config.value;
-      case 'lte': return value <= config.value;
+      case 'gt': return v > cv;
+      case 'lt': return v < cv;
+      case 'gte': return v >= cv;
+      case 'lte': return v <= cv;
       case 'contains': return String(value).toLowerCase().includes(String(config.value).toLowerCase());
       case 'startsWith': return String(value).toLowerCase().startsWith(String(config.value).toLowerCase());
-      case 'between': return value >= config.value && value <= config.value2;
+      case 'between': return v >= cv && v <= (config.value2 as number);
       case 'in': return Array.isArray(config.value) && config.value.includes(value);
       default: return true;
     }
@@ -146,7 +148,7 @@ export class DataTableProcessor<T extends Record<string, any>> {
 /**
  * 导出为CSV
  */
-export function exportToCSV<T extends Record<string, any>>(
+export function exportToCSV<T extends Record<string, unknown>>(
   data: T[],
   columns: Array<{ key: keyof T; label: string }>
 ): string {

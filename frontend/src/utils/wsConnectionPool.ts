@@ -36,15 +36,19 @@ export interface PoolStats {
 export class WebSocketConnectionPool {
   private connections: Map<string, PooledConnection> = new Map();
   private channelMap: Map<string, string> = new Map();
-  private maxConnections: number;
+  private _maxConnections: number;
   private baseReconnectDelay: number;
   private maxReconnectDelay: number;
   private reconnectCount = 0;
 
   constructor(maxConnections = 6, baseReconnectDelay = 1000, maxReconnectDelay = 30000) {
-    this.maxConnections = maxConnections;
+    this._maxConnections = maxConnections;
     this.baseReconnectDelay = baseReconnectDelay;
     this.maxReconnectDelay = maxReconnectDelay;
+  }
+
+  get maxConnections(): number {
+    return this._maxConnections;
   }
 
   addConnection(config: WSConnectionConfig): string {

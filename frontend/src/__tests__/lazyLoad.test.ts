@@ -93,7 +93,7 @@ describe('preloadComponent logic', () => {
 
 describe('IntersectionObserver lazy mount logic', () => {
   it('should start with inView false', () => {
-    let inView = false;
+    const inView = false;
     expect(inView).toBe(false);
   });
 

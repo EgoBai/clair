@@ -18,6 +18,17 @@ export interface KLineData {
   turnover: number;
 }
 
+interface IndicatorData {
+  macd?: number;
+  macdSignal?: number;
+  macdHist?: number;
+  kdjK?: number;
+  kdjD?: number;
+  kdjJ?: number;
+  rsi?: number;
+  [key: string]: number | undefined;
+}
+
 interface KLineChartProps {
   data: KLineData[];
   title?: string;
@@ -27,7 +38,7 @@ interface KLineChartProps {
   showEMA?: boolean;
   emaLines?: number[];
   subIndicator?: 'volume' | 'macd' | 'kdj' | 'rsi' | 'none';
-  indicatorData?: any[];
+  indicatorData?: IndicatorData[];
   loading?: boolean;
 }
 
@@ -75,7 +86,17 @@ const KLineChart: React.FC<KLineChartProps> = ({
     const volumes = data.map(d => d.volume);
 
     // 计算MA均线
-    const maSeries: any[] = [];
+    interface LineSeriesOption {
+      name: string;
+      type: 'line';
+      data: (number | null)[];
+      smooth: boolean;
+      symbol: string;
+      lineStyle: { width: number; type?: string };
+      xAxisIndex?: number;
+      yAxisIndex?: number;
+    }
+    const maSeries: LineSeriesOption[] = [];
     const maDataSets: Map<number, (number | null)[]> = new Map();
     if (showMA) {
       for (const period of maLines) {
@@ -93,14 +114,21 @@ const KLineChart: React.FC<KLineChartProps> = ({
     }
 
     // 检测均线交叉信号（金叉/死叉）- 使用短周期MA5和MA10
-    const crossSignals: any[] = [];
+    interface CrossSignalPoint {
+      coord: [number, number];
+      symbol: string;
+      symbolSize: number;
+      itemStyle: { color: string };
+      label: { show: boolean; formatter: string; position: string; fontSize: number; color: string };
+    }
+    const crossSignals: CrossSignalPoint[] = [];
     if (showMA && maLines.includes(5) && maLines.includes(10)) {
       const ma5 = maDataSets.get(5)!;
       const ma10 = maDataSets.get(10)!;
       for (let i = 1; i < data.length; i++) {
         const prev5 = ma5[i - 1], prev10 = ma10[i - 1];
         const curr5 = ma5[i], curr10 = ma10[i];
-        if (prev5 == null || prev10 == null || curr5 == null || curr10 == null) continue;
+        if (prev5 === null || prev10 === null || curr5 === null || curr10 === null) continue;
         // 金叉: MA5 从下穿过 MA10
         if (prev5 <= prev10 && curr5 > curr10) {
           crossSignals.push({
@@ -125,7 +153,7 @@ const KLineChart: React.FC<KLineChartProps> = ({
     }
 
     // 计算EMA均线
-    const emaSeries: any[] = [];
+    const emaSeries: LineSeriesOption[] = [];
     if (showEMA) {
       for (const period of emaLines) {
         const emaValues = calculateEMA(data.map(d => d.close), period);
@@ -141,8 +169,26 @@ const KLineChart: React.FC<KLineChartProps> = ({
     }
 
     // 副图指标
-    let subChartSeries: any[] = [];
-    let subYAxis: any = { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } };
+    interface SubSeriesOption {
+      name: string;
+      type: string;
+      data: unknown[];
+      xAxisIndex: number;
+      yAxisIndex: number;
+      [key: string]: unknown;
+    }
+    interface SubYAxisOption {
+      scale?: boolean;
+      gridIndex: number;
+      splitNumber?: number;
+      axisLabel: { show: boolean };
+      axisLine: { show: boolean };
+      axisTick: { show: boolean };
+      splitLine: { show: boolean };
+      [key: string]: unknown;
+    }
+    let subChartSeries: SubSeriesOption[] = [];
+    let subYAxis: SubYAxisOption = { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } };
 
     if (subIndicator === 'volume') {
       subChartSeries = [{
@@ -231,37 +277,62 @@ const KLineChart: React.FC<KLineChartProps> = ({
       },
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'cross' },
-        formatter: (params: any) => {
-          const kline = params.find((p: any) => p.seriesType === 'candlestick');
+        axisPointer: { type: 'cross', crossStyle: { color: '#999' } },
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        borderColor: '#e5e7eb',
+        borderWidth: 1,
+        padding: [8, 12],
+        textStyle: { fontSize: 12, color: '#1f2937' },
+        formatter: (params: { seriesType: string; dataIndex: number; seriesName: string; value: number[]; color: string }[]) => {
+          const kline = params.find((p) => p.seriesType === 'candlestick');
           if (!kline) return '';
 
           const d = data[kline.dataIndex];
           if (!d) return '';
 
           const changePercent = d.open > 0 ? ((d.close - d.open) / d.open * 100).toFixed(2) : '0.00';
+          const changeAmount = (d.close - d.open).toFixed(2);
           const changeDir = d.close >= d.open ? '+' : '';
+          const color = d.close >= d.open ? '#ef4444' : '#22c55e';
+
+          // 成交量柱形指示 (相对最大成交量比例)
+          const maxVol = Math.max(...data.map(dd => dd.volume));
+          const volPct = maxVol > 0 ? Math.round((d.volume / maxVol) * 100) : 0;
+          const volBar = '█'.repeat(Math.min(Math.round(volPct / 5), 20)) + '░'.repeat(20 - Math.min(Math.round(volPct / 5), 20));
 
           let html = `
-            <div style="font-size:12px;line-height:1.8">
-              <b>${d.tradeDate}</b>
-              <span style="float:right;color:${d.close >= d.open ? '#ef4444' : '#22c55e'}">${changeDir}${changePercent}%</span><br/>
-              开: <span style="color:${d.close >= d.open ? '#ef4444' : '#22c55e'}">${d.open.toFixed(2)}</span>
-              高: <span style="color:#ef4444">${d.high.toFixed(2)}</span>
-              低: <span style="color:#22c55e">${d.low.toFixed(2)}</span>
-              收: <span style="color:${d.close >= d.open ? '#ef4444' : '#22c55e'}">${d.close.toFixed(2)}</span><br/>
-              量: ${formatVolume(d.volume)}
-              额: ${formatTurnover(d.turnover)}
-            </div>
+            <div style="font-size:12px;line-height:1.6;min-width:220px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <b style="font-size:13px">${d.tradeDate}</b>
+                <span style="color:${color};font-weight:600;font-size:13px">
+                  ${changeDir}${changeAmount} (${changeDir}${changePercent}%)
+                </span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;font-size:11px">
+                <div>开 <span style="color:${color};font-weight:500">${d.open.toFixed(2)}</span></div>
+                <div>高 <span style="color:#ef4444;font-weight:500">${d.high.toFixed(2)}</span></div>
+                <div>低 <span style="color:#22c55e;font-weight:500">${d.low.toFixed(2)}</span></div>
+                <div>收 <span style="color:${color};font-weight:500">${d.close.toFixed(2)}</span></div>
+              </div>
+              <div style="margin-top:4px;font-size:11px;color:#6b7280">
+                额: ${formatTurnover(d.turnover)}
+              </div>
+              <div style="margin-top:2px;font-size:11px">
+                <span style="color:#6b7280">量: ${formatVolume(d.volume)}</span>
+                <span style="margin-left:8px;font-family:monospace;color:#9ca3af">${volBar}</span>
+              </div>
           `;
 
-          // 附带MA值
+          // 附带MA值 - TradingView风格, 每个MA用对应颜色显示
           if (showMA && maSeries.length > 0) {
-            html += '<div style="font-size:11px;margin-top:4px">';
-            for (const s of maSeries) {
+            html += '<div style="display:flex;gap:10px;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid #f3f4f6">';
+            const maColors = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+            for (let si = 0; si < maSeries.length; si++) {
+              const s = maSeries[si];
               const val = s.data[kline.dataIndex];
               if (val !== null && val !== undefined) {
-                html += `<span style="margin-right:8px">${s.name}: ${val.toFixed(2)}</span>`;
+                const c = maColors[si % maColors.length];
+                html += `<span style="color:${c};font-weight:500">${s.name}: ${val.toFixed(2)}</span>`;
               }
             }
             html += '</div>';
@@ -325,6 +396,10 @@ const KLineChart: React.FC<KLineChartProps> = ({
           xAxisIndex: [0, 1],
           start: 70,
           end: 100,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
+          preventDefaultMouseMove: true,
         },
         {
           type: 'slider',
@@ -333,8 +408,16 @@ const KLineChart: React.FC<KLineChartProps> = ({
           end: 100,
           bottom: '2%',
           height: 18,
+          fillerColor: 'rgba(59,130,246,0.08)',
+          borderColor: '#e5e7eb',
+          handleStyle: { color: '#3b82f6' },
         },
       ],
+      animation: true,
+      animationDuration: 200,
+      animationDurationUpdate: 150,
+      animationEasing: 'cubicOut',
+      animationEasingUpdate: 'cubicOut',
       series: [
         {
           name: 'K线',
@@ -358,8 +441,6 @@ const KLineChart: React.FC<KLineChartProps> = ({
         ...emaSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),
         ...subChartSeries,
       ],
-      animation: true,
-      animationDuration: 300,
     };
   }, [data, title, showMA, maLines, showEMA, emaLines, subIndicator, indicatorData]);
 

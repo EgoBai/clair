@@ -5,8 +5,9 @@
  */
 
 import { Request, Response, Router } from 'express';
-import { validateQuery, validateParams, schemas } from '../middleware/validation';
-import type { TopTraderRecord, TopTraderEntry, TopTraderOverview } from '../../shared/types';
+import { validateParams, schemas } from '../middleware/validation';
+import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import type { TopTraderRecord, TopTraderEntry, TopTraderOverview } from '@shared/types';
 
 const router = Router();
 
@@ -107,69 +108,53 @@ function generateTopTraderOverview(date?: string): TopTraderOverview {
 }
 
 // 龙虎榜概览
-router.get('/top-traders/overview', (req: Request, res: Response) => {
-  try {
-    const date = req.query.date as string;
-    const data = generateTopTraderOverview(date);
-    res.json({ success: true, data });
-  } catch (error) {
-    res.status(500).json({ success: false, error: '获取龙虎榜概览失败' });
-  }
-});
+router.get('/top-traders/overview', asyncHandler(async (req: Request, res: Response) => {
+  const date = req.query.date as string;
+  const data = generateTopTraderOverview(date);
+  sendSuccess(res, data);
+}));
 
 // 个股龙虎榜
-router.get('/top-traders/:symbol', validateParams(schemas.stockSymbol), (req: Request, res: Response) => {
-  try {
-    const { symbol } = req.params;
-    const name = req.query.name as string || '未知';
-    const data = generateTopTraderRecord(symbol, name);
-    res.json({ success: true, data });
-  } catch (error) {
-    res.status(500).json({ success: false, error: '获取龙虎榜数据失败' });
-  }
-});
+router.get('/top-traders/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
+  const { symbol } = req.params;
+  const name = req.query.name as string || '未知';
+  const data = generateTopTraderRecord(symbol, name);
+  sendSuccess(res, data);
+}));
 
 // 龙虎榜历史
-router.get('/top-traders/history/:symbol', validateParams(schemas.stockSymbol), (req: Request, res: Response) => {
-  try {
-    const { symbol } = req.params;
-    const days = parseInt(req.query.days as string) || 10;
-    const name = req.query.name as string || '未知';
+router.get('/top-traders/history/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
+  const { symbol } = req.params;
+  const days = parseInt(req.query.days as string) || 10;
+  const name = req.query.name as string || '未知';
 
-    const records: TopTraderRecord[] = [];
-    for (let i = 0; i < Math.min(days, 30); i++) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const record = generateTopTraderRecord(symbol, name);
-      record.tradeDate = date.toISOString().split('T')[0];
-      records.push(record);
-    }
-
-    res.json({ success: true, data: { symbol, records } });
-  } catch (error) {
-    res.status(500).json({ success: false, error: '获取龙虎榜历史失败' });
+  const records: TopTraderRecord[] = [];
+  for (let i = 0; i < Math.min(days, 30); i++) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const record = generateTopTraderRecord(symbol, name);
+    record.tradeDate = date.toISOString().split('T')[0];
+    records.push(record);
   }
-});
+
+  sendSuccess(res, { symbol, records });
+}));
 
 // 营业部排行
-router.get('/top-traders/seat/rank', (_req: Request, res: Response) => {
-  try {
-    const count = parseInt(_req.query.count as string) || 20;
-    const rank = BROKER_SEATS.slice(0, Math.min(count, BROKER_SEATS.length)).map((seat, i) => ({
-      rank: i + 1,
-      seatName: seat,
-      totalBuyAmount: parseFloat((5e8 + Math.random() * 5e9).toFixed(2)),
-      totalSellAmount: parseFloat((4e8 + Math.random() * 4e9).toFixed(2)),
-      netAmount: parseFloat((Math.random() * 2e9 - 1e9).toFixed(2)),
-      appearCount: Math.floor(3 + Math.random() * 20),
-      isOrganizational: seat.startsWith('机构'),
-    }));
+router.get('/top-traders/seat/rank', asyncHandler(async (req: Request, res: Response) => {
+  const count = parseInt(req.query.count as string) || 20;
+  const rank = BROKER_SEATS.slice(0, Math.min(count, BROKER_SEATS.length)).map((seat, i) => ({
+    rank: i + 1,
+    seatName: seat,
+    totalBuyAmount: parseFloat((5e8 + Math.random() * 5e9).toFixed(2)),
+    totalSellAmount: parseFloat((4e8 + Math.random() * 4e9).toFixed(2)),
+    netAmount: parseFloat((Math.random() * 2e9 - 1e9).toFixed(2)),
+    appearCount: Math.floor(3 + Math.random() * 20),
+    isOrganizational: seat.startsWith('机构'),
+  }));
 
-    res.json({ success: true, data: { rank } });
-  } catch (error) {
-    res.status(500).json({ success: false, error: '获取营业部排行失败' });
-  }
-});
+  sendSuccess(res, { rank });
+}));
 
 export { generateTopTraderRecord, generateTopTraderOverview };
 export default router;

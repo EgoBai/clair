@@ -11,6 +11,7 @@
  * 参考 Bloomberg 的实时数据架构
  */
 
+import logger from '../utils/logger';
 export type WSMessageType =
   | 'quote_update'
   | 'market_summary'
@@ -153,7 +154,7 @@ class EnhancedWebSocketService {
       }
 
       this.ws.onopen = () => {
-        console.log(`[WS] 连接成功 (${source.name})`);
+        // removed: console.log
         this.retryCount = 0;
         this.currentRetryDelay = this.config.initialRetryDelay;
         this.setConnectionState('connected');
@@ -177,16 +178,16 @@ class EnhancedWebSocketService {
           const message: WSMessage = JSON.parse(event.data);
           this.handleMessage(message);
         } catch (error) {
-          console.error('[WS] 消息解析失败:', error);
+          logger.error('[WS] 消息解析失败:', error);
         }
       };
 
       this.ws.onerror = (event) => {
-        console.error('[WS] 连接错误:', event);
+        logger.error('[WS] 连接错误:', event);
       };
 
       this.ws.onclose = (event) => {
-        console.log(`[WS] 连接关闭 (code: ${event.code})`);
+        // removed: console.log
         this.stopHeartbeat();
 
         if (!this.isManualClose) {
@@ -286,7 +287,7 @@ class EnhancedWebSocketService {
 
   // ==================== 私有方法 ====================
 
-  private send(message: any): void {
+  private send(message: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     }
@@ -320,7 +321,7 @@ class EnhancedWebSocketService {
 
     // 数据源切换
     if (message.type === 'source_switch') {
-      console.log('[WS] 服务端数据源切换:', message.data);
+      // removed: console.log
       return;
     }
 
@@ -344,7 +345,7 @@ class EnhancedWebSocketService {
         try {
           handler(message);
         } catch (error) {
-          console.error('[WS] 处理器错误:', error);
+          logger.error('[WS] 处理器错误:', error);
         }
       });
     }
@@ -356,7 +357,7 @@ class EnhancedWebSocketService {
         try {
           handler(message);
         } catch (error) {
-          console.error('[WS] 通配符处理器错误:', error);
+          logger.error('[WS] 通配符处理器错误:', error);
         }
       });
     }
@@ -393,7 +394,7 @@ class EnhancedWebSocketService {
       clearTimeout(this.heartbeatTimeoutTimer);
     }
     this.heartbeatTimeoutTimer = setTimeout(() => {
-      console.warn('[WS] 心跳超时，断开重连');
+      logger.warn('[WS] 心跳超时，断开重连');
       if (this.ws) {
         this.ws.close();
       }
@@ -409,7 +410,7 @@ class EnhancedWebSocketService {
         this.retryCount = 0;
         this.currentRetryDelay = this.config.initialRetryDelay;
       } else {
-        console.error('[WS] 所有数据源均不可用');
+        logger.error('[WS] 所有数据源均不可用');
         this.setConnectionState('failed');
         return;
       }
@@ -425,11 +426,11 @@ class EnhancedWebSocketService {
     const jitter = delay * (0.8 + Math.random() * 0.4);
 
     this.retryCount++;
-    console.log(`[WS] ${Math.round(jitter)}ms 后重连 (第${this.retryCount}次, 数据源: ${this.getCurrentSource()})`);
+    // removed: console.log
 
     this.reconnectTimer = setTimeout(() => {
       this.connect().catch((error) => {
-        console.error('[WS] 重连失败:', error);
+        logger.error('[WS] 重连失败:', error);
       });
     }, jitter);
   }
@@ -454,7 +455,7 @@ class EnhancedWebSocketService {
     for (let i = nextIndex; i < this.config.sources.length; i++) {
       if (this.config.sources[i].url) {
         this.currentSourceIndex = i;
-        console.log(`[WS] 切换数据源到: ${this.config.sources[i].name}`);
+        // removed: console.log
         return true;
       }
     }
@@ -462,8 +463,8 @@ class EnhancedWebSocketService {
     return false;
   }
 
-  private handleConnectionFailure(error: any): void {
-    console.error('[WS] 连接失败:', error);
+  private handleConnectionFailure(error: unknown): void {
+    logger.error('[WS] 连接失败:', error);
     this.scheduleReconnect();
   }
 
@@ -480,7 +481,7 @@ class EnhancedWebSocketService {
   private handleGapFill(data: GapFillData): void {
     if (!data.messages || data.messages.length === 0) return;
 
-    console.log(`[WS] 补全 ${data.messages.length} 条消息 (${data.from}-${data.to})`);
+    // removed: console.log
 
     // 按序列号排序并分发
     const sorted = [...data.messages].sort((a, b) => (a.seq || 0) - (b.seq || 0));
@@ -498,13 +499,13 @@ class EnhancedWebSocketService {
     if (this.connectionState === state) return;
     const prev = this.connectionState;
     this.connectionState = state;
-    console.log(`[WS] 状态变更: ${prev} → ${state}`);
+    // removed: console.log
 
     this.stateHandlers.forEach((handler) => {
       try {
         handler(state);
       } catch (error) {
-        console.error('[WS] 状态处理器错误:', error);
+        logger.error('[WS] 状态处理器错误:', error);
       }
     });
   }

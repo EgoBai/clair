@@ -14,6 +14,8 @@ import {
   sanitizeStockCode,
   sanitizePrice,
   sanitizeQuantity,
+  sanitizeText,
+  validateText,
   ValidationResult,
 } from '../utils/validation';
 
@@ -306,6 +308,115 @@ describe('validation', () => {
     it('should return null for invalid', () => {
       expect(sanitizeQuantity('')).toBeNull();
       expect(sanitizeQuantity('abc')).toBeNull();
+    });
+
+    it('should handle non-string input gracefully', () => {
+      expect(sanitizeQuantity(null as any)).toBeNull();
+      expect(sanitizeQuantity(undefined as any)).toBeNull();
+      expect(sanitizeQuantity(123 as any)).toBeNull();
+    });
+  });
+
+  describe('sanitizePrice - edge cases', () => {
+    it('should reject multiple dots', () => {
+      expect(sanitizePrice('10.5.3')).toBeNull();
+      expect(sanitizePrice('1.2.3.4')).toBeNull();
+      expect(sanitizePrice('..5')).toBeNull();
+    });
+
+    it('should reject dot-only input', () => {
+      expect(sanitizePrice('.')).toBeNull();
+      expect(sanitizePrice('..')).toBeNull();
+    });
+
+    it('should handle non-string input gracefully', () => {
+      expect(sanitizePrice(null as any)).toBeNull();
+      expect(sanitizePrice(undefined as any)).toBeNull();
+      expect(sanitizePrice(123 as any)).toBeNull();
+    });
+
+    it('should handle leading dot (decimal without integer)', () => {
+      expect(sanitizePrice('.5')).toBe(0.5);
+    });
+  });
+
+  describe('sanitizeStockCode - edge cases', () => {
+    it('should handle non-string input gracefully', () => {
+      expect(sanitizeStockCode(null as any)).toBe('');
+      expect(sanitizeStockCode(undefined as any)).toBe('');
+      expect(sanitizeStockCode(123 as any)).toBe('');
+    });
+  });
+
+  describe('sanitizeText', () => {
+    it('should strip HTML tags', () => {
+      expect(sanitizeText('<b>bold</b>')).toBe('bold');
+      // Script tag and its content are fully removed
+      expect(sanitizeText('<script>alert(1)</script>hello')).toBe('hello');
+      expect(sanitizeText('<div class="x">text</div>')).toBe('text');
+    });
+
+    it('should remove javascript: protocol', () => {
+      expect(sanitizeText('javascript:alert(1)')).toBe('alert(1)');
+      expect(sanitizeText('JAVASCRIPT:void(0)')).toBe('void(0)');
+    });
+
+    it('should remove event handlers', () => {
+      expect(sanitizeText('onclick=alert(1)')).toBe('alert(1)');
+      expect(sanitizeText('onload = evil()')).toBe('evil()');
+    });
+
+    it('should respect maxLength', () => {
+      expect(sanitizeText('abcdef', 3)).toBe('abc');
+    });
+
+    it('should handle non-string input gracefully', () => {
+      expect(sanitizeText(null as any)).toBe('');
+      expect(sanitizeText(undefined as any)).toBe('');
+    });
+
+    it('should preserve safe text', () => {
+      expect(sanitizeText('平安银行')).toBe('平安银行');
+      expect(sanitizeText('Stock #1 - buy now!')).toBe('Stock #1 - buy now!');
+    });
+  });
+
+  describe('validateText', () => {
+    it('should validate normal text', () => {
+      const result = validateText('hello world');
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should enforce required', () => {
+      const result = validateText('  ', { required: true });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('不能为空');
+    });
+
+    it('should enforce minLength', () => {
+      const result = validateText('ab', { minLength: 3 });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('长度不能少于3个字符');
+    });
+
+    it('should enforce maxLength', () => {
+      const result = validateText('abcdef', { maxLength: 3 });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('长度不能超过3个字符');
+    });
+
+    it('should detect XSS patterns', () => {
+      expect(validateText('<script>alert(1)</script>').valid).toBe(false);
+      expect(validateText('javascript:alert(1)').valid).toBe(false);
+      expect(validateText('onclick=evil()').valid).toBe(false);
+      expect(validateText('<iframe src="evil">').valid).toBe(false);
+    });
+
+    it('should handle non-string input', () => {
+      const result = validateText(null as any);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('输入必须是字符串');
     });
   });
 });

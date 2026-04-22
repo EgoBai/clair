@@ -105,7 +105,7 @@ export function scanConvertibleArbOpportunities(
     .map(b => analyzeConvertibleBond(b))
     .filter(a => a.arbitrageSignal !== 'hold')
     .sort((a, b) => {
-      const priority = { convert: 0, buy_bond: 1, sell: 2 };
+      const priority: Record<string, number> = { convert: 0, buy_bond: 1, sell: 2, hold: 3 };
       return priority[a.arbitrageSignal] - priority[b.arbitrageSignal];
     });
 }

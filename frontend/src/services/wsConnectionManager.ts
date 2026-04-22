@@ -18,7 +18,7 @@ export interface WSConfig {
   messageQueueMax: number;
   onOpen?: () => void;
   onClose?: (code: number, reason: string) => void;
-  onMessage?: (data: any) => void;
+  onMessage?: (data: unknown) => void;
   onReconnect?: (attempt: number) => void;
   onError?: (error: Event) => void;
 }
@@ -102,7 +102,7 @@ export class WebSocketManager {
           this.lastHeartbeat = Date.now();
           return;
         }
-      } catch {}
+      } catch { /* ignored - not JSON */ }
 
       this.config.onMessage?.(event.data);
     };
@@ -223,8 +223,14 @@ export class WebSocketManager {
     this.reconnectAttempts++;
     this.config.onReconnect?.(this.reconnectAttempts);
 
-    // 指数退避
-    const delay = this.config.reconnectInterval * Math.min(Math.pow(2, this.reconnectAttempts - 1), 8);
+    // 指数退避 + 随机抖动 (Bloomberg/TradingView 标准)
+    const baseDelay = this.config.reconnectInterval;
+    const exponentialDelay = Math.min(
+      baseDelay * Math.pow(2, this.reconnectAttempts - 1),
+      30000 // 最大30秒
+    );
+    const jitter = exponentialDelay * 0.3 * Math.random(); // ±30% 抖动
+    const delay = exponentialDelay + jitter;
 
     this.reconnectTimer = setTimeout(() => {
       this.connect();

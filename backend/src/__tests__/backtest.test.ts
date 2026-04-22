@@ -4,7 +4,14 @@
 
 import { describe, it, expect } from 'vitest';
 import { runBacktest, STRATEGY_PRESETS } from '../utils/backtestEngine';
-import type { KLineData } from '../../../shared/types';
+import type { KLineData } from '../types';
+
+// Seeded PRNG for deterministic tests
+let _seed = 123;
+function seededRandom(): number {
+  _seed = (_seed * 16807 + 0) % 2147483647;
+  return (_seed - 1) / 2147483646;
+}
 
 // ==================== 测试数据生成 ====================
 
@@ -19,20 +26,20 @@ function generateKlineData(days: number, startPrice: number = 100, trend: 'up' |
     let change: number;
     switch (trend) {
       case 'up':
-        change = (Math.random() * 3 - 0.5) / 100 * price;
+        change = (seededRandom() * 3 - 0.5) / 100 * price;
         break;
       case 'down':
-        change = (Math.random() * 3 - 2.5) / 100 * price;
+        change = (seededRandom() * 3 - 2.5) / 100 * price;
         break;
       default:
-        change = (Math.random() * 6 - 3) / 100 * price;
+        change = (seededRandom() * 6 - 3) / 100 * price;
     }
 
     const open = price;
     const close = price + change;
-    const high = Math.max(open, close) * (1 + Math.random() * 0.02);
-    const low = Math.min(open, close) * (1 - Math.random() * 0.02);
-    const volume = Math.floor(1000000 + Math.random() * 5000000);
+    const high = Math.max(open, close) * (1 + seededRandom() * 0.02);
+    const low = Math.min(open, close) * (1 - seededRandom() * 0.02);
+    const volume = Math.floor(1000000 + seededRandom() * 5000000);
 
     data.push({
       tradeDate: date.toISOString().split('T')[0],

@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * 渲染性能优化工具
  * 参考 Google Core Web Vitals 标准
@@ -149,7 +150,7 @@ export class RenderProfiler {
     if (arr.length > 100) arr.shift();
 
     if (duration > 16) {
-      console.warn(`[RenderProfiler] ${label}: ${duration.toFixed(2)}ms (>16ms frame budget)`);
+      logger.warn(`[RenderProfiler] ${label}: ${duration.toFixed(2)}ms (>16ms frame budget)`);
     }
 
     return duration;

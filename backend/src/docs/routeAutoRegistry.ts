@@ -6,6 +6,11 @@
 import { Router } from 'express';
 import { registerRoute, registerTag, RouteDoc } from './apiDocRegistry';
 
+/** HTTP 方法类型守卫 */
+function isValidHttpMethod(method: string): method is 'get' | 'post' | 'put' | 'patch' | 'delete' {
+  return ['get', 'post', 'put', 'patch', 'delete'].includes(method.toLowerCase());
+}
+
 /** 路由文档元数据映射表 - 从路径推断 tag 和 summary */
 const pathMetadata: Record<string, { tag: string; summary: string; description?: string; auth?: boolean }> = {
   // 股票
@@ -202,7 +207,9 @@ export function registerAllTags(): void {
  * 从 Express Router 自动提取并注册路由
  */
 export function autoRegisterFromRouter(router: Router, basePath: string = ''): void {
-  const stack = (router as any).stack || [];
+  // 访问 Express Router 的内部 stack 属性
+  const routerWithStack = router as Router & { stack?: any[] };
+  const stack = routerWithStack.stack || [];
 
   for (const layer of stack) {
     if (!layer.route) continue;
@@ -216,15 +223,18 @@ export function autoRegisterFromRouter(router: Router, basePath: string = ''): v
       const meta = pathMetadata[key];
 
       if (meta) {
-        registerRoute({
-          method: method as any,
-          path: routePath,
-          tag: meta.tag,
-          summary: meta.summary,
-          description: meta.description,
-          auth: meta.auth,
-          responses: [{ status: 200, description: '成功' }],
-        });
+        const httpMethod = method.toLowerCase();
+        if (isValidHttpMethod(httpMethod)) {
+          registerRoute({
+            method: httpMethod,
+            path: routePath,
+            tag: meta.tag,
+            summary: meta.summary,
+            description: meta.description,
+            auth: meta.auth,
+            responses: [{ status: 200, description: '成功' }],
+          });
+        }
       }
     }
   }
@@ -237,15 +247,18 @@ export function registerAllRoutes(): void {
   // 直接从 pathMetadata 注册所有已知端点
   for (const [key, meta] of Object.entries(pathMetadata)) {
     const [method, path] = key.split(' ');
-    registerRoute({
-      method: method.toLowerCase() as any,
-      path,
-      tag: meta.tag,
-      summary: meta.summary,
-      description: meta.description,
-      auth: meta.auth,
-      responses: [{ status: 200, description: '成功' }],
-    });
+    const httpMethod = method.toLowerCase();
+    if (isValidHttpMethod(httpMethod)) {
+      registerRoute({
+        method: httpMethod,
+        path,
+        tag: meta.tag,
+        summary: meta.summary,
+        description: meta.description,
+        auth: meta.auth,
+        responses: [{ status: 200, description: '成功' }],
+      });
+    }
   }
 }
 

@@ -49,6 +49,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       // First set explicit height, then animate to 0
       setHeight(content.scrollHeight);
       requestAnimationFrame(() => setHeight(0));
+      return;
     }
   }, [isOpen]);
 

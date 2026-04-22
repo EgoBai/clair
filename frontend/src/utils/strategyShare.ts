@@ -175,7 +175,7 @@ Top3推荐:
  */
 export function renderShareTemplate(
   templateId: string,
-  data: Record<string, any>
+  data: Record<string, string | number | boolean>
 ): string {
   const template = SHARE_TEMPLATES.find(t => t.id === templateId);
   if (!template) return '';

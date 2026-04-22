@@ -73,13 +73,13 @@ export function getTradingDayInfo(dateStr: string): TradingDayInfo {
   const dow = date.getDay();
 
   // 查找前后交易日
-  let nextDate = new Date(date);
+  const nextDate = new Date(date);
   nextDate.setDate(nextDate.getDate() + 1);
   while (!isTradingDay(formatDate(nextDate))) {
     nextDate.setDate(nextDate.getDate() + 1);
   }
 
-  let prevDate = new Date(date);
+  const prevDate = new Date(date);
   prevDate.setDate(prevDate.getDate() - 1);
   while (!isTradingDay(formatDate(prevDate))) {
     prevDate.setDate(prevDate.getDate() - 1);
@@ -151,13 +151,13 @@ export function calculatePriceLimit(info: Omit<PriceLimitInfo, 'upperLimit' | 'l
 // ── T+1结算 ──
 
 export function calculateSettlement(tradeDate: string): TradeSettlementInfo {
-  let settlementDate = new Date(tradeDate);
+  const settlementDate = new Date(tradeDate);
   settlementDate.setDate(settlementDate.getDate() + 1);
   while (!isTradingDay(formatDate(settlementDate))) {
     settlementDate.setDate(settlementDate.getDate() + 1);
   }
 
-  let fundDate = new Date(settlementDate);
+  const fundDate = new Date(settlementDate);
   fundDate.setDate(fundDate.getDate() + 1);
   while (!isTradingDay(formatDate(fundDate))) {
     fundDate.setDate(fundDate.getDate() + 1);
@@ -193,7 +193,7 @@ export function countTradingDays(startDate: string, endDate: string): number {
 }
 
 export function getNthTradingDay(startDate: string, n: number): string {
-  let current = new Date(startDate);
+  const current = new Date(startDate);
   let count = 0;
 
   while (count < Math.abs(n)) {

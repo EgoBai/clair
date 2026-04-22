@@ -63,7 +63,7 @@ const TimeLineChart: React.FC<TimeLineChartProps> = ({
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross' },
-        formatter: (params: any) => {
+        formatter: (params: { dataIndex: number; value: number; name: string; seriesName?: string; dataType?: string }[]) => {
           const idx = params[0]?.dataIndex;
           if (idx === undefined) return '';
           const d = data[idx];

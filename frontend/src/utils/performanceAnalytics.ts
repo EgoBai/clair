@@ -231,7 +231,6 @@ export function detectPerformanceIssues(
       message: `${largeResources.length}个资源超过500KB`,
       impact: 25,
       suggestion: '压缩大资源，使用代码分割，懒加载非关键资源',
-      resources: largeResources.map(r => r.name),
     });
   }
 

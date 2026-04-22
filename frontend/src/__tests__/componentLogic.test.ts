@@ -142,9 +142,9 @@ describe('组件逻辑测试', () => {
     it('空值应该排在最后', () => {
       const data = [{ pe: 15 }, { pe: null }, { pe: 30 }, { pe: null }];
       const sorted = [...data].sort((a, b) => {
-        if (a.pe == null && b.pe == null) return 0;
-        if (a.pe == null) return 1;
-        if (b.pe == null) return -1;
+        if (a.pe === null && b.pe === null) return 0;
+        if (a.pe === null) return 1;
+        if (b.pe === null) return -1;
         return a.pe - b.pe;
       });
       expect(sorted[0].pe).toBe(15);

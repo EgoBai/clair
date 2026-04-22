@@ -252,8 +252,8 @@ export class SeasonalityEngine {
         continue;
       }
 
-      const avgReturn = windowReturns.reduce((a, b) => a + b, 0) / windowReturns.length;
-      const winRate = windowReturns.filter(r => r > 0).length / windowReturns.length;
+      const avgReturn = windowReturns.reduce((a, b) => a + b.return, 0) / windowReturns.length;
+      const winRate = windowReturns.filter(r => r.return > 0).length / windowReturns.length;
       const volatility = this.std(windowReturns.map(r => r.return));
 
       results.push({ window: w.key, avgReturn, winRate, volatility, avgDuration: windowReturns.length });

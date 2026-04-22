@@ -75,7 +75,7 @@ describe('CollapsibleSection', () => {
     });
 
     it('onToggle 为 undefined 时不报错', () => {
-      const onToggle = undefined;
+      const onToggle: ((open: boolean) => void) | undefined = undefined;
       let isOpen = false;
       isOpen = !isOpen;
       onToggle?.(isOpen);

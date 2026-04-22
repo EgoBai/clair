@@ -127,7 +127,7 @@ describe('Search Autocomplete Logic', () => {
         return (query: string) => {
           callCount++;
           clearTimeout(timer);
-          timer = setTimeout(() => {}, 300);
+          timer = setTimeout(() => { , 300);
         };
       })();
 

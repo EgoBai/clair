@@ -176,7 +176,7 @@ describe('InfiniteScrollController', () => {
       expect(ctrl.getStatus()).toBe('complete');
     });
 
-    it('stays idle when data == pageSize', () => {
+    it('stays idle when data === pageSize', () => {
       const ctrl = new InfiniteScrollController<string>({ pageSize: 3 });
       ctrl.startLoading();
       ctrl.loadSuccess(['a', 'b', 'c']);

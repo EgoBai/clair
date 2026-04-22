@@ -45,7 +45,7 @@ class SelectionBacktestEngine {
     const snapshots: BacktestSnapshot[] = [];
     const turnoverHistory: number[] = [];
     let capital = config.initialCapital;
-    let holdings: Map<string, number> = new Map(); // symbol -> shares
+    const holdings: Map<string, number> = new Map(); // symbol -> shares
     let lastRebalance = 0;
     let totalRebalances = 0;
 

@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import logger from '../utils/logger';
 import {
   Card, Row, Col, Statistic, Table, Tabs, Radio, Space, Tag, Typography, Spin,
 } from 'antd';
@@ -15,7 +16,7 @@ import {
 import {
   ArrowUpOutlined, ArrowDownOutlined, DollarOutlined, StockOutlined,
 } from '@ant-design/icons';
-import { fetchMarginOverview, fetchMarginData, fetchMarginRank } from '../../services/api';
+import { fetchMarginOverview, fetchMarginData, fetchMarginRank } from '../services/api';
 
 const { Title, Text } = Typography;
 
@@ -54,7 +55,7 @@ const MarginTradingPage: React.FC = () => {
       setOverview(overviewRes);
       setRankData(rankRes);
     } catch (err) {
-      console.error('加载融资融券数据失败:', err);
+      logger.error('加载融资融券数据失败:', err);
     } finally {
       setLoading(false);
     }
@@ -65,7 +66,7 @@ const MarginTradingPage: React.FC = () => {
       const data = await fetchMarginRank(type);
       setRankData(data);
     } catch (err) {
-      console.error('加载排行失败:', err);
+      logger.error('加载排行失败:', err);
     }
   };
 

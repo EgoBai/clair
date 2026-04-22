@@ -37,7 +37,7 @@ export interface Pipeline<T> {
  * 创建数据管道
  */
 export function pipeline<T>(data: T[]): Pipeline<T> {
-  let current: unknown[] = [...data];
+  const current: unknown[] = [...data];
 
   const create = <U>(items: unknown[]): Pipeline<U> => {
     return pipeline(items as U[]);
@@ -46,7 +46,7 @@ export function pipeline<T>(data: T[]): Pipeline<T> {
   return {
     map: <R>(fn: TransformFn<T, R>) => create<R>(current.map((item, i) => fn(item as T, i))),
     filter: (fn: FilterFn<T>) => create<T>(current.filter((item, i) => fn(item as T, i))),
-    reduce: <R>(fn: ReduceFn<T, R>, initial: R) => current.reduce((acc, item, i) => fn(acc, item as T, i), initial),
+    reduce: <R>(fn: ReduceFn<T, R>, initial: R): R => current.reduce((acc, item, i) => fn(acc as R, item as T, i), initial as unknown) as R,
     take: (count) => create<T>(current.slice(0, count)),
     skip: (count) => create<T>(current.slice(count)),
     distinct: (keyFn) => {
@@ -58,7 +58,7 @@ export function pipeline<T>(data: T[]): Pipeline<T> {
         return true;
       }));
     },
-    sort: (compareFn) => create<T>([...current].sort(compareFn as any)),
+    sort: (compareFn) => create<T>([...current].sort(compareFn as (a: unknown, b: unknown) => number)),
     groupBy: <K>(keyFn: (item: T) => K) => {
       const map = new Map<K, T[]>();
       for (const item of current as T[]) {

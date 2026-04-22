@@ -108,16 +108,16 @@ export class I18nManager {
   /**
    * 嵌套键解析
    */
-  private resolveKey(key: string, locale: Locale): any {
+  private resolveKey(key: string, locale: Locale): unknown {
     const dict = this.config.translations[locale];
     if (!dict) return undefined;
 
     const parts = key.split('.');
-    let current: any = dict;
+    let current: unknown = dict;
 
     for (const part of parts) {
       if (current === undefined || current === null) return undefined;
-      current = current[part];
+      current = (current as Record<string, unknown>)[part];
     }
 
     return current;

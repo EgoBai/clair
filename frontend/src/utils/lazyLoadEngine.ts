@@ -93,6 +93,8 @@ export class LazyLoadEngine {
         await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
       }
     }
+    // Should never reach here, but satisfies TS
+    throw new Error(`Failed to load ${id}`);
   }
 
   /**

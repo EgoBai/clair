@@ -428,7 +428,7 @@ describe('数据聚合引擎', () => {
     });
 
     it('空数组返回空', () => {
-      expect(mergeAndDedup([], x => x)).toHaveLength(0);
+      expect(mergeAndDedup([], (x: any) => String(x))).toHaveLength(0);
     });
 
     it('无重复保持原样', () => {

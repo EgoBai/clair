@@ -4,7 +4,7 @@
  */
 
 import { Router } from 'express';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
 
@@ -259,8 +259,6 @@ router.post('/watchlist/groups', validateBody(schemas.watchlistGroupCreate), asy
       name: name.trim(),
       sort_index: 999,
       created_at: new Date(),
-    }).catch(() => {
-      // 表不存在时忽略
     });
 
     res.status(201).json({

@@ -226,7 +226,7 @@ export default function UserSettingsPage() {
       children: (
         <Card>
           <Form
-            initialValues={settings}
+            initialValues={settings ?? undefined}
             onFinish={handleSaveSettings}
             layout="vertical"
           >

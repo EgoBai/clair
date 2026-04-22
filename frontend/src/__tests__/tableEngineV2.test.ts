@@ -8,9 +8,9 @@ function sortData<T extends Record<string, any>>(data: T[], config: SortConfig):
   if (!config.direction) return [...data];
   return [...data].sort((a, b) => {
     const av = a[config.field], bv = b[config.field];
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
     const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
     return config.direction === 'asc' ? cmp : -cmp;
   });

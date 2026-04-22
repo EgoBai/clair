@@ -9,6 +9,28 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/__tests__/setup.ts'],
+    // 优化测试性能
+    threads: true, // 启用多线程
+    maxWorkers: 4, // 最大工作线程数（根据CPU核心数调整）
+    minWorkers: 2, // 最小工作线程数
+    isolate: true, // 隔离测试环境
+    // 测试超时设置
+    testTimeout: 10000, // 10秒超时
+    hookTimeout: 10000, // hook超时
+    // 覆盖率配置
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      reportsDirectory: './coverage',
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/*.d.ts',
+        '**/__tests__/**',
+        '**/*.test.{ts,tsx}',
+        '**/*.spec.{ts,tsx}',
+      ],
+    },
   },
   resolve: {
     alias: {

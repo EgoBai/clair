@@ -51,7 +51,7 @@ describe('前端渲染工具与性能', () => {
   // 深度比较
   function deepEqual(a: any, b: any): boolean {
     if (a === b) return true;
-    if (a == null || b == null) return a === b;
+    if (a === null || b === null) return a === b;
     if (typeof a !== typeof b) return false;
     if (typeof a !== 'object') return false;
     if (Array.isArray(a) !== Array.isArray(b)) return false;
@@ -287,7 +287,7 @@ describe('前端渲染工具与性能', () => {
   describe('节流', () => {
     it('间隔内不执行', () => {
       const results: boolean[] = [];
-      const th = createThrottle(() => {}, 100);
+      const th = createThrottle(() => { , 100);
       results.push(th.call());
       results.push(th.call());
       expect(results).toEqual([true, false]);

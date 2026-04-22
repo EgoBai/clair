@@ -191,7 +191,7 @@ export class RiskParityEngine {
     const portVol = this.portfolioVol(weights, cov);
     if (portVol === 0) return weights.map(() => 1 / weights.length);
 
-    const mrc = [];
+    const mrc: number[] = [];
     for (let i = 0; i < weights.length; i++) {
       mrc.push(this.marginalRisk(weights, cov, i));
     }

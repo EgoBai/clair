@@ -11,8 +11,8 @@ class DataGridEngine {
     return [...data].sort((a, b) => {
       const av = (a as any)[config.key], bv = (b as any)[config.key];
       if (av === bv) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
+      if (av === null) return 1;
+      if (bv === null) return -1;
       const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
       return config.direction === 'asc' ? cmp : -cmp;
     });

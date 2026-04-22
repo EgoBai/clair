@@ -89,7 +89,7 @@ describe('时间序列分析引擎', () => {
     });
 
     it('should return empty for no anomalies', () => {
-      const series = Array.from({ length: 60 }, () => 100 + (Math.random() - 0.5) * 0.5);
+      const series = Array.from({ length: 60 }, (_, i) => 100 + Math.sin(i * 0.1) * 0.2);
       const anomalies = detectAnomalies(series, 20, 3.0);
       expect(anomalies.length).toBe(0);
     });

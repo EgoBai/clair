@@ -311,7 +311,7 @@ function hierarchicalClustering(
   if (n === 0) return [];
 
   // 初始化: 每个资产一个簇
-  let clusters: { symbols: string[]; indices: number[] }[] = symbols.map((s, i) => ({
+  const clusters: { symbols: string[]; indices: number[] }[] = symbols.map((s, i) => ({
     symbols: [s],
     indices: [i]
   }));

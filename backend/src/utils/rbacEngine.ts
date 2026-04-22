@@ -44,6 +44,9 @@ export interface RBACContext {
   attributes?: Record<string, unknown>; // 用户属性
   ip?: string;
   timestamp?: number;
+  userAgent?: string;
+  sessionId?: string;
+  scope?: string[];         // OAuth-style scope constraints
 }
 
 export interface AuditEntry {
@@ -57,6 +60,11 @@ export interface AuditEntry {
   reason?: string;
   context?: Record<string, unknown>;
   ip?: string;
+  userAgent?: string;
+  sessionId?: string;
+  duration?: number;        // 请求处理时长(ms)
+  riskScore?: number;       // 风险评分 0-100
+  tags?: string[];          // 审计标签，便于分类检索
 }
 
 export interface PermissionCheckResult {
@@ -64,18 +72,40 @@ export interface PermissionCheckResult {
   matchedPermission?: Permission;
   reason: string;
   evaluatedAt: number;
+  riskScore?: number;
+}
+
+// ===== 权限组（对标Notion/Linear权限模板）=====
+
+export interface PermissionGroup {
+  id: string;
+  name: string;
+  description?: string;
+  permissionIds: string[];   // 包含的权限ID
+  isSystem?: boolean;
+}
+
+// ===== 时间条件（营业时间限制等）=====
+
+export interface TimeCondition {
+  daysOfWeek?: number[];     // 0=Sunday, 6=Saturday
+  startTime?: string;        // HH:mm format
+  endTime?: string;          // HH:mm format
+  timezone?: string;         // default Asia/Shanghai
 }
 
 // ===== RBAC 引擎 =====
 
 export class RBACEngine {
   private roles = new Map<string, Role>();
+  private permissionGroups = new Map<string, PermissionGroup>();
   private auditLog: AuditEntry[] = [];
   private auditMaxSize: number;
 
   constructor(options?: { auditMaxSize?: number }) {
     this.auditMaxSize = options?.auditMaxSize ?? 10000;
     this.initializeSystemRoles();
+    this.initializePermissionGroups();
   }
 
   /**
@@ -170,6 +200,47 @@ export class RBACEngine {
     });
   }
 
+  /**
+   * 初始化权限组（对标Linear/Notion权限模板）
+   */
+  private initializePermissionGroups(): void {
+    this.permissionGroups.set('stock-read', {
+      id: 'stock-read',
+      name: '股票只读',
+      description: '查看股票行情和基本信息',
+      permissionIds: ['viewer-stock-read'],
+      isSystem: true,
+    });
+    this.permissionGroups.set('portfolio-manage', {
+      id: 'portfolio-manage',
+      name: '投资组合管理',
+      description: '创建、修改和删除投资组合',
+      permissionIds: ['trader-portfolio-crud', 'trader-portfolio-update', 'trader-portfolio-delete'],
+      isSystem: true,
+    });
+    this.permissionGroups.set('trade-execute', {
+      id: 'trade-execute',
+      name: '交易执行',
+      description: '执行买卖交易操作',
+      permissionIds: ['trader-trade-execute'],
+      isSystem: true,
+    });
+    this.permissionGroups.set('user-admin', {
+      id: 'user-admin',
+      name: '用户管理',
+      description: '管理用户账户和角色分配',
+      permissionIds: ['admin-user-mgmt'],
+      isSystem: true,
+    });
+    this.permissionGroups.set('system-admin', {
+      id: 'system-admin',
+      name: '系统管理',
+      description: '系统配置和运维管理',
+      permissionIds: ['admin-system'],
+      isSystem: true,
+    });
+  }
+
   // ===== 角色管理 =====
 
   addRole(role: Role): void {
@@ -196,6 +267,95 @@ export class RBACEngine {
 
   getAllRoles(): Role[] {
     return Array.from(this.roles.values());
+  }
+
+  // ===== 权限组管理 =====
+
+  addPermissionGroup(group: PermissionGroup): void {
+    this.permissionGroups.set(group.id, { ...group, permissionIds: [...group.permissionIds] });
+  }
+
+  removePermissionGroup(groupId: string): boolean {
+    const group = this.permissionGroups.get(groupId);
+    if (!group || group.isSystem) return false;
+    this.permissionGroups.delete(groupId);
+    return true;
+  }
+
+  getPermissionGroup(groupId: string): PermissionGroup | undefined {
+    return this.permissionGroups.get(groupId);
+  }
+
+  getAllPermissionGroups(): PermissionGroup[] {
+    return Array.from(this.permissionGroups.values());
+  }
+
+  /**
+   * 将权限组应用到角色
+   */
+  applyGroupToRole(roleId: string, groupId: string): boolean {
+    const role = this.roles.get(roleId);
+    const group = this.permissionGroups.get(groupId);
+    if (!role || !group) return false;
+    if (role.isSystem) return false;
+
+    const groupPerms: Permission[] = group.permissionIds.map(permId => ({
+      id: `${roleId}-${permId}`,
+      resource: '*',
+      action: '*' as const,
+      effect: 'allow' as const,
+    }));
+
+    // 实际应用中需要从权限ID解析出具体的resource和action
+    // 这里简化处理
+    role.permissions = [...role.permissions, ...groupPerms];
+    return true;
+  }
+
+  // ===== 风险评分 =====
+
+  /**
+   * 计算操作风险评分 (0-100)
+   */
+  calculateRiskScore(context: RBACContext, action: string, resource: Resource): number {
+    let score = 0;
+
+    // 删除操作风险更高
+    if (action === 'delete') score += 30;
+    else if (action === 'admin') score += 40;
+    else if (action === 'execute') score += 25;
+
+    // 系统资源更敏感
+    if (resource.type === 'system' || resource.type === 'user') score += 20;
+
+    // 非工作时间操作增加风险
+    const hour = new Date().getHours();
+    if (hour < 6 || hour > 22) score += 15;
+
+    // 非常规IP增加风险（简化判断）
+    if (!context.ip || context.ip === '127.0.0.1') score += 5;
+
+    return Math.min(100, score);
+  }
+
+  // ===== 时间条件检查 =====
+
+  /**
+   * 检查时间条件是否满足
+   */
+  checkTimeCondition(condition: TimeCondition): boolean {
+    const now = new Date();
+
+    if (condition.daysOfWeek && condition.daysOfWeek.length > 0) {
+      if (!condition.daysOfWeek.includes(now.getDay())) return false;
+    }
+
+    if (condition.startTime && condition.endTime) {
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (currentTime < condition.startTime || currentTime > condition.endTime) return false;
+    }
+
+    return true;
   }
 
   updateRole(roleId: string, updates: Partial<Role>): boolean {
@@ -296,6 +456,9 @@ export class RBACEngine {
       if (bestAllow && bestDeny) break;
     }
 
+    // 计算风险评分
+    const riskScore = this.calculateRiskScore(context, String(action), resource);
+
     // Deny 优先：如果有同优先级或更高优先级的deny，拒绝
     if (bestDeny && bestAllow) {
       const denyPriority = bestDeny.matchedPermission?.priority ?? 0;
@@ -309,8 +472,11 @@ export class RBACEngine {
           result: 'deny',
           reason: bestDeny.reason,
           ip: context.ip,
+          userAgent: context.userAgent,
+          sessionId: context.sessionId,
+          riskScore,
         });
-        return bestDeny;
+        return { ...bestDeny, riskScore };
       }
     }
 
@@ -323,8 +489,11 @@ export class RBACEngine {
         result: 'deny',
         reason: bestDeny.reason,
         ip: context.ip,
+        userAgent: context.userAgent,
+        sessionId: context.sessionId,
+        riskScore,
       });
-      return bestDeny;
+      return { ...bestDeny, riskScore };
     }
 
     if (bestAllow) {
@@ -336,8 +505,11 @@ export class RBACEngine {
         result: 'allow',
         reason: bestAllow.reason,
         ip: context.ip,
+        userAgent: context.userAgent,
+        sessionId: context.sessionId,
+        riskScore,
       });
-      return bestAllow;
+      return { ...bestAllow, riskScore };
     }
 
     // 没有匹配的权限 → 默认拒绝
@@ -345,6 +517,7 @@ export class RBACEngine {
       allowed: false,
       reason: '无匹配权限，默认拒绝',
       evaluatedAt: startTime,
+      riskScore,
     };
 
     this.recordAudit({
@@ -355,6 +528,9 @@ export class RBACEngine {
       result: 'deny',
       reason: result.reason,
       ip: context.ip,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      riskScore,
     });
 
     return result;
@@ -462,6 +638,11 @@ export class RBACEngine {
       timestamp: Date.now(),
     };
 
+    // 自动计算风险评分（如果未提供）
+    if (auditEntry.riskScore === undefined && auditEntry.result === 'deny') {
+      auditEntry.riskScore = 60; // 拒绝操作基础风险分
+    }
+
     this.auditLog.push(auditEntry);
 
     // 超出限制时清理旧记录
@@ -487,15 +668,21 @@ export class RBACEngine {
       if (filters.action) results = results.filter(e => e.action === filters.action);
       if (filters.resource) results = results.filter(e => e.resource === filters.resource);
       if (filters.result) results = results.filter(e => e.result === filters.result);
-      if (filters.startTime) results = results.filter(e => e.timestamp >= filters.startTime);
-      if (filters.endTime) results = results.filter(e => e.timestamp <= filters.endTime);
+      if (filters.startTime !== undefined) {
+        const startTime = filters.startTime;
+        results = results.filter(e => e.timestamp >= startTime);
+      }
+      if (filters.endTime !== undefined) {
+        const endTime = filters.endTime;
+        results = results.filter(e => e.timestamp <= endTime);
+      }
     }
 
     // 默认按时间倒序
     results.sort((a, b) => b.timestamp - a.timestamp);
 
-    const offset = filters?.offset ?? 0;
-    const limit = filters?.limit ?? 100;
+    const offset = (filters && filters.offset !== undefined) ? filters.offset : 0;
+    const limit = (filters && filters.limit !== undefined) ? filters.limit : 100;
     return results.slice(offset, offset + limit);
   }
 
@@ -650,7 +837,7 @@ export function requirePermission(
 ) {
   return (req: Request, res: Response, next: NextFunction): void => {
     // 从请求中提取用户上下文
-    const user = (req as any).user;
+    const user = req.user;
     if (!user) {
       res.status(401).json({ error: '未认证', code: 'UNAUTHENTICATED' });
       return;
@@ -690,9 +877,9 @@ export function requirePermission(
  */
 export function requireRole(engine: RBACEngine, ...requiredRoles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const user = (req as any).user;
+    const user = req.user;
     if (!user) {
-      res.status(401).json({ error: '未认证', code: 'UNAUTHENTICENTICATED' });
+      res.status(401).json({ error: '未认证', code: 'UNAUTHENTICATED' });
       return;
     }
 
@@ -732,7 +919,7 @@ export function requireOwnerOrAdmin(
   getOwnerId: (req: Request) => string | undefined
 ) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const user = (req as any).user;
+    const user = req.user;
     if (!user) {
       res.status(401).json({ error: '未认证', code: 'UNAUTHENTICATED' });
       return;

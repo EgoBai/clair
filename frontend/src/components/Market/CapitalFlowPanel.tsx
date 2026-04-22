@@ -16,8 +16,8 @@ interface SectorFlow {
 }
 
 interface CapitalFlowPanelProps {
-  flowData: FlowData[];
-  sectorFlows: SectorFlow[];
+  flowData?: FlowData[];
+  sectorFlows?: SectorFlow[];
   fundFlowScore?: number;
   className?: string;
 }
@@ -45,8 +45,8 @@ const TrendIcon: React.FC<{ trend: string }> = ({ trend }) => {
 };
 
 export const CapitalFlowPanel: React.FC<CapitalFlowPanelProps> = ({
-  flowData,
-  sectorFlows,
+  flowData = [],
+  sectorFlows = [],
   fundFlowScore,
   className,
 }) => {

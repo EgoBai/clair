@@ -37,8 +37,8 @@ export function PasswordResetPage({ token, onRequestReset, onResetPassword, onBa
       await onRequestReset(email);
       setStep('sent');
       setCountdown(60);
-    } catch (err: any) {
-      setError(err.message || '请求失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '请求失败');
     } finally {
       setLoading(false);
     }
@@ -59,8 +59,8 @@ export function PasswordResetPage({ token, onRequestReset, onResetPassword, onBa
     try {
       await onResetPassword(token!, password);
       setStep('success');
-    } catch (err: any) {
-      setError(err.message || '重置失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '重置失败');
     } finally {
       setLoading(false);
     }
@@ -72,8 +72,8 @@ export function PasswordResetPage({ token, onRequestReset, onResetPassword, onBa
     try {
       await onRequestReset(email);
       setCountdown(60);
-    } catch (err: any) {
-      setError(err.message || '重发失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '重发失败');
     } finally {
       setLoading(false);
     }

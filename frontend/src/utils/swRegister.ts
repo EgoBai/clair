@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * Service Worker 注册工具
  * 处理 SW 生命周期、更新通知、离线检测
@@ -12,7 +13,7 @@ interface SWConfig {
 
 export function registerServiceWorker(config: SWConfig = {}): void {
   if (!('serviceWorker' in navigator)) {
-    console.warn('⚠️ Service Worker 不支持');
+    logger.warn('⚠️ Service Worker 不支持');
     return;
   }
 
@@ -33,7 +34,7 @@ export function registerServiceWorker(config: SWConfig = {}): void {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
             onUpdate?.(registration);
             if (import.meta.env.DEV) {
-              console.log('🔄 Service Worker 已更新，请刷新页面');
+              // removed: console.log
             }
           }
         });
@@ -45,10 +46,10 @@ export function registerServiceWorker(config: SWConfig = {}): void {
       });
 
       if (import.meta.env.DEV) {
-        console.log('✅ Service Worker 注册成功');
+        // removed: console.log
       }
     } catch (error) {
-      console.error('❌ Service Worker 注册失败:', error);
+      logger.error('❌ Service Worker 注册失败:', error);
     }
   });
 
@@ -56,14 +57,14 @@ export function registerServiceWorker(config: SWConfig = {}): void {
   window.addEventListener('offline', () => {
     onOffline?.();
     if (import.meta.env.DEV) {
-      console.log('📴 网络已断开');
+      // removed: console.log
     }
   });
 
   window.addEventListener('online', () => {
     onOnline?.();
     if (import.meta.env.DEV) {
-      console.log('📶 网络已恢复');
+      // removed: console.log
     }
   });
 }
@@ -77,12 +78,12 @@ export function unregisterServiceWorker(): Promise<boolean> {
     .then(registration => registration.unregister())
     .then(boolean => {
       if (boolean) {
-        console.log('✅ Service Worker 已注销');
+        // removed: console.log
       }
       return boolean;
     })
     .catch(error => {
-      console.error('❌ Service Worker 注销失败:', error);
+      logger.error('❌ Service Worker 注销失败:', error);
       return false;
     });
 }

@@ -1,18 +1,20 @@
 /**
- * 高级筛选器 API
- * 
+ * 高级筛选器 API (v2 - TradingView对标)
+ *
  * 特性:
- * - AND/OR 组合逻辑
+ * - AND/OR 组合逻辑 (多条件组嵌套)
  * - 技术指标筛选 (MACD金叉、RSI超卖等)
  * - 财务指标筛选 (ROE>15%、PE<20等)
+ * - 多维排序 + 次级排序
  * - 筛选结果导出 (CSV/JSON)
- * 
- * 参考通达信选股公式
+ * - 预设策略模板 (对标TradingView Screener)
+ *
+ * 参考: TradingView Screener, 通达信选股公式
  */
 
 import { Request, Response, Router } from 'express';
 import { Knex } from 'knex';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 import { queryCache } from '../utils/queryCache';
 import { validateBody, schemas } from '../middleware/validation';
 
@@ -27,9 +29,8 @@ interface ConditionGroup {
 
 interface ScreenerCondition {
   field: string;
-  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'between' | 'in';
+  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'between' | 'in' | 'not_in';
   value: number | string | [number, number] | string[];
-  // 技术指标条件
   indicator?: TechnicalIndicatorCondition;
 }
 
@@ -41,12 +42,13 @@ interface TechnicalIndicatorCondition {
 }
 
 interface AdvancedScreenerRequest {
-  groups: ConditionGroup[];     // 条件组 (组间AND)
+  groups: ConditionGroup[];
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  secondarySort?: { field: string; order: 'asc' | 'desc' };
   page?: number;
   pageSize?: number;
-  format?: 'json' | 'csv';     // 导出格式
+  format?: 'json' | 'csv';
 }
 
 interface MappedStock {
@@ -64,6 +66,8 @@ interface MappedStock {
   pbRatio: number | null;
   marketCap: number | null;
   circulatingMarketCap: number | null;
+  dividendYield: number | null;
+  roe: number | null;
   rsi: number | null;
   macd: number | null;
   macdSignal: number | null;
@@ -79,26 +83,26 @@ interface MappedStock {
 
 // ==================== 技术指标条件映射 ====================
 
-const INDICATOR_DESCRIPTIONS: Record<string, { name: string; description: string }> = {
-  macd_golden_cross: { name: 'MACD金叉', description: 'DIF上穿DEA，买入信号' },
-  macd_death_cross: { name: 'MACD死叉', description: 'DIF下穿DEA，卖出信号' },
-  rsi_oversold: { name: 'RSI超卖', description: 'RSI低于30，可能反弹' },
-  rsi_overbought: { name: 'RSI超买', description: 'RSI高于70，可能回调' },
-  kdj_golden_cross: { name: 'KDJ金叉', description: 'K线上穿D线' },
-  kdj_oversold: { name: 'KDJ超卖', description: 'J值低于20' },
-  boll_break_upper: { name: '突破布林上轨', description: '强势信号' },
-  boll_break_lower: { name: '跌破布林下轨', description: '弱势信号' },
-  ma_golden_cross: { name: '均线金叉', description: '短期均线上穿长期均线' },
-  ma_death_cross: { name: '均线死叉', description: '短期均线下穿长期均线' },
-  volume_breakout: { name: '放量突破', description: '成交量超过20日均量2倍' },
+const INDICATOR_DESCRIPTIONS: Record<string, { name: string; nameEn: string; description: string; signal: string }> = {
+  macd_golden_cross: { name: 'MACD金叉', nameEn: 'MACD Golden Cross', description: 'DIF上穿DEA', signal: 'buy' },
+  macd_death_cross: { name: 'MACD死叉', nameEn: 'MACD Death Cross', description: 'DIF下穿DEA', signal: 'sell' },
+  rsi_oversold: { name: 'RSI超卖', nameEn: 'RSI Oversold', description: 'RSI低于30，可能反弹', signal: 'buy' },
+  rsi_overbought: { name: 'RSI超买', nameEn: 'RSI Overbought', description: 'RSI高于70，可能回调', signal: 'sell' },
+  kdj_golden_cross: { name: 'KDJ金叉', nameEn: 'KDJ Golden Cross', description: 'K线上穿D线', signal: 'buy' },
+  kdj_oversold: { name: 'KDJ超卖', nameEn: 'KDJ Oversold', description: 'J值低于20', signal: 'buy' },
+  boll_break_upper: { name: '突破布林上轨', nameEn: 'Bollinger Upper Break', description: '强势信号', signal: 'buy' },
+  boll_break_lower: { name: '跌破布林下轨', nameEn: 'Bollinger Lower Break', description: '弱势信号', signal: 'sell' },
+  ma_golden_cross: { name: '均线金叉', nameEn: 'MA Golden Cross', description: '短期均线上穿长期均线', signal: 'buy' },
+  ma_death_cross: { name: '均线死叉', nameEn: 'MA Death Cross', description: '短期均线下穿长期均线', signal: 'sell' },
+  volume_breakout: { name: '放量突破', nameEn: 'Volume Breakout', description: '成交量超过20日均量2倍', signal: 'buy' },
 };
 
 // 支持的字段白名单 (扩展技术指标)
 const ALLOWED_FIELDS = new Set([
   'price', 'change_percent', 'volume', 'turnover', 'turnover_rate',
-  'amplitude', 'pe_ratio', 'pb_ratio', 'market_cap', 'circulating_market_cap',
+  'amplitude', 'pe_ratio', 'pb_ratio', 'ps_ratio', 'market_cap', 'circulating_market_cap',
+  'dividend_yield', 'roe', 'roa',
   'high_price', 'low_price', 'open_price',
-  // 技术指标字段
   'rsi', 'macd', 'macd_signal', 'macd_histogram',
   'kdj_k', 'kdj_d', 'kdj_j',
   'boll_upper', 'boll_middle', 'boll_lower',
@@ -115,8 +119,12 @@ const FIELD_MAP: Record<string, string> = {
   amplitude: 'dq.amplitude',
   pe_ratio: 'dq.pe_ratio',
   pb_ratio: 'dq.pb_ratio',
+  ps_ratio: 'dq.ps_ratio',
   market_cap: 'dq.market_cap',
   circulating_market_cap: 'dq.circulating_market_cap',
+  dividend_yield: 'dq.dividend_yield',
+  roe: 'dq.roe',
+  roa: 'dq.roa',
   high_price: 'dq.high_price',
   low_price: 'dq.low_price',
   open_price: 'dq.open_price',
@@ -137,20 +145,23 @@ const FIELD_MAP: Record<string, string> = {
   ma60: 'ti.ma60',
 };
 
-// ==================== 预设模板 (扩展) ====================
+// ==================== 预设模板 (对标TradingView) ====================
 
 const ADVANCED_PRESETS = [
   {
     id: 'macd_golden',
     name: 'MACD金叉',
+    nameEn: 'MACD Golden Cross',
     description: 'MACD金叉 + RSI<70未超买',
     icon: '📊',
+    category: 'technical',
     groups: [
       {
         logic: 'and' as const,
         conditions: [
           { field: 'macd_histogram', operator: 'gt' as const, value: 0 },
           { field: 'rsi', operator: 'lt' as const, value: 70 },
+          { field: 'rsi', operator: 'gt' as const, value: 30 },
         ],
       },
     ],
@@ -160,8 +171,10 @@ const ADVANCED_PRESETS = [
   {
     id: 'oversold_bounce',
     name: '超卖反弹',
+    nameEn: 'Oversold Bounce',
     description: 'RSI超卖 + KDJ超卖 + 放量',
     icon: '🔄',
+    category: 'technical',
     groups: [
       {
         logic: 'and' as const,
@@ -178,8 +191,10 @@ const ADVANCED_PRESETS = [
   {
     id: 'value_quality',
     name: '价值质量股',
-    description: '低PE + 低PB + 高ROE',
+    nameEn: 'Value with Quality',
+    description: '低PE + 低PB + 正ROE',
     icon: '💎',
+    category: 'value',
     groups: [
       {
         logic: 'and' as const,
@@ -188,23 +203,28 @@ const ADVANCED_PRESETS = [
           { field: 'pe_ratio', operator: 'lt' as const, value: 20 },
           { field: 'pb_ratio', operator: 'gt' as const, value: 0 },
           { field: 'pb_ratio', operator: 'lt' as const, value: 3 },
+          { field: 'roe', operator: 'gt' as const, value: 10 },
         ],
       },
     ],
     sortBy: 'pe_ratio',
     sortOrder: 'asc' as const,
+    secondarySort: { field: 'roe', order: 'desc' as const },
   },
   {
     id: 'volume_breakout',
     name: '放量突破',
-    description: '成交量突破20日均量 + 价格突破MA20',
+    nameEn: 'Volume Breakout',
+    description: '成交量突破 + 价格上行',
     icon: '📈',
+    category: 'technical',
     groups: [
       {
         logic: 'and' as const,
         conditions: [
           { field: 'volume', operator: 'gt' as const, value: 10000000 },
-          { field: 'price', operator: 'gt' as const, value: 0 },
+          { field: 'change_percent', operator: 'gt' as const, value: 2 },
+          { field: 'turnover_rate', operator: 'gt' as const, value: 5 },
         ],
       },
     ],
@@ -214,8 +234,10 @@ const ADVANCED_PRESETS = [
   {
     id: 'dual_filter',
     name: '复合筛选',
+    nameEn: 'Dual Filter',
     description: '(价值股 OR 成长股) AND 非超买',
     icon: '🎯',
+    category: 'custom',
     groups: [
       {
         logic: 'or' as const,
@@ -234,6 +256,67 @@ const ADVANCED_PRESETS = [
     sortBy: 'change_percent',
     sortOrder: 'desc' as const,
   },
+  {
+    id: 'momentum_breakout',
+    name: '动量突破',
+    nameEn: 'Momentum Breakout',
+    description: '涨幅+换手率+市值筛选的动量股',
+    icon: '🚀',
+    category: 'momentum',
+    groups: [
+      {
+        logic: 'and' as const,
+        conditions: [
+          { field: 'change_percent', operator: 'gte' as const, value: 5 },
+          { field: 'turnover_rate', operator: 'gte' as const, value: 5 },
+          { field: 'market_cap', operator: 'gte' as const, value: 5000000000 },
+        ],
+      },
+    ],
+    sortBy: 'change_percent',
+    sortOrder: 'desc' as const,
+  },
+  {
+    id: 'ma_trend',
+    name: '均线多头',
+    nameEn: 'MA Uptrend',
+    description: 'MA5>MA10>MA20均线排列',
+    icon: '📐',
+    category: 'technical',
+    groups: [
+      {
+        logic: 'and' as const,
+        conditions: [
+          { field: 'ma5', operator: 'gt' as const, value: 0 },
+          { field: 'ma10', operator: 'gt' as const, value: 0 },
+          { field: 'ma20', operator: 'gt' as const, value: 0 },
+        ],
+      },
+    ],
+    sortBy: 'change_percent',
+    sortOrder: 'desc' as const,
+  },
+  {
+    id: 'high_dividend_value',
+    name: '高息价值',
+    nameEn: 'High Dividend Value',
+    description: '高股息率+低估值的价值股',
+    icon: '💰',
+    category: 'value',
+    groups: [
+      {
+        logic: 'and' as const,
+        conditions: [
+          { field: 'dividend_yield', operator: 'gte' as const, value: 3 },
+          { field: 'pe_ratio', operator: 'gt' as const, value: 0 },
+          { field: 'pe_ratio', operator: 'lte' as const, value: 20 },
+          { field: 'market_cap', operator: 'gte' as const, value: 10000000000 },
+        ],
+      },
+    ],
+    sortBy: 'dividend_yield',
+    sortOrder: 'desc' as const,
+  },
 ];
 
 interface CustomTemplate {
@@ -241,12 +324,202 @@ interface CustomTemplate {
   name: string;
   description: string;
   icon: string;
+  category: string;
   groups: ConditionGroup[];
   sortBy: string;
   sortOrder: 'asc' | 'desc';
+  secondarySort?: { field: string; order: 'asc' | 'desc' };
 }
 
 const customTemplates: Map<string, CustomTemplate> = new Map();
+
+// ==================== 辅助函数 ====================
+
+function applyCondition(query: Knex.QueryBuilder, cond: ScreenerCondition): Knex.QueryBuilder {
+  const dbField = FIELD_MAP[cond.field];
+  if (!dbField) return query;
+
+  switch (cond.operator) {
+    case 'gt': return query.where(dbField, '>', cond.value);
+    case 'gte': return query.where(dbField, '>=', cond.value);
+    case 'lt': return query.where(dbField, '<', cond.value);
+    case 'lte': return query.where(dbField, '<=', cond.value);
+    case 'eq': return query.where(dbField, '=', cond.value);
+    case 'neq': return query.where(dbField, '!=', cond.value);
+    case 'between':
+      if (Array.isArray(cond.value) && cond.value.length === 2) {
+        return query.whereBetween(dbField, cond.value as [number, number]);
+      }
+      return query;
+    case 'in':
+      if (Array.isArray(cond.value)) {
+        return query.whereIn(dbField, cond.value as string[]);
+      }
+      return query;
+    case 'not_in':
+      if (Array.isArray(cond.value)) {
+        return query.whereNotIn(dbField, cond.value as string[]);
+      }
+      return query;
+    default: return query;
+  }
+}
+
+function applyConditionToBuilder(builder: Knex.QueryBuilder, cond: ScreenerCondition, dbField: string, method: string): void {
+  const fn = (builder as unknown as Record<string, Function>)[method];
+  switch (cond.operator) {
+    case 'gt': fn.call(builder, dbField, '>', cond.value); break;
+    case 'gte': fn.call(builder, dbField, '>=', cond.value); break;
+    case 'lt': fn.call(builder, dbField, '<', cond.value); break;
+    case 'lte': fn.call(builder, dbField, '<=', cond.value); break;
+    case 'eq': fn.call(builder, dbField, '=', cond.value); break;
+    case 'neq': fn.call(builder, dbField, '!=', cond.value); break;
+    case 'between':
+      if (Array.isArray(cond.value) && cond.value.length === 2) {
+        fn.call(builder, dbField, '>=', cond.value[0]);
+        fn.call(builder, dbField, '<=', cond.value[1]);
+      }
+      break;
+    case 'in':
+      if (Array.isArray(cond.value)) {
+        (builder as any)[method + 'In'](dbField, cond.value);
+      }
+      break;
+    case 'not_in':
+      if (Array.isArray(cond.value)) {
+        (builder as any)[method === 'where' ? 'whereNotIn' : 'orWhereNotIn'](dbField, cond.value);
+      }
+      break;
+  }
+}
+
+function buildAdvancedQuery() {
+  return db.connection
+    .from('stocks as s')
+    .joinRaw(`
+      JOIN daily_quotes dq ON dq.id = (
+        SELECT id FROM daily_quotes
+        WHERE stock_id = s.id
+        ORDER BY trade_date DESC
+        LIMIT 1
+      )
+    `)
+    .leftJoinRaw(`
+      technical_indicators ti ON ti.stock_id = s.id
+      AND ti.trade_date = (
+        SELECT MAX(trade_date) FROM technical_indicators WHERE stock_id = s.id
+      )
+    `)
+    .where('s.is_active', true);
+}
+
+function applyGroups(query: Knex.QueryBuilder, groups: ConditionGroup[]): Knex.QueryBuilder {
+  for (const group of groups) {
+    if (!group.conditions || group.conditions.length === 0) continue;
+
+    if (group.logic === 'and') {
+      for (const cond of group.conditions) {
+        query = applyCondition(query, cond);
+      }
+    } else {
+      query = query.where(function (this: Knex.QueryBuilder) {
+        for (let i = 0; i < group.conditions.length; i++) {
+          const cond = group.conditions[i];
+          const dbField = FIELD_MAP[cond.field];
+          if (!dbField) continue;
+
+          const builder = this;
+          if (i === 0) {
+            applyConditionToBuilder(builder, cond, dbField, 'where');
+          } else {
+            applyConditionToBuilder(builder, cond, dbField, 'orWhere');
+          }
+        }
+      });
+    }
+  }
+  return query;
+}
+
+function applyAdvancedSorting(query: Knex.QueryBuilder, sortBy: string, sortOrder: string, secondarySort?: { field: string; order: string }) {
+  const sortField = FIELD_MAP[sortBy] || 'dq.change_percent';
+  query = query.orderBy(sortField, sortOrder as 'asc' | 'desc');
+
+  if (secondarySort && FIELD_MAP[secondarySort.field]) {
+    query = query.orderBy(FIELD_MAP[secondarySort.field], secondarySort.order as 'asc' | 'desc');
+  }
+
+  query = query.orderBy('s.id', 'asc');
+  return query;
+}
+
+const SELECT_COLUMNS = [
+  's.id', 's.symbol', 's.name', 's.market', 's.industry',
+  'dq.close_price as price', 'dq.change_percent', 'dq.volume',
+  'dq.turnover', 'dq.turnover_rate', 'dq.amplitude',
+  'dq.pe_ratio', 'dq.pb_ratio', 'dq.market_cap',
+  'dq.circulating_market_cap', 'dq.dividend_yield', 'dq.roe',
+  'ti.rsi', 'ti.macd', 'ti.macd_signal', 'ti.macd_histogram',
+  'ti.kdj_k', 'ti.kdj_d', 'ti.kdj_j',
+  'ti.ma5', 'ti.ma10', 'ti.ma20', 'ti.ma60',
+];
+
+function mapStockRow(s: Record<string, string | null>): MappedStock {
+  return {
+    id: parseInt(String(s.id)) || 0,
+    symbol: String(s.symbol || ''),
+    name: String(s.name || ''),
+    market: String(s.market || ''),
+    industry: String(s.industry || ''),
+    price: parseFloat(String(s.price)) || 0,
+    changePercent: parseFloat(String(s.change_percent)) || 0,
+    volume: parseInt(String(s.volume)) || 0,
+    turnover: parseFloat(String(s.turnover)) || 0,
+    turnoverRate: parseFloat(String(s.turnover_rate)) || 0,
+    peRatio: s.pe_ratio != null ? parseFloat(String(s.pe_ratio)) : null,
+    pbRatio: s.pb_ratio != null ? parseFloat(String(s.pb_ratio)) : null,
+    marketCap: s.market_cap != null ? parseFloat(String(s.market_cap)) : null,
+    circulatingMarketCap: s.circulating_market_cap != null ? parseFloat(String(s.circulating_market_cap)) : null,
+    dividendYield: s.dividend_yield != null ? parseFloat(String(s.dividend_yield)) : null,
+    roe: s.roe != null ? parseFloat(String(s.roe)) : null,
+    rsi: s.rsi != null ? parseFloat(String(s.rsi)) : null,
+    macd: s.macd != null ? parseFloat(String(s.macd)) : null,
+    macdSignal: s.macd_signal != null ? parseFloat(String(s.macd_signal)) : null,
+    macdHistogram: s.macd_histogram != null ? parseFloat(String(s.macd_histogram)) : null,
+    kdjK: s.kdj_k != null ? parseFloat(String(s.kdj_k)) : null,
+    kdjD: s.kdj_d != null ? parseFloat(String(s.kdj_d)) : null,
+    kdjJ: s.kdj_j != null ? parseFloat(String(s.kdj_j)) : null,
+    ma5: s.ma5 != null ? parseFloat(String(s.ma5)) : null,
+    ma10: s.ma10 != null ? parseFloat(String(s.ma10)) : null,
+    ma20: s.ma20 != null ? parseFloat(String(s.ma20)) : null,
+    ma60: s.ma60 != null ? parseFloat(String(s.ma60)) : null,
+  };
+}
+
+function convertToCSV(data: MappedStock[]): string {
+  if (data.length === 0) return '';
+
+  const headers = [
+    '代码', '名称', '市场', '行业', '最新价', '涨跌幅%',
+    '成交量', '成交额', '换手率%', '市盈率', '市净率',
+    '总市值', '流通市值', '股息率%', 'ROE%',
+    'RSI', 'MACD', 'KDJ-J',
+    'MA5', 'MA10', 'MA20', 'MA60',
+  ];
+
+  const rows = data.map((s) => [
+    s.symbol, s.name, s.market, s.industry || '',
+    s.price, s.changePercent,
+    s.volume, s.turnover, s.turnoverRate,
+    s.peRatio ?? '', s.pbRatio ?? '',
+    s.marketCap ?? '', s.circulatingMarketCap ?? '',
+    s.dividendYield ?? '', s.roe ?? '',
+    s.rsi ?? '', s.macdHistogram ?? '', s.kdjJ ?? '',
+    s.ma5 ?? '', s.ma10 ?? '', s.ma20 ?? '', s.ma60 ?? '',
+  ]);
+
+  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+}
 
 // ==================== 路由 ====================
 
@@ -260,6 +533,7 @@ router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), a
       groups = [],
       sortBy = 'change_percent',
       sortOrder = 'desc',
+      secondarySort,
       page = 1,
       pageSize = 50,
       format = 'json',
@@ -293,57 +567,13 @@ router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), a
     const safePageSize = format === 'csv' ? 10000 : Math.min(Math.max(pageSize, 1), 200);
     const safePage = Math.max(page, 1);
 
-    const cacheKey = `adv_screener:${JSON.stringify({ groups, sortBy, sortOrder, page: safePage, pageSize: safePageSize })}`;
+    const cacheKey = `adv_screener:v2:${JSON.stringify({ groups, sortBy, sortOrder, secondarySort, page: safePage, pageSize: safePageSize })}`;
 
     const result = await queryCache.query(
       cacheKey,
       async () => {
-        // 构建查询 - 需要左连接技术指标表
-        let query = db.connection
-          .from('stocks as s')
-          .joinRaw(`
-            JOIN daily_quotes dq ON dq.id = (
-              SELECT id FROM daily_quotes
-              WHERE stock_id = s.id
-              ORDER BY trade_date DESC
-              LIMIT 1
-            )
-          `)
-          .leftJoinRaw(`
-            technical_indicators ti ON ti.stock_id = s.id
-            AND ti.trade_date = (
-              SELECT MAX(trade_date) FROM technical_indicators WHERE stock_id = s.id
-            )
-          `)
-          .where('s.is_active', true);
-
-        // 应用条件组 (组间 AND，组内按 logic)
-        for (const group of groups) {
-          if (group.conditions.length === 0) continue;
-
-          if (group.logic === 'and') {
-            // 组内 AND: 所有条件都要满足
-            for (const cond of group.conditions) {
-              query = applyCondition(query, cond);
-            }
-          } else {
-            // 组内 OR: 满足任一条件
-            query = query.where(function () {
-              for (let i = 0; i < group.conditions.length; i++) {
-                const cond = group.conditions[i];
-                const dbField = FIELD_MAP[cond.field];
-                if (!dbField) continue;
-
-                const builder = this;
-                if (i === 0) {
-                  applyConditionToBuilder(builder, cond, dbField, 'where');
-                } else {
-                  applyConditionToBuilder(builder, cond, dbField, 'orWhere');
-                }
-              }
-            });
-          }
-        }
+        let query = buildAdvancedQuery();
+        query = applyGroups(query, groups);
 
         // 获取总数
         const countResult = await query.clone()
@@ -354,67 +584,29 @@ router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), a
         const totalCount = parseInt(String(countResult?.total || '0'));
 
         // 排序
-        const sortField = FIELD_MAP[sortBy] || 'dq.change_percent';
-        query = query.orderBy(sortField, sortOrder);
+        query = applyAdvancedSorting(query, sortBy, sortOrder, secondarySort);
 
         // 分页
         const offset = (safePage - 1) * safePageSize;
         const stocks = await query
-          .select(
-            's.id', 's.symbol', 's.name', 's.market', 's.industry',
-            'dq.close_price as price',
-            'dq.change_percent',
-            'dq.volume',
-            'dq.turnover',
-            'dq.turnover_rate',
-            'dq.amplitude',
-            'dq.pe_ratio',
-            'dq.pb_ratio',
-            'dq.market_cap',
-            'dq.circulating_market_cap',
-            'ti.rsi', 'ti.macd', 'ti.macd_signal', 'ti.macd_histogram',
-            'ti.kdj_k', 'ti.kdj_d', 'ti.kdj_j',
-            'ti.ma5', 'ti.ma10', 'ti.ma20', 'ti.ma60'
-          )
+          .select(...SELECT_COLUMNS)
           .limit(safePageSize)
           .offset(offset);
 
-        const mappedStocks = stocks.map((s: Record<string, string | null>) => ({
-          id: s.id,
-          symbol: s.symbol,
-          name: s.name,
-          market: s.market,
-          industry: s.industry,
-          price: parseFloat(s.price) || 0,
-          changePercent: parseFloat(s.change_percent) || 0,
-          volume: parseInt(s.volume) || 0,
-          turnover: parseFloat(s.turnover) || 0,
-          turnoverRate: parseFloat(s.turnover_rate) || 0,
-          peRatio: s.pe_ratio ? parseFloat(s.pe_ratio) : null,
-          pbRatio: s.pb_ratio ? parseFloat(s.pb_ratio) : null,
-          marketCap: s.market_cap ? parseFloat(s.market_cap) : null,
-          circulatingMarketCap: s.circulating_market_cap ? parseFloat(s.circulating_market_cap) : null,
-          // 技术指标
-          rsi: s.rsi ? parseFloat(s.rsi) : null,
-          macd: s.macd ? parseFloat(s.macd) : null,
-          macdSignal: s.macd_signal ? parseFloat(s.macd_signal) : null,
-          macdHistogram: s.macd_histogram ? parseFloat(s.macd_histogram) : null,
-          kdjK: s.kdj_k ? parseFloat(s.kdj_k) : null,
-          kdjD: s.kdj_d ? parseFloat(s.kdj_d) : null,
-          kdjJ: s.kdj_j ? parseFloat(s.kdj_j) : null,
-          ma5: s.ma5 ? parseFloat(s.ma5) : null,
-          ma10: s.ma10 ? parseFloat(s.ma10) : null,
-          ma20: s.ma20 ? parseFloat(s.ma20) : null,
-          ma60: s.ma60 ? parseFloat(s.ma60) : null,
-        }));
-
         return {
-          stocks: mappedStocks,
+          stocks: stocks.map(mapStockRow),
           pagination: {
             page: safePage,
             pageSize: safePageSize,
             totalCount,
             totalPages: Math.ceil(totalCount / safePageSize),
+            hasNextPage: safePage * safePageSize < totalCount,
+            hasPrevPage: safePage > 1,
+          },
+          sortConfig: { sortBy, sortOrder, secondarySort },
+          filterSummary: {
+            groupCount: groups.length,
+            totalConditions: groups.reduce((sum, g) => sum + (g.conditions?.length || 0), 0),
           },
         };
       },
@@ -450,7 +642,9 @@ router.get('/screener/indicator-conditions', async (_req: Request, res: Response
   const indicators = Object.entries(INDICATOR_DESCRIPTIONS).map(([key, val]) => ({
     type: key,
     name: val.name,
+    nameEn: val.nameEn,
     description: val.description,
+    signal: val.signal,
   }));
 
   res.json({
@@ -469,12 +663,20 @@ router.get('/screener/indicator-conditions', async (_req: Request, res: Response
  * 获取高级预设模板
  * GET /api/screener/advanced-presets
  */
-router.get('/screener/advanced-presets', async (_req: Request, res: Response) => {
+router.get('/screener/advanced-presets', async (req: Request, res: Response) => {
+  const category = req.query.category as string | undefined;
+  let presets = ADVANCED_PRESETS;
+
+  if (category) {
+    presets = ADVANCED_PRESETS.filter(p => p.category === category);
+  }
+
   res.json({
     success: true,
     data: {
-      presets: ADVANCED_PRESETS,
+      presets,
       customs: Array.from(customTemplates.values()),
+      categories: ['technical', 'value', 'momentum', 'custom'],
     },
   });
 });
@@ -485,7 +687,7 @@ router.get('/screener/advanced-presets', async (_req: Request, res: Response) =>
  */
 router.post('/screener/advanced-templates', async (req: Request, res: Response) => {
   try {
-    const { name, description, groups, sortBy, sortOrder } = req.body;
+    const { name, description, groups, sortBy, sortOrder, secondarySort } = req.body;
 
     if (!name || !Array.isArray(groups) || groups.length === 0) {
       return res.status(400).json({
@@ -494,14 +696,40 @@ router.post('/screener/advanced-templates', async (req: Request, res: Response) 
       });
     }
 
+    // Validate groups structure
+    for (const group of groups) {
+      if (!group.conditions || !Array.isArray(group.conditions) || group.conditions.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: '每个条件组必须包含非空的 conditions 数组',
+        });
+      }
+      for (const cond of group.conditions) {
+        if (!cond.field || !cond.operator) {
+          return res.status(400).json({
+            success: false,
+            error: '每个条件必须包含 field 和 operator',
+          });
+        }
+        if (!ALLOWED_FIELDS.has(cond.field)) {
+          return res.status(400).json({
+            success: false,
+            error: `不支持的筛选字段: ${cond.field}`,
+          });
+        }
+      }
+    }
+
     const template = {
       id: `adv_custom_${Date.now()}`,
       name,
       description: description || '',
       icon: '🔧',
+      category: 'custom',
       groups,
       sortBy: sortBy || 'change_percent',
       sortOrder: sortOrder || 'desc',
+      secondarySort,
     };
 
     customTemplates.set(template.id, template);
@@ -513,71 +741,22 @@ router.post('/screener/advanced-templates', async (req: Request, res: Response) 
   }
 });
 
-// ==================== 辅助函数 ====================
+/**
+ * 删除自定义高级模板
+ * DELETE /api/screener/advanced-templates/:id
+ */
+router.delete('/screener/advanced-templates/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
 
-function applyCondition(query: Knex.QueryBuilder, cond: ScreenerCondition): Knex.QueryBuilder {
-  const dbField = FIELD_MAP[cond.field];
-  if (!dbField) return query;
-
-  switch (cond.operator) {
-    case 'gt': return query.where(dbField, '>', cond.value);
-    case 'gte': return query.where(dbField, '>=', cond.value);
-    case 'lt': return query.where(dbField, '<', cond.value);
-    case 'lte': return query.where(dbField, '<=', cond.value);
-    case 'eq': return query.where(dbField, '=', cond.value);
-    case 'between':
-      if (Array.isArray(cond.value) && cond.value.length === 2) {
-        return query.whereBetween(dbField, cond.value as [number, number]);
-      }
-      return query;
-    case 'in':
-      if (Array.isArray(cond.value)) {
-        return query.whereIn(dbField, cond.value as string[]);
-      }
-      return query;
-    default: return query;
+  if (!customTemplates.has(id)) {
+    return res.status(404).json({
+      success: false,
+      error: '模板不存在或为系统预设模板',
+    });
   }
-}
 
-function applyConditionToBuilder(builder: Knex.QueryBuilder, cond: ScreenerCondition, dbField: string, method: string): void {
-  const fn = (builder as unknown as Record<string, Function>)[method];
-  switch (cond.operator) {
-    case 'gt': fn.call(builder, dbField, '>', cond.value); break;
-    case 'gte': fn.call(builder, dbField, '>=', cond.value); break;
-    case 'lt': fn.call(builder, dbField, '<', cond.value); break;
-    case 'lte': fn.call(builder, dbField, '<=', cond.value); break;
-    case 'eq': fn.call(builder, dbField, '=', cond.value); break;
-    case 'between':
-      if (Array.isArray(cond.value) && cond.value.length === 2) {
-        fn.call(builder, dbField, '>=', cond.value[0]);
-        fn.call(builder, dbField, '<=', cond.value[1]);
-      }
-      break;
-  }
-}
-
-function convertToCSV(data: MappedStock[]): string {
-  if (data.length === 0) return '';
-
-  const headers = [
-    '代码', '名称', '市场', '行业', '最新价', '涨跌幅%',
-    '成交量', '成交额', '换手率%', '市盈率', '市净率',
-    '总市值', '流通市值', 'RSI', 'MACD', 'KDJ-K', 'KDJ-D', 'KDJ-J',
-    'MA5', 'MA10', 'MA20', 'MA60',
-  ];
-
-  const rows = data.map((s) => [
-    s.symbol, s.name, s.market, s.industry || '',
-    s.price, s.changePercent,
-    s.volume, s.turnover, s.turnoverRate,
-    s.peRatio ?? '', s.pbRatio ?? '',
-    s.marketCap ?? '', s.circulatingMarketCap ?? '',
-    s.rsi ?? '', s.macd ?? '',
-    s.kdjK ?? '', s.kdjD ?? '', s.kdjJ ?? '',
-    s.ma5 ?? '', s.ma10 ?? '', s.ma20 ?? '', s.ma60 ?? '',
-  ]);
-
-  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-}
+  customTemplates.delete(id);
+  res.json({ success: true, data: { deleted: true, id } });
+});
 
 export default router;

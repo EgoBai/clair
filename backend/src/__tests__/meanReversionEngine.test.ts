@@ -12,12 +12,21 @@ import {
 describe('Mean Reversion Engine', () => {
   const engine = new MeanReversionEngine();
 
+  // Deterministic seeded PRNG (mulberry32)
+  let _seed = 42;
+  const seededRandom = () => {
+    _seed |= 0; _seed = _seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(_seed ^ _seed >>> 15, 1 | _seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+
   // Test data generators
   const generateMeanReverting = (length: number, mu: number = 100, sigma: number = 5): number[] => {
     const prices: number[] = [mu];
     for (let i = 1; i < length; i++) {
       const reversion = 0.05 * (mu - prices[i - 1]);
-      const noise = (Math.random() - 0.5) * sigma;
+      const noise = (seededRandom() - 0.5) * sigma;
       prices.push(prices[i - 1] + reversion + noise);
     }
     return prices;
@@ -26,7 +35,7 @@ describe('Mean Reversion Engine', () => {
   const generateTrending = (length: number, drift: number = 0.5): number[] => {
     const prices: number[] = [100];
     for (let i = 1; i < length; i++) {
-      prices.push(prices[i - 1] + drift + (Math.random() - 0.5) * 2);
+      prices.push(prices[i - 1] + drift + (seededRandom() - 0.5) * 2);
     }
     return prices;
   };
@@ -34,7 +43,7 @@ describe('Mean Reversion Engine', () => {
   const generateRandomWalk = (length: number): number[] => {
     const prices: number[] = [100];
     for (let i = 1; i < length; i++) {
-      prices.push(prices[i - 1] + (Math.random() - 0.5) * 3);
+      prices.push(prices[i - 1] + (seededRandom() - 0.5) * 3);
     }
     return prices;
   };

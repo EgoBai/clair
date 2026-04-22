@@ -223,7 +223,7 @@ export function useWhyDidYouUpdate(name: string, props: Record<string, any>): vo
     }
 
     const allKeys = new Set([...Object.keys(previousProps.current), ...Object.keys(props)]);
-    const changes: Record<string, { from: any; to: any }> = {};
+    const changes: Record<string, { from: unknown; to: unknown }> = {};
 
     for (const key of allKeys) {
       if (previousProps.current[key] !== props[key]) {
@@ -232,7 +232,7 @@ export function useWhyDidYouUpdate(name: string, props: Record<string, any>): vo
     }
 
     if (Object.keys(changes).length > 0) {
-      console.log(`[WhyDidYouUpdate] ${name}:`, changes);
+      // removed: console.log
     }
 
     previousProps.current = props;

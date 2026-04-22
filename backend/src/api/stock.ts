@@ -5,7 +5,7 @@
  */
 
 import { Router } from 'express';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 import { StockSearchParams } from '../models/Stock';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import {

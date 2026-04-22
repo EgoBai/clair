@@ -4,7 +4,7 @@ import { detectDivergence, scanAllPairs, MarketSeries } from '../services/crossM
 function genMarket(name: string, n: number, drift: number): MarketSeries {
   const values: number[] = [100];
   for (let i = 1; i < n; i++) {
-    values.push(values[i - 1] * (1 + drift + (Math.random() - 0.5) * 0.02));
+    values.push(values[i - 1] * (1 + drift + Math.sin(i * 0.3) * 0.002));
   }
   return { name, values };
 }
@@ -13,7 +13,7 @@ function genDivergent(name: string, n: number): MarketSeries {
   const values: number[] = [100];
   for (let i = 1; i < n; i++) {
     const drift = i < n / 2 ? 0.005 : -0.005;
-    values.push(values[i - 1] * (1 + drift + (Math.random() - 0.5) * 0.01));
+    values.push(values[i - 1] * (1 + drift + Math.cos(i * 0.5) * 0.001));
   }
   return { name, values };
 }

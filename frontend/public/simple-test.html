@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单测试</title>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="module">
+        import React from 'https://esm.sh/react@18';
+        import ReactDOM from 'https://esm.sh/react-dom@18/client';
+        
+        const SimpleApp = () => {
+            return React.createElement('div', { 
+                style: { 
+                    padding: '40px', 
+                    textAlign: 'center',
+                    fontFamily: 'Arial, sans-serif'
+                }
+            },
+                React.createElement('h1', { 
+                    style: { color: '#1890ff' }
+                }, 'A股行情分析 - 简单测试'),
+                React.createElement('p', null, '如果看到这个页面，说明React可以正常工作。'),
+                React.createElement('button', { 
+                    onClick: () => alert('测试成功！'),
+                    style: { 
+                        padding: '10px 20px',
+                        backgroundColor: '#52c41a',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                    }
+                }, '点击测试')
+            );
+        };
+        
+        const rootElement = document.getElementById('root');
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(React.createElement(SimpleApp));
+        
+        console.log('简单React应用已渲染');
+    </script>
+</body>
+</html>

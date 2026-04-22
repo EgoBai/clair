@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import logger from '../utils/logger';
 import { Card, Table, Tag, Tabs, Space, Statistic, Row, Col, Progress, Typography, Select, Button, Tooltip } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -61,7 +62,7 @@ export default function ETFPage() {
       const json = await res.json();
       if (json.success) setEtfList(json.data);
     } catch (e) {
-      console.error('加载 ETF 数据失败:', e);
+      logger.error('加载 ETF 数据失败:', e);
     } finally {
       setLoading(false);
     }

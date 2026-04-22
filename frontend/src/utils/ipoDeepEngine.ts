@@ -17,6 +17,7 @@ export interface IPORecord {
   totalRaise: number; // 募资总额(亿)
   oversubscriptionRate: number; // 超额认购倍数
   industry: string;
+  lockUpShares?: number; // 解禁股数(万股)
 }
 
 export interface IPOAnalysis {

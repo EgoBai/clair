@@ -213,19 +213,19 @@ describe('AI选股页面逻辑', () => {
 
   describe('资金流向标签', () => {
     it('流入应为绿色', () => {
-      const trend = '流入';
+      const trend: '流入' | '流出' | '持平' = '流入';
       const color = trend === '流入' ? 'green' : trend === '流出' ? 'red' : 'default';
       expect(color).toBe('green');
     });
 
     it('流出应为红色', () => {
-      const trend = '流出';
+      const trend: '流入' | '流出' | '持平' = '流出';
       const color = trend === '流入' ? 'green' : trend === '流出' ? 'red' : 'default';
       expect(color).toBe('red');
     });
 
     it('其他应为默认色', () => {
-      const trend = '持平';
+      const trend: '流入' | '流出' | '持平' = '持平';
       const color = trend === '流入' ? 'green' : trend === '流出' ? 'red' : 'default';
       expect(color).toBe('default');
     });

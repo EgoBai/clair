@@ -104,13 +104,13 @@ describe('K线形态识别', () => {
 
     it('实体占比刚好10%边界 - 严格<', () => {
       // ratio = 2/20 = 0.1, < 0.1 is false → not doji
-      const result = detectDoji({ open: 100, high: 110, low: 90, close: 102 });
+      const result = detectDoji({ open: 100, high: 110, low: 90, close: 102, volume: 1e6 });
       expect(result).toBe(false);
     });
 
     it('实体占比略小于10%', () => {
       // body=1.9, range=20, ratio=0.095 < 0.1 → doji
-      expect(detectDoji({ open: 100, high: 110, low: 90, close: 101.9 })).toBe(true);
+      expect(detectDoji({ open: 100, high: 110, low: 90, close: 101.9, volume: 1e6 })).toBe(true);
     });
   });
 

@@ -196,7 +196,7 @@ export const LazyImage: React.FC<LazyImageProps> = ({
   };
 
   return (
-    <div ref={ref as any} style={{ position: 'relative', overflow: 'hidden' }}>
+    <div ref={ref as React.Ref<HTMLDivElement>} style={{ position: 'relative', overflow: 'hidden' }}>
       {skeleton && !loaded && !error && (
         <div className="lazy-image-skeleton" style={{
           position: 'absolute',
@@ -256,7 +256,7 @@ export const LazyComponent: React.FC<LazyComponentProps> = ({
   }, [inView, visible, onVisible]);
 
   return (
-    <div ref={ref as any} style={{ minHeight: visible ? undefined : minHeight }}>
+    <div ref={ref as React.Ref<HTMLDivElement>} style={{ minHeight: visible ? undefined : minHeight }}>
       {visible ? children : fallback}
     </div>
   );

@@ -10,7 +10,7 @@
  * 参考：Wind 数据质量标准 + Bloomberg 数据校验规范
  */
 
-import { KLineData, DailyQuote } from '../../shared/types';
+import { KLineData, DailyQuote } from '../types';
 
 // ==================== 类型 ====================
 

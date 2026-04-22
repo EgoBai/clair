@@ -43,7 +43,7 @@ function applySort(records: Record<string, any>[], sort: SortConfig): Record<str
       return sort.order === 'asc' ? aVal - bVal : bVal - aVal;
     }
     if (typeof aVal === 'string' && typeof bVal === 'string') {
-      return sort.order === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      return sort.order === 'asc' ? (aVal < bVal ? -1 : aVal > bVal ? 1 : 0) : (aVal > bVal ? -1 : aVal < bVal ? 1 : 0);
     }
     return 0;
   });

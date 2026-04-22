@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
 import { validateQuery, validateParams, schemas } from '../middleware/validation';
+import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 
 const router = Router();
 
@@ -73,8 +74,8 @@ function generateLockupExpiries(month?: number, year?: number): LockupExpiry[] {
       shareholder: shareholders[Math.floor(Math.random() * shareholders.length)],
       totalShares,
       circulatingBefore,
-      unlockRatio: ratio, // 占流通股比例 %
-      marketValue, // 解禁市值
+      unlockRatio: ratio,
+      marketValue,
       price: stock.price,
       actualCirculating: circulatingBefore + totalShares,
     });
@@ -84,130 +85,108 @@ function generateLockupExpiries(month?: number, year?: number): LockupExpiry[] {
 }
 
 // 月度解禁概览
-router.get('/lockup/calendar', validateQuery(schemas.lockupCalendar), async (req: Request, res: Response) => {
-  try {
-    const year = parseInt(req.query.year as string) || new Date().getFullYear();
-    const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+router.get('/lockup/calendar', validateQuery(schemas.lockupCalendar), asyncHandler(async (req: Request, res: Response) => {
+  const year = parseInt(req.query.year as string) || new Date().getFullYear();
+  const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
 
-    const cacheKey = `lockup:calendar:${year}-${month}`;
-    const data = await queryCache.query(
-      cacheKey,
-      () => generateLockupExpiries(month, year),
-      600000
-    );
+  const cacheKey = `lockup:calendar:${year}-${month}`;
+  const data = await queryCache.query(
+    cacheKey,
+    () => generateLockupExpiries(month, year),
+    600000
+  );
 
-    // 按日期分组
-    const byDate: Record<string, typeof data> = {};
-    let totalMarketValue = 0;
-    let totalShares = 0;
+  // 按日期分组
+  const byDate: Record<string, typeof data> = {};
+  let totalMarketValue = 0;
+  let totalShares = 0;
 
-    data.forEach(item => {
-      if (!byDate[item.expiryDate]) byDate[item.expiryDate] = [];
-      byDate[item.expiryDate].push(item);
-      totalMarketValue += item.marketValue;
-      totalShares += item.totalShares;
-    });
+  data.forEach(item => {
+    if (!byDate[item.expiryDate]) byDate[item.expiryDate] = [];
+    byDate[item.expiryDate].push(item);
+    totalMarketValue += item.marketValue;
+    totalShares += item.totalShares;
+  });
 
-    res.json({
-      success: true,
-      data: {
-        year,
-        month,
-        expiries: data,
-        byDate,
-        summary: {
-          totalStocks: new Set(data.map(d => d.symbol)).size,
-          totalEvents: data.length,
-          totalMarketValue,
-          totalShares,
-          avgUnlockRatio: data.length
-            ? Math.round(data.reduce((s, d) => s + d.unlockRatio, 0) / data.length * 100) / 100
-            : 0,
-        },
-      },
-    });
-  } catch (error) {
-    console.error('解禁日历查询失败:', error);
-    res.status(500).json({ success: false, error: '解禁日历查询失败' });
-  }
-});
+  sendSuccess(res, {
+    year,
+    month,
+    expiries: data,
+    byDate,
+    summary: {
+      totalStocks: new Set(data.map(d => d.symbol)).size,
+      totalEvents: data.length,
+      totalMarketValue,
+      totalShares,
+      avgUnlockRatio: data.length
+        ? Math.round(data.reduce((s, d) => s + d.unlockRatio, 0) / data.length * 100) / 100
+        : 0,
+    },
+  });
+}));
 
 // 解禁排行（按解禁市值）
-router.get('/lockup/rank', validateQuery(schemas.lockupRank), async (req: Request, res: Response) => {
-  try {
-    const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
-    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+router.get('/lockup/rank', validateQuery(schemas.lockupRank), asyncHandler(async (req: Request, res: Response) => {
+  const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+  const year = parseInt(req.query.year as string) || new Date().getFullYear();
 
-    const cacheKey = `lockup:rank:${year}-${month}`;
-    const data = await queryCache.query(
-      cacheKey,
-      () => {
-        const allExpiries = generateLockupExpiries(month, year);
-        return allExpiries.sort((a, b) => b.marketValue - a.marketValue).slice(0, 20);
-      },
-      600000
-    );
+  const cacheKey = `lockup:rank:${year}-${month}`;
+  const data = await queryCache.query(
+    cacheKey,
+    () => {
+      const allExpiries = generateLockupExpiries(month, year);
+      return allExpiries.sort((a, b) => b.marketValue - a.marketValue).slice(0, 20);
+    },
+    600000
+  );
 
-    res.json({ success: true, data });
-  } catch (error) {
-    console.error('解禁排行查询失败:', error);
-    res.status(500).json({ success: false, error: '解禁排行查询失败' });
-  }
-});
+  sendSuccess(res, data);
+}));
 
 // 个股解禁历史
-router.get('/lockup/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
-  try {
-    const { symbol } = req.params;
-    const months = parseInt(req.query.months as string) || 12;
+router.get('/lockup/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
+  const { symbol } = req.params;
+  const months = parseInt(req.query.months as string) || 12;
 
-    const cacheKey = `lockup:stock:${symbol}:${months}`;
-    const history = await queryCache.query(
-      cacheKey,
-      () => {
-        const now = new Date();
-        const all: LockupExpiry[] = [];
-        for (let m = 0; m < months; m++) {
+  const cacheKey = `lockup:stock:${symbol}:${months}`;
+  const history = await queryCache.query(
+    cacheKey,
+    () => {
+      const now = new Date();
+      const all: LockupExpiry[] = [];
+      for (let m = 0; m < months; m++) {
+        const d = new Date(now);
+        d.setMonth(d.getMonth() + m);
+        const monthData = generateLockupExpiries(d.getMonth() + 1, d.getFullYear());
+        const filtered = monthData.filter(e => e.symbol === symbol);
+        all.push(...filtered);
+      }
+      if (all.length === 0) {
+        for (let m = 0; m < Math.min(months, 3); m++) {
           const d = new Date(now);
           d.setMonth(d.getMonth() + m);
-          const monthData = generateLockupExpiries(d.getMonth() + 1, d.getFullYear());
-          const filtered = monthData.filter(e => e.symbol === symbol);
-          all.push(...filtered);
+          const day = Math.floor(Math.random() * 28) + 1;
+          all.push({
+            id: m + 1,
+            symbol,
+            name: symbol,
+            expiryDate: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+            lockupType: ['首发原股东限售', '定向增发机构配售'][Math.floor(Math.random() * 2)],
+            shareholder: '控股股东',
+            totalShares: Math.floor(Math.random() * 200000000) + 10000000,
+            circulatingBefore: 1000000000,
+            unlockRatio: Math.round(Math.random() * 10 * 100) / 100,
+            marketValue: Math.floor(Math.random() * 5000000000) + 100000000,
+            price: 50,
+          });
         }
-        // 如果没有匹配，生成一些
-        if (all.length === 0) {
-          for (let m = 0; m < Math.min(months, 3); m++) {
-            const d = new Date(now);
-            d.setMonth(d.getMonth() + m);
-            const day = Math.floor(Math.random() * 28) + 1;
-            all.push({
-              id: m + 1,
-              symbol,
-              name: symbol,
-              expiryDate: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-              lockupType: ['首发原股东限售', '定向增发机构配售'][Math.floor(Math.random() * 2)],
-              shareholder: '控股股东',
-              totalShares: Math.floor(Math.random() * 200000000) + 10000000,
-              circulatingBefore: 1000000000,
-              unlockRatio: Math.round(Math.random() * 10 * 100) / 100,
-              marketValue: Math.floor(Math.random() * 5000000000) + 100000000,
-              price: 50,
-            });
-          }
-        }
-        return all.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
-      },
-      600000
-    );
+      }
+      return all.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
+    },
+    600000
+  );
 
-    res.json({
-      success: true,
-      data: { symbol, expiries: history, total: history.length },
-    });
-  } catch (error) {
-    console.error('个股解禁查询失败:', error);
-    res.status(500).json({ success: false, error: '个股解禁查询失败' });
-  }
-});
+  sendSuccess(res, { symbol, expiries: history, total: history.length });
+}));
 
 export default router;

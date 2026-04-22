@@ -218,8 +218,8 @@ export function createFpsMonitor(
  * 数据处理性能基准
  */
 export function benchmarkDataProcessing(
-  data: any[],
-  processor: (data: any[]) => any,
+  data: unknown[],
+  processor: (data: unknown[]) => any,
   iterations: number = 10
 ): { avgTime: number; minTime: number; maxTime: number; throughput: number } {
   const times: number[] = [];

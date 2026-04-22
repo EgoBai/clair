@@ -4,7 +4,7 @@
  */
 
 import { Request, Response, Router } from 'express';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 import { calculateAllIndicators, OHLCV } from '../indicators/technical';
 import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';

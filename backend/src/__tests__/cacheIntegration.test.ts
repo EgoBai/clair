@@ -3,7 +3,7 @@
  * 验证各缓存模块协同工作
  * Round 103: 缓存集成验证
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CacheStrategyManager } from '../utils/cacheStrategyManager.js';
 import { CacheInvalidationRouter } from '../utils/cacheInvalidationRouter.js';
 import { CacheConsistencyEngine } from '../utils/cacheConsistencyEngine.js';

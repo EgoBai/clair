@@ -18,7 +18,7 @@ import {
   SwapOutlined, InfoCircleOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
-import { formatPrice, formatChangePercent, formatTurnover } from '../../../../shared/formatters';
+import { formatCurrency, formatChangePercent, formatTurnover } from '../utils/formatters';
 import { useDebounce } from '../hooks/useHooks';
 
 const { Title, Text } = Typography;
@@ -92,7 +92,7 @@ function BacktestPage() {
       };
       const response = await apiService.runBacktest(symbol, strategy, params);
       if (response.success) {
-        setResult(response.data);
+        setResult(response.data as any);
       } else {
         setError(response.error || '回测失败');
       }
@@ -220,7 +220,7 @@ function BacktestPage() {
               value={100000}
               disabled
               style={{ width: '100%', marginTop: 4 }}
-              formatter={(v) => `¥${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              formatter={(v) => `¥${v as any}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             />
           </Col>
           <Col span={4}>
@@ -229,7 +229,7 @@ function BacktestPage() {
               value={0.03}
               disabled
               style={{ width: '100%', marginTop: 4 }}
-              formatter={(v) => `${v}%`}
+              formatter={(v) => `${v as any}%`}
             />
           </Col>
           <Col span={4}>
@@ -350,8 +350,8 @@ function BacktestPage() {
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
                   <RTooltip
-                    formatter={(v: number) => [`¥${v.toLocaleString()}`, '资产']}
-                    labelFormatter={(l: string) => `日期: ${l}`}
+                    formatter={(v: any) => [`¥${Number(v).toLocaleString()}`, '资产']}
+                    labelFormatter={(l: any) => `日期: ${l}`}
                   />
                   <defs>
                     <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
@@ -367,8 +367,8 @@ function BacktestPage() {
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
                   <RTooltip
-                    formatter={(v: number) => [`${v.toFixed(2)}%`, '回撤']}
-                    labelFormatter={(l: string) => `日期: ${l}`}
+                    formatter={(v: any) => [`${Number(v).toFixed(2)}%`, '回撤']}
+                    labelFormatter={(l: any) => `日期: ${l}`}
                   />
                   <defs>
                     <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
@@ -387,8 +387,8 @@ function BacktestPage() {
             <Col span={8}>
               <Card title="详细指标" size="small">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <Statistic title="初始资金" value={result.initialCapital} prefix="¥" formatter={(v) => Number(v).toLocaleString()} />
-                  <Statistic title="最终资金" value={result.finalValue} prefix="¥" formatter={(v) => Number(v).toLocaleString()} />
+                  <Statistic title="初始资金" value={result.initialCapital} prefix="¥" formatter={(v) => Number(v).toLocaleString() as any} />
+                  <Statistic title="最终资金" value={result.finalValue} prefix="¥" formatter={(v) => Number(v).toLocaleString() as any} />
                   <Statistic title="总交易次数" value={result.totalTrades} />
                   <Statistic title="盈利次数" value={result.winningTrades} valueStyle={{ color: '#EF4444' }} />
                   <Statistic title="亏损次数" value={result.losingTrades} valueStyle={{ color: '#22C55E' }} />

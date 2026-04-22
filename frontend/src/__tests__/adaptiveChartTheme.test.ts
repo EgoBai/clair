@@ -78,7 +78,7 @@ class AdaptiveChartThemeEngine {
   }
 
   generateTheme(context: ThemeContext): ThemePalette {
-    let baseName = context.userPreference === 'auto'
+    const baseName = context.userPreference === 'auto'
       ? this.autoSelectBase(context.timeOfDay)
       : context.userPreference;
 

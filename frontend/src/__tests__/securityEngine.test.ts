@@ -415,7 +415,7 @@ describe('RateLimiter', () => {
 
   it('在达到限制后阻止请求', () => {
     const limiter = new RateLimiter({ maxRequests: 2, windowMs: 1000, blockDurationMs: 5000 });
-    let now = 1000;
+    const now = 1000;
     expect(limiter.check(now).allowed).toBe(true);
     expect(limiter.check(now + 1).allowed).toBe(true);
     expect(limiter.check(now + 2).allowed).toBe(false);
@@ -423,7 +423,7 @@ describe('RateLimiter', () => {
 
   it('窗口过期后重置', () => {
     const limiter = new RateLimiter({ maxRequests: 2, windowMs: 500, blockDurationMs: 100 });
-    let t = 100000;
+    const t = 100000;
     expect(limiter.check(t).allowed).toBe(true);
     expect(limiter.check(t + 1).allowed).toBe(true);
     expect(limiter.check(t + 2).allowed).toBe(false);

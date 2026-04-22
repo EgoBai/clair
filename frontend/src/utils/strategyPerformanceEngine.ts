@@ -93,7 +93,7 @@ export function calculatePerformanceMetrics(returns: DailyReturn[]): Performance
   let peak = 0;
   let cumReturn = 0;
   let maxDrawdown = 0;
-  let ddStart = 0;
+  const ddStart = 0;
   let maxDdDuration = 0;
   let currentDdDuration = 0;
 

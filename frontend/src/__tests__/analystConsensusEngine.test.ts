@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateConsensus,
   compareConsensus,
+} from '../utils/analystConsensusEngine';
+import type {
   AnalystRating,
   EarningsEstimate,
   EarningsSurprise,

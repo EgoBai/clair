@@ -107,8 +107,8 @@ export function analyzeSeats(entries: LongHuBangEntry[]): SeatAnalysis[] {
   return Array.from(seatMap.entries())
     .map(([name, data]) => {
       const netAmount = data.totalBuy - data.totalSell;
-      let type: SeatAnalysis['type'] = data.is机构 ? '机构' : (data.tradeCount > 5 ? '游资' : '营业部');
-      let signal: SeatAnalysis['signal'] = netAmount > 0 ? 'bullish' : netAmount < 0 ? 'bearish' : 'neutral';
+      const type: SeatAnalysis['type'] = data.is机构 ? '机构' : (data.tradeCount > 5 ? '游资' : '营业部');
+      const signal: SeatAnalysis['signal'] = netAmount > 0 ? 'bullish' : netAmount < 0 ? 'bearish' : 'neutral';
 
       return {
         name,

@@ -24,7 +24,7 @@ export class EventBus {
   private handlers: Map<string, Set<EventHandler>> = new Map();
   private history: EventRecord[] = [];
   private maxHistory: number;
-  private middleware: Array<(event: string, data: any) => any> = [];
+  private middleware: Array<(event: string, data: unknown) => any> = [];
   private onceHandlers: Map<string, Set<EventHandler>> = new Map();
 
   constructor(maxHistory: number = 100) {
@@ -118,7 +118,7 @@ export class EventBus {
   /**
    * 添加中间件
    */
-  use(middleware: (event: string, data: any) => any): void {
+  use(middleware: (event: string, data: unknown) => any): void {
     this.middleware.push(middleware);
   }
 

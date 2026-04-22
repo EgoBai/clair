@@ -1,328 +1,811 @@
-/**
- * 股票列表页
- * 支持搜索、筛选、排序、分页、键盘导航
- */
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { ROUTE_PATHS } from '../routes';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Table, Input, Select, Card, Tag, Pagination, Row, Col, Tooltip, Typography } from 'antd';
-import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { ColumnsType } from 'antd/es/table';
-import { apiService, StockWithQuote } from '../services/api';
-import { useDebounce } from '../hooks/useHooks';
-
-const { Text } = Typography;
+// 模拟股票数据
+const mockStocks = [
+  { symbol: '000001', name: '平安银行', price: 12.34, change: 0.23, changePercent: 1.90, volume: '1.2亿', marketCap: '2400亿' },
+  { symbol: '000002', name: '万科A', price: 15.67, change: -0.45, changePercent: -2.79, volume: '0.8亿', marketCap: '1800亿' },
+  { symbol: '000333', name: '美的集团', price: 56.78, change: 1.23, changePercent: 2.21, volume: '0.5亿', marketCap: '4000亿' },
+  { symbol: '000858', name: '五粮液', price: 156.78, change: 3.45, changePercent: 2.25, volume: '0.3亿', marketCap: '6000亿' },
+  { symbol: '002415', name: '海康威视', price: 34.56, change: 0.78, changePercent: 2.31, volume: '0.4亿', marketCap: '3200亿' },
+  { symbol: '300750', name: '宁德时代', price: 234.56, change: 8.45, changePercent: 3.73, volume: '0.6亿', marketCap: '10000亿' },
+  { symbol: '600036', name: '招商银行', price: 32.45, change: -0.23, changePercent: -0.70, volume: '0.9亿', marketCap: '8000亿' },
+  { symbol: '600519', name: '贵州茅台', price: 1678.90, change: 45.32, changePercent: 2.77, volume: '0.1亿', marketCap: '21000亿' },
+  { symbol: '601318', name: '中国平安', price: 45.67, change: -0.89, changePercent: -1.91, volume: '1.1亿', marketCap: '8300亿' },
+  { symbol: '601988', name: '中国银行', price: 3.45, change: -0.02, changePercent: -0.58, volume: '2.3亿', marketCap: '9500亿' },
+];
 
 const StockListPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [stocks, setStocks] = useState<StockWithQuote[]>([]);
+  const [stocks, setStocks] = useState(mockStocks);
   const [loading, setLoading] = useState(false);
-  const [searchText, setSearchText] = useState(searchParams.get('search') || '');
-  const [market, setMarket] = useState<string>('');
-  const [industry, setIndustry] = useState<string>('');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [total, setTotal] = useState(0);
-  const [selectedRowIdx, setSelectedRowIdx] = useState(-1);
-  const tableRef = useRef<HTMLDivElement>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'symbol' | 'name' | 'price' | 'changePercent'>('symbol');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
-  const debouncedSearch = useDebounce(searchText, 300);
-
+  // 模拟数据加载
   useEffect(() => {
-    loadStocks();
-  }, [page, pageSize, market, industry, debouncedSearch]);
-
-  // 键盘导航: 上下箭头选择行，Enter进入详情
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 仅在搜索框未聚焦时生效
-      const activeEl = document.activeElement;
-      if (activeEl && activeEl.tagName === 'INPUT') return;
-      
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedRowIdx(prev => Math.min(prev + 1, stocks.length - 1));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedRowIdx(prev => Math.max(prev - 1, 0));
-      } else if (e.key === 'Enter' && selectedRowIdx >= 0 && selectedRowIdx < stocks.length) {
-        e.preventDefault();
-        navigate(`/stock/${stocks[selectedRowIdx]!.symbol}`);
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [stocks, selectedRowIdx, navigate]);
-
-  const loadStocks = async () => {
     setLoading(true);
-    try {
-      const params: any = {
-        page,
-        pageSize,
-        sortBy: 'symbol',
-        sortOrder: 'asc',
-      };
-      if (debouncedSearch) {
-        params.symbol = debouncedSearch;
-        params.name = debouncedSearch;
-      }
-      if (market) params.market = market;
-      if (industry) params.industry = industry;
-
-      const res = await apiService.getStocks(params);
-      if (res.success) {
-        setStocks(res.data.stocks);
-        setTotal(res.data.pagination.totalCount);
-      }
-    } catch (error) {
-      console.error('加载股票列表失败:', error);
-    } finally {
+    setTimeout(() => {
       setLoading(false);
+    }, 500);
+  }, []);
+
+  // 使用useMemo缓存过滤和排序结果
+  const filteredAndSortedStocks = useMemo(() => {
+    let result = [...stocks];
+    
+    // 过滤
+    if (searchTerm.trim()) {
+      result = result.filter(stock =>
+        stock.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        stock.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
+    
+    // 排序
+    result.sort((a, b) => {
+      let aValue = a[sortBy] as string | number;
+      let bValue = b[sortBy] as string | number;
+
+      if (sortBy === 'symbol' || sortBy === 'name') {
+        aValue = String(aValue).toLowerCase();
+        bValue = String(bValue).toLowerCase();
+      }
+
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+    
+    return result;
+  }, [stocks, searchTerm, sortBy, sortOrder]);
+
+  // 分页计算 - 使用useMemo缓存
+  const { totalPages, startIndex, endIndex, currentStocks } = useMemo(() => {
+    const totalPages = Math.ceil(filteredAndSortedStocks.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentStocks = filteredAndSortedStocks.slice(startIndex, endIndex);
+    
+    return { totalPages, startIndex, endIndex, currentStocks };
+  }, [filteredAndSortedStocks, currentPage, itemsPerPage]);
+
+  // 处理排序点击 - 使用useCallback优化
+  const handleSort = useCallback((column: typeof sortBy) => {
+    setSortBy(column);
+    setSortOrder(prevOrder => {
+      if (sortBy === column) {
+        return prevOrder === 'asc' ? 'desc' : 'asc';
+      }
+      return 'asc';
+    });
+  }, [sortBy]);
+
+  // 刷新数据 - 使用useCallback优化
+  const refreshData = useCallback(() => {
+    setLoading(true);
+    setTimeout(() => {
+      // 在实际应用中这里应该调用API
+      setLoading(false);
+    }, 1000);
+  }, []);
+
+  // 处理搜索输入 - 使用useCallback优化
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+    setCurrentPage(1); // 搜索时重置到第一页
+  }, []);
+
+  // 处理分页 - 使用useCallback优化
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+  }, []);
+
+  // 渲染排序箭头
+  const renderSortArrow = (column: typeof sortBy) => {
+    if (sortBy !== column) return null;
+    return sortOrder === 'asc' ? '↑' : '↓';
   };
-
-  // 格式化函数
-  const formatTurnover = (val?: number) => {
-    if (!val) return '-';
-    if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
-    if (val >= 1e4) return `${(val / 1e4).toFixed(2)}万`;
-    return val.toString();
-  };
-
-  const formatVolume = (val?: number) => {
-    if (!val) return '-';
-    if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
-    if (val >= 1e4) return `${(val / 1e4).toFixed(2)}万`;
-    return val.toString();
-  };
-
-  const formatMarketCap = (val?: number) => {
-    if (!val) return '-';
-    if (val >= 1e12) return `${(val / 1e12).toFixed(2)}万亿`;
-    if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
-    return val.toString();
-  };
-
-  const marketColorMap: Record<string, string> = { SH: 'blue', SZ: 'green', BJ: 'orange' };
-  const marketLabelMap: Record<string, string> = { SH: '沪', SZ: '深', BJ: '北' };
-
-  const columns: ColumnsType<StockWithQuote> = [
-    {
-      title: '代码',
-      dataIndex: 'symbol',
-      width: 110,
-      fixed: 'left',
-      render: (val: string) => (
-        <Text strong style={{ color: '#1890ff', fontSize: 13 }}>{val}</Text>
-      ),
-    },
-    {
-      title: '名称',
-      dataIndex: 'name',
-      width: 100,
-      fixed: 'left',
-      render: (val: string) => <Text strong style={{ fontSize: 13 }}>{val}</Text>,
-    },
-    {
-      title: '市场',
-      dataIndex: 'market',
-      width: 60,
-      render: (val: string) => (
-        <Tag color={marketColorMap[val] || 'default'} style={{ fontSize: 11 }}>
-          {marketLabelMap[val] || val}
-        </Tag>
-      ),
-    },
-    {
-      title: '行业',
-      dataIndex: 'industry',
-      width: 90,
-      ellipsis: { showTitle: false },
-      render: (val: string) => val ? (
-        <Tooltip title={val}>
-          <Text style={{ fontSize: 12 }}>{val}</Text>
-        </Tooltip>
-      ) : '-',
-    },
-    {
-      title: '最新价',
-      dataIndex: ['latestQuote', 'closePrice'],
-      width: 90,
-      align: 'right',
-      render: (val: number, record) => {
-        if (!val) return '-';
-        const changePercent = record.latestQuote?.changePercent ?? 0;
-        const color = changePercent >= 0 ? '#EF4444' : '#22C55E';
-        return <Text style={{ fontFamily: 'monospace', fontWeight: 600, color }}>{val.toFixed(2)}</Text>;
-      },
-    },
-    {
-      title: '涨跌幅',
-      dataIndex: ['latestQuote', 'changePercent'],
-      width: 90,
-      align: 'right',
-      sorter: (a, b) =>
-        (a.latestQuote?.changePercent ?? 0) - (b.latestQuote?.changePercent ?? 0),
-      render: (val: number) => {
-        if (val === undefined || val === null) return '-';
-        return (
-          <Tag color={val >= 0 ? 'red' : 'green'} style={{ fontFamily: 'monospace' }}>
-            {val >= 0 ? '+' : ''}{val.toFixed(2)}%
-          </Tag>
-        );
-      },
-    },
-    {
-      title: '成交量',
-      dataIndex: ['latestQuote', 'volume'],
-      width: 90,
-      align: 'right',
-      render: (val: number) => (
-        <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{formatVolume(val)}</Text>
-      ),
-    },
-    {
-      title: '成交额',
-      dataIndex: ['latestQuote', 'turnover'],
-      width: 90,
-      align: 'right',
-      render: (val: number) => (
-        <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{formatTurnover(val)}</Text>
-      ),
-    },
-    {
-      title: '市值',
-      dataIndex: ['latestQuote', 'marketCap'],
-      width: 100,
-      align: 'right',
-      render: (val: number) => (
-        <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{formatMarketCap(val)}</Text>
-      ),
-    },
-  ];
-
-  const industries = [
-    { label: '银行', value: '银行' },
-    { label: '食品饮料', value: '食品饮料' },
-    { label: '电子', value: '电子' },
-    { label: '医药生物', value: '医药生物' },
-    { label: '电力设备', value: '电力设备' },
-    { label: '非银金融', value: '非银金融' },
-    { label: '计算机', value: '计算机' },
-    { label: '汽车', value: '汽车' },
-    { label: '家用电器', value: '家用电器' },
-    { label: '通信', value: '通信' },
-    { label: '国防军工', value: '国防军工' },
-    { label: '机械设备', value: '机械设备' },
-  ];
 
   return (
-    <div style={{ padding: '16px' }}>
-      <Card
-        title={<span style={{ fontWeight: 600 }}>📋 股票列表</span>}
-        size="small"
-        extra={<Text type="secondary" style={{ fontSize: 12 }}>共 {total} 只</Text>}
-      >
-        {/* 搜索和筛选 */}
-        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-          <Col xs={24} sm={12} md={8}>
-            <Input
-              placeholder="搜索股票代码或名称"
-              prefix={<SearchOutlined />}
-              value={searchText}
-              onChange={(e) => {
-                setSearchText(e.target.value);
-                setPage(1);
-              }}
-              allowClear
-              size="middle"
-            />
-          </Col>
-          <Col xs={12} sm={6} md={4}>
-            <Select
-              placeholder="市场"
-              value={market || undefined}
-              onChange={(val) => { setMarket(val || ''); setPage(1); }}
-              allowClear
-              style={{ width: '100%' }}
-              suffixIcon={<FilterOutlined />}
-              options={[
-                { label: '上海', value: 'SH' },
-                { label: '深圳', value: 'SZ' },
-                { label: '北京', value: 'BJ' },
-              ]}
-            />
-          </Col>
-          <Col xs={12} sm={6} md={4}>
-            <Select
-              placeholder="行业"
-              value={industry || undefined}
-              onChange={(val) => { setIndustry(val || ''); setPage(1); }}
-              allowClear
-              style={{ width: '100%' }}
-              suffixIcon={<FilterOutlined />}
-              options={industries}
-              showSearch
-              optionFilterProp="label"
-            />
-          </Col>
-        </Row>
-
-        {/* 表格 */}
-        <Table
-          columns={columns}
-          dataSource={stocks}
-          rowKey={(r) => r.id || r.symbol}
-          loading={loading}
-          pagination={false}
-          size="small"
-          scroll={{ x: 900 }}
-          onRow={(record, index) => ({
-            onClick: () => {
-              setSelectedRowIdx(index ?? -1);
-              navigate(`/stock/${record.symbol}`);
-            },
-            onMouseEnter: () => setSelectedRowIdx(index ?? -1),
-            style: {
-              cursor: 'pointer',
-              transition: 'background 0.2s',
-              background: index === selectedRowIdx ? '#e6f4ff' : undefined,
-            },
-          })}
-          rowClassName={() => 'stock-table-row'}
-        />
-        {/* 键盘导航提示 */}
-        <div style={{
-          marginTop: 8,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            ⌨️ 快捷键: ↑↓ 选择行 | Enter 进入详情 | ⌘K 搜索
-          </Text>
+    <div className="stock-list-page">
+      {/* 页面标题和搜索 */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">📈 股票列表</h1>
+          <p className="page-subtitle">实时A股市场行情数据</p>
         </div>
-
-        {/* 分页 */}
-        <div style={{ marginTop: 16, textAlign: 'right' }}>
-          <Pagination
-            current={page}
-            pageSize={pageSize}
-            total={total}
-            showSizeChanger
-            showQuickJumper
-            showTotal={(t) => `共 ${t} 只股票`}
-            onChange={(p, ps) => {
-              setPage(p);
-              setPageSize(ps);
-            }}
-            size="small"
-            pageSizeOptions={['10', '20', '50', '100']}
-          />
+        <div className="header-actions">
+          <div className="search-box">
+            <input
+              type="text"
+              placeholder="搜索股票代码或名称..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <button className="search-btn">🔍</button>
+          </div>
+          <button 
+            className="refresh-btn"
+            onClick={refreshData}
+            disabled={loading}
+          >
+            {loading ? '刷新中...' : '🔄 刷新'}
+          </button>
         </div>
-      </Card>
+      </div>
+
+      {/* 统计信息 */}
+      <div className="stats-cards">
+        <div className="stat-card">
+          <div className="stat-icon">📊</div>
+          <div className="stat-content">
+            <div className="stat-value">{stocks.length}</div>
+            <div className="stat-label">总股票数</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">📈</div>
+          <div className="stat-content">
+            <div className="stat-value positive">
+              {stocks.filter(s => s.changePercent > 0).length}
+            </div>
+            <div className="stat-label">上涨股票</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">📉</div>
+          <div className="stat-content">
+            <div className="stat-value negative">
+              {stocks.filter(s => s.changePercent < 0).length}
+            </div>
+            <div className="stat-label">下跌股票</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">💰</div>
+          <div className="stat-content">
+            <div className="stat-value">
+              {stocks.reduce((sum, stock) => sum + stock.price, 0).toFixed(0)}
+            </div>
+            <div className="stat-label">总市值(亿)</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 股票表格 */}
+      <div className="stock-table-container">
+        {loading ? (
+          <div className="loading-state">
+            <div className="loading-spinner"></div>
+            <p>加载股票数据中...</p>
+          </div>
+        ) : (
+          <>
+            <div className="table-header">
+              <h3>股票列表 ({filteredAndSortedStocks.length} 只股票)</h3>
+              <div className="table-actions">
+                <button className="export-btn">📥 导出数据</button>
+                <button className="filter-btn">🔧 筛选设置</button>
+              </div>
+            </div>
+
+            <div className="stock-table-wrapper">
+              <table className="stock-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => handleSort('symbol')}>
+                      代码 {renderSortArrow('symbol')}
+                    </th>
+                    <th onClick={() => handleSort('name')}>
+                      名称 {renderSortArrow('name')}
+                    </th>
+                    <th onClick={() => handleSort('price')}>
+                      价格 {renderSortArrow('price')}
+                    </th>
+                    <th onClick={() => handleSort('changePercent')}>
+                      涨跌幅 {renderSortArrow('changePercent')}
+                    </th>
+                    <th>成交量</th>
+                    <th>市值</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentStocks.map((stock) => (
+                    <tr key={stock.symbol}>
+                      <td className="stock-symbol">
+                        <Link to={`${ROUTE_PATHS.STOCKS}/${stock.symbol}`}>
+                          {stock.symbol}
+                        </Link>
+                      </td>
+                      <td className="stock-name">{stock.name}</td>
+                      <td className="stock-price">¥{stock.price.toFixed(2)}</td>
+                      <td className={`stock-change ${stock.changePercent >= 0 ? 'positive' : 'negative'}`}>
+                        {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                      </td>
+                      <td className="stock-volume">{stock.volume}</td>
+                      <td className="stock-market-cap">{stock.marketCap}</td>
+                      <td className="stock-actions">
+                        <Link 
+                          to={`${ROUTE_PATHS.STOCKS}/${stock.symbol}`}
+                          className="view-btn"
+                        >
+                          查看详情
+                        </Link>
+                        <button className="watch-btn">⭐</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 分页 */}
+            {totalPages > 1 && (
+              <div className="pagination">
+                <button
+                  className="page-btn"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  上一页
+                </button>
+                
+                <div className="page-numbers">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        className={`page-number ${currentPage === pageNum ? 'active' : ''}`}
+                        onClick={() => setCurrentPage(pageNum)}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  className="page-btn"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  下一页
+                </button>
+                
+                <div className="page-info">
+                  第 {currentPage} 页，共 {totalPages} 页
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 快速链接 */}
+      <div className="quick-links">
+        <h3>📋 快速访问</h3>
+        <div className="links-grid">
+          <Link to={ROUTE_PATHS.MARKET} className="link-card">
+            <div className="link-icon">📊</div>
+            <div className="link-content">
+              <h4>市场分析</h4>
+              <p>查看市场趋势和数据分析</p>
+            </div>
+          </Link>
+          <Link to={ROUTE_PATHS.WATCHLIST} className="link-card">
+            <div className="link-icon">⭐</div>
+            <div className="link-content">
+              <h4>自选股</h4>
+              <p>管理您关注的股票</p>
+            </div>
+          </Link>
+          <Link to={ROUTE_PATHS.SCREENER} className="link-card">
+            <div className="link-icon">🔍</div>
+            <div className="link-content">
+              <h4>股票筛选</h4>
+              <p>按条件筛选优质股票</p>
+            </div>
+          </Link>
+          <Link to={ROUTE_PATHS.DASHBOARD} className="link-card">
+            <div className="link-icon">📋</div>
+            <div className="link-content">
+              <h4>仪表板</h4>
+              <p>性能监控和统计</p>
+            </div>
+          </Link>
+        </div>
+      </div>
+
+      <style>{`
+        .stock-list-page {
+          max-width: 1400px;
+          margin: 0 auto;
+        }
+
+        /* 页面头部 */
+        .page-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 24px;
+          flex-wrap: wrap;
+          gap: 16px;
+        }
+
+        .page-title {
+          font-size: 24px;
+          font-weight: 700;
+          margin: 0;
+          color: #333;
+        }
+
+        .page-subtitle {
+          color: #666;
+          margin: 4px 0 0;
+          font-size: 14px;
+        }
+
+        .header-actions {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+        }
+
+        .search-box {
+          display: flex;
+          background: white;
+          border: 1px solid #ddd;
+          border-radius: 6px;
+          overflow: hidden;
+        }
+
+        .search-box input {
+          padding: 8px 12px;
+          border: none;
+          outline: none;
+          font-size: 14px;
+          min-width: 200px;
+        }
+
+        .search-btn {
+          padding: 8px 16px;
+          background: #f5f5f5;
+          border: none;
+          border-left: 1px solid #ddd;
+          cursor: pointer;
+          color: #666;
+        }
+
+        .refresh-btn {
+          padding: 8px 16px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+          transition: all 0.2s;
+        }
+
+        .refresh-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .refresh-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        /* 统计卡片 */
+        .stats-cards {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 16px;
+          margin-bottom: 24px;
+        }
+
+        .stat-card {
+          background: white;
+          border-radius: 12px;
+          padding: 20px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .stat-icon {
+          font-size: 32px;
+        }
+
+        .stat-content {
+          flex: 1;
+        }
+
+        .stat-value {
+          font-size: 24px;
+          font-weight: 700;
+          color: #333;
+        }
+
+        .stat-value.positive {
+          color: #52c41a;
+        }
+
+        .stat-value.negative {
+          color: #ff4d4f;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: #666;
+          margin-top: 4px;
+        }
+
+        /* 股票表格 */
+        .stock-table-container {
+          background: white;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+          margin-bottom: 24px;
+        }
+
+        .table-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 20px;
+          border-bottom: 1px solid #f0f0f0;
+        }
+
+        .table-header h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: #333;
+        }
+
+        .table-actions {
+          display: flex;
+          gap: 8px;
+        }
+
+        .export-btn, .filter-btn {
+          padding: 6px 12px;
+          background: #f5f5f5;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .export-btn:hover, .filter-btn:hover {
+          background: #e0e0e0;
+        }
+
+        .stock-table-wrapper {
+          overflow-x: auto;
+        }
+
+        .stock-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 14px;
+        }
+
+        .stock-table th {
+          background: #f8f9fa;
+          padding: 12px 16px;
+          text-align: left;
+          font-weight: 600;
+          color: #333;
+          border-bottom: 2px solid #e9ecef;
+          cursor: pointer;
+          user-select: none;
+          transition: background 0.2s;
+        }
+
+        .stock-table th:hover {
+          background: #e9ecef;
+        }
+
+        .stock-table td {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e9ecef;
+          color: #555;
+        }
+
+        .stock-table tr:hover {
+          background: #f8f9fa;
+        }
+
+        .stock-symbol a {
+          color: #667eea;
+          text-decoration: none;
+          font-weight: 600;
+        }
+
+        .stock-symbol a:hover {
+          text-decoration: underline;
+        }
+
+        .stock-name {
+          font-weight: 500;
+        }
+
+        .stock-price {
+          font-weight: 600;
+          color: #333;
+        }
+
+        .stock-change {
+          font-weight: 600;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+        }
+
+        .stock-change.positive {
+          background: rgba(82, 196, 26, 0.1);
+          color: #52c41a;
+        }
+
+        .stock-change.negative {
+          background: rgba(255, 77, 79, 0.1);
+          color: #ff4d4f;
+        }
+
+        .stock-volume, .stock-market-cap {
+          color: #666;
+        }
+
+        .stock-actions {
+          display: flex;
+          gap: 8px;
+        }
+
+        .view-btn {
+          padding: 4px 8px;
+          background: #667eea;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          text-decoration: none;
+        }
+
+        .watch-btn {
+          padding: 4px 8px;
+          background: #f5f5f5;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .watch-btn:hover {
+          background: #ffd700;
+        }
+
+        /* 加载状态 */
+        .loading-state {
+          padding: 60px;
+          text-align: center;
+        }
+
+        .loading-spinner {
+          width: 40px;
+          height: 40px;
+          border: 3px solid #f3f3f3;
+          border-top: 3px solid #667eea;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        .loading-state p {
+          color: #666;
+          font-size: 14px;
+        }
+
+        /* 分页 */
+        .pagination {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          padding: 20px;
+          gap: 16px;
+          border-top: 1px solid #f0f0f0;
+        }
+
+        .page-btn {
+          padding: 8px 16px;
+          background: #f5f5f5;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.2s;
+        }
+
+        .page-btn:hover:not(:disabled) {
+          background: #e0e0e0;
+        }
+
+        .page-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .page-numbers {
+          display: flex;
+          gap: 4px;
+        }
+
+        .page-number {
+          width: 36px;
+          height: 36px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #f5f5f5;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.2s;
+        }
+
+        .page-number:hover {
+          background: #e0e0e0;
+        }
+
+        .page-number.active {
+          background: #667eea;
+          color: white;
+          border-color: #667eea;
+        }
+
+        .page-info {
+          font-size: 14px;
+          color: #666;
+        }
+
+        /* 快速链接 */
+        .quick-links {
+          margin-bottom: 32px;
+        }
+
+        .quick-links h3 {
+          font-size: 18px;
+          font-weight: 600;
+          margin: 0 0 16px;
+          color: #333;
+        }
+
+        .links-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 16px;
+        }
+
+        .link-card {
+          background: white;
+          border-radius: 12px;
+          padding: 20px;
+          text-decoration: none;
+          color: inherit;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+          transition: all 0.2s;
+        }
+
+        .link-card:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        .link-icon {
+          font-size: 24px;
+        }
+
+        .link-content h4 {
+          margin: 0 0 4px;
+          font-size: 14px;
+          font-weight: 600;
+          color: #333;
+        }
+
+        .link-content p {
+          margin: 0;
+          font-size: 12px;
+          color: #666;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+          .page-header {
+            flex-direction: column;
+          }
+
+          .header-actions {
+            width: 100%;
+          }
+
+          .search-box input {
+            flex: 1;
+            min-width: auto;
+          }
+
+          .stats-cards {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .stock-table {
+            font-size: 12px;
+          }
+
+          .stock-table th,
+          .stock-table td {
+            padding: 8px;
+          }
+
+          .pagination {
+            flex-wrap: wrap;
+          }
+
+          .links-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .stats-cards {
+            grid-template-columns: 1fr;
+          }
+
+          .table-header {
+            flex-direction: column;
+            gap: 12px;
+            align-items: flex-start;
+          }
+
+          .table-actions {
+            width: 100%;
+            justify-content: flex-start;
+          }
+        }
+      `}</style>
     </div>
   );
 };

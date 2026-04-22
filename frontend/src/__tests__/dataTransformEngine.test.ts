@@ -77,7 +77,7 @@ describe('Data Transform & Mapping Engine', () => {
     const keys = path.split('.');
     let current = obj;
     for (const key of keys) {
-      if (current == null) return defaultValue;
+      if (current === null) return defaultValue;
       current = current[key];
     }
     return current ?? defaultValue;

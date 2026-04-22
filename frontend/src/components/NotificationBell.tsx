@@ -100,7 +100,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   };
 
   // 删除通知
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  const handleDelete = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     await notificationApi.deleteNotification(id);
     const deleted = notifications.find(n => n.id === id);
@@ -108,17 +108,17 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     if (deleted && !deleted.read) {
       setUnreadCount(prev => Math.max(0, prev - 1));
     }
-  };
+  }, [notifications, notificationApi]);
 
   // 点击通知
-  const handleNotificationClick = (notification: AppNotification) => {
+  const handleNotificationClick = useCallback((notification: AppNotification) => {
     if (!notification.read) {
       handleMarkAsRead(notification.id, {} as React.MouseEvent);
     }
     if (notification.actionUrl) {
       window.location.href = notification.actionUrl;
     }
-  };
+  }, [handleMarkAsRead]);
 
   return (
     <div className="notification-bell-wrapper" ref={dropdownRef} style={{ position: 'relative' }}>

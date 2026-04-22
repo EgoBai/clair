@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import logger from '../utils/logger';
 import { useParams } from 'react-router-dom';
 import { Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Select } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
@@ -116,7 +117,7 @@ export default function FinancialsPage() {
       if (isData.success) setIncomeHistory(isData.data.periods);
       if (cfData.success) setCashFlowHistory(cfData.data.periods);
     } catch (error) {
-      console.error('加载财务数据失败:', error);
+      logger.error('加载财务数据失败:', error);
     } finally {
       setLoading(false);
     }
@@ -168,7 +169,7 @@ export default function FinancialsPage() {
       dataIndex: bs.period,
       key: bs.period,
       align: 'right' as const,
-      render: (v: number) => v != null ? formatMoney(v) : '-',
+      render: (v: number) => v !== null ? formatMoney(v) : '-',
     })),
   ];
 
@@ -192,7 +193,7 @@ export default function FinancialsPage() {
       dataIndex: is.period,
       key: is.period,
       align: 'right' as const,
-      render: (v: number) => v != null ? formatMoney(v) : '-',
+      render: (v: number) => v !== null ? formatMoney(v) : '-',
     })),
   ];
 
@@ -273,10 +274,10 @@ export default function FinancialsPage() {
               <Card title="资产构成" size="small">
                 <ResponsiveContainer width="100%" height={280}>
                   <PieChart>
-                    <Pie data={assetComposition} cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                    <Pie data={assetComposition} cx="50%" cy="50%" outerRadius={80} label={({ name, percent }: { name?: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
                       {assetComposition.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
                     </Pie>
-                    <Tooltip formatter={(value: number) => formatMoney(value)} />
+                    <Tooltip formatter={(value) => formatMoney(Number(value))} />
                   </PieChart>
                 </ResponsiveContainer>
               </Card>
@@ -297,7 +298,7 @@ export default function FinancialsPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="period" />
                 <YAxis tickFormatter={v => formatMoney(v)} />
-                <Tooltip formatter={(v: number) => formatMoney(v)} />
+                <Tooltip formatter={(value) => formatMoney(Number(value))} />
                 <Legend />
                 <Bar dataKey="totalAssets" name="总资产" fill="#1890ff" />
                 <Bar dataKey="totalLiabilities" name="总负债" fill="#ff4d4f" />
@@ -322,7 +323,7 @@ export default function FinancialsPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
                     <YAxis tickFormatter={v => formatMoney(v)} />
-                    <Tooltip formatter={(v: number) => formatMoney(v)} />
+                    <Tooltip formatter={(value) => formatMoney(Number(value))} />
                     <Legend />
                     <Line type="monotone" dataKey="totalRevenue" name="营业收入" stroke="#1890ff" strokeWidth={2} />
                     <Line type="monotone" dataKey="netProfit" name="净利润" stroke="#52c41a" strokeWidth={2} />
@@ -338,7 +339,7 @@ export default function FinancialsPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
                     <YAxis tickFormatter={v => `${v}%`} />
-                    <Tooltip formatter={(v: number) => `${v}%`} />
+                    <Tooltip formatter={(v) => `${v ?? 0}%`} />
                     <Legend />
                     <Line type="monotone" dataKey="grossMargin" name="毛利率" stroke="#1890ff" strokeWidth={2} />
                     <Line type="monotone" dataKey="netMargin" name="净利率" stroke="#52c41a" strokeWidth={2} />
@@ -379,7 +380,7 @@ export default function FinancialsPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="period" />
                 <YAxis tickFormatter={v => formatMoney(v)} />
-                <Tooltip formatter={(v: number) => formatMoney(v)} />
+                <Tooltip formatter={(value) => formatMoney(Number(value))} />
                 <Legend />
                 <Bar dataKey="经营现金流" fill="#1890ff" />
                 <Bar dataKey="投资现金流" fill="#faad14" />

@@ -94,9 +94,9 @@ describe('renderOptimize', () => {
     });
 
     it('should collect stats', () => {
-      RenderProfiler.measure('test', () => {});
-      RenderProfiler.measure('test', () => {});
-      RenderProfiler.measure('test', () => {});
+      RenderProfiler.measure('test', () => { );
+      RenderProfiler.measure('test', () => { );
+      RenderProfiler.measure('test', () => { );
 
       const stats = RenderProfiler.getStats('test');
       expect(stats).not.toBeNull();
@@ -111,16 +111,16 @@ describe('renderOptimize', () => {
     });
 
     it('should clear specific label', () => {
-      RenderProfiler.measure('a', () => {});
-      RenderProfiler.measure('b', () => {});
+      RenderProfiler.measure('a', () => { );
+      RenderProfiler.measure('b', () => { );
       RenderProfiler.clear('a');
       expect(RenderProfiler.getStats('a')).toBeNull();
       expect(RenderProfiler.getStats('b')).not.toBeNull();
     });
 
     it('should clear all', () => {
-      RenderProfiler.measure('a', () => {});
-      RenderProfiler.measure('b', () => {});
+      RenderProfiler.measure('a', () => { );
+      RenderProfiler.measure('b', () => { );
       RenderProfiler.clear();
       expect(RenderProfiler.getStats('a')).toBeNull();
       expect(RenderProfiler.getStats('b')).toBeNull();
@@ -128,7 +128,7 @@ describe('renderOptimize', () => {
 
     it('should limit to 100 samples', () => {
       for (let i = 0; i < 150; i++) {
-        RenderProfiler.measure('test', () => {});
+        RenderProfiler.measure('test', () => { );
       }
       const stats = RenderProfiler.getStats('test');
       expect(stats!.samples).toBe(100);

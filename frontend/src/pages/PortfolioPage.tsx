@@ -18,7 +18,7 @@ import {
   RiseOutlined, FallOutlined, PieChartOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
-import { formatPrice, formatChangePercent, formatTurnover } from '../../../../shared/formatters';
+import { formatNumber, formatChangePercent, formatTurnover } from '../utils/formatters';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -78,15 +78,18 @@ function PortfolioPage() {
     try {
       // 先获取列表
       const listRes = await apiService.getPortfolios();
-      if (listRes.success && listRes.data.portfolios.length > 0) {
-        const firstId = listRes.data.portfolios[0].id;
-        const detailRes = await apiService.getPortfolio(firstId);
-        if (detailRes.success) {
-          setPortfolio(detailRes.data);
+      if (listRes.success) {
+        const listData = listRes.data as { portfolios: Portfolio[] };
+        if (listData.portfolios && listData.portfolios.length > 0) {
+          const firstId = listData.portfolios[0].id;
+          const detailRes = await apiService.getPortfolio(firstId);
+          if (detailRes.success) {
+            setPortfolio(detailRes.data as Portfolio);
+          }
         }
       }
-    } catch (err: any) {
-      setError(err.message || '加载投资组合失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '加载投资组合失败');
     } finally {
       setLoading(false);
     }
@@ -138,7 +141,7 @@ function PortfolioPage() {
       title: '股票',
       key: 'stock',
       width: 140,
-      render: (_: any, r: Position) => (
+      render: (_: unknown, r: Position) => (
         <Space direction="vertical" size={0}>
           <Text strong>{r.name}</Text>
           <Text type="secondary" style={{ fontSize: 12 }}>{r.symbol}</Text>
@@ -157,14 +160,14 @@ function PortfolioPage() {
       dataIndex: 'costPrice',
       key: 'costPrice',
       width: 80,
-      render: (v: number) => formatPrice(v),
+      render: (v: number) => formatNumber(v),
     },
     {
       title: '现价',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
       width: 80,
-      render: (v: number) => formatPrice(v),
+      render: (v: number) => formatNumber(v),
     },
     {
       title: '市值',
@@ -177,7 +180,7 @@ function PortfolioPage() {
       title: '盈亏',
       key: 'profit',
       width: 120,
-      render: (_: any, r: Position) => (
+      render: (_: unknown, r: Position) => (
         <Space direction="vertical" size={0}>
           <Text style={{ color: r.profit >= 0 ? '#EF4444' : '#22C55E' }}>
             {r.profit >= 0 ? '+' : ''}{r.profit.toFixed(2)}
@@ -205,7 +208,7 @@ function PortfolioPage() {
       title: '操作',
       key: 'action',
       width: 100,
-      render: (_: any, r: Position) => (
+      render: (_: unknown, r: Position) => (
         <Space size="small">
           <Tooltip title="编辑">
             <Button
@@ -273,7 +276,7 @@ function PortfolioPage() {
                   title="总资产"
                   value={portfolio.totalValue}
                   prefix="¥"
-                  formatter={(v) => Number(v).toLocaleString()}
+                  formatter={(v) => Number(v).toLocaleString() as any}
                 />
               </Card>
             </Col>
@@ -283,7 +286,7 @@ function PortfolioPage() {
                   title="持仓市值"
                   value={portfolio.totalMarketValue}
                   prefix="¥"
-                  formatter={(v) => Number(v).toLocaleString()}
+                  formatter={(v) => Number(v).toLocaleString() as any}
                 />
               </Card>
             </Col>
@@ -293,7 +296,7 @@ function PortfolioPage() {
                   title="现金余额"
                   value={portfolio.cashBalance}
                   prefix="¥"
-                  formatter={(v) => Number(v).toLocaleString()}
+                  formatter={(v) => Number(v).toLocaleString() as any}
                 />
               </Card>
             </Col>
@@ -303,7 +306,7 @@ function PortfolioPage() {
                   title="总盈亏"
                   value={portfolio.totalProfit}
                   prefix={portfolio.totalProfit >= 0 ? '+' : ''}
-                  formatter={(v) => Number(v).toLocaleString()}
+                  formatter={(v) => Number(v).toLocaleString() as any}
                   valueStyle={{ color: portfolio.totalProfit >= 0 ? '#EF4444' : '#22C55E' }}
                   suffix="元"
                 />
@@ -372,8 +375,8 @@ function PortfolioPage() {
                           ))}
                         </Pie>
                         <RTooltip
-                          formatter={(value: number, name: string, props: any) => [
-                            `${value}% (¥${props.payload.amount?.toLocaleString()})`,
+                          formatter={(value, name, props) => [
+                            `${value ?? 0}% (¥${(props as { payload?: { amount?: number } })?.payload?.amount?.toLocaleString()})`,
                             name,
                           ]}
                         />

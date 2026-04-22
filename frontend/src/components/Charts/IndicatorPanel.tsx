@@ -106,7 +106,7 @@ function buildMACDOption(data: IndicatorPoint[]) {
   return {
     tooltip: {
       trigger: 'axis',
-      formatter: (params: any) => {
+      formatter: (params: { dataIndex: number; value: number; name: string; seriesName?: string; dataType?: string }[]) => {
         const idx = params[0]?.dataIndex;
         const d = data[idx];
         if (!d) return '';
@@ -148,7 +148,7 @@ function buildKDJOption(data: IndicatorPoint[]) {
   return {
     tooltip: {
       trigger: 'axis',
-      formatter: (params: any) => {
+      formatter: (params: { dataIndex: number; value: number; name: string; seriesName?: string; dataType?: string }[]) => {
         const idx = params[0]?.dataIndex;
         const d = data[idx];
         if (!d) return '';
@@ -193,7 +193,7 @@ function buildRSIOption(data: IndicatorPoint[]) {
   return {
     tooltip: {
       trigger: 'axis',
-      formatter: (params: any) => {
+      formatter: (params: { dataIndex: number; value: number; name: string; seriesName?: string; dataType?: string }[]) => {
         const idx = params[0]?.dataIndex;
         const d = data[idx];
         if (!d) return '';
@@ -245,7 +245,7 @@ function buildBOLLOption(data: IndicatorPoint[]) {
   return {
     tooltip: {
       trigger: 'axis',
-      formatter: (params: any) => {
+      formatter: (params: { dataIndex: number; value: number; name: string; seriesName?: string; dataType?: string }[]) => {
         const idx = params[0]?.dataIndex;
         const d = data[idx];
         if (!d) return '';

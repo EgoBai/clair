@@ -94,11 +94,17 @@ export function buildVolumeProfile(
   const volumeGaps: Array<{ top: number; bottom: number; width: number }> = [];
   let gapStart: number | null = null;
   for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i].volume < avgVol * 0.1) {
-      if (gapStart === null) gapStart = nodes[i].price;
+    const node = nodes[i];
+    if (!node) continue;
+    
+    if (node.volume < avgVol * 0.1) {
+      if (gapStart === null) gapStart = node.price;
     } else {
       if (gapStart !== null) {
-        volumeGaps.push({ top: nodes[i - 1].price, bottom: gapStart, width: nodes[i - 1].price - gapStart });
+        const prevNode = nodes[i - 1];
+        if (prevNode) {
+          volumeGaps.push({ top: prevNode.price, bottom: gapStart, width: prevNode.price - gapStart });
+        }
         gapStart = null;
       }
     }

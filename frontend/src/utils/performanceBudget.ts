@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * 性能预算系统
  * 监控并强制执行性能限制（JS/CSS/图片大小、请求数、渲染时间）
@@ -205,7 +206,16 @@ export class PerformanceBudgetChecker {
   /** 检查内存使用 */
   checkMemory(): BudgetViolation[] {
     const violations: BudgetViolation[] = [];
-    const memory = (performance as any).memory;
+    
+    // Type-safe access to Chrome-specific memory API
+    const performanceWithMemory = performance as Performance & {
+      memory?: {
+        usedJSHeapSize: number;
+        totalJSHeapSize: number;
+        jsHeapSizeLimit: number;
+      };
+    };
+    const memory = performanceWithMemory.memory;
 
     if (memory) {
       const heapMB = memory.usedJSHeapSize / (1024 * 1024);
@@ -256,7 +266,7 @@ export class PerformanceBudgetChecker {
     this.checkInterval = setInterval(() => {
       const report = this.check();
       if (!report.passed && typeof window !== 'undefined') {
-        console.warn(`[Performance Budget] Score: ${report.score}/100`, report.violations);
+        logger.warn(`[Performance Budget] Score: ${report.score}/100`, report.violations);
       }
     }, intervalMs);
   }

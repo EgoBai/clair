@@ -202,7 +202,7 @@ export class MarketRegimeEngine {
       for (const to of states) {
         let count = 0;
         let totalFrom = 0;
-        let durations: number[] = [];
+        const durations: number[] = [];
         let currentDuration = 0;
 
         for (let i = 0; i < regimes.length; i++) {

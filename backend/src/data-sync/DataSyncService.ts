@@ -5,7 +5,7 @@
 
 import { Knex } from 'knex';
 import axios from 'axios';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 
 export interface SyncResult {
   success: boolean;

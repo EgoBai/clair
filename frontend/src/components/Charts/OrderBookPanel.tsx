@@ -6,7 +6,7 @@
 
 import React, { useMemo } from 'react';
 import { Table, Progress, Card, Statistic, Row, Col, Tag } from 'antd';
-import type { OrderBook, OrderBookLevel } from '../../shared/types';
+import type { OrderBook, OrderBookLevel } from '../../../../shared/types';
 
 interface OrderBookPanelProps {
   data: OrderBook | null;

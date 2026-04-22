@@ -24,7 +24,7 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
         client: 'pg',
         connection: pgUrl,
         pool: { min: 2, max: 10 },
-        acquireConnectionTimeout: 5000,
+        acquireConnectionTimeout: 2000,
       };
       const pgDb = new Database(config);
       const connected = await pgDb.testConnection();
@@ -72,3 +72,18 @@ export function getDbType(): DbType {
 export function isMemoryMode(): boolean {
   return currentType === 'memory';
 }
+
+/**
+ * 懒加载代理 — API文件可以直接 import { db } 然后 db.getStockBySymbol(...)
+ * 实际调用时会委托给 getDb()
+ */
+export const db = new Proxy({} as any, {
+  get(_target, prop) {
+    const instance = getDb();
+    const value = (instance as any)[prop];
+    if (typeof value === 'function') {
+      return value.bind(instance);
+    }
+    return value;
+  }
+});

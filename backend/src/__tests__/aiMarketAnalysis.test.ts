@@ -8,7 +8,7 @@ import {
   StopLossCalculator,
   SectorRotationPredictor,
 } from '../utils/aiMarketAnalysis';
-import { KLineData } from '../../shared/types';
+import { KLineData } from '../types';
 
 describe('AI 市场解读生成器', () => {
   let generator: MarketCommentaryGenerator;

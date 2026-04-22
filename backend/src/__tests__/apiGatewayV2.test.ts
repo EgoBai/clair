@@ -119,7 +119,7 @@ describe('API网关与请求处理V2', () => {
   });
 
   // 筛选
-  const filterData = <T>(items: T[], predicates: Partial<Record<keyof T, (v: any) => boolean>>) => {
+  const filterData = <T extends Record<string, any>>(items: T[], predicates: Partial<Record<keyof T, (v: any) => boolean>>) => {
     return items.filter(item => {
       return Object.entries(predicates).every(([key, pred]) => (pred as any)(item[key]));
     });
@@ -184,7 +184,7 @@ describe('API网关与请求处理V2', () => {
     return {
       success: true,
       data,
-      meta: { timestamp: Date.now(), ...meta },
+      meta: { timestamp: Date.now(), ...meta } as Record<string, any>,
     };
   };
   const formatError = (code: string, message: string, details?: any) => {

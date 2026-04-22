@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import logger from '../utils/logger';
 import { Card, Select, Table, Tag, Row, Col, Spin, Button, Empty, Tabs, Statistic } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import {
@@ -71,10 +72,12 @@ export default function StockComparePage() {
         setMetrics(compareData.data.metrics);
       }
       if (radarDataRes.success) {
-        const indicators = radarDataRes.data.indicators;
-        const radar = indicators.map((ind: any) => {
-          const row: any = { metric: ind.label, fullMark: ind.fullMark };
-          radarDataRes.data.stocks.forEach((s: any) => {
+        interface RadarIndicator { label: string; fullMark: number; key: string }
+        interface RadarStock { name: string; scores: Record<string, number> }
+        const indicators: RadarIndicator[] = radarDataRes.data.indicators;
+        const radar = indicators.map((ind) => {
+          const row: Record<string, string | number> = { metric: ind.label, fullMark: ind.fullMark };
+          radarDataRes.data.stocks.forEach((s: RadarStock) => {
             row[s.name] = s.scores[ind.key];
           });
           return row;
@@ -82,7 +85,7 @@ export default function StockComparePage() {
         setRadarData(radar);
       }
     } catch (error) {
-      console.error('获取对比数据失败:', error);
+      logger.error('获取对比数据失败:', error);
     } finally {
       setLoading(false);
     }
@@ -128,7 +131,7 @@ export default function StockComparePage() {
       dataIndex: stock.symbol,
       key: stock.symbol,
       align: 'right' as const,
-      render: (v: number, record: any) => {
+      render: (v: number, record: Record<string, unknown>) => {
         const def = metrics.find(m => m.key === record.key);
         const isPositive = def?.higher === 'better' ? v > 0 : def?.higher === 'worse' ? v < 0 : null;
         return (
@@ -141,7 +144,7 @@ export default function StockComparePage() {
   ];
 
   const compareDataSource = metrics.map((m, i) => {
-    const row: any = { key: m.key, label: m.label };
+    const row: Record<string, string | number> = { key: m.key, label: m.label };
     stocks.forEach(s => {
       row[s.symbol] = s.metrics[m.key];
     });
@@ -150,7 +153,7 @@ export default function StockComparePage() {
 
   // 柱状图数据
   const barData = metrics.slice(0, 8).map(m => {
-    const row: any = { metric: m.label.replace(/[()]/g, '') };
+    const row: Record<string, string | number> = { metric: m.label.replace(/[()]/g, '') };
     stocks.forEach(s => {
       row[s.name] = s.metrics[m.key];
     });

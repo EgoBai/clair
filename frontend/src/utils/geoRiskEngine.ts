@@ -61,7 +61,7 @@ export function analyzeGeoRisk(
     const riskScore = Math.min(100, data.totalSeverity * 5 + data.events.length * 10);
     const recentEvents = data.events.filter(e => (now - new Date(e.date).getTime()) < 30 * 86400000);
     const olderEvents = data.events.filter(e => (now - new Date(e.date).getTime()) >= 30 * 86400000);
-    const trend = recentEvents.length > olderEvents.length ? 'rising'
+    const trend: 'rising' | 'falling' | 'stable' = recentEvents.length > olderEvents.length ? 'rising'
       : recentEvents.length < olderEvents.length ? 'falling' : 'stable';
 
     const supplyChainImpact = data.events.filter(e =>
@@ -69,7 +69,7 @@ export function analyzeGeoRisk(
     ).reduce((s, e) => s + e.severity, 0) * 3;
     const marketImpact = data.events.reduce((s, e) => s + e.severity, 0) * 4;
 
-    return { region, riskScore, trend, activeEvents: data.events.length, supplyChainImpact, marketImpact };
+    return { region, riskScore, trend: trend as 'rising' | 'falling' | 'stable', activeEvents: data.events.length, supplyChainImpact, marketImpact };
   }).sort((a, b) => b.riskScore - a.riskScore);
 
   // 全球风险指数

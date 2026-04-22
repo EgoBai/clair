@@ -5,7 +5,7 @@
  */
 
 import { Request, Response, Router } from 'express';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
@@ -13,17 +13,38 @@ const router = Router();
 
 // ==================== 类型定义 ====================
 
+/** 告警触发模式 (对标TradingView) */
+type AlertTriggerMode = 'once' | 'once_per_bar' | 'every_time';
+
+/** 指标条件类型 */
+type IndicatorCondition = 'macd_cross_up' | 'macd_cross_down' | 'rsi_above' | 'rsi_below' | 
+  'bollinger_upper' | 'bollinger_lower' | 'ma_cross_up' | 'ma_cross_down' | 'volume_ma_above';
+
 interface AlertRule {
   id: number;
   userId: number;
   symbol: string;
-  alertType: 'price_above' | 'price_below' | 'change_above' | 'change_below' | 'volume_surge';
+  alertType: 'price_above' | 'price_below' | 'change_above' | 'change_below' | 
+    'volume_surge' | 'indicator' | 'composite';
   threshold: number;
+  // 指标告警字段
+  indicatorType?: IndicatorCondition;
+  indicatorParams?: Record<string, number>;
+  // 复合条件 (AND/OR逻辑)
+  compositeOperator?: 'and' | 'or';
+  subConditions?: Array<{ alertType: string; threshold: number; indicatorType?: string }>;
+  // 触发模式
+  triggerMode: AlertTriggerMode;
+  // 通知渠道
+  channels: Array<'websocket' | 'email' | 'sms'>;
   isActive: boolean;
   isTriggered: boolean;
   triggeredAt?: string;
   triggeredValue?: number;
   message?: string;
+  // 统计
+  triggerCount: number;
+  lastTriggerBar?: string; // 用于 once_per_bar
   createdAt: string;
   updatedAt: string;
 }
@@ -36,12 +57,14 @@ let alertIdCounter = 1;
 const alertHistory: Array<{
   id: number;
   alertId: number;
+  userId: number;
   symbol: string;
   alertType: string;
   threshold: number;
   actualValue: number;
   triggeredAt: string;
   message: string;
+  channels: string[];
 }> = [];
 
 // 已推送的预警ID（避免重复推送）
@@ -53,7 +76,8 @@ const pushedAlerts: Set<number> = new Set();
  */
 router.post('/alerts', validateBody(schemas.alertCreate), async (req: Request, res: Response) => {
   try {
-    const { symbol, alertType, threshold, message } = req.body;
+    const { symbol, alertType, threshold, message, indicatorType, indicatorParams,
+      compositeOperator, subConditions, triggerMode, channels } = req.body;
 
     // 验证必填字段
     if (!symbol || !alertType || threshold === undefined) {
@@ -64,11 +88,20 @@ router.post('/alerts', validateBody(schemas.alertCreate), async (req: Request, r
     }
 
     // 验证 alertType
-    const validTypes = ['price_above', 'price_below', 'change_above', 'change_below', 'volume_surge'];
+    const validTypes = ['price_above', 'price_below', 'change_above', 'change_below', 
+      'volume_surge', 'indicator', 'composite'];
     if (!validTypes.includes(alertType)) {
       return res.status(400).json({
         success: false,
         error: `无效的预警类型，支持: ${validTypes.join(', ')}`,
+      });
+    }
+
+    // 验证指标告警
+    if (alertType === 'indicator' && !indicatorType) {
+      return res.status(400).json({
+        success: false,
+        error: '指标告警必须指定 indicatorType',
       });
     }
 
@@ -97,8 +130,15 @@ router.post('/alerts', validateBody(schemas.alertCreate), async (req: Request, r
       symbol,
       alertType,
       threshold,
+      indicatorType,
+      indicatorParams: indicatorParams || {},
+      compositeOperator: compositeOperator || 'and',
+      subConditions: subConditions || [],
+      triggerMode: triggerMode || 'once',
+      channels: channels || ['websocket'],
       isActive: true,
       isTriggered: false,
+      triggerCount: 0,
       message: message || generateAlertMessage(symbol, alertType, threshold),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -205,7 +245,7 @@ router.put('/alerts/:id', validateParams(schemas.alertId), validateBody(schemas.
     });
   }
 
-  const { threshold, isActive, message } = req.body;
+  const { threshold, isActive, message, triggerMode, channels, indicatorType, indicatorParams } = req.body;
 
   if (threshold !== undefined) {
     if (typeof threshold !== 'number' || isNaN(threshold)) {
@@ -229,6 +269,21 @@ router.put('/alerts/:id', validateParams(schemas.alertId), validateBody(schemas.
   if (message !== undefined) {
     alert.message = message;
   }
+  if (triggerMode !== undefined) {
+    const validModes = ['once', 'once_per_bar', 'every_time'];
+    if (validModes.includes(triggerMode)) {
+      alert.triggerMode = triggerMode;
+      // 切换到可重复触发模式时重置状态
+      if (triggerMode !== 'once') {
+        alert.isTriggered = false;
+      }
+    }
+  }
+  if (channels !== undefined && Array.isArray(channels)) {
+    alert.channels = channels;
+  }
+  if (indicatorType !== undefined) alert.indicatorType = indicatorType;
+  if (indicatorParams !== undefined) alert.indicatorParams = indicatorParams;
   alert.updatedAt = new Date().toISOString();
 
   alertRules.set(id, alert);
@@ -389,6 +444,8 @@ function generateAlertMessage(symbol: string, alertType: string, threshold: numb
     change_above: `涨幅超过`,
     change_below: `跌幅超过`,
     volume_surge: `成交量超过`,
+    indicator: `指标触发`,
+    composite: `复合条件触发`,
   };
   const unitMap: Record<string, string> = {
     price_above: '元',
@@ -407,9 +464,14 @@ function generateAlertMessage(symbol: string, alertType: string, threshold: numb
 export async function checkAlerts(): Promise<AlertRule[]> {
   const triggeredAlerts: AlertRule[] = [];
   const now = new Date().toISOString();
+  const todayBar = now.substring(0, 10); // YYYY-MM-DD 用于 once_per_bar
 
   for (const [id, alert] of alertRules) {
-    if (!alert.isActive || alert.isTriggered) continue;
+    if (!alert.isActive) continue;
+    // once 模式：已触发则跳过
+    if (alert.triggerMode === 'once' && alert.isTriggered) continue;
+    // once_per_bar：同日已触发则跳过
+    if (alert.triggerMode === 'once_per_bar' && alert.lastTriggerBar === todayBar) continue;
 
     try {
       const stock = await db.getStockBySymbol(alert.symbol);
@@ -421,49 +483,70 @@ export async function checkAlerts(): Promise<AlertRule[]> {
       let isTriggered = false;
       let actualValue = 0;
 
-      switch (alert.alertType) {
-        case 'price_above':
-          actualValue = quote.closePrice;
-          isTriggered = actualValue >= alert.threshold;
-          break;
-        case 'price_below':
-          actualValue = quote.closePrice;
-          isTriggered = actualValue <= alert.threshold;
-          break;
-        case 'change_above':
-          actualValue = quote.changePercent;
-          isTriggered = actualValue >= alert.threshold;
-          break;
-        case 'change_below':
-          actualValue = quote.changePercent;
-          isTriggered = actualValue <= alert.threshold;
-          break;
-        case 'volume_surge':
-          // volume_surge threshold 是倍数，需要对比平均成交量
-          // 简化处理：直接用当日成交量与 threshold 比较
-          actualValue = quote.volume;
-          isTriggered = actualValue >= alert.threshold;
-          break;
+      if (alert.alertType === 'composite') {
+        // 复合条件评估
+        isTriggered = evaluateCompositeCondition(alert, quote);
+        actualValue = isTriggered ? 1 : 0;
+      } else if (alert.alertType === 'indicator') {
+        // 指标告警评估
+        const result = evaluateIndicatorCondition(alert, quote);
+        isTriggered = result.triggered;
+        actualValue = result.value;
+      } else {
+        // 基础告警评估
+        switch (alert.alertType) {
+          case 'price_above':
+            actualValue = quote.closePrice;
+            isTriggered = actualValue >= alert.threshold;
+            break;
+          case 'price_below':
+            actualValue = quote.closePrice;
+            isTriggered = actualValue <= alert.threshold;
+            break;
+          case 'change_above':
+            actualValue = quote.changePercent;
+            isTriggered = actualValue >= alert.threshold;
+            break;
+          case 'change_below':
+            actualValue = quote.changePercent;
+            isTriggered = actualValue <= alert.threshold;
+            break;
+          case 'volume_surge': {
+            // 改进：获取平均成交量进行对比
+            const avgVolume = await getAverageVolume(stock.id, 20);
+            actualValue = avgVolume > 0 ? quote.volume / avgVolume : quote.volume;
+            isTriggered = actualValue >= alert.threshold;
+            break;
+          }
+        }
       }
 
       if (isTriggered) {
+        // 更新触发状态
         alert.isTriggered = true;
         alert.triggeredAt = now;
         alert.triggeredValue = actualValue;
+        alert.triggerCount = (alert.triggerCount || 0) + 1;
+        alert.lastTriggerBar = todayBar;
         alertRules.set(id, alert);
 
         // 记录触发历史
         const historyEntry = {
           id: alertHistory.length + 1,
           alertId: id,
+          userId: alert.userId,
           symbol: alert.symbol,
           alertType: alert.alertType,
           threshold: alert.threshold,
           actualValue,
           triggeredAt: now,
           message: alert.message || generateAlertMessage(alert.symbol, alert.alertType, alert.threshold),
+          channels: alert.channels || ['websocket'],
         };
         alertHistory.push(historyEntry);
+
+        // WebSocket 推送通知
+        pushAlertNotification(alert, actualValue);
 
         triggeredAlerts.push(alert);
       }
@@ -473,6 +556,116 @@ export async function checkAlerts(): Promise<AlertRule[]> {
   }
 
   return triggeredAlerts;
+}
+
+/**
+ * 评估复合条件 (AND/OR逻辑)
+ */
+function evaluateCompositeCondition(alert: AlertRule, quote: any): boolean {
+  if (!alert.subConditions || alert.subConditions.length === 0) return false;
+  
+  const results = alert.subConditions.map(cond => {
+    switch (cond.alertType) {
+      case 'price_above': return quote.closePrice >= cond.threshold;
+      case 'price_below': return quote.closePrice <= cond.threshold;
+      case 'change_above': return quote.changePercent >= cond.threshold;
+      case 'change_below': return quote.changePercent <= cond.threshold;
+      default: return false;
+    }
+  });
+  
+  return alert.compositeOperator === 'and' 
+    ? results.every(r => r) 
+    : results.some(r => r);
+}
+
+/**
+ * 评估指标条件
+ */
+function evaluateIndicatorCondition(alert: AlertRule, quote: any): { triggered: boolean; value: number } {
+  const params = alert.indicatorParams || {};
+  const value = quote.closePrice;
+  
+  switch (alert.indicatorType) {
+    case 'rsi_above':
+      // 简化RSI计算：用涨跌幅近似
+      return { triggered: Math.abs(quote.changePercent) > (params.threshold || 70), value: Math.abs(quote.changePercent) };
+    case 'rsi_below':
+      return { triggered: Math.abs(quote.changePercent) < (params.threshold || 30), value: Math.abs(quote.changePercent) };
+    case 'ma_cross_up':
+    case 'ma_cross_down':
+      // 简化：用价格与阈值对比
+      return { triggered: alert.indicatorType === 'ma_cross_up' ? value >= alert.threshold : value <= alert.threshold, value };
+    case 'bollinger_upper':
+      return { triggered: value >= alert.threshold, value };
+    case 'bollinger_lower':
+      return { triggered: value <= alert.threshold, value };
+    case 'volume_ma_above': {
+      const avgVol = params.avgVolume || alert.threshold;
+      return { triggered: quote.volume >= avgVol, value: quote.volume };
+    }
+    default:
+      return { triggered: false, value: 0 };
+  }
+}
+
+/**
+ * 获取平均成交量
+ */
+async function getAverageVolume(stockId: number, days: number = 20): Promise<number> {
+  try {
+    const quotes = await db.getDailyQuotes(stockId, days);
+    if (!quotes || quotes.length === 0) return 0;
+    const total = quotes.reduce((sum: number, q: any) => sum + (q.volume || 0), 0);
+    return total / quotes.length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * WebSocket 推送告警通知
+ */
+function pushAlertNotification(alert: AlertRule, actualValue: number): void {
+  try {
+    const { wsPushEngine } = require('../services/notification/wsPushEngine');
+    const { notificationRouter } = require('../services/notification/priorityRouter');
+    
+    const priority = alert.alertType === 'composite' ? 'urgent' : 
+      (Math.abs(actualValue - alert.threshold) / Math.max(Math.abs(alert.threshold), 1) > 0.1 ? 'high' : 'medium');
+    
+    const notification = {
+      id: `alert_push_${alert.id}_${Date.now()}`,
+      type: 'price_alert' as const,
+      priority: priority as 'low' | 'medium' | 'high' | 'urgent',
+      title: `预警触发: ${alert.symbol}`,
+      body: alert.message || `${alert.symbol} 触发 ${alert.alertType} 告警`,
+      data: {
+        alertId: alert.id,
+        symbol: alert.symbol,
+        alertType: alert.alertType,
+        threshold: alert.threshold,
+        actualValue,
+        triggerCount: alert.triggerCount,
+      },
+      channels: alert.channels || ['websocket'],
+      userId: String(alert.userId),
+      read: false,
+      status: 'sent' as const,
+      createdAt: Date.now(),
+    };
+    
+    // 通过优先级路由器分发
+    const routingResult = notificationRouter.route(notification as any);
+    
+    // WebSocket推送
+    if (routingResult.channels.includes('websocket')) {
+      wsPushEngine.pushToUser(String(alert.userId), notification as any);
+    }
+  } catch (err) {
+    // 静默失败，不影响告警主流程
+    console.warn('WebSocket推送失败:', err);
+  }
 }
 
 /**
@@ -494,5 +687,7 @@ export function resetAlerts(): void {
 export function getAlertRules() { return alertRules; }
 export function getAlertHistory() { return alertHistory; }
 export function getPushedAlerts() { return pushedAlerts; }
+export function getAlertStats() { return { totalRules: alertRules.size, historyCount: alertHistory.length }; }
+export { AlertRule, AlertTriggerMode, IndicatorCondition };
 
 export default router;

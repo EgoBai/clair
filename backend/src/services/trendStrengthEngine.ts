@@ -44,23 +44,59 @@ function computeTR(h: number, l: number, prevClose: number): number {
 function computeDMI(data: TrendBar[], period: number): { adx: number; plusDI: number; minusDI: number } {
   if (data.length < period + 1) return { adx: 0, plusDI: 0, minusDI: 0 };
 
-  let atrSum = 0, plusDMSum = 0, minusDMSum = 0;
-  for (let i = 1; i <= period; i++) {
+  // Step 1: compute per-bar TR, +DM, -DM
+  const trs: number[] = [];
+  const plusDMs: number[] = [];
+  const minusDMs: number[] = [];
+  for (let i = 1; i < data.length; i++) {
     const tr = computeTR(data[i].high, data[i].low, data[i - 1].close);
     const upMove = data[i].high - data[i - 1].high;
     const downMove = data[i - 1].low - data[i].low;
-    const plusDM = upMove > downMove && upMove > 0 ? upMove : 0;
-    const minusDM = downMove > upMove && downMove > 0 ? downMove : 0;
-    atrSum += tr;
-    plusDMSum += plusDM;
-    minusDMSum += minusDM;
+    trs.push(tr);
+    plusDMs.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDMs.push(downMove > upMove && downMove > 0 ? downMove : 0);
   }
 
-  const plusDI = atrSum > 0 ? (plusDMSum / atrSum) * 100 : 0;
-  const minusDI = atrSum > 0 ? (minusDMSum / atrSum) * 100 : 0;
-  const dx = plusDI + minusDI > 0 ? Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100 : 0;
+  // Step 2: Wilder smoothing (EMA with alpha = 1/period)
+  const smooth = (arr: number[]): number[] => {
+    const out: number[] = [];
+    let sum = 0;
+    for (let i = 0; i < period; i++) sum += arr[i];
+    out.push(sum);
+    for (let i = period; i < arr.length; i++) {
+      out.push(out[out.length - 1] - out[out.length - 1] / period + arr[i]);
+    }
+    return out;
+  };
 
-  return { adx: dx, plusDI, minusDI };
+  const smTR = smooth(trs);
+  const smPlusDM = smooth(plusDMs);
+  const smMinusDM = smooth(minusDMs);
+
+  // Step 3: compute +DI, -DI, DX for each smoothed bar
+  const dxs: number[] = [];
+  let lastPlusDI = 0, lastMinusDI = 0;
+  for (let i = 0; i < smTR.length; i++) {
+    const pDI = smTR[i] > 0 ? (smPlusDM[i] / smTR[i]) * 100 : 0;
+    const mDI = smTR[i] > 0 ? (smMinusDM[i] / smTR[i]) * 100 : 0;
+    const dx = pDI + mDI > 0 ? Math.abs(pDI - mDI) / (pDI + mDI) * 100 : 0;
+    dxs.push(dx);
+    lastPlusDI = pDI;
+    lastMinusDI = mDI;
+  }
+
+  // Step 4: ADX = smoothed DX (apply Wilder smoothing again)
+  let adx = 0;
+  if (dxs.length >= period) {
+    let adxSum = 0;
+    for (let i = 0; i < period; i++) adxSum += dxs[i];
+    adx = adxSum / period;
+    for (let i = period; i < dxs.length; i++) {
+      adx = (adx * (period - 1) + dxs[i]) / period;
+    }
+  }
+
+  return { adx, plusDI: lastPlusDI, minusDI: lastMinusDI };
 }
 
 function computeSlope(values: number[]): number {

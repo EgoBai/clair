@@ -223,15 +223,24 @@ export const PRESET_SHORTCUTS = {
   GO_BACKTEST: { keys: 'alt+5', description: '策略回测' },
   GO_AI: { keys: 'alt+6', description: 'AI选股' },
   
-  // 搜索
-  SEARCH: { keys: 'ctrl+k', description: '聚焦搜索' },
+  // 搜索与命令面板
+  SEARCH: { keys: 'ctrl+k', description: '命令面板' },
   SEARCH_ALT: { keys: '/', description: '聚焦搜索' },
+  COMMAND_PALETTE: { keys: 'ctrl+k', description: '打开命令面板' },
+  SHORTCUT_HELP: { keys: 'shift+/', description: '快捷键帮助' },
   
   // 操作
   ESCAPE: { keys: 'escape', description: '关闭/取消' },
   GO_BACK: { keys: 'backspace', description: '返回上一页' },
   TOGGLE_THEME: { keys: 'alt+t', description: '切换主题' },
   TOGGLE_SIDEBAR: { keys: 'alt+s', description: '切换侧边栏' },
+  
+  // 数据操作
+  REFRESH_DATA: { keys: 'r', description: '刷新数据' },
+  FILTER_OPEN: { keys: 'f', description: '打开筛选器' },
+  SORT_BY_PRICE: { keys: 's p', description: '按价格排序' },
+  SORT_BY_CHANGE: { keys: 's c', description: '按涨跌幅排序' },
+  SORT_BY_VOLUME: { keys: 's v', description: '按成交量排序' },
   
   // 序列键
   GOTO_HOME: { keys: 'g h', description: '跳转首页 (g→h)' },

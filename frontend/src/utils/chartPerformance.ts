@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * 图表渲染性能优化工具
  * 大数据量采样、虚拟化渲染、内存优化
@@ -214,7 +215,7 @@ export class RenderProfiler {
     this.marks.delete(label);
 
     if (elapsed > 16) { // 超过1帧(60fps)
-      console.warn(`[RenderProfiler] "${label}" took ${elapsed.toFixed(1)}ms (>${16}ms threshold)`);
+      logger.warn(`[RenderProfiler] "${label}" took ${elapsed.toFixed(1)}ms (>${16}ms threshold)`);
     }
 
     return elapsed;

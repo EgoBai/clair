@@ -1,12 +1,7 @@
-/**
- * 自选股页面
- * 完整的自选股管理：分组、排序、实时行情
- */
-
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Row, Col, Typography } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Typography, Breadcrumb } from 'antd';
+import { HomeOutlined, StarOutlined } from '@ant-design/icons';
 import WatchlistPanel from '../components/Stock/WatchlistPanel';
 
 const { Title } = Typography;
@@ -14,27 +9,24 @@ const { Title } = Typography;
 const WatchlistPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const handleStockClick = (symbol: string) => {
-    navigate(`/stock/${symbol}`);
-  };
+  const handleStockClick = useCallback((symbol: string) => {
+    navigate(`/stocks/${symbol}`);
+  }, [navigate]);
 
   return (
-    <div className="watchlist-page" style={{ padding: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, gap: 12 }}>
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
-          返回
-        </Button>
-        <Title level={4} style={{ margin: 0 }}>自选股</Title>
-        <Typography.Text type="secondary">管理你的关注股票列表</Typography.Text>
-      </div>
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={16}>
-          <WatchlistPanel onStockClick={handleStockClick} />
-        </Col>
-        <Col xs={24} lg={8}>
-          {/* 预留：自选股行情摘要/统计 */}
-        </Col>
-      </Row>
+    <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
+      <Breadcrumb
+        style={{ marginBottom: 16 }}
+        items={[
+          { href: '/', title: <><HomeOutlined /> 首页</> },
+          { title: <><StarOutlined /> 自选股</> },
+        ]}
+      />
+      <Title level={3} style={{ marginBottom: 24 }}>
+        <StarOutlined style={{ color: '#f59e0b', marginRight: 8 }} />
+        我的自选股
+      </Title>
+      <WatchlistPanel onStockClick={handleStockClick} />
     </div>
   );
 };

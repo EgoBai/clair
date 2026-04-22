@@ -18,7 +18,7 @@ const ThrowError = ({ shouldThrow = true }: { shouldThrow?: boolean }) => {
 
 // 抑制 console.error
 beforeEach(() => {
-  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => { );
   clearErrorReports();
 });
 

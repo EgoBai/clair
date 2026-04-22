@@ -95,7 +95,7 @@ export function generateWalkForwardWindows(
  * @param backtestFunc 回测函数: (start, end, params) => 绩效指标
  * @param extractParams 提取数值参数用于稳定性分析
  */
-export function walkForwardBacktest<Params>(
+export function walkForwardBacktest<Params extends Record<string, any>>(
   config: WalkForwardConfig,
   optimizeFunc: (start: number, end: number) => Params,
   backtestFunc: (start: number, end: number, params: Params) => PerformanceMetrics,
@@ -218,7 +218,7 @@ export function calculatePerformanceMetrics(
 /**
  * 蒙特卡洛Walk-Forward (多次随机划分)
  */
-export function monteCarloWalkForward<Params>(
+export function monteCarloWalkForward<Params extends Record<string, any>>(
   totalPeriods: number,
   numIterations: number,
   optimizeFunc: (start: number, end: number) => Params,
@@ -283,7 +283,7 @@ function calculateOverallMetrics(
   };
 }
 
-function analyzeParameterStability<Params>(
+function analyzeParameterStability<Params extends Record<string, any>>(
   paramsList: Params[],
   extractParams: (p: Params) => { [key: string]: number }
 ): ParameterStability<Params> {
@@ -297,6 +297,14 @@ function analyzeParameterStability<Params>(
   }
 
   const allNumeric = paramsList.map(extractParams);
+  if (allNumeric.length === 0 || !allNumeric[0]) {
+    return {
+      params: [],
+      meanParams: {},
+      stdParams: {},
+      stabilityScore: 0
+    };
+  }
   const keys = Object.keys(allNumeric[0]);
 
   const meanParams: { [key: string]: number } = {};
@@ -304,9 +312,19 @@ function analyzeParameterStability<Params>(
 
   let totalCV = 0;
   for (const key of keys) {
-    const values = allNumeric.map(p => p[key]).filter(v => !isNaN(v));
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const std = Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / (values.length - 1));
+    const values = allNumeric.map(p => {
+      const value = p[key];
+      return value !== undefined && !isNaN(value) ? value : NaN;
+    }).filter(v => !isNaN(v));
+    if (values.length === 0) {
+      meanParams[key] = 0;
+      stdParams[key] = 0;
+      continue;
+    }
+    const mean = values.reduce((a: number, b: number) => a + b, 0) / values.length;
+    const std = values.length > 1 
+      ? Math.sqrt(values.reduce((a: number, v: number) => a + (v - mean) ** 2, 0) / (values.length - 1))
+      : 0;
     meanParams[key] = mean;
     stdParams[key] = std;
 
@@ -321,8 +339,8 @@ function analyzeParameterStability<Params>(
 
   return {
     params: paramsList,
-    meanParams,
-    stdParams,
+    meanParams: meanParams as { [K in keyof Params]?: number },
+    stdParams: stdParams as { [K in keyof Params]?: number },
     stabilityScore
   };
 }

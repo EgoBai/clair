@@ -53,12 +53,18 @@ export function calculateOBV(data: VolumePriceData[]): number[] {
   const obv: number[] = [data[0].volume];
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i].close > data[i - 1].close) {
-      obv.push(obv[i - 1] + data[i].volume);
-    } else if (data[i].close < data[i - 1].close) {
-      obv.push(obv[i - 1] - data[i].volume);
+    const current = data[i];
+    const prev = data[i - 1];
+    const prevObv = obv[i - 1];
+    
+    if (!current || !prev || prevObv === undefined) continue;
+    
+    if (current.close > prev.close) {
+      obv.push(prevObv + current.volume);
+    } else if (current.close < prev.close) {
+      obv.push(prevObv - current.volume);
     } else {
-      obv.push(obv[i - 1]);
+      obv.push(prevObv);
     }
   }
 
@@ -80,13 +86,19 @@ export function analyzeVolumePrice(data: VolumePriceData[]): {
   }
 
   const latest = data[data.length - 1];
+  if (!latest) {
+    return {
+      analysis: { volumeRatio: 0, turnoverRate: 0, obv: 0, obvTrend: 'flat', avgVolume5: 0, avgVolume20: 0, volumeShrinkDays: 0, volumeExpandDays: 0 },
+      signals: [],
+    };
+  }
   const avgVolume5 = data.slice(-5).reduce((s, d) => s + d.volume, 0) / 5;
   const avgVolume20 = data.slice(-Math.min(20, data.length)).reduce((s, d) => s + d.volume, 0) / Math.min(20, data.length);
   const volumeRatio = avgVolume5 > 0 ? latest.volume / avgVolume5 : 0;
 
   // OBV
   const obvArr = calculateOBV(data);
-  const obv = obvArr[obvArr.length - 1];
+  const obv = obvArr[obvArr.length - 1] || 0;
   const obvAvg5 = obvArr.slice(-5).reduce((s, v) => s + v, 0) / 5;
   const obvTrend = obv > obvAvg5 * 1.02 ? 'up' : obv < obvAvg5 * 0.98 ? 'down' : 'flat';
 
@@ -94,10 +106,14 @@ export function analyzeVolumePrice(data: VolumePriceData[]): {
   let volumeShrinkDays = 0;
   let volumeExpandDays = 0;
   for (let i = data.length - 1; i > 0; i--) {
-    if (data[i].volume < data[i - 1].volume) {
+    const current = data[i];
+    const prev = data[i - 1];
+    if (!current || !prev) break;
+    
+    if (current.volume < prev.volume) {
       volumeShrinkDays++;
       volumeExpandDays = 0;
-    } else if (data[i].volume > data[i - 1].volume) {
+    } else if (current.volume > prev.volume) {
       volumeExpandDays++;
       volumeShrinkDays = 0;
     } else break;
@@ -183,6 +199,7 @@ export function identifyVolumePatterns(data: VolumePriceData[]): VolumePattern[]
 
   const patterns: VolumePattern[] = [];
   const latest = data[data.length - 1];
+  if (!latest) return [];
 
   // 天量天价
   const maxVolIdx = data.reduce((maxI, d, i) => d.volume > data[maxI].volume ? i : maxI, 0);
@@ -198,9 +215,9 @@ export function identifyVolumePatterns(data: VolumePriceData[]): VolumePattern[]
   }
 
   // 地量地价
-  const recentAvgVol = data.slice(-20).reduce((s, d) => s + d.volume, 0) / 20;
-  if (latest.volume < recentAvgVol * 0.3) {
-    const minPrice = Math.min(...data.slice(-10).map(d => d.close));
+  const recentAvgVol = data.slice(-20).reduce((s, d) => d ? s + d.volume : s, 0) / 20;
+  if (latest && latest.volume < recentAvgVol * 0.3) {
+    const minPrice = Math.min(...data.slice(-10).map(d => d ? d.close : Infinity));
     if (latest.close <= minPrice * 1.02) {
       patterns.push({
         pattern: '地量地价',
@@ -212,8 +229,8 @@ export function identifyVolumePatterns(data: VolumePriceData[]): VolumePattern[]
   }
 
   // 放量突破
-  const recentHigh = Math.max(...data.slice(-20, -1).map(d => d.high));
-  if (latest.close > recentHigh && latest.volume > recentAvgVol * 2) {
+  const recentHigh = Math.max(...data.slice(-20, -1).map(d => d ? d.high : -Infinity));
+  if (latest && latest.close > recentHigh && latest.volume > recentAvgVol * 2) {
     patterns.push({
       pattern: '放量突破',
       confidence: 80,
@@ -223,8 +240,8 @@ export function identifyVolumePatterns(data: VolumePriceData[]): VolumePattern[]
   }
 
   // 缩量回调
-  if (data.length >= 5) {
-    const prevHigh = Math.max(...data.slice(-10, -3).map(d => d.close));
+  if (data.length >= 5 && latest) {
+    const prevHigh = Math.max(...data.slice(-10, -3).map(d => d ? d.close : -Infinity));
     const isPullback = latest.close < prevHigh * 0.97;
     const isShrinking = latest.volume < recentAvgVol * 0.6;
     if (isPullback && isShrinking) {

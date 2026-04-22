@@ -1,151 +1,216 @@
 import { describe, it, expect } from 'vitest';
+import {
+  calculateVisibleRange,
+  VirtualScrollCache,
+  globalVirtualScrollCache,
+} from '../utils/virtualScrollEngine';
 
-/**
- * 虚拟滚动引擎测试
- */
-
-interface VirtualScrollConfig {
-  itemHeight: number;
-  containerHeight: number;
-  overscan: number;
-  totalCount: number;
-}
-
-interface ScrollState {
-  scrollTop: number;
-  startIndex: number;
-  endIndex: number;
-  visibleCount: number;
-  offsetY: number;
-  totalHeight: number;
-}
-
-function calcScrollState(config: VirtualScrollConfig, scrollTop: number): ScrollState {
-  const { itemHeight, containerHeight, overscan, totalCount } = config;
-  const visibleCount = Math.ceil(containerHeight / itemHeight);
-  const rawStart = Math.floor(scrollTop / itemHeight);
-  const startIndex = Math.max(0, rawStart - overscan);
-  const endIndex = Math.min(totalCount - 1, rawStart + visibleCount + overscan);
-  const offsetY = startIndex * itemHeight;
-  const totalHeight = totalCount * itemHeight;
-
-  return {
-    scrollTop,
-    startIndex,
-    endIndex,
-    visibleCount,
-    offsetY,
-    totalHeight,
-  };
-}
-
-function getVisibleItems<T>(items: T[], state: ScrollState): T[] {
-  return items.slice(state.startIndex, state.endIndex + 1);
-}
-
-function scrollToIndex(config: VirtualScrollConfig, index: number): number {
-  return Math.min(index * config.itemHeight, config.totalCount * config.itemHeight - config.containerHeight);
-}
-
-function smoothScroll(current: number, target: number, duration: number, elapsed: number): number {
-  const progress = Math.min(elapsed / duration, 1);
-  const eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
-  return current + (target - current) * eased;
-}
-
-describe('Virtual Scroll Engine', () => {
-  const config: VirtualScrollConfig = {
-    itemHeight: 40,
-    containerHeight: 400,
-    overscan: 5,
-    totalCount: 1000,
-  };
-
-  describe('滚动状态计算', () => {
-    it('顶部应该从0开始', () => {
-      const state = calcScrollState(config, 0);
-      expect(state.startIndex).toBe(0);
-      expect(state.endIndex).toBeGreaterThan(0);
+describe('VirtualScrollEngine Optimizations', () => {
+  describe('calculateVisibleRange with binary search', () => {
+    it('should calculate correct range for equal heights', () => {
+      const result = calculateVisibleRange(
+        0,
+        400,
+        40,
+        1000,
+        2
+      );
+      expect(result.startIndex).toBe(0);
+      expect(result.endIndex).toBe(13); // 10 visible + 2 overscan + 1 for partial
+      expect(result.totalHeight).toBe(40000);
+      expect(result.offsetY).toBe(0);
     });
 
-    it('应该计算可见数量', () => {
-      const state = calcScrollState(config, 0);
-      expect(state.visibleCount).toBe(10); // 400/40
+    it('should calculate correct range when scrolled', () => {
+      const result = calculateVisibleRange(
+        400,
+        400,
+        40,
+        1000,
+        2
+      );
+      expect(result.startIndex).toBe(8); // 10 - 2 overscan
+      expect(result.endIndex).toBe(21); // 8 + 10 + 2*2 - 1 (索引从0开始)
+      expect(result.offsetY).toBe(320); // 8 * 40
     });
 
-    it('应该包含overscan', () => {
-      const state = calcScrollState(config, 0);
-      const visibleItems = state.endIndex - state.startIndex + 1;
-      expect(visibleItems).toBeGreaterThan(state.visibleCount);
+    it('should handle variable heights', () => {
+      const getH = (i: number) => (i % 2 === 0 ? 40 : 60);
+      const result = calculateVisibleRange(
+        100,
+        200,
+        getH,
+        100,
+        1
+      );
+      expect(result.startIndex).toBeGreaterThanOrEqual(0);
+      expect(result.endIndex).toBeLessThan(100);
+      expect(result.totalHeight).toBeGreaterThan(0);
     });
 
-    it('应该计算总高度', () => {
-      const state = calcScrollState(config, 0);
-      expect(state.totalHeight).toBe(40000); // 1000 * 40
+    it('should not exceed total count', () => {
+      const result = calculateVisibleRange(
+        0,
+        400,
+        40,
+        10,
+        5
+      );
+      expect(result.endIndex).toBe(9); // max index
+      expect(result.visibleItems).toHaveLength(10);
     });
 
-    it('应该计算offsetY', () => {
-      const state = calcScrollState(config, 400);
-      expect(state.offsetY).toBeGreaterThanOrEqual(0);
-    });
-
-    it('底部不应该超出总数', () => {
-      const state = calcScrollState(config, 39000);
-      expect(state.endIndex).toBeLessThanOrEqual(999);
+    it('should not go below 0', () => {
+      const result = calculateVisibleRange(
+        0,
+        400,
+        40,
+        100,
+        5
+      );
+      expect(result.startIndex).toBe(0);
     });
   });
 
-  describe('可见项目', () => {
-    it('应该返回正确范围的项目', () => {
-      const items = Array.from({ length: 1000 }, (_, i) => i);
-      const state = calcScrollState(config, 400);
-      const visible = getVisibleItems(items, state);
-      expect(visible.length).toBeGreaterThan(0);
-      expect(visible[0]).toBe(state.startIndex);
+  describe('VirtualScrollCache', () => {
+    it('should cache prefix sums correctly', () => {
+      const cache = new VirtualScrollCache();
+      const itemHeight = 40;
+      
+      cache.updateCache(100, itemHeight);
+      
+      expect(cache.getPrefixSum(0)).toBe(0);
+      expect(cache.getPrefixSum(1)).toBe(40);
+      expect(cache.getPrefixSum(10)).toBe(400);
+      expect(cache.getTotalHeight()).toBe(4000);
+    });
+
+    it('should update cache when total count changes', () => {
+      const cache = new VirtualScrollCache();
+      const itemHeight = 50;
+      
+      cache.updateCache(10, itemHeight);
+      expect(cache.getTotalHeight()).toBe(500);
+      
+      cache.updateCache(20, itemHeight);
+      expect(cache.getTotalHeight()).toBe(1000);
+    });
+
+    it('should calculate visible range using cache', () => {
+      const cache = new VirtualScrollCache();
+      const itemHeight = 40;
+      
+      const result = cache.calculateVisibleRangeCached(
+        400,
+        400,
+        itemHeight,
+        1000,
+        2
+      );
+      
+      expect(result.startIndex).toBe(8);
+      expect(result.endIndex).toBe(21); // 8 + 10 + 2*2 - 1 (索引从0开始)
+      expect(result.offsetY).toBe(320);
+    });
+
+    it('should handle variable heights with cache', () => {
+      const cache = new VirtualScrollCache();
+      const getH = (i: number) => (i % 2 === 0 ? 30 : 50);
+      
+      const result = cache.calculateVisibleRangeCached(
+        100,
+        200,
+        getH,
+        100,
+        1
+      );
+      
+      expect(result.startIndex).toBeGreaterThanOrEqual(0);
+      expect(result.endIndex).toBeLessThan(100);
     });
   });
 
-  describe('滚动到指定索引', () => {
-    it('应该计算正确的滚动位置', () => {
-      const scrollTop = scrollToIndex(config, 100);
-      expect(scrollTop).toBe(4000); // 100 * 40
+  describe('Performance', () => {
+    it('should handle large lists efficiently', () => {
+      const startTime = performance.now();
+      
+      // 测试10000项列表
+      const result = calculateVisibleRange(
+        100000,
+        800,
+        40,
+        10000,
+        5
+      );
+      
+      const endTime = performance.now();
+      const executionTime = endTime - startTime;
+      
+      expect(result.startIndex).toBeGreaterThan(0);
+      expect(result.endIndex).toBeLessThan(10000);
+      expect(executionTime).toBeLessThan(10); // 应该在10ms内完成
     });
 
-    it('超出范围应该限制到最大值', () => {
-      const scrollTop = scrollToIndex(config, 2000);
-      expect(scrollTop).toBeLessThanOrEqual(config.totalCount * config.itemHeight);
+    it('should be faster with cache for repeated calculations', () => {
+      const cache = new VirtualScrollCache();
+      const itemHeight = 40;
+      
+      // 首次计算（建立缓存）
+      const startTime1 = performance.now();
+      cache.calculateVisibleRangeCached(0, 400, itemHeight, 10000, 5);
+      const time1 = performance.now() - startTime1;
+      
+      // 第二次计算（使用缓存）
+      const startTime2 = performance.now();
+      cache.calculateVisibleRangeCached(400, 400, itemHeight, 10000, 5);
+      const time2 = performance.now() - startTime2;
+      
+      // 缓存版本应该更快或相当
+      expect(time2).toBeLessThanOrEqual(time1 * 2); // 允许一些误差
     });
   });
 
-  describe('平滑滚动', () => {
-    it('起始位置应该是当前位置', () => {
-      expect(smoothScroll(0, 100, 300, 0)).toBe(0);
+  describe('Edge cases', () => {
+    it('should handle empty list', () => {
+      const result = calculateVisibleRange(
+        0,
+        400,
+        40,
+        0,
+        5
+      );
+      
+      expect(result.startIndex).toBe(0);
+      expect(result.endIndex).toBe(-1);
+      expect(result.visibleItems).toHaveLength(0);
+      expect(result.totalHeight).toBe(0);
     });
 
-    it('结束位置应该是目标位置', () => {
-      expect(smoothScroll(0, 100, 300, 300)).toBe(100);
+    it('should handle very small container', () => {
+      const result = calculateVisibleRange(
+        0,
+        10,
+        40,
+        100,
+        0
+      );
+      
+      expect(result.startIndex).toBe(0);
+      expect(result.endIndex).toBe(0);
+      expect(result.visibleItems).toHaveLength(1);
     });
 
-    it('中间位置应该在范围内', () => {
-      const pos = smoothScroll(0, 100, 300, 150);
-      expect(pos).toBeGreaterThan(0);
-      expect(pos).toBeLessThan(100);
-    });
-  });
-
-  describe('边界条件', () => {
-    it('空列表应该正常工作', () => {
-      const emptyConfig: VirtualScrollConfig = { ...config, totalCount: 0 };
-      const state = calcScrollState(emptyConfig, 0);
-      expect(state.startIndex).toBe(0);
-      expect(state.endIndex).toBe(-1);
-    });
-
-    it('单个项目应该正常工作', () => {
-      const singleConfig: VirtualScrollConfig = { ...config, totalCount: 1 };
-      const state = calcScrollState(singleConfig, 0);
-      expect(state.startIndex).toBe(0);
-      expect(state.endIndex).toBe(0);
+    it('should handle scroll beyond total height', () => {
+      const result = calculateVisibleRange(
+        50000,
+        400,
+        40,
+        100,
+        5
+      );
+      
+      expect(result.startIndex).toBeLessThan(100);
+      expect(result.endIndex).toBe(99);
     });
   });
 });

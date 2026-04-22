@@ -1,3 +1,5 @@
+/// <reference lib="webworker" />
+
 /**
  * Service Worker 缓存策略
  * 支持多种缓存策略：
@@ -238,8 +240,7 @@ async function cleanupExpiredCache(): Promise<void> {
   }
 }
 
-// ==================== 事件监听 ====================
-declare const self: ServiceWorkerGlobalScope;
+
 
 self.addEventListener('install', (event: ExtendableEvent) => {
   event.waitUntil(
@@ -296,7 +297,7 @@ self.addEventListener('fetch', (event: FetchEvent) => {
 });
 
 // 后台定期清理缓存
-self.addEventListener('periodicsync', (event: any) => {
+self.addEventListener('periodicsync', (event: ExtendableEvent & { tag: string }) => {
   if (event.tag === 'cache-cleanup') {
     event.waitUntil(
       Promise.all(
@@ -317,7 +318,7 @@ interface SyncQueueItem {
   retries: number;
 }
 
-self.addEventListener('sync', (event: any) => {
+self.addEventListener('sync', (event: ExtendableEvent & { tag: string }) => {
   if (event.tag === 'sync-watchlist') {
     event.waitUntil(syncQueue('watchlist'));
   } else if (event.tag === 'sync-alerts') {
@@ -349,11 +350,11 @@ async function syncQueue(type: string): Promise<void> {
 }
 
 // ==================== 推送通知 ====================
-self.addEventListener('push', (event: any) => {
+self.addEventListener('push', async (event: ExtendableEvent & { data?: { json: () => Promise<any> } }) => {
   if (!event.data) return;
 
   try {
-    const data = event.data.json();
+    const data = await event.data.json();
     const { title, body, type, stockCode, url } = data;
 
     const options: NotificationOptions & { actions?: Array<{ action: string; title: string }> } = {
@@ -367,7 +368,7 @@ self.addEventListener('push', (event: any) => {
         { action: 'dismiss', title: '忽略' },
       ] : undefined,
       requireInteraction: type === 'price-alert',
-      vibrate: type === 'price-alert' ? [200, 100, 200] : undefined,
+      // vibrate: type === 'price-alert' ? [200, 100, 200] : undefined, // 移除不支持的属性
     };
 
     event.waitUntil(
@@ -378,7 +379,7 @@ self.addEventListener('push', (event: any) => {
   }
 });
 
-self.addEventListener('notificationclick', (event: any) => {
+self.addEventListener('notificationclick', (event: ExtendableEvent & { notification: Notification; action?: string }) => {
   event.notification.close();
 
   const action = event.action;

@@ -149,9 +149,9 @@ describe('WebSocket协议引擎 v3', () => {
   describe('订阅合并', () => {
     it('同频道订阅应合并', () => {
       const subs: Subscription[] = [
-        { channel: 'quote', symbols: ['000001'], interval: 1000, callback: () => {} },
-        { channel: 'quote', symbols: ['000002'], interval: 1000, callback: () => {} },
-        { channel: 'kline', symbols: ['000001'], interval: 5000, callback: () => {} },
+        { channel: 'quote', symbols: ['000001'], interval: 1000, callback: () => {  },
+        { channel: 'quote', symbols: ['000002'], interval: 1000, callback: () => {  },
+        { channel: 'kline', symbols: ['000001'], interval: 5000, callback: () => {  },
       ];
       const batches = batchSubscriptions(subs);
       expect(batches.get('quote')!.length).toBe(2);

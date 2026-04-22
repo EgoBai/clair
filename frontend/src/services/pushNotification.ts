@@ -3,6 +3,7 @@
  * 支持浏览器原生通知 + Service Worker 推送
  */
 
+import logger from '../utils/logger';
 interface NotificationPayload {
   title: string;
   body: string;
@@ -21,7 +22,7 @@ class PushNotificationService {
    */
   async init(): Promise<boolean> {
     if (!('Notification' in window)) {
-      console.warn('此浏览器不支持通知');
+      logger.warn('此浏览器不支持通知');
       return false;
     }
 
@@ -30,7 +31,7 @@ class PushNotificationService {
       try {
         this.swRegistration = await navigator.serviceWorker.ready;
       } catch (e) {
-        console.warn('Service Worker 未就绪:', e);
+        logger.warn('Service Worker 未就绪:', e);
       }
     }
 
@@ -60,11 +61,11 @@ class PushNotificationService {
    */
   async notify(payload: NotificationPayload): Promise<boolean> {
     if (this.permission !== 'granted') {
-      console.warn('通知权限未授予');
+      logger.warn('通知权限未授予');
       return false;
     }
 
-    const options: NotificationOptions = {
+    const options = {
       body: payload.body,
       icon: payload.icon || '/icons/icon-192x192.png',
       tag: payload.tag || 'stock-alert',
@@ -83,7 +84,7 @@ class PushNotificationService {
       }
       return true;
     } catch (e) {
-      console.error('通知发送失败:', e);
+      logger.error('通知发送失败:', e);
       return false;
     }
   }

@@ -9,7 +9,7 @@
  * - 个股 AI 点评
  */
 
-import { KLineData } from '../../shared/types';
+import { KLineData } from '../types';
 
 // ==================== 类型定义 ====================
 
@@ -127,8 +127,10 @@ export class MarketCommentaryGenerator {
     const total = data.riseCount + data.fallCount;
     const riseRatio = total > 0 ? data.riseCount / total : 0.5;
 
+    // 强信号优先 (Bloomberg级: 明确分层，无重叠)
     if (data.indexChange > 1 && riseRatio > 0.6) return 'bullish';
     if (data.indexChange < -1 && riseRatio < 0.4) return 'bearish';
+    // 弱信号补充
     if (data.indexChange > 0.3 && riseRatio > 0.55) return 'bullish';
     if (data.indexChange < -0.3 && riseRatio < 0.45) return 'bearish';
     return 'neutral';

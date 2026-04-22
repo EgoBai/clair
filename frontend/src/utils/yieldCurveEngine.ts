@@ -35,7 +35,6 @@ export interface YieldCurveResult {
 
 export function analyzeYieldCurve(data: YieldCurveData): YieldCurveResult {
   const keyInsights: string[] = [];
-  const curve = [data.m1, data.m3, data.m6, data.y1, data.y2, data.y5, data.y10, data.y30];
 
   // 10Y-2Y利差
   const spread10y2y = data.y10 - data.y2;

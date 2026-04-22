@@ -6,7 +6,7 @@
 
 import React, { Suspense, LazyExoticComponent, ComponentType } from 'react';
 import { Spin } from 'antd';
-import EnhancedErrorBoundary from './EnhancedErrorBoundary';
+import { UnifiedErrorBoundary } from './UnifiedErrorBoundary';
 
 interface LazyPageProps {
   component: LazyExoticComponent<ComponentType<any>>;
@@ -26,11 +26,11 @@ const PageLoader = () => (
 
 export function LazyPage({ component: Component, name }: LazyPageProps) {
   return (
-    <EnhancedErrorBoundary name={name} maxRetries={3}>
+    <UnifiedErrorBoundary name={name} maxRetries={3}>
       <Suspense fallback={<PageLoader />}>
         <Component />
       </Suspense>
-    </EnhancedErrorBoundary>
+    </UnifiedErrorBoundary>
   );
 }
 

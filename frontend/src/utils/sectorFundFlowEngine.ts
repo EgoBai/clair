@@ -65,11 +65,11 @@ export function calculateNetInflow(flow: FundFlowData): number {
  * 板块资金流排名
  */
 export function rankByFundFlow(flows: FundFlowData[]): FlowRanking[] {
-  const ranked = flows.map(f => ({
+  const ranked: FlowRanking[] = flows.map(f => ({
     sector: f.sector,
     netInflow: calculateNetInflow(f),
     rank: 0,
-    trend: 'inflow_steady' as const,
+    trend: 'inflow_steady',
     intensity: 0,
   }));
 
@@ -87,6 +87,8 @@ export function rankByFundFlow(flows: FundFlowData[]): FlowRanking[] {
       item.trend = flow.mainInflow > 1000 ? 'inflow_accelerating' : 'inflow_steady';
     } else if (flow.mainInflow < 0) {
       item.trend = flow.mainInflow < -1000 ? 'outflow_accelerating' : 'outflow_steady';
+    } else {
+      item.trend = 'inflow_steady';
     }
   });
 

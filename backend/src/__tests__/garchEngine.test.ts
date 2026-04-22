@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
+// Seeded PRNG for deterministic tests
+let _seed = 42;
+function seededRandom(): number {
+  _seed = (_seed * 16807 + 0) % 2147483647;
+  return (_seed - 1) / 2147483646;
+}
+
 describe('GARCH波动率建模引擎', () => {
   // GARCH(1,1) 最大似然估计简化
   function garch11(returns: number[], omega = 0.0001, alpha = 0.1, beta = 0.85) {
@@ -81,8 +88,8 @@ describe('GARCH波动率建模引擎', () => {
     return result;
   }
 
-  const returns = Array.from({ length: 100 }, () => (Math.random() - 0.5) * 0.04);
-  const prices = Array.from({ length: 101 }, (_, i) => 100 * Math.exp(i * 0.001 + (Math.random() - 0.5) * 0.02));
+  const returns = Array.from({ length: 100 }, () => (seededRandom() - 0.5) * 0.04);
+  const prices = Array.from({ length: 101 }, (_, i) => 100 * Math.exp(i * 0.001 + (seededRandom() - 0.5) * 0.02));
 
   describe('GARCH(1,1)', () => {
     it('波动率序列长度正确', () => {
@@ -123,8 +130,8 @@ describe('GARCH波动率建模引擎', () => {
     });
 
     it('杠杆效应(负冲击增大波动)', () => {
-      const negRet = Array.from({ length: 50 }, () => -0.03 - Math.random() * 0.02);
-      const posRet = Array.from({ length: 50 }, () => 0.03 + Math.random() * 0.02);
+      const negRet = Array.from({ length: 50 }, () => -0.03 - seededRandom() * 0.02);
+      const posRet = Array.from({ length: 50 }, () => 0.03 + seededRandom() * 0.02);
       const negSig = egarch(negRet);
       const posSig = egarch(posRet);
       const negAvg = negSig.reduce((a, b) => a + b, 0) / negSig.length;

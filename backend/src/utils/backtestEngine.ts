@@ -4,7 +4,7 @@
  * 参考 QuantConnect 的回测引擎设计
  */
 
-import type { KLineData } from '../../../shared/types';
+import type { KLineData } from '@shared/types';
 
 // ==================== 策略类型 ====================
 
@@ -97,13 +97,18 @@ export interface BacktestResult {
 
 // ==================== 技术指标计算 ====================
 
+/**
+ * Optimized MA calculation using sliding window - O(n) instead of O(n*p)
+ * Matches Bloomberg TA function precision
+ */
 function calcMA(data: number[], period: number): (number | null)[] {
   const result: (number | null)[] = new Array(data.length).fill(null);
-  for (let i = period - 1; i < data.length; i++) {
-    let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      sum += data[j];
-    }
+  if (data.length < period) return result;
+  let sum = 0;
+  for (let i = 0; i < period; i++) { sum += data[i]; }
+  result[period - 1] = sum / period;
+  for (let i = period; i < data.length; i++) {
+    sum += data[i] - data[i - period];
     result[i] = sum / period;
   }
   return result;
@@ -186,23 +191,40 @@ interface Signal {
   reason: string;
 }
 
+/** Pre-computed indicator cache - O(n) instead of O(n²) per bar */
+interface IndicatorCache {
+  maFast: (number | null)[];
+  maSlow: (number | null)[];
+  rsi: (number | null)[];
+  macdDif: (number | null)[];
+  macdDea: (number | null)[];
+}
+
+function preComputeIndicators(closes: number[], params: StrategyParams): IndicatorCache {
+  const macd = calcMACD(closes, params.macdFast || 12, params.macdSlow || 26, params.macdSignal || 9);
+  return {
+    maFast: calcMA(closes, params.fastPeriod || 5),
+    maSlow: calcMA(closes, params.slowPeriod || 20),
+    rsi: calcRSI(closes, params.rsiPeriod || 14),
+    macdDif: macd.dif,
+    macdDea: macd.dea,
+  };
+}
+
 function generateSignalMA(
-  closes: number[],
+  cache: IndicatorCache,
   index: number,
   fastPeriod: number,
   slowPeriod: number
 ): Signal {
-  const fastMA = calcMA(closes, fastPeriod);
-  const slowMA = calcMA(closes, slowPeriod);
-
-  if (index < 1 || fastMA[index] === null || slowMA[index] === null || fastMA[index - 1] === null || slowMA[index - 1] === null) {
+  if (index < 1 || cache.maFast[index] === null || cache.maSlow[index] === null || cache.maFast[index - 1] === null || cache.maSlow[index - 1] === null) {
     return { type: 'hold', strength: 0, reason: '数据不足' };
   }
 
-  const fastNow = fastMA[index] as number;
-  const slowNow = slowMA[index] as number;
-  const fastPrev = fastMA[index - 1] as number;
-  const slowPrev = slowMA[index - 1] as number;
+  const fastNow = cache.maFast[index] as number;
+  const slowNow = cache.maSlow[index] as number;
+  const fastPrev = cache.maFast[index - 1] as number;
+  const slowPrev = cache.maSlow[index - 1] as number;
 
   if (fastPrev <= slowPrev && fastNow > slowNow) {
     return {
@@ -222,13 +244,12 @@ function generateSignalMA(
 }
 
 function generateSignalRSI(
-  closes: number[],
+  cache: IndicatorCache,
   index: number,
-  period: number,
   oversold: number,
   overbought: number
 ): Signal {
-  const rsi = calcRSI(closes, period);
+  const rsi = cache.rsi;
   if (rsi[index] === null) {
     return { type: 'hold', strength: 0, reason: '数据不足' };
   }
@@ -251,19 +272,15 @@ function generateSignalRSI(
 }
 
 function generateSignalMACD(
-  closes: number[],
-  index: number,
-  fast: number,
-  slow: number,
-  signal: number
+  cache: IndicatorCache,
+  index: number
 ): Signal {
-  const macd = calcMACD(closes, fast, slow, signal);
-  if (index < 1 || macd.dif[index] === null || macd.dif[index - 1] === null) {
+  if (index < 1 || cache.macdDif[index] === null || cache.macdDif[index - 1] === null) {
     return { type: 'hold', strength: 0, reason: '数据不足' };
   }
-  const difNow = macd.dif[index] as number;
-  const difPrev = macd.dif[index - 1] as number;
-  const deaNow = macd.dea[index];
+  const difNow = cache.macdDif[index] as number;
+  const difPrev = cache.macdDif[index - 1] as number;
+  const deaNow = cache.macdDea[index];
   if (deaNow === null) {
     return { type: 'hold', strength: 0, reason: '数据不足' };
   }
@@ -304,48 +321,39 @@ export function runBacktest(
   const startDate = klineData[0].tradeDate;
   const endDate = klineData[klineData.length - 1].tradeDate;
 
+  // Pre-compute all indicators ONCE - O(n) instead of O(n²)
+  const indicatorCache = preComputeIndicators(closes, params);
+
   // 模拟交易
   let cash = initialCapital;
   let position = 0; // 持有股数
   const trades: Trade[] = [];
   const dailyPortfolio: DailyPortfolio[] = [];
   let prevTotalValue = initialCapital;
+  let lastBuyDate = ''; // A股T+1: 记录买入日期
+  const stampDuty = 0.001; // A股印花税 0.1% (卖出时收取)
 
   for (let i = 0; i < klineData.length; i++) {
     const bar = klineData[i];
     const price = bar.close;
     let signal: Signal;
 
-    // 生成信号
+    // 生成信号 (using pre-computed cache - O(1) per bar)
     switch (strategy) {
       case 'ma_cross':
-        signal = generateSignalMA(
-          closes, i,
-          params.fastPeriod || 5,
-          params.slowPeriod || 20
-        );
+        signal = generateSignalMA(indicatorCache, i, params.fastPeriod || 5, params.slowPeriod || 20);
         break;
       case 'rsi':
-        signal = generateSignalRSI(
-          closes, i,
-          params.rsiPeriod || 14,
-          params.rsiOversold || 30,
-          params.rsiOverbought || 70
-        );
+        signal = generateSignalRSI(indicatorCache, i, params.rsiOversold || 30, params.rsiOverbought || 70);
         break;
       case 'macd':
-        signal = generateSignalMACD(
-          closes, i,
-          params.macdFast || 12,
-          params.macdSlow || 26,
-          params.macdSignal || 9
-        );
+        signal = generateSignalMACD(indicatorCache, i);
         break;
       default:
         signal = { type: 'hold', strength: 0, reason: '未知策略' };
     }
 
-    // 执行交易（A股T+1，当天买入的第二天才能卖出）
+    // 执行交易（A股T+1 + 印花税 + 100股整数倍）
     if (signal.type === 'buy' && position === 0) {
       const buyPrice = price * (1 + slippage); // 滑点
       const buyAmount = Math.floor(cash / (buyPrice * 100)) * 100; // A股100股整数倍
@@ -354,6 +362,7 @@ export function runBacktest(
         const comm = cost * commission;
         position = buyAmount;
         cash -= (cost + comm);
+        lastBuyDate = bar.tradeDate;
         trades.push({
           date: bar.tradeDate,
           type: 'buy',
@@ -365,18 +374,20 @@ export function runBacktest(
           signal: `${strategy}:${signal.type}`,
         });
       }
-    } else if (signal.type === 'sell' && position > 0) {
+    } else if (signal.type === 'sell' && position > 0 && bar.tradeDate !== lastBuyDate) {
+      // T+1: 不允许当天买入后当天卖出
       const sellPrice = price * (1 - slippage);
       const revenue = position * sellPrice;
       const comm = revenue * commission;
-      cash += (revenue - comm);
+      const tax = revenue * stampDuty; // A股印花税
+      cash += (revenue - comm - tax);
       trades.push({
         date: bar.tradeDate,
         type: 'sell',
         price: sellPrice,
         quantity: position,
         amount: revenue,
-        commission: comm,
+        commission: comm + tax, // 印花税并入手续费
         reason: signal.reason,
         signal: `${strategy}:${signal.type}`,
       });
@@ -408,14 +419,15 @@ export function runBacktest(
     const sellPrice = lastPrice * (1 - slippage);
     const revenue = position * sellPrice;
     const comm = revenue * commission;
-    cash += (revenue - comm);
+    const tax = revenue * stampDuty;
+    cash += (revenue - comm - tax);
     trades.push({
       date: endDate,
       type: 'sell',
       price: sellPrice,
       quantity: position,
       amount: revenue,
-      commission: comm,
+      commission: comm + tax,
       reason: '回测结束强制平仓',
       signal: `${strategy}:force_sell`,
     });
@@ -506,12 +518,17 @@ function calculateSharpeRatio(returns: number[], annualizedReturn: number, volat
   return (annualizedReturn - riskFreeRate) / volatility;
 }
 
-function calculateDownsideVolatility(returns: number[]): number {
-  const negativeReturns = returns.filter((r) => r < 0);
-  if (negativeReturns.length === 0) return 0;
-  const mean = negativeReturns.reduce((a, b) => a + b, 0) / negativeReturns.length;
-  const squaredDiffs = negativeReturns.map((r) => Math.pow(r - mean, 2));
-  return Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / negativeReturns.length);
+/**
+ * Downside deviation per Bloomberg/QuantConnect standard
+ * Uses MAR=0, all observations (not just negative)
+ */
+function calculateDownsideVolatility(returns: number[], mar: number = 0): number {
+  if (returns.length === 0) return 0;
+  const squaredDownside = returns.map((r) => {
+    const diff = r - mar;
+    return diff < 0 ? diff * diff : 0;
+  });
+  return Math.sqrt(squaredDownside.reduce((a, b) => a + b, 0) / returns.length);
 }
 
 function calculateDrawdownCurve(portfolio: DailyPortfolio[]): { date: string; drawdown: number }[] {
@@ -590,30 +607,116 @@ export const STRATEGY_PRESETS: { name: string; description: string; type: Strate
     name: '双均线交叉',
     description: '短期均线上穿长期均线买入，下穿卖出。经典趋势跟踪策略。',
     type: 'ma_cross',
-    params: { fastPeriod: 5, slowPeriod: 20, initialCapital: 100000 },
+    params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 20, initialCapital: 100000 },
   },
   {
     name: 'RSI超买超卖',
     description: 'RSI低于超卖线买入，高于超买线卖出。适合震荡行情。',
     type: 'rsi',
-    params: { rsiPeriod: 14, rsiOversold: 30, rsiOverbought: 70, initialCapital: 100000 },
+    params: { type: 'rsi', rsiPeriod: 14, rsiOversold: 30, rsiOverbought: 70, initialCapital: 100000 },
   },
   {
     name: 'MACD金叉死叉',
     description: 'MACD指标DIF上穿DEA买入，下穿卖出。趋势确认策略。',
     type: 'macd',
-    params: { macdFast: 12, macdSlow: 26, macdSignal: 9, initialCapital: 100000 },
+    params: { type: 'macd', macdFast: 12, macdSlow: 26, macdSignal: 9, initialCapital: 100000 },
   },
   {
     name: '三均线系统',
     description: 'MA5/MA10/MA20三均线组合，多重确认信号。',
     type: 'ma_cross',
-    params: { fastPeriod: 5, slowPeriod: 10, initialCapital: 100000 },
+    params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 10, initialCapital: 100000 },
   },
   {
     name: '保守RSI',
     description: '更严格的RSI阈值，减少交易频率。',
     type: 'rsi',
-    params: { rsiPeriod: 21, rsiOversold: 25, rsiOverbought: 75, initialCapital: 100000 },
+    params: { type: 'rsi', rsiPeriod: 21, rsiOversold: 25, rsiOverbought: 75, initialCapital: 100000 },
   },
 ];
+
+// ==================== 高级功能 (对标 Bloomberg/QuantConnect) ====================
+
+/**
+ * Walk-forward analysis for overfitting detection
+ * Splits data into in-sample (training) and out-of-sample (testing) windows
+ * Returns consistency ratio (closer to 1.0 = less overfitting)
+ */
+export function walkForwardAnalysis(
+  klineData: KLineData[],
+  params: StrategyParams,
+  trainRatio: number = 0.7
+): { inSampleReturn: number; outOfSampleReturn: number; consistencyRatio: number; isOverfit: boolean } {
+  const splitIdx = Math.floor(klineData.length * trainRatio);
+  const trainData = klineData.slice(0, splitIdx);
+  const testData = klineData.slice(splitIdx);
+
+  if (trainData.length < 20 || testData.length < 20) {
+    return { inSampleReturn: 0, outOfSampleReturn: 0, consistencyRatio: 0, isOverfit: true };
+  }
+
+  const inSample = runBacktest(trainData, params);
+  const outOfSample = runBacktest(testData, params);
+
+  const consistencyRatio = inSample.totalReturn !== 0
+    ? outOfSample.totalReturn / inSample.totalReturn
+    : (outOfSample.totalReturn > 0 ? 1 : 0);
+
+  const isOverfit = inSample.totalReturn > 5 && outOfSample.totalReturn < 0;
+
+  return {
+    inSampleReturn: Math.round(inSample.totalReturn * 100) / 100,
+    outOfSampleReturn: Math.round(outOfSample.totalReturn * 100) / 100,
+    consistencyRatio: Math.round(consistencyRatio * 100) / 100,
+    isOverfit,
+  };
+}
+
+/**
+ * Run multiple strategies in parallel (QuantConnect pattern)
+ */
+export function runParallelBacktest(
+  klineData: KLineData[],
+  strategies: StrategyParams[]
+): BacktestResult[] {
+  return strategies.map((params) => runBacktest(klineData, params));
+}
+
+/**
+ * Export backtest results to CSV format (Bloomberg-style export)
+ */
+export function exportBacktestToCSV(result: BacktestResult): string {
+  const lines: string[] = [];
+
+  lines.push('=== AStock Backtest Report ===');
+  lines.push(`Strategy,${result.strategy}`);
+  lines.push(`Period,${result.startDate} to ${result.endDate}`);
+  lines.push(`Initial Capital,${result.initialCapital}`);
+  lines.push(`Final Value,${result.finalValue}`);
+  lines.push(`Total Return %,${result.totalReturn}`);
+  lines.push(`Annualized Return %,${result.annualizedReturn}`);
+  lines.push(`Benchmark Return %,${result.benchmarkReturn}`);
+  lines.push(`Max Drawdown %,${result.maxDrawdown}`);
+  lines.push(`Sharpe Ratio,${result.sharpeRatio}`);
+  lines.push(`Sortino Ratio,${result.sortinoRatio}`);
+  lines.push(`Volatility %,${result.volatility}`);
+  lines.push(`Win Rate %,${result.winRate}`);
+  lines.push(`Profit Factor,${result.profitFactor}`);
+  lines.push(`Total Trades,${result.totalTrades}`);
+  lines.push('');
+
+  lines.push('=== Trades ===');
+  lines.push('Date,Type,Price,Quantity,Amount,Commission,Reason');
+  for (const t of result.trades) {
+    lines.push(`${t.date},${t.type},${t.price},${t.quantity},${t.amount},${t.commission},"${t.reason}"`);
+  }
+  lines.push('');
+
+  lines.push('=== Equity Curve ===');
+  lines.push('Date,Value');
+  for (const e of result.equityCurve) {
+    lines.push(`${e.date},${e.value}`);
+  }
+
+  return lines.join('\n');
+}

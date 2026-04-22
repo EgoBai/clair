@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import logger from '../utils/logger';
 import {
   Card, List, Tag, Space, Typography, Select, Input, Row, Col,
   Statistic, Spin, Empty, Badge, Tooltip, Divider, Tabs, Pagination,
@@ -114,11 +115,12 @@ function NewsPage() {
         q: searchQuery || undefined,
       });
       if (res.success) {
-        setNews(res.data.items);
-        setTotal(res.data.pagination.totalCount);
+        const data = res.data as { items: NewsItem[]; pagination: { totalCount: number } };
+        setNews(data.items);
+        setTotal(data.pagination.totalCount);
       }
     } catch (err) {
-      console.error('加载新闻失败:', err);
+      logger.error('加载新闻失败:', err);
     } finally {
       setLoading(false);
     }
@@ -127,7 +129,7 @@ function NewsPage() {
   // 加载统计
   useEffect(() => {
     apiService.getNewsStats().then((res) => {
-      if (res.success) setStats(res.data);
+      if (res.success) setStats(res.data as any);
     });
   }, []);
 

@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import logger from '../utils/logger';
 
 /** 通知类型 */
 export type NotificationType =
@@ -217,7 +218,7 @@ export function useWSNotification(config: WSNotificationConfig): WSNotificationR
             handleBatch(missed);
           }
         } catch (e) {
-          console.error('[WS Notification] 消息解析失败:', e);
+          logger.error('[WS Notification] 消息解析失败:', e);
         }
       };
 
@@ -236,7 +237,7 @@ export function useWSNotification(config: WSNotificationConfig): WSNotificationR
         ws.close();
       };
     } catch (e) {
-      console.error('[WS Notification] 连接失败:', e);
+      logger.error('[WS Notification] 连接失败:', e);
       setStatus('disconnected');
     }
   }, [url, userId, autoReconnect, reconnectInterval, maxReconnectAttempts, handleMessage, handleBatch]);

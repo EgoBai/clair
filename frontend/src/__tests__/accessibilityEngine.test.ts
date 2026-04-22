@@ -171,6 +171,7 @@ describe('AccessibilityEngine', () => {
 
       if (hasResults) {
         base['aria-expanded'] = true;
+        base['aria-rowcount'] = resultCount;
         base['aria-controls'] = 'search-results';
       }
 

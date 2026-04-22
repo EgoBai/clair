@@ -204,7 +204,7 @@ describe('数据库操作深度', () => {
     });
 
     it('迁移可修改数据', () => {
-      const m: Migration = { version: 2, up: (d: Record<string, unknown>) => ({ ...d, added: true }), description: '' };
+      const m: Migration = { version: 2, up: (d: unknown) => ({ ...(d as Record<string, unknown>), added: true }), description: '' };
       const result = runMigrations({}, 1, [m]);
       expect((result.data as Record<string, unknown>).added).toBe(true);
     });

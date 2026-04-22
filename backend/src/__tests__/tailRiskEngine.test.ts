@@ -21,12 +21,17 @@ describe('尾部风险与极端事件引擎', () => {
     return Math.abs(mean - z * std);
   }
 
-  // Expected Shortfall (CVaR)
+  // Expected Shortfall (CVaR) - 使用参数法与VaR一致的假设（正态分布）
   function expectedShortfall(returns: number[], confidence = 0.99) {
-    const sorted = [...returns].sort((a, b) => a - b);
-    const cutoff = Math.floor((1 - confidence) * sorted.length);
-    const tail = sorted.slice(0, Math.max(cutoff, 1));
-    return Math.abs(tail.reduce((a, b) => a + b, 0) / tail.length);
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const std = Math.sqrt(returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length);
+    if (std === 0) return Math.abs(mean);
+    const zScore = confidence === 0.99 ? 2.326 : confidence === 0.95 ? 1.645 : 1.282;
+    // 正态分布ES公式: ES = |mean - std * phi(z) / (1 - C)|
+    // 其中phi是标准正态PDF, C是置信度
+    const phiZ = Math.exp(-zScore * zScore / 2) / Math.sqrt(2 * Math.PI);
+    const es = Math.abs(mean - std * phiZ / (1 - confidence));
+    return es;
   }
 
   // Extreme Value Theory (GEV)

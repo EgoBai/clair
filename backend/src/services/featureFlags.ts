@@ -260,7 +260,7 @@ class FeatureFlagService {
     return requiredGroups.some(g => userGroups.includes(g));
   }
 
-  private evaluateTimeWindow(startTime?: string, endTime?: boolean): boolean {
+  private evaluateTimeWindow(startTime?: string, endTime?: string): boolean {
     if (!startTime || !endTime) return true;
     const now = Date.now();
     return now >= new Date(startTime).getTime() && now <= new Date(endTime as string).getTime();

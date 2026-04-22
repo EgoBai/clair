@@ -250,7 +250,7 @@ export function compositeRiskScore(
   }
   for (const t of Object.values(byType)) {
     t.avgScore = Math.round(t.totalScore / t.count);
-    delete (t as any).totalScore;
+    delete (t as Record<string, unknown>).totalScore;
   }
 
   return {

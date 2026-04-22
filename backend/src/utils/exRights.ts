@@ -13,7 +13,7 @@
  * 后复权价 = 复权前价格 * (1 + 流通股份变动比例) + 现金红利
  */
 
-import { KLineData, DailyQuote } from '../../shared/types';
+import { KLineData, DailyQuote } from '../types';
 
 // ==================== 类型定义 ====================
 
@@ -226,8 +226,8 @@ export class AdjustmentEngine {
   /**
    * 前复权: 以最新价格为基准
    * 
-   * 前复权价 = 原始价 × 复权因子 - 累计派息
-   * 复权因子 = Π(1 + 送转比例[i])，从最新向前累计
+   * 标准公式: 前复权价 = (原始价 - 累计税后派息) / 累计送转因子
+   * 送转因子 = Π(1 + 送转比例[i])，从当前日期向后累计
    */
   private forwardAdjust(
     symbol: string,
@@ -235,84 +235,39 @@ export class AdjustmentEngine {
     events: ExRightsEvent[],
     params: AdjustmentParams
   ): AdjustedKLine[] {
-    // 计算每次除权事件的累计调整因子
-    const eventFactors: { date: string; factor: number; cashAdj: number }[] = [];
-    let cumulativeFactor = 1;
-    let cumulativeCash = 0;
-
-    // 从最新事件向前计算
+    // 按日期正序排列事件
     const sortedEvents = [...events].sort((a, b) =>
-      b.exRightsDate.localeCompare(a.exRightsDate)
+      a.exRightsDate.localeCompare(b.exRightsDate)
     );
 
-    for (const event of sortedEvents) {
-      const taxRate = params.includeTax !== false ? (event.taxRate ?? 0.1) : 0;
-      const afterTaxDividend = event.cashDividendPerShare * (1 - taxRate);
-      const totalShareChange = event.bonusSharesPerShare + event.capitalReservePerShare;
-
-      cumulativeFactor *= (1 + totalShareChange);
-      cumulativeCash += afterTaxDividend / cumulativeFactor;
-
-      eventFactors.push({
-        date: event.exRightsDate,
-        factor: cumulativeFactor,
-        cashAdj: cumulativeCash,
-      });
-    }
-
-    // 创建日期到调整因子的映射
-    const factorMap = new Map<string, { factor: number; cashAdj: number }>();
-    for (const ef of eventFactors) {
-      factorMap.set(ef.date, ef);
-    }
-
-    // 找到最后一个除权事件的累计因子
-    const lastFactor = eventFactors.length > 0 ? eventFactors[eventFactors.length - 1] : null;
-
     return data.map(d => {
-      // 找到该日期之前（含当天）最近的除权事件
-      let currentFactor = 1;
-      let currentCashAdj = 0;
+      // 计算所有在当前日期之后发生的除权事件的累计调整
+      let cumulativeShareFactor = 1;  // 累计送转因子
+      let totalCashDividend = 0;      // 累计税后派息
 
       for (const event of sortedEvents) {
         if (d.tradeDate < event.exRightsDate) {
           // 这个事件在当前日期之后，需要调整
           const taxRate = params.includeTax !== false ? (event.taxRate ?? 0.1) : 0;
-          const afterTaxDividend = event.cashDividendPerShare * (1 - taxRate);
-          const totalShareChange = event.bonusSharesPerShare + event.capitalReservePerShare;
-          currentFactor /= (1 + totalShareChange);
-        }
-      }
-
-      // 从最新向前累计所有在当前日期之后的除权事件
-      currentFactor = 1;
-      let futureEvents = 0;
-      for (const ef of eventFactors) {
-        if (d.tradeDate < ef.date) {
-          futureEvents++;
-        }
-      }
-
-      // 简化计算: 直接使用前复权公式
-      // 前复权价 = 原价 * 累计复权因子
-      let adjFactor = 1;
-      let adjCash = 0;
-      for (const event of events) {
-        if (d.tradeDate < event.exRightsDate) {
-          const taxRate = params.includeTax !== false ? (event.taxRate ?? 0.1) : 0;
           const afterTaxDiv = event.cashDividendPerShare * (1 - taxRate);
           const shareChange = event.bonusSharesPerShare + event.capitalReservePerShare;
-          adjFactor /= (1 + shareChange);
-          adjCash += afterTaxDiv * adjFactor;
+          
+          // 累计送转因子
+          cumulativeShareFactor *= (1 + shareChange);
+          // 累计派息（不需要乘以因子）
+          totalCashDividend += afterTaxDiv;
         }
       }
+
+      // 前复权价 = (原始价 - 累计派息) / 累计送转因子
+      const adjFactor = 1 / cumulativeShareFactor;
 
       return {
         ...d,
-        open: Math.max(0, (d.open - adjCash) / adjFactor),
-        close: Math.max(0, (d.close - adjCash) / adjFactor),
-        high: Math.max(0, (d.high - adjCash) / adjFactor),
-        low: Math.max(0, (d.low - adjCash) / adjFactor),
+        open: Math.max(0, (d.open - totalCashDividend) * adjFactor),
+        close: Math.max(0, (d.close - totalCashDividend) * adjFactor),
+        high: Math.max(0, (d.high - totalCashDividend) * adjFactor),
+        low: Math.max(0, (d.low - totalCashDividend) * adjFactor),
         originalOpen: d.open,
         originalClose: d.close,
         originalHigh: d.high,
@@ -326,8 +281,8 @@ export class AdjustmentEngine {
   /**
    * 后复权: 以首日价格为基准
    * 
-   * 后复权价 = 原始价 × 复权因子 + 累计派息
-   * 复权因子 = Π(1 + 送转比例[i])，从首日向后累计
+   * 标准公式: 后复权价 = 原始价 * 累计送转因子 + 累计税后派息
+   * 送转因子 = Π(1 + 送转比例[i])，从当前日期向后累计
    */
   private backwardAdjust(
     symbol: string,
@@ -335,31 +290,40 @@ export class AdjustmentEngine {
     events: ExRightsEvent[],
     params: AdjustmentParams
   ): AdjustedKLine[] {
-    return data.map(d => {
-      let adjFactor = 1;
-      let adjCash = 0;
+    // 按日期正序排列事件
+    const sortedEvents = [...events].sort((a, b) =>
+      a.exRightsDate.localeCompare(b.exRightsDate)
+    );
 
-      for (const event of events) {
+    return data.map(d => {
+      let cumulativeShareFactor = 1;  // 累计送转因子
+      let totalCashDividend = 0;      // 累计税后派息
+
+      for (const event of sortedEvents) {
         if (d.tradeDate >= event.exRightsDate) {
+          // 这个事件在当前日期之前或当天，需要调整
           const taxRate = params.includeTax !== false ? (event.taxRate ?? 0.1) : 0;
           const afterTaxDiv = event.cashDividendPerShare * (1 - taxRate);
           const shareChange = event.bonusSharesPerShare + event.capitalReservePerShare;
-          adjFactor *= (1 + shareChange);
-          adjCash += afterTaxDiv * adjFactor;
+          
+          // 累计送转因子
+          cumulativeShareFactor *= (1 + shareChange);
+          // 累计派息（不需要乘以因子）
+          totalCashDividend += afterTaxDiv;
         }
       }
 
       return {
         ...d,
-        open: d.open * adjFactor + adjCash,
-        close: d.close * adjFactor + adjCash,
-        high: d.high * adjFactor + adjCash,
-        low: d.low * adjFactor + adjCash,
+        open: d.open * cumulativeShareFactor + totalCashDividend,
+        close: d.close * cumulativeShareFactor + totalCashDividend,
+        high: d.high * cumulativeShareFactor + totalCashDividend,
+        low: d.low * cumulativeShareFactor + totalCashDividend,
         originalOpen: d.open,
         originalClose: d.close,
         originalHigh: d.high,
         originalLow: d.low,
-        adjustmentFactor: adjFactor,
+        adjustmentFactor: cumulativeShareFactor,
         adjustmentType: 'backward' as const,
       };
     });

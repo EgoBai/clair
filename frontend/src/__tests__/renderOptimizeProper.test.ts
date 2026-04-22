@@ -84,8 +84,8 @@ describe('Render Optimization Proper', () => {
     });
 
     it('should get stats for tags', () => {
-      RenderProfiler.measure('myTag', () => {});
-      RenderProfiler.measure('myTag', () => {});
+      RenderProfiler.measure('myTag', () => { );
+      RenderProfiler.measure('myTag', () => { );
       const stats = RenderProfiler.getStats('myTag');
       expect(stats).toBeDefined();
       expect(stats).not.toBeNull();

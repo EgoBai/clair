@@ -8,7 +8,7 @@ import { Card, Row, Col, Typography, Progress, Tag, Space, Tooltip, Divider } fr
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Cell, Treemap,
+  Cell, Treemap, Tooltip as RTooltip,
 } from 'recharts';
 import type { ModelExplanation, FeatureImportance, FactorContribution } from '../../utils/aiModelExplainer';
 
@@ -88,11 +88,11 @@ export const FactorBarChart: React.FC<{ factors: FactorContribution[] }> = ({ fa
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis type="number" />
         <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} />
-        <Tooltip
-          formatter={(value: number, name: string) => [
-            `${value.toFixed(1)}${name === 'contribution' ? '分' : ''}`,
+        <RTooltip
+          formatter={(value, name) => [
+            `${Number(value).toFixed(1)}${name === 'contribution' ? '分' : ''}`,
             name === 'contribution' ? '贡献度' : '评分',
-          ]}
+          ] as any}
         />
         <Bar dataKey="contribution" fill="#1890ff">
           {barData.map((entry, index) => (
@@ -131,7 +131,7 @@ export const FeatureTreemap: React.FC<{ features: FeatureImportance[] }> = ({ fe
         data={treeData}
         dataKey="size"
         nameKey="name"
-        content={({ x, y, width, height, name, root }: any) => {
+        content={(({ x, y, width, height, name, root }: { x: number; y: number; width: number; height: number; name: string; root?: { color?: string } }) => {
           if (width < 30 || height < 20) return null;
           return (
             <g>
@@ -141,17 +141,18 @@ export const FeatureTreemap: React.FC<{ features: FeatureImportance[] }> = ({ fe
               </text>
             </g>
           );
-        }}
+        }) as any}
       >
-        <Tooltip
+        <RTooltip
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           content={({ payload }: any) => {
             if (!payload?.length) return null;
             const d = payload[0].payload;
             return (
               <div style={{ background: '#fff', padding: 8, border: '1px solid #ddd', borderRadius: 4 }}>
-                <Text strong>{d.name || d.feature}</Text>
+                <Text strong>{String(d.name || d.feature)}</Text>
                 <br />
-                <Text type="secondary">重要性: {((d.size || 0) / 10).toFixed(1)}%</Text>
+                <Text type="secondary">重要性: {(Number(d.size || 0) / 10).toFixed(1)}%</Text>
               </div>
             );
           }}

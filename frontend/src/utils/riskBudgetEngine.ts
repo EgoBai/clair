@@ -158,7 +158,7 @@ export function riskParityAllocation(
   if (n === 0) return {};
 
   // Start with equal weights
-  let weights: Record<string, number> = {};
+  const weights: Record<string, number> = {};
   for (const code of codes) weights[code] = 1 / n;
 
   const targetRisk = 1 / n; // Equal risk contribution
@@ -211,7 +211,7 @@ export function riskBudgetAllocation(
   const n = codes.length;
   if (n === 0) return {};
 
-  let weights: Record<string, number> = {};
+  const weights: Record<string, number> = {};
   for (const budget of budgets) {
     weights[budget.code] = (budget.minWeight + budget.maxWeight) / 2;
   }
@@ -268,7 +268,7 @@ export function meanVarianceOptimize(
   const n = codes.length;
 
   // Simplified: use equal-weight as starting point, then adjust
-  let weights: Record<string, number> = {};
+  const weights: Record<string, number> = {};
   for (const code of codes) weights[code] = 1 / n;
 
   // Gradient descent toward target return
@@ -356,7 +356,7 @@ export function maxSharpePortfolio(
   const codes = Object.keys(expectedReturns);
   const n = codes.length;
 
-  let weights: Record<string, number> = {};
+  const weights: Record<string, number> = {};
   for (const code of codes) weights[code] = 1 / n;
 
   let bestSharpe = -Infinity;
@@ -391,7 +391,7 @@ export function minVariancePortfolio(
   const codes = Object.keys(covariance);
   const n = codes.length;
 
-  let weights: Record<string, number> = {};
+  const weights: Record<string, number> = {};
   for (const code of codes) weights[code] = 1 / n;
 
   // Iteratively minimize variance

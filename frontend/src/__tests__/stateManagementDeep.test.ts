@@ -157,7 +157,7 @@ describe('状态管理系统', () => {
     it('listenerCount', () => {
       const store = createStore({ count: 0 });
       expect(store.listenerCount()).toBe(0);
-      const unsub = store.subscribe(() => {});
+      const unsub = store.subscribe(() => { );
       expect(store.listenerCount()).toBe(1);
       unsub();
       expect(store.listenerCount()).toBe(0);
@@ -295,7 +295,7 @@ describe('状态管理系统', () => {
     };
 
     it('派生计算', () => {
-      let a = 1, b = 2;
+      const a = 1, b = 2;
       const sum = createDerived(
         [{ get: () => a }, { get: () => b }],
         (x, y) => (x as number) + (y as number)
@@ -305,7 +305,7 @@ describe('状态管理系统', () => {
 
     it('依赖不变返回缓存', () => {
       let count = 0;
-      let val = 10;
+      const val = 10;
       const derived = createDerived(
         [{ get: () => val }],
         (v) => { count++; return (v as number) * 2; }
@@ -396,8 +396,8 @@ describe('状态管理系统', () => {
 
     it('listenerCount', () => {
       const bus = createEventBus();
-      bus.on('a', () => {});
-      bus.on('a', () => {});
+      bus.on('a', () => { );
+      bus.on('a', () => { );
       expect(bus.listenerCount('a')).toBe(2);
       expect(bus.listenerCount('b')).toBe(0);
     });

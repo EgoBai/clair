@@ -1,11 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { analyzeTrend, trendMomentum, TrendBar } from '../services/trendStrengthEngine';
 
+// Deterministic seeded PRNG (mulberry32)
+let _seed = 123;
+const seededRandom = () => {
+  _seed |= 0; _seed = _seed + 0x6D2B79F5 | 0;
+  let t = Math.imul(_seed ^ _seed >>> 15, 1 | _seed);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+};
+
 function genBars(n: number, trend: number): TrendBar[] {
   const bars: TrendBar[] = [];
   let p = 10;
   for (let i = 0; i < n; i++) {
-    const change = trend + (Math.random() - 0.5) * 0.01;
+    const change = trend + (seededRandom() - 0.5) * 0.01;
     p = p * (1 + change);
     bars.push({
       date: `2025-01-${String(i + 1).padStart(2, '0')}`,

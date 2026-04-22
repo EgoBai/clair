@@ -35,7 +35,7 @@ function getRelativeLuminance(hex: string): number {
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
   const srgb = [r, g, b].map(c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-  return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+  return 0.2126 * srgb[0]! + 0.7152 * srgb[1]! + 0.0722 * srgb[2]!;
 }
 
 function generateSkipLink(target: string, label: string): { href: string; text: string; className: string } {
@@ -54,6 +54,7 @@ function announceMessage(message: string, priority: 'polite' | 'assertive' = 'po
   return { message, priority, clearAfterMs: priority === 'assertive' ? 1000 : 5000 };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function trapFocus(container: HTMLElement, event: KeyboardEvent): void {
   // Simulated focus trap logic
   const focusable = container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');

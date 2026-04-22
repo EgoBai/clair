@@ -18,7 +18,7 @@ describe('资产配置与风险预算', () => {
   }
 
   // 组合波动率
-  function portfolioVolatility(weights: number[][], covMatrix: number[][]): number {
+  function portfolioVolatility(weights: number[], covMatrix: number[][]): number {
     const n = weights.length;
     let variance = 0;
     for (let i = 0; i < n; i++) {

@@ -266,7 +266,7 @@ describe('Cache & Performance Engine', () => {
     });
     it('满批触发', () => {
       let flushed: number[] = [];
-      const bp = new BatchProcessor(2, items => flushed = items);
+      const bp = new BatchProcessor<number>(2, items => flushed = items);
       bp.add(1);
       const triggered = bp.add(2);
       expect(triggered).toBe(true);
@@ -274,14 +274,14 @@ describe('Cache & Performance Engine', () => {
     });
     it('手动排空', () => {
       let flushed: number[] = [];
-      const bp = new BatchProcessor(10, items => flushed = items);
+      const bp = new BatchProcessor<number>(10, items => flushed = items);
       bp.add(1); bp.add(2);
       bp.drain();
       expect(flushed.length).toBe(2);
     });
     it('排空后重置', () => {
       let callCount = 0;
-      const bp = new BatchProcessor(2, () => callCount++);
+      const bp = new BatchProcessor<number>(2, () => callCount++);
       bp.add(1); bp.add(2);
       bp.add(3);
       expect(callCount).toBe(1);
@@ -289,7 +289,7 @@ describe('Cache & Performance Engine', () => {
     });
     it('空排空不调用', () => {
       let called = false;
-      const bp = new BatchProcessor(5, () => called = true);
+      const bp = new BatchProcessor<number>(5, () => called = true);
       bp.drain();
       expect(called).toBe(false);
     });

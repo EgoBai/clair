@@ -131,10 +131,10 @@ const I18nContext = createContext<I18nContextType | null>(null);
  */
 function getNestedValue(obj: I18nMessages, path: string): string {
   const keys = path.split('.');
-  let current: any = obj;
+  let current: unknown = obj;
   for (const key of keys) {
     if (current && typeof current === 'object' && key in current) {
-      current = current[key];
+      current = (current as Record<string, unknown>)[key];
     } else {
       return path; // 返回原始 key 作为 fallback
     }

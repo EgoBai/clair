@@ -1,12 +1,15 @@
 /**
  * 新闻与资讯 API 路由
  * 聚合多源新闻、个股关联、情感分析
- * 参考东方财富资讯功能
+ * 对标: Bloomberg Terminal NEWS, TradingView News
+ * Round 15: 源可信度权重, 相关性排序, 去重, 情绪引擎集成
  */
 
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
 import { validateQuery, validateParams, schemas } from '../middleware/validation';
+import { asyncHandler, sendSuccess, sendNotFound, sendPaginated } from '../utils/apiResponse';
+import { analyzeNewsSentiment } from '../services/sentimentAnalysisEngine';
 
 const router = Router();
 
@@ -25,6 +28,55 @@ interface NewsItem {
   relatedSymbols: string[];
   tags: string[];
   viewCount: number;
+}
+
+// ==================== Bloomberg级: 新闻来源可信度权重 ====================
+
+const SOURCE_CREDIBILITY: Record<string, number> = {
+  '新华社': 0.98, '新华财经': 0.95, '中国证券报': 0.93, '证券时报': 0.92,
+  '中国人民银行': 0.99, '证监会': 0.99, '路透社': 0.95, '彭博社': 0.97,
+  '东方财富': 0.85, '财联社': 0.88, '第一财经': 0.85, '华尔街见闻': 0.82,
+  '21世纪经济报道': 0.83, '经济观察报': 0.82, '证券日报': 0.85,
+  '东方财富研究所': 0.78,
+  '雪球': 0.65, '同花顺': 0.7, '微博': 0.55, '微信公众号': 0.5,
+};
+
+function getSourceCredibility(source: string): number {
+  return SOURCE_CREDIBILITY[source] ?? 0.6;
+}
+
+// ==================== Bloomberg级: 去重逻辑 ====================
+
+function titleSimilarity(a: string, b: string): number {
+  const wordsA = new Set(a.split(/[\s,，。！？、]+/).filter(Boolean));
+  const wordsB = new Set(b.split(/[\s,，。！？、]+/).filter(Boolean));
+  const intersection = new Set([...wordsA].filter(x => wordsB.has(x)));
+  const union = new Set([...wordsA, ...wordsB]);
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
+
+function deduplicateNews(news: NewsItem[]): NewsItem[] {
+  const seen: NewsItem[] = [];
+  return news.filter(item => {
+    const isDuplicate = seen.some(existing =>
+      titleSimilarity(item.title, existing.title) > 0.7 &&
+      Math.abs(new Date(item.publishTime).getTime() - new Date(existing.publishTime).getTime()) < 86400000
+    );
+    if (!isDuplicate) seen.push(item);
+    return !isDuplicate;
+  });
+}
+
+// ==================== Bloomberg级: 相关性评分 ====================
+
+function relevanceScore(news: NewsItem): number {
+  const now = Date.now();
+  const ageHours = (now - new Date(news.publishTime).getTime()) / 3600000;
+  const timeScore = Math.exp(-ageHours / 24);
+  const credScore = getSourceCredibility(news.source);
+  const viewScore = Math.min(1, Math.log10(Math.max(1, news.viewCount)) / 5);
+  const sentimentBoost = 1 + Math.abs(news.sentimentScore) * 0.3;
+  return timeScore * 0.35 + credScore * 0.25 + viewScore * 0.2 + sentimentBoost * 0.2;
 }
 
 // ==================== 模拟新闻数据 ====================
@@ -176,113 +228,97 @@ let nextNewsId = MOCK_NEWS.length + 1;
 
 // ==================== 获取新闻列表 ====================
 
-router.get('/news', validateQuery(schemas.newsQuery), async (req: Request, res: Response) => {
-  try {
-    const page = parseInt(req.query.page as string) || 1;
-    const pageSize = parseInt(req.query.pageSize as string) || 20;
-    const category = req.query.category as string;
-    const symbol = req.query.symbol as string;
-    const sentiment = req.query.sentiment as string;
-    const search = (req.query.q as string || '').trim();
+router.get('/news', validateQuery(schemas.newsQuery), asyncHandler(async (req: Request, res: Response) => {
+  const page = parseInt(req.query.page as string) || 1;
+  const pageSize = parseInt(req.query.pageSize as string) || 20;
+  const category = req.query.category as string;
+  const symbol = req.query.symbol as string;
+  const sentiment = req.query.sentiment as string;
+  const search = (req.query.q as string || '').trim();
 
-    let filtered = [...MOCK_NEWS];
+  let filtered = deduplicateNews([...MOCK_NEWS]);
+  const sortBy = (req.query.sortBy as string) || 'relevance';
 
-    // 分类筛选
-    if (category && category !== 'all') {
-      filtered = filtered.filter((n) => n.category === category);
-    }
-
-    // 个股筛选
-    if (symbol) {
-      filtered = filtered.filter((n) =>
-        n.relatedSymbols.includes(symbol) ||
-        n.title.includes(symbol) ||
-        n.summary.includes(symbol)
-      );
-    }
-
-    // 情感筛选
-    if (sentiment && sentiment !== 'all') {
-      filtered = filtered.filter((n) => n.sentiment === sentiment);
-    }
-
-    // 搜索
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filtered = filtered.filter((n) =>
-        n.title.toLowerCase().includes(searchLower) ||
-        n.summary.toLowerCase().includes(searchLower) ||
-        n.tags.some((t) => t.toLowerCase().includes(searchLower))
-      );
-    }
-
-    // 按时间排序
-    filtered.sort((a, b) => new Date(b.publishTime).getTime() - new Date(a.publishTime).getTime());
-
-    // 分页
-    const total = filtered.length;
-    const start = (page - 1) * pageSize;
-    const items = filtered.slice(start, start + pageSize);
-
-    res.json({
-      success: true,
-      data: {
-        items,
-        pagination: {
-          page,
-          pageSize,
-          totalCount: total,
-          totalPages: Math.ceil(total / pageSize),
-        },
-      },
-    });
-  } catch (error) {
-    console.error('获取新闻失败:', error);
-    res.status(500).json({ success: false, error: '获取新闻失败' });
+  // 分类筛选
+  if (category && category !== 'all') {
+    filtered = filtered.filter((n) => n.category === category);
   }
-});
+
+  // 个股筛选
+  if (symbol) {
+    filtered = filtered.filter((n) =>
+      n.relatedSymbols.includes(symbol) ||
+      n.title.includes(symbol) ||
+      n.summary.includes(symbol)
+    );
+  }
+
+  // 情感筛选
+  if (sentiment && sentiment !== 'all') {
+    filtered = filtered.filter((n) => n.sentiment === sentiment);
+  }
+
+  // 搜索
+  if (search) {
+    const searchLower = search.toLowerCase();
+    filtered = filtered.filter((n) =>
+      n.title.toLowerCase().includes(searchLower) ||
+      n.summary.toLowerCase().includes(searchLower) ||
+      n.tags.some((t) => t.toLowerCase().includes(searchLower))
+    );
+  }
+
+  // 排序: relevance (综合评分) 或 time (纯时间)
+  if (sortBy === 'relevance') {
+    filtered.sort((a, b) => relevanceScore(b) - relevanceScore(a));
+  } else {
+    filtered.sort((a, b) => new Date(b.publishTime).getTime() - new Date(a.publishTime).getTime());
+  }
+
+  // 注入源可信度字段
+  const total = filtered.length;
+  const start = (page - 1) * pageSize;
+  const itemsWithCred = filtered.slice(start, start + pageSize).map(n => ({
+    ...n,
+    sourceCredibility: getSourceCredibility(n.source),
+  }));
+
+  sendPaginated(res, itemsWithCred, page, pageSize, total);
+}));
 
 // ==================== 获取个股相关新闻 ====================
 
-router.get('/news/stock/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
-  try {
-    const symbol = req.params.symbol;
-    const limit = parseInt(req.query.limit as string) || 10;
+router.get('/news/stock/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
+  const symbol = req.params.symbol;
+  const limit = parseInt(req.query.limit as string) || 10;
 
-    const related = MOCK_NEWS
-      .filter((n) =>
-        n.relatedSymbols.includes(symbol) ||
-        n.title.includes(symbol.replace(/\.(SZ|SH|BJ)$/, ''))
-      )
-      .sort((a, b) => new Date(b.publishTime).getTime() - new Date(a.publishTime).getTime())
-      .slice(0, limit);
+  const related = MOCK_NEWS
+    .filter((n) =>
+      n.relatedSymbols.includes(symbol) ||
+      n.title.includes(symbol.replace(/\.(SZ|SH|BJ)$/, ''))
+    )
+    .sort((a, b) => new Date(b.publishTime).getTime() - new Date(a.publishTime).getTime())
+    .slice(0, limit);
 
-    res.json({
-      success: true,
-      data: { items: related, symbol },
-    });
-  } catch (error) {
-    console.error('获取个股新闻失败:', error);
-    res.status(500).json({ success: false, error: '获取个股新闻失败' });
-  }
-});
+  sendSuccess(res, { items: related, symbol });
+}));
 
 // ==================== 获取新闻详情 ====================
 
-router.get('/news/:id', (req: Request, res: Response) => {
+router.get('/news/:id', asyncHandler(async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   const news = MOCK_NEWS.find((n) => n.id === id);
   if (!news) {
-    return res.status(404).json({ success: false, error: '新闻不存在' });
+    return sendNotFound(res, '新闻');
   }
   // 增加浏览量
   news.viewCount++;
-  res.json({ success: true, data: news });
-});
+  sendSuccess(res, news);
+}));
 
 // ==================== 获取新闻分类统计 ====================
 
-router.get('/news/stats/overview', (_req: Request, res: Response) => {
+router.get('/news/stats/overview', asyncHandler(async (_req: Request, res: Response) => {
   const categories: Record<string, number> = {};
   const sentiments = { positive: 0, negative: 0, neutral: 0 };
 
@@ -291,16 +327,13 @@ router.get('/news/stats/overview', (_req: Request, res: Response) => {
     sentiments[news.sentiment]++;
   }
 
-  res.json({
-    success: true,
-    data: {
-      total: MOCK_NEWS.length,
-      categories,
-      sentiments,
-      hotTags: getHotTags(),
-    },
+  sendSuccess(res, {
+    total: MOCK_NEWS.length,
+    categories,
+    sentiments,
+    hotTags: getHotTags(),
   });
-});
+}));
 
 function getHotTags() {
   const tagCount = new Map<string, number>();

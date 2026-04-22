@@ -264,7 +264,7 @@ export class MultiLevelCache {
   private l1: LRUCache;
   private l2: LRUCache;
   private bloomFilter: Set<string>;
-  private writeBuffer: Map<string, { data: any; ttl: number; tags: string[] }>;
+  private writeBuffer: Map<string, { data: any; ttl?: number; tags: string[] }>;
   private flushTimer: ReturnType<typeof setInterval>;
   private stats = {
     l1Promotions: 0,
@@ -303,13 +303,13 @@ export class MultiLevelCache {
   /**
    * 获取缓存（L1 → L2 → null）
    */
-  get<T>(key: string): T | null {
+  get(key: string): any | null {
     // L1 hit
-    const l1Result = this.l1.get<T>(key);
+    const l1Result = this.l1.get(key);
     if (l1Result !== null) return l1Result;
 
     // L2 hit → 提升到L1
-    const l2Result = this.l2.get<T>(key);
+    const l2Result = this.l2.get(key);
     if (l2Result !== null) {
       this.l1.set(key, l2Result, this.l1['config'].defaultTTL);
       this.stats.l1Promotions++;
@@ -352,7 +352,7 @@ export class MultiLevelCache {
     ttl?: number,
     tags: string[] = []
   ): Promise<T> {
-    const cached = this.get<T>(key);
+    const cached = this.get(key);
     if (cached !== null) return cached;
 
     const data = await loader();

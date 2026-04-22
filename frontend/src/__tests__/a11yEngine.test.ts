@@ -260,9 +260,9 @@ describe('formatShortcutHelp', () => {
     ];
     const help = formatShortcutHelp(shortcuts);
     expect(help.length).toBe(2);
-    expect(help[0].keys).toContain('Ctrl');
-    expect(help[0].description).toBe('保存');
-    expect(help[1].keys).toContain('ENTER');
+    expect(help[0]!.keys).toContain('Ctrl');
+    expect(help[0]!.description).toBe('保存');
+    expect(help[1]!.keys).toContain('ENTER');
   });
 });
 

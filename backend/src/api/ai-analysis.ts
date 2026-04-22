@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import { validateQuery } from '../middleware/validation';
+import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
 import {
   analyzeStock,
   generateRecommendations,
@@ -50,36 +51,27 @@ function getMockStocks() {
  * GET /api/ai/recommendations
  * AI 选股推荐
  */
-router.get('/ai/recommendations', (_req: Request, res: Response) => {
+router.get('/ai/recommendations', asyncHandler(async (_req: Request, res: Response) => {
   const recommendation = generateRecommendations();
-  res.json({
-    success: true,
-    data: recommendation,
-  });
-});
+  sendSuccess(res, recommendation);
+}));
 
 /**
  * GET /api/ai/analyze/:symbol
  * 单股 AI 分析
  */
-router.get('/ai/analyze/:symbol', (req: Request, res: Response) => {
+router.get('/ai/analyze/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
   const stocks = getMockStocks();
   const stock = stocks.find(s => s.symbol === symbol);
 
   if (!stock) {
-    return res.status(404).json({
-      success: false,
-      error: '股票不存在',
-    });
+    return sendNotFound(res, '股票');
   }
 
   const analysis = analyzeStock(stock);
-  res.json({
-    success: true,
-    data: analysis,
-  });
-});
+  sendSuccess(res, analysis);
+}));
 
 /**
  * GET /api/ai/alerts
@@ -94,7 +86,7 @@ const alertQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(50).default(20),
 });
 
-router.get('/ai/alerts', validateQuery(alertQuerySchema), (req: Request, res: Response) => {
+router.get('/ai/alerts', validateQuery(alertQuerySchema), asyncHandler(async (req: Request, res: Response) => {
   const { severity, type, limit } = req.query as Record<string, string | undefined>;
 
   let alerts = detectAbnormalEvents();
@@ -106,41 +98,35 @@ router.get('/ai/alerts', validateQuery(alertQuerySchema), (req: Request, res: Re
     alerts = alerts.filter(a => a.type === type);
   }
 
-  alerts = alerts.slice(0, limit);
+  alerts = alerts.slice(0, Number(limit));
 
-  res.json({
-    success: true,
-    data: {
-      alerts,
-      total: alerts.length,
-      generatedAt: new Date().toISOString(),
-    },
+  sendSuccess(res, {
+    alerts,
+    total: alerts.length,
+    generatedAt: new Date().toISOString(),
   });
-});
+}));
 
 /**
  * GET /api/ai/sector-rotation
  * 行业轮动分析
  */
-router.get('/ai/sector-rotation', (_req: Request, res: Response) => {
+router.get('/ai/sector-rotation', asyncHandler(async (_req: Request, res: Response) => {
   const rotation = analyzeSectorRotation();
 
-  res.json({
-    success: true,
-    data: {
-      sectors: rotation,
-      leading: rotation.filter(s => s.currentPhase === 'leading'),
-      lagging: rotation.filter(s => s.currentPhase === 'lagging'),
-      analyzedAt: new Date().toISOString(),
-    },
+  sendSuccess(res, {
+    sectors: rotation,
+    leading: rotation.filter(s => s.currentPhase === 'leading'),
+    lagging: rotation.filter(s => s.currentPhase === 'lagging'),
+    analyzedAt: new Date().toISOString(),
   });
-});
+}));
 
 /**
  * GET /api/ai/market-sentiment
  * 市场情绪综合分析
  */
-router.get('/ai/market-sentiment', (_req: Request, res: Response) => {
+router.get('/ai/market-sentiment', asyncHandler(async (_req: Request, res: Response) => {
   const stocks = getMockStocks();
   const analyses = stocks.map(s => analyzeStock(s));
 
@@ -168,28 +154,25 @@ router.get('/ai/market-sentiment', (_req: Request, res: Response) => {
     sentimentScore = 20;
   }
 
-  res.json({
-    success: true,
-    data: {
-      sentiment,
-      sentimentScore,
-      avgScore: Math.round(avgScore),
-      bullishCount,
-      bearishCount,
-      neutralCount: analyses.length - bullishCount - bearishCount,
-      topBullish: analyses
-        .filter(s => s.recommendation === 'strong_buy' || s.recommendation === 'buy')
-        .sort((a, b) => b.totalScore - a.totalScore)
-        .slice(0, 3)
-        .map(s => ({ symbol: s.symbol, name: s.name, score: s.totalScore, recommendation: s.recommendation })),
-      topBearish: analyses
-        .filter(s => s.recommendation === 'sell' || s.recommendation === 'strong_sell')
-        .sort((a, b) => a.totalScore - b.totalScore)
-        .slice(0, 3)
-        .map(s => ({ symbol: s.symbol, name: s.name, score: s.totalScore, recommendation: s.recommendation })),
-      analyzedAt: new Date().toISOString(),
-    },
+  sendSuccess(res, {
+    sentiment,
+    sentimentScore,
+    avgScore: Math.round(avgScore),
+    bullishCount,
+    bearishCount,
+    neutralCount: analyses.length - bullishCount - bearishCount,
+    topBullish: analyses
+      .filter(s => s.recommendation === 'strong_buy' || s.recommendation === 'buy')
+      .sort((a, b) => b.totalScore - a.totalScore)
+      .slice(0, 3)
+      .map(s => ({ symbol: s.symbol, name: s.name, score: s.totalScore, recommendation: s.recommendation })),
+    topBearish: analyses
+      .filter(s => s.recommendation === 'sell' || s.recommendation === 'strong_sell')
+      .sort((a, b) => a.totalScore - b.totalScore)
+      .slice(0, 3)
+      .map(s => ({ symbol: s.symbol, name: s.name, score: s.totalScore, recommendation: s.recommendation })),
+    analyzedAt: new Date().toISOString(),
   });
-});
+}));
 
 export default router;

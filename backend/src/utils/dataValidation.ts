@@ -10,7 +10,7 @@
  * - 精度异常 (Precision Anomaly): 数值精度不符合规范
  */
 
-import { KLineData, DailyQuote } from '../../shared/types';
+import { KLineData, DailyQuote } from '../types';
 
 // ==================== 异常类型 ====================
 

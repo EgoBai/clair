@@ -100,7 +100,7 @@ const VolumeChart: React.FC<VolumeChartProps> = ({
       },
       tooltip: {
         trigger: 'axis',
-        formatter: (params: any) => {
+        formatter: (params: { dataIndex: number; value: number; name: string; seriesName?: string; dataType?: string }[]) => {
           const idx = params[0]?.dataIndex;
           if (idx === undefined || !data[idx]) return '';
 

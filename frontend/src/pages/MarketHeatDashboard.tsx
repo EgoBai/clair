@@ -3,6 +3,7 @@
  * 综合展示：热度指数、涨跌分布、行业热力图、资金流向、市场情绪
  */
 import React, { useEffect, useState, useCallback } from 'react';
+import logger from '../utils/logger';
 import { Card, Row, Col, Statistic, Progress, Spin, Space, Tag, Typography, Radio, Button, Tooltip, Divider } from 'antd';
 import {
   ArrowUpOutlined,
@@ -55,20 +56,20 @@ const MarketHeatDashboard: React.FC = () => {
       // 并行加载多个数据源
       const [summaryRes, sectorsRes, flowRes] = await Promise.all([
         apiService.getMarketSummary().catch(() => ({ success: false, data: null })),
-        apiService.getSectorAnalysis?.().catch(() => ({ success: false, data: null })) ?? Promise.resolve({ success: false }),
-        apiService.getFundFlowOverview?.().catch(() => ({ success: false, data: null })) ?? Promise.resolve({ success: false }),
+        (apiService as any).getSectorAnalysis?.().catch(() => ({ success: false, data: null })) ?? Promise.resolve({ success: false }),
+        (apiService as any).getFundFlowOverview?.().catch(() => ({ success: false, data: null })) ?? Promise.resolve({ success: false }),
       ]);
 
-      const summary = summaryRes.success ? summaryRes.data : null;
+      const summary: any = summaryRes.success ? summaryRes.data : null;
       const total = (summary?.rising || 0) + (summary?.falling || 0) + (summary?.flat || 0);
 
       // 计算热度指数 (0-100)
       let heatIndex = 50;
       if (summary) {
-        const advRatio = total > 0 ? summary.rising / total : 0.5;
+        const advRatio = total > 0 ? (summary.rising || 0) / total : 0.5;
         heatIndex = Math.min(100, Math.max(0,
           50 + (advRatio - 0.5) * 60 +
-          (summary.limitUp > (summary.limitDown || 0) ? 5 : -5) +
+          ((summary.limitUp || 0) > (summary.limitDown || 0) ? 5 : -5) +
           ((summary.northboundFlow || 0) > 0 ? 5 : -5)
         ));
       }
@@ -95,7 +96,7 @@ const MarketHeatDashboard: React.FC = () => {
         volumeDistribution: [],
       });
     } catch (e) {
-      console.error('Failed to load market heat data:', e);
+      logger.error('Failed to load market heat data:', e);
     } finally {
       setLoading(false);
     }

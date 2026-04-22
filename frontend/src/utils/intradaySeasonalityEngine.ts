@@ -135,7 +135,7 @@ export class IntradaySeasonalityEngine {
     let closingPattern: IntradayPattern['closingPattern'];
     if (avgClosing > 0.003) closingPattern = 'rally';
     else if (avgClosing < -0.003) closingPattern = 'sell_off';
-    else if (closingMoves.some(Math.abs) > 0.01) closingPattern = 'surge';
+    else if (closingMoves.some(v => Math.abs(v) > 0.01)) closingPattern = 'surge';
     else closingPattern = 'flat';
 
     return {

@@ -1,0 +1,151 @@
+/* 虚拟滚动表格样式 */
+
+.virtual-stock-table {
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+}
+
+.virtual-list {
+  outline: none;
+}
+
+.virtual-stock-row {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.virtual-stock-row tr {
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.2s;
+}
+
+.virtual-stock-row tr:hover {
+  background-color: #fafafa;
+}
+
+.virtual-stock-row td {
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
+.table-header-row {
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 0;
+}
+
+.stock-table-header {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.stock-table-header th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.stock-table-header th:hover {
+  background-color: #f0f0f0;
+}
+
+.virtual-table-stats {
+  padding: 8px 16px;
+  background: #f9f9f9;
+  border-top: 1px solid #e8e8e8;
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+}
+
+.virtual-scroll-btn {
+  padding: 6px 12px;
+  background: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.virtual-scroll-btn:hover {
+  background: #40a9ff;
+  transform: translateY(-1px);
+}
+
+.virtual-scroll-btn.active {
+  background: #52c41a;
+}
+
+.virtual-scroll-btn.active:hover {
+  background: #73d13d;
+}
+
+/* 性能对比提示 */
+.performance-comparison {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 8px;
+}
+
+.performance-comparison h4 {
+  margin-top: 0;
+  color: #389e0d;
+}
+
+.performance-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.metric-card {
+  padding: 12px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
+}
+
+.metric-card .metric-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1890ff;
+}
+
+.metric-card .metric-label {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.metric-card.optimized .metric-value {
+  color: #52c41a;
+}
+
+/* 空状态 */
+.empty-table {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #999;
+  font-size: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px dashed #d9d9d9;
+}

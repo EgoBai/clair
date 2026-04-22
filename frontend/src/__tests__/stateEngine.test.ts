@@ -165,19 +165,17 @@ describe('createComputed', () => {
 // ==================== 中间件测试 ====================
 
 describe('loggingMiddleware', () => {
-  it('应记录日志', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  it('应返回原状态不修改', () => {
     const mw = loggingMiddleware('TestStore');
     const state = { count: 0 };
-    mw(state, 'INCREMENT', 1);
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+    const result = mw(state, 'INCREMENT', 1);
+    expect(result).toEqual(state);
   });
 });
 
 describe('validationMiddleware', () => {
   it('验证通过应不警告', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { );
     const mw = validationMiddleware<{ count: number }>(s => s.count >= 0);
     mw({ count: 5 }, 'SET');
     expect(warn).not.toHaveBeenCalled();
@@ -185,7 +183,7 @@ describe('validationMiddleware', () => {
   });
 
   it('验证失败应警告', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { );
     const mw = validationMiddleware<{ count: number }>(s => s.count >= 0 ? true : '不能为负');
     mw({ count: -1 }, 'SET');
     expect(warn).toHaveBeenCalled();

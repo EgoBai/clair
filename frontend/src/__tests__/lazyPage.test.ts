@@ -72,7 +72,7 @@ describe('LazyPage', () => {
     });
 
     it('超过最大重试次数应该停止', () => {
-      let retryCount = 3;
+      const retryCount = 3;
       const maxRetries = 3;
       const canRetry = retryCount < maxRetries;
       expect(canRetry).toBe(false);

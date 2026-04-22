@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
+// Seeded PRNG for deterministic tests
+let _seed = 42;
+function seededRandom(): number {
+  _seed = (_seed * 16807 + 0) % 2147483647;
+  return (_seed - 1) / 2147483646;
+}
+
 describe('高频交易信号引擎', () => {
   // Price Impact (短期)
   function shortTermImpact(prices: number[], volumes: number[], window = 5) {
@@ -84,8 +91,8 @@ describe('高频交易信号引擎', () => {
     return autocorr < 0 ? Math.sqrt(-2 * autocorr) : 0;
   }
 
-  const prices = Array.from({ length: 100 }, (_, i) => 100 + Math.sin(i / 3) * 2 + Math.random() * 0.5);
-  const volumes = Array.from({ length: 100 }, () => 1000 + Math.random() * 5000);
+  const prices = Array.from({ length: 100 }, (_, i) => 100 + Math.sin(i / 3) * 2 + seededRandom() * 0.5);
+  const volumes = Array.from({ length: 100 }, () => 1000 + seededRandom() * 5000);
   const returns = prices.slice(1).map((p, i) => (p - prices[i]) / prices[i]);
 
   describe('短期价格冲击', () => {

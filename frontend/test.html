@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试页面</title>
+</head>
+<body>
+    <h1>测试页面</h1>
+    <div id="test-root"></div>
+    
+    <script>
+        // 简单测试React是否工作
+        const root = document.getElementById('test-root');
+        root.innerHTML = '<h2>测试成功！页面加载正常。</h2>';
+        
+        // 测试API连接
+        fetch('/api/stocks')
+            .then(response => response.json())
+            .then(data => {
+                console.log('API测试成功:', data);
+                root.innerHTML += `<p>API连接成功: ${data.count} 只股票数据</p>`;
+            })
+            .catch(error => {
+                console.error('API测试失败:', error);
+                root.innerHTML += `<p style="color: red">API连接失败: ${error.message}</p>`;
+            });
+    </script>
+</body>
+</html>

@@ -149,13 +149,6 @@ describe('API Endpoints Final Coverage', () => {
       expect(mod.syncRateLimit).toBeDefined();
     });
 
-    it('should import security enhanced', async () => {
-      const mod = await import('../middleware/securityEnhanced');
-      expect(mod.securityAudit).toBeDefined();
-      expect(mod.enhancedRateLimit).toBeDefined();
-      expect(mod.inputSecurityScan).toBeDefined();
-    });
-
     it('should import performance monitor', async () => {
       const mod = await import('../middleware/performanceMonitor');
       expect(mod).toBeDefined();

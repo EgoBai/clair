@@ -214,7 +214,7 @@ describe('状态管理深度', () => {
     });
 
     it('原始属性值应正确', () => {
-      const obj = createReactive({ x: 1 }, () => {});
+      const obj = createReactive({ x: 1 }, () => { );
       obj.x = 100;
       expect(obj.x).toBe(100);
     });

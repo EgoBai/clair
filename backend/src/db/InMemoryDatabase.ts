@@ -7,6 +7,123 @@ import { Stock, DailyQuote, StockWithQuotes } from '../models/Stock';
 
 // ==================== Mock数据生成 ====================
 
+/** 轻量MockQueryBuilder，模拟Knex查询链 */
+class MockQueryBuilder {
+  private _data: any[];
+  private _filters: Array<(row: any) => boolean> = [];
+  private _sortField?: string;
+  private _sortDir: 'asc' | 'desc' = 'asc';
+  private _limitN?: number;
+  private _offsetN?: number;
+  private _selectFields?: string[];
+  private _joins: string[] = [];
+  private _groupBy?: string;
+  private _countMode = false;
+
+  constructor(data: any[], private _tableName: string) {
+    this._data = data;
+  }
+
+  where(fieldOrObj: any, opOrVal?: any, val?: any): this {
+    if (typeof fieldOrObj === 'object' && fieldOrObj !== null) {
+      Object.entries(fieldOrObj).forEach(([k, v]) => {
+        this._filters.push((row) => row[k] === v);
+      });
+    } else if (opOrVal === 'like') {
+      const pattern = String(val || '').replace(/%/g, '');
+      this._filters.push((row) => String(row[fieldOrObj] || '').includes(pattern));
+    } else if (opOrVal === '>=' ) {
+      this._filters.push((row) => row[fieldOrObj] >= val);
+    } else if (opOrVal === '<=') {
+      this._filters.push((row) => row[fieldOrObj] <= val);
+    } else if (opOrVal === '<') {
+      this._filters.push((row) => row[fieldOrObj] < val);
+    } else if (opOrVal === '>') {
+      this._filters.push((row) => row[fieldOrObj] > val);
+    } else {
+      this._filters.push((row) => row[fieldOrObj] === opOrVal);
+    }
+    return this;
+  }
+
+  whereIn(field: string, values: any[]): this {
+    this._filters.push((row) => values.includes(row[field]));
+    return this;
+  }
+
+  whereNot(field: string, value: any): this {
+    this._filters.push((row) => row[field] !== value);
+    return this;
+  }
+
+  orderBy(field: string, dir: 'asc' | 'desc' = 'asc'): this {
+    this._sortField = field;
+    this._sortDir = dir;
+    return this;
+  }
+
+  limit(n: number): this { this._limitN = n; return this; }
+  offset(n: number): this { this._offsetN = n; return this; }
+
+  select(...fields: string[]): this { this._selectFields = fields; return this; }
+
+  join(_table: string, _on1: string, _on2: string): this { this._joins.push(_table); return this; }
+  groupBy(field: string): this { this._groupBy = field; return this; }
+
+  count(field?: string): this {
+    this._countMode = true;
+    if (field) this._selectFields = [field];
+    return this;
+  }
+
+  insert(data: any | any[]): this { return this; }
+  update(data: any): this { return this; }
+  delete(): this { return this; }
+  returning(..._fields: string[]): this { return this; }
+
+  /** Execute and return results (async thenable) */
+  private _exec(): any[] {
+    let result = this._data.filter(row => this._filters.every(f => f(row)));
+    if (this._sortField) {
+      const sf = this._sortField;
+      const sd = this._sortDir;
+      result = [...result].sort((a, b) => {
+        const av = a[sf], bv = b[sf];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return sd === 'asc' ? (av > bv ? 1 : av < bv ? -1 : 0) : (av < bv ? 1 : av > bv ? -1 : 0);
+      });
+    }
+    if (this._offsetN) result = result.slice(this._offsetN);
+    if (this._limitN) result = result.slice(0, this._limitN);
+    if (this._selectFields && this._selectFields.length > 0 && !this._countMode) {
+      result = result.map(r => {
+        const obj: any = {};
+        this._selectFields!.forEach(f => { obj[f] = r[f]; });
+        return obj;
+      });
+    }
+    if (this._countMode) {
+      return [{ count: result.length }];
+    }
+    return result;
+  }
+
+  // Make it thenable so `await db.connection('stocks').where(...)` works
+  then<TResult1 = any, TResult2 = never>(
+    onfulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+  ): PromiseLike<TResult1 | TResult2> {
+    return Promise.resolve(this._exec()).then(onfulfilled, onrejected);
+  }
+
+  first(): any {
+    const results = this._exec();
+    return results[0] || null;
+  }
+}
+
 const STOCK_SYMBOLS = [
   { symbol: '000001', name: '平安银行', market: 'SZ', industry: '银行' },
   { symbol: '000002', name: '万科A', market: 'SZ', industry: '房地产' },
@@ -62,7 +179,7 @@ function generateQuotes(symbol: string, days: number = 120): DailyQuote[] {
     quotes.push({
       id: quotes.length + 1,
       stockId: 0,
-      tradeDate: date.toISOString().split('T')[0],
+      tradeDate: new Date(date.toISOString().split('T')[0]),
       openPrice: Math.round(open * 100) / 100,
       closePrice: Math.round(close * 100) / 100,
       highPrice: Math.round(high * 100) / 100,
@@ -104,8 +221,8 @@ class InMemoryDatabase {
         market: s.market,
         industry: s.industry,
         isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
       this.stocks.push(stock);
       this.quotes.set(s.symbol, generateQuotes(s.symbol));
@@ -122,51 +239,31 @@ class InMemoryDatabase {
     console.log(`📊 内存数据库初始化完成: ${this.stocks.length} 只股票`);
   }
 
-  // 模拟Knex接口
+  // 模拟Knex接口 — connection is a callable function like Knex
   get connection() {
     const self = this;
-    return {
-      (tableName: string) {
-        return {
-          where(conditions: Record<string, any> | string, value?: any) {
-            let filtered = self.stocks;
-            if (typeof conditions === 'object') {
-              filtered = self.stocks.filter(s => {
-                return Object.entries(conditions).every(([k, v]) => (s as any)[k] === v);
-              });
-            }
-            return {
-              select(...fields: string[]) {
-                if (fields.length === 0) return filtered;
-                return filtered.map(s => {
-                  const obj: any = {};
-                  fields.forEach(f => { obj[f] = (s as any)[f]; });
-                  return obj;
-                });
-              },
-              first() { return filtered[0] || null; },
-              limit(n: number) { return filtered.slice(0, n); },
-              orderBy(field: string, dir: string = 'asc') {
-                return [...filtered].sort((a: any, b: any) => 
-                  dir === 'asc' ? a[field] - b[field] : b[field] - a[field]
-                );
-              },
-            };
-          },
-          select(...fields: string[]) {
-            if (fields.length === 0) return self.stocks;
-            return self.stocks.map(s => {
-              const obj: any = {};
-              fields.forEach(f => { obj[f] = (s as any)[f]; });
-              return obj;
-            });
-          },
-          limit(n: number) { return self.stocks.slice(0, n); },
-        };
-      },
-      raw(sql: string) { return Promise.resolve(); },
-      destroy() { return Promise.resolve(); },
+    const conn: any = function(tableName: string) {
+      return conn._table(tableName);
     };
+    conn._table = function(tableName: string) {
+      // Return data based on table name
+      let data: any[];
+      if (tableName === 'stocks') {
+        data = self.stocks;
+      } else if (tableName.startsWith('daily_quotes')) {
+        // Flatten all quotes
+        data = [];
+        self.quotes.forEach((quotes) => { data.push(...quotes); });
+      } else if (tableName === 'user_watchlist' || tableName === 'watchlist_groups') {
+        data = [];
+      } else {
+        data = [];
+      }
+      return new MockQueryBuilder(data, tableName);
+    };
+    conn.raw = function(sql: string) { return Promise.resolve({ rows: [] }); };
+    conn.destroy = function() { return Promise.resolve(); };
+    return conn;
   }
 
   async testConnection(): Promise<boolean> { return true; }
@@ -174,30 +271,10 @@ class InMemoryDatabase {
   getPoolStats() { return { used: 0, free: 0, pending: 0, min: 0, max: 0 }; }
   async healthCheck() { return { healthy: true, latency: 0 }; }
 
-  getStocks(): Stock[] { return this.stocks; }
   getQuotes(symbol: string): DailyQuote[] { return this.quotes.get(symbol) || []; }
   
-  getMarketSummary() {
-    const latest = this.stocks.map(s => {
-      const quotes = this.quotes.get(s.symbol);
-      return quotes ? quotes[quotes.length - 1] : null;
-    }).filter(Boolean);
-
-    const rising = latest.filter(q => q!.changePercent > 0).length;
-    const falling = latest.filter(q => q!.changePercent < 0).length;
-    const totalMarketCap = latest.reduce((sum, q) => sum + (q!.marketCap || 0), 0);
-    const totalTurnover = latest.reduce((sum, q) => sum + q!.turnover, 0);
-
-    return {
-      date: new Date().toISOString().split('T')[0],
-      totalStocks: this.stocks.length,
-      totalMarketCap,
-      totalVolume: latest.reduce((sum, q) => sum + q!.volume, 0),
-      totalTurnover,
-      risingStocks: rising,
-      fallingStocks: falling,
-      unchangedStocks: this.stocks.length - rising - falling,
-    };
+  async getMarketSummary(_date?: any): Promise<any> {
+    return this.getMarketSummaryInternal();
   }
 
   getTopGainers(limit: number = 10) {
@@ -220,6 +297,125 @@ class InMemoryDatabase {
     .filter(s => s.latestQuote)
     .sort((a, b) => (a.latestQuote?.changePercent || 0) - (b.latestQuote?.changePercent || 0))
     .slice(0, limit);
+  }
+
+  // ==================== Database兼容方法 ====================
+
+  async getStockBySymbol(symbol: string): Promise<Stock | null> {
+    return this.stocks.find(s => s.symbol === symbol) || null;
+  }
+
+  async getStockById(id: number): Promise<Stock | null> {
+    return this.stocks.find(s => s.id === id) || null;
+  }
+
+  async getStocks(params: any = {}): Promise<Stock[]> {
+    const { symbol, name, market, industry, page = 1, pageSize = 20, sortBy = 'symbol', sortOrder = 'asc' } = params;
+    let result = this.stocks.filter(s => s.isActive !== false);
+    if (symbol) result = result.filter(s => s.symbol.includes(symbol));
+    if (name) result = result.filter(s => s.name.includes(name));
+    if (market) result = result.filter(s => s.market === market);
+    if (industry) result = result.filter(s => s.industry === industry);
+    result.sort((a: any, b: any) => sortOrder === 'asc' ? (a[sortBy] > b[sortBy] ? 1 : -1) : (a[sortBy] < b[sortBy] ? 1 : -1));
+    const offset = (page - 1) * pageSize;
+    return result.slice(offset, offset + pageSize);
+  }
+
+  async getStockCount(params: any = {}): Promise<number> {
+    const { symbol, name, market, industry } = params;
+    let result = this.stocks.filter(s => s.isActive !== false);
+    if (symbol) result = result.filter(s => s.symbol.includes(symbol));
+    if (name) result = result.filter(s => s.name.includes(name));
+    if (market) result = result.filter(s => s.market === market);
+    if (industry) result = result.filter(s => s.industry === industry);
+    return result.length;
+  }
+
+  async getDailyQuotes(stockId: number, startDate?: any, endDate?: any, limit?: number): Promise<DailyQuote[]> {
+    const stock = this.stocks.find(s => s.id === stockId);
+    if (!stock) return [];
+    let quotes = this.quotes.get(stock.symbol) || [];
+    if (startDate) quotes = quotes.filter(q => q.tradeDate >= (typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0]));
+    if (endDate) quotes = quotes.filter(q => q.tradeDate <= (typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0]));
+    quotes.sort((a, b) => b.tradeDate.getTime() - a.tradeDate.getTime());
+    if (limit) quotes = quotes.slice(0, limit);
+    return quotes;
+  }
+
+  async getLatestDailyQuote(stockId: number): Promise<DailyQuote | null> {
+    const stock = this.stocks.find(s => s.id === stockId);
+    if (!stock) return null;
+    const quotes = this.quotes.get(stock.symbol) || [];
+    return quotes.length > 0 ? quotes[quotes.length - 1] : null;
+  }
+
+  async getStockWithLatestQuote(symbol: string): Promise<StockWithQuotes | null> {
+    const stock = this.stocks.find(s => s.symbol === symbol);
+    if (!stock) return null;
+    const quotes = this.quotes.get(symbol) || [];
+    const latestQuote = quotes.length > 0 ? quotes[quotes.length - 1] : undefined;
+    return { ...stock, latestQuote };
+  }
+
+  async getStocksWithLatestQuotes(symbols: string[]): Promise<StockWithQuotes[]> {
+    return symbols.map(symbol => {
+      const stock = this.stocks.find(s => s.symbol === symbol);
+      if (!stock) return null;
+      const quotes = this.quotes.get(symbol) || [];
+      return { ...stock, latestQuote: quotes.length > 0 ? quotes[quotes.length - 1] : undefined };
+    }).filter(Boolean) as StockWithQuotes[];
+  }
+
+  async getIndustryPerformance(_date?: any): Promise<any[]> {
+    const industryMap = new Map<string, { count: number; totalChange: number; totalCap: number }>();
+    this.stocks.forEach(s => {
+      const quotes = this.quotes.get(s.symbol);
+      const latest = quotes ? quotes[quotes.length - 1] : null;
+      if (!latest || !s.industry) return;
+      const existing = industryMap.get(s.industry) || { count: 0, totalChange: 0, totalCap: 0 };
+      existing.count++;
+      existing.totalChange += latest.changePercent;
+      existing.totalCap += latest.marketCap || 0;
+      industryMap.set(s.industry, existing);
+    });
+    return Array.from(industryMap.entries()).map(([industry, stats]) => ({
+      industry,
+      stock_count: stats.count,
+      avg_change_percent: Math.round((stats.totalChange / stats.count) * 100) / 100,
+      total_market_cap: stats.totalCap,
+    })).sort((a, b) => b.avg_change_percent - a.avg_change_percent);
+  }
+
+  async getTopTurnover(_date?: any, limit: number = 10): Promise<any[]> {
+    return this.stocks.map(s => {
+      const quotes = this.quotes.get(s.symbol);
+      const latest = quotes ? quotes[quotes.length - 1] : undefined;
+      return { ...s, latestQuote: latest };
+    })
+    .filter(s => s.latestQuote)
+    .sort((a, b) => (b.latestQuote?.turnover || 0) - (a.latestQuote?.turnover || 0))
+    .slice(0, limit);
+  }
+
+  private getMarketSummaryInternal() {
+    const latest = this.stocks.map(s => {
+      const quotes = this.quotes.get(s.symbol);
+      return quotes ? quotes[quotes.length - 1] : null;
+    }).filter(Boolean);
+
+    const rising = latest.filter(q => q!.changePercent > 0).length;
+    const falling = latest.filter(q => q!.changePercent < 0).length;
+
+    return {
+      date: new Date().toISOString().split('T')[0],
+      totalStocks: this.stocks.length,
+      totalMarketCap: latest.reduce((sum, q) => sum + (q!.marketCap || 0), 0),
+      totalVolume: latest.reduce((sum, q) => sum + q!.volume, 0),
+      totalTurnover: latest.reduce((sum, q) => sum + q!.turnover, 0),
+      risingStocks: rising,
+      fallingStocks: falling,
+      unchangedStocks: this.stocks.length - rising - falling,
+    };
   }
 }
 

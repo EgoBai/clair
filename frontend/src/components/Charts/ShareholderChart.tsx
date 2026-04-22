@@ -10,7 +10,7 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import { ArrowUpOutlined, ArrowDownOutlined, BankOutlined, UserOutlined } from '@ant-design/icons';
-import type { ShareholderInfo, TopShareholders } from '../../shared/types';
+import type { ShareholderInfo, TopShareholders } from '../../../../shared/types';
 
 const { Text } = Typography;
 
@@ -127,7 +127,7 @@ export const ShareholderChart: React.FC<ShareholderChartProps> = ({ data, loadin
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis type="number" domain={[0, 'dataMax']} tickFormatter={v => `${v}%`} />
           <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 11 }} />
-          <Tooltip formatter={(val: number) => [`${val.toFixed(2)}%`, '持股比例']} />
+          <Tooltip formatter={(val) => [`${Number(val).toFixed(2)}%`, '持股比例']} />
           <Bar dataKey="percent" fill="#1890ff" radius={[0, 4, 4, 0]} barSize={14} />
         </BarChart>
       </ResponsiveContainer>

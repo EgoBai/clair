@@ -9,7 +9,7 @@ type ConfigEnv = 'development' | 'staging' | 'production' | 'test';
 
 interface ConfigEntry {
   key: string;
-  value: any;
+  value?: any;
   env?: ConfigEnv;
   required?: boolean;
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
@@ -254,9 +254,9 @@ describe('配置管理器逻辑', () => {
   describe('validateConfig', () => {
     const schema: ConfigSchema = {
       entries: [
-        { key: 'port', type: 'number', required: true },
-        { key: 'host', type: 'string', required: true, default: 'localhost' },
-        { key: 'debug', type: 'boolean', required: false },
+        { key: 'port', type: 'number', required: true, value: undefined },
+        { key: 'host', type: 'string', required: true, default: 'localhost', value: undefined },
+        { key: 'debug', type: 'boolean', required: false, value: undefined },
       ],
     };
 
@@ -281,8 +281,8 @@ describe('配置管理器逻辑', () => {
     it('should apply default values', () => {
       const schema: ConfigSchema = {
         entries: [
-          { key: 'port', type: 'number', required: true, default: 8080 },
-          { key: 'host', type: 'string', required: true, default: 'localhost' },
+          { key: 'port', type: 'number', required: true, default: 8080, value: undefined },
+          { key: 'host', type: 'string', required: true, default: 'localhost', value: undefined },
         ],
       };
       const result = applyDefaults({}, schema);
@@ -292,7 +292,7 @@ describe('配置管理器逻辑', () => {
 
     it('should not override existing values', () => {
       const schema: ConfigSchema = {
-        entries: [{ key: 'port', type: 'number', required: true, default: 8080 }],
+        entries: [{ key: 'port', type: 'number', required: true, default: 8080, value: undefined }],
       };
       const result = applyDefaults({ port: 3000 }, schema);
       expect(result.port).toBe(3000);

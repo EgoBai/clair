@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * Web Vitals 性能监控工具
  * 监控 FCP / LCP / CLS / FID / TTFB / INP
@@ -72,7 +73,7 @@ class WebVitalsCollector {
     this.callbacks.push(callback);
   }
 
-  private reportMetric(metric: WebVitalMetric): void {
+  reportMetric(metric: WebVitalMetric): void {
     // 去重（同一指标只报告变化值）
     const key = metric.name;
     const existing = this.metrics.get(key);
@@ -92,7 +93,7 @@ class WebVitalsCollector {
     // 控制台输出（开发模式）
     if (import.meta.env.DEV) {
       const emoji = metric.rating === 'good' ? '✅' : metric.rating === 'needs-improvement' ? '⚠️' : '❌';
-      console.log(
+      logger.log(
         `${emoji} [Web Vital] ${metric.name}: ${metric.value.toFixed(2)}ms (${metric.rating})`
       );
     }
@@ -315,7 +316,7 @@ function observeINP(): void {
       for (const entry of entryList.getEntries()) {
         const eventEntry = entry as PerformanceEventTiming;
         const duration = eventEntry.duration;
-        const interactionId = eventEntry.interactionId;
+        const interactionId = (eventEntry as PerformanceEventTiming & { interactionId?: number }).interactionId;
 
         if (interactionId) {
           const existing = interactions.get(interactionId) || 0;
@@ -340,7 +341,7 @@ function observeINP(): void {
         });
       }
     });
-    observer.observe({ type: 'event', buffered: true, durationThreshold: 16 });
+    observer.observe({ type: 'event', buffered: true } as PerformanceObserverInit);
   } catch {
     // INP not supported
   }
@@ -379,7 +380,7 @@ function monitorResourceSizes(): void {
       setTimeout(() => {
         const totalKB = Object.values(sizes).reduce((a, b) => a + b, 0) / 1024;
         if (import.meta.env.DEV) {
-          console.log(`📊 资源大小总计: ${totalKB.toFixed(1)} KB`, {
+          logger.log(`Total resources: ${totalKB.toFixed(1)} KB`, {
             JS: `${(sizes.script / 1024).toFixed(1)} KB`,
             CSS: `${(sizes.stylesheet / 1024).toFixed(1)} KB`,
             Images: `${(sizes.image / 1024).toFixed(1)} KB`,
@@ -404,7 +405,7 @@ export function initWebVitals(): void {
   monitorResourceSizes();
 
   if (import.meta.env.DEV) {
-    console.log('🔍 Web Vitals 监控已启动');
+    // removed: console.log
   }
 }
 

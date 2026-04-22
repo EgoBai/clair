@@ -7,18 +7,20 @@ describe('Accessibility Compliance Deep', () => {
     function hexToRgb(hex: string): { r: number; g: number; b: number } {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
       return result ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16),
+        r: parseInt(result[1] ?? '0', 16),
+        g: parseInt(result[2] ?? '0', 16),
+        b: parseInt(result[3] ?? '0', 16),
       } : { r: 0, g: 0, b: 0 };
     }
 
     function luminance(rgb: { r: number; g: number; b: number }): number {
-      const [rs, gs, bs] = [rgb.r, rgb.g, rgb.b].map(c => {
-        const s = c / 255;
-        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-      });
-      return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+      const rs = rgb.r / 255;
+      const gs = rgb.g / 255;
+      const bs = rgb.b / 255;
+      const r = rs <= 0.03928 ? rs / 12.92 : Math.pow((rs + 0.055) / 1.055, 2.4);
+      const g = gs <= 0.03928 ? gs / 12.92 : Math.pow((gs + 0.055) / 1.055, 2.4);
+      const b = bs <= 0.03928 ? bs / 12.92 : Math.pow((bs + 0.055) / 1.055, 2.4);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     }
 
     function contrastRatio(hex1: string, hex2: string): number {
@@ -128,26 +130,26 @@ describe('Accessibility Compliance Deep', () => {
 
       focusNext() {
         this.currentIdx = (this.currentIdx + 1) % this.elements.length;
-        return this.elements[this.currentIdx];
+        return this.elements[this.currentIdx]!;
       }
 
       focusPrev() {
         this.currentIdx = (this.currentIdx - 1 + this.elements.length) % this.elements.length;
-        return this.elements[this.currentIdx];
+        return this.elements[this.currentIdx]!;
       }
 
       focusFirst() {
         this.currentIdx = 0;
-        return this.elements[0];
+        return this.elements[0]!;
       }
 
       focusLast() {
         this.currentIdx = this.elements.length - 1;
-        return this.elements[this.elements.length - 1];
+        return this.elements[this.elements.length - 1]!;
       }
 
       getCurrent() {
-        return this.elements[this.currentIdx];
+        return this.elements[this.currentIdx]!;
       }
     }
 

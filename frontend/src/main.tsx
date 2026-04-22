@@ -9,7 +9,7 @@ import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { Modal, Typography } from 'antd';
 import AppLayout from './components/Layout/AppLayout';
 import ThemeProvider from './components/Common/ThemeProvider';
-import EnhancedErrorBoundary from './components/Common/EnhancedErrorBoundary';
+import { UnifiedErrorBoundary } from './components/Common/UnifiedErrorBoundary';
 import HomePage from './pages/HomePage';
 import { useKeyboardShortcuts, useShortcutHints } from './hooks/useKeyboardShortcuts';
 import { useAppStore } from './store/useAppStore';
@@ -49,6 +49,8 @@ const LockupCalendarPage = lazy(() => import('./pages/LockupCalendarPage'));
 const AIStockSelectionPage = lazy(() => import('./pages/AIStockSelectionPage'));
 const ETFPage = lazy(() => import('./pages/ETFPage'));
 const MarketHeatDashboard = lazy(() => import('./pages/MarketHeatDashboard'));
+const MarketStatsPage = lazy(() => import('./pages/MarketStatsPage'));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 // ==================== 全局快捷键包装器 ====================
 
@@ -138,7 +140,10 @@ function NotFound() {
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
+      <BrowserRouter future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}>
         <GlobalShortcuts>
           <Onboarding />
           <Routes>
@@ -172,7 +177,8 @@ function App() {
               <Route path="ai-selection" element={<LazyPage component={AIStockSelectionPage} name="AI选股" />} />
               <Route path="etf" element={<LazyPage component={ETFPage} name="ETF" />} />
               <Route path="market-heat" element={<LazyPage component={MarketHeatDashboard} name="市场热度" />} />
-              <Route path="*" element={<NotFound />} />
+              <Route path="market-stats" element={<LazyPage component={MarketStatsPage} name="市场统计" />} />
+              <Route path="*" element={<LazyPage component={NotFoundPage} name="404页面" />} />
             </Route>
           </Routes>
         </GlobalShortcuts>
@@ -183,8 +189,8 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <EnhancedErrorBoundary name="App Root" maxRetries={5}>
+    <UnifiedErrorBoundary name="App Root" maxRetries={5}>
       <App />
-    </EnhancedErrorBoundary>
+    </UnifiedErrorBoundary>
   </React.StrictMode>,
 );

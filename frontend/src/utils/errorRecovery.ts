@@ -173,7 +173,7 @@ export class ErrorRecoveryManager {
     let result = this.errorLog;
     if (filter?.level) result = result.filter(e => e.level === filter.level);
     if (filter?.source) result = result.filter(e => e.source === filter.source);
-    if (filter?.since) result = result.filter(e => e.timestamp >= filter.since);
+    if (filter?.since) result = result.filter(e => e.timestamp >= filter.since!);
     return result;
   }
 

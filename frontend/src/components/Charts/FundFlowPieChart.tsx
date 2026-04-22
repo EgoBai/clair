@@ -34,9 +34,10 @@ export const FundFlowPieChart: React.FC<FundFlowPieChartProps> = ({
 
   const total = data.reduce((s, d) => s + d.raw, 0);
 
-  const renderLabel = ({ name, percent }: any) =>
-    `${name} ${(percent * 100).toFixed(1)}%`;
+  const renderLabel = ({ name, percent }: { name?: string; percent?: number }) =>
+    `${name} ${((percent ?? 0) * 100).toFixed(1)}%`;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const customTooltip = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
     const d = payload[0].payload;
@@ -113,16 +114,15 @@ export const IndustryFlowPieChart: React.FC<IndustryFlowPieProps> = ({ data, loa
             cy="45%"
             outerRadius={100}
             dataKey="value"
-            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+            label={({ name, percent }: { name?: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
           >
             {chartData.map((_, i) => (
               <Cell key={i} fill={INDUSTRY_COLORS[i % INDUSTRY_COLORS.length]} />
             ))}
           </Pie>
           <Tooltip
-            formatter={(val: number, name: string, props: any) =>
-              [formatAmount(props.payload.raw), name]
-            }
+            formatter={(val, name, props) =>
+              [formatAmount(props.payload.raw), name]}
           />
         </PieChart>
       </ResponsiveContainer>

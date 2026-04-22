@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React测试页面</title>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <!-- 加载React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <script>
+        // 简单的React组件
+        const TestApp = () => {
+            return React.createElement('div', { style: { padding: '20px' } },
+                React.createElement('h1', null, 'React测试成功！'),
+                React.createElement('p', null, '如果看到这个页面，说明React可以正常工作。'),
+                React.createElement('button', { 
+                    onClick: () => alert('按钮点击成功！'),
+                    style: { padding: '10px 20px', backgroundColor: '#1890ff', color: 'white', border: 'none', borderRadius: '4px' }
+                }, '测试按钮')
+            );
+        };
+        
+        // 渲染到DOM
+        const rootElement = document.getElementById('root');
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(React.createElement(TestApp));
+        
+        console.log('React应用已渲染');
+    </script>
+</body>
+</html>

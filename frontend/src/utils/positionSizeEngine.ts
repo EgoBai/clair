@@ -100,7 +100,7 @@ export function calculatePositionSizes(
   let totalExposure = positions.reduce((s, p) => s + p.dollarAmount, 0);
   if (totalExposure > constraints.accountSize * constraints.maxTotalExposure) {
     const scale = (constraints.accountSize * constraints.maxTotalExposure) / totalExposure;
-    for (const p of positions) {
+    for (const p of positions as any[]) {
       p.shares = Math.floor(p.shares * scale);
       p.dollarAmount = p.shares * p.currentPrice;
       p.recommendedSize = p.shares;
@@ -111,7 +111,7 @@ export function calculatePositionSizes(
   }
 
   // 单只约束
-  for (const p of positions) {
+  for (const p of positions as any[]) {
     const maxDollar = constraints.accountSize * constraints.maxPositionPct;
     if (p.dollarAmount > maxDollar) {
       p.shares = Math.floor(maxDollar / p.currentPrice);

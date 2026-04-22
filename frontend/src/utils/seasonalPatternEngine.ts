@@ -508,7 +508,7 @@ export function identifySeasonalPatterns(
   }
 
   // 6. 周一效应
-  const monReturns = monthlyReturns.filter(r => {
+  const monReturns = monthlyReturns.filter(() => {
     // 简化处理
     return true;
   });
@@ -571,7 +571,7 @@ export function calculateSeasonalityScore(
 export function generateSeasonalForecast(
   patterns: SeasonalPattern[],
   currentMonth: number,
-  monthlyEffects: MonthlyEffectAnalysis[]
+  _monthlyEffects: MonthlyEffectAnalysis[]
 ): SeasonalForecast {
   const relevantPatterns = patterns.filter(p => {
     if (p.type === 'monthly') {
@@ -643,7 +643,7 @@ function calculateStdDev(values: number[]): number {
   return Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / (values.length - 1));
 }
 
-function calculatePValue(tStat: number, df: number): number {
+function calculatePValue(tStat: number, _df: number): number {
   // 简化的p值估算 (使用正态近似)
   const absT = Math.abs(tStat);
   if (absT > 3) return 0.001;

@@ -123,8 +123,10 @@ export function estimateImpact(
   market: MarketCondition
 ): number {
   // Almgren-Chriss简化模型
+  // 使用市场深度中的第一个价格作为参考价格
+  const marketPrice = market.depth.length > 0 ? market.depth[0]!.price : order.price;
   const participationRate = (order.quantity * order.price) /
-    (market.avgDailyVolume * market.price);
+    (market.avgDailyVolume * marketPrice);
   const sigma = market.volatility;
   const eta = 0.1; // 临时冲击系数
 
@@ -164,7 +166,8 @@ export function estimateTotalCost(
   // 成交概率
   let fillProbability = 0.95;
   if (order.orderType === 'limit') {
-    const distanceFromMarket = Math.abs(order.price - market.price) / market.price;
+    const marketPrice = market.depth.length > 0 ? market.depth[0]!.price : order.price;
+    const distanceFromMarket = Math.abs(order.price - marketPrice) / marketPrice;
     fillProbability = Math.max(0.1, 1 - distanceFromMarket * 10);
   }
 
@@ -284,7 +287,7 @@ export function evaluateExecution(
     avgFillPrice,
     slippage,
     slippageBps,
-    implementationShortfall,
+    'implementation shortfall': implementationShortfall,
     timingCost,
     qualityScore,
   };

@@ -16,4 +16,10 @@ export { default as FundFlowPieChart, IndustryFlowPieChart } from './FundFlowPie
 export { default as ShareholderChart } from './ShareholderChart';
 export { default as SectorHeatmap } from './SectorHeatmap';
 export type { SectorHeatData } from './SectorHeatmap';
+export { default as SectorTreeMap } from './SectorTreeMap';
 export { ChartSkeleton, ChartLoadingPlaceholder } from './ChartSkeleton';
+
+// Round 35: New enhanced visualization components
+export { default as MarketHeatmap } from './MarketHeatmap';
+export { default as FundFlowSankey } from './FundFlowSankey';
+export { default as LinkedCharts } from './LinkedCharts';

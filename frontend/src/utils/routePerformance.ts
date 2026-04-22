@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * 路由性能追踪
  * 使用 Performance API 测量路由切换耗时
@@ -57,7 +58,7 @@ export function endRouteTransition(to: string): void {
   // 开发环境输出
   if (import.meta.env.DEV) {
     const emoji = duration < 200 ? '⚡' : duration < 500 ? '🚶' : '🐢';
-    console.log(`${emoji} [Route] ${to}: ${duration.toFixed(1)}ms`);
+    // removed: console.log
   }
 
   routeStartTime = 0;
@@ -87,7 +88,7 @@ export function measureComponentLoad(name: string, fn: () => void): void {
   const duration = performance.now() - start;
 
   if (import.meta.env.DEV && duration > 16) {
-    console.warn(`[Perf] 组件 ${name} 加载耗时 ${duration.toFixed(1)}ms (超过16ms帧预算)`);
+    logger.warn(`[Perf] 组件 ${name} 加载耗时 ${duration.toFixed(1)}ms (超过16ms帧预算)`);
   }
 }
 
@@ -103,13 +104,13 @@ export async function measureAsync<T>(
     const result = await fn();
     const duration = performance.now() - start;
     if (import.meta.env.DEV) {
-      console.log(`⏱️ [Async] ${name}: ${duration.toFixed(1)}ms`);
+      // removed: console.log
     }
     return result;
   } catch (error) {
     const duration = performance.now() - start;
     if (import.meta.env.DEV) {
-      console.error(`❌ [Async] ${name}: ${duration.toFixed(1)}ms (failed)`);
+      logger.error(`❌ [Async] ${name}: ${duration.toFixed(1)}ms (failed)`);
     }
     throw error;
   }

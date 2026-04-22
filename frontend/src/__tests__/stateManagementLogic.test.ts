@@ -78,7 +78,7 @@ describe('State Management Logic', () => {
     });
 
     it('should check if stock is in watchlist', () => {
-      let result = addToWatchlist(groups, '600519', '贵州茅台');
+      const result = addToWatchlist(groups, '600519', '贵州茅台');
       expect(isInWatchlist(result, '600519')).toBe(true);
       expect(isInWatchlist(result, '000858')).toBe(false);
     });

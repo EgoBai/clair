@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * React 渲染优化工具
  * memo、useMemo 优化组件，避免不必要的重渲染
@@ -95,7 +96,7 @@ export function withPerformanceMonitor<P extends object>(
     const duration = now - lastRenderTime.current;
 
     if (duration > 16 && renderCount.current > 1) {
-      console.warn(`[Perf] ${name} 渲染耗时 ${duration.toFixed(1)}ms (第${renderCount.current}次渲染)`);
+      logger.warn(`[Perf] ${name} 渲染耗时 ${duration.toFixed(1)}ms (第${renderCount.current}次渲染)`);
     }
     lastRenderTime.current = now;
 

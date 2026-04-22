@@ -97,14 +97,14 @@ const StrategyComparison: React.FC<StrategyComparisonProps> = ({
       title: '排名',
       key: 'rank',
       width: 60,
-      render: (_: any, __: any, idx: number) => (
+      render: (_: unknown, __: unknown, idx: number) => (
         <Tag color={['#FFD700', '#C0C0C0', '#CD7F32'][idx] || 'default'}>{idx + 1}</Tag>
       ),
     },
     {
       title: '策略',
       key: 'strategy',
-      render: (_: any, r: StrategyInsight) => (
+      render: (_: unknown, r: StrategyInsight) => (
         <Tag color={STRATEGY_COLORS[r.strategy]}>{STRATEGY_NAMES[r.strategy]}</Tag>
       ),
     },
@@ -133,7 +133,7 @@ const StrategyComparison: React.FC<StrategyComparisonProps> = ({
     {
       title: '风险等级',
       key: 'risk',
-      render: (_: any, r: StrategyInsight) => (
+      render: (_: unknown, r: StrategyInsight) => (
         <Tag color={r.riskLevel === 'low' ? 'green' : r.riskLevel === 'medium' ? 'orange' : 'red'}>
           {RISK_LABELS[r.riskLevel]}
         </Tag>

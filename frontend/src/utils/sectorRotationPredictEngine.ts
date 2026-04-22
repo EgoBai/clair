@@ -234,10 +234,12 @@ export function findLeadLagPairs(
       if (returnsA.length < maxLag * 2 || returnsB.length < maxLag * 2) continue;
 
       // Test both directions
-      for (const [leader, follower, lName, fName] of [
+      const testCases: [number[], number[], string, string][] = [
         [returnsA, returnsB, nameA, nameB],
         [returnsB, returnsA, nameB, nameA],
-      ]) {
+      ];
+      
+      for (const [leader, follower, lName, fName] of testCases) {
         let bestCorr = 0;
         let bestLag = 0;
 

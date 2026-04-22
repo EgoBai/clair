@@ -113,9 +113,12 @@ export function createDataAnimator<T extends Record<string, number>>(
 
     const current = {} as T;
     for (const key of keys) {
-      (current as any)[key] = lerp(
-        Number(from[key]) || 0,
-        Number(to[key]) || 0,
+      // Type-safe dynamic property access
+      const fromValue = from[key] as unknown;
+      const toValue = to[key] as unknown;
+      (current as Record<keyof T, unknown>)[key] = lerp(
+        Number(fromValue) || 0,
+        Number(toValue) || 0,
         currentProgress
       );
     }

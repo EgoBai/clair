@@ -4,6 +4,7 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import logger from '../../utils/logger';
 
 interface ChartErrorBoundaryProps {
   children: ReactNode;
@@ -30,7 +31,7 @@ export default class ChartErrorBoundary extends Component<ChartErrorBoundaryProp
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.warn(`[ChartErrorBoundary] 图表渲染失败:`, error.message);
+    logger.warn(`[ChartErrorBoundary] 图表渲染失败:`, error.message);
   }
 
   handleRetry = () => {

@@ -192,9 +192,9 @@ export function createConnectionStateMachine(): {
     state: info,
     transition(to: ConnectionState, error?: string) {
       info.state = to;
-      if (to === 'connected') { info.lastConnected = Date.now(); info.reconnectAttempts = 0; info.error = undefined; }
+      if (to === 'connected') { info.lastConnected = Date.now(); info.reconnectAttempts = 0; delete info.error; }
       if (to === 'reconnecting') info.reconnectAttempts++;
-      if (to === 'error') info.error = error;
+      if (to === 'error' && error !== undefined) info.error = error;
     },
     canSend() { return info.state === 'connected'; },
     shouldReconnect() { return info.state !== 'connected' && info.reconnectAttempts < 10; },

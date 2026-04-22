@@ -5,7 +5,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 import { queryCache } from '../utils/queryCache';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';

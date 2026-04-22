@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import logger from '../utils/logger';
 import {
   Card, Table, Tag, DatePicker, Statistic, Row, Col, Space,
   Typography, Button, Tooltip, Segmented, Progress,
@@ -72,7 +73,7 @@ const BlockTradesPage: React.FC = () => {
         setTotal(json.data.pagination.total);
       }
     } catch (err) {
-      console.error('加载大宗交易失败:', err);
+      logger.error('加载大宗交易失败:', err);
     } finally {
       setLoading(false);
     }
@@ -85,7 +86,7 @@ const BlockTradesPage: React.FC = () => {
       title: '排名',
       key: 'rank',
       width: 60,
-      render: (_: any, __: any, index: number) => {
+      render: (_: unknown, __: unknown, index: number) => {
         const rank = (page - 1) * 20 + index + 1;
         const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
         return rank <= 3

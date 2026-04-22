@@ -165,7 +165,7 @@ describe('认证服务', () => {
     });
 
     it('不记住登录应该使用短期token', () => {
-      const body = { email: 'test@example.com', password: '123456' };
+      const body = { email: 'test@example.com', password: '123456', rememberMe: false };
       const expiry = body.rememberMe ? 30 * 24 * 3600 : 3600;
       expect(expiry).toBe(3600);
     });

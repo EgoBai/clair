@@ -490,7 +490,7 @@ export function getSupportedLocales(): Array<{ code: Locale; name: string; nativ
 export function detectBrowserLocale(): Locale {
   if (typeof navigator === 'undefined') return 'zh-CN';
 
-  const lang = navigator.language || (navigator as any).userLanguage || 'zh-CN';
+  const lang = navigator.language || (navigator as Navigator & { userLanguage?: string }).userLanguage || 'zh-CN';
   if (lang.startsWith('zh-TW') || lang.startsWith('zh-Hant')) return 'zh-TW';
   if (lang.startsWith('zh')) return 'zh-CN';
   if (lang.startsWith('ja')) return 'ja-JP';

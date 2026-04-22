@@ -38,7 +38,7 @@ describe('Onboarding', () => {
 
   describe('步骤导航', () => {
     it('应该跟踪当前步骤', () => {
-      let currentStep = 0;
+      const currentStep = 0;
       expect(currentStep).toBe(0);
     });
 

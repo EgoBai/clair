@@ -72,7 +72,7 @@ export function createStore<T extends Record<string, unknown>>(
 
     // 通知订阅者
     listeners.forEach(listener => {
-      try { listener(state, prevState); } catch {}
+      try { listener(state, prevState); } catch { /* ignored */ }
     });
   }
 
@@ -104,7 +104,7 @@ export function createStore<T extends Record<string, unknown>>(
     }
 
     listeners.forEach(listener => {
-      try { listener(state, prevState); } catch {}
+      try { listener(state, prevState); } catch { /* ignored */ }
     });
   }
 
@@ -118,7 +118,7 @@ export function createStore<T extends Record<string, unknown>>(
     });
 
     listeners.forEach(listener => {
-      try { listener(state, prevState); } catch {}
+      try { listener(state, prevState); } catch { /* ignored */ }
     });
   }
 
@@ -133,7 +133,7 @@ export function createStore<T extends Record<string, unknown>>(
     state = { ...history[historyIndex].state };
 
     listeners.forEach(listener => {
-      try { listener(state, prevState); } catch {}
+      try { listener(state, prevState); } catch { /* ignored */ }
     });
     return true;
   }
@@ -145,7 +145,7 @@ export function createStore<T extends Record<string, unknown>>(
     state = { ...history[historyIndex].state };
 
     listeners.forEach(listener => {
-      try { listener(state, prevState); } catch {}
+      try { listener(state, prevState); } catch { /* ignored */ }
     });
     return true;
   }
@@ -166,7 +166,7 @@ export function createComputed<T, R>(
     const next = selector(state);
     if (next !== cached) {
       cached = next;
-      listeners.forEach(l => { try { l(next); } catch {} });
+      listeners.forEach(l => { try { l(next); } catch { /* ignored */ } });
     }
   });
 
@@ -202,7 +202,7 @@ export function persistenceMiddleware<T>(
     try {
       const store = storage === 'localStorage' ? localStorage : sessionStorage;
       store.setItem(key, JSON.stringify(state));
-    } catch {}
+    } catch { /* ignored */ }
     return state;
   };
 }

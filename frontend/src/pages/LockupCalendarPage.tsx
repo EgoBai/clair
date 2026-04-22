@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import logger from '../utils/logger';
 import {
   Card, Table, Tag, Calendar, Space, Typography, Row, Col, Statistic,
   Button, Badge, Tooltip, Modal,
@@ -75,7 +76,7 @@ const LockupCalendarPage: React.FC = () => {
         setSummary(json.data.summary);
       }
     } catch (err) {
-      console.error('加载解禁数据失败:', err);
+      logger.error('加载解禁数据失败:', err);
     } finally {
       setLoading(false);
     }
@@ -115,7 +116,7 @@ const LockupCalendarPage: React.FC = () => {
       title: '排名',
       key: 'rank',
       width: 60,
-      render: (_: any, __: any, index: number) => {
+      render: (_: unknown, __: unknown, index: number) => {
         const rank = index + 1;
         const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
         return rank <= 3

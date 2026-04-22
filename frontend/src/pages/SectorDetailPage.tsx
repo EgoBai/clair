@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import logger from '../utils/logger';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Row, Col, Statistic, Spin, Button, Select, Space, Progress } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, ArrowLeftOutlined } from '@ant-design/icons';
@@ -71,7 +72,7 @@ export default function SectorDetailPage() {
         }
       }
     } catch (e) {
-      console.error('加载板块列表失败:', e);
+      logger.error('加载板块列表失败:', e);
     } finally {
       setLoading(false);
     }
@@ -83,12 +84,12 @@ export default function SectorDetailPage() {
       const data = await res.json();
       if (data.success) setSelectedSector(data.data);
     } catch (e) {
-      console.error('加载板块详情失败:', e);
+      logger.error('加载板块详情失败:', e);
     }
   };
 
   const stockColumns = [
-    { title: '排名', key: 'rank', width: 60, render: (_: any, __: any, i: number) => i + 1 },
+    { title: '排名', key: 'rank', width: 60, render: (_: unknown, __: unknown, i: number) => i + 1 },
     { title: '代码', dataIndex: 'symbol', key: 'symbol', width: 90 },
     { title: '名称', dataIndex: 'name', key: 'name' },
     {
@@ -208,7 +209,7 @@ export default function SectorDetailPage() {
                 <ResponsiveContainer width="100%" height={250}>
                   <PieChart>
                     <Pie data={selectedSector.marketCapDistribution} cx="50%" cy="50%" outerRadius={80}
-                      label={({ range, count }) => `${range}(${count})`} labelLine={false}>
+                      label={({ range, count }: any) => `${range}(${count})`} labelLine={false}>
                       {selectedSector.marketCapDistribution.map((_, i) => (
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />
                       ))}

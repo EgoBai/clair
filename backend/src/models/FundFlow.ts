@@ -89,6 +89,7 @@ export interface FlowAlert {
   currentValue: number;
   triggeredAt: Date;
   isRead: boolean;
+  isActive: boolean;
 }
 
 export type FlowAlertType = 

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>最小化测试</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+        #root {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            color: #1890ff;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 12px 24px;
+            margin: 10px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+        .primary {
+            background-color: #1890ff;
+            color: white;
+        }
+        .success {
+            background-color: #52c41a;
+            color: white;
+        }
+        .danger {
+            background-color: #ff4d4f;
+            color: white;
+        }
+        .counter {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 20px 0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="container">
+            <h1>最小化React测试</h1>
+            <p>这个页面使用原生JavaScript，不依赖React构建系统。</p>
+            
+            <div class="counter" id="counter">0</div>
+            
+            <div>
+                <button class="primary" onclick="increment()">增加计数</button>
+                <button class="danger" onclick="reset()">重置</button>
+            </div>
+            
+            <div style="margin-top: 30px;">
+                <h3>API连接测试</h3>
+                <button class="success" onclick="testApi()">测试API连接</button>
+                <div id="api-result" style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px; display: none;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let count = 0;
+        const counterEl = document.getElementById('counter');
+        const apiResultEl = document.getElementById('api-result');
+        
+        function increment() {
+            count++;
+            counterEl.textContent = count;
+        }
+        
+        function reset() {
+            count = 0;
+            counterEl.textContent = count;
+        }
+        
+        async function testApi() {
+            try {
+                apiResultEl.style.display = 'block';
+                apiResultEl.innerHTML = '<p>正在连接API...</p>';
+                
+                const response = await fetch('/api/stocks');
+                const data = await response.json();
+                
+                apiResultEl.innerHTML = `
+                    <p style="color: #52c41a; font-weight: bold;">✅ API连接成功！</p>
+                    <p>获取到 ${data.count} 只股票数据：</p>
+                    <ul style="text-align: left; margin: 10px 0;">
+                        ${data.data.map(stock => 
+                            `<li>${stock.name} (${stock.code}): ¥${stock.price} ${stock.change >= 0 ? '📈' : '📉'} ${stock.changePercent}%</li>`
+                        ).join('')}
+                    </ul>
+                    <p><small>时间: ${new Date(data.timestamp).toLocaleString()}</small></p>
+                `;
+            } catch (error) {
+                apiResultEl.innerHTML = `<p style="color: #ff4d4f;">❌ API连接失败: ${error.message}</p>`;
+            }
+        }
+        
+        console.log('最小化测试页面已加载');
+    </script>
+</body>
+</html>

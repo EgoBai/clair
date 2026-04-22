@@ -13,7 +13,7 @@ import {
   validateExRightsEvent,
   ExRightsEvent,
 } from '../utils/exRights';
-import { KLineData } from '../../shared/types';
+import { KLineData } from '../types';
 
 describe('除权除息复权处理', () => {
   // ==================== 工具函数测试 ====================

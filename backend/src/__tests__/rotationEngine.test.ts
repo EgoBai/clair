@@ -4,8 +4,15 @@ import { RotationEngine, RotationAsset } from '../services/rotationEngine';
 describe('Rotation Engine', () => {
   const engine = new RotationEngine();
 
-  const generateReturns = (n: number, bias: number = 0): number[] =>
-    Array.from({ length: n }, () => (Math.random() - 0.48 + bias) * 0.02);
+  /** Deterministic return generator — avoids flaky Math.random() tests */
+  const generateReturns = (n: number, bias: number = 0): number[] => {
+    const result: number[] = [];
+    for (let i = 0; i < n; i++) {
+      // Deterministic wave: base 0.005 + bias + slight oscillation
+      result.push(0.005 + bias + Math.sin(i * 0.3) * 0.003);
+    }
+    return result;
+  };
 
   const createAsset = (symbol: string, n: number = 100, bias: number = 0): RotationAsset => {
     const returns = generateReturns(n, bias);

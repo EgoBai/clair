@@ -34,16 +34,16 @@ describe('accessibility', () => {
     it('should create role with ARIA props', () => {
       const result = roleAria('button', { pressed: true, label: 'Toggle' });
       expect(result.role).toBe('button');
-      expect(result['aria-pressed']).toBe(true);
-      expect(result['aria-label']).toBe('Toggle');
+      expect((result as any)['aria-pressed']).toBe(true);
+      expect((result as any)['aria-label']).toBe('Toggle');
     });
 
     it('should create table ARIA attributes', () => {
       const result = tableAria('股票列表', 100, 8);
       expect(result.role).toBe('table');
-      expect(result['aria-label']).toBe('股票列表');
-      expect(result['aria-rowcount']).toBe(100);
-      expect(result['aria-colcount']).toBe(8);
+      expect((result as any)['aria-label']).toBe('股票列表');
+      expect((result as any)['aria-rowcount']).toBe(100);
+      expect((result as any)['aria-colcount']).toBe(8);
     });
 
     it('should create row ARIA attributes', () => {
@@ -157,8 +157,8 @@ describe('accessibility', () => {
       ];
       const results = auditColorContrast(pairs);
       expect(results).toHaveLength(2);
-      expect(results[0].passes).toBe(true);
-      expect(results[1].name).toBe('Light Gray on White');
+      expect(results[0]!.passes).toBe(true);
+      expect(results[1]!.name).toBe('Light Gray on White');
     });
   });
 

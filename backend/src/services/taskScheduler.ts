@@ -202,7 +202,7 @@ export class TaskScheduler {
       task.completedAt = Date.now();
       this.config.onComplete?.(task);
     } catch (error) {
-      if (task.status === 'cancelled') {
+      if ((task.status as TaskStatus) === 'cancelled') {
         task.completedAt = Date.now();
         this.completed.push(task);
         this.running.delete(task.id);

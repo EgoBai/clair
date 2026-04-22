@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import logger from '../utils/logger';
 import {
   Card, Row, Col, Statistic, Table, Tabs, Tag, Typography, Spin, Space, DatePicker,
 } from 'antd';
@@ -16,15 +17,48 @@ import {
   TrophyOutlined, ArrowUpOutlined, ArrowDownOutlined, BankOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { fetchTopTraderOverview, fetchTopTraderSeatRank } from '../../services/api';
+import { fetchTopTraderOverview, fetchTopTraderSeatRank } from '../services/api';
 
 const { Title, Text } = Typography;
+
+interface TopTraderEntry {
+  rank: number;
+  stockName: string;
+  stockCode: string;
+  netAmount: number;
+  buyAmount: number;
+  sellAmount: number;
+  reason: string;
+  seatName?: string;
+  isOrganizational?: boolean;
+  [key: string]: unknown;
+}
+
+interface TopTraderOverview {
+  totalStocks: number;
+  totalNetBuy: number;
+  totalNetAmount: number;
+  buyDominantCount: number;
+  sellDominantCount: number;
+  industryDistribution: { name: string; value: number }[];
+  topEntries: TopTraderEntry[];
+  topBuyStocks: TopTraderEntry[];
+  topSellStocks: TopTraderEntry[];
+}
+
+interface SeatRankEntry {
+  rank: number;
+  seatName: string;
+  netAmount: number;
+  isOrganizational: boolean;
+  [key: string]: unknown;
+}
 
 const COLORS = ['#cf1322', '#3f8600', '#1890ff', '#fa8c16', '#722ed1', '#13c2c2'];
 
 const TopTradersPage: React.FC = () => {
-  const [overview, setOverview] = useState<any>(null);
-  const [seatRank, setSeatRank] = useState<any[]>([]);
+  const [overview, setOverview] = useState<TopTraderOverview | null>(null);
+  const [seatRank, setSeatRank] = useState<SeatRankEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,7 +75,7 @@ const TopTradersPage: React.FC = () => {
       setOverview(overviewRes);
       setSeatRank(seatRes);
     } catch (err) {
-      console.error('加载龙虎榜数据失败:', err);
+      logger.error('加载龙虎榜数据失败:', err);
     } finally {
       setLoading(false);
     }
@@ -59,7 +93,7 @@ const TopTradersPage: React.FC = () => {
           {val > 0 ? '+' : ''}{formatAmount(val)}
         </span>
       ),
-      sorter: (a: any, b: any) => a.netAmount - b.netAmount,
+      sorter: (a: TopTraderEntry, b: TopTraderEntry) => a.netAmount - b.netAmount,
     },
     { title: '上榜原因', dataIndex: 'reason', key: 'reason',
       render: (v: string) => <Tag color="blue">{v}</Tag> },
@@ -71,7 +105,7 @@ const TopTradersPage: React.FC = () => {
         ? <Tag color={['gold', 'silver', 'bronze'][val - 1]}>{val}</Tag>
         : val },
     { title: '营业部/机构', dataIndex: 'seatName', key: 'seatName',
-      render: (v: string, r: any) => (
+      render: (v: string, r: SeatRankEntry) => (
         <Space>
           {r.isOrganizational && <BankOutlined style={{ color: '#722ed1' }} />}
           <Text>{v}</Text>
@@ -87,7 +121,7 @@ const TopTradersPage: React.FC = () => {
           {v > 0 ? '+' : ''}{formatAmount(v)}
         </span>
       ),
-      sorter: (a: any, b: any) => a.netAmount - b.netAmount },
+      sorter: (a: SeatRankEntry, b: SeatRankEntry) => a.netAmount - b.netAmount },
     { title: '上榜次数', dataIndex: 'appearCount', key: 'appearCount',
       render: (v: number) => <Tag>{v}次</Tag> },
   ];
@@ -200,7 +234,7 @@ const TopTradersPage: React.FC = () => {
                   cy="50%"
                   outerRadius={100}
                   dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }: { name?: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                 >
                   {industryData.map((_, i) => (
                     <Cell key={i} fill={COLORS[i % COLORS.length]} />

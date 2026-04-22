@@ -86,11 +86,11 @@ export function calculateCompositeMomentum(sector: SectorData): number {
  * 板块动量排名
  */
 export function rankSectorsByMomentum(sectors: SectorData[]): MomentumRank[] {
-  const scored = sectors.map(s => ({
+  const scored: MomentumRank[] = sectors.map(s => ({
     sector: s.name,
     composite: calculateCompositeMomentum(s),
     rank: 0,
-    trend: 'steady' as const,
+    trend: 'steady',
     percentile: 0,
   }));
 

@@ -8,7 +8,7 @@ import {
   HistoricalDataValidator,
   FinancialCrossValidator,
 } from '../utils/historicalDataValidator';
-import { KLineData } from '../../shared/types';
+import { KLineData } from '../types';
 
 // ==================== 测试数据生成 ====================
 

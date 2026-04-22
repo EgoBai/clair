@@ -3,7 +3,7 @@
  * 为未来阿拉伯语/希伯来语支持做准备
  */
 
-import { Locale } from '../i18n';
+import type { Locale } from '../i18n';
 
 /** RTL语言列表 */
 export const RTL_LOCALES: Locale[] = [

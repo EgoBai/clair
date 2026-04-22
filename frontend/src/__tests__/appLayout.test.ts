@@ -152,19 +152,19 @@ describe('AppLayout', () => {
     });
 
     it('浅色主题图标应该是SunOutlined', () => {
-      const theme = 'light';
+      const theme: 'light' | 'dark' | 'system' = 'light';
       const icon = theme === 'dark' ? 'MoonOutlined' : theme === 'system' ? 'DesktopOutlined' : 'SunOutlined';
       expect(icon).toBe('SunOutlined');
     });
 
     it('深色主题图标应该是MoonOutlined', () => {
-      const theme = 'dark';
+      const theme: 'light' | 'dark' | 'system' = 'dark';
       const icon = theme === 'dark' ? 'MoonOutlined' : theme === 'system' ? 'DesktopOutlined' : 'SunOutlined';
       expect(icon).toBe('MoonOutlined');
     });
 
     it('系统主题图标应该是DesktopOutlined', () => {
-      const theme = 'system';
+      const theme: 'light' | 'dark' | 'system' = 'system';
       const icon = theme === 'dark' ? 'MoonOutlined' : theme === 'system' ? 'DesktopOutlined' : 'SunOutlined';
       expect(icon).toBe('DesktopOutlined');
     });

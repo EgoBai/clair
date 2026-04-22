@@ -200,10 +200,15 @@ const watchlistGroupDeleteSchema = Joi.object({
 const screenerConditionSchema = Joi.object({
   field: Joi.string().valid(
     'price', 'change_percent', 'volume', 'turnover', 'turnover_rate',
-    'amplitude', 'pe_ratio', 'pb_ratio', 'market_cap', 'circulating_market_cap',
-    'high_price', 'low_price', 'open_price'
+    'amplitude', 'pe_ratio', 'pb_ratio', 'ps_ratio', 'market_cap', 'circulating_market_cap',
+    'dividend_yield', 'roe', 'roa', 'eps',
+    'high_price', 'low_price', 'open_price',
+    'rsi', 'macd', 'macd_signal', 'macd_histogram',
+    'kdj_k', 'kdj_d', 'kdj_j',
+    'boll_upper', 'boll_middle', 'boll_lower',
+    'ma5', 'ma10', 'ma20', 'ma60'
   ).required(),
-  operator: Joi.string().valid('gt', 'gte', 'lt', 'lte', 'eq', 'between', 'in').required(),
+  operator: Joi.string().valid('gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between', 'in', 'not_in').required(),
   value: Joi.alternatives().try(
     Joi.number(),
     Joi.string().max(100),
@@ -215,10 +220,19 @@ const screenerConditionSchema = Joi.object({
 const screenerFilterSchema = Joi.object({
   conditions: Joi.array().items(screenerConditionSchema).max(20).default([]),
   logic: Joi.string().valid('and', 'or').default('and'),
+  groups: Joi.array().items(Joi.object({
+    logic: Joi.string().valid('and', 'or').required(),
+    conditions: Joi.array().items(screenerConditionSchema).max(20).required(),
+  })).max(10).optional(),
   sortBy: Joi.string().max(50).default('change_percent'),
   sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+  secondarySort: Joi.object({
+    field: Joi.string().max(50).required(),
+    order: Joi.string().valid('asc', 'desc').required(),
+  }).optional(),
   page: Joi.number().integer().min(1).max(10000).default(1),
   pageSize: Joi.number().integer().min(1).max(200).default(50),
+  format: Joi.string().valid('json', 'csv').default('json'),
 });
 
 const screenerTemplateSaveSchema = Joi.object({
@@ -227,6 +241,10 @@ const screenerTemplateSaveSchema = Joi.object({
   conditions: Joi.array().items(screenerConditionSchema).min(1).max(20).required(),
   sortBy: Joi.string().max(50).default('change_percent'),
   sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+  secondarySort: Joi.object({
+    field: Joi.string().max(50).required(),
+    order: Joi.string().valid('asc', 'desc').required(),
+  }).optional(),
 });
 
 const screenerTemplateRunSchema = Joi.object({
@@ -237,16 +255,43 @@ const screenerTemplateRunSchema = Joi.object({
 // --- 预警 ---
 const alertCreateSchema = Joi.object({
   symbol: Joi.string().max(20).pattern(/^[a-zA-Z0-9.]+$/).required(),
-  alertType: Joi.string().valid('price_above', 'price_below', 'change_above', 'change_below', 'volume_surge').required(),
+  alertType: Joi.string().valid(
+    'price_above', 'price_below', 'change_above', 'change_below', 
+    'volume_surge', 'indicator', 'composite'
+  ).required(),
   threshold: Joi.number().required(),
   message: Joi.string().max(200).optional().allow(''),
   userId: Joi.number().integer().positive().default(1),
+  // 指标告警
+  indicatorType: Joi.string().valid(
+    'macd_cross_up', 'macd_cross_down', 'rsi_above', 'rsi_below',
+    'bollinger_upper', 'bollinger_lower', 'ma_cross_up', 'ma_cross_down', 'volume_ma_above'
+  ).optional(),
+  indicatorParams: Joi.object().optional(),
+  // 复合条件
+  compositeOperator: Joi.string().valid('and', 'or').optional(),
+  subConditions: Joi.array().items(Joi.object({
+    alertType: Joi.string().required(),
+    threshold: Joi.number().required(),
+    indicatorType: Joi.string().optional(),
+  })).optional(),
+  // 触发模式
+  triggerMode: Joi.string().valid('once', 'once_per_bar', 'every_time').optional(),
+  // 通知渠道
+  channels: Joi.array().items(Joi.string().valid('websocket', 'email', 'sms')).optional(),
 });
 
 const alertUpdateSchema = Joi.object({
   threshold: Joi.number().optional(),
   isActive: Joi.boolean().optional(),
   message: Joi.string().max(200).optional().allow(''),
+  triggerMode: Joi.string().valid('once', 'once_per_bar', 'every_time').optional(),
+  channels: Joi.array().items(Joi.string().valid('websocket', 'email', 'sms')).optional(),
+  indicatorType: Joi.string().valid(
+    'macd_cross_up', 'macd_cross_down', 'rsi_above', 'rsi_below',
+    'bollinger_upper', 'bollinger_lower', 'ma_cross_up', 'ma_cross_down', 'volume_ma_above'
+  ).optional(),
+  indicatorParams: Joi.object().optional(),
 });
 
 const alertQuerySchema = Joi.object({

@@ -235,7 +235,7 @@ describe('K线图计算函数', () => {
     it('非交叉不应该产生信号', () => {
       const prev5 = 10, prev10 = 10, curr5 = 10.5, curr10 = 10;
       const isGoldenCross = prev5 <= prev10 && curr5 > curr10;
-      // prev5 == prev10, curr5 > curr10 -> 这种情况也视为金叉
+      // prev5 === prev10, curr5 > curr10 -> 这种情况也视为金叉
       expect(isGoldenCross).toBe(true);
     });
   });

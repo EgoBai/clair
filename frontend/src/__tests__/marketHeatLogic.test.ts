@@ -48,7 +48,7 @@ describe('Market Heat Dashboard Logic', () => {
       const total = items.reduce((sum, item) => sum + item.value, 0);
       if (total === 0) return [];
 
-      let x = 0;
+      const x = 0;
       return items.map(item => {
         const ratio = item.value / total;
         const itemWidth = width * ratio;

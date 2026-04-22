@@ -5,7 +5,7 @@ describe('API Response Formatting', () => {
   const formatResponse = <T>(data: T, meta?: Record<string, any>) => ({
     success: true,
     data,
-    meta: { timestamp: new Date().toISOString(), ...meta },
+    meta: { timestamp: new Date().toISOString(), ...meta } as Record<string, any>,
   });
 
   const formatError = (message: string, code: string, statusCode: number) => ({

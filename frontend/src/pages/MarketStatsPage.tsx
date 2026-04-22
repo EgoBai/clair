@@ -78,7 +78,7 @@ const MarketStatsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [distribution, setDistribution] = useState<{
     ranges: DistributionRange[];
-    summary: any;
+    summary: { rising: number; falling: number; limitUp: number; limitDown: number };
   } | null>(null);
   const [sectors, setSectors] = useState<SectorHeat[]>([]);
   const [breadth, setBreadth] = useState<MarketBreadth | null>(null);
@@ -189,7 +189,7 @@ const MarketStatsPage: React.FC = () => {
       title: '排名',
       key: 'rank',
       width: 60,
-      render: (_: any, __: any, index: number) => {
+      render: (_: unknown, __: unknown, index: number) => {
         if (index === 0) return <Tag color="gold">🥇</Tag>;
         if (index === 1) return <Tag color="silver">🥈</Tag>;
         if (index === 2) return <Tag color="bronze">🥉</Tag>;

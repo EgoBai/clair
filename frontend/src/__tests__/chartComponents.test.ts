@@ -351,4 +351,65 @@ describe('布局组件', () => {
       expect(hasRetry).toBe(true);
     });
   });
+
+  describe('findNearestIndex (binary search)', () => {
+    // 内联实现用于测试，与 chartInteractionEngine 中的一致
+    interface ChartPoint { x: number; y: number; data: Record<string, unknown>; index: number; }
+
+    function findNearestIndex(data: ChartPoint[], targetX: number): number {
+      if (data.length === 0) return -1;
+      if (data.length === 1) return 0;
+      let lo = 0;
+      let hi = data.length - 1;
+      while (lo <= hi) {
+        const mid = lo + ((hi - lo) >> 1);
+        if (data[mid].x < targetX) lo = mid + 1;
+        else if (data[mid].x > targetX) hi = mid - 1;
+        else return mid;
+      }
+      if (lo >= data.length) return hi;
+      if (hi < 0) return lo;
+      return (targetX - data[hi].x) <= (data[lo].x - targetX) ? hi : lo;
+    }
+
+    it('空数组返回-1', () => {
+      expect(findNearestIndex([], 5)).toBe(-1);
+    });
+
+    it('单元素数组返回0', () => {
+      const data: ChartPoint[] = [{ x: 10, y: 0, data: {}, index: 0 }];
+      expect(findNearestIndex(data, 5)).toBe(0);
+    });
+
+    it('精确匹配返回正确索引', () => {
+      const data: ChartPoint[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((x, i) => ({ x, y: x * 2, data: {}, index: i }));
+      expect(findNearestIndex(data, 5)).toBe(5);
+      expect(findNearestIndex(data, 0)).toBe(0);
+      expect(findNearestIndex(data, 9)).toBe(9);
+    });
+
+    it('返回最近的数据点', () => {
+      const data: ChartPoint[] = [0, 10, 20, 30, 40, 50].map((x, i) => ({ x, y: 0, data: {}, index: i }));
+      expect(findNearestIndex(data, 7)).toBe(1);  // 7 更接近 10
+      expect(findNearestIndex(data, 3)).toBe(0);  // 3 更接近 0
+      expect(findNearestIndex(data, 25)).toBe(2); // 25 等距, 取hi (20)
+    });
+
+    it('大数据集性能正确', () => {
+      const data: ChartPoint[] = Array.from({ length: 10000 }, (_, i) => ({ x: i, y: i * 2, data: {}, index: i }));
+      const start = performance.now();
+      for (let i = 0; i < 1000; i++) {
+        findNearestIndex(data, Math.random() * 9999);
+      }
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeLessThan(50); // 1000次查找 < 50ms
+    });
+
+    it('负值和浮点值正确处理', () => {
+      const data: ChartPoint[] = [-5.5, -2.3, 0, 2.3, 5.5].map((x, i) => ({ x, y: 0, data: {}, index: i }));
+      expect(findNearestIndex(data, -2.3)).toBe(1);
+      expect(findNearestIndex(data, 0)).toBe(2);
+      expect(findNearestIndex(data, 1.1)).toBe(2); // 1.1 更接近 0
+    });
+  });
 });

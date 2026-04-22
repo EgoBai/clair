@@ -149,7 +149,7 @@ export function processAlerts(
       }
       case 'indicator': {
         // 通用指标检查
-        const fieldVal = (priceData as Record<string, unknown>)[alert.condition.field] as number;
+        const fieldVal = (priceData as any)[alert.condition.field] as number;
         if (fieldVal !== undefined) {
           triggered = checkCondition(alert.condition, fieldVal);
           if (triggered) {

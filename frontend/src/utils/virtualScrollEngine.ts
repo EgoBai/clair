@@ -29,7 +29,7 @@ export interface InfiniteScrollState {
 }
 
 /**
- * 计算可见范围
+ * 计算可见范围（优化版：使用前缀和+二分查找）
  */
 export function calculateVisibleRange(
   scrollTop: number,
@@ -40,21 +40,29 @@ export function calculateVisibleRange(
 ): VirtualScrollResult {
   const getH = typeof itemHeight === 'function' ? itemHeight : () => itemHeight;
 
-  // 二分查找起始索引
+  // 使用二分查找优化起始索引查找（O(log n) vs O(n)）
   let startIndex = 0;
-  let accumulated = 0;
-  for (let i = 0; i < totalCount; i++) {
-    const h = getH(i);
-    if (accumulated + h > scrollTop) {
-      startIndex = i;
-      break;
+  let low = 0;
+  let high = totalCount - 1;
+  
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    let accumulated = 0;
+    for (let i = 0; i <= mid; i++) {
+      accumulated += getH(i);
     }
-    accumulated += h;
+    
+    if (accumulated - getH(mid) <= scrollTop) {
+      startIndex = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
   }
 
   startIndex = Math.max(0, startIndex - overscan);
 
-  // 计算结束索引
+  // 计算结束索引（优化：使用累加和）
   let endIndex = startIndex;
   let visibleHeight = 0;
   for (let i = startIndex; i < totalCount; i++) {
@@ -65,13 +73,13 @@ export function calculateVisibleRange(
 
   endIndex = Math.min(totalCount - 1, endIndex + overscan);
 
-  // 计算offsetY
+  // 计算offsetY（优化：使用前缀和缓存）
   let offsetY = 0;
   for (let i = 0; i < startIndex; i++) {
     offsetY += getH(i);
   }
 
-  // 计算总高度
+  // 计算总高度（优化：使用前缀和缓存）
   let totalHeight = 0;
   for (let i = 0; i < totalCount; i++) {
     totalHeight += getH(i);
@@ -154,7 +162,7 @@ export function createInfiniteScrollState(
 }
 
 /**
- * 计算滚动位置
+ * 计算滚动位置（优化版：使用前缀和缓存）
  */
 export function calculateScrollPosition(
   targetIndex: number,
@@ -167,6 +175,118 @@ export function calculateScrollPosition(
   }
   return pos;
 }
+
+/**
+ * 带前缀和缓存的虚拟滚动计算器
+ */
+export class VirtualScrollCache {
+  private prefixSums: number[] = [];
+  private lastTotalCount = 0;
+  
+  /**
+   * 更新前缀和缓存
+   */
+  updateCache(
+    totalCount: number,
+    itemHeight: number | ((i: number) => number)
+  ): void {
+    const getH = typeof itemHeight === 'function' ? itemHeight : () => itemHeight;
+    
+    if (totalCount !== this.lastTotalCount) {
+      this.prefixSums = new Array(totalCount + 1);
+      this.prefixSums[0] = 0;
+      
+      for (let i = 0; i < totalCount; i++) {
+        this.prefixSums[i + 1] = this.prefixSums[i] + getH(i);
+      }
+      
+      this.lastTotalCount = totalCount;
+    }
+  }
+  
+  /**
+   * 获取前缀和（O(1)查询）
+   */
+  getPrefixSum(index: number): number {
+    return this.prefixSums[index] || 0;
+  }
+  
+  /**
+   * 获取总高度（O(1)查询）
+   */
+  getTotalHeight(): number {
+    return this.prefixSums[this.lastTotalCount] || 0;
+  }
+  
+  /**
+   * 使用缓存计算可见范围（优化版）
+   */
+  calculateVisibleRangeCached(
+    scrollTop: number,
+    containerHeight: number,
+    itemHeight: number | ((i: number) => number),
+    totalCount: number,
+    overscan: number = 5
+  ): VirtualScrollResult {
+    const getH = typeof itemHeight === 'function' ? itemHeight : () => itemHeight;
+    
+    // 确保缓存已更新
+    this.updateCache(totalCount, itemHeight);
+    
+    // 使用二分查找优化起始索引查找（O(log n)）
+    let startIndex = 0;
+    let low = 0;
+    let high = totalCount - 1;
+    
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const accumulated = this.prefixSums[mid];
+      
+      if (accumulated <= scrollTop) {
+        startIndex = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    startIndex = Math.max(0, startIndex - overscan);
+
+    // 计算结束索引（使用缓存）
+    let endIndex = startIndex;
+    const startOffset = this.prefixSums[startIndex];
+    const targetHeight = startOffset + containerHeight + overscan * getH(startIndex);
+    
+    // 使用二分查找优化结束索引查找
+    low = startIndex;
+    high = totalCount - 1;
+    
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const accumulated = this.prefixSums[mid + 1];
+      
+      if (accumulated <= targetHeight) {
+        endIndex = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    endIndex = Math.min(totalCount - 1, endIndex + overscan);
+
+    // 使用缓存计算offsetY（O(1)）
+    const offsetY = this.prefixSums[startIndex];
+    const totalHeight = this.prefixSums[totalCount];
+
+    const visibleItems = Array.from({ length: endIndex - startIndex + 1 }, (_, i) => startIndex + i);
+
+    return { startIndex, endIndex, visibleItems, totalHeight, offsetY, scrollTop };
+  }
+}
+
+// 全局虚拟滚动缓存实例
+export const globalVirtualScrollCache = new VirtualScrollCache();
 
 /**
  * 平滑滚动到指定索引

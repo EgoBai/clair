@@ -58,8 +58,8 @@ export function RegisterPage({ onRegister, onLogin }: {
     setLoading(true);
     try {
       await onRegister(form);
-    } catch (err: any) {
-      setErrors({ form: err.message || '注册失败' });
+    } catch (err: unknown) {
+      setErrors({ form: err instanceof Error ? err.message : '注册失败' });
     } finally {
       setLoading(false);
     }

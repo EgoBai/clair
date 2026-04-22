@@ -99,13 +99,13 @@ export function validateBackendEnv(): BackendEnv {
     DATABASE_URL: process.env.DATABASE_URL || '',
     DB_POOL_MIN: parseInt(process.env.DB_POOL_MIN || '2'),
     DB_POOL_MAX: parseInt(process.env.DB_POOL_MAX || '10'),
-    REDIS_URL: process.env.REDIS_URL,
+    REDIS_URL: process.env.REDIS_URL || undefined,
     JWT_SECRET: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
     DATA_SOURCE: (process.env.DATA_SOURCE as BackendEnv['DATA_SOURCE']) || 'sina',
     LOG_LEVEL: (process.env.LOG_LEVEL as BackendEnv['LOG_LEVEL']) || 'info',
     CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  };
+  } as BackendEnv;
 }
 
 export default { getEnv, isDev, isProd, mode, validateBackendEnv };

@@ -47,7 +47,7 @@ function calcCompositeScore(indicators: MacroIndicator[]): number {
 function generateSignals(indicators: MacroIndicator[]): MacroSignal[] {
   return indicators.map(ind => {
     let direction: 'bullish' | 'bearish' | 'neutral' = 'neutral';
-    let strength = Math.abs(ind.change) / Math.abs(ind.previousValue || 1) * 100;
+    const strength = Math.abs(ind.change) / Math.abs(ind.previousValue || 1) * 100;
     if (ind.name === 'unemploymentRate') {
       direction = ind.change < 0 ? 'bullish' : ind.change > 0 ? 'bearish' : 'neutral';
     } else if (ind.name === 'cpiYoY') {

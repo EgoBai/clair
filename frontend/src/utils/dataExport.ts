@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * 数据导出工具
  * 支持导出为 CSV / JSON / 格式化文本
@@ -30,11 +31,11 @@ export function exportToCSV(data: Record<string, any>[], options: ExportOptions 
   } = options;
 
   if (!data.length) {
-    console.warn('导出数据为空');
+    logger.warn('导出数据为空');
     return;
   }
 
-  const cols = columns || Object.keys(data[0]).map(key => ({ key, label: key }));
+  const cols: ExportColumn[] = columns || Object.keys(data[0]).map(key => ({ key, label: key }));
   const lines: string[] = [];
 
   // BOM 头（Excel 中文兼容）
@@ -82,7 +83,7 @@ export function exportToText(data: Record<string, any>[], options: ExportOptions
 
   if (!data.length) return;
 
-  const cols = columns || Object.keys(data[0]).map(key => ({ key, label: key }));
+  const cols: ExportColumn[] = columns || Object.keys(data[0]).map(key => ({ key, label: key }));
 
   // 计算每列最大宽度
   const widths = cols.map(c => {
@@ -121,7 +122,7 @@ export const STOCK_EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'symbol', label: '股票代码' },
   { key: 'name', label: '股票名称' },
   { key: 'price', label: '最新价', format: v => v?.toFixed(2) ?? '' },
-  { key: 'changePercent', label: '涨跌幅(%)', format: v => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '' },
+  { key: 'changePercent', label: '涨跌幅(%)', format: v => v !== null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '' },
   { key: 'change', label: '涨跌额', format: v => v?.toFixed(2) ?? '' },
   { key: 'volume', label: '成交量', format: v => formatVolume(v) },
   { key: 'turnover', label: '成交额', format: v => formatTurnover(v) },
@@ -228,10 +229,10 @@ export async function exportToImage(
       img.src = svgData;
     } else {
       // Fallback: 使用 dom-to-image 思路
-      console.warn('[Export] 图片导出需要 html2canvas 库支持');
+      logger.warn('[Export] 图片导出需要 html2canvas 库支持');
     }
   } catch (err) {
-    console.error('[Export] 图片导出失败:', err);
+    logger.error('[Export] 图片导出失败:', err);
   }
 }
 
@@ -256,7 +257,7 @@ export function exportChartImage(
     link.click();
     document.body.removeChild(link);
   } catch (err) {
-    console.error('[Export] ECharts 图片导出失败:', err);
+    logger.error('[Export] ECharts 图片导出失败:', err);
   }
 }
 
@@ -316,7 +317,7 @@ export function exportToPrint(data: Record<string, any>[], options: ExportOption
 
   if (!data.length) return;
 
-  const cols = columns || Object.keys(data[0]).map(key => ({ key, label: key }));
+  const cols: ExportColumn[] = columns || Object.keys(data[0]).map(key => ({ key, label: key }));
 
   const html = `
 <!DOCTYPE html>
@@ -342,7 +343,7 @@ export function exportToPrint(data: Record<string, any>[], options: ExportOption
     <thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>
     <tbody>
       ${data.map(row => `<tr>${cols.map(c => {
-        let val = c.format ? c.format(row[c.key]) : String(row[c.key] ?? '');
+        const val = c.format ? c.format(row[c.key]) : String(row[c.key] ?? '');
         const isPositive = val.startsWith('+');
         const isNegative = val.startsWith('-') && !val.startsWith('-0.00');
         return `<td class="${isPositive ? 'positive' : isNegative ? 'negative' : ''}">${val}</td>`;

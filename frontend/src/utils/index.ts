@@ -189,22 +189,22 @@ export const UTILS_VERSION = '1.0.0';
  * 初始化工具库
  */
 export function initializeUtils(): void {
-  console.log(`📦 工具库 v${UTILS_VERSION} 已初始化`);
+  // removed: console.log
   
   // 这里可以添加工具库的初始化逻辑
   if (typeof window !== 'undefined') {
     // 浏览器环境初始化
-    console.log('🌐 运行在浏览器环境');
+    // removed: console.log
   }
   
   // 检查性能API支持
   if ('performance' in window) {
-    console.log('⚡ 性能API可用');
+    // removed: console.log
   }
   
   // 检查内存API支持
   if ('memory' in performance) {
-    console.log('💾 内存API可用');
+    // removed: console.log
   }
 }
 
@@ -233,18 +233,18 @@ export const defaultUtilsConfig: UtilsConfig = {
  */
 export function configureUtils(config: Partial<UtilsConfig>): void {
   const mergedConfig = { ...defaultUtilsConfig, ...config };
-  console.log('🔧 工具库配置已更新:', mergedConfig);
+  // removed: console.log
   
   // 这里可以根据配置启用/禁用特定功能
   if (!mergedConfig.enablePerformanceMonitoring) {
-    console.log('⚠️  性能监控已禁用');
+    // removed: console.log
   }
   
   if (!mergedConfig.enableErrorReporting) {
-    console.log('⚠️  错误报告已禁用');
+    // removed: console.log
   }
   
   if (!mergedConfig.enableCaching) {
-    console.log('⚠️  缓存已禁用');
+    // removed: console.log
   }
 }

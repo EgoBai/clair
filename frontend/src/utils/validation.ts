@@ -116,19 +116,79 @@ export function isInRange(value: number, min: number, max: number): boolean {
 
 // Sanitization
 export function sanitizeStockCode(input: string): string {
+  if (typeof input !== 'string') return '';
   return input.replace(/[^0-9]/g, '').slice(0, 6);
 }
 
 export function sanitizePrice(input: string): number | null {
+  if (typeof input !== 'string') return null;
   const cleaned = input.replace(/[^\d.]/g, '');
+  // Reject multiple dots (e.g. "10.5.3")
+  if ((cleaned.match(/\./g) || []).length > 1) return null;
+  // Reject empty or just a dot
+  if (!cleaned || cleaned === '.') return null;
   const num = parseFloat(cleaned);
   return isNaN(num) ? null : Math.round(num * 100) / 100;
 }
 
 export function sanitizeQuantity(input: string): number | null {
+  if (typeof input !== 'string') return null;
   const cleaned = input.replace(/[^\d]/g, '');
   const num = parseInt(cleaned, 10);
   if (isNaN(num)) return null;
   // Round down to nearest 100
   return Math.floor(num / 100) * 100;
+}
+
+/**
+ * 清理自由文本输入（股票名、备注等），防XSS
+ * Strips HTML tags and dangerous patterns from free-text input
+ */
+export function sanitizeText(input: string, maxLength: number = 200): string {
+  if (typeof input !== 'string') return '';
+  return input
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // remove script tags + content
+    .replace(/<[^>]*>/g, '')           // strip remaining HTML tags
+    .replace(/javascript:/gi, '')      // remove javascript: protocol
+    .replace(/on\w+\s*=/gi, '')        // remove event handlers
+    .replace(/[<>]/g, '')              // remove remaining angle brackets
+    .trim()
+    .slice(0, maxLength);
+}
+
+/**
+ * 验证自由文本输入（含长度和XSS检测）
+ */
+export function validateText(
+  input: string,
+  opts: { minLength?: number; maxLength?: number; required?: boolean } = {}
+): ValidationResult {
+  const { minLength = 0, maxLength = 200, required = false } = opts;
+  const errors: string[] = [];
+
+  if (typeof input !== 'string') {
+    return { valid: false, errors: ['输入必须是字符串'] };
+  }
+
+  const trimmed = input.trim();
+
+  if (required && trimmed.length === 0) {
+    errors.push('不能为空');
+  }
+
+  if (trimmed.length < minLength) {
+    errors.push(`长度不能少于${minLength}个字符`);
+  }
+
+  if (trimmed.length > maxLength) {
+    errors.push(`长度不能超过${maxLength}个字符`);
+  }
+
+  // XSS pattern detection
+  const xssPatterns = [/<script/i, /javascript:/i, /on\w+\s*=/i, /<iframe/i, /<object/i];
+  if (xssPatterns.some(p => p.test(input))) {
+    errors.push('输入包含不安全内容');
+  }
+
+  return { valid: errors.length === 0, errors };
 }

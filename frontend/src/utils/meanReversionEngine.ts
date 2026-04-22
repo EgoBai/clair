@@ -471,7 +471,7 @@ export function calculateMeanReversionStats(
   const currentZScore = zScores.length > 0 ? zScores[zScores.length - 1] : 0;
 
   // 计算平均回归天数
-  let reversionDays: number[] = [];
+  const reversionDays: number[] = [];
   let inExtreme = false;
   let startDay = 0;
   for (let i = 0; i < zScores.length; i++) {

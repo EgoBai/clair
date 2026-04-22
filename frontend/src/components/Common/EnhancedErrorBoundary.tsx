@@ -5,6 +5,7 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import logger from '../../utils/logger';
 import { Button, Typography, Space, Collapse } from 'antd';
 import { ReloadOutlined, BugOutlined, HomeOutlined } from '@ant-design/icons';
 
@@ -26,7 +27,7 @@ interface ErrorBoundaryProps {
   fallback?: ReactNode | ((error: Error, retry: () => void) => ReactNode);
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   maxRetries?: number;
-  resetKeys?: any[]; // 当这些值变化时自动重置
+  resetKeys?: unknown[]; // 当这些值变化时自动重置
   name?: string; // 组件名，用于错误定位
 }
 
@@ -52,8 +53,8 @@ function reportError(report: ErrorReport): void {
   // 开发环境下打印详细错误
   if (import.meta.env.DEV) {
     console.group(`[ErrorBoundary] ${report.timestamp}`);
-    console.error('Error:', report.error);
-    console.error('Component Stack:', report.componentStack);
+    logger.error('Error:', report.error);
+    logger.error('Component Stack:', report.componentStack);
     console.groupEnd();
   }
 

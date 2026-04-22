@@ -18,6 +18,7 @@ export interface OptionData {
   gamma: number;
   theta: number;
   vega: number;
+  moneyness?: 'ITM' | 'ATM' | 'OTM';
 }
 
 export interface OptionChain {
@@ -160,9 +161,10 @@ export function analyzeIVSkew(options: OptionData[]): {
   smile: 'smirk' | 'smile' | 'flat';
   direction: 'bullish' | 'bearish' | 'neutral';
 } {
-  const atmOptions = options.filter((o) => Math.abs(o.moneyness ?? (o.strike / o.underlyingPrice - 1)) < 0.02);
-  const otmPuts = options.filter((o) => o.type === 'put' && (o.moneyness ?? (o.strike / o.underlyingPrice - 1)) < -0.05);
-  const otmCalls = options.filter((o) => o.type === 'call' && (o.moneyness ?? (o.strike / o.underlyingPrice - 1)) > 0.05);
+  const getMoneyness = (o: OptionData) => o.strike / o.underlyingPrice - 1;
+  const atmOptions = options.filter((o) => Math.abs(getMoneyness(o)) < 0.02);
+  const otmPuts = options.filter((o) => o.type === 'put' && getMoneyness(o) < -0.05);
+  const otmCalls = options.filter((o) => o.type === 'call' && getMoneyness(o) > 0.05);
 
   const avgATM = atmOptions.length > 0 ? atmOptions.reduce((s, o) => s + o.iv, 0) / atmOptions.length : 0.2;
   const avgPutIV = otmPuts.length > 0 ? otmPuts.reduce((s, o) => s + o.iv, 0) / otmPuts.length : avgATM;

@@ -52,7 +52,8 @@ interface StockQuote {
 }
 
 interface StockDetailProps {
-  stock: StockInfo;
+  stock?: StockInfo;
+  symbol?: string;
   quote?: StockQuote;
   klineData?: KLineData[];
   loading?: boolean;
@@ -61,11 +62,15 @@ interface StockDetailProps {
 
 const StockDetail: React.FC<StockDetailProps> = ({
   stock,
+  symbol,
   quote,
   klineData = [],
   loading = false,
   onRefresh,
 }) => {
+  // Support both stock object and symbol string
+  const stockSymbol = stock?.symbol || symbol || '';
+  const stockInfo: StockInfo = stock || { symbol: stockSymbol, name: stockSymbol, market: 'SH' };
   const [activeTab, setActiveTab] = useState('kline');
 
   const formatMarketCap = (cap?: number) => {
@@ -108,7 +113,7 @@ const StockDetail: React.FC<StockDetailProps> = ({
       children: (
         <KLineChart
           data={klineData}
-          title={`${stock.name} (${stock.symbol})`}
+          title={`${stockInfo.name} (${stockInfo.symbol})`}
           height={450}
           loading={loading}
         />
@@ -120,7 +125,7 @@ const StockDetail: React.FC<StockDetailProps> = ({
       children: (
         <KLineChart
           data={klineData} // 实际应使用周K数据
-          title={`${stock.name} - 周K`}
+          title={`${stockInfo.name} - 周K`}
           height={450}
           loading={loading}
         />
@@ -132,7 +137,7 @@ const StockDetail: React.FC<StockDetailProps> = ({
       children: (
         <VolumeChart
           data={volumeData}
-          title={`${stock.name} - 成交量`}
+          title={`${stockInfo.name} - 成交量`}
           height={350}
           showTurnover={true}
           loading={loading}
@@ -150,10 +155,10 @@ const StockDetail: React.FC<StockDetailProps> = ({
             title={
               <Space>
                 <span style={{ fontSize: 18, fontWeight: 600 }}>
-                  {stock.name}
+                  {stockInfo.name}
                 </span>
-                <Tag color="blue">{stock.symbol}</Tag>
-                {stock.industry && <Tag>{stock.industry}</Tag>}
+                <Tag color="blue">{stockInfo.symbol}</Tag>
+                {stockInfo.industry && <Tag>{stockInfo.industry}</Tag>}
               </Space>
             }
             extra={
@@ -255,32 +260,32 @@ const StockDetail: React.FC<StockDetailProps> = ({
           <Card title="基本信息" size="small">
             <Descriptions column={{ xs: 1, sm: 2, md: 4 }} size="small">
               <Descriptions.Item label="股票代码">
-                {stock.symbol}
+                {stockInfo.symbol}
               </Descriptions.Item>
               <Descriptions.Item label="股票名称">
-                {stock.name}
+                {stockInfo.name}
               </Descriptions.Item>
               <Descriptions.Item label="交易所">
-                {stock.market === 'SH'
+                {stockInfo.market === 'SH'
                   ? '上海证券交易所'
-                  : stock.market === 'SZ'
+                  : stockInfo.market === 'SZ'
                   ? '深圳证券交易所'
-                  : stock.market}
+                  : stockInfo.market}
               </Descriptions.Item>
               <Descriptions.Item label="行业">
-                {stock.industry || '-'}
+                {stockInfo.industry || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="上市日期">
-                {stock.listingDate || '-'}
+                {stockInfo.listingDate || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="总股本">
-                {stock.totalShares
-                  ? formatVolume(stock.totalShares)
+                {stockInfo.totalShares
+                  ? formatVolume(stockInfo.totalShares)
                   : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="流通股本">
-                {stock.circulatingShares
-                  ? formatVolume(stock.circulatingShares)
+                {stockInfo.circulatingShares
+                  ? formatVolume(stockInfo.circulatingShares)
                   : '-'}
               </Descriptions.Item>
             </Descriptions>

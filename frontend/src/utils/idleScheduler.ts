@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * 空闲调度器
  * 使用 requestIdleCallback 调度非关键任务
@@ -134,7 +135,7 @@ export class IdleScheduler {
         await task.task();
         this.metrics.executed++;
       } catch (err) {
-        console.error(`[IdleScheduler] Task ${task.id} failed:`, err);
+        logger.error(`[IdleScheduler] Task ${task.id} failed:`, err);
       } finally {
         this.running--;
         this.processNext();

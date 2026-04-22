@@ -3,7 +3,7 @@
  * 实现 hreflang、Open Graph locale、canonical URL 等
  */
 
-import { Locale } from '../i18n';
+import type { Locale } from '../i18n';
 
 /** 语言对应的hreflang代码 */
 const HREFLANG_MAP: Record<Locale, string> = {

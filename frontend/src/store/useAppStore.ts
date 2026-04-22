@@ -131,8 +131,8 @@ interface AppStore {
   isInWatchlist: (symbol: string) => boolean;
 
   // === K线/指标 ===
-  klineData: any[];
-  setKlineData: (data: any[]) => void;
+  klineData: unknown[];
+  setKlineData: (data: unknown[]) => void;
   indicators: TechnicalIndicator[];
   setIndicators: (data: TechnicalIndicator[]) => void;
 

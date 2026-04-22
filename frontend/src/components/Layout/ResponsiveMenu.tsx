@@ -68,13 +68,13 @@ export const ResponsiveMenu: React.FC<ResponsiveMenuProps> = ({
     }));
   }, []);
 
-  const handleClick: MenuProps['onClick'] = ({ key }) => {
+  const handleClick: MenuProps['onClick'] = useCallback(({ key }: { key: string }) => {
     const item = findMenuItem(items, key);
     if (item?.path) {
       navigate(item.path);
       setMobileOpen(false);
     }
-  };
+  }, [items, navigate, setMobileOpen]);
 
   // Find selected key from current path
   const flatItems = flattenMenu(items);

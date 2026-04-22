@@ -65,7 +65,7 @@ export class TemplateFormatter {
             options = JSON.parse(`{${optionsStr}}`);
           } catch {
             // 解析为key=value格式
-            optionsStr.split(',').forEach(pair => {
+            optionsStr.split(',').forEach((pair: string) => {
               const [k, v] = pair.trim().split('=');
               if (k) options[k.trim()] = v?.trim();
             });

@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import logger from '../utils/logger';
 
 /**
  * 防抖 Hook
@@ -52,7 +53,7 @@ export function useIsMobile(breakpoint: number = 768): boolean {
  */
 export function useAsyncData<T>(
   fetcher: () => Promise<T>,
-  deps: any[] = [],
+  deps: unknown[] = [],
   immediate: boolean = true
 ) {
   const [data, setData] = useState<T | null>(null);
@@ -111,7 +112,7 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
       setStoredValue(valueToStore);
       window.localStorage.setItem(key, JSON.stringify(valueToStore));
     } catch (error) {
-      console.error('localStorage 写入失败:', error);
+      logger.error('localStorage 写入失败:', error);
     }
   };
 

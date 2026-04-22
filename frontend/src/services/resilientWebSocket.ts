@@ -1,6 +1,8 @@
 /**
  * Resilient WebSocket Service
- * 弹性WebSocket服务 - 指数退避重连 + 离线队列 + 心跳检测
+ * 弹性WebSocket服务 - 指数退避重连 + 离线队列 + 心跳检测 + 数据压缩
+ *
+ * 对标 Bloomberg Terminal / TradingView 实时数据架构
  */
 
 export interface WSConfig {
@@ -13,6 +15,9 @@ export interface WSConfig {
   heartbeatInterval: number;
   heartbeatTimeout: number;
   messageQueueSize: number;
+  // 数据压缩 (permessage-deflate)
+  enableCompression: boolean;
+  compressThreshold: number; // 超过此字节数的消息自动压缩
   onOpen?: (event: Event) => void;
   onClose?: (event: CloseEvent) => void;
   onError?: (event: Event) => void;
@@ -31,6 +36,8 @@ const DEFAULT_CONFIG: Partial<WSConfig> = {
   heartbeatInterval: 30000,
   heartbeatTimeout: 5000,
   messageQueueSize: 100,
+  enableCompression: true,
+  compressThreshold: 512,
 };
 
 export class ResilientWebSocket {
@@ -45,6 +52,7 @@ export class ResilientWebSocket {
   private listeners: Map<string, Set<(data: unknown) => void>> = new Map();
   private stateListeners: Set<(state: WSState) => void> = new Set();
   private destroyed: boolean = false;
+  private lastHeartbeatTime: number = 0;
 
   constructor(config: WSConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config } as WSConfig;
@@ -90,10 +98,34 @@ export class ResilientWebSocket {
       this.resetHeartbeatTimeout();
 
       try {
-        const data = JSON.parse(event.data);
+        let payload: string;
+        if (typeof event.data === 'string') {
+          payload = event.data;
+        } else if (event.data instanceof ArrayBuffer) {
+          payload = new TextDecoder().decode(event.data);
+        } else {
+          payload = event.data.toString();
+        }
+
+        const data = JSON.parse(payload);
+
+        // Handle compressed messages
+        if (data.compressed && typeof data.data === 'string') {
+          try {
+            const decompressed = atob(data.data);
+            const parsed = JSON.parse(decompressed);
+            data.data = parsed;
+            data.compressed = false;
+          } catch {
+            // Keep original data if decompression fails
+          }
+        }
 
         // Handle pong
-        if (data.type === 'pong') return;
+        if (data.type === 'pong') {
+          this.lastHeartbeatTime = Date.now();
+          return;
+        }
 
         this.config.onMessage?.(data);
 
@@ -248,5 +280,9 @@ export class ResilientWebSocket {
 
   isConnected(): boolean {
     return this.state === 'connected';
+  }
+
+  getLastHeartbeatTime(): number {
+    return this.lastHeartbeatTime;
   }
 }

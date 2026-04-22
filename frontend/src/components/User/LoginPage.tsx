@@ -41,8 +41,8 @@ export function LoginPage({ onLogin, onForgotPassword, onRegister }: {
     setLoading(true);
     try {
       await onLogin(form);
-    } catch (err: any) {
-      setError({ message: err.message || '登录失败，请重试' });
+    } catch (err: unknown) {
+      setError({ message: err instanceof Error ? err.message : '登录失败，请重试' });
     } finally {
       setLoading(false);
     }

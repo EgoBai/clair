@@ -129,7 +129,7 @@ describe('Accessibility Deep', () => {
       return {
         role: 'dialog',
         'aria-modal': true,
-        'aria-labelledby': 'modal-title',
+        'aria-label': title,
         'aria-describedby': 'modal-desc',
         tabIndex: -1,
       };
@@ -138,8 +138,8 @@ describe('Accessibility Deep', () => {
     it('should set modal attributes', () => {
       const aria = modalAria('确认删除');
       expect(aria.role).toBe('dialog');
-      expect(aria['aria-modal']).toBe(true);
-      expect(aria['aria-labelledby']).toBe('modal-title');
+      expect((aria as any)['aria-modal']).toBe(true);
+      expect((aria as any)['aria-label']).toBe('确认删除');
     });
   });
 
@@ -185,7 +185,7 @@ describe('Accessibility Deep', () => {
     it('should provide skip links', () => {
       const links = skipLinkConfig();
       expect(links.length).toBeGreaterThanOrEqual(1);
-      expect(links[0].target).toBe('#main-content');
+      expect(links[0]!.target).toBe('#main-content');
     });
   });
 
@@ -217,7 +217,7 @@ describe('Accessibility Deep', () => {
         caption: 12,
         label: 14,
       };
-      return minimums[context];
+      return minimums[context] ?? 16;
     }
 
     it('should enforce minimum text sizes', () => {

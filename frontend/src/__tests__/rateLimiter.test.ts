@@ -142,8 +142,8 @@ describe('RequestQueue', () => {
 
   it('should report queue size', async () => {
     const queue = new RequestQueue({ maxRequests: 0, windowMs: 60000 });
-    const p1 = queue.enqueue(async () => 'x').catch(() => {});
-    const p2 = queue.enqueue(async () => 'y').catch(() => {});
+    const p1 = queue.enqueue(async () => 'x').catch(() => { );
+    const p2 = queue.enqueue(async () => 'y').catch(() => { );
     expect(queue.getQueueSize()).toBe(2);
     queue.clear();
     await Promise.allSettled([p1, p2]);

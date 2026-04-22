@@ -49,7 +49,7 @@ export const FundFlowChart: React.FC<FundFlowChartProps> = ({
       title: { text: title, left: 'center', textStyle: { fontSize: 14 } },
       tooltip: {
         trigger: 'axis',
-        formatter: (params: any) => {
+        formatter: (params: { dataIndex: number; value: number; name: string }[]) => {
           const idx = params[0]?.dataIndex;
           if (idx === undefined) return '';
           const d = data[idx];
@@ -178,7 +178,7 @@ export const IndustryFlowChart: React.FC<IndustryFlowChartProps> = ({
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        formatter: (params: any) => {
+        formatter: (params: { dataIndex: number; value: number; name: string }[]) => {
           const idx = params[0]?.dataIndex;
           const d = sorted[idx];
           if (!d) return '';
@@ -220,7 +220,7 @@ export const IndustryFlowChart: React.FC<IndustryFlowChartProps> = ({
         label: {
           show: true,
           position: 'right',
-          formatter: (p: any) => formatAmountShort(p.value),
+          formatter: (p: { value: number }) => formatAmountShort(p.value),
           fontSize: 10,
           color: '#666',
         },

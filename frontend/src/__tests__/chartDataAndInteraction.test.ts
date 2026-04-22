@@ -279,7 +279,7 @@ describe('交互组件逻辑', () => {
 
     function createModalStack() {
       const modals: Modal[] = [];
-      let baseZ = 1000;
+      const baseZ = 1000;
       return {
         open: (id: string, title: string) => { modals.push({ id, title, zIndex: baseZ + modals.length * 10 }); },
         close: (id: string) => { const idx = modals.findIndex(m => m.id === id); if (idx !== -1) modals.splice(idx, 1); },

@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import logger from '../utils/logger';
 import {
   Card, Table, Tag, Space, Typography, Row, Col, Statistic,
   Button, Segmented, Select, Tooltip,
@@ -74,7 +75,7 @@ const ShareholderChangesPage: React.FC = () => {
         setTotal(json.data.pagination.total);
       }
     } catch (err) {
-      console.error('加载增减持数据失败:', err);
+      logger.error('加载增减持数据失败:', err);
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,7 @@
  * 连接后端WebSocket服务获取实时行情推送
  */
 
+import logger from '../utils/logger';
 export type WSMessageType =
   | 'quote_update'       // 行情更新
   | 'market_summary'     // 市场概况更新
@@ -80,7 +81,7 @@ class WebSocketService {
       }
 
       this.ws.onopen = () => {
-        console.log('[WS] 连接成功');
+        // removed: console.log
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
@@ -98,16 +99,16 @@ class WebSocketService {
           const message: WSMessage = JSON.parse(event.data);
           this.dispatchMessage(message);
         } catch (error) {
-          console.error('[WS] 消息解析失败:', error);
+          logger.error('[WS] 消息解析失败:', error);
         }
       };
 
       this.ws.onerror = (event) => {
-        console.error('[WS] 连接错误:', event);
+        logger.error('[WS] 连接错误:', event);
       };
 
       this.ws.onclose = () => {
-        console.log('[WS] 连接关闭');
+        // removed: console.log
         this.isConnected = false;
         this.stopHeartbeat();
 
@@ -199,7 +200,7 @@ class WebSocketService {
 
   // === 私有方法 ===
 
-  private send(message: any): void {
+  private send(message: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     }
@@ -220,7 +221,7 @@ class WebSocketService {
         try {
           handler(message);
         } catch (error) {
-          console.error('[WS] 处理器错误:', error);
+          logger.error('[WS] 处理器错误:', error);
         }
       });
     }
@@ -230,7 +231,7 @@ class WebSocketService {
       try {
         handler(message);
       } catch (error) {
-        console.error('[WS] 通用处理器错误:', error);
+        logger.error('[WS] 通用处理器错误:', error);
       }
     });
   }
@@ -250,18 +251,18 @@ class WebSocketService {
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
-      console.error('[WS] 达到最大重连次数');
+      logger.error('[WS] 达到最大重连次数');
       return;
     }
 
     this.reconnectAttempts++;
     const delay = this.config.reconnectInterval * Math.min(this.reconnectAttempts, 5);
 
-    console.log(`[WS] ${delay}ms 后重连 (第${this.reconnectAttempts}次)`);
+    // removed: console.log
 
     this.reconnectTimer = setTimeout(() => {
       this.connect().catch((error) => {
-        console.error('[WS] 重连失败:', error);
+        logger.error('[WS] 重连失败:', error);
       });
     }, delay);
   }

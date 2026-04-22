@@ -52,7 +52,7 @@ function kMeans1D(data: number[], k: number, maxIter: number = 50): { centers: n
 
   // 初始化中心点
   const sorted = [...data].sort((a, b) => a - b);
-  let centers: number[] = [];
+  const centers: number[] = [];
   for (let i = 0; i < k; i++) {
     centers.push(sorted[Math.floor(i * sorted.length / k)]);
   }
@@ -151,7 +151,7 @@ export function detectRegimes(
     const frequency = regimeReturns.length / remappedLabels.length;
 
     // 平均持续天数
-    let durations: number[] = [];
+    const durations: number[] = [];
     let currentDuration = 1;
     for (let i = 1; i < remappedLabels.length; i++) {
       if (remappedLabels[i] === remappedLabels[i - 1]) {

@@ -325,25 +325,36 @@ export function calculateSelectionStats(
 
 /**
  * 查找最近的数据点索引
+ * 使用二分查找优化，O(log n) 复杂度，对标TradingView十字线精度
  */
 export function findNearestIndex(
   data: ChartPoint[],
   targetX: number,
 ): number {
   if (data.length === 0) return -1;
+  if (data.length === 1) return 0;
 
-  let minDist = Infinity;
-  let nearestIndex = 0;
+  // 二分查找：找到第一个 x >= targetX 的位置
+  let lo = 0;
+  let hi = data.length - 1;
 
-  for (let i = 0; i < data.length; i++) {
-    const dist = Math.abs(data[i].x - targetX);
-    if (dist < minDist) {
-      minDist = dist;
-      nearestIndex = i;
+  while (lo <= hi) {
+    const mid = lo + ((hi - lo) >> 1);
+    if (data[mid].x < targetX) {
+      lo = mid + 1;
+    } else if (data[mid].x > targetX) {
+      hi = mid - 1;
+    } else {
+      return mid; // 精确匹配
     }
   }
 
-  return nearestIndex;
+  // lo 是第一个 >= targetX 的位置，hi 是最后一个 < targetX 的位置
+  // 比较 lo 和 hi 哪个更近
+  if (lo >= data.length) return hi;
+  if (hi < 0) return lo;
+
+  return (targetX - data[hi].x) <= (data[lo].x - targetX) ? hi : lo;
 }
 
 /**

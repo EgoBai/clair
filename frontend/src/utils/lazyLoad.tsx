@@ -15,7 +15,7 @@ export interface LazyLoadOptions {
 // Default loading fallback
 const DefaultFallback: React.FC = () => null;
 
-export function lazyWithRetry<T extends ComponentType<unknown>>(
+export function lazyWithRetry<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
   options: LazyLoadOptions = {}
 ): React.LazyExoticComponent<T> {
@@ -49,7 +49,7 @@ export function withSuspense<P extends object>(
     return React.createElement(
       Suspense,
       { fallback },
-      React.createElement(Component, props)
+      React.createElement(Component as unknown as React.ComponentType<P>, props)
     );
   };
 }

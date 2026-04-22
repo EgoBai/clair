@@ -14,7 +14,7 @@ describe('Table Configuration Logic', () => {
     options: { defaultSort?: keyof T; defaultOrder?: 'asc' | 'desc'; pageSize?: number } = {}
   ) => {
     const { defaultSort, defaultOrder = 'asc', pageSize = 20 } = options;
-    let sorted = [...data];
+    const sorted = [...data];
     if (defaultSort) {
       sorted.sort((a, b) => {
         const va = a[defaultSort], vb = b[defaultSort];

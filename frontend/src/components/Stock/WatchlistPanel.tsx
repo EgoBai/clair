@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import logger from '../../utils/logger';
 import {
   Table, Button, Input, Modal, message, Tag, Space, Dropdown,
   Typography, Tooltip, Badge, Popconfirm, Card, Tabs, Empty,
@@ -68,23 +69,24 @@ const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ onStockClick }) => {
     try {
       const res = await apiService.get('/api/watchlist');
       if (res.success) {
-        const items = res.data?.watchlist || [];
+        const data = res.data as { watchlist?: Record<string, unknown>[] };
+        const items = data?.watchlist || [];
         // 按分组组织
         const grouped: Record<string, WatchlistStock[]> = {};
         for (const item of items) {
-          const gid = item.groupId || 'default';
+          const gid = String(item.groupId || 'default');
           if (!grouped[gid]) grouped[gid] = [];
           grouped[gid].push({
-            id: item.id,
-            symbol: item.symbol,
-            name: item.name,
-            market: item.market,
-            industry: item.industry,
-            closePrice: item.closePrice,
-            changePercent: item.changePercent,
-            volume: item.volume,
-            turnover: item.turnover,
-            sortIndex: item.sortIndex ?? 0,
+            id: item.id as number,
+            symbol: item.symbol as string,
+            name: item.name as string,
+            market: item.market as string,
+            industry: item.industry as string,
+            closePrice: item.closePrice as number | undefined,
+            changePercent: item.changePercent as number | undefined,
+            volume: item.volume as number | undefined,
+            turnover: item.turnover as number | undefined,
+            sortIndex: (item.sortIndex ?? 0) as number,
             groupId: gid,
           });
         }
@@ -98,7 +100,7 @@ const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ onStockClick }) => {
         });
       }
     } catch (err) {
-      console.error('加载自选股失败:', err);
+      logger.error('加载自选股失败:', err);
     } finally {
       setLoading(false);
     }
@@ -117,8 +119,9 @@ const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ onStockClick }) => {
         loadWatchlist();
         setAddModalOpen(false);
       }
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '添加失败');
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      message.error(axiosErr.response?.data?.error || '添加失败');
     }
   };
 
@@ -378,7 +381,8 @@ const AddStockForm: React.FC<{ onAdd: (symbol: string) => void }> = ({ onAdd }) 
     try {
       const res = await apiService.get('/api/search', { q, limit: 10 });
       if (res.success) {
-        setResults(res.data?.results || []);
+        const data = res.data as { results?: { symbol: string; name: string }[] };
+        setResults(data?.results || []);
       }
     } catch { setResults([]); }
     finally { setSearching(false); }
@@ -395,7 +399,7 @@ const AddStockForm: React.FC<{ onAdd: (symbol: string) => void }> = ({ onAdd }) 
         style={{ marginBottom: 12 }}
       />
       <div style={{ maxHeight: 300, overflow: 'auto' }}>
-        {results.map((r: any) => (
+        {results.map((r: { symbol: string; name: string; market?: string }) => (
           <div
             key={r.symbol}
             style={{

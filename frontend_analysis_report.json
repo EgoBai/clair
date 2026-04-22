@@ -1,0 +1,12 @@
+{
+  "project": "frontend",
+  "components_count": 64,
+  "pages_count": 28,
+  "routes_found": false,
+  "api_files_count": 0,
+  "structure_analysis": {
+    "has_components": true,
+    "has_pages": true,
+    "has_routes": false
+  }
+}

@@ -222,18 +222,4 @@ export const DEFAULT_DAILY_QUOTE: Partial<DailyQuote> = {
   updatedAt: new Date()
 };
 
-// 导出类型集合
-export type {
-  Stock,
-  DailyQuote,
-  MinuteQuote,
-  FinancialIndicator,
-  TechnicalIndicator,
-  StockWithQuotes,
-  StockSearchParams,
-  StockQuoteParams,
-  MarketSummary,
-  MarketIndex,
-  IndustryPerformance,
-  StockPerformance
-};
+// Interfaces are already exported at declaration above; no re-export needed.

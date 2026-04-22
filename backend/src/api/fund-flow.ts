@@ -6,7 +6,7 @@
 
 import { Request, Response, Router } from 'express';
 import axios from 'axios';
-import { db } from '../db/Database';
+import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 
