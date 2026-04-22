@@ -7,45 +7,47 @@
 import express from 'express';
 import helmet from 'helmet';
 import compression from 'compression';
-import { corsMiddleware, corsStatusEndpoint } from './middleware/corsConfig';
+import { corsMiddleware, corsStatusEndpoint } from './middleware/corsConfig.ts';
 import { createServer } from 'http';
-import { initDatabase, db, getDb } from './db/dbFactory';
+import { initDatabase, db, getDb } from './db/dbFactory.ts';
+import { createLogger } from './utils/logger.ts';
 // db is a lazy proxy, initialized via initDatabase()
-import stockRouter from './api/stock';
-import indicatorRouter from './api/indicators';
-import sectorRouter from './api/sectors';
-import fundFlowRouter from './api/fund-flow';
-import watchlistRouter from './api/watchlist';
-import alertRouter from './api/alerts';
-import screenerRouter from './api/screener';
-import advancedScreenerRouter from './api/advanced-screener';
-import backtestRouter from './api/backtest-routes';
-import portfolioRouter from './api/portfolio';
-import newsRouter from './api/news';
-import socialRouter from './api/social';
-import aiAnalysisRouter from './api/ai-analysis';
-import financialsRouter from './api/financials';
-import stockCompareRouter from './api/stock-compare';
-import sectorAnalysisRouter from './api/sector-analysis';
-import userRouter from './api/user';
-import performanceRouter from './api/performance';
-import orderBookRouter from './api/order-book';
-import marginRouter from './api/margin';
-import topTradersRouter from './api/top-traders';
-import blockTradesRouter from './api/block-trades';
-import shareholderChangesRouter from './api/shareholder-changes';
-import lockupSharesRouter from './api/lockup-shares';
-import aiStockSelectionRouter from './api/ai-stock-selection';
-import etfRouter from './api/etf';
-import apiDocsRouter from './api/api-docs';
-import { wsService } from './websocket/server';
-import { dataSyncService } from './data-sync/DataSyncService';
-import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
-import { csrfTokenEndpoint } from './middleware/csrf';
-import { enhancedSecurityHeaders } from './middleware/securityHeaders';
-import { performanceMonitor } from './middleware/performanceMonitor';
-import { sanitizeInput } from './middleware/validation';
-import { asyncHandler, sendSuccess, sendNotFound, sendConflict, sendInternalError } from './utils/apiResponse';
+const log = createLogger('App');
+import stockRouter from './api/stock.ts';
+import indicatorRouter from './api/indicators.ts';
+import sectorRouter from './api/sectors.ts';
+import fundFlowRouter from './api/fund-flow.ts';
+import watchlistRouter from './api/watchlist.ts';
+import alertRouter from './api/alerts.ts';
+import screenerRouter from './api/screener.ts';
+import advancedScreenerRouter from './api/advanced-screener.ts';
+import backtestRouter from './api/backtest-routes.ts';
+import portfolioRouter from './api/portfolio.ts';
+import newsRouter from './api/news.ts';
+import socialRouter from './api/social.ts';
+import aiAnalysisRouter from './api/ai-analysis.ts';
+import financialsRouter from './api/financials.ts';
+import stockCompareRouter from './api/stock-compare.ts';
+import sectorAnalysisRouter from './api/sector-analysis.ts';
+import userRouter from './api/user.ts';
+import performanceRouter from './api/performance.ts';
+import orderBookRouter from './api/order-book.ts';
+import marginRouter from './api/margin.ts';
+import topTradersRouter from './api/top-traders.ts';
+import blockTradesRouter from './api/block-trades.ts';
+import shareholderChangesRouter from './api/shareholder-changes.ts';
+import lockupSharesRouter from './api/lockup-shares.ts';
+import aiStockSelectionRouter from './api/ai-stock-selection.ts';
+import etfRouter from './api/etf.ts';
+import apiDocsRouter from './api/api-docs.ts';
+import { wsService } from './websocket/server.ts';
+import { dataSyncService } from './data-sync/DataSyncService.ts';
+import { apiRateLimit, syncRateLimit } from './middleware/rateLimit.ts';
+import { csrfTokenEndpoint } from './middleware/csrf.ts';
+import { enhancedSecurityHeaders } from './middleware/securityHeaders.ts';
+import { performanceMonitor } from './middleware/performanceMonitor.ts';
+import { sanitizeInput } from './middleware/validation.ts';
+import { asyncHandler, sendSuccess, sendNotFound, sendConflict, sendInternalError } from './utils/apiResponse.ts';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -73,8 +75,8 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
     if (req.path !== '/health') {
-      const logLevel = duration > 1000 ? '⚠️' : duration > 500 ? '🔸' : '🔹';
-      console.log(`${logLevel} ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+      const logLevel = duration > 1000 ? 'warn' : duration > 500 ? 'info' : 'debug';
+      log[logLevel as 'warn' | 'info' | 'debug'](`${req.method} ${req.path}`, { status: res.statusCode, duration });
     }
   });
   next();
@@ -118,8 +120,8 @@ app.get('/api/csrf-token', csrfTokenEndpoint);
 app.get('/api/security/cors', corsStatusEndpoint);
 
 // ==================== 搜索API ====================
-import { searchAndSort, addSearchHistory, getSearchHistory } from './utils/search';
-import { queryCache } from './utils/queryCache';
+import { searchAndSort, addSearchHistory, getSearchHistory } from './utils/search.ts';
+import { queryCache } from './utils/queryCache.ts';
 
 app.get('/api/search', asyncHandler(async (req, res) => {
   const q = (req.query.q as string || '').trim();
@@ -280,7 +282,7 @@ app.use((req, res) => {
 });
 
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('❌ 服务器错误:', err);
+  log.error('服务器错误', err);
   res.status(500).json({
     success: false,
     error: '服务器内部错误',

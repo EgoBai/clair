@@ -1,197 +1,107 @@
-/**
- * 结构化日志系统测试
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  logger,
-  configureLogger,
-  resetLoggerConfig,
-  getLoggerConfig,
-  sanitizeData,
-  shouldLog,
-  formatLogEntry,
-  requestLogger,
-} from '../services/logger';
+import { createLogger } from '../utils/logger';
 
-describe('Logger Service', () => {
-  let consoleSpy: any;
+describe('结构化日志工具', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    resetLoggerConfig();
-    consoleSpy = {
-      log: vi.spyOn(console, 'log').mockImplementation(() => {}),
-      warn: vi.spyOn(console, 'warn').mockImplementation(() => {}),
-      error: vi.spyOn(console, 'error').mockImplementation(() => {}),
-    };
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  describe('configureLogger', () => {
-    it('should update configuration', () => {
-      configureLogger({ level: 'error', service: 'test-service' });
-      const config = getLoggerConfig();
-      expect(config.level).toBe('error');
-      expect(config.service).toBe('test-service');
-    });
-
-    it('should merge with defaults', () => {
-      configureLogger({ level: 'warn' });
-      const config = getLoggerConfig();
-      expect(config.level).toBe('warn');
-      expect(config.enableConsole).toBe(true);
+  describe('createLogger', () => {
+    it('应该创建带模块名的logger实例', () => {
+      const logger = createLogger('TestModule');
+      expect(logger).toBeDefined();
     });
   });
 
-  describe('shouldLog', () => {
-    it('should respect log level hierarchy', () => {
-      configureLogger({ level: 'warn' });
-      expect(shouldLog('debug')).toBe(false);
-      expect(shouldLog('info')).toBe(false);
-      expect(shouldLog('warn')).toBe(true);
-      expect(shouldLog('error')).toBe(true);
-      expect(shouldLog('fatal')).toBe(true);
+  describe('info', () => {
+    it('应该输出info级别日志', () => {
+      const logger = createLogger('Test');
+      logger.info('测试消息');
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy.mock.calls[0][0]).toContain('[Test]');
+      expect(logSpy.mock.calls[0][0]).toContain('测试消息');
     });
 
-    it('should log everything at debug level', () => {
-      configureLogger({ level: 'debug' });
-      expect(shouldLog('debug')).toBe(true);
-      expect(shouldLog('info')).toBe(true);
-      expect(shouldLog('warn')).toBe(true);
-      expect(shouldLog('error')).toBe(true);
-      expect(shouldLog('fatal')).toBe(true);
-    });
-
-    it('should only log fatal at fatal level', () => {
-      configureLogger({ level: 'fatal' });
-      expect(shouldLog('debug')).toBe(false);
-      expect(shouldLog('info')).toBe(false);
-      expect(shouldLog('warn')).toBe(false);
-      expect(shouldLog('error')).toBe(false);
-      expect(shouldLog('fatal')).toBe(true);
+    it('应该包含上下文对象', () => {
+      const logger = createLogger('Test');
+      logger.info('测试', { key: 'value' });
+      expect(logSpy.mock.calls[0][0]).toContain('"key":"value"');
     });
   });
 
-  describe('sanitizeData', () => {
-    it('should redact sensitive fields', () => {
-      const data = {
-        username: 'test',
-        password: 'secret123',
-        token: 'abc',
-        apiKey: 'key123',
-      };
-      const sanitized = sanitizeData(data) as Record<string, unknown>;
-      expect(sanitized.username).toBe('test');
-      expect(sanitized.password).toBe('***REDACTED***');
-      expect(sanitized.token).toBe('***REDACTED***');
-      expect(sanitized.apiKey).toBe('***REDACTED***');
-    });
-
-    it('should handle nested objects', () => {
-      const data = {
-        user: { name: 'test', password: 'secret' },
-        auth: { Authorization: 'Bearer xyz' },
-      };
-      const sanitized = sanitizeData(data) as any;
-      expect(sanitized.user.name).toBe('test');
-      expect(sanitized.user.password).toBe('***REDACTED***');
-      expect(sanitized.auth.Authorization).toBe('***REDACTED***');
-    });
-
-    it('should handle arrays', () => {
-      const data = [{ password: 'a' }, { name: 'b' }];
-      const sanitized = sanitizeData(data) as any[];
-      expect(sanitized[0].password).toBe('***REDACTED***');
-      expect(sanitized[1].name).toBe('b');
-    });
-
-    it('should handle primitives', () => {
-      expect(sanitizeData(null)).toBe(null);
-      expect(sanitizeData(42)).toBe(42);
-      expect(sanitizeData('hello')).toBe('hello');
+  describe('debug', () => {
+    it('应该输出debug级别日志', () => {
+      const logger = createLogger('Test');
+      logger.debug('调试消息');
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy.mock.calls[0][0]).toContain('调试消息');
     });
   });
 
-  describe('formatLogEntry', () => {
-    it('should serialize to JSON', () => {
-      const entry = {
-        level: 'info' as const,
-        message: 'test',
-        timestamp: '2024-01-01T00:00:00.000Z',
-        service: 'test',
-      };
-      const formatted = formatLogEntry(entry);
-      expect(JSON.parse(formatted)).toEqual(entry);
+  describe('warn', () => {
+    it('应该使用console.warn输出', () => {
+      const logger = createLogger('Test');
+      logger.warn('警告消息');
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('警告消息');
     });
   });
 
-  describe('logger methods', () => {
-    it('should log info messages', () => {
-      logger.info('test message', { key: 'value' });
-      expect(consoleSpy.log).toHaveBeenCalled();
+  describe('error', () => {
+    it('应该使用console.error输出', () => {
+      const logger = createLogger('Test');
+      logger.error('错误消息');
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0][0]).toContain('错误消息');
     });
 
-    it('should log error messages with error object', () => {
-      const error = new Error('test error');
-      logger.error('Something failed', error, { context: 'test' });
-      expect(consoleSpy.error).toHaveBeenCalled();
+    it('应该提取Error对象的message和stack', () => {
+      const logger = createLogger('Test');
+      const err = new Error('测试错误');
+      logger.error('出错了', err);
+      const output = errorSpy.mock.calls[0][0];
+      expect(output).toContain('测试错误');
+      expect(output).toContain('stack');
     });
 
-    it('should log warn messages', () => {
-      logger.warn('warning message');
-      expect(consoleSpy.warn).toHaveBeenCalled();
+    it('应该处理非Error对象', () => {
+      const logger = createLogger('Test');
+      logger.error('出错了', '字符串错误');
+      const output = errorSpy.mock.calls[0][0];
+      expect(output).toContain('字符串错误');
     });
 
-    it('should not log debug when level is info', () => {
-      configureLogger({ level: 'info' });
-      logger.debug('should not appear');
-      expect(consoleSpy.log).not.toHaveBeenCalled();
-    });
-
-    it('should create child logger with default context', () => {
-      const child = logger.child({ module: 'test-module' });
-      child.info('child message');
-      expect(consoleSpy.log).toHaveBeenCalled();
-    });
-
-    it('should include trace info', () => {
-      logger.info('traced message', {}, { requestId: 'req-123' });
-      expect(consoleSpy.log).toHaveBeenCalled();
+    it('应该合并额外上下文', () => {
+      const logger = createLogger('Test');
+      logger.error('出错了', new Error('boom'), { userId: 42 });
+      const output = errorSpy.mock.calls[0][0];
+      expect(output).toContain('"userId":42');
     });
   });
 
-  describe('requestLogger middleware', () => {
-    it('should create middleware function', () => {
-      const middleware = requestLogger();
-      expect(typeof middleware).toBe('function');
+  describe('日志格式', () => {
+    it('应该包含ISO时间戳', () => {
+      const logger = createLogger('Test');
+      logger.info('消息');
+      const output = logSpy.mock.calls[0][0];
+      // ISO format: 2026-04-22T...
+      expect(output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     });
 
-    it('should log request and response', () => {
-      const middleware = requestLogger();
-      const req = {
-        method: 'GET',
-        path: '/api/test',
-        query: {},
-        headers: { 'user-agent': 'test' },
-        ip: '127.0.0.1',
-      };
-      const res = {
-        statusCode: 200,
-        setHeader: vi.fn(),
-        on: vi.fn((event: string, cb: Function) => {
-          if (event === 'finish') {
-            // Simulate finish event
-          }
-        }),
-      };
-      const next = vi.fn();
-
-      middleware(req, res, next);
-      expect(next).toHaveBeenCalled();
-      expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', expect.any(String));
+    it('应该包含模块名', () => {
+      const logger = createLogger('MyModule');
+      logger.info('消息');
+      expect(logSpy.mock.calls[0][0]).toContain('[MyModule]');
     });
   });
 });
