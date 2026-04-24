@@ -7011,7 +7011,43 @@
 - 新增测试覆盖: 无（Bug 修复轮）
 - 问题 root-cause 记录至 self-improvement
 
-### 累计 (Round 937)
-- 测试文件: 1359
-- 测试数: ~32,324
-- 全量通过率: 1470/1470 文件通过, 32324/32324 测试通过 (100%)
+### Round 938 (2026-04-25)
+- 新增 dataValidation.test.ts (48 tests) — 行情数据异常检测引擎测试
+  - DataAnomalyDetector: detect空数据处理、clean数据零异常、负价格检测(zero_volume/negative_price)、精度异常检测
+  - PriceJumps: 跳变检测(超过阈值/正常波动/前日close≤0跳过)
+  - VolumeAnomalies: 窗口不足跳过、极端成交量检测
+  - PriceLogic: high<max(open,close)、low>min(open,close)、high<low
+  - DataContinuity: 缺失间隔>5天检测、周末3天不标记
+  - AmplitudeLimit: 超涨跌停检测、范围内不标记
+  - CustomConfig: 部分配置覆盖、默认配置使用
+  - FinancialDataPrecision: 6种normalize函数(null/NaN/Infinity/边界/范围/精度)
+  - DataConsistencyChecker: 必填字段/负值/价格倒挂/成交量-成交额一致性/前后端对比(匹配/不匹配/容差0.01)
+
+### Round 943 (2026-04-25)
+- 新增 aiMarketAnalysis.test.ts (39 tests) — AI市场分析引擎测试
+  - MarketCommentaryGenerator: generateDailySummary(bullish/bearish/neutral/零交易)、大成交量万亿描述、analyzeSentiment(bullish/bearish/neutral/零计数)、extractKeywords(上涨/震荡关键词)、calculateConfidence(范围/高强度vs低)
+  - StopLossCalculator: calculateByATR(结构/自定义倍数/非负限制/数据不足)、calculateByMA(结构/周期不同)、calculateByPercent(默认值/参数)
+  - SectorRotationPredictor: analyze(全字段结构/markup/decline/catalysts/risks)、determinePhase(markup/decline/accumulation/distribution/default)、calculateMomentum(正/负)、calculateStrength(范围)、generateSectorAnalysis(描述包含阶段)
+  - Default singletons: 3个导出实例
+
+### 累计 (Round 943)
+- 测试文件: 1365 (+6)
+- 测试数: ~32,542 (+218)
+- 全量通过率: 暂无（仅单文件验证通过）
+
+### Round 944 (2026-04-25)
+- **修复**: backtestEngine.test.ts 和 errorUtils.test.ts 的 4 个测试失败
+  - backtestEngine: 改进 exportBacktestToCSV 测试（CSV格式regex匹配问题）
+  - errorUtils: 3个 executeWithRetry 测试修复（字符串reject改为Error对象，maxRetries逻辑修正）
+- **新增**: 未提交的测试文件完成并全部通过
+  - backend: backtestEngine.test.ts (22 tests) — 回测引擎策略执行/并行回测/CSV导出/策略预设
+  - frontend: errorUtils.test.ts (37 tests) — 错误分类/友好消息/安全执行/重试策略
+  - frontend: lazyImage.test.tsx (19 tests) — 懒加载图片/加载状态/错误处理/交叉观察
+  - frontend: collapsibleSection.test.tsx (22 tests) — 可折叠面板展开/收起/动画/props
+  - frontend: emptyStates.test.tsx (38 tests) — 空状态组件（无数据/加载中/错误等）
+- **全量测试验证**: 所有新增/修改文件单文件通过
+
+### 累计 (Round 944)
+- 测试文件: 1368 (+9)
+- 测试数: ~32,660 (+336)
+- 全量通过率: 待运行全量确认（预计100%）
