@@ -14,7 +14,7 @@
   "dependencies": {
     "@types/compression": "^1.8.1",
     "@types/helmet": "^0.0.48",
-    "axios": "^1.6.2",
+    "axios": "^1.15.0",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dayjs": "^1.11.10",

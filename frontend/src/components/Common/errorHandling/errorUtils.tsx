@@ -130,7 +130,8 @@ export function withErrorBoundary<P extends object>(
 ): React.FC<P> {
   // 动态导入以避免循环依赖
   const WrappedComponent: React.FC<P> = (props) => {
-    const { UnifiedErrorBoundary } = require('../UnifiedErrorBoundary');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { UnifiedErrorBoundary } = require('../UnifiedErrorBoundary');
     return (
       <UnifiedErrorBoundary {...errorBoundaryProps}>
         <Component {...props} />

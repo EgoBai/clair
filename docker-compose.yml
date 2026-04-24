@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  # PostgreSQL database
+  # ===== PostgreSQL 16 Database =====
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: astock-postgres
     environment:
       POSTGRES_DB: astock
@@ -23,10 +23,11 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Redis cache
+  # ===== Redis 7 Cache =====
   redis:
     image: redis:7-alpine
     container_name: astock-redis
+    command: redis-server --appendonly yes --lazyfree-lazy-eviction yes
     ports:
       - "6379:6379"
     volumes:
@@ -40,28 +41,7 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # RabbitMQ message queue
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: astock-rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - stock-network
-    healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # Backend API service
+  # ===== Backend API Service =====
   backend:
     build:
       context: ./backend
@@ -72,16 +52,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 4000
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-astock_secret}@postgres:5432/astock
       REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
-    expose:
-      - "4000"
+      REDIS_PREFIX: astock:
+      TZ: Asia/Shanghai
+    ports:
+      - "4000:4000"
     networks:
       - stock-network
     restart: unless-stopped
@@ -92,14 +71,16 @@ services:
       start_period: 10s
       retries: 3
 
-  # Frontend SPA service
+  # ===== Frontend SPA Service =====
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: astock-frontend
-    expose:
-      - "3000"
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
     networks:
       - stock-network
     restart: unless-stopped
@@ -110,7 +91,7 @@ services:
       start_period: 10s
       retries: 3
 
-  # Nginx reverse proxy
+  # ===== Nginx Reverse Proxy =====
   nginx:
     image: nginx:alpine
     container_name: astock-nginx
@@ -133,50 +114,11 @@ services:
       start_period: 10s
       retries: 3
 
-  # Data collector service
-  data-collector:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: astock-data-collector
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    environment:
-      NODE_ENV: production
-      PORT: 4001
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-astock_secret}@postgres:5432/astock
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
-    networks:
-      - stock-network
-    restart: unless-stopped
-
-  # Grafana monitoring
-  monitoring:
-    image: grafana/grafana:latest
-    container_name: astock-grafana
-    ports:
-      - "3001:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./monitoring/datasources:/etc/grafana/provisioning/datasources:ro
-    networks:
-      - stock-network
-    restart: unless-stopped
-
 volumes:
   postgres_data:
+    driver: local
   redis_data:
-  rabbitmq_data:
-  grafana_data:
+    driver: local
 
 networks:
   stock-network:

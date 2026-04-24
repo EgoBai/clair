@@ -185,7 +185,7 @@ const VirtualStockTable: React.FC<VirtualStockTableProps> = React.memo(({
         sortBy={sortBy}
         sortOrder={sortOrder}
       />
-      <List<{}>
+      <List<Record<string, never>>
         listRef={listRef}
         rowCount={loading ? Math.ceil(height / rowHeight) : sortedStocks.length}
         rowHeight={rowHeight}

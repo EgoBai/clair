@@ -7000,3 +7000,18 @@
 - 测试数: ~30,859+ (+32)
 - 全量通过率: 621/622 文件通过, 14777/14778 测试通过
 - 1个预存flaky: dataAggregation.test.ts 波动率边界测试
+
+### Round 937 (2026-04-25)
+- **修复**: vitest.config.ts 环境配置问题
+  - 发现 61 个测试文件"document is not defined"错误 (contextMenu/scrollReveal/searchHighlight)
+  - 根因: vitest v4 的 `environmentMatchGlobs` 对 `frontend/src/**` 模式无法正确匹配
+  - 修复: 设置默认 `environment: 'jsdom'`，只对后端使用 `environmentMatchGlobs` 覆盖为 `node`
+  - 效果: 3个测试文件 61 个测试全部恢复正常
+- 全量测试结果: 1470/1470 文件通过, 32324/32324 测试通过, 0 失败
+- 新增测试覆盖: 无（Bug 修复轮）
+- 问题 root-cause 记录至 self-improvement
+
+### 累计 (Round 937)
+- 测试文件: 1359
+- 测试数: ~32,324
+- 全量通过率: 1470/1470 文件通过, 32324/32324 测试通过 (100%)

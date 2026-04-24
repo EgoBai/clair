@@ -669,19 +669,21 @@ export function aggregateData(
       case 'max':
         result[`${agg.key}_max`] = values.length > 0 ? Math.round(Math.max(...values) * 100) / 100 : 0;
         break;
-      case 'median':
+      case 'median': {
         const sorted = [...values].sort((a, b) => a - b);
         const mid = Math.floor(sorted.length / 2);
         result[`${agg.key}_median`] = sorted.length > 0
           ? (sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2)
           : 0;
         break;
-      case 'std':
+      }
+      case 'std': {
         const mean = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
         const squareDiffs = values.map(v => Math.pow(v - mean, 2));
         const avgSquareDiff = squareDiffs.length > 0 ? squareDiffs.reduce((a, b) => a + b, 0) / squareDiffs.length : 0;
         result[`${agg.key}_std`] = Math.round(Math.sqrt(avgSquareDiff) * 100) / 100;
         break;
+      }
     }
   }
 

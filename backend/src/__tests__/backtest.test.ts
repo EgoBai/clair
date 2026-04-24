@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { runBacktest, STRATEGY_PRESETS } from '../utils/backtestEngine';
-import type { KLineData } from '../types';
+import type { KLineData } from '@shared/types';
 
 // Seeded PRNG for deterministic tests
 let _seed = 123;

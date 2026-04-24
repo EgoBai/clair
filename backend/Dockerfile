@@ -1,26 +1,27 @@
-# Backend Dockerfile - Production multi-stage build
-FROM node:18-alpine AS builder
+# ===== Backend Dockerfile - Optimized Multi-Stage Build =====
+# Stage 1: Build dependencies and compile TypeScript
+FROM node:20-alpine AS builder
 
 LABEL stage=builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files for layer caching
 COPY package*.json ./
 
-# Install ALL dependencies (needed for TypeScript build)
-RUN npm ci
+# Install ALL dependencies (devDependencies needed for TypeScript build)
+RUN npm ci --no-audit --no-fund
 
-# Copy source code
+# Copy source code (including shared module)
 COPY . .
 
 # Build TypeScript
 RUN npm run build
 
-# Production stage
-FROM node:18-alpine
+# Stage 2: Production runtime
+FROM node:20-alpine
 
-# Security: use existing node user in alpine image
+# Install runtime system dependencies
 RUN apk add --no-cache tzdata curl
 
 # Set timezone
@@ -28,15 +29,19 @@ ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
-# Copy production deps and build artifacts
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
+# Copy production dependencies
+COPY package*.json ./
 COPY --from=builder /app/dist ./dist
 
-# Create non-root user (node already exists in node:18-alpine)
+# Install ONLY production dependencies (smaller final image)
+RUN npm ci --omit=dev --no-audit --no-fund && \
+    npm cache clean --force 2>/dev/null || true
+
+# Create non-root user
 RUN addgroup -g 1001 -S appgroup && \
     adduser -S appuser -u 1001 -G appgroup && \
-    chown -R appuser:appgroup /app
+    chown -R appuser:appgroup /app && \
+    chmod -R 755 /app
 
 USER appuser
 

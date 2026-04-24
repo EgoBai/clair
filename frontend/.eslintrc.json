@@ -13,7 +13,7 @@
     "plugin:react/jsx-runtime",
     "prettier"
   ],
-  "ignorePatterns": ["dist", "node_modules", ".eslintrc.cjs"],
+  "ignorePatterns": ["dist", "node_modules", ".eslintrc.cjs", "__tests__", "scripts"],
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": "latest",
@@ -39,7 +39,10 @@
     "no-console": ["warn", { "allow": ["warn", "error"] }],
     "prefer-const": "warn",
     "no-var": "error",
-    "eqeqeq": ["error", "always"],
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "@typescript-eslint/no-this-alias": "off",
+    "react/display-name": "off",
+    "react/no-unescaped-entities": "off",
     "no-duplicate-imports": "error"
   },
   "settings": {

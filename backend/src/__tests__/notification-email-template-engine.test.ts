@@ -98,16 +98,43 @@ class TestEmailTemplateEngine {
     });
   }
 
+  private parseIf(content: string, vars: Record<string, unknown>): string {
+    // Find innermost {{#if}} blocks first (process from inside out)
+    // Match: {{#if var}}...{{/if}} where ... does NOT contain another {{#if}}
+    const innerIfRe = /\{\{#if\s+(\w+)\}\}((?:.(?!\{\{#if))*?)\{\{\/if\}\}/gs;
+    content = content.replace(innerIfRe, (_m, varName, innerBlock) => {
+      const elsePos = innerBlock.indexOf('{{else}}');
+      let ifBlock: string, elseBlock: string;
+      if (elsePos === -1) {
+        ifBlock = this.interpolate(innerBlock, vars);
+        elseBlock = '';
+      } else {
+        ifBlock = this.interpolate(innerBlock.slice(0, elsePos), vars);
+        elseBlock = this.interpolate(innerBlock.slice(elsePos + 8), vars);
+      }
+      return vars[varName] ? ifBlock : elseBlock;
+    });
+    // Handle remaining {{#if}} blocks after inner ones are processed
+    const outerIfRe = /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
+    content = content.replace(outerIfRe, (_m, varName, block) => {
+      const elsePos = block.indexOf('{{else}}');
+      let ifBlock: string, elseBlock: string;
+      if (elsePos === -1) {
+        ifBlock = this.interpolate(block, vars);
+        elseBlock = '';
+      } else {
+        ifBlock = this.interpolate(block.slice(0, elsePos), vars);
+        elseBlock = this.interpolate(block.slice(elsePos + 8), vars);
+      }
+      return vars[varName] ? ifBlock : elseBlock;
+    });
+    return content;
+  }
+
   renderHtml(html: string, vars: Record<string, unknown>): string {
     let result = html;
-    // {{#if var}}...{{else}}...{{/if}}
-    result = result.replace(/\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if\}\}/g, (_m, varName, ifBlock, elseBlock) => {
-      return vars[varName] ? this.renderHtml(ifBlock, vars) : this.renderHtml(elseBlock, vars);
-    });
-    // {{#if var}}...{{/if}}
-    result = result.replace(/\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_m, varName, block) => {
-      return vars[varName] ? this.renderHtml(block, vars) : '';
-    });
+    // Process {{#if}} blocks from inside out
+    result = this.parseIf(result, vars);
     // {{#each items}}...{{/each}}
     result = result.replace(/\{\{#each\s+(\w+)\}\}([\s\S]*?)\{\{\/each\}\}/g, (_m, varName, block) => {
       const items = vars[varName];

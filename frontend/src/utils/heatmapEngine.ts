@@ -98,9 +98,10 @@ export function getColorForValue(
         50
       );
 
-    case 'monochrome':
+    case 'monochrome': {
       const shade = Math.round(255 - t * 180);
       return rgbToHex(shade, shade, shade);
+    }
 
     default:
       return '#888888';

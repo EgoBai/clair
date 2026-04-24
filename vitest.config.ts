@@ -13,8 +13,9 @@ export default defineConfig({
       '**/e2e/**',
       '**/*.spec.ts',
     ],
+    // frontend tests: jsdom for DOM APIs, backend tests: node
+    environment: 'jsdom',
     environmentMatchGlobs: [
-      ['frontend/src/**', 'jsdom'],
       ['backend/src/**', 'node'],
     ],
     setupFiles: ['frontend/src/__tests__/setup.ts'],

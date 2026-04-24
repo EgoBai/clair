@@ -123,7 +123,7 @@ class TestCoordinator {
   }
 
   async send(notification: NotificationPayload, channels?: string[]): Promise<SendTask[]> {
-    const targetChannels = channels || notification.channels || ['in_app'];
+    const targetChannels = channels !== undefined && channels.length > 0 ? channels : notification.channels && notification.channels.length > 0 ? notification.channels : ['in_app'];
     if (this.config.parallelSending) {
       const results = await Promise.allSettled(targetChannels.map(ch => this.sendToChannel(notification, ch)));
       const tasks: SendTask[] = [];
@@ -280,7 +280,7 @@ describe('NotificationCoordinator', () => {
   describe('sendBatch', () => {
     it('should send multiple notifications', async () => {
       coord.registerChannel('in_app', async () => true);
-      const notifs = [makeNotif({ id: 'n1' }), makeNotif({ id: 'n2' }), makeNotif({ id: 'n3' })];
+      const notifs = [makeNotif({ id: 'n1', channels: ['in_app'] }), makeNotif({ id: 'n2', channels: ['in_app'] }), makeNotif({ id: 'n3', channels: ['in_app'] })];
       const allTasks = await coord.sendBatch(notifs);
       expect(allTasks).toHaveLength(3);
       expect(allTasks.every(t => t.status === 'sent')).toBe(true);
@@ -293,20 +293,20 @@ describe('NotificationCoordinator', () => {
     });
 
     it('should get task by ID', async () => {
-      const tasks = await coord.send(makeNotif());
+      const tasks = await coord.send(makeNotif({ channels: ['in_app'] }));
       const task = coord.getTask(tasks[0].id);
       expect(task).toBeDefined();
       expect(task!.status).toBe('sent');
     });
 
     it('should get all tasks', async () => {
-      await coord.send(makeNotif({ id: 'n1' }));
-      await coord.send(makeNotif({ id: 'n2' }));
+      await coord.send(makeNotif({ id: 'n1', channels: ['in_app'] }));
+      await coord.send(makeNotif({ id: 'n2', channels: ['in_app'] }));
       expect(coord.getAllTasks()).toHaveLength(2);
     });
 
     it('should get tasks by status', async () => {
-      await coord.send(makeNotif());
+      await coord.send(makeNotif({ channels: ['in_app'] }));
       expect(coord.getTasksByStatus('sent')).toHaveLength(1);
       expect(coord.getTasksByStatus('failed')).toHaveLength(0);
     });

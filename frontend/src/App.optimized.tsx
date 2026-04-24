@@ -84,7 +84,7 @@ const StockDetailPanel: React.FC<{
   
   if (!q) return null;
   
-  const detailItems = useMemo(() => [
+  const detailItems = [
     { label: '当前价格', value: `¥${formatNumber(q.closePrice)}`, className: '' },
     { label: '涨跌幅', value: `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%`, className: q.changePercent >= 0 ? 'positive' : 'negative' },
     { label: '开盘价', value: `¥${formatNumber(q.openPrice)}`, className: '' },
@@ -93,7 +93,7 @@ const StockDetailPanel: React.FC<{
     { label: '成交量', value: formatVolume(q.volume), className: '' },
     { label: '成交额', value: formatTurnover(q.turnover), className: '' },
     { label: '总市值', value: formatMarketCap(q.marketCap), className: '' },
-  ], [q]);
+  ];
   
   return (
     <section className="stock-detail">
