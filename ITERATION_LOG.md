@@ -6975,6 +6975,16 @@
 ### Round 931 (2026-04-25)
 - 新增 dbFactory.test.ts — 数据库工厂测试
 
-### 累计 (Round 931)
-- 测试文件: 1354
-- 测试数: ~30,729+
+### Round 932-934 (2026-04-25)
+- 新增 tokenManager.test.ts (27 tests) — Token Manager 全功能测试
+  - 覆盖: JWT 生成(Header/Payload/Claims)、验证(过期/签名/黑名单/格式)、刷新(一次性使用/操作连锁)、撤销(单条/批量/全部)、清理、跨密钥验证
+- 新增 search.test.ts (32 tests) — 搜索工具全功能测试
+  - 覆盖: 拼音首字母映射、8级匹配优先级(代码精确→名称模糊)、排序降序保证、搜索历史(去重/上限20/LRU/用户隔离)
+- 新增 cacheEngine.test.ts (39 tests) — 多级缓存引擎测试
+  - 覆盖: LRUCache CRUD、TTL定制/默认过期、LRU淘汰顺序、穿透防护(null标记/TTL自动清理)、getOrSet缓存穿透模式、批量mget/mset、统计(命中率/驱逐/穿透)、VersionedCache版本匹配失效
+
+### 累计 (Round 934)
+- 测试文件: 1357 (+3)
+- 测试数: ~30,827+ (+98)
+- 全量通过率: 621/622 文件通过, 14745/14746 测试通过
+- 1个预存flaky: dataAggregation.test.ts 波动率边界测试
