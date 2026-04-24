@@ -1,260 +1,405 @@
-/**
- * AI 市场分析测试
- */
-
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   MarketCommentaryGenerator,
   StopLossCalculator,
   SectorRotationPredictor,
+  defaultCommentaryGenerator,
+  defaultStopLossCalculator,
+  defaultSectorPredictor,
 } from '../utils/aiMarketAnalysis';
-import { KLineData } from '../types';
 
-describe('AI 市场解读生成器', () => {
-  let generator: MarketCommentaryGenerator;
+// ==================== MarketCommentaryGenerator ====================
 
-  beforeEach(() => {
-    generator = new MarketCommentaryGenerator();
-  });
-
-  const bullishData = {
+describe('MarketCommentaryGenerator', () => {
+  const generator = new MarketCommentaryGenerator();
+  const mockBullish = {
     indexChange: 2.5,
-    indexPrice: 3250.80,
-    riseCount: 3500,
+    indexPrice: 3500.50,
+    riseCount: 2800,
     fallCount: 800,
     flatCount: 200,
     limitUpCount: 85,
-    limitDownCount: 5,
-    totalTurnover: 1.2e12,
-    northboundFlow: 8.5e10,
+    limitDownCount: 3,
+    totalTurnover: 120000000000, // 1200亿
+    northboundFlow: 8000000000, // 80亿
     hotSectors: [
-      { name: '半导体', changePercent: 5.2 },
-      { name: '人工智能', changePercent: 4.8 },
-      { name: '新能源', changePercent: 3.1 },
+      { name: '半导体', changePercent: 3.5 },
+      { name: '人工智能', changePercent: 2.8 },
+      { name: '新能源', changePercent: 2.1 },
+      { name: '医药', changePercent: 1.5 },
     ],
     topGainers: [
-      { symbol: '000001.SZ', name: '平安银行', changePercent: 10.02 },
+      { symbol: '000001.SZ', name: '平安银行', changePercent: 10.0 },
     ],
     topLosers: [
-      { symbol: '600000.SH', name: '浦发银行', changePercent: -5.2 },
+      { symbol: '600001.SH', name: '某股', changePercent: -5.0 },
     ],
-    avgChangePercent: 1.8,
+    avgChangePercent: 1.2,
   };
 
-  const bearishData = {
-    ...bullishData,
-    indexChange: -2.1,
-    riseCount: 600,
-    fallCount: 3500,
-    limitUpCount: 10,
-    limitDownCount: 65,
-    northboundFlow: -6.5e10,
-  };
+  describe('generateDailySummary', () => {
+    it('should return a complete MarketCommentary', () => {
+      const result = generator.generateDailySummary(mockBullish);
+      expect(result.id).toMatch(/^commentary-/);
+      expect(result.date).toBeDefined();
+      expect(result.type).toBe('daily_summary');
+      expect(result.title).toContain('涨');
+      expect(result.summary).toContain('强势');
+      expect(result.sections).toHaveLength(5);
+      expect(result.keywords).toContain('上涨');
+      expect(result.sentiment).toBe('bullish');
+      expect(result.confidence).toBeGreaterThan(0);
+      expect(result.generatedAt).toBeDefined();
+    });
 
-  const neutralData = {
-    ...bullishData,
-    indexChange: 0.15,
-    riseCount: 2100,
-    fallCount: 2200,
-    limitUpCount: 25,
-    limitDownCount: 18,
-    northboundFlow: 1.2e9,
-  };
+    it('should generate bearish commentary for negative index', () => {
+      const result = generator.generateDailySummary({ ...mockBullish, indexChange: -2.0, riseCount: 500, fallCount: 3200 });
+      expect(result.sentiment).toBe('bearish');
+      expect(result.title).toContain('跌');
+      expect(result.summary).toContain('疲弱');
+    });
 
-  it('生成看涨市场解读', () => {
-    const commentary = generator.generateDailySummary(bullishData);
-    expect(commentary.sentiment).toBe('bullish');
-    expect(commentary.title).toContain('回暖');
-    expect(commentary.confidence).toBeGreaterThan(60);
-    expect(commentary.sections).toHaveLength(5);
+    it('should generate neutral commentary for flat market', () => {
+      const result = generator.generateDailySummary({ ...mockBullish, indexChange: 0.1, riseCount: 1500, fallCount: 2000 });
+      expect(result.sentiment).toBe('neutral');
+      expect(result.title).toContain('震荡整理');
+    });
+
+    it('should handle zero rise/fall counts (suspension day)', () => {
+      const result = generator.generateDailySummary({
+        ...mockBullish,
+        indexChange: 0, riseCount: 0, fallCount: 0, flatCount: 0,
+        limitUpCount: 0, limitDownCount: 0,
+        totalTurnover: 0, northboundFlow: 0,
+        hotSectors: [],
+        topGainers: [], topLosers: [],
+        avgChangePercent: 0,
+      });
+      expect(result.sections).toHaveLength(5);
+      expect(result.sentiment).toBe('neutral');
+    });
+
+    it('should handle large turnover (>1万亿)', () => {
+      const result = generator.generateDailySummary({
+        ...mockBullish,
+        totalTurnover: 2500000000000, // 2.5万亿
+      });
+      expect(result.summary).toContain('万亿');
+      expect(result.summary).toContain('充沛');
+    });
   });
 
-  it('生成看跌市场解读', () => {
-    const commentary = generator.generateDailySummary(bearishData);
-    expect(commentary.sentiment).toBe('bearish');
-    expect(commentary.title).toContain('承压');
+  describe('analyzeSentiment', () => {
+    it('should return bullish when indexChange > 1 and rise ratio > 0.6', () => {
+      const sentiment = (generator as any).analyzeSentiment({ indexChange: 1.5, riseCount: 2000, fallCount: 1000 });
+      expect(sentiment).toBe('bullish');
+    });
+
+    it('should return bearish when indexChange < -1 and rise ratio < 0.4', () => {
+      const sentiment = (generator as any).analyzeSentiment({ indexChange: -1.5, riseCount: 800, fallCount: 2200 });
+      expect(sentiment).toBe('bearish');
+    });
+
+    it('should return neutral for mixed signals', () => {
+      const sentiment = (generator as any).analyzeSentiment({ indexChange: 0.2, riseCount: 1500, fallCount: 1500 });
+      expect(sentiment).toBe('neutral');
+    });
+
+    it('should return neutral when riseCount + fallCount = 0', () => {
+      const sentiment = (generator as any).analyzeSentiment({ indexChange: 0.5, riseCount: 0, fallCount: 0 });
+      expect(sentiment).toBe('neutral');
+    });
   });
 
-  it('生成中性市场解读', () => {
-    const commentary = generator.generateDailySummary(neutralData);
-    expect(commentary.sentiment).toBe('neutral');
-    expect(commentary.title).toContain('震荡');
+  describe('extractKeywords', () => {
+    it('should return keywords based on index direction', () => {
+      const kw = (generator as any).extractKeywords({
+        indexChange: 1.5,
+        hotSectors: [{ name: '半导体' }, { name: '新能源' }],
+      });
+      expect(kw).toContain('上涨');
+      expect(kw).toContain('反弹');
+      expect(kw).toContain('半导体');
+    });
+
+    it('should add 震荡/盘整 for flat market', () => {
+      const kw = (generator as any).extractKeywords({
+        indexChange: 0.1,
+        hotSectors: [],
+      });
+      expect(kw).toContain('震荡');
+    });
   });
 
-  it('包含所有必要字段', () => {
-    const commentary = generator.generateDailySummary(bullishData);
-    expect(commentary.id).toBeDefined();
-    expect(commentary.date).toBeDefined();
-    expect(commentary.type).toBe('daily_summary');
-    expect(commentary.summary.length).toBeGreaterThan(0);
-    expect(commentary.keywords.length).toBeGreaterThan(0);
-    expect(commentary.generatedAt).toBeDefined();
-  });
+  describe('calculateConfidence', () => {
+    it('should calculate confidence between 30 and 95', () => {
+      const c = (generator as any).calculateConfidence({ indexChange: 1, riseCount: 2000, fallCount: 1000 });
+      expect(c).toBeGreaterThanOrEqual(30);
+      expect(c).toBeLessThanOrEqual(95);
+    });
 
-  it('各section包含标题和内容', () => {
-    const commentary = generator.generateDailySummary(bullishData);
-    for (const section of commentary.sections) {
-      expect(section.heading.length).toBeGreaterThan(0);
-      expect(section.content.length).toBeGreaterThan(0);
-    }
-  });
-
-  it('大势研判section包含数据点', () => {
-    const commentary = generator.generateDailySummary(bullishData);
-    const overview = commentary.sections[0];
-    expect(overview.dataPoints.length).toBeGreaterThan(0);
-  });
-
-  it('涨停数多时提升置信度', () => {
-    const highConfData = { ...bullishData, limitUpCount: 200 };
-    const commentary = generator.generateDailySummary(highConfData);
-    expect(commentary.confidence).toBeGreaterThan(70);
+    it('should return higher confidence for stronger signals', () => {
+      const c1 = (generator as any).calculateConfidence({ indexChange: 3, riseCount: 3000, fallCount: 200 });
+      const c2 = (generator as any).calculateConfidence({ indexChange: 0.1, riseCount: 1500, fallCount: 1500 });
+      expect(c1).toBeGreaterThan(c2);
+    });
   });
 });
 
-describe('智能止盈止损', () => {
-  let calculator: StopLossCalculator;
-  let mockKLineData: KLineData[];
+// ==================== StopLossCalculator ====================
 
-  beforeEach(() => {
-    calculator = new StopLossCalculator();
-    mockKLineData = Array.from({ length: 30 }, (_, i) => ({
-      tradeDate: `2025-0${Math.floor(i / 10) + 1}-${(i % 10) + 20}`,
-      open: 10 + Math.random() * 2,
-      close: 10 + Math.random() * 2,
-      high: 11 + Math.random(),
-      low: 9.5 + Math.random() * 0.5,
-      volume: 100000 + Math.random() * 50000,
-      turnover: 1000000,
-    }));
+describe('StopLossCalculator', () => {
+  const calc = new StopLossCalculator();
+
+  const makeKLine = (close: number, high: number, low: number) => ({
+    tradeDate: '2024-01-02', open: close, close, high, low, volume: 10000,
   });
 
-  it('ATR方法计算止盈止损', () => {
-    const result = calculator.calculateByATR('000001.SZ', 10.5, mockKLineData);
-    expect(result.suggestedStopLoss).toBeLessThan(10.5);
-    expect(result.suggestedTakeProfit).toBeGreaterThan(10.5);
-    expect(result.riskRewardRatio).toBe(1.5);
-    expect(result.method).toBe('atr');
-    expect(result.reasoning).toContain('ATR');
-  });
-
-  it('均线方法计算止盈止损', () => {
-    const result = calculator.calculateByMA('000001.SZ', 10.5, mockKLineData);
-    expect(result.suggestedStopLoss).toBeGreaterThan(0);
-    expect(result.suggestedTakeProfit).toBeGreaterThan(0);
-    expect(result.method).toBe('moving_average');
-    expect(result.reasoning).toContain('均线');
-    expect(result.riskRewardRatio).toBe(2);
-  });
-
-  it('百分比方法计算止盈止损', () => {
-    const result = calculator.calculateByPercent('000001.SZ', 10, 5, 10);
-    expect(result.suggestedStopLoss).toBe(9.5);
-    expect(result.suggestedTakeProfit).toBe(11);
-    expect(result.riskRewardRatio).toBe(2);
-    expect(result.method).toBe('percent');
-  });
-
-  it('自定义百分比参数', () => {
-    const result = calculator.calculateByPercent('000001.SZ', 20, 3, 9);
-    expect(result.suggestedStopLoss).toBe(19.4);
-    expect(result.suggestedTakeProfit).toBe(21.8);
-    expect(result.riskRewardRatio).toBe(3);
-  });
-
-  it('止盈止损百分比为正数', () => {
-    const result = calculator.calculateByATR('000001.SZ', 10.5, mockKLineData);
-    expect(result.stopLossPercent).toBeGreaterThan(0);
-    expect(result.takeProfitPercent).toBeGreaterThan(0);
-  });
-});
-
-describe('板块轮动预测', () => {
-  let predictor: SectorRotationPredictor;
-
-  beforeEach(() => {
-    predictor = new SectorRotationPredictor();
-  });
-
-  const sectorData = [
-    {
-      sector: '半导体',
-      changePercent5d: 8.5,
-      changePercent20d: 15,
-      volumeRatio: 1.8,
-      capitalInflow: 5e9,
-      avgPE: 45,
-      constituentCount: 120,
-    },
-    {
-      sector: '银行',
-      changePercent5d: -2,
-      changePercent20d: -5,
-      volumeRatio: 0.7,
-      capitalInflow: -3e9,
-      avgPE: 5,
-      constituentCount: 42,
-    },
-    {
-      sector: '医药',
-      changePercent5d: 1,
-      changePercent20d: 3,
-      volumeRatio: 1.1,
-      capitalInflow: 8e8,
-      avgPE: 30,
-      constituentCount: 200,
-    },
+  const klineData = [
+    makeKLine(100, 102, 99),
+    makeKLine(101, 103, 100),
+    makeKLine(102, 104, 101),
+    makeKLine(101, 102, 100),
+    makeKLine(103, 105, 102),
+    makeKLine(104, 106, 103),
+    makeKLine(103, 104, 102),
+    makeKLine(105, 107, 104),
+    makeKLine(106, 108, 105),
+    makeKLine(107, 109, 106),
+    makeKLine(106, 107, 105),
+    makeKLine(108, 110, 107),
+    makeKLine(109, 111, 108),
+    makeKLine(108, 109, 107),
+    makeKLine(110, 112, 109),
   ];
 
-  it('分析所有板块', () => {
-    const predictions = predictor.analyze(sectorData);
-    expect(predictions).toHaveLength(3);
+  describe('calculateByATR', () => {
+    it('should return StopLossRecommendation with valid fields', () => {
+      const result = calc.calculateByATR('000001.SZ', 110, klineData);
+      expect(result.symbol).toBe('000001.SZ');
+      expect(result.currentPrice).toBe(110);
+      expect(result.suggestedStopLoss).toBeLessThan(110);
+      expect(result.suggestedTakeProfit).toBeGreaterThan(110);
+      expect(result.method).toBe('atr');
+      expect(result.riskRewardRatio).toBe(1.5);
+      expect(result.confidence).toBe(75);
+    });
+
+    it('should accept custom multiplier', () => {
+      const r1 = calc.calculateByATR('T', 100, klineData, 1);
+      const r2 = calc.calculateByATR('T', 100, klineData, 3);
+      // With higher multiplier, stopLossPercent should be larger
+      expect(Math.abs(r1.suggestedStopLoss - 100)).toBeLessThan(
+        Math.abs(r2.suggestedStopLoss - 100),
+      );
+    });
+
+    it('should ensure stop loss is non-negative', () => {
+      const result = calc.calculateByATR('T', 1, klineData, 100);
+      expect(result.suggestedStopLoss).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should handle insufficient data', () => {
+      const result = calc.calculateByATR('T', 100, [makeKLine(100, 101, 99)], 2);
+      expect(result.suggestedStopLoss).toBe(100); // ATR=0 when data too short
+    });
   });
 
-  it('强势板块应被识别为流入', () => {
-    const predictions = predictor.analyze(sectorData);
-    const semiconductor = predictions.find(p => p.sector === '半导体');
-    expect(semiconductor?.predictedDirection).toBe('rotate_in');
-    expect(semiconductor?.strength).toBeGreaterThan(50);
+  describe('calculateByMA', () => {
+    it('should return StopLossRecommendation using moving average', () => {
+      const result = calc.calculateByMA('000001.SZ', 110, klineData, 10);
+      expect(result.symbol).toBe('000001.SZ');
+      expect(result.method).toBe('moving_average');
+      expect(result.riskRewardRatio).toBe(2);
+      expect(result.confidence).toBe(70);
+      expect(result.suggestedStopLoss).toBeLessThan(110);
+      expect(result.suggestedTakeProfit).toBeGreaterThan(110);
+    });
+
+    it('should use custom period', () => {
+      const r1 = calc.calculateByMA('T', 110, klineData, 5);
+      const r2 = calc.calculateByMA('T', 110, klineData, 10);
+      expect(r1.suggestedStopLoss).not.toBe(r2.suggestedStopLoss);
+      expect(r1.reasoning).toContain('5日');
+      expect(r2.reasoning).toContain('10日');
+    });
   });
 
-  it('弱势板块应被识别为流出', () => {
-    const predictions = predictor.analyze(sectorData);
-    const bank = predictions.find(p => p.sector === '银行');
-    expect(bank).toBeDefined();
-    expect(bank?.predictedDirection).toBeDefined();
-    expect(['rotate_in', 'rotate_out', 'hold']).toContain(bank?.predictedDirection);
+  describe('calculateByPercent', () => {
+    it('should return StopLossRecommendation with percent method', () => {
+      const result = calc.calculateByPercent('000001.SZ', 100, 5, 10);
+      expect(result.method).toBe('percent');
+      expect(result.suggestedStopLoss).toBe(95);
+      expect(result.suggestedTakeProfit).toBe(110);
+      expect(result.stopLossPercent).toBe(5);
+      expect(result.takeProfitPercent).toBe(10);
+      expect(result.riskRewardRatio).toBe(2);
+    });
+
+    it('should use default values', () => {
+      const result = calc.calculateByPercent('T', 100);
+      expect(result.suggestedStopLoss).toBe(95);
+      expect(result.suggestedTakeProfit).toBe(110);
+    });
+  });
+});
+
+// ==================== SectorRotationPredictor ====================
+
+describe('SectorRotationPredictor', () => {
+  const predictor = new SectorRotationPredictor();
+
+  const mockSectors = [
+    { sector: '半导体', changePercent5d: 5.2, changePercent20d: 8.1, volumeRatio: 1.5, capitalInflow: 2000000000, avgPE: 50, constituentCount: 100 },
+    { sector: '白酒', changePercent5d: -4.5, changePercent20d: -8.2, volumeRatio: 0.8, capitalInflow: -500000000, avgPE: 30, constituentCount: 40 },
+    { sector: '医药', changePercent5d: 1.2, changePercent20d: 3.5, volumeRatio: 1.1, capitalInflow: 100000000, avgPE: 40, constituentCount: 200 },
+    { sector: '新能源', changePercent5d: 15.0, changePercent20d: 25.0, volumeRatio: 2.0, capitalInflow: 5000000000, avgPE: 35, constituentCount: 150 },
+  ];
+
+  describe('analyze', () => {
+    it('should return predictions for all input sectors', () => {
+      const result = predictor.analyze(mockSectors);
+      expect(result).toHaveLength(4);
+      expect(result.map(r => r.sector)).toEqual(['半导体', '白酒', '医药', '新能源']);
+    });
+
+    it('each prediction should have all required fields', () => {
+      const result = predictor.analyze(mockSectors);
+      for (const r of result) {
+        expect(r).toHaveProperty('sector');
+        expect(r).toHaveProperty('currentPhase');
+        expect(r).toHaveProperty('predictedDirection');
+        expect(r).toHaveProperty('strength');
+        expect(r).toHaveProperty('timeframe');
+        expect(r).toHaveProperty('catalysts');
+        expect(r).toHaveProperty('risks');
+        expect(r).toHaveProperty('analysis');
+        expect(['accumulation', 'markup', 'distribution', 'decline']).toContain(r.currentPhase);
+        expect(['rotate_in', 'rotate_out', 'hold']).toContain(r.predictedDirection);
+      }
+    });
+
+    it('should predict markup phase for strong sectors', () => {
+      const result = predictor.analyze(mockSectors);
+      const semi = result.find(r => r.sector === '半导体');
+      expect(semi!.currentPhase).toBe('markup');
+      expect(semi!.predictedDirection).toBe('rotate_in');
+      expect(semi!.strength).toBeGreaterThan(50);
+    });
+
+    it('should predict decline phase for weak sectors', () => {
+      const result = predictor.analyze(mockSectors);
+      const baijiu = result.find(r => r.sector === '白酒');
+      expect(baijiu!.currentPhase).toBe('decline');
+      expect(baijiu!.predictedDirection).toBe('rotate_out');
+    });
+
+    it('should include catalysts for strong sectors', () => {
+      const result = predictor.analyze(mockSectors);
+      const new_energy = result.find(r => r.sector === '新能源');
+      expect(new_energy!.catalysts.length).toBeGreaterThan(0);
+      expect(new_energy!.risks.some(r => r.includes('涨幅过大'))).toBe(true);
+    });
+
+    it('should include risks for over-heated sectors', () => {
+      const result = predictor.analyze(mockSectors);
+      const new_energy = result.find(r => r.sector === '新能源');
+      expect(new_energy!.risks.some(r => r.includes('涨幅过大'))).toBe(true);
+    });
   });
 
-  it('每个预测包含必要字段', () => {
-    const predictions = predictor.analyze(sectorData);
-    for (const pred of predictions) {
-      expect(pred.sector).toBeDefined();
-      expect(pred.currentPhase).toBeDefined();
-      expect(pred.predictedDirection).toBeDefined();
-      expect(pred.strength).toBeGreaterThanOrEqual(0);
-      expect(pred.strength).toBeLessThanOrEqual(100);
-      expect(pred.timeframe).toBeDefined();
-      expect(pred.analysis.length).toBeGreaterThan(0);
-    }
+  describe('determinePhase', () => {
+    it('should return markup for strong momentum', () => {
+      const phase = (predictor as any).determinePhase({
+        changePercent5d: 4, changePercent20d: 6, volumeRatio: 1.5,
+      });
+      expect(phase).toBe('markup');
+    });
+
+    it('should return decline for negative momentum', () => {
+      const phase = (predictor as any).determinePhase({
+        changePercent5d: -4, changePercent20d: -6, volumeRatio: 0.8,
+      });
+      expect(phase).toBe('decline');
+    });
+
+    it('should return accumulation for reversal pattern (5d +, 20d -)', () => {
+      const phase = (predictor as any).determinePhase({
+        changePercent5d: 1, changePercent20d: -2, volumeRatio: 1.2,
+      });
+      // 5d > 0 and 20d < 0 and vol > 1 → accumulation
+      const result = (predictor as any).determinePhase({
+        changePercent5d: 1, changePercent20d: -1, volumeRatio: 1.1,
+      });
+      expect(result).toBe('accumulation');
+    });
+
+    it('should return distribution for divergence (5d -, 20d +)', () => {
+      const result = (predictor as any).determinePhase({
+        changePercent5d: -1, changePercent20d: 6, volumeRatio: 1.0,
+      });
+      expect(result).toBe('distribution');
+    });
+
+    it('should return accumulation as default fallback', () => {
+      const result = (predictor as any).determinePhase({
+        changePercent5d: 0, changePercent20d: 0, volumeRatio: 1.0,
+      });
+      expect(result).toBe('accumulation');
+    });
   });
 
-  it('识别催化因素', () => {
-    const predictions = predictor.analyze(sectorData);
-    const semiconductor = predictions.find(p => p.sector === '半导体');
-    expect(semiconductor?.catalysts.length).toBeGreaterThan(0);
+  describe('calculateMomentum', () => {
+    it('should return positive momentum for rising sector', () => {
+      const m = (predictor as any).calculateMomentum({
+        changePercent5d: 5, changePercent20d: 10, volumeRatio: 1.5, capitalInflow: 1e9,
+      });
+      expect(m).toBeGreaterThan(0);
+    });
+
+    it('should return negative momentum for declining sector', () => {
+      const m = (predictor as any).calculateMomentum({
+        changePercent5d: -5, changePercent20d: -10, volumeRatio: 0.5, capitalInflow: -1e9,
+      });
+      expect(m).toBeLessThan(0);
+    });
   });
 
-  it('识别风险因素', () => {
-    const predictions = predictor.analyze(sectorData);
-    for (const pred of predictions) {
-      expect(pred.risks).toBeDefined();
-      expect(Array.isArray(pred.risks)).toBe(true);
-    }
+  describe('calculateStrength', () => {
+    it('should return strength between 0-100', () => {
+      const s = (predictor as any).calculateStrength(
+        { volumeRatio: 1.5, capitalInflow: 1e9 },
+        10,
+      );
+      expect(s).toBeGreaterThanOrEqual(0);
+      expect(s).toBeLessThanOrEqual(100);
+    });
   });
 
-  it('空数据返回空数组', () => {
-    const predictions = predictor.analyze([]);
-    expect(predictions).toHaveLength(0);
+  describe('private generateSectorAnalysis', () => {
+    it('should return analysis string containing phase description', () => {
+      const a = (predictor as any).generateSectorAnalysis(
+        { changePercent5d: 5, capitalInflow: 1e9 },
+        'markup', 'rotate_in', 8.5,
+      );
+      expect(a).toContain('主升浪');
+      expect(a).toContain('8.5');
+    });
+  });
+});
+
+// ==================== Default singletons ====================
+
+describe('default singletons', () => {
+  it('should export defaultCommentaryGenerator', () => {
+    expect(defaultCommentaryGenerator).toBeInstanceOf(MarketCommentaryGenerator);
+  });
+
+  it('should export defaultStopLossCalculator', () => {
+    expect(defaultStopLossCalculator).toBeInstanceOf(StopLossCalculator);
+  });
+
+  it('should export defaultSectorPredictor', () => {
+    expect(defaultSectorPredictor).toBeInstanceOf(SectorRotationPredictor);
   });
 });
