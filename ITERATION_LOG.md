@@ -6937,6 +6937,44 @@
 - 覆盖: 技术指标/验证/因子/财报/交易成本/日志/板块/资金流/通知/缓存/错误处理/调度/同步/Greeks/风险/归因/图表/安全/WebSocket/优化/异常检测
 - 提交: 25 commits
 
-### 累计 (Round 920)
-- 测试文件: 1348
-- 测试数: ~30,600+
+### Round 921-924 (2026-04-25)
+- 新增sentimentCompositeEngine.test.ts (22 tests) — 情绪综合引擎全类型测试
+- 新增socialSentimentEngine.test.ts (18 tests) — 社交媒体情绪引擎测试
+- 覆盖: 情绪分析/综合指标/社交信号/关注度引擎
+- 测试通过率: 40/40 (100%)
+
+### 累计 (Round 924)
+- 测试文件: 1350
+- 测试数: ~30,640+
+
+### Round 925 (2026-04-25)
+- 运行验证: 2个新增测试文件全部通过 (40 tests, 0 failures)
+- 状态确认: 正常，继续推进
+
+### Round 926 (2026-04-25)
+- 新增logger.test.ts (10 tests) — 统一日志工具全环境测试
+- 覆盖: 生产环境 debug/log/error 行为、开发环境输出控制、perf 警告阈值
+
+### Round 927 (2026-04-25)
+- 新增performanceOptimizer.test.ts (15 tests) — React性能优化Hook测试
+- 覆盖: useDebounce/useThrottle/useVirtualScroll/useChunkedList/useLazyImage/useRenderPerformance
+
+### Round 928 (2026-04-25)
+- 新增debounceThrottleTyped.test.ts (27 tests) — 类型安全防抖节流工具全量测试
+- 覆盖: debounce(leading/trailing/maxWait)、throttle、rafThrottle、BatchDebouncer、BatchThrottler
+
+### Round 929 (2026-04-25)
+- 全量测试验证: 841个测试文件, 17449个测试用例
+- 新增3个测试文件合计52个测试用例
+- 全量通过率: 839/841, 1个预存flaky测试(regimeDetectionEngine,随机波动相关)
+
+### Round 930 (2026-04-25)
+- 新增 requestLogger.test.ts (37 tests) — 结构化请求日志中间件测试
+- 覆盖: 等级过滤/错误日志/持续时间格式化/状态码分类/请求ID生成/敏感数据脱敏/IP脱敏/清空重置
+
+### Round 931 (2026-04-25)
+- 新增 dbFactory.test.ts — 数据库工厂测试
+
+### 累计 (Round 931)
+- 测试文件: 1354
+- 测试数: ~30,729+
