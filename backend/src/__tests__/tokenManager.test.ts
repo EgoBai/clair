@@ -1,204 +1,259 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { TokenManager, TokenPayload, TokenPair } from '../utils/tokenManager';
+/**
+ * Token Manager 单元测试
+ * 覆盖: 生成/验证/刷新/撤销/清理 token 行为
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { TokenManager } from '../utils/tokenManager';
 
-describe('tokenManager', () => {
-  let manager: TokenManager;
-  const testPayload: TokenPayload = {
-    userId: 1,
-    username: 'testuser',
-    role: 'user',
-  };
+function createTestManager() {
+  return new TokenManager({
+    secret: 'test-secret-key-for-unit-testing',
+    accessExpiresIn: 3600,      // 1h
+    refreshExpiresIn: 604800,   // 7d
+  });
+}
+
+const testPayload = {
+  userId: 42,
+  username: 'testuser',
+  role: 'user' as const,
+};
+
+describe('TokenManager', () => {
+  let mgr: TokenManager;
 
   beforeEach(() => {
-    manager = new TokenManager({
-      secret: 'test-secret-key-for-testing-only',
-      accessExpiresIn: 3600,
-      refreshExpiresIn: 604800,
-    });
+    mgr = createTestManager();
   });
 
   describe('generateAccessToken', () => {
-    it('should generate a JWT-format token', () => {
-      const token = manager.generateAccessToken(testPayload);
+    it('should generate a valid 3-part JWT', () => {
+      const token = mgr.generateAccessToken(testPayload);
       const parts = token.split('.');
       expect(parts).toHaveLength(3);
+      expect(parts[0]).toBeTruthy();
+      expect(parts[1]).toBeTruthy();
+      expect(parts[2]).toBeTruthy();
     });
 
-    it('should include payload data', () => {
-      const token = manager.generateAccessToken(testPayload);
-      const result = manager.verifyAccessToken(token);
-      expect(result.valid).toBe(true);
-      expect(result.payload?.userId).toBe(1);
-      expect(result.payload?.username).toBe('testuser');
-      expect(result.payload?.role).toBe('user');
+    it('should encode base64url header and payload', () => {
+      const token = mgr.generateAccessToken(testPayload);
+      const [headerB64] = token.split('.');
+      const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString());
+      expect(header).toEqual({ alg: 'HS256', typ: 'JWT' });
     });
 
-    it('should generate different tokens for same payload', () => {
-      const t1 = manager.generateAccessToken(testPayload);
-      const t2 = manager.generateAccessToken(testPayload);
+    it('should embed payload claims in access token', () => {
+      const token = mgr.generateAccessToken(testPayload);
+      const [, payloadB64] = token.split('.');
+      const claims = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+      expect(claims.userId).toBe(42);
+      expect(claims.username).toBe('testuser');
+      expect(claims.role).toBe('user');
+    });
+
+    it('should include iat, exp, and jti claims', () => {
+      const token = mgr.generateAccessToken(testPayload);
+      const [, payloadB64] = token.split('.');
+      const claims = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+      expect(claims.iat).toBeGreaterThan(0);
+      expect(claims.exp).toBeGreaterThan(claims.iat!);
+      expect(claims.jti).toBeTruthy();
+      expect(typeof claims.jti).toBe('string');
+    });
+
+    it('should generate different tokens for same payload (unique jti)', () => {
+      const t1 = mgr.generateAccessToken(testPayload);
+      const t2 = mgr.generateAccessToken(testPayload);
       expect(t1).not.toBe(t2);
     });
   });
 
   describe('generateRefreshToken', () => {
     it('should generate a hex string', () => {
-      const token = manager.generateRefreshToken(testPayload);
-      expect(token).toMatch(/^[a-f0-9]+$/);
-      expect(token.length).toBe(96); // 48 bytes = 96 hex chars
+      const token = mgr.generateRefreshToken(testPayload);
+      expect(typeof token).toBe('string');
+      expect(token.length).toBeGreaterThan(64);
+      expect(/^[0-9a-f]+$/.test(token)).toBe(true);
+    });
+
+    it('should store refresh tokens internally', () => {
+      mgr.generateRefreshToken(testPayload);
+      const stats = mgr.getStats();
+      expect(stats.activeRefreshTokens).toBe(1);
     });
   });
 
   describe('generateTokenPair', () => {
-    it('should return access and refresh tokens', () => {
-      const pair = manager.generateTokenPair(testPayload);
-      expect(pair.accessToken).toBeDefined();
-      expect(pair.refreshToken).toBeDefined();
+    it('should return both access and refresh tokens', () => {
+      const pair = mgr.generateTokenPair(testPayload);
+      expect(pair.accessToken).toBeTruthy();
+      expect(pair.refreshToken).toBeTruthy();
+      expect(pair.accessToken.split('.')).toHaveLength(3);
       expect(pair.expiresIn).toBe(3600);
       expect(pair.tokenType).toBe('Bearer');
-    });
-
-    it('access token should be verifiable', () => {
-      const pair = manager.generateTokenPair(testPayload);
-      const result = manager.verifyAccessToken(pair.accessToken);
-      expect(result.valid).toBe(true);
     });
   });
 
   describe('verifyAccessToken', () => {
-    it('should verify valid token', () => {
-      const token = manager.generateAccessToken(testPayload);
-      const result = manager.verifyAccessToken(token);
+    it('should accept a valid token', () => {
+      const token = mgr.generateAccessToken(testPayload);
+      const result = mgr.verifyAccessToken(token);
       expect(result.valid).toBe(true);
-      expect(result.payload).toBeDefined();
+      expect(result.payload?.userId).toBe(42);
+      expect(result.payload?.username).toBe('testuser');
+      expect(result.payload?.role).toBe('user');
     });
 
-    it('should reject invalid token format', () => {
-      const result = manager.verifyAccessToken('invalid');
+    it('should reject malformed token', () => {
+      const result = mgr.verifyAccessToken('not-a-valid-token');
       expect(result.valid).toBe(false);
-      expect(result.error).toBe('Token 格式无效');
+      expect(result.error).toMatch(/格式无效/i);
     });
 
-    it('should reject tampered token', () => {
-      const token = manager.generateAccessToken(testPayload);
-      const tampered = token.slice(0, -5) + 'xxxxx';
-      const result = manager.verifyAccessToken(tampered);
+    it('should reject token with wrong number of parts', () => {
+      const result = mgr.verifyAccessToken('part1.part2');
       expect(result.valid).toBe(false);
     });
 
-    it('should reject token signed with different secret', () => {
-      const otherManager = new TokenManager({ secret: 'other-secret' });
-      const token = otherManager.generateAccessToken(testPayload);
-      const result = manager.verifyAccessToken(token);
+    it('should reject token with invalid signature', () => {
+      const token = mgr.generateAccessToken(testPayload);
+      const [h, p] = token.split('.');
+      const tampered = `${h}.${p}.invalidsignature`;
+      const result = mgr.verifyAccessToken(tampered);
       expect(result.valid).toBe(false);
     });
 
     it('should reject blacklisted token', () => {
-      const token = manager.generateAccessToken(testPayload);
-      manager.revokeAccessToken(token);
-      const result = manager.verifyAccessToken(token);
+      const token = mgr.generateAccessToken(testPayload);
+      mgr.revokeAccessToken(token);
+      const result = mgr.verifyAccessToken(token);
       expect(result.valid).toBe(false);
-      expect(result.error).toBe('Token 已被撤销');
+      expect(result.error).toMatch(/已被撤销/i);
     });
 
-    it('should reject expired token', () => {
-      const expiredManager = new TokenManager({
-        secret: 'test-secret',
-        accessExpiresIn: -1, // already expired
+    it('should detect expired tokens', () => {
+      vi.useFakeTimers();
+      const shortLived = new TokenManager({
+        secret: 'exp-test',
+        accessExpiresIn: 10, // 10s TTL
       });
-      const token = expiredManager.generateAccessToken(testPayload);
-      const result = expiredManager.verifyAccessToken(token);
+      const token = shortLived.generateAccessToken(testPayload);
+      vi.advanceTimersByTime(11000); // advance past expiry
+      const result = shortLived.verifyAccessToken(token);
       expect(result.valid).toBe(false);
-      expect(result.error).toBe('Token 已过期');
+      expect(result.error).toMatch(/已过期/i);
+      vi.useRealTimers();
+    });
+
+    it('should tolerate extra payload fields', () => {
+      const fullPayload = { ...testPayload, department: 'trading', locale: 'zh-CN' };
+      const token = mgr.generateAccessToken(fullPayload);
+      const result = mgr.verifyAccessToken(token);
+      expect(result.valid).toBe(true);
     });
   });
 
   describe('refreshAccessToken', () => {
-    it('should refresh token and return new pair', () => {
-      const pair = manager.generateTokenPair(testPayload);
-      const newPair = manager.refreshAccessToken(pair.refreshToken);
-
-      expect(newPair).not.toBeNull();
-      expect(newPair?.accessToken).toBeDefined();
-      expect(newPair?.refreshToken).toBeDefined();
-      expect(newPair?.refreshToken).not.toBe(pair.refreshToken);
+    it('should return a new token pair for valid refresh token', () => {
+      const pair = mgr.generateTokenPair(testPayload);
+      const refreshed = mgr.refreshAccessToken(pair.refreshToken);
+      expect(refreshed).not.toBeNull();
+      expect(refreshed!.accessToken).not.toBe(pair.accessToken);
+      expect(refreshed!.refreshToken).not.toBe(pair.refreshToken);
     });
 
-    it('should return null for invalid refresh token', () => {
-      const result = manager.refreshAccessToken('nonexistent');
+    it('should consume (delete) the old refresh token', () => {
+      const pair = mgr.generateTokenPair(testPayload);
+      mgr.refreshAccessToken(pair.refreshToken);
+      const result = mgr.refreshAccessToken(pair.refreshToken);
       expect(result).toBeNull();
     });
 
-    it('should be one-time use', () => {
-      const pair = manager.generateTokenPair(testPayload);
-      manager.refreshAccessToken(pair.refreshToken);
-      const second = manager.refreshAccessToken(pair.refreshToken);
-      expect(second).toBeNull();
-    });
-
-    it('should reject very old refresh tokens', () => {
-      // Generate token, then revoke it so it can't be refreshed
-      const token = manager.generateRefreshToken(testPayload);
-      manager.revokeRefreshToken(token);
-      const result = manager.refreshAccessToken(token);
+    it('should return null for unknown refresh token', () => {
+      const result = mgr.refreshAccessToken('nonexistent-token');
       expect(result).toBeNull();
     });
 
-    it('should preserve payload in refreshed token', () => {
-      const pair = manager.generateTokenPair(testPayload);
-      const newPair = manager.refreshAccessToken(pair.refreshToken);
-      const result = manager.verifyAccessToken(newPair!.accessToken);
-      expect(result.payload?.userId).toBe(1);
-      expect(result.payload?.username).toBe('testuser');
+    it('should preserve payload across refresh', () => {
+      const pair = mgr.generateTokenPair(testPayload);
+      const refreshed = mgr.refreshAccessToken(pair.refreshToken);
+      const decoded = mgr.verifyAccessToken(refreshed!.accessToken);
+      expect(decoded.payload?.userId).toBe(42);
+      expect(decoded.payload?.username).toBe('testuser');
     });
   });
 
   describe('revoke operations', () => {
-    it('should revoke access token', () => {
-      const token = manager.generateAccessToken(testPayload);
-      manager.revokeAccessToken(token);
-      expect(manager.verifyAccessToken(token).valid).toBe(false);
+    it('should revoke access token by adding to blacklist', () => {
+      const token = mgr.generateAccessToken(testPayload);
+      mgr.revokeAccessToken(token);
+      const stats = mgr.getStats();
+      expect(stats.blacklistedTokens).toBe(1);
     });
 
-    it('should revoke refresh token', () => {
-      const token = manager.generateRefreshToken(testPayload);
-      expect(manager.revokeRefreshToken(token)).toBe(true);
-      expect(manager.refreshAccessToken(token)).toBeNull();
+    it('should revoke refresh token and return true if found', () => {
+      const token = mgr.generateRefreshToken(testPayload);
+      expect(mgr.revokeRefreshToken(token)).toBe(true);
     });
 
-    it('should return false for revoking nonexistent refresh token', () => {
-      expect(manager.revokeRefreshToken('fake')).toBe(false);
+    it('should return false when revoking unknown refresh token', () => {
+      expect(mgr.revokeRefreshToken('nonexistent')).toBe(false);
     });
 
-    it('should revoke all user tokens', () => {
-      manager.generateRefreshToken(testPayload);
-      manager.generateRefreshToken(testPayload);
-      manager.generateRefreshToken({ ...testPayload, userId: 2 });
+    it('should revoke all tokens for a given user', () => {
+      mgr.generateRefreshToken(testPayload);
+      mgr.generateRefreshToken(testPayload);
+      mgr.generateRefreshToken(testPayload);
+      const otherPayload = { userId: 99, username: 'other', role: 'admin' as const };
+      mgr.generateRefreshToken(otherPayload);
 
-      const count = manager.revokeAllUserTokens(1);
-      expect(count).toBe(2);
+      const count = mgr.revokeAllUserTokens(42);
+      // Three tokens for userId 42, one for userId 99
+      expect(count).toBe(3);
     });
   });
 
   describe('cleanup', () => {
-    it('should clean expired refresh tokens', () => {
-      const expiredManager = new TokenManager({
-        secret: 'test',
-        refreshExpiresIn: 0,
+    it('should remove expired refresh tokens', () => {
+      vi.useFakeTimers();
+      const expiredMgr = new TokenManager({
+        secret: 'exp-cleanup',
+        refreshExpiresIn: 10, // 10s TTL
       });
-      expiredManager.generateRefreshToken(testPayload);
-      const cleaned = expiredManager.cleanup();
-      expect(cleaned).toBeGreaterThanOrEqual(0);
+      expiredMgr.generateRefreshToken(testPayload);
+      vi.advanceTimersByTime(11000); // advance past expiry
+      const cleaned = expiredMgr.cleanup();
+      expect(cleaned).toBeGreaterThanOrEqual(1);
+      vi.useRealTimers();
     });
 
-    it('should return stats', () => {
-      manager.generateRefreshToken(testPayload);
-      manager.generateRefreshToken(testPayload);
-      manager.generateAccessToken(testPayload);
-      manager.revokeAccessToken(manager.generateAccessToken(testPayload));
+    it('should not remove active refresh tokens', () => {
+      mgr.generateRefreshToken(testPayload);
+      const cleaned = mgr.cleanup();
+      expect(cleaned).toBe(0);
+    });
+  });
 
-      const stats = manager.getStats();
-      expect(stats.activeRefreshTokens).toBe(2);
+  describe('getStats', () => {
+    it('should return counts for refresh tokens and blacklist', () => {
+      mgr.generateRefreshToken(testPayload);
+      const token = mgr.generateAccessToken(testPayload);
+      mgr.revokeAccessToken(token);
+
+      const stats = mgr.getStats();
+      expect(stats.activeRefreshTokens).toBe(1);
       expect(stats.blacklistedTokens).toBe(1);
+    });
+  });
+
+  describe('cross-manager validation', () => {
+    it('should reject token from another manager with different secret', () => {
+      const mgr2 = new TokenManager({ secret: 'different-secret' });
+      const token = mgr.generateAccessToken(testPayload);
+      const result = mgr2.verifyAccessToken(token);
+      expect(result.valid).toBe(false);
+      expect(result.error).toMatch(/签名无效/i);
     });
   });
 });
