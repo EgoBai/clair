@@ -87,7 +87,7 @@ export default function Onboarding() {
   const handleComplete = () => {
     try {
       localStorage.setItem(STORAGE_KEY, 'true');
-    } catch {}
+    } catch { /* ignore */ }
     setVisible(false);
   };
 

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { OptionsGreeksEngine } from '../utils/optionsGreeksEngine';
-import type { OptionParams } from '../utils/optionsGreeksEngine';
+import { OptionsGreeksEngine, type OptionParams } from '../utils/optionsGreeksEngine';
 
 describe('OptionsGreeksEngine', () => {
   const engine = new OptionsGreeksEngine();

@@ -69,6 +69,20 @@ export interface MarketSummary {
     fallingStocks: number;
     unchangedStocks: number;
     industryPerformance: IndustryPerformance[];
+    rising?: number;
+    falling?: number;
+    flat?: number;
+    limitUp?: number;
+    limitDown?: number;
+    totalAmount?: number;
+    northboundFlow?: number;
+    avgChange?: number;
+    indices?: Array<{
+        symbol: string;
+        name: string;
+        close_price: number;
+        change_percent: number;
+    }>;
 }
 export interface IndustryPerformance {
     industry: string;

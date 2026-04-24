@@ -52,9 +52,9 @@ describe('Service Worker 注册工具', () => {
     it('带配置应该不抛错', async () => {
       const { registerServiceWorker } = await import('../utils/swRegister');
       expect(() => registerServiceWorker({
-        onUpdate: () => { ,
-        onOffline: () => { ,
-        onOnline: () => { ,
+        onUpdate: () => {},
+        onOffline: () => {},
+        onOnline: () => {},
         scope: '/app/',
       })).not.toThrow();
     });

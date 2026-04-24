@@ -173,7 +173,7 @@ describe('ResilientWebSocket', () => {
     it('should send subscribe message when connected', async () => {
       ws.connect();
       await vi.advanceTimersByTimeAsync(10);
-      ws.subscribe('my-channel', () => { );
+      ws.subscribe('my-channel', () => {});
       const msgs = mockWSInstances[0].sentMessages;
       expect(msgs.some((m: string) => JSON.parse(m).type === 'subscribe')).toBe(true);
     });

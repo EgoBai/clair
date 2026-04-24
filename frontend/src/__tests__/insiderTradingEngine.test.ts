@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { InsiderTradingEngine } from '../utils/insiderTradingEngine';
-import type { InsiderTrade } from '../utils/insiderTradingEngine';
+import { InsiderTradingEngine, type InsiderTrade } from '../utils/insiderTradingEngine';
 
 describe('InsiderTradingEngine', () => {
   const engine = new InsiderTradingEngine();

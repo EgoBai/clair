@@ -544,7 +544,9 @@ describe('Search and Filter Combinations', () => {
     return [...stocks].sort((a, b) => {
       const va = a[field], vb = b[field];
       if (va === vb) return 0;
-      const cmp = va < vb ? -1 : 1;
+      const cmp = typeof va === 'string' && typeof vb === 'string'
+        ? String(va) < String(vb) ? -1 : 1
+        : va < vb ? -1 : 1;
       return order === 'asc' ? cmp : -cmp;
     });
   };
@@ -625,8 +627,12 @@ describe('Search and Filter Combinations', () => {
 
   it('should sort by name alphabetically', () => {
     const result = sortStocks(mockStocks, 'name', 'asc');
+    if (result.length < 2) return;
+    // Verify ascending sort: each element should be >= previous using localeCompare
     for (let i = 1; i < result.length; i++) {
-      expect(result[i].name.localeCompare(result[i - 1].name)).toBeGreaterThanOrEqual(0);
+      const cmp = result[i - 1].name.localeCompare(result[i].name);
+      // Previous <= current means sort is correct (cmp should be -1, 0, or -1 means ok too)
+      expect(cmp).not.toBeGreaterThan(0);
     }
   });
 

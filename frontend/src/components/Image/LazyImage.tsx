@@ -12,6 +12,8 @@ export interface LazyImageProps {
   eager?: boolean;
   style?: React.CSSProperties;
   className?: string;
+  srcSet?: string;
+  sizes?: string;
 }
 
 /**
@@ -39,7 +41,9 @@ export const LazyImage: React.FC<LazyImageProps> = ({
   eager = false,
   style,
   className = '',
-  ...props
+  srcSet,
+  sizes,
+  ..._props
 }) => {
   const [isLoaded, setIsLoaded] = useState(eager);
   const [isInView, setIsInView] = useState(eager);
@@ -140,10 +144,11 @@ export const LazyImage: React.FC<LazyImageProps> = ({
       loading={eager ? 'eager' : 'lazy'}
       style={imageStyle}
       className={imageClassName}
+      srcSet={srcSet}
+      sizes={sizes}
       data-lazy-loaded={isLoaded}
       data-lazy-in-view={isInView}
       data-lazy-error={hasError}
-      {...props}
     />
   );
 };
@@ -182,7 +187,7 @@ export function withLazyImage<P extends { src: string; alt: string }>(
         src={props.src}
         alt={props.alt}
         {...options}
-        {...props as any}
+        {...props as Partial<LazyImageProps>}
       />
     );
   };

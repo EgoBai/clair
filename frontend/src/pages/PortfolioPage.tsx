@@ -276,7 +276,7 @@ function PortfolioPage() {
                   title="总资产"
                   value={portfolio.totalValue}
                   prefix="¥"
-                  formatter={(v) => Number(v).toLocaleString() as any}
+                  formatter={(v) => String(Number(v).toLocaleString())}
                 />
               </Card>
             </Col>
@@ -286,7 +286,7 @@ function PortfolioPage() {
                   title="持仓市值"
                   value={portfolio.totalMarketValue}
                   prefix="¥"
-                  formatter={(v) => Number(v).toLocaleString() as any}
+                  formatter={(v) => String(Number(v).toLocaleString())}
                 />
               </Card>
             </Col>
@@ -296,7 +296,7 @@ function PortfolioPage() {
                   title="现金余额"
                   value={portfolio.cashBalance}
                   prefix="¥"
-                  formatter={(v) => Number(v).toLocaleString() as any}
+                  formatter={(v) => String(Number(v).toLocaleString())}
                 />
               </Card>
             </Col>
@@ -306,7 +306,7 @@ function PortfolioPage() {
                   title="总盈亏"
                   value={portfolio.totalProfit}
                   prefix={portfolio.totalProfit >= 0 ? '+' : ''}
-                  formatter={(v) => Number(v).toLocaleString() as any}
+                  formatter={(v) => String(Number(v).toLocaleString())}
                   valueStyle={{ color: portfolio.totalProfit >= 0 ? '#EF4444' : '#22C55E' }}
                   suffix="元"
                 />

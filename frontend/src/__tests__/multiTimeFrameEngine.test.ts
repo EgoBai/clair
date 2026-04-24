@@ -2,8 +2,7 @@
  * 多时间框架分析引擎测试
  */
 import { describe, it, expect } from 'vitest';
-import { MultiTimeFrameEngine } from '../utils/multiTimeFrameEngine';
-import type { TimeFrameData } from '../utils/multiTimeFrameEngine';
+import { MultiTimeFrameEngine, type TimeFrameData } from '../utils/multiTimeFrameEngine';
 
 describe('MultiTimeFrameEngine', () => {
   const engine = new MultiTimeFrameEngine();

@@ -54,10 +54,11 @@ const MarketHeatDashboard: React.FC = () => {
     setLoading(true);
     try {
       // 并行加载多个数据源
+      const api = apiService as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
       const [summaryRes, sectorsRes, flowRes] = await Promise.all([
         apiService.getMarketSummary().catch(() => ({ success: false, data: null })),
-        (apiService as any).getSectorAnalysis?.().catch(() => ({ success: false, data: null })) ?? Promise.resolve({ success: false }),
-        (apiService as any).getFundFlowOverview?.().catch(() => ({ success: false, data: null })) ?? Promise.resolve({ success: false }),
+        (api.getSectorAnalysis?.() as Promise<{ success: boolean; data?: { sectors?: Array<{ name: string; changePercent: number; amount: number; risingCount: number; totalStocks: number }> } }>)?.catch(() => ({ success: false, data: { sectors: [] } })) ?? Promise.resolve({ success: false, data: { sectors: [] } }),
+        (api.getFundFlowOverview?.() as Promise<{ success: boolean }>)?.catch(() => ({ success: false })) ?? Promise.resolve({ success: false }),
       ]);
 
       const summary: any = summaryRes.success ? summaryRes.data : null;

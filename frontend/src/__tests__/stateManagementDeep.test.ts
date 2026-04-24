@@ -157,7 +157,7 @@ describe('状态管理系统', () => {
     it('listenerCount', () => {
       const store = createStore({ count: 0 });
       expect(store.listenerCount()).toBe(0);
-      const unsub = store.subscribe(() => { );
+      const unsub = store.subscribe(() => {});
       expect(store.listenerCount()).toBe(1);
       unsub();
       expect(store.listenerCount()).toBe(0);
@@ -396,8 +396,8 @@ describe('状态管理系统', () => {
 
     it('listenerCount', () => {
       const bus = createEventBus();
-      bus.on('a', () => { );
-      bus.on('a', () => { );
+      bus.on('a', () => {});
+      bus.on('a', () => {});
       expect(bus.listenerCount('a')).toBe(2);
       expect(bus.listenerCount('b')).toBe(0);
     });

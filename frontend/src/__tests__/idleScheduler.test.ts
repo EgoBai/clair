@@ -105,8 +105,8 @@ describe('IdleScheduler', () => {
     const { IdleScheduler } = await import('../utils/idleScheduler');
     const sched = new IdleScheduler({ maxConcurrent: 0 }); // don't execute
 
-    sched.schedule(() => { , { priority: 'normal' });
-    sched.schedule(() => { , { priority: 'low' });
+    sched.schedule(() => {}, { priority: 'normal' });
+    sched.schedule(() => {}, { priority: 'low' });
     sched.clear('normal');
 
     const status = sched.getStatus();
@@ -119,8 +119,8 @@ describe('IdleScheduler', () => {
     const { IdleScheduler } = await import('../utils/idleScheduler');
     const sched = new IdleScheduler({ maxConcurrent: 0 });
 
-    sched.schedule(() => { );
-    sched.schedule(() => { , { priority: 'high' });
+    sched.schedule(() => {});
+    sched.schedule(() => {}, { priority: 'high' });
     sched.clear();
 
     const status = sched.getStatus();
@@ -133,8 +133,8 @@ describe('IdleScheduler', () => {
     const { IdleScheduler } = await import('../utils/idleScheduler');
     const sched = new IdleScheduler();
 
-    sched.schedule(() => { );
-    sched.schedule(() => { );
+    sched.schedule(() => {});
+    sched.schedule(() => {});
     await new Promise(r => setTimeout(r, 50));
 
     const status = sched.getStatus();

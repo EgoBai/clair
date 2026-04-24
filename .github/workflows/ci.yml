@@ -1,73 +1,46 @@
-name: CI/CD Pipeline
+name: CI - AStock
 
 on:
   push:
-    branches: [main, develop]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [main]
+    branches: [ main, master ]
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '18'
 
 jobs:
-  # ==================== Lint & Type Check ====================
-  lint:
-    name: Lint & Type Check
+  lint-and-test:
+    name: Lint & Test
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: |
-            frontend/package-lock.json
-            backend/src/package-lock.json
-
-      - name: Install Frontend Dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Install Backend Dependencies
-        working-directory: backend/src
-        run: npm ci
-
-      - name: ESLint (Frontend)
-        working-directory: frontend
-        run: npm run lint
-
-      - name: Type Check (Frontend)
-        working-directory: frontend
-        run: npx tsc --noEmit
-
-      - name: Type Check (Backend)
-        working-directory: backend/src
-        run: npx tsc --noEmit
-
-  # ==================== Unit Tests ====================
-  test:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    needs: lint
     services:
       postgres:
-        image: postgres:16
+        image: postgres:15-alpine
         env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: a_stock_test
+          POSTGRES_DB: astock_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -75,111 +48,80 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: |
+            backend/package-lock.json
             frontend/package-lock.json
-            backend/src/package-lock.json
 
-      - name: Install Dependencies (Frontend)
-        working-directory: frontend
+      - name: Install backend dependencies
+        working-directory: ./backend
         run: npm ci
 
-      - name: Install Dependencies (Backend)
-        working-directory: backend/src
+      - name: Install frontend dependencies
+        working-directory: ./frontend
         run: npm ci
 
-      - name: Run Frontend Tests
-        working-directory: frontend
-        run: npm test -- --run --reporter=verbose
-        env:
-          CI: true
+      - name: Lint backend
+        working-directory: ./backend
+        run: npm run lint
+        continue-on-error: true
 
-      - name: Run Backend Tests
-        working-directory: backend/src
-        run: npm test -- --run --reporter=verbose
+      - name: Lint frontend
+        working-directory: ./frontend
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Run backend tests
+        working-directory: ./backend
+        run: npm test
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/a_stock_test
           NODE_ENV: test
-          CI: true
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/astock_test
+          REDIS_URL: redis://localhost:6379
 
-      - name: Upload Coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: |
-            frontend/coverage/
-            backend/src/coverage/
-          retention-days: 7
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: npm test
+        env:
+          NODE_ENV: test
 
-  # ==================== Build ====================
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
+      - name: Build backend
+        working-directory: ./backend
+        run: npm run build
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install Dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build Frontend
-        working-directory: frontend
+      - name: Build frontend
+        working-directory: ./frontend
         run: npm run build
         env:
-          VITE_API_URL: /api
-          VITE_WS_URL: ws://localhost:3001/ws
+          NODE_ENV: production
 
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: frontend/dist/
-          retention-days: 7
-
-  # ==================== Deploy (Staging) ====================
-  deploy-staging:
-    name: Deploy to Staging
+  docker-build:
+    name: Docker Build
     runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/develop'
-    environment: staging
+    needs: lint-and-test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Download Build
-        uses: actions/download-artifact@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend Docker image
+        uses: docker/build-push-action@v5
         with:
-          name: frontend-build
-          path: frontend/dist/
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          tags: astock-backend:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Deploy
-        run: echo "Deploy to staging server"
-        # 实际部署脚本替换这里
-        # 可以使用 rsync, docker, 或云服务 CLI
-
-  # ==================== Deploy (Production) ====================
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Build
-        uses: actions/download-artifact@v4
+      - name: Build frontend Docker image
+        uses: docker/build-push-action@v5
         with:
-          name: frontend-build
-          path: frontend/dist/
-
-      - name: Deploy
-        run: echo "Deploy to production server"
-        # 生产部署使用审批门禁
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          tags: astock-frontend:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

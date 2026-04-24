@@ -269,7 +269,7 @@ function calculateStockScore(stock: StockData, weights: ScoreWeight[]): number {
   let totalWeight = 0;
 
   for (const w of weights) {
-    const value = (stock as any)[w.field];
+    const value = (stock as unknown as Record<string, unknown>)[w.field];
     if (typeof value !== 'number') continue;
 
     let normalized = value;

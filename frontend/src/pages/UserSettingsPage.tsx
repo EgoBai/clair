@@ -70,7 +70,7 @@ export default function UserSettingsPage() {
         setSettings(data.data.settings);
         setIsLoggedIn(true);
       }
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const loadHistory = async () => {
@@ -82,7 +82,7 @@ export default function UserSettingsPage() {
       });
       const data = await res.json();
       if (data.success) setHistory(data.data.items);
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const handleLogin = async (values: any) => {

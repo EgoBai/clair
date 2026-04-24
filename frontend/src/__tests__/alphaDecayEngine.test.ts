@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeAlphaDecay } from '../utils/alphaDecayEngine';
-import type { AlphaData } from '../utils/alphaDecayEngine';
+import { analyzeAlphaDecay, type AlphaData } from '../utils/alphaDecayEngine';
 
 describe('Alpha衰减分析引擎', () => {
   const data: AlphaData[] = Array.from({ length: 100 }, (_, i) => ({

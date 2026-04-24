@@ -58,8 +58,9 @@ export class PerformanceMonitor {
       let clsValue = 0;
       const clsObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          if (!(entry as any).hadRecentInput) {
-            clsValue += (entry as any).value;
+          const shift = entry as PerformanceEntry & { hadRecentInput?: boolean; value?: number };
+          if (!shift.hadRecentInput) {
+            clsValue += shift.value ?? 0;
           }
         }
         this.record('CLS', clsValue, 'score');
@@ -180,10 +181,11 @@ export class PerformanceMonitor {
 
   getMemoryUsage(): { usedJSHeapSize: number; totalJSHeapSize: number } | null {
     if (typeof performance !== 'undefined' && 'memory' in performance) {
-      const memory = (performance as any).memory;
+      const perf = performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } };
+      const memory = perf.memory;
       return {
-        usedJSHeapSize: memory.usedJSHeapSize,
-        totalJSHeapSize: memory.totalJSHeapSize,
+        usedJSHeapSize: memory!.usedJSHeapSize,
+        totalJSHeapSize: memory!.totalJSHeapSize,
       };
     }
     return null;

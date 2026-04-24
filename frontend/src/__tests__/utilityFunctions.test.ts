@@ -362,12 +362,12 @@ function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): T {
 
 describe('节流防抖', () => {
   it('节流函数定义', () => {
-    const fn = throttle(() => { , 100);
+    const fn = throttle(() => {}, 100);
     expect(typeof fn).toBe('function');
   });
 
   it('防抖函数定义', () => {
-    const fn = debounce(() => { , 100);
+    const fn = debounce(() => {}, 100);
     expect(typeof fn).toBe('function');
   });
 

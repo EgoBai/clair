@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FactorMiningEngine } from '../utils/factorMiningEngine';
-import type { FactorData } from '../utils/factorMiningEngine';
+import { FactorMiningEngine, type FactorData } from '../utils/factorMiningEngine';
 
 describe('量化因子挖掘引擎', () => {
   const engine = new FactorMiningEngine();

@@ -2,8 +2,7 @@
  * 做市商分析引擎测试
  */
 import { describe, it, expect } from 'vitest';
-import { MarketMakerEngine } from '../utils/marketMakerEngine';
-import type { MarketMakerQuote } from '../utils/marketMakerEngine';
+import { MarketMakerEngine, type MarketMakerQuote } from '../utils/marketMakerEngine';
 
 describe('MarketMakerEngine', () => {
   const engine = new MarketMakerEngine();

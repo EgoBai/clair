@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FactorExposureEngine } from '../utils/factorExposureEngine';
-import type { FactorExposure, FactorReturns } from '../utils/factorExposureEngine';
+import { FactorExposureEngine, type FactorExposure, type FactorReturns } from '../utils/factorExposureEngine';
 
 describe('FactorExposureEngine', () => {
   const engine = new FactorExposureEngine();

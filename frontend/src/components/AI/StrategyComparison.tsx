@@ -10,8 +10,7 @@ import {
   ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid,
   BarChart, Bar, Cell, Legend, Tooltip as RechartsTooltip,
 } from 'recharts';
-import type { StrategyInsight } from '../../utils/aiModelExplainer';
-import { generateStrategyInsight } from '../../utils/aiModelExplainer';
+import { generateStrategyInsight, type StrategyInsight } from '../../utils/aiModelExplainer';
 
 const { Text } = Typography;
 

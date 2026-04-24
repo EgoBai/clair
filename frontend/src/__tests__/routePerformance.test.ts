@@ -80,7 +80,7 @@ describe('routePerformance', () => {
     });
 
     it('不抛异常', () => {
-      expect(() => measureComponentLoad('Test', () => { )).not.toThrow();
+      expect(() => measureComponentLoad('Test', () => {})).not.toThrow();
     });
 
     it('回调异常时应传播', () => {

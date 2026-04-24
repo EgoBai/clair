@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ETFDeepArbitrageEngine } from '../utils/etfDeepArbitrageEngine';
-import type { ETFData } from '../utils/etfDeepArbitrageEngine';
+import { ETFDeepArbitrageEngine, type ETFData } from '../utils/etfDeepArbitrageEngine';
 
 describe('ETF深度套利引擎', () => {
   const engine = new ETFDeepArbitrageEngine();

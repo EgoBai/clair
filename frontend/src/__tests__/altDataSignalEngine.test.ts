@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateAltDataSignals } from '../utils/altDataSignalEngine';
-import type { AlternativeData } from '../utils/altDataSignalEngine';
+import { generateAltDataSignals, type AlternativeData } from '../utils/altDataSignalEngine';
 
 describe('另类数据信号引擎', () => {
   const data: AlternativeData[] = [

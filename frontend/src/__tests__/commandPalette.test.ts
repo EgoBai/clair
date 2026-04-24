@@ -19,12 +19,12 @@ describe('CommandPalette 命令面板', () => {
     }
 
     const commands: CommandItem[] = [
-      { id: 'nav-home', label: '首页', icon: '🏠', category: 'navigation', shortcut: 'Alt+1', handler: () => { , keywords: ['home', '首页'] },
-      { id: 'refresh-data', label: '刷新数据', icon: '🔄', category: 'data', shortcut: 'R', handler: () => { , keywords: ['refresh', '刷新'] },
-      { id: 'filter-stocks', label: '筛选股票', icon: '🔍', category: 'data', shortcut: 'F', handler: () => { , keywords: ['filter', '筛选'] },
-      { id: 'sort-price', label: '按价格排序', icon: '💰', category: 'data', shortcut: 'S P', handler: () => { , keywords: ['sort', '排序'] },
-      { id: 'toggle-theme', label: '切换主题', icon: '🌙', category: 'action', shortcut: 'Alt+T', handler: () => { , keywords: ['theme', '暗色'] },
-      { id: 'shortcuts-help', label: '快捷键帮助', icon: '⌨️', category: 'help', shortcut: '?', handler: () => { , keywords: ['help', '快捷键'] },
+      { id: 'nav-home', label: '首页', icon: '🏠', category: 'navigation', shortcut: 'Alt+1', handler: () => {}, keywords: ['home', '首页'] },
+      { id: 'refresh-data', label: '刷新数据', icon: '🔄', category: 'data', shortcut: 'R', handler: () => {}, keywords: ['refresh', '刷新'] },
+      { id: 'filter-stocks', label: '筛选股票', icon: '🔍', category: 'data', shortcut: 'F', handler: () => {}, keywords: ['filter', '筛选'] },
+      { id: 'sort-price', label: '按价格排序', icon: '💰', category: 'data', shortcut: 'S P', handler: () => {}, keywords: ['sort', '排序'] },
+      { id: 'toggle-theme', label: '切换主题', icon: '🌙', category: 'action', shortcut: 'Alt+T', handler: () => {}, keywords: ['theme', '暗色'] },
+      { id: 'shortcuts-help', label: '快捷键帮助', icon: '⌨️', category: 'help', shortcut: '?', handler: () => {}, keywords: ['help', '快捷键'] },
     ];
 
     it('命令项应有唯一 ID', () => {
@@ -67,10 +67,10 @@ describe('CommandPalette 命令面板', () => {
 
   describe('搜索过滤逻辑', () => {
     const commands = [
-      { id: 'nav-home', label: '首页', category: 'navigation', keywords: ['home', '首页', '主页'], handler: () => {  },
-      { id: 'refresh-data', label: '刷新数据', category: 'data', keywords: ['refresh', '刷新', '更新'], handler: () => {  },
-      { id: 'sort-price', label: '按价格排序', category: 'data', keywords: ['sort', '排序', '价格'], handler: () => {  },
-      { id: 'toggle-theme', label: '切换主题', category: 'action', keywords: ['theme', '主题', '暗色', 'dark'], handler: () => {  },
+      { id: 'nav-home', label: '首页', category: 'navigation', keywords: ['home', '首页', '主页'], handler: () => {  } },
+      { id: 'refresh-data', label: '刷新数据', category: 'data', keywords: ['refresh', '刷新', '更新'], handler: () => {  } },
+      { id: 'sort-price', label: '按价格排序', category: 'data', keywords: ['sort', '排序', '价格'], handler: () => {  } },
+      { id: 'toggle-theme', label: '切换主题', category: 'action', keywords: ['theme', '主题', '暗色', 'dark'], handler: () => {  } },
     ];
 
     function filterCommands(query: string) {

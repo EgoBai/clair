@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EarningsRevisionEngine } from '../utils/earningsRevisionTrackerEngine';
-import type { EarningsRevision, RevisionMomentum } from '../utils/earningsRevisionTrackerEngine';
+import { EarningsRevisionEngine, type EarningsRevision, type RevisionMomentum } from '../utils/earningsRevisionTrackerEngine';
 
 describe('盈利预期修正引擎', () => {
   const engine = new EarningsRevisionEngine();

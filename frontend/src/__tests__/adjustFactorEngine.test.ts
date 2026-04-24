@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AdjustFactorEngine } from '../utils/adjustFactorEngine';
-import type { PriceData, DividendEvent } from '../utils/adjustFactorEngine';
+import { AdjustFactorEngine, type PriceData, type DividendEvent } from '../utils/adjustFactorEngine';
 
 describe('AdjustFactorEngine', () => {
   let engine: AdjustFactorEngine;

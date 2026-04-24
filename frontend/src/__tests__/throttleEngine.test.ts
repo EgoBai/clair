@@ -73,7 +73,7 @@ describe('ThrottleEngine', () => {
     it('应该更新失败统计', async () => {
       try {
         await engine.enqueue('fail', async () => { throw new Error('x'); }, { maxRetries: 0 });
-      } catch { 
+      } catch (e) { void e; }
       const stats = engine.getStats();
       expect(stats.failedRequests).toBe(1);
     });

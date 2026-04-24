@@ -436,7 +436,8 @@ export class OptionsGreeksEngine {
 
     // Round all values
     Object.keys(totals).forEach(k => {
-      (totals as any)[k] = roundTo((totals as any)[k], 8);
+      const key = k as keyof typeof totals;
+      totals[key] = roundTo(totals[key], 8) as never;
     });
 
     return totals;

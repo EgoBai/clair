@@ -3,9 +3,8 @@
  * 桌面端显示侧边栏菜单，移动端折叠为汉堡菜单
  */
 import React, { useState, useCallback } from 'react';
-import { Menu, Drawer, Button } from 'antd';
+import { Menu, Drawer, Button, type MenuProps } from 'antd';
 import { MenuOutlined } from '@ant-design/icons';
-import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 export interface MenuItem {

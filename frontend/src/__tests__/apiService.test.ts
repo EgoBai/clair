@@ -210,7 +210,7 @@ describe('API 服务层', () => {
       cache.set('key', 'val');
       // 等待过期
       const start = Date.now();
-      while (Date.now() - start < 5) {} // busy wait
+      while (Date.now() - start < 5) { /* busy wait */ }
       expect(cache.get('key')).toBeUndefined();
     });
 

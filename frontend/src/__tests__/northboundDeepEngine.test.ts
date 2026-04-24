@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NorthboundFundEngine } from '../utils/northboundDeepEngine';
-import type { NorthboundFlow, NorthboundHolding } from '../utils/northboundDeepEngine';
+import { NorthboundFundEngine, type NorthboundFlow, type NorthboundHolding } from '../utils/northboundDeepEngine';
 
 describe('北向资金深度分析引擎', () => {
   const engine = new NorthboundFundEngine();

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TechnicalPatternEngine } from '../utils/technicalPatternEngine';
-import type { OHLCV } from '../utils/technicalPatternEngine';
+import { TechnicalPatternEngine, type OHLCV } from '../utils/technicalPatternEngine';
 
 describe('TechnicalPatternEngine', () => {
   const engine = new TechnicalPatternEngine();

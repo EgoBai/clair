@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RiskParityEngine } from '../utils/riskParityEngine';
-import type { AssetData, CovarianceMatrix, RiskBudget } from '../utils/riskParityEngine';
+import { RiskParityEngine, type AssetData, type CovarianceMatrix, type RiskBudget } from '../utils/riskParityEngine';
 
 describe('RiskParityEngine', () => {
   const engine = new RiskParityEngine();

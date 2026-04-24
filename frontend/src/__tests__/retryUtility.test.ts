@@ -90,7 +90,7 @@ describe('CircuitBreaker', () => {
     const cb = new CircuitBreaker({ failureThreshold: 3, resetTimeout: 1000 });
 
     for (let i = 0; i < 3; i++) {
-      await cb.execute(async () => { throw new Error('fail'); }).catch(() => { );
+      await cb.execute(async () => { throw new Error('fail'); }).catch(() => {});
     }
 
     expect(cb.getState()).toBe('open');
@@ -98,14 +98,14 @@ describe('CircuitBreaker', () => {
 
   it('should reject when open', async () => {
     const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeout: 60000 });
-    await cb.execute(async () => { throw new Error('fail'); }).catch(() => { );
+    await cb.execute(async () => { throw new Error('fail'); }).catch(() => {});
     await expect(cb.execute(async () => 'ok')).rejects.toThrow('Circuit breaker is open');
   });
 
   it('should transition to half-open after reset timeout', async () => {
     vi.useFakeTimers();
     const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeout: 1000 });
-    await cb.execute(async () => { throw new Error('fail'); }).catch(() => { );
+    await cb.execute(async () => { throw new Error('fail'); }).catch(() => {});
     expect(cb.getState()).toBe('open');
 
     vi.advanceTimersByTime(1100);
@@ -117,13 +117,13 @@ describe('CircuitBreaker', () => {
   it('should call onStateChange callback', async () => {
     const onStateChange = vi.fn();
     const cb = new CircuitBreaker({ failureThreshold: 1, onStateChange });
-    await cb.execute(async () => { throw new Error('fail'); }).catch(() => { );
+    await cb.execute(async () => { throw new Error('fail'); }).catch(() => {});
     expect(onStateChange).toHaveBeenCalledWith('closed', 'open');
   });
 
   it('should reset', async () => {
     const cb = new CircuitBreaker({ failureThreshold: 1 });
-    await cb.execute(async () => { throw new Error('fail'); }).catch(() => { );
+    await cb.execute(async () => { throw new Error('fail'); }).catch(() => {});
     expect(cb.getState()).toBe('open');
     cb.reset();
     expect(cb.getState()).toBe('closed');
@@ -132,7 +132,7 @@ describe('CircuitBreaker', () => {
 
   it('should track failure count', async () => {
     const cb = new CircuitBreaker();
-    await cb.execute(async () => { throw new Error('fail'); }).catch(() => { );
+    await cb.execute(async () => { throw new Error('fail'); }).catch(() => {});
     expect(cb.getFailureCount()).toBe(1);
   });
 });
@@ -171,10 +171,10 @@ describe('Bulkhead', () => {
   it('should reject when queue full', async () => {
     const bulkhead = new Bulkhead(1, 1);
     // Fill the execution slot (never resolves)
-    const never = new Promise<never>(() => { );
+    const never = new Promise<never>(() => {});
     bulkhead.execute(() => never);
     // Fill the queue slot
-    bulkhead.execute(async () => 'x').catch(() => { );
+    bulkhead.execute(async () => 'x').catch(() => {});
     // Should reject
     await expect(bulkhead.execute(async () => 'y')).rejects.toThrow('Bulkhead queue full');
   });

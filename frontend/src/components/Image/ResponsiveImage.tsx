@@ -1,13 +1,7 @@
 import React from 'react';
 import { LazyImage, LazyImageProps } from './LazyImage';
 
-export interface ResponsiveImageProps extends Omit<LazyImageProps, 'srcSet' | 'sizes'> {
-  style?: React.CSSProperties;
-  className?: string;
-  src: string;
-  alt: string;
-  sizes?: string;
-  srcSet?: string;
+export interface ResponsiveImageProps extends LazyImageProps {
   breakpoints?: {
     sm?: string; // 640px
     md?: string; // 768px
@@ -100,7 +94,7 @@ export const ResponsiveImage: React.FC<ResponsiveImageProps> = ({
       sizes={sizes}
       style={mergedStyle}
       className={mergedClassName}
-      {...props as any}
+      {...props}
     />
   );
 };
@@ -211,7 +205,7 @@ export function withResponsiveImage<P extends { src: string; alt: string }>(
         src={props.src}
         alt={props.alt}
         {...options}
-        {...props as any}
+        {...props as Partial<LazyImageProps>}
       />
     );
   };

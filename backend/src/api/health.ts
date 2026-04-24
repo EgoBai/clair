@@ -7,10 +7,13 @@
  */
 
 import { Router } from 'express';
-import { runAllChecks, readinessCheck, livenessCheck } from '../services/healthCheck';
+import { createDefaultHealthCheck } from '../services/healthCheck';
 import { asyncHandler } from '../utils/apiResponse';
 
 const router = Router();
+
+// 创建健康检查服务实例
+const healthService = createDefaultHealthCheck(process.env.APP_VERSION || '1.7.0');
 
 /**
  * 完整健康检查
@@ -18,7 +21,7 @@ const router = Router();
 router.get(
   '/',
   asyncHandler(async (req: any, res: any) => {
-    const health = await runAllChecks();
+    const health = await healthService.checkAll();
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
     res.status(statusCode).json(health);
   })
@@ -30,7 +33,7 @@ router.get(
 router.get(
   '/ready',
   asyncHandler(async (_req: any, res: any) => {
-    const ready = await readinessCheck();
+    const ready = await healthService.check('uptime');
     res.status(ready ? 200 : 503).json({
       status: ready ? 'ready' : 'not_ready',
       timestamp: new Date().toISOString(),
@@ -44,7 +47,7 @@ router.get(
 router.get(
   '/live',
   asyncHandler(async (_req: any, res: any) => {
-    const alive = await livenessCheck();
+    const alive = await healthService.check('memory');
     res.status(alive ? 200 : 503).json({
       status: alive ? 'alive' : 'dead',
       timestamp: new Date().toISOString(),

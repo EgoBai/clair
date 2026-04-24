@@ -24,8 +24,8 @@ vi.mock('../services/websocket', () => ({
     disconnect: vi.fn(),
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
-    on: vi.fn().mockReturnValue(() => { ),
-    onMessage: vi.fn().mockReturnValue(() => { ),
+    on: vi.fn().mockReturnValue(() => {}),
+    onMessage: vi.fn().mockReturnValue(() => {}),
     getConnectionState: vi.fn().mockReturnValue(true),
   },
 }));
@@ -97,7 +97,7 @@ describe('ErrorBoundary', () => {
     const mod = await import('../components/Common/ErrorBoundary');
     const ErrorBoundary = mod.default;
 
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => { );
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { getByText } = renderWithProviders(
       <ErrorBoundary>

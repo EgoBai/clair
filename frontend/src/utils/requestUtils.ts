@@ -86,7 +86,7 @@ export function debounce<T extends (...args: any[]) => any>(
 
   debounced.pending = () => timer !== null;
 
-  return debounced as any;
+  return debounced as unknown as T & { cancel: () => void; flush: () => void; pending: () => boolean };
 }
 
 /**
@@ -97,7 +97,7 @@ export function throttle<T extends (...args: any[]) => any>(
   interval: number,
   options: { leading?: boolean; trailing?: boolean } = {}
 ): T & { cancel: () => void; flush: () => void } {
-  return debounce(fn, interval, { ...options, maxWait: interval }) as any;
+  return debounce(fn, interval, { ...options, maxWait: interval }) as unknown as T & { cancel: () => void; flush: () => void };
 }
 
 /**
@@ -129,7 +129,7 @@ export class RequestBatcher<K, V> {
       let batch = this.pending.get(batchKey);
 
       if (!batch) {
-        batch = { keys: [], resolve: () => {}, timer: null as any };
+        batch = { keys: [], resolve: () => {}, timer: null as unknown as ReturnType<typeof setTimeout> };
         batch.timer = setTimeout(() => this.executeBatch(batchKey), this.delay);
         this.pending.set(batchKey, batch);
       }

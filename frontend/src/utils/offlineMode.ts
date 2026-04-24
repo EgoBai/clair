@@ -65,6 +65,10 @@ class OfflineCache {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  getDatabase(): IDBDatabase | null {
+    return this.db;
+  }
+
   async init(): Promise<void> {
     if (this.db) return;
     if (this.initPromise) return this.initPromise;
@@ -415,7 +419,7 @@ export class OfflineManager {
     type: OfflineAction['type'],
     payload: Record<string, unknown>
   ): Promise<void> {
-    await this.queue.setDatabase((this.cache as any).db);
+    await this.queue.setDatabase(this.cache.getDatabase());
     await this.queue.enqueue({ type, payload, timestamp: Date.now(), maxRetries: 3 });
     const count = await this.queue.getPendingCount();
     this.notifyQueueListeners(count);

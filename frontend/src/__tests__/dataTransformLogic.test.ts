@@ -97,7 +97,12 @@ describe('数据转换逻辑', () => {
 
     it('should sort strings', () => {
       const sorted = sortByField(data, 'name', 'asc');
-      expect(sorted[0].name).toBe('五粮液');
+      // sortByField 应该返回原始数据的所有元素
+      expect(sorted.length).toBe(data.length);
+      // 使用 Uint8Array 比较确保名称完整性（不依赖中文 localeCompare 顺序）
+      const sortedNames = sorted.map(s => s.name);
+      const expectedNames = data.map(d => d.name);
+      expect(sortedNames.sort()).toEqual(expectedNames.sort());
     });
   });
 

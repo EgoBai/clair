@@ -172,7 +172,7 @@ describe('LongPressDetector', () => {
   it('should report active status', () => {
     const detector = new LongPressDetector(500);
     expect(detector.isActive()).toBe(false);
-    detector.start({ x: 0, y: 0, timestamp: 0 }, () => { );
+    detector.start({ x: 0, y: 0, timestamp: 0 }, () => {});
     expect(detector.isActive()).toBe(true);
     vi.advanceTimersByTime(500);
     expect(detector.isActive()).toBe(false);

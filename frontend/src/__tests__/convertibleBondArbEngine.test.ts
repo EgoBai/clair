@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ConvertibleBondEngine } from '../utils/convertibleBondArbEngine';
-import type { ConvertibleBond } from '../utils/convertibleBondArbEngine';
+import { ConvertibleBondEngine, type ConvertibleBond } from '../utils/convertibleBondArbEngine';
 
 describe('可转债套利引擎', () => {
   const engine = new ConvertibleBondEngine();

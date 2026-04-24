@@ -2,8 +2,7 @@
  * 组合压力测试引擎v2测试
  */
 import { describe, it, expect } from 'vitest';
-import { StressTestEngineV2 } from '../utils/stressTestEngineV2';
-import type { Position, StressScenario } from '../utils/stressTestEngineV2';
+import { StressTestEngineV2, type Position, type StressScenario } from '../utils/stressTestEngineV2';
 
 describe('StressTestEngineV2', () => {
   const engine = new StressTestEngineV2();

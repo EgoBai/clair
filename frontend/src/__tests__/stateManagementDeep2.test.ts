@@ -266,8 +266,8 @@ describe('State Management Deep Dive', () => {
 
   it('should track subscriber count', () => {
     const mgr = new SubscriptionManager<void>()
-    const unsub1 = mgr.subscribe(() => { )
-    const unsub2 = mgr.subscribe(() => { )
+    const unsub1 = mgr.subscribe(() => {})
+    const unsub2 = mgr.subscribe(() => {})
     expect(mgr.count()).toBe(2)
     unsub1()
     expect(mgr.count()).toBe(1)

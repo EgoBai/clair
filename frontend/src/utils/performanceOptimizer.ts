@@ -234,7 +234,8 @@ export function useMemoryMonitor() {
     }
 
     const checkMemory = () => {
-      const memory = (performance as any).memory;
+      const perf = performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number } };
+      const memory = perf.memory;
       if (memory) {
         setMemoryUsage({
           usedJSHeapSize: memory.usedJSHeapSize,

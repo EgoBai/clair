@@ -22,6 +22,8 @@ interface QueryStats {
 
 class QueryCache {
   private cache = new Map<string, CacheEntry>();
+  private maxSize: number;
+  private accessOrder: string[] = []; // LRU tracking
   private stats: QueryStats = {
     totalQueries: 0,
     cacheHits: 0,
@@ -34,8 +36,9 @@ class QueryCache {
   private slowThreshold: number; // 慢查询阈值(ms)
   private cleanupTimer: ReturnType<typeof setInterval>;
 
-  constructor(slowThreshold = 500) {
+  constructor(slowThreshold = 500, maxSize = 10000) {
     this.slowThreshold = slowThreshold;
+    this.maxSize = maxSize;
 
     // 每5分钟清理过期缓存
     this.cleanupTimer = setInterval(() => this.cleanup(), 5 * 60 * 1000);
@@ -46,7 +49,7 @@ class QueryCache {
    */
   async query<T>(
     cacheKey: string,
-    fn: () => Promise<T>,
+    fn: (() => T) | (() => Promise<T>),
     ttl: number = 30000
   ): Promise<T> {
     // 检查缓存
@@ -54,6 +57,8 @@ class QueryCache {
     if (cached && Date.now() - cached.timestamp < cached.ttl) {
       cached.hits++;
       this.stats.cacheHits++;
+      // 更新LRU顺序
+      this.touch(cacheKey);
       return cached.data as T;
     }
 
@@ -82,14 +87,49 @@ class QueryCache {
         console.warn(`[QueryCache] 慢查询: ${cacheKey} (${duration}ms)`);
       }
 
-      // 写入缓存
-      this.cache.set(cacheKey, { data: result, timestamp: Date.now(), ttl, hits: 0 });
+      // 写入缓存（带LRU淘汰）
+      this.set(cacheKey, { data: result, timestamp: Date.now(), ttl, hits: 0 });
 
       return result;
     } catch (error) {
       const duration = Date.now() - start;
       console.error(`[QueryCache] 查询失败: ${cacheKey} (${duration}ms)`, error);
       throw error;
+    }
+  }
+
+  /**
+   * 直接设置缓存值
+   */
+  set<T>(key: string, entry: CacheEntry<T>): void {
+    // LRU淘汰：超出容量时删除最近最少使用的
+    if (this.cache.has(key)) {
+      // 已存在，更新
+      this.cache.set(key, entry as CacheEntry);
+      this.touch(key);
+      return;
+    }
+
+    if (this.cache.size >= this.maxSize) {
+      // 淘汰最近最少使用的
+      const oldest = this.accessOrder.shift();
+      if (oldest) {
+        this.cache.delete(oldest);
+      }
+    }
+
+    this.cache.set(key, entry as CacheEntry);
+    this.accessOrder.push(key);
+  }
+
+  /**
+   * 访问缓存项，更新LRU顺序
+   */
+  private touch(key: string): void {
+    const idx = this.accessOrder.indexOf(key);
+    if (idx !== -1) {
+      this.accessOrder.splice(idx, 1);
+      this.accessOrder.push(key);
     }
   }
 
@@ -111,11 +151,12 @@ class QueryCache {
   /**
    * 获取统计信息
    */
-  getStats(): QueryStats & { cacheSize: number; hitRate: number } {
+  getStats(): QueryStats & { cacheSize: number; hitRate: number; maxSize: number } {
     const total = this.stats.cacheHits + this.stats.cacheMisses;
     return {
       ...this.stats,
       cacheSize: this.cache.size,
+      maxSize: this.maxSize,
       hitRate: total > 0 ? this.stats.cacheHits / total : 0,
     };
   }

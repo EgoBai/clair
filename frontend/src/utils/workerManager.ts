@@ -235,7 +235,7 @@ class WorkerPool {
   private workers: Worker[] = [];
   private idleWorkers: Worker[] = [];
   private tasks: Map<string, WorkerTask> = new Map();
-  private queue: Array<{ type: WorkerMessageType; payload: unknown; resolve: Function; reject: Function }> = [];
+  private queue: Array<{ type: WorkerMessageType; payload: unknown; resolve: (value: unknown) => void; reject: (reason?: unknown) => void }> = [];
   private maxWorkers: number;
   private taskTimeout: number;
   private workerUrl: string | null = null;
@@ -324,8 +324,8 @@ class WorkerPool {
       return this.executeOn<T, R>(worker, type, payload);
     }
     // 队列等待
-    return new Promise<R>((resolve, reject) => {
-      this.queue.push({ type, payload, resolve, reject });
+    return new Promise<R>((resolve: (value: R | PromiseLike<R>) => void, reject: (reason?: unknown) => void) => {
+      this.queue.push({ type, payload, resolve: resolve as (value: unknown) => void, reject: reject as (reason?: unknown) => void });
     });
   }
 

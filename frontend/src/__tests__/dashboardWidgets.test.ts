@@ -181,7 +181,7 @@ describe('Dashboard Data Refresh', () => {
 
   it('should pause and resume', () => {
     const scheduler = new RefreshScheduler();
-    scheduler.register('w1', 1000, () => { );
+    scheduler.register('w1', 1000, () => {});
     scheduler.pause('w1');
     expect(scheduler.isPaused('w1')).toBe(true);
     expect(scheduler.getActiveCount()).toBe(0);
@@ -193,9 +193,9 @@ describe('Dashboard Data Refresh', () => {
 
   it('should track multiple widgets', () => {
     const scheduler = new RefreshScheduler();
-    scheduler.register('w1', 1000, () => { );
-    scheduler.register('w2', 2000, () => { );
-    scheduler.register('w3', 5000, () => { );
+    scheduler.register('w1', 1000, () => {});
+    scheduler.register('w2', 2000, () => {});
+    scheduler.register('w3', 5000, () => {});
     expect(scheduler.getActiveCount()).toBe(3);
     scheduler.unregister('w2');
     expect(scheduler.getActiveCount()).toBe(2);
@@ -203,7 +203,7 @@ describe('Dashboard Data Refresh', () => {
 
   it('should clean up on unregister', () => {
     const scheduler = new RefreshScheduler();
-    scheduler.register('w1', 1000, () => { );
+    scheduler.register('w1', 1000, () => {});
     scheduler.unregister('w1');
     expect(scheduler.getLastRefresh('w1')).toBeNull();
     expect(scheduler.isPaused('w1')).toBe(false);

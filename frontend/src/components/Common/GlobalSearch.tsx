@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Input, List, Tag, Button, Empty, Spin } from 'antd';
+import { Input, List, Tag, Button, Empty, Spin, InputRef } from 'antd';
 import { SearchOutlined, ClockCircleOutlined, CloseOutlined } from '@ant-design/icons';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useSearchHistory } from '../../hooks/useSearchHistory';
@@ -37,7 +37,7 @@ export default function GlobalSearch({
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [showDropdown, setShowDropdown] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<InputRef>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { history, add: addToHistory, remove: removeFromHistory, search: searchHistory } = useSearchHistory({
@@ -141,7 +141,7 @@ export default function GlobalSearch({
   return (
     <div ref={dropdownRef} style={{ position: 'relative', width: '100%', maxWidth: 480 }}>
       <Input
-        ref={inputRef as any}
+        ref={inputRef}
         prefix={<SearchOutlined style={{ color: '#999' }} />}
         placeholder={placeholder}
         value={query}

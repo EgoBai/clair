@@ -2,8 +2,7 @@
  * 相关性体制检测引擎测试
  */
 import { describe, it, expect } from 'vitest';
-import { CorrelationRegimeEngine } from '../utils/correlationRegimeEngine';
-import type { CorrelationMatrix } from '../utils/correlationRegimeEngine';
+import { CorrelationRegimeEngine, type CorrelationMatrix } from '../utils/correlationRegimeEngine';
 
 describe('CorrelationRegimeEngine', () => {
   const engine = new CorrelationRegimeEngine();

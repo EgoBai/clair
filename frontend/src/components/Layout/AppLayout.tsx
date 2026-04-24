@@ -1,5 +1,4 @@
-import React from 'react';
-import type { ReactNode } from 'react';
+import React, { type ReactNode } from 'react';
 import NavigationMenu from './NavigationMenu';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
 

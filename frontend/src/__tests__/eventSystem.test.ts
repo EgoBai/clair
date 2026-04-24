@@ -95,23 +95,23 @@ describe('事件系统引擎', () => {
 
   describe('订阅', () => {
     it('应该注册事件', () => {
-      const id = bus.on('test', () => { );
+      const id = bus.on('test', () => {});
       expect(id).toBeTruthy();
       expect(bus.hasListeners('test')).toBe(true);
     });
     it('应该返回唯一ID', () => {
-      const id1 = bus.on('test', () => { );
-      const id2 = bus.on('test', () => { );
+      const id1 = bus.on('test', () => {});
+      const id2 = bus.on('test', () => {});
       expect(id1).not.toBe(id2);
     });
     it('应该支持多个监听器', () => {
-      bus.on('test', () => { );
-      bus.on('test', () => { );
+      bus.on('test', () => {});
+      bus.on('test', () => {});
       expect(bus.listenerCount('test')).toBe(2);
     });
     it('应该按优先级排序', () => {
-      bus.on('test', () => { , 1);
-      bus.on('test', () => { , 10);
+      bus.on('test', () => {}, 1);
+      bus.on('test', () => {}, 10);
       const listeners = bus.getListeners('test');
       expect(listeners[0].priority).toBe(10);
     });
@@ -138,7 +138,7 @@ describe('事件系统引擎', () => {
 
   describe('取消订阅', () => {
     it('应该取消指定监听器', () => {
-      const id = bus.on('test', () => { );
+      const id = bus.on('test', () => {});
       expect(bus.off(id)).toBe(true);
       expect(bus.hasListeners('test')).toBe(false);
     });
@@ -146,14 +146,14 @@ describe('事件系统引擎', () => {
       expect(bus.off('nonexistent')).toBe(false);
     });
     it('应该取消所有事件', () => {
-      bus.on('a', () => { );
-      bus.on('b', () => { );
+      bus.on('a', () => {});
+      bus.on('b', () => {});
       bus.offAll();
       expect(bus.eventNames()).toHaveLength(0);
     });
     it('应该取消指定事件', () => {
-      bus.on('a', () => { );
-      bus.on('b', () => { );
+      bus.on('a', () => {});
+      bus.on('b', () => {});
       bus.offAll('a');
       expect(bus.hasListeners('a')).toBe(false);
       expect(bus.hasListeners('b')).toBe(true);
@@ -174,8 +174,8 @@ describe('事件系统引擎', () => {
       expect(received).toEqual([1, 'hello']);
     });
     it('应该返回触发的监听器数', () => {
-      bus.on('test', () => { );
-      bus.on('test', () => { );
+      bus.on('test', () => {});
+      bus.on('test', () => {});
       expect(bus.emit('test')).toBe(2);
     });
     it('无监听器返回0', () => {
@@ -225,20 +225,20 @@ describe('事件系统引擎', () => {
 
   describe('查询', () => {
     it('hasListeners有监听器时返回true', () => {
-      bus.on('test', () => { );
+      bus.on('test', () => {});
       expect(bus.hasListeners('test')).toBe(true);
     });
     it('hasListeners无监听器时返回false', () => {
       expect(bus.hasListeners('test')).toBe(false);
     });
     it('listenerCount返回正确数量', () => {
-      bus.on('test', () => { );
-      bus.on('test', () => { );
+      bus.on('test', () => {});
+      bus.on('test', () => {});
       expect(bus.listenerCount('test')).toBe(2);
     });
     it('eventNames返回所有事件', () => {
-      bus.on('a', () => { );
-      bus.on('b', () => { );
+      bus.on('a', () => {});
+      bus.on('b', () => {});
       expect(bus.eventNames().sort()).toEqual(['a', 'b']);
     });
   });

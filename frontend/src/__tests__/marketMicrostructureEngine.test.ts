@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MarketMicrostructureEngine } from '../utils/marketMicrostructureEngine';
-import type { OrderBook, TradeTick } from '../utils/marketMicrostructureEngine';
+import { MarketMicrostructureEngine, type OrderBook, type TradeTick } from '../utils/marketMicrostructureEngine';
 
 describe('MarketMicrostructureEngine', () => {
   const engine = new MarketMicrostructureEngine();

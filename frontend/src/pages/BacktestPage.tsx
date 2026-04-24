@@ -92,7 +92,7 @@ function BacktestPage() {
       };
       const response = await apiService.runBacktest(symbol, strategy, params);
       if (response.success) {
-        setResult(response.data as any);
+        setResult(response.data as unknown as BacktestResult);
       } else {
         setError(response.error || '回测失败');
       }
@@ -220,7 +220,7 @@ function BacktestPage() {
               value={100000}
               disabled
               style={{ width: '100%', marginTop: 4 }}
-              formatter={(v) => `¥${v as any}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              formatter={(v) => `¥${v ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             />
           </Col>
           <Col span={4}>
@@ -229,7 +229,7 @@ function BacktestPage() {
               value={0.03}
               disabled
               style={{ width: '100%', marginTop: 4 }}
-              formatter={(v) => `${v as any}%`}
+              formatter={(v) => `${v ?? ''}%`}
             />
           </Col>
           <Col span={4}>
@@ -387,8 +387,8 @@ function BacktestPage() {
             <Col span={8}>
               <Card title="详细指标" size="small">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <Statistic title="初始资金" value={result.initialCapital} prefix="¥" formatter={(v) => Number(v).toLocaleString() as any} />
-                  <Statistic title="最终资金" value={result.finalValue} prefix="¥" formatter={(v) => Number(v).toLocaleString() as any} />
+                  <Statistic title="初始资金" value={result.initialCapital} prefix="¥" formatter={(v) => String(Number(v).toLocaleString())} />
+                  <Statistic title="最终资金" value={result.finalValue} prefix="¥" formatter={(v) => String(Number(v).toLocaleString())} />
                   <Statistic title="总交易次数" value={result.totalTrades} />
                   <Statistic title="盈利次数" value={result.winningTrades} valueStyle={{ color: '#EF4444' }} />
                   <Statistic title="亏损次数" value={result.losingTrades} valueStyle={{ color: '#22C55E' }} />

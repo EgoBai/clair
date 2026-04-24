@@ -421,11 +421,11 @@ export function safeLocalStorage() {
     },
     remove(key: string): void {
       if (!available) return;
-      try { localStorage.removeItem(key); } catch {}
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
     },
     clear(): void {
       if (!available) return;
-      try { localStorage.clear(); } catch {}
+      try { localStorage.clear(); } catch { /* ignore */ }
     },
   };
 }
@@ -445,7 +445,7 @@ export function calculateStorageUsage(): { localStorage: number; sessionStorage:
         localStorageSize += (key.length + (value?.length || 0)) * 2;
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   try {
     for (let i = 0; i < sessionStorage.length; i++) {
@@ -455,7 +455,7 @@ export function calculateStorageUsage(): { localStorage: number; sessionStorage:
         sessionStorageSize += (key.length + (value?.length || 0)) * 2;
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   return { localStorage: localStorageSize, sessionStorage: sessionStorageSize };
 }
@@ -504,9 +504,9 @@ export function cleanExpiredStorage(): number {
             keysToRemove.push(key);
           }
         }
-      } catch {}
+      } catch { /* ignore */ }
     }
     keysToRemove.forEach(k => { localStorage.removeItem(k); cleaned++; });
-  } catch {}
+  } catch { /* ignore */ }
   return cleaned;
 }

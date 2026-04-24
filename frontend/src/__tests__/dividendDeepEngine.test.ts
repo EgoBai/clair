@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DividendAnalysisEngine } from '../utils/dividendDeepEngine';
-import type { DividendRecord } from '../utils/dividendDeepEngine';
+import { DividendAnalysisEngine, type DividendRecord } from '../utils/dividendDeepEngine';
 
 describe('股息深度分析引擎', () => {
   const engine = new DividendAnalysisEngine();

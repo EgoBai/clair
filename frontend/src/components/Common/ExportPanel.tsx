@@ -22,9 +22,8 @@ import {
   Tooltip,
   DatePicker,
   InputNumber,
-  Radio,
+  Radio, type MenuProps,
 } from 'antd';
-import type { MenuProps } from 'antd';
 import {
   DownloadOutlined,
   FileExcelOutlined,

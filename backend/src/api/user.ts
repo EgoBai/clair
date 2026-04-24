@@ -8,6 +8,7 @@ import { Request, Response, Router } from 'express';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { validateBody, validateQuery, schemas } from '../middleware/validation';
 import { RBACEngine, RBACContext } from '../utils/rbacEngine';
+import { authMiddleware, signAccessToken, generateRefreshToken, consumeRefreshToken, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 const rbacEngine = new RBACEngine();
@@ -103,6 +104,26 @@ function generateToken(): string {
   return randomBytes(32).toString('hex');
 }
 
+/**
+ * 敏感数据脱敏 — 邮箱
+ * 将 test@example.com 转为 tes***@example.com
+ */
+function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return email;
+  const [local, domain] = email.split('@');
+  if (local.length <= 3) return `${local.slice(0, 1)}***@${domain}`;
+  return `${local.slice(0, 3)}***@${domain}`;
+}
+
+/**
+ * 敏感数据脱敏 — 手机号
+ * 将 13812345678 转为 138****5678
+ */
+function maskPhone(phone: string): string {
+  if (!phone || phone.length < 7) return phone;
+  return phone.slice(0, 3) + '****' + phone.slice(-4);
+}
+
 function defaultSettings(): UserSettings {
   return {
     theme: 'system',
@@ -172,6 +193,10 @@ router.post('/user/register', (req: Request, res: Response) => {
       email: email || '',
       phone: phone || undefined,
       nickname,
+      roles: ['user'],
+      status: 'active',
+      failedLoginAttempts: 0,
+      mfaEnabled: false,
       settings: defaultSettings(),
       createdAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
@@ -181,11 +206,25 @@ router.post('/user/register', (req: Request, res: Response) => {
     tokens.set(token, userId);
     actionHistory.set(userId, []);
 
+    // 生成 JWT token
+    const accessToken = signAccessToken({ sub: userId, email: email || '', roles: user.roles });
+    const refreshToken = generateRefreshToken(userId, email || '');
+
     res.status(201).json({
       success: true,
       data: {
-        user: { ...user },
-        token,
+        user: {
+          id: user.id,
+          email: maskEmail(user.email),
+          nickname: user.nickname,
+          roles: user.roles,
+          status: user.status,
+          createdAt: user.createdAt,
+        },
+        token,                  // 旧格式兼容
+        accessToken,            // JWT 访问令牌
+        refreshToken,           // 刷新令牌
+        expiresIn: 900,
       },
     });
   } catch (error) {
@@ -216,15 +255,37 @@ router.post('/user/login', (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: '用户不存在或密码错误' });
     }
 
+    // 生成本地 token（旧格式兼容）
     const token = generateToken();
     tokens.set(token, foundUser.id);
     foundUser.lastLoginAt = new Date().toISOString();
 
+    // 生成 JWT token（新格式）
+    const accessToken = signAccessToken({ sub: foundUser.id, email: foundUser.email, roles: foundUser.roles });
+    const refreshToken = generateRefreshToken(foundUser.id, foundUser.email);
+
+    // 对敏感字段脱敏再返回
+    const safeUser = {
+      id: foundUser.id,
+      email: maskEmail(foundUser.email),
+      nickname: foundUser.nickname,
+      avatar: foundUser.avatar,
+      roles: foundUser.roles,
+      status: foundUser.status,
+      settings: foundUser.settings,
+      mfaEnabled: foundUser.mfaEnabled,
+      createdAt: foundUser.createdAt,
+      lastLoginAt: foundUser.lastLoginAt,
+    };
+
     res.json({
       success: true,
       data: {
-        user: { ...foundUser },
-        token,
+        user: safeUser,
+        token,                  // 旧格式兼容
+        accessToken,            // JWT 访问令牌
+        refreshToken,           // 刷新令牌
+        expiresIn: 900,         // 15分钟（秒）
       },
     });
   } catch (error) {

@@ -129,7 +129,7 @@ function NewsPage() {
   // 加载统计
   useEffect(() => {
     apiService.getNewsStats().then((res) => {
-      if (res.success) setStats(res.data as any);
+      if (res.success) setStats(res.data as unknown as NewsStats);
     });
   }, []);
 

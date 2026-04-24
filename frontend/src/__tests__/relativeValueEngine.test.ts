@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeRelativeValue } from '../utils/relativeValueEngine';
-import type { ComparableCompany } from '../utils/relativeValueEngine';
+import { analyzeRelativeValue, type ComparableCompany } from '../utils/relativeValueEngine';
 
 describe('RelativeValueEngine', () => {
   const makeCompany = (overrides: Partial<ComparableCompany> = {}): ComparableCompany => ({

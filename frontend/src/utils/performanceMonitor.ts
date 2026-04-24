@@ -213,8 +213,9 @@ export class PerformanceMonitor {
       let clsValue = 0;
       const observer = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          if (!(entry as any).hadRecentInput) {
-            clsValue += (entry as any).value;
+          const shift = entry as PerformanceEntry & { hadRecentInput?: boolean; value?: number };
+          if (!shift.hadRecentInput) {
+            clsValue += shift.value ?? 0;
           }
         }
         this.vitalsCache['CLS'] = { value: clsValue, rating: this.rateVital('CLS', clsValue) };
@@ -230,7 +231,8 @@ export class PerformanceMonitor {
     try {
       const observer = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          const fid = (entry as any).processingStart - entry.startTime;
+          const fidEntry = entry as PerformanceEntry & { processingStart?: number };
+          const fid = (fidEntry.processingStart ?? 0) - entry.startTime;
           this.vitalsCache['FID'] = { value: fid, rating: this.rateVital('FID', fid) };
         }
       });

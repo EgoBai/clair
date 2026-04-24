@@ -42,14 +42,23 @@ export interface UseNetworkStatusOptions {
   onReconnect?: () => void;
 }
 
+type NetworkConnection = {
+  effectiveType?: string;
+  downlink?: number;
+  rtt?: number;
+  saveData?: boolean;
+  addEventListener?: (type: string, listener: () => void) => void;
+  removeEventListener?: (type: string, listener: () => void) => void;
+};
+
 /** 获取网络连接信息 */
 function getConnectionInfo(): Pick<NetworkStatus, 'effectiveType' | 'downlink' | 'rtt' | 'saveData'> {
-  const nav = navigator as any;
+  const nav = navigator as Navigator & { connection?: NetworkConnection; mozConnection?: NetworkConnection; webkitConnection?: NetworkConnection };
   const connection = nav.connection || nav.mozConnection || nav.webkitConnection;
 
   if (connection) {
     return {
-      effectiveType: connection.effectiveType || 'unknown',
+      effectiveType: (connection.effectiveType as NetworkType) || 'unknown',
       downlink: connection.downlink || 0,
       rtt: connection.rtt || 0,
       saveData: connection.saveData || false,
@@ -175,17 +184,17 @@ export function useNetworkStatus(options: UseNetworkStatusOptions = {}) {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    const nav = navigator as any;
+    const nav = navigator as Navigator & { connection?: NetworkConnection; mozConnection?: NetworkConnection; webkitConnection?: NetworkConnection };
     const connection = nav.connection || nav.mozConnection || nav.webkitConnection;
     if (connection) {
-      connection.addEventListener('change', updateStatus);
+      connection.addEventListener?.('change', updateStatus);
     }
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       if (connection) {
-        connection.removeEventListener('change', updateStatus);
+        connection.removeEventListener?.('change', updateStatus);
       }
     };
   }, [updateStatus]);

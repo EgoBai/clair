@@ -146,7 +146,7 @@ describe('LazyLoadEngine', () => {
       engine.register('error', { delay: 0, retryCount: 0 });
 
       await engine.load('loaded', async () => 'ok');
-      try { await engine.load('error', async () => { throw new Error(); }); } catch { 
+      try { await engine.load('error', async () => { throw new Error(); }); } catch (e) { void e; }
 
       const summary = engine.getSummary();
       expect(summary.loaded).toBe(1);

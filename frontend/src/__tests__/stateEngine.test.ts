@@ -175,7 +175,7 @@ describe('loggingMiddleware', () => {
 
 describe('validationMiddleware', () => {
   it('验证通过应不警告', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mw = validationMiddleware<{ count: number }>(s => s.count >= 0);
     mw({ count: 5 }, 'SET');
     expect(warn).not.toHaveBeenCalled();
@@ -183,7 +183,7 @@ describe('validationMiddleware', () => {
   });
 
   it('验证失败应警告', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mw = validationMiddleware<{ count: number }>(s => s.count >= 0 ? true : '不能为负');
     mw({ count: -1 }, 'SET');
     expect(warn).toHaveBeenCalled();

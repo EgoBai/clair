@@ -47,7 +47,10 @@ import { csrfTokenEndpoint } from './middleware/csrf.ts';
 import { enhancedSecurityHeaders } from './middleware/securityHeaders.ts';
 import { performanceMonitor } from './middleware/performanceMonitor.ts';
 import { sanitizeInput } from './middleware/validation.ts';
-import { asyncHandler, sendSuccess, sendNotFound, sendConflict, sendInternalError } from './utils/apiResponse.ts';
+import { requestLogger } from './middleware/requestLogger.ts';
+import { asyncHandler, sendSuccess, sendConflict } from './utils/apiResponse.ts';
+import { AppError, ErrorCodes, globalErrorHandler, notFoundHandler } from './middleware/errorHandler.ts';
+import { handleTokenRefresh, authMiddleware } from './middleware/auth.ts';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -69,18 +72,12 @@ app.use(apiRateLimit);
 app.use(sanitizeInput);
 app.use(performanceMonitor.middleware());
 
-// ==================== 请求日志 ====================
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    if (req.path !== '/health') {
-      const logLevel = duration > 1000 ? 'warn' : duration > 500 ? 'info' : 'debug';
-      log[logLevel as 'warn' | 'info' | 'debug'](`${req.method} ${req.path}`, { status: res.statusCode, duration });
-    }
-  });
-  next();
-});
+// ==================== 结构化请求日志 ====================
+app.use(requestLogger({
+  skipPaths: ['/health', '/api/stats/cache'],
+  slowThreshold: 1000,
+  mediumThreshold: 500,
+}));
 
 // ==================== API 路由 ====================
 app.use('/api', stockRouter);
@@ -115,6 +112,13 @@ app.use(apiDocsRouter);
 
 // ==================== CSRF Token ====================
 app.get('/api/csrf-token', csrfTokenEndpoint);
+
+// ==================== Token 刷新端点 ====================
+app.post('/api/auth/refresh', asyncHandler(async (req, res) => handleTokenRefresh(req, res)));
+app.post('/api/auth/logout', authMiddleware, asyncHandler(async (req, res) => {
+  const { handleLogout } = await import('./middleware/auth.ts');
+  handleLogout(req, res);
+}));
 
 // ==================== CORS 状态端点 ====================
 app.get('/api/security/cors', corsStatusEndpoint);
@@ -272,23 +276,8 @@ app.get('/', (_req, res) => {
 });
 
 // ==================== 404 & 错误处理 ====================
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: '接口未找到',
-    path: req.path,
-    method: req.method,
-  });
-});
-
-app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  log.error('服务器错误', err);
-  res.status(500).json({
-    success: false,
-    error: '服务器内部错误',
-    details: process.env.NODE_ENV === 'development' ? err.message : undefined,
-  });
-});
+app.use(notFoundHandler);
+app.use(globalErrorHandler);
 
 // ==================== WebSocket 初始化 ====================
 wsService.initialize(httpServer);

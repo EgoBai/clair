@@ -9,7 +9,7 @@ import logger from '../utils/logger';
 import {
   Card, Row, Col, Typography, Tag, Space, Button, Segmented, Table,
   Progress, Tooltip, Statistic, Divider, Badge, Spin, Modal, Drawer,
-  Descriptions, List, Steps, Collapse, message, Dropdown, Input,
+  Descriptions, List, Steps, Collapse, message, Dropdown, Input, type MenuProps,
 } from 'antd';
 import {
   RobotOutlined, ThunderboltOutlined, RiseOutlined, FallOutlined,
@@ -19,12 +19,10 @@ import {
   FileTextOutlined, CopyOutlined, LinkOutlined, SafetyOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import type { MenuProps } from 'antd';
 import {
   generateModelExplanation, generateStrategyInsight,
-  exportReportToCSV, generateShareSummary,
+  exportReportToCSV, generateShareSummary, type ModelExplanation, type StrategyInsight, type FeatureImportance,
 } from '../utils/aiModelExplainer';
-import type { ModelExplanation, StrategyInsight, FeatureImportance } from '../utils/aiModelExplainer';
 
 const { Title, Text, Paragraph } = Typography;
 const { Step } = Steps;

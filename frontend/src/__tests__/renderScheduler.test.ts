@@ -127,7 +127,7 @@ describe('RenderScheduler', () => {
 
   it('cancels tasks', () => {
     const scheduler = new RenderScheduler(100);
-    const id = scheduler.schedule(() => { , { priority: 'normal' });
+    const id = scheduler.schedule(() => {}, { priority: 'normal' });
     expect(scheduler.getQueueLength()).toBe(1);
     expect(scheduler.cancel(id)).toBe(true);
     expect(scheduler.getQueueLength()).toBe(0);
@@ -140,10 +140,10 @@ describe('RenderScheduler', () => {
 
   it('tracks queue by priority', () => {
     const scheduler = new RenderScheduler();
-    scheduler.schedule(() => { , { priority: 'immediate' });
-    scheduler.schedule(() => { , { priority: 'high' });
-    scheduler.schedule(() => { , { priority: 'normal' });
-    scheduler.schedule(() => { , { priority: 'normal' });
+    scheduler.schedule(() => {}, { priority: 'immediate' });
+    scheduler.schedule(() => {}, { priority: 'high' });
+    scheduler.schedule(() => {}, { priority: 'normal' });
+    scheduler.schedule(() => {}, { priority: 'normal' });
     const counts = scheduler.getQueueByPriority();
     expect(counts.immediate).toBe(1);
     expect(counts.high).toBe(1);
@@ -173,15 +173,15 @@ describe('RenderScheduler', () => {
   it('handles errors gracefully', () => {
     const scheduler = new RenderScheduler(100);
     scheduler.schedule(() => { throw new Error('fail'); });
-    scheduler.schedule(() => { ); // should still execute
+    scheduler.schedule(() => {}); // should still execute
     const result = scheduler.executeFrame();
     expect(result.executed).toBe(2);
   });
 
   it('clears all tasks', () => {
     const scheduler = new RenderScheduler();
-    scheduler.schedule(() => { );
-    scheduler.schedule(() => { );
+    scheduler.schedule(() => {});
+    scheduler.schedule(() => {});
     scheduler.clear();
     expect(scheduler.getQueueLength()).toBe(0);
   });
@@ -243,7 +243,7 @@ describe('RepaintScheduler', () => {
 
   it('removes repaint handlers', () => {
     const scheduler = new RepaintScheduler();
-    scheduler.onRepaint('r1', () => { );
+    scheduler.onRepaint('r1', () => {});
     scheduler.markDirty('r1');
     scheduler.removeRepaint('r1');
     expect(scheduler.getDirtyRegions()).not.toContain('r1');

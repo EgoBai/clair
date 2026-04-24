@@ -111,7 +111,7 @@ const SocialPage: React.FC = () => {
       const res = await fetch(`${API_BASE}/social/stats`);
       const data = await res.json();
       if (data.success) setCommunityStats(data.data);
-    } catch {}
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -186,7 +186,7 @@ const SocialPage: React.FC = () => {
             : c
         ));
       }
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   // 关注
@@ -201,7 +201,7 @@ const SocialPage: React.FC = () => {
       if (data.success) {
         message.success(data.data.isFollowing ? '关注成功' : '已取消关注');
       }
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const getRoleTag = (role: string) => {

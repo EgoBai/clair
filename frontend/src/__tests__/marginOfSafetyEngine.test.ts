@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MarginOfSafetyEngine } from '../utils/marginOfSafetyEngine';
-import type { StockValuation } from '../utils/marginOfSafetyEngine';
+import { MarginOfSafetyEngine, type StockValuation } from '../utils/marginOfSafetyEngine';
 
 describe('MarginOfSafetyEngine', () => {
   const engine = new MarginOfSafetyEngine();

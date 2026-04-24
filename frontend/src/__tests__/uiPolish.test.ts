@@ -90,7 +90,7 @@ describe('UI Polish Utilities', () => {
 
     it('should not animate when from equals to', async () => {
       const mod = await import('../utils/uiPolish');
-      const mockEl = { textContent: '5', style: {} as CSSStyleDeclaration, setAttribute: () => {  } as unknown as HTMLElement;
+      const mockEl = { textContent: '5', style: {} as CSSStyleDeclaration, setAttribute: () => {} } as unknown as HTMLElement;
       // Should not throw
       mod.animateBadge(mockEl, 5, 5);
       expect(mockEl.textContent).toBe('5');

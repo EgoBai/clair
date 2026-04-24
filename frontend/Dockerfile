@@ -1,31 +1,45 @@
-# 前端Dockerfile
+# Frontend Dockerfile - Production multi-stage build
 FROM node:18-alpine AS builder
+
+LABEL stage=builder
 
 WORKDIR /app
 
-# 复制package文件
+# Copy package files
 COPY package*.json ./
 
-# 安装依赖
+# Install dependencies
 RUN npm ci
 
-# 复制源代码
+# Copy source code
 COPY . .
 
-# 构建应用
+# Build the app
 RUN npm run build
 
-# 生产阶段
+# Production stage with nginx
 FROM nginx:alpine
 
-# 复制nginx配置
+# Security: remove default nginx config
+RUN rm -rf /etc/nginx/conf.d/default.conf
+
+# Copy nginx config
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# 复制构建产物
-COPY --from=builder /app/build /usr/share/nginx/html
+# Copy build artifacts
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# 暴露端口
+# Create non-root user (nginx user already exists in nginx:alpine)
+RUN chown -R nginx:nginx /usr/share/nginx/html
+
+USER nginx
+
+# Expose port
 EXPOSE 3000
 
-# 启动nginx
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+
+# Start nginx
 CMD ["nginx", "-g", "daemon off;"]

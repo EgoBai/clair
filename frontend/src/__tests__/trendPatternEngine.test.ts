@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TrendPatternEngine } from '../utils/trendPatternEngine';
-import type { CandleData } from '../utils/trendPatternEngine';
+import { TrendPatternEngine, type CandleData } from '../utils/trendPatternEngine';
 
 describe('TrendPatternEngine', () => {
   let engine: TrendPatternEngine;

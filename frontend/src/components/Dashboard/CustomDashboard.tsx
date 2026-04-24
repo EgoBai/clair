@@ -59,7 +59,7 @@ const CustomDashboard: React.FC<CustomDashboardProps> = ({
     if (saved && !initialWidgets) {
       try {
         setWidgets(JSON.parse(saved));
-      } catch {}
+      } catch { /* ignore */ }
     }
   }, [initialWidgets]);
 

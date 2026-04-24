@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OfflineMessageQueue, MessageDeduplicator } from '../hooks/useWSNotification';
-import type { PushMessage } from '../hooks/useWSNotification';
+import { OfflineMessageQueue, MessageDeduplicator, type PushMessage } from '../hooks/useWSNotification';
 
 function createMessage(overrides: Partial<PushMessage> = {}): PushMessage {
   return {

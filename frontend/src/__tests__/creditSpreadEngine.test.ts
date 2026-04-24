@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CreditSpreadEngine } from '../utils/creditSpreadEngine';
-import type { CreditSpread } from '../utils/creditSpreadEngine';
+import { CreditSpreadEngine, type CreditSpread } from '../utils/creditSpreadEngine';
 
 describe('信用利差分析引擎', () => {
   const engine = new CreditSpreadEngine();

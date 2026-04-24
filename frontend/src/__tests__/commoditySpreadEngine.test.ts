@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CommoditySpreadEngine } from '../utils/commoditySpreadEngine';
-import type { CommodityPrice } from '../utils/commoditySpreadEngine';
+import { CommoditySpreadEngine, type CommodityPrice } from '../utils/commoditySpreadEngine';
 
 describe('大宗商品价差引擎', () => {
   const engine = new CommoditySpreadEngine();

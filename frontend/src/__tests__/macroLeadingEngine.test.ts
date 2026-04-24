@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MacroIndicatorEngine } from '../utils/macroLeadingEngine';
-import type { MacroIndicator, MacroSignal } from '../utils/macroLeadingEngine';
+import { MacroIndicatorEngine, type MacroIndicator, type MacroSignal } from '../utils/macroLeadingEngine';
 
 describe('宏观经济先行指标引擎', () => {
   const engine = new MacroIndicatorEngine();

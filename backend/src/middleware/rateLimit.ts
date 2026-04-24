@@ -1,9 +1,13 @@
 /**
  * 限流中间件
  * 基于内存的滑动窗口限流，防止API滥用
+ * 支持通用限流、认证限流、严格限流等多级策略
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('RateLimit');
 
 interface RateLimitEntry {
   count: number;
@@ -125,5 +129,38 @@ export const syncRateLimit = rateLimit({
   windowMs: 60000,
   max: 5,
   message: '数据同步请求过于频繁，请稍后再试',
+  skipPaths: [],
+});
+
+/**
+ * 登录限流（严格 — 防止暴力破解）
+ * IP级别：10次/分钟
+ */
+export const loginRateLimit = rateLimit({
+  windowMs: 60000,
+  max: 10,
+  message: '登录请求过于频繁，请稍后再试',
+  skipPaths: [],
+});
+
+/**
+ * 注册限流（严格 — 防止滥用注册）
+ * IP级别：3次/分钟
+ */
+export const registerRateLimit = rateLimit({
+  windowMs: 60000,
+  max: 3,
+  message: '注册请求过于频繁，请稍后再试',
+  skipPaths: [],
+});
+
+/**
+ * Token刷新限流
+ * IP级别：5次/分钟
+ */
+export const tokenRefreshRateLimit = rateLimit({
+  windowMs: 60000,
+  max: 5,
+  message: 'Token刷新请求过于频繁',
   skipPaths: [],
 });

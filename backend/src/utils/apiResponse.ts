@@ -130,11 +130,19 @@ export function sendServiceUnavailable(res: Response, message = '服务暂不可
 /**
  * 包装异步路由处理器，自动捕获异常
  * 用法: router.get('/path', asyncHandler(async (req, res) => { ... }))
+ * 支持返回 Promise<void> 和普通返回值（兼容 queryCache 回调）
  */
 export function asyncHandler(
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+  fn: (req: Request, res: Response, next: NextFunction) => void
 ) {
   return (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    try {
+      const result = fn(req, res, next);
+      if (result instanceof Promise) {
+        result.catch(next);
+      }
+    } catch (error) {
+      next(error);
+    }
   };
 }

@@ -141,14 +141,14 @@ export function useMemoryMonitor(intervalMs: number = 5000): {
   });
 
   useEffect(() => {
-    const perf = performance as any;
+    const perf = performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number } };
     if (!perf.memory) {
       setMemory(prev => ({ ...prev, isSupported: false }));
       return;
     }
 
     const update = () => {
-      const mem = perf.memory;
+      const mem = perf.memory!;
       setMemory({
         usedJSHeapSize: mem.usedJSHeapSize,
         totalJSHeapSize: mem.totalJSHeapSize,

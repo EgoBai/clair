@@ -2,8 +2,7 @@
  * 交易成本分析引擎测试
  */
 import { describe, it, expect } from 'vitest';
-import { TradeCostEngine } from '../utils/tradeCostEngineV3';
-import type { TradeExecution } from '../utils/tradeCostEngineV3';
+import { TradeCostEngine, type TradeExecution } from '../utils/tradeCostEngineV3';
 
 describe('TradeCostEngine', () => {
   const engine = new TradeCostEngine();

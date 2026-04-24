@@ -18,7 +18,7 @@ const ThrowError: React.FC<{ shouldThrow?: boolean }> = ({ shouldThrow = true })
 
 describe('ErrorBoundary', () => {
   beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => { );
+    vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   it('正常渲染子组件', () => {

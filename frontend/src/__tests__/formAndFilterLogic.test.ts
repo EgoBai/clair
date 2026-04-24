@@ -243,7 +243,9 @@ describe('Data Filter & Query Logic', () => {
 
     it('按名称排序', () => {
       const sorted = sortStocks(sampleData, 'name', 'asc');
-      expect(sorted[0].name < sorted[1].name).toBe(true);
+      for (let i = 1; i < sorted.length; i++) {
+        expect(sorted[i].name.localeCompare(sorted[i - 1].name)).toBeGreaterThanOrEqual(0);
+      }
     });
 
     it('不应修改原数组', () => {

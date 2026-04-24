@@ -342,14 +342,14 @@ describe('Enhanced Form Validation', () => {
 
   describe('Debounce', () => {
     it('should create a function', () => {
-      const fn = debounce(() => { , 100);
+      const fn = debounce(() => {}, 100);
       expect(typeof fn).toBe('function');
     });
   });
 
   describe('Throttle', () => {
     it('should create a function', () => {
-      const fn = throttle(() => { , 100);
+      const fn = throttle(() => {}, 100);
       expect(typeof fn).toBe('function');
     });
   });

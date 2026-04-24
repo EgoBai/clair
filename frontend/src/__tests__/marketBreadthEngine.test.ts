@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MarketBreadthEngine } from '../utils/marketBreadthEngine';
-import type { BreadthData } from '../utils/marketBreadthEngine';
+import { MarketBreadthEngine, type BreadthData } from '../utils/marketBreadthEngine';
 
 describe('MarketBreadthEngine', () => {
   let engine: MarketBreadthEngine;

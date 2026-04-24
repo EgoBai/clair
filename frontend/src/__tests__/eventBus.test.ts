@@ -133,8 +133,8 @@ describe('EventBus', () => {
 
   it('should get stats', () => {
     const bus = new EventBus();
-    bus.on('a', () => { );
-    bus.on('b', () => { );
+    bus.on('a', () => {});
+    bus.on('b', () => {});
     bus.emit('a', 1);
     bus.emit('b', 2);
     const stats = bus.getStats();
@@ -145,7 +145,7 @@ describe('EventBus', () => {
 
   it('should clear all', () => {
     const bus = new EventBus();
-    bus.on('test', () => { );
+    bus.on('test', () => {});
     bus.emit('test', 1);
     bus.clear();
     expect(bus.getStats().totalEvents).toBe(0);

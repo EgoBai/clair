@@ -43,7 +43,7 @@ describe('图表主题系统扩展', () => {
     });
 
     it('subscribe 返回取消订阅函数', () => {
-      const unsub = chartThemeManager.subscribe(() => { );
+      const unsub = chartThemeManager.subscribe(() => {});
       expect(typeof unsub).toBe('function');
       unsub();
     });

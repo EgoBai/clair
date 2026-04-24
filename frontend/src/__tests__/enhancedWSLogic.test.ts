@@ -167,28 +167,28 @@ describe('Enhanced WebSocket Logic', () => {
 
     it('should track subscriptions', () => {
       const mgr = new SubscriptionManager();
-      mgr.subscribe('quote:600519', 'client1', () => { );
+      mgr.subscribe('quote:600519', 'client1', () => {});
       expect(mgr.getSubscribers('quote:600519')).toBe(1);
     });
 
     it('should handle multiple subscribers', () => {
       const mgr = new SubscriptionManager();
-      mgr.subscribe('quote:600519', 'client1', () => { );
-      mgr.subscribe('quote:600519', 'client2', () => { );
+      mgr.subscribe('quote:600519', 'client1', () => {});
+      mgr.subscribe('quote:600519', 'client2', () => {});
       expect(mgr.getSubscribers('quote:600519')).toBe(2);
     });
 
     it('should unsubscribe correctly', () => {
       const mgr = new SubscriptionManager();
-      mgr.subscribe('quote:600519', 'client1', () => { );
-      mgr.subscribe('quote:600519', 'client2', () => { );
+      mgr.subscribe('quote:600519', 'client1', () => {});
+      mgr.subscribe('quote:600519', 'client2', () => {});
       mgr.unsubscribe('quote:600519', 'client1');
       expect(mgr.getSubscribers('quote:600519')).toBe(1);
     });
 
     it('should remove channel when empty', () => {
       const mgr = new SubscriptionManager();
-      mgr.subscribe('quote:600519', 'client1', () => { );
+      mgr.subscribe('quote:600519', 'client1', () => {});
       mgr.unsubscribe('quote:600519', 'client1');
       expect(mgr.getChannels().length).toBe(0);
     });
@@ -203,9 +203,9 @@ describe('Enhanced WebSocket Logic', () => {
 
     it('should list all channels', () => {
       const mgr = new SubscriptionManager();
-      mgr.subscribe('quote:600519', 'c1', () => { );
-      mgr.subscribe('quote:000858', 'c1', () => { );
-      mgr.subscribe('depth:600519', 'c1', () => { );
+      mgr.subscribe('quote:600519', 'c1', () => {});
+      mgr.subscribe('quote:000858', 'c1', () => {});
+      mgr.subscribe('depth:600519', 'c1', () => {});
       expect(mgr.getChannels().length).toBe(3);
     });
   });

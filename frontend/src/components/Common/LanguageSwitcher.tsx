@@ -4,9 +4,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Dropdown, Button, Badge, Tooltip } from 'antd';
+import { Dropdown, Button, Badge, Tooltip, type MenuProps } from 'antd';
 import { GlobalOutlined } from '@ant-design/icons';
-import type { MenuProps } from 'antd';
 import { useI18n, Locale } from '../../i18n';
 
 export interface LocaleOption {

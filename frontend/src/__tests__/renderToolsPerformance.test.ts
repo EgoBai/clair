@@ -287,7 +287,7 @@ describe('前端渲染工具与性能', () => {
   describe('节流', () => {
     it('间隔内不执行', () => {
       const results: boolean[] = [];
-      const th = createThrottle(() => { , 100);
+      const th = createThrottle(() => {}, 100);
       results.push(th.call());
       results.push(th.call());
       expect(results).toEqual([true, false]);

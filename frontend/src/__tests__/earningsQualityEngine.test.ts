@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EarningsQualityEngine } from '../utils/earningsQualityEngine';
-import type { EarningsData } from '../utils/earningsQualityEngine';
+import { EarningsQualityEngine, type EarningsData } from '../utils/earningsQualityEngine';
 
 describe('EarningsQualityEngine', () => {
   const engine = new EarningsQualityEngine();

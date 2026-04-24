@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CapitalFlowDepthEngine } from '../utils/capitalFlowDepth';
-import type { TradeData } from '../utils/capitalFlowDepth';
+import { CapitalFlowDepthEngine, type TradeData } from '../utils/capitalFlowDepth';
 
 describe('CapitalFlowDepthEngine', () => {
   let engine: CapitalFlowDepthEngine;

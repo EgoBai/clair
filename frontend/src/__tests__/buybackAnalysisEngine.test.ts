@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BuybackEngine } from '../utils/buybackAnalysisEngine';
-import type { BuybackPlan } from '../utils/buybackAnalysisEngine';
+import { BuybackEngine, type BuybackPlan } from '../utils/buybackAnalysisEngine';
 
 describe('回购分析引擎', () => {
   const engine = new BuybackEngine();

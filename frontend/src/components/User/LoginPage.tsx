@@ -25,8 +25,8 @@ export function LoginPage({ onLogin, onForgotPassword, onRegister }: {
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setError(null);
 
     if (!validateEmail(form.email)) {
@@ -49,7 +49,7 @@ export function LoginPage({ onLogin, onForgotPassword, onRegister }: {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSubmit(e as any);
+    if (e.key === 'Enter') handleSubmit(e as unknown as React.FormEvent);
   };
 
   return (

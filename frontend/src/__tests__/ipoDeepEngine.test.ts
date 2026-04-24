@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IPOAnalysisEngine } from '../utils/ipoDeepEngine';
-import type { IPORecord } from '../utils/ipoDeepEngine';
+import { IPOAnalysisEngine, type IPORecord } from '../utils/ipoDeepEngine';
 
 describe('IPO深度分析引擎', () => {
   const engine = new IPOAnalysisEngine();

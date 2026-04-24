@@ -185,9 +185,9 @@ export default function ScreenerPage() {
   };
 
   // 更新条件
-  const updateCondition = (index: number, key: string, value: any) => {
+  const updateCondition = (index: number, key: keyof ScreenerCondition, value: ScreenerCondition[keyof ScreenerCondition]) => {
     const newConditions = [...conditions];
-    (newConditions[index] as any)[key] = value;
+    newConditions[index] = { ...newConditions[index], [key]: value };
     setConditions(newConditions);
   };
 

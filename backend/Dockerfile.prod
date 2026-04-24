@@ -1,48 +1,47 @@
-# 后端多阶段构建 Dockerfile
+# Backend production multi-stage Dockerfile
 FROM node:18-alpine AS builder
 
+LABEL stage=builder
+
 WORKDIR /app
 
-# 安装依赖
+# Copy package files and install ALL deps (needed for build)
 COPY package*.json ./
-RUN npm ci --only=production && \
-    cp -R node_modules /prod_node_modules && \
-    npm ci
+RUN npm ci
 
-# 复制源代码
+# Copy source and build
 COPY . .
+RUN npm run build
 
-# 构建 TypeScript
-RUN npm run build 2>/dev/null || echo "Build step completed"
+# Production stage
+FROM node:18-alpine
 
-# 生产阶段
-FROM node:18-alpine AS production
+# Security: use existing node user
+RUN apk add --no-cache tzdata wget
 
-# 安全：创建非root用户
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -S appuser -u 1001 -G appgroup
+ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
-# 从builder复制生产依赖和构建产物
-COPY --from=builder /prod_node_modules ./node_modules
+# Copy only production artifacts
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src ./src
-COPY --from=builder /app/package.json ./
 
-# 切换到非root用户
+# Create non-root user
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -S appuser -u 1001 -G appgroup && \
+    chown -R appuser:appgroup /app
+
 USER appuser
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health/simple || exit 1
+EXPOSE 4000
 
-# 暴露端口
-EXPOSE 3001
-
-# 环境变量
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=4000
 
-# 启动应用
-CMD ["node", "dist/index.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1
+
+CMD ["node", "dist/app.js"]

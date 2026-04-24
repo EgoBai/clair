@@ -130,7 +130,7 @@ describe('useKeyboardShortcuts', () => {
         meta: false,
         shift: false,
         alt: false,
-        action: () => { ,
+        action: () => {},
         description: '聚焦搜索',
         preventDefault: true,
       };

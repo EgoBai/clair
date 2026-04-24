@@ -64,7 +64,7 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
   const [currentSrc, setCurrentSrc] = useState(src);
   const [hasWebPSupport, setHasWebPSupport] = useState(false);
   const [hasAVIFSupport, setHasAVIFSupport] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
+  const _imgRef = useRef<HTMLImageElement>(null);
 
   // 检测浏览器支持的图片格式
   useEffect(() => {
@@ -215,7 +215,6 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
 
       {/* 图片组件 */}
       <ResponsiveImage
-        ref={imgRef}
         src={currentSrc}
         alt={alt}
         placeholder={generatePlaceholder()}
@@ -223,7 +222,7 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
         onError={handleLoadEnd}
         style={{ width: '100%', height: 'auto' }}
         className={mergedClassName}
-        {...props as any}
+        {...props as Record<string, unknown>}
       />
 
       {/* 加载遮罩 */}
@@ -416,7 +415,7 @@ export function withOptimizedImage<P extends { src: string; alt: string }>(
         src={props.src}
         alt={props.alt}
         {...options}
-        {...props as any}
+        {...props as Record<string, unknown>}
       />
     );
   };
