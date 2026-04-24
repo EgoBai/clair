@@ -7,12 +7,15 @@
 // ============== 基础统计工具 ==============
 
 function mean(arr: number[]): number {
+  if (arr.length === 0) return 0;
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
 function std(arr: number[], ddof: number = 1): number {
+  const n = arr.length;
+  if (n <= 1) return 0;
   const m = mean(arr);
-  const variance = arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - ddof);
+  const variance = arr.reduce((s, v) => s + (v - m) ** 2, 0) / (n - ddof);
   return Math.sqrt(variance);
 }
 
@@ -312,7 +315,7 @@ export function riskReport(returns: number[], prices?: number[]): {
   riskScore: number;
   maxDrawdown?: { maxDD: number; duration: number };
 } {
-  const report: any = {
+  const report = {
     var95: parametricVaR(returns, 0.95),
     var99: parametricVaR(returns, 0.99),
     cvar95: calcCVaR(returns, 0.95),

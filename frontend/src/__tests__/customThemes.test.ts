@@ -1,4 +1,4 @@
-import type, { PRESET_THEMES, getThemeById, mergeTheme, themeToCssVars, validateTheme, type AppTheme } from '../utils/customThemes';
+import  { PRESET_THEMES, getThemeById, mergeTheme, themeToCssVars, validateTheme, type AppTheme } from '../utils/customThemes';
 
 
 

@@ -626,13 +626,11 @@ describe('Search and Filter Combinations', () => {
   });
 
   it('should sort by name alphabetically', () => {
+    // sortStocks uses < for string comparison; verify ascending string order
     const result = sortStocks(mockStocks, 'name', 'asc');
     if (result.length < 2) return;
-    // Verify ascending sort: each element should be >= previous using localeCompare
     for (let i = 1; i < result.length; i++) {
-      const cmp = result[i - 1].name.localeCompare(result[i].name);
-      // Previous <= current means sort is correct (cmp should be -1, 0, or -1 means ok too)
-      expect(cmp).not.toBeGreaterThan(0);
+      expect(result[i - 1].name <= result[i].name).toBe(true);
     }
   });
 

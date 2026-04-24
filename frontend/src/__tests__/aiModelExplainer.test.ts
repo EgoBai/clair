@@ -1,4 +1,4 @@
-import type, { generateModelExplanation, generateStrategyInsight, exportReportToCSV, generateShareSummary, type ModelExplanation } from '../utils/aiModelExplainer';
+import  { generateModelExplanation, generateStrategyInsight, exportReportToCSV, generateShareSummary, type ModelExplanation } from '../utils/aiModelExplainer';
 
 
 

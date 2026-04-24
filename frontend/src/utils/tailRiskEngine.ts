@@ -127,8 +127,10 @@ export function analyzeTailRisk(
 function computeTailMetrics(returns: number[]): TailRiskMetrics {
   const sorted = [...returns].sort((a, b) => a - b);
   const n = sorted.length;
+  if (n === 0) return { var95: 0, var99: 0, cvar95: 0, cvar99: 0, maxDrawdown: 0, tailRisk: 0, skewness: 0, kurtosis: 0, expectedShortfall: 0 };
   const mean = sorted.reduce((s, v) => s + v, 0) / n;
-  const std = Math.sqrt(sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+  const stdVal = Math.sqrt(sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+  const stdSafe = stdVal === 0 ? 1 : stdVal;
 
   const percentile = (p: number) => sorted[Math.floor(n * (1 - p))];
 
@@ -139,16 +141,20 @@ function computeTailMetrics(returns: number[]): TailRiskMetrics {
   const cvar95 = tail95.length > 0 ? tail95.reduce((s, v) => s + v, 0) / tail95.length : var95;
   const cvar99 = tail99.length > 0 ? tail99.reduce((s, v) => s + v, 0) / tail99.length : var99;
 
-  // 最大回撤
-  let peak = sorted[n - 1];
+  // 最大回撤 — 使用原始顺序（时间序），注意 returns 是收益率而非价格
+  // 使用累计收益率序列计算回撤
+  let cumPeak = 0;
   let maxDD = 0;
-  for (let i = n - 2; i >= 0; i--) {
-    peak = Math.max(peak, sorted[i]);
-    maxDD = Math.min(maxDD, sorted[i] - peak);
+  let cum = 0;
+  for (const r of returns) {
+    cum += r;
+    if (cum > cumPeak) cumPeak = cum;
+    const dd = cum - cumPeak;
+    if (dd < maxDD) maxDD = dd;
   }
 
-  const skewness = sorted.reduce((s, r) => s + ((r - mean) / std) ** 3, 0) / n;
-  const kurtosis = sorted.reduce((s, r) => s + ((r - mean) / std) ** 4, 0) / n;
+  const skewness = sorted.reduce((s, r) => s + ((r - mean) / stdSafe) ** 3, 0) / n;
+  const kurtosis = sorted.reduce((s, r) => s + ((r - mean) / stdSafe) ** 4, 0) / n;
 
   return {
     var95, var99, cvar95, cvar99,

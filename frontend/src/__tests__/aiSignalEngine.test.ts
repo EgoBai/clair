@@ -1,4 +1,4 @@
-import type, { generateStockSignal, rankStocks, technicalSignals, detectConsensus, type SignalComponent, type StockSignal } from '../utils/aiSignalEngine';
+import  { generateStockSignal, rankStocks, technicalSignals, detectConsensus, type SignalComponent, type StockSignal } from '../utils/aiSignalEngine';
 
 
 
