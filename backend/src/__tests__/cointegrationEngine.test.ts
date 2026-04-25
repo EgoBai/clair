@@ -238,7 +238,7 @@ describe('协整分析与配对价差引擎', () => {
       const x = Array.from({ length: 30 }, (_, i) => Math.sin(i / 3) * 10 + 50);
       const y = x.map(v => v * 2 + 5 + (Math.random() - 0.5) * 0.5);
       const result = testCointegration(y, x)!;
-      expect(result.confidence).toBeOneOf(['high', 'medium', 'low']);
+      expect(['high', 'medium', 'low']).toContain(result.confidence);
     });
 
     it('序列二比序列一短时以短者为准', () => {

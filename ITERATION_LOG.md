@@ -7146,3 +7146,19 @@
 - 测试文件: 1478
 - 测试数: ~32,632 (+31 tests in same file)
 - 全量通过率: **1478/1478 (100%)**, 32632/32632 (100%)
+
+### Round 950 (2026-04-25)
+- **扩展**: earningsSurpriseEngine.test.ts — 财报异动检测引擎从 12 到 56 个测试
+  - detectEarningsSurprise: 营收大增/营收下滑/阈值未达/毛利率提升/下降/±5不触发/现金流背离/正常现金流/净利润0不触发/EPS超阈值/阈值未达/EPS=0/营收=0/未变化/score范围/多信号/百分比detail/positive类型/negative类型/平衡neutral/信号结构
+  - calculateFinancialHealth: A级100分/D级警告/ROE10-15/ROE<5警告/ROE5-10/毛利率<20/毛利率20-40/流动比率<1/流动比率1-1.5/负债>70/负债50-70/B级/C级
+  - calculateGrowthRatios: 增长率/负增长/营收0/EPS0/资产0/四舍五入
+  - calculateQualityScores: 上限/低ROE/低负债/高流动/各组件上限
+  - detectMultiPeriodTrend: 稳定/改善/恶化/不足3份/空数组/高一致性
+  - generateReportSummary: 包含代码和评级/ROE亮点/弱财报风险/高流动比率/低负债
+- 全量测试结果: 1478/1478 文件通过, 32632/32632 测试通过(同一文件), 56/56 ✅
+- 轮次状态: 950/1000 (剩余50轮)
+
+### 累计 (Round 950)
+- 测试文件: 1478
+- 测试数: ~32,632 (+44 tests in same file)
+- 全量通过率: **1478/1478 (100%)**, 32632/32632 (100%)
