@@ -387,7 +387,7 @@ export function regimeWarningSignals(
   if (maxTransitionRisk > 0.3) {
     const targetRegime = Object.entries(transitionRisk).find(([, v]) => v === maxTransitionRisk);
     if (targetRegime) {
-      warning += ` 警惕转向${regimes[parseInt(targetRegime[0])]?.name}`;
+      warning += ` 警惕转向${regimes[parseInt(targetRegime[0], 10)]?.name}`;
     }
   }
 

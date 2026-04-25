@@ -254,7 +254,7 @@ export class ExportScheduler {
     
     const next = new Date();
     const currentDay = next.getDay();
-    const targetDay = parseInt(dayOfWeek);
+    const targetDay = parseInt(dayOfWeek, 10);
     
     let daysUntilTarget = targetDay - currentDay;
     if (daysUntilTarget <= 0) {
@@ -275,7 +275,7 @@ export class ExportScheduler {
     const [hours, minutes] = time.split(':').map(Number);
     
     const next = new Date();
-    const targetDay = parseInt(dayOfMonth);
+    const targetDay = parseInt(dayOfMonth, 10);
     
     next.setDate(targetDay);
     next.setHours(hours, minutes, 0, 0);
@@ -301,8 +301,8 @@ export class ExportScheduler {
     const next = new Date();
     
     // 简单实现：只处理具体数值
-    if (minute !== '*') next.setMinutes(parseInt(minute));
-    if (hour !== '*') next.setHours(parseInt(hour));
+    if (minute !== '*') next.setMinutes(parseInt(minute, 10));
+    if (hour !== '*') next.setHours(parseInt(hour, 10));
     
     if (next <= new Date()) {
       next.setDate(next.getDate() + 1);

@@ -571,7 +571,7 @@ export function auditPageAccessibility(): A11yIssue[] {
   const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
   let lastLevel = 0;
   headings.forEach((h) => {
-    const level = parseInt(h.tagName[1]);
+    const level = parseInt(h.tagName[1], 10);
     if (level - lastLevel > 1 && lastLevel > 0) {
       issues.push({
         type: 'warning',

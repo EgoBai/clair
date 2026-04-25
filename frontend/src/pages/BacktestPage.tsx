@@ -96,8 +96,8 @@ function BacktestPage() {
       } else {
         setError(response.error || '回测失败');
       }
-    } catch (err: any) {
-      setError(err.message || '回测执行出错');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '回测执行出错');
     } finally {
       setLoading(false);
     }

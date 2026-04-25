@@ -192,8 +192,8 @@ export default function ScreenerPage() {
       });
       setResults(result.stocks);
       setPagination(result.pagination);
-    } catch (err: any) {
-      message.error(err.message || '筛选失败');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '筛选失败');
     } finally {
       setLoading(false);
     }
@@ -217,8 +217,8 @@ export default function ScreenerPage() {
       setPagination(result.pagination);
       setActiveTab('custom');
       message.success(`"${template.name}" 筛选完成`);
-    } catch (err: any) {
-      message.error(err.message || '筛选失败');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '筛选失败');
     } finally {
       setLoading(false);
     }
@@ -238,8 +238,8 @@ export default function ScreenerPage() {
       setSaveModalOpen(false);
       saveForm.resetFields();
       message.success('模板保存成功');
-    } catch (err: any) {
-      message.error(err.message || '保存失败');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '保存失败');
     }
   };
 
@@ -249,8 +249,8 @@ export default function ScreenerPage() {
       await deleteTemplate(id);
       setCustoms(customs.filter((t) => t.id !== id));
       message.success('模板已删除');
-    } catch (err: any) {
-      message.error(err.message || '删除失败');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '删除失败');
     }
   };
 

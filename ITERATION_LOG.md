@@ -7341,3 +7341,50 @@
 
 ### 轮次状态
 - 959/1000 (剩余41轮)
+
+---
+
+## Round 960 (2026-04-25) — marketRegimeEngine 测试重写 + 扩展 (flaky test fix)
+
+### 改动内容
+**marketRegimeEngine.test.ts (8→34 tests):**
+- 修复 flaky test: `makeSidewaysPrices` 随机漂移导致偶然检测为 'bear'
+  - 改用 `base + sin()*3 + small noise` 的确定模式确保始终为 sideways
+- 新增边界条件测试:
+  - 空数组/单元素数组应返回安全值
+  - 所有值相同的价格 (flatPrices)
+  - 极小数据集不应崩溃（全部引擎方法）
+  - 不同 lookback 周期引擎正常工作
+  - 中间位置检测 (弱上涨趋势→transition)
+- 趋势强度验证:
+  - 强牛市趋势强度 > 20
+  - 强熊市趋势强度 < -20
+- 波动率引擎扩展:
+  - 高波动率应被识别 (high/extreme)
+  - 低波动率应被识别
+  - 数据不足时返回 normal
+  - 数值合理性验证
+- 动量引擎扩展:
+  - 加速上涨时应被识别 (short momentum > 0)
+  - 平稳趋势检测 (stable/decelerating)
+  - 动量背离正确标记
+  - short/medium/long momentum 字段验证
+- Risk Appetite 引擎扩展:
+  - 股票强于债券应为 risk_on
+  - 高波动率+债券强应触发逃向质量
+  - score 范围 [-100, 100] 边界
+- Transition Probability 矩阵:
+  - 验证所有转换字段完整性
+  - bull→bull 转换概率
+- generateReport 扩展:
+  - 熊市→cash 信号验证
+  - 震荡市场→moderate 信号验证
+  - 报告字段完整性
+
+### 全量测试结果
+- 前端: **852/852 文件通过, 17728/17728 测试通过 ✅**
+- 后端: **625/625 文件通过, 15195/15195 测试通过 ✅**
+- 合计: **1477/1477 文件通过, 32923/32923 测试通过, 100% ✅**
+
+### 轮次状态
+- **960/1000 (剩余40轮)**

@@ -539,7 +539,7 @@ const AlertsPage: React.FC = () => {
                   <input
                     type="number"
                     value={newRule.threshold}
-                    onChange={e => setNewRule({ ...newRule, threshold: parseFloat(e.target.value) || 0 })}
+                    onChange={e => { const val = parseFloat(e.target.value); setNewRule({ ...newRule, threshold: Number.isFinite(val) ? val : 0 }); }}
                     style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #d9d9d9', boxSizing: 'border-box' }}
                   />
                 </div>

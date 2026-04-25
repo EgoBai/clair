@@ -296,8 +296,8 @@ export function groupTradesByMonth(trades: TradeRecord[]): MonthlyReturns[] {
 
   return Array.from(monthly.entries())
     .map(([key, val]) => ({
-      year: parseInt(key.split('-')[0]),
-      month: parseInt(key.split('-')[1]),
+      year: parseInt(key.split('-')[0], 10),
+      month: parseInt(key.split('-')[1], 10),
       return: val.pnl,
       trades: val.trades,
     }))

@@ -91,7 +91,7 @@ export function sealStrengthScore(stock: LimitData): number {
   score += stock.sealVolume > 1000000 ? 15 : stock.sealVolume > 500000 ? 10 : 5;
   score += stock.prevLimitDays > 0 ? stock.prevLimitDays * 5 : 0;
   // 封板时间越早越好
-  const hour = parseInt(stock.sealTime.split(':')[0]);
+  const hour = parseInt(stock.sealTime.split(':')[0], 10);
   score += hour < 10 ? 15 : hour < 11 ? 10 : hour < 14 ? 5 : 0;
   return Math.max(0, Math.min(100, score));
 }

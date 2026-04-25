@@ -246,7 +246,7 @@ export const PerformanceDashboard: React.FC = () => {
             max="10000"
             step="1000"
             value={refreshInterval}
-            onChange={(e) => setRefreshInterval(parseInt(e.target.value))}
+            onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))}
             style={{ marginLeft: '8px', width: '100px' }}
           />
           <span style={{ marginLeft: '8px' }}>{refreshInterval / 1000}s</span>

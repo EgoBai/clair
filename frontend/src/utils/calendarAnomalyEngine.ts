@@ -93,7 +93,7 @@ export function analyzeMonthEffect(returns: DailyReturn[]): MonthEffect[] {
   const byMonthYear = new Map<string, number[]>();
 
   for (const r of returns) {
-    const month = parseInt(r.date.split('-')[1]);
+    const month = parseInt(r.date.split('-')[1], 10);
     const year = r.date.split('-')[0];
     if (!byMonth.has(month)) byMonth.set(month, []);
     byMonth.get(month)!.push(r.return);
@@ -106,7 +106,7 @@ export function analyzeMonthEffect(returns: DailyReturn[]): MonthEffect[] {
   // 计算每月年化收益
   const monthlyReturns = new Map<number, number[]>();
   for (const [key, rets] of byMonthYear) {
-    const month = parseInt(key.split('-')[1]);
+    const month = parseInt(key.split('-')[1], 10);
     const monthReturn = rets.reduce((a, b) => a + b, 0);
     if (!monthlyReturns.has(month)) monthlyReturns.set(month, []);
     monthlyReturns.get(month)!.push(monthReturn);
@@ -205,7 +205,7 @@ export function analyzeTurnOfMonthEffect(returns: DailyReturn[]): TurnOfMonthEff
   const groups: Record<string, number[]> = { start: [], mid: [], end: [] };
 
   for (const r of returns) {
-    const day = parseInt(r.date.split('-')[2]);
+    const day = parseInt(r.date.split('-')[2], 10);
     if (day <= 5) groups.start.push(r.return);
     else if (day >= 25) groups.end.push(r.return);
     else groups.mid.push(r.return);

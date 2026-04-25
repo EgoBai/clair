@@ -260,8 +260,9 @@ export const useStockStats = () => {
     risingStocks: stocks.filter(s => s.changePercent > 0).length,
     fallingStocks: stocks.filter(s => s.changePercent < 0).length,
     totalMarketCap: stocks.reduce((sum, stock) => {
-      const marketCap = parseFloat(stock.marketCap.replace('亿', '')) || 0;
-      return sum + marketCap;
+      const marketCap = parseFloat(stock.marketCap.replace('亿', ''));
+      const marketCapVal = Number.isFinite(marketCap) ? marketCap : 0;
+      return sum + marketCapVal;
     }, 0),
     averageChange: stocks.length > 0
       ? stocks.reduce((sum, stock) => sum + stock.changePercent, 0) / stocks.length
