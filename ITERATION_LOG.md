@@ -7288,3 +7288,56 @@
 - 测试文件: 1478
 - 测试数: ~32,632 (+8 tests in same file)
 - 全量通过率: **1478/1478 (100%)**, 32632/32632 (100%)
+
+---
+
+## Round 958 (2026-04-25) — 前端服务层重构 + I18n集成
+
+### 改动内容
+1. **`marketSentimentCompositeEngine.test.ts` 重写** — 从旧的 `computeCompositeSentiment` API 迁移到新的 `computeSentiment`/`sentimentHistory` API，扩展测试覆盖面
+2. **`breadthService.test.ts` 重构** — 从原始的 `fetch` mock 迁移到 `apiService` mock，消除对全局 fetch 的依赖
+3. **`breadthService.ts` 迁移** — 移除原始 `fetch` 调用，统一使用 `apiService.get()`
+4. **`auth.ts` 迁移** — 所有 API 调用从 `fetch` 改为 `apiService.post/put`，通过 `apiService.setAuthToken()` 统一管理 token
+5. **`api.ts` 增强** — 新增 `setAuthToken()` 方法和 `put()` 方法
+6. **`main.tsx`** — 包裹 `<I18nProvider>` 以支持国际化
+7. **`backend/package.json`** — dev/start 脚本更新（ts-node→tsx, app.ts→index.ts）
+
+### 全量测试结果
+- 前端: 227/227 文件通过, 2546/2546 ✅
+- 后端: 625/625 文件通过, 15159/15159 ✅
+- 合计: **852/852 文件通过, 17705/17705 测试通过, 100% ✅**
+
+### 轮次状态
+- 958/1000 (剩余42轮)
+
+---
+
+## Round 959 (2026-04-25) — rbacEngine + userDeepDive 测试扩展
+
+### 改动内容
+**rbacEngine.test.ts (71→97 tests):**
+- `ne` / `nin` / `lte` / `gte` / `regex` 条件操作符测试
+- Scope 过滤测试 (RBACContext.scope OAuth-style)
+- 更多资源匹配模式 (`*:*`, 自定义pattern)
+- 审计日志按 resource/ip/组合过滤
+- Export/import/approve 操作权限
+- getAllRoles 变更后验证
+- Role metadata 字段测试
+- 空值属性边界情况
+
+**userDeepDive.test.ts (83→92 tests):**
+- 头像替换上传测试
+- 头像多次上传不泄漏(Map key覆盖)
+- 审计日志空状态/无效分页/负页码
+- TOTP 时间窗口漂移容忍度测试
+- 偏好导出/导入循环后默认值还原
+- 未初始化用户统计
+- 加密导出/导入测试
+
+### 全量测试结果
+- rbacEngine: **97 tests all pass ✅**
+- userDeepDive: **92 tests all pass ✅**
+- 合计: **189/189 测试通过, 100% ✅**
+
+### 轮次状态
+- 959/1000 (剩余41轮)

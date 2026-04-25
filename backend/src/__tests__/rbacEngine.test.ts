@@ -968,4 +968,365 @@ describe('RBAC权限系统', () => {
       expect(result.evaluatedAt).toBeLessThanOrEqual(Date.now());
     });
   });
+
+  describe('Additional condition operators', () => {
+    it('ne (not equal) operator rejects matching value', () => {
+      engine.addRole({
+        id: 'ne-tester',
+        name: 'NE Tester',
+        permissions: [{
+          id: 'ne-test',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'resource.attributes.status', operator: 'ne', value: 'archived' }],
+        }],
+      });
+      let context: RBACContext = { userId: 'ne1', roles: ['ne-tester'] };
+      const archivedRes: Resource = { type: 'stock', attributes: { status: 'archived' } };
+      expect(engine.checkPermission(context, 'read', archivedRes).allowed).toBe(false);
+
+      const activeRes: Resource = { type: 'stock', attributes: { status: 'active' } };
+      expect(engine.checkPermission(context, 'read', activeRes).allowed).toBe(true);
+    });
+
+    it('nin (not in) operator rejects matching values', () => {
+      engine.addRole({
+        id: 'nin-tester',
+        name: 'NIN Tester',
+        permissions: [{
+          id: 'nin-test',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'resource.attributes.sector', operator: 'nin', value: ['finance', 'energy'] }],
+        }],
+      });
+      let context: RBACContext = { userId: 'nin1', roles: ['nin-tester'] };
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { sector: 'finance' } }).allowed).toBe(false);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { sector: 'energy' } }).allowed).toBe(false);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { sector: 'tech' } }).allowed).toBe(true);
+    });
+
+    it('lte (less than or equal) operator', () => {
+      engine.addRole({
+        id: 'lte-tester',
+        name: 'LTE Tester',
+        permissions: [{
+          id: 'lte-test',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'resource.attributes.price', operator: 'lte', value: 100 }],
+        }],
+      });
+      let context: RBACContext = { userId: 'lte1', roles: ['lte-tester'] };
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 50 } }).allowed).toBe(true);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 100 } }).allowed).toBe(true);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 150 } }).allowed).toBe(false);
+    });
+
+    it('gte (greater than or equal) operator', () => {
+      engine.addRole({
+        id: 'gte-tester',
+        name: 'GTE Tester',
+        permissions: [{
+          id: 'gte-test',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'resource.attributes.price', operator: 'gte', value: 50 }],
+        }],
+      });
+      let context: RBACContext = { userId: 'gte1', roles: ['gte-tester'] };
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 25 } }).allowed).toBe(false);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 50 } }).allowed).toBe(true);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 75 } }).allowed).toBe(true);
+    });
+
+    it('regex operator in conditions', () => {
+      engine.addRole({
+        id: 'regex-tester',
+        name: 'Regex Tester',
+        permissions: [{
+          id: 'regex-test',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'resource.attributes.code', operator: 'regex', value: '^6\\d{5}$' }],
+        }],
+      });
+      let context: RBACContext = { userId: 're1', roles: ['regex-tester'] };
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '600519' } }).allowed).toBe(true);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '000001' } }).allowed).toBe(false);
+    });
+  });
+
+  describe('Scope filtering', () => {
+    it('scope in context can be used in conditions (stored as string field in attributes)', () => {
+      // context.scope is a string[], conditions use field='context.scope' 
+      // which resolves to the full array; use an attribute-based approach instead
+      engine.addRole({
+        id: 'scope-tester',
+        name: 'Scope Tester',
+        permissions: [{
+          id: 'scope-test',
+          resource: 'report',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'context.attributes.scope', operator: 'in', value: ['reports:read', 'reports:*'] }],
+        }],
+      });
+      let context: RBACContext = { userId: 'sc1', roles: ['scope-tester'], attributes: { scope: 'reports:read' } };
+      expect(engine.checkPermission(context, 'read', { type: 'report' }).allowed).toBe(true);
+
+      const noScopeCtx: RBACContext = { userId: 'sc2', roles: ['scope-tester'], attributes: { scope: 'stocks:read' } };
+      expect(engine.checkPermission(noScopeCtx, 'read', { type: 'report' }).allowed).toBe(false);
+
+      const emptyAttrCtx: RBACContext = { userId: 'sc3', roles: ['scope-tester'], attributes: {} };
+      expect(engine.checkPermission(emptyAttrCtx, 'read', { type: 'report' }).allowed).toBe(false);
+    });
+  });
+
+  describe('More resource matching', () => {
+    it('resource with only id (no type) — super admin still has access via *', () => {
+      // Super admin has '*' resource which matches everything regardless of type
+      const context: RBACContext = { userId: 'admin', roles: ['superadmin'] };
+      const result = engine.checkPermission(context, 'read', { type: '', id: 'some-id' });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('prefix pattern matches sub-resources (tested via checkPermission)', () => {
+      // stock:* pattern (trader) should match stock:sh600000 resource type
+      const context: RBACContext = { userId: 'pref1', roles: ['trader'] };
+      const result = engine.checkPermission(context, 'read', { type: 'stock:sh600000' });
+      expect(result.allowed).toBe(true);
+    });
+  });
+
+  describe('More audit log filters', () => {
+    let auditEngine: RBACEngine;
+
+    beforeEach(() => {
+      auditEngine = new RBACEngine();
+      // Trigger some audit entries
+      const ctx: RBACContext = { userId: 'audit1', roles: ['viewer'], ip: '10.0.0.1' };
+      auditEngine.checkPermission(ctx, 'read', { type: 'stock' });
+      auditEngine.checkPermission(ctx, 'read', { type: 'stock' });
+      auditEngine.checkPermission({ ...ctx, userId: 'audit2', ip: '10.0.0.2' }, 'read', { type: 'stock' });
+      auditEngine.checkPermission({ ...ctx, userId: 'audit1', ip: '10.0.0.1' }, 'delete', { type: 'stock' });
+    });
+
+    it('filter audit logs by resource', () => {
+      const logs = auditEngine.getAuditLog({ resource: 'stock' });
+      expect(logs.length).toBeGreaterThanOrEqual(4);
+      logs.forEach(e => expect(e.resource).toBe('stock'));
+    });
+
+    it('filter audit logs by ip not directly supported, check resource+result combo', () => {
+      const logs = auditEngine.getAuditLog({ result: 'deny' });
+      // viewer can read stock (allow), but cannot delete stock (deny)
+      expect(logs.some(e => e.action === 'delete' && e.result === 'deny')).toBe(true);
+    });
+
+    it('combined filters', () => {
+      const logs = auditEngine.getAuditLog({ userId: 'audit1', action: 'read', result: 'allow' });
+      expect(logs.length).toBe(2);
+      logs.forEach(e => {
+        expect(e.userId).toBe('audit1');
+        expect(e.action).toBe('read');
+        expect(e.result).toBe('allow');
+      });
+    });
+  });
+
+  describe('Export/import actions', () => {
+    it('export action through role permission', () => {
+      // analyst has export permission for stock
+      const context: RBACContext = { userId: 'exp1', roles: ['analyst'] };
+      const result = engine.checkPermission(context, 'export', { type: 'stock' });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('import action through admin role', () => {
+      engine.addRole({
+        id: 'import-role',
+        name: 'Import Role',
+        permissions: [{ id: 'import-stock', resource: 'stock', action: 'import', effect: 'allow' }],
+      });
+      const context: RBACContext = { userId: 'imp1', roles: ['import-role'] };
+      const result = engine.checkPermission(context, 'import', { type: 'stock' });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('viewer cannot export', () => {
+      const context: RBACContext = { userId: 'v1', roles: ['viewer'] };
+      const result = engine.checkPermission(context, 'export', { type: 'stock' });
+      expect(result.allowed).toBe(false);
+    });
+  });
+
+  describe('Approve action', () => {
+    it('approve permission works through admin role', () => {
+      engine.addRole({
+        id: 'approver-role',
+        name: 'Approver',
+        permissions: [{ id: 'approve-trade', resource: 'trade', action: 'approve', effect: 'allow' }],
+      });
+      const context: RBACContext = { userId: 'ap1', roles: ['approver-role'] };
+      const result = engine.checkPermission(context, 'approve', { type: 'trade' });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('approve action denied without permission', () => {
+      engine.addRole({
+        id: 'trader-no-approve',
+        name: 'Trader',
+        permissions: [{ id: 'trade-execute', resource: 'trade', action: 'execute', effect: 'allow' }],
+      });
+      const context: RBACContext = { userId: 'tn1', roles: ['trader-no-approve'] };
+      const result = engine.checkPermission(context, 'approve', { type: 'trade' });
+      expect(result.allowed).toBe(false);
+    });
+  });
+
+  describe('getAllRoles after modifications', () => {
+    it('listing roles after adding a custom role', () => {
+      const before = engine.getAllRoles().length;
+      engine.addRole({
+        id: 'list-test-1',
+        name: 'List Test',
+        permissions: [{ id: 'lt1', resource: 'stock', action: 'read', effect: 'allow' }],
+      });
+      const after = engine.getAllRoles().length;
+      expect(after).toBe(before + 1);
+      expect(engine.getAllRoles().some(r => r.id === 'list-test-1')).toBe(true);
+    });
+
+    it('listing roles after deleting a custom role', () => {
+      engine.addRole({
+        id: 'delete-list-test',
+        name: 'Delete List Test',
+        permissions: [{ id: 'dlt1', resource: 'stock', action: 'read', effect: 'allow' }],
+      });
+      const before = engine.getAllRoles().length;
+      engine.removeRole('delete-list-test');
+      const after = engine.getAllRoles().length;
+      expect(after).toBe(before - 1);
+      expect(engine.getAllRoles().some(r => r.id === 'delete-list-test')).toBe(false);
+    });
+
+    it('listing roles after updating a role', () => {
+      engine.addRole({
+        id: 'update-list-role',
+        name: 'Before Update',
+        permissions: [{ id: 'ul1', resource: 'stock', action: 'read', effect: 'allow' }],
+      });
+      engine.updateRole('update-list-role', { name: 'After Update' });
+      const role = engine.getAllRoles().find(r => r.id === 'update-list-role');
+      expect(role).toBeDefined();
+      expect(role!.name).toBe('After Update');
+    });
+  });
+
+  describe('Nested conditions with regex', () => {
+    it('regex operator with stock code pattern', () => {
+      engine.addRole({
+        id: 'nested-regex',
+        name: 'Nested Regex',
+        permissions: [{
+          id: 'nr1',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [
+            { field: 'resource.attributes.code', operator: 'regex', value: '^(600|000|002)\\d{3}$' },
+            { field: 'resource.attributes.volume', operator: 'gte', value: 1000000 },
+          ],
+        }],
+      });
+      let context: RBACContext = { userId: 'nr1', roles: ['nested-regex'] };
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '600519', volume: 2000000 } }).allowed).toBe(true);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '600519', volume: 500000 } }).allowed).toBe(false);
+      expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '300001', volume: 2000000 } }).allowed).toBe(false);
+    });
+  });
+
+  describe('Role metadata', () => {
+    it('metadata field stores additional info', () => {
+      engine.addRole({
+        id: 'meta-role',
+        name: 'Meta Role',
+        permissions: [{ id: 'mr1', resource: 'stock', action: 'read', effect: 'allow' }],
+        metadata: { department: 'research', level: 3, tags: ['senior', 'internal'] },
+      });
+      const role = engine.getAllRoles().find(r => r.id === 'meta-role');
+      expect(role).toBeDefined();
+      expect(role!.metadata).toBeDefined();
+      expect((role!.metadata as any).department).toBe('research');
+      expect((role!.metadata as any).level).toBe(3);
+      expect((role!.metadata as any).tags).toEqual(['senior', 'internal']);
+    });
+
+    it('metadata is optional and undefined by default', () => {
+      engine.addRole({
+        id: 'no-meta-role',
+        name: 'No Meta',
+        permissions: [{ id: 'nmr1', resource: 'stock', action: 'read', effect: 'allow' }],
+      });
+      const role = engine.getAllRoles().find(r => r.id === 'no-meta-role');
+      expect(role!.metadata).toBeUndefined();
+    });
+  });
+
+  describe('Context attributes edge cases', () => {
+    it('empty attributes in context', () => {
+      engine.addRole({
+        id: 'attr-test',
+        name: 'Attr Test',
+        permissions: [{
+          id: 'at1',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'context.attributes.region', operator: 'eq', value: 'CN' }],
+        }],
+      });
+      const context: RBACContext = { userId: 'at1', roles: ['attr-test'], attributes: {} };
+      const result = engine.checkPermission(context, 'read', { type: 'stock' });
+      expect(result.allowed).toBe(false);
+    });
+
+    it('null roles in context', () => {
+      // roles should be string[], not null per type, but test empty array
+      const context: RBACContext = { userId: 'empty-role', roles: [] };
+      const result = engine.checkPermission(context, 'read', { type: 'stock' });
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('默认拒绝');
+    });
+
+    it('undefined attributes in resource condition resolves gracefully', () => {
+      engine.addRole({
+        id: 'undef-attr',
+        name: 'Undefined Attr',
+        permissions: [{
+          id: 'ua1',
+          resource: 'stock',
+          action: 'read',
+          effect: 'allow',
+          conditions: [{ field: 'resource.attributes.nonexistent', operator: 'eq', value: 'anything' }],
+        }],
+      });
+      const context: RBACContext = { userId: 'ua1', roles: ['undef-attr'] };
+      const result = engine.checkPermission(context, 'read', { type: 'stock', attributes: {} });
+      // undefined !== 'anything' so condition fails
+      expect(result.allowed).toBe(false);
+    });
+
+    it('userId with special characters in context', () => {
+      const context: RBACContext = { userId: 'user@corp.com', roles: ['viewer'] };
+      const result = engine.checkPermission(context, 'read', { type: 'stock' });
+      expect(result.allowed).toBe(true);
+    });
+  });
 });
