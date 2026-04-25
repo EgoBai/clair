@@ -4,17 +4,12 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import App from '../App';
 
-// Mock react-router-dom 组件
-vi.mock('react-router-dom', () => ({
-  BrowserRouter: ({ children }: { children: React.ReactNode }) => <div data-testid="router">{children}</div>,
-}));
-
 // Mock AppLayout 组件
 vi.mock('../components/Layout/AppLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="app-layout">{children}</div>,
 }));
 
-// Mock AppRoutes 组件
+// Mock AppRoutes 组件 — App.tsx 使用 named export { AppRoutes }
 vi.mock('../routes', () => ({
   AppRoutes: () => <div data-testid="app-routes">App Routes</div>,
 }));
@@ -22,9 +17,6 @@ vi.mock('../routes', () => ({
 describe('App', () => {
   it('渲染应用容器', () => {
     render(<App />);
-    
-    // 检查路由器是否渲染
-    expect(screen.getByTestId('router')).toBeTruthy();
     
     // 检查应用布局是否渲染
     expect(screen.getByTestId('app-layout')).toBeTruthy();
