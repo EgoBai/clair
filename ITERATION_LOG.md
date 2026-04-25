@@ -7162,3 +7162,19 @@
 - 测试文件: 1478
 - 测试数: ~32,632 (+44 tests in same file)
 - 全量通过率: **1478/1478 (100%)**, 32632/32632 (100%)
+
+### Round 951 (2026-04-25)
+- **扩展**: capitalFlowTracker.test.ts — 资金流向追踪引擎从 12 到 36 个测试
+  - summarizeFlows: 净流入/净流出/净零neutral/主力净流入/主力净流出/强度50%/强度80%/空数据/neutral direction/多类型汇总/stockCode正确
+  - aggregateSectorFlows: 首位数字分组/去重计数/空数组/排序降序/多数字分组
+  - detectFlowReversal: 数据不足/临界9条/正好10条/连续流入/连续流出/outflow→inflow/inflow→outflow/自定义lookback/恒定流入不反转
+  - calculateFlowStrength: 空数据/全部流入/净零/总0/部分强度
+  - flowByType: 按类型分类/缺失类型为0/同类型多笔汇总
+  - topFlowsByAmount: 前N笔/超过总数/空数组
+- 全量测试结果: 1478/1478 文件通过, 32632/32632 测试通过(同一文件), 36/36 ✅
+- 轮次状态: 951/1000 (剩余49轮)
+
+### 累计 (Round 951)
+- 测试文件: 1478
+- 测试数: ~32,632 (+24 tests in same file)
+- 全量通过率: **1478/1478 (100%)**, 32632/32632 (100%)
