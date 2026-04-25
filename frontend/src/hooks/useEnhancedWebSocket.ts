@@ -21,7 +21,7 @@ export function useEnhancedWebSocket() {
 
   useEffect(() => {
     // 连接
-    enhancedWsService.connect().catch(() => {});
+    enhancedWsService.connect().catch((err) => console.warn('[WebSocket] 初始连接失败:', err));
 
     // 监听状态变化
     const unsubState = enhancedWsService.onStateChange((s) => {
@@ -61,7 +61,7 @@ export function useEnhancedWebSocket() {
   }, []);
 
   const reconnect = useCallback(() => {
-    enhancedWsService.connect().catch(() => {});
+    enhancedWsService.connect().catch((err) => console.warn('[WebSocket] 重连失败:', err));
   }, []);
 
   return {
@@ -84,7 +84,7 @@ export function useConnectionState() {
   const [source, setSource] = useState<string>(enhancedWsService.getCurrentSource());
 
   useEffect(() => {
-    enhancedWsService.connect().catch(() => {});
+    enhancedWsService.connect().catch((err) => console.warn('[WebSocket] useConnectionState 连接失败:', err));
 
     const unsub = enhancedWsService.onStateChange((s) => {
       setState(s);

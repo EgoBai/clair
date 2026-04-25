@@ -145,7 +145,7 @@ export function useConnectionStatus() {
   const [status, setStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
 
   useEffect(() => {
-    wsService.connect().catch(() => {});
+    wsService.connect().catch((err) => console.warn('[WebSocket] useConnectionStatus 连接失败:', err));
 
     const timer = setInterval(() => {
       const connected = wsService.getConnectionState();

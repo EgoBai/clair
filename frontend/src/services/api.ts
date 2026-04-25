@@ -380,6 +380,74 @@ class ApiService {
   async getNewsStats(): Promise<ApiResponse<unknown>> {
     return this.cachedGet('/news/stats/overview', undefined, 60000);
   }
+
+  // ==================== 选股器 ====================
+
+  async getScreenerTemplates(): Promise<ApiResponse<{ presets: unknown[]; customs: unknown[] }>> {
+    return this.cachedGet('/screener/templates', undefined, 60000);
+  }
+
+  async runScreener(data: unknown): Promise<ApiResponse<unknown>> {
+    const response = await this.retryRequest(
+      () => this.client.post<ApiResponse<unknown>>('/screener/filter', data),
+      '/screener/filter'
+    );
+    return response.data;
+  }
+
+  async saveScreenerTemplate(data: unknown): Promise<ApiResponse<unknown>> {
+    const response = await this.retryRequest(
+      () => this.client.post<ApiResponse<unknown>>('/screener/templates', data),
+      '/screener/templates'
+    );
+    return response.data;
+  }
+
+  async deleteScreenerTemplate(id: string): Promise<ApiResponse<unknown>> {
+    const response = await this.retryRequest(
+      () => this.client.delete<ApiResponse<unknown>>(`/screener/templates/${id}`),
+      `/screener/templates/${id}`
+    );
+    return response.data;
+  }
+
+  // ==================== 个股对比 ====================
+
+  async compareStocks(symbols: string[]): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/compare', { symbols: symbols.join(',') }, 30000);
+  }
+
+  async compareRadar(symbols: string[]): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/compare/radar', { symbols: symbols.join(',') }, 30000);
+  }
+
+  // ==================== 财务数据 ====================
+
+  async getFinancialSummary(symbol: string): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/financials/summary', { symbol }, 30000);
+  }
+
+  async getBalanceSheet(symbol: string, periods = 4): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/financials/balance-sheet', { symbol, periods }, 60000);
+  }
+
+  async getIncomeStatement(symbol: string, periods = 4): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/financials/income-statement', { symbol, periods }, 60000);
+  }
+
+  async getCashFlow(symbol: string, periods = 4): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/financials/cash-flow', { symbol, periods }, 60000);
+  }
+
+  // ==================== 社会/社区 ====================
+
+  async getSocialComments(params: Record<string, unknown> = {}): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/social/comments', params, 15000);
+  }
+
+  async getSocialUsers(params: Record<string, unknown> = {}): Promise<ApiResponse<unknown>> {
+    return this.cachedGet('/social/users', params, 30000);
+  }
 }
 
 // 单例导出
@@ -401,59 +469,56 @@ export const {
 } = apiService;
 
 // ==================== 盘口数据 ====================
-// 使用独立的 axios 实例（不经过 apiService 的 baseURL 和响应拦截器）
-const rawClient = axios.create({ timeout: 15000 });
+// 经过 apiService 拦截器的请求（自动重试 + 日志 + 缓存 + 响应拦截器）
+
+async function rawGet<T = unknown>(url: string): Promise<T> {
+  const response = await apiService.get<T>(url);
+  return (response as any).data ?? response;
+}
 
 export async function fetchOrderBook(symbol: string, name?: string) {
   const params = name ? `?name=${encodeURIComponent(name)}` : '';
-  const res = await rawClient.get(`/api/order-book/${symbol}${params}`);
-  return res.data.data;
+  return rawGet(`/api/order-book/${symbol}${params}`);
 }
 
 export async function fetchTimeShare(symbol: string) {
-  const res = await rawClient.get(`/api/time-share/${symbol}`);
-  return res.data.data;
+  return rawGet(`/api/time-share/${symbol}`);
 }
 
 // ==================== 融资融券 ====================
 
 export async function fetchMarginOverview() {
-  const res = await rawClient.get('/api/margin/overview');
-  return res.data.data;
+  return rawGet('/api/margin/overview');
 }
 
 export async function fetchMarginData(symbol: string, days = 30) {
-  const res = await rawClient.get(`/api/margin/${symbol}?days=${days}`);
-  return res.data.data;
+  return rawGet(`/api/margin/${symbol}?days=${days}`);
 }
 
 export async function fetchMarginRank(type: string, count = 20) {
-  const res = await rawClient.get(`/api/margin/rank/${type}?count=${count}`);
-  return res.data.data.rank;
+  const result = await rawGet<{ rank: unknown }>(`/api/margin/rank/${type}?count=${count}`);
+  return result.rank;
 }
 
 // ==================== 龙虎榜 ====================
 
 export async function fetchTopTraderOverview(date?: string) {
   const params = date ? `?date=${date}` : '';
-  const res = await rawClient.get(`/api/top-traders/overview${params}`);
-  return res.data.data;
+  return rawGet(`/api/top-traders/overview${params}`);
 }
 
 export async function fetchTopTraderDetail(symbol: string, name?: string) {
   const params = name ? `?name=${encodeURIComponent(name)}` : '';
-  const res = await rawClient.get(`/api/top-traders/${symbol}${params}`);
-  return res.data.data;
+  return rawGet(`/api/top-traders/${symbol}${params}`);
 }
 
 export async function fetchTopTraderHistory(symbol: string, days = 10) {
-  const res = await rawClient.get(`/api/top-traders/history/${symbol}?days=${days}`);
-  return res.data.data;
+  return rawGet(`/api/top-traders/history/${symbol}?days=${days}`);
 }
 
 export async function fetchTopTraderSeatRank(count = 20) {
-  const res = await rawClient.get(`/api/top-traders/seat/rank?count=${count}`);
-  return res.data.data.rank;
+  const result = await rawGet<{ rank: unknown }>(`/api/top-traders/seat/rank?count=${count}`);
+  return result.rank;
 }
 
 // ==================== 大宗交易 ====================
@@ -464,18 +529,15 @@ export async function fetchBlockTrades(params: { date?: string; symbol?: string;
   if (params.symbol) query.set('symbol', params.symbol);
   if (params.page) query.set('page', String(params.page));
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
-  const res = await rawClient.get(`/api/block-trades?${query}`);
-  return res.data.data;
+  return rawGet(`/api/block-trades?${query}`);
 }
 
 export async function fetchBlockTradeOverview() {
-  const res = await rawClient.get('/api/block-trades/overview');
-  return res.data.data;
+  return rawGet('/api/block-trades/overview');
 }
 
 export async function fetchBlockTradeHistory(symbol: string, days = 30) {
-  const res = await rawClient.get(`/api/block-trades/${symbol}?days=${days}`);
-  return res.data.data;
+  return rawGet(`/api/block-trades/${symbol}?days=${days}`);
 }
 
 // ==================== 股东增减持 ====================
@@ -486,18 +548,15 @@ export async function fetchShareholderChanges(params: { symbol?: string; type?: 
   if (params.type) query.set('type', params.type);
   if (params.page) query.set('page', String(params.page));
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
-  const res = await rawClient.get(`/api/shareholder-changes?${query}`);
-  return res.data.data;
+  return rawGet(`/api/shareholder-changes?${query}`);
 }
 
 export async function fetchShareholderChangeOverview() {
-  const res = await rawClient.get('/api/shareholder-changes/overview');
-  return res.data.data;
+  return rawGet('/api/shareholder-changes/overview');
 }
 
 export async function fetchShareholderChangeHistory(symbol: string, days = 90) {
-  const res = await rawClient.get(`/api/shareholder-changes/${symbol}?days=${days}`);
-  return res.data.data;
+  return rawGet(`/api/shareholder-changes/${symbol}?days=${days}`);
 }
 
 // ==================== 限售股解禁 ====================
@@ -508,8 +567,7 @@ export async function fetchLockupCalendar(year?: number, month?: number) {
     year: String(year || now.getFullYear()),
     month: String(month || now.getMonth() + 1),
   });
-  const res = await rawClient.get(`/api/lockup/calendar?${params}`);
-  return res.data.data;
+  return rawGet(`/api/lockup/calendar?${params}`);
 }
 
 export async function fetchLockupRank(year?: number, month?: number) {
@@ -518,34 +576,28 @@ export async function fetchLockupRank(year?: number, month?: number) {
     year: String(year || now.getFullYear()),
     month: String(month || now.getMonth() + 1),
   });
-  const res = await rawClient.get(`/api/lockup/rank?${params}`);
-  return res.data.data;
+  return rawGet(`/api/lockup/rank?${params}`);
 }
 
 export async function fetchLockupHistory(symbol: string, months = 12) {
-  const res = await rawClient.get(`/api/lockup/${symbol}?months=${months}`);
-  return res.data.data;
+  return rawGet(`/api/lockup/${symbol}?months=${months}`);
 }
 
 // ==================== AI 智能选股 ====================
 
 export async function fetchAIRecommendations(strategy?: string) {
   const params = strategy ? `?strategy=${strategy}` : '';
-  const res = await rawClient.get(`/api/ai/recommendations${params}`);
-  return res.data.data;
+  return rawGet(`/api/ai/recommendations${params}`);
 }
 
 export async function fetchAIDiagnosis(symbol: string) {
-  const res = await rawClient.get(`/api/ai/diagnose/${symbol}`);
-  return res.data.data;
+  return rawGet(`/api/ai/diagnose/${symbol}`);
 }
 
 export async function fetchAISectorRotation() {
-  const res = await rawClient.get('/api/ai/sector-rotation');
-  return res.data.data;
+  return rawGet('/api/ai/sector-rotation');
 }
 
 export async function fetchAIAlertSuggestions() {
-  const res = await rawClient.get('/api/ai/alert-suggestions');
-  return res.data.data;
+  return rawGet('/api/ai/alert-suggestions');
 }

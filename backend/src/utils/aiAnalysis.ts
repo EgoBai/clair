@@ -313,8 +313,9 @@ export function analyzeStock(stock: MockStockData): StockScore {
   fundamentalScore = Math.max(0, Math.min(100, fundamentalScore));
 
   // === 动量分析 ===
-  const momentum5 = ((prices[prices.length - 1] / prices[prices.length - 6]) - 1) * 100;
-  const momentum20 = ((prices[prices.length - 1] / prices[prices.length - 21]) - 1) * 100;
+  const pLen = prices.length;
+  const momentum5 = pLen >= 6 ? ((prices[pLen - 1] / prices[pLen - 6]) - 1) * 100 : 0;
+  const momentum20 = pLen >= 21 ? ((prices[pLen - 1] / prices[pLen - 21]) - 1) * 100 : 0;
   let momentumScore = 50 + momentum5 * 2 + momentum20;
   momentumScore = Math.max(0, Math.min(100, momentumScore));
 
@@ -350,6 +351,7 @@ export function analyzeStock(stock: MockStockData): StockScore {
   if (riskScore < 30) reasons.push('风险可控，波动率低');
   if (rsi < 35) reasons.push('RSI超卖，短线反弹机会');
   if (stock.roe > 20 && stock.pe < 25) reasons.push('高ROE低PE，价值洼地');
+  if (reasons.length === 0) reasons.push('综合评分中性，等待趋势明确');
 
   return {
     symbol: stock.symbol,
@@ -434,7 +436,7 @@ export function detectAbnormalEvents(): SmartAlert[] {
         type: 'limit_up',
         severity: 'high',
         title: `${stock.name} 涨停`,
-        description: `${stock.name} 涨幅${changePct.toFixed(2)}%，接近涨停板`,
+        description: `${stock.symbol} ${stock.name} 涨幅${changePct.toFixed(2)}%，接近涨停板`,
         analysis: `该股强势涨停，可能是重大利好消息刺激或板块轮动效应。需关注后续成交量变化和板块联动情况。`,
         triggeredAt: new Date().toISOString(),
         data: { changePercent: changePct, price: latest },
@@ -450,7 +452,7 @@ export function detectAbnormalEvents(): SmartAlert[] {
         type: 'limit_down',
         severity: 'high',
         title: `${stock.name} 跌停`,
-        description: `${stock.name} 跌幅${changePct.toFixed(2)}%，接近跌停板`,
+        description: `${stock.symbol} ${stock.name} 跌幅${changePct.toFixed(2)}%，接近跌停板`,
         analysis: `该股大幅下跌，可能受到利空消息影响或资金出逃。建议检查基本面变化和行业政策。`,
         triggeredAt: new Date().toISOString(),
         data: { changePercent: changePct, price: latest },
@@ -468,7 +470,7 @@ export function detectAbnormalEvents(): SmartAlert[] {
         type: 'breakout',
         severity: 'medium',
         title: `${stock.name} 放量突破`,
-        description: `成交量为20日均量的${(latestVolume / avgVolume).toFixed(1)}倍，涨幅${changePct.toFixed(2)}%`,
+        description: `${stock.symbol} 成交量为20日均量的${(latestVolume / avgVolume).toFixed(1)}倍，涨幅${changePct.toFixed(2)}%`,
         analysis: `放量突破通常是趋势确认的信号。量价齐升表明资金积极入场，可关注后续是否站稳突破位。`,
         triggeredAt: new Date().toISOString(),
         data: { changePercent: changePct, volumeRatio: latestVolume / avgVolume },
@@ -485,7 +487,7 @@ export function detectAbnormalEvents(): SmartAlert[] {
         type: 'rsi_extreme',
         severity: 'medium',
         title: `${stock.name} RSI严重超买`,
-        description: `RSI(14)=${rsi.toFixed(1)}，处于严重超买区域`,
+        description: `${stock.symbol} RSI(14)=${rsi.toFixed(1)}，处于严重超买区域`,
         analysis: `RSI超过80意味着短期内涨幅过大，获利盘累积，回调压力增大。建议适当减仓或设置止盈。`,
         triggeredAt: new Date().toISOString(),
         data: { rsi },
@@ -500,7 +502,7 @@ export function detectAbnormalEvents(): SmartAlert[] {
         type: 'rsi_extreme',
         severity: 'medium',
         title: `${stock.name} RSI严重超卖`,
-        description: `RSI(14)=${rsi.toFixed(1)}，处于严重超卖区域`,
+        description: `${stock.symbol} RSI(14)=${rsi.toFixed(1)}，处于严重超卖区域`,
         analysis: `RSI低于20意味着短期跌幅过大，空头力量释放充分，超跌反弹概率增大。可关注企稳信号。`,
         triggeredAt: new Date().toISOString(),
         data: { rsi },

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import logger from '../utils/logger';
+import { apiService } from '../services/api';
 import {
   Card, Table, Tag, Space, Typography, Row, Col, Statistic,
   Button, Segmented, Select, Tooltip,
@@ -64,15 +65,18 @@ const ShareholderChangesPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: '20' });
-      if (filterType !== 'all') params.set('type', filterType);
+      const params: Record<string, unknown> = { page, pageSize: '20' };
+      if (filterType !== 'all') params.type = filterType;
 
-      const res = await fetch(`/api/shareholder-changes?${params}`);
-      const json = await res.json();
-      if (json.success) {
-        setChanges(json.data.changes);
-        setSummary(json.data.summary);
-        setTotal(json.data.pagination.total);
+      const res = await apiService.get<{
+        changes: ShareholderChange[];
+        summary: ChangeSummary;
+        pagination: { total: number };
+      }>('/shareholder-changes', params);
+      if (res.success) {
+        setChanges(res.data.changes);
+        setSummary(res.data.summary);
+        setTotal(res.data.pagination.total);
       }
     } catch (err) {
       logger.error('加载增减持数据失败:', err);

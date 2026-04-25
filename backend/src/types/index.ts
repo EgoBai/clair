@@ -1,19 +1,9 @@
-// 临时类型定义
-export interface AdjustedKLine {
-  close: number;
-  [key: string]: any;
-}
+// 共享类型定义 — 从 shared/types 导入
+export type { KLineData, DailyQuote } from '../../shared/types';
 
-export interface KLineData {
-  [key: string]: any;
-}
-
-export interface DailyQuote {
-  [key: string]: any;
-}
-
+// 本地后端特有类型
 export interface StockData {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface User {
@@ -36,7 +26,7 @@ export interface User {
 }
 
 export interface Permission {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface CacheEntry<T> {

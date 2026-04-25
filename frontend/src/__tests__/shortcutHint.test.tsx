@@ -7,11 +7,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ShortcutHint, shortcutToString, useShortcut } from '../components/Common/ShortcutHint';
 
-// Mock useI18n
-vi.mock('../../hooks/useI18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
-}));
-
 describe('shortcutToString', () => {
   it('returns empty string for null/undefined', () => {
     expect(shortcutToString(null as any)).toBe('');

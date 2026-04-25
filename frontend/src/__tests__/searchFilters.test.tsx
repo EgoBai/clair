@@ -7,21 +7,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SearchFilters, FilterGroup } from '../components/Common/SearchFilters';
 
-// Mock hooks - include all needed exports
-const mockSetFilter = vi.fn();
-const mockClearFilter = vi.fn();
-const mockResetFilters = vi.fn();
-
-vi.mock('../../hooks/useDataFilters', () => ({
-  useDataFilters: () => ({
-    currentFilters: { market: 'sh' },
-    setFilter: mockSetFilter,
-    clearFilter: mockClearFilter,
-    resetFilters: mockResetFilters,
-    activeCount: 1,
-  }),
-}));
-
 // Sample filter groups
 const mockFilterGroups: FilterGroup[] = [
   {

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import logger from '../utils/logger';
+import { apiService } from '../services/api';
 import { Card, Select, Table, Tag, Row, Col, Spin, Button, Empty, Tabs, Statistic } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import {
@@ -59,25 +60,21 @@ export default function StockComparePage() {
     if (selectedSymbols.length < 2) return;
     setLoading(true);
     try {
+      const symbols = selectedSymbols.join(',');
       const [compareRes, radarRes] = await Promise.all([
-        fetch(`/api/compare?symbols=${selectedSymbols.join(',')}`),
-        fetch(`/api/compare/radar?symbols=${selectedSymbols.join(',')}`),
+        apiService.get<{ stocks: CompareStock[]; metrics: MetricDef[] }>('/compare', { symbols }),
+        apiService.get<{ indicators: { label: string; fullMark: number; key: string }[]; stocks: { name: string; scores: Record<string, number> }[] }>('/compare/radar', { symbols }),
       ]);
 
-      const compareData = await compareRes.json();
-      const radarDataRes = await radarRes.json();
-
-      if (compareData.success) {
-        setStocks(compareData.data.stocks);
-        setMetrics(compareData.data.metrics);
+      if (compareRes.success) {
+        setStocks(compareRes.data.stocks);
+        setMetrics(compareRes.data.metrics);
       }
-      if (radarDataRes.success) {
-        interface RadarIndicator { label: string; fullMark: number; key: string }
-        interface RadarStock { name: string; scores: Record<string, number> }
-        const indicators: RadarIndicator[] = radarDataRes.data.indicators;
+      if (radarRes.success) {
+        const indicators = radarRes.data.indicators;
         const radar = indicators.map((ind) => {
           const row: Record<string, string | number> = { metric: ind.label, fullMark: ind.fullMark };
-          radarDataRes.data.stocks.forEach((s: RadarStock) => {
+          radarRes.data.stocks.forEach((s) => {
             row[s.name] = s.scores[ind.key];
           });
           return row;

@@ -290,13 +290,13 @@ router.delete('/watchlist/groups/:id', validateParams(schemas.watchlistGroupDele
       .where('user_id', userId)
       .where('group_id', id)
       .update({ group_id: 'default' })
-      .catch(() => {});
+      .catch((err) => console.error('将股票移到默认分组失败:', err));
 
     await db.connection('watchlist_groups')
       .where('id', id)
       .where('user_id', userId)
       .delete()
-      .catch(() => {});
+      .catch((err) => console.error('删除自选股分组失败:', err));
 
     res.json({ success: true, message: '分组已删除，股票已移至默认分组' });
   } catch (error) {

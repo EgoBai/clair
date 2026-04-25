@@ -7,19 +7,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { DataSyncStatus } from '../components/Common/DataSyncStatus';
 
-// Mock hooks
-vi.mock('../../hooks/useDataSync', () => ({
-  useDataSyncState: () => ({
-    status: 'idle',
-    lastSync: null,
-    progress: 0,
-  }),
-}));
-
-vi.mock('../../hooks/useI18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
-}));
-
 describe('DataSyncStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks();

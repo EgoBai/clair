@@ -5,6 +5,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import logger from '../utils/logger';
+import { apiService } from '../services/api';
 import {
   Card, Table, Button, Select, InputNumber, Space, Tag, Row, Col,
   message, Tabs, Empty, Typography, Divider, Tooltip, Popconfirm,
@@ -107,41 +109,27 @@ const DEFAULT_OPERATORS: OperatorInfo[] = [
 
 // ==================== API ====================
 
-const API_BASE = '/api';
-
 async function fetchTemplates(): Promise<{ presets: ScreenerTemplate[]; customs: ScreenerTemplate[] }> {
-  const res = await fetch(`${API_BASE}/screener/templates`);
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error);
-  return json.data;
+  const res = await apiService.get<{ presets: ScreenerTemplate[]; customs: ScreenerTemplate[] }>('/screener/templates');
+  if (!res.success) throw new Error(res.error);
+  return res.data;
 }
 
 async function runScreener(data: any): Promise<{ stocks: ScreenerStock[]; pagination: any }> {
-  const res = await fetch(`${API_BASE}/screener/filter`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error);
-  return json.data;
+  const res = await apiService.runScreener(data);
+  if (!res.success) throw new Error(res.error);
+  return res.data as any;
 }
 
 async function saveTemplate(data: any): Promise<ScreenerTemplate> {
-  const res = await fetch(`${API_BASE}/screener/templates`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error);
-  return json.data;
+  const res = await apiService.saveScreenerTemplate(data);
+  if (!res.success) throw new Error(res.error);
+  return res.data as ScreenerTemplate;
 }
 
 async function deleteTemplate(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/screener/templates/${id}`, { method: 'DELETE' });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error);
+  const res = await apiService.deleteScreenerTemplate(id);
+  if (!res.success) throw new Error(res.error);
 }
 
 // ==================== 主组件 ====================
@@ -171,7 +159,7 @@ export default function ScreenerPage() {
         setPresets(data.presets);
         setCustoms(data.customs);
       })
-      .catch(() => {});
+      .catch((err) => logger.error('加载选股器模板失败:', err));
   }, []);
 
   // 添加条件

@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
+import { apiService } from '../services/api';
 import { useParams } from 'react-router-dom';
 import { Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Select } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
@@ -101,21 +102,16 @@ export default function FinancialsPage() {
     setLoading(true);
     try {
       const [summaryRes, bsRes, isRes, cfRes] = await Promise.all([
-        fetch(`/api/financials/summary?symbol=${targetSymbol}`),
-        fetch(`/api/financials/balance-sheet?symbol=${targetSymbol}&periods=4`),
-        fetch(`/api/financials/income-statement?symbol=${targetSymbol}&periods=4`),
-        fetch(`/api/financials/cash-flow?symbol=${targetSymbol}&periods=4`),
+        apiService.get<FinancialSummary>('/financials/summary', { symbol: targetSymbol }),
+        apiService.get<{ periods: BalanceSheet[] }>('/financials/balance-sheet', { symbol: targetSymbol, periods: 4 }),
+        apiService.get<{ periods: IncomeStatement[] }>('/financials/income-statement', { symbol: targetSymbol, periods: 4 }),
+        apiService.get<{ periods: CashFlow[] }>('/financials/cash-flow', { symbol: targetSymbol, periods: 4 }),
       ]);
 
-      const summaryData = await summaryRes.json();
-      const bsData = await bsRes.json();
-      const isData = await isRes.json();
-      const cfData = await cfRes.json();
-
-      if (summaryData.success) setSummary(summaryData.data);
-      if (bsData.success) setBalanceHistory(bsData.data.periods);
-      if (isData.success) setIncomeHistory(isData.data.periods);
-      if (cfData.success) setCashFlowHistory(cfData.data.periods);
+      if (summaryRes.success) setSummary(summaryRes.data);
+      if (bsRes.success) setBalanceHistory(bsRes.data.periods);
+      if (isRes.success) setIncomeHistory(isRes.data.periods);
+      if (cfRes.success) setCashFlowHistory(cfRes.data.periods);
     } catch (error) {
       logger.error('加载财务数据失败:', error);
     } finally {

@@ -6,6 +6,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import logger from '../utils/logger';
+import { apiService } from '../services/api';
 import {
   Card, List, Avatar, Button, Input, Tag, Space, Divider,
   Tabs, Badge, Empty, message, Popconfirm, Pagination,
@@ -50,8 +52,6 @@ interface UserProfile {
   isVerified: boolean;
 }
 
-const API_BASE = '/api';
-
 const SocialPage: React.FC = () => {
   const { symbol } = useParams<{ symbol?: string }>();
   const navigate = useNavigate();
@@ -73,21 +73,20 @@ const SocialPage: React.FC = () => {
   const loadComments = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
+      const params: Record<string, string> = {
         page: String(currentPage),
         pageSize: '10',
         sortBy,
-      });
-      if (symbol) params.set('stockSymbol', symbol);
+      };
+      if (symbol) params.stockSymbol = symbol;
 
-      const res = await fetch(`${API_BASE}/social/comments?${params}`);
-      const data = await res.json();
-      if (data.success) {
-        setComments(data.data.comments);
-        setTotal(data.data.pagination.totalCount);
+      const res = await apiService.get<{ comments: Comment[]; pagination: { totalCount: number } }>('/social/comments', params);
+      if (res.success) {
+        setComments(res.data.comments);
+        setTotal(res.data.pagination.totalCount);
       }
     } catch (e) {
-      console.error('加载评论失败:', e);
+      logger.error('加载评论失败:', e);
     }
     setLoading(false);
   }, [currentPage, sortBy, symbol]);
@@ -95,23 +94,23 @@ const SocialPage: React.FC = () => {
   // 加载分析师
   const loadAnalysts = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/social/users?role=analyst&sortBy=followers`);
-      const data = await res.json();
-      if (data.success) {
-        setAnalysts(data.data.users);
+      const res = await apiService.get<{ users: UserProfile[] }>('/social/users', { role: 'analyst', sortBy: 'followers' });
+      if (res.success) {
+        setAnalysts(res.data.users);
       }
     } catch (e) {
-      console.error('加载分析师失败:', e);
+      logger.error('加载分析师失败:', e);
     }
   }, []);
 
   // 加载社区统计
   const loadStats = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/social/stats`);
-      const data = await res.json();
-      if (data.success) setCommunityStats(data.data);
-    } catch { /* ignore */ }
+      const res = await apiService.get<{ totalUsers: number; totalComments: number; analystCount: number }>('/social/stats');
+      if (res.success) setCommunityStats(res.data);
+    } catch (e) {
+      logger.error('加载社区统计失败:', e);
+    }
   }, []);
 
   useEffect(() => {
@@ -124,22 +123,18 @@ const SocialPage: React.FC = () => {
   const handlePostComment = async () => {
     if (!newComment.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/social/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stockSymbol: symbol || 'GENERAL',
-          content: newComment,
-          userId: 1,
-        }),
+      const res = await apiService.post<{ commentId: number }>('/social/comments', {
+        stockSymbol: symbol || 'GENERAL',
+        content: newComment,
+        userId: 1,
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.success) {
         message.success('评论发表成功');
         setNewComment('');
         loadComments();
       }
-    } catch {
+    } catch (e) {
+      logger.error('发表评论失败:', e);
       message.error('发表失败');
     }
   };
@@ -148,24 +143,20 @@ const SocialPage: React.FC = () => {
   const handlePostReply = async (parentId: number) => {
     if (!replyContent.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/social/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stockSymbol: symbol || 'GENERAL',
-          content: replyContent,
-          parentId,
-          userId: 1,
-        }),
+      const res = await apiService.post<{ commentId: number }>('/social/comments', {
+        stockSymbol: symbol || 'GENERAL',
+        content: replyContent,
+        parentId,
+        userId: 1,
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.success) {
         message.success('回复成功');
         setReplyContent('');
         setReplyingTo(null);
         loadComments();
       }
-    } catch {
+    } catch (e) {
+      logger.error('回复失败:', e);
       message.error('回复失败');
     }
   };
@@ -173,35 +164,30 @@ const SocialPage: React.FC = () => {
   // 点赞
   const handleLike = async (commentId: number) => {
     try {
-      const res = await fetch(`${API_BASE}/social/comments/${commentId}/like`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 1 }),
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await apiService.post<{ likes: number; isLiked: boolean }>(`/social/comments/${commentId}/like`, { userId: 1 });
+      if (res.success) {
         setComments(prev => prev.map(c =>
           c.id === commentId
-            ? { ...c, likes: data.data.likes, likedBy: data.data.isLiked ? [...c.likedBy, 1] : c.likedBy.filter(id => id !== 1) }
+            ? { ...c, likes: res.data.likes, likedBy: res.data.isLiked ? [...c.likedBy, 1] : c.likedBy.filter(id => id !== 1) }
             : c
         ));
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      logger.error('点赞失败:', e);
+    }
   };
 
   // 关注
   const handleFollow = async (userId: number) => {
     try {
-      const res = await fetch(`${API_BASE}/social/follow`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ followerId: 1, followeeId: userId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        message.success(data.data.isFollowing ? '关注成功' : '已取消关注');
+      const res = await apiService.post<{ isFollowing: boolean }>('/social/follow', { followerId: 1, followeeId: userId });
+      if (res.success) {
+        message.success(res.data.isFollowing ? '关注成功' : '已取消关注');
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      logger.error('关注操作失败:', e);
+      message.error('操作失败');
+    }
   };
 
   const getRoleTag = (role: string) => {
