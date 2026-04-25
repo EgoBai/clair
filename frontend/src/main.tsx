@@ -16,6 +16,7 @@ import { useAppStore } from './store/useAppStore';
 import Onboarding from './components/Common/Onboarding';
 import { initWebVitals } from './utils/webVitals';
 import LazyPage from './components/Common/LazyPage';
+import I18nProvider from './i18n';
 import './App.css';
 
 // 初始化 Web Vitals 监控
@@ -140,7 +141,8 @@ function NotFound() {
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter future={{
+      <I18nProvider>
+        <BrowserRouter future={{
         v7_startTransition: true,
         v7_relativeSplatPath: true,
       }}>
@@ -183,6 +185,7 @@ function App() {
           </Routes>
         </GlobalShortcuts>
       </BrowserRouter>
+      </I18nProvider>
     </ThemeProvider>
   );
 }

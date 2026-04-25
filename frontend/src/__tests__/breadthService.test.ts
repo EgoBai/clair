@@ -5,14 +5,18 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { breadthService } from '../services/breadthService';
+import * as apiModule from '../services/api';
 
-// Mock fetch
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+// Mock apiService.get
+vi.mock('../services/api', () => ({
+  apiService: {
+    get: vi.fn(),
+  },
+}));
 
 describe('breadthService', () => {
   beforeEach(() => {
-    mockFetch.mockReset();
+    vi.clearAllMocks();
   });
 
   describe('getCurrent', () => {
@@ -33,30 +37,27 @@ describe('breadthService', () => {
         sentimentScore: 35,
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockData }),
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: mockData,
       });
 
       const result = await breadthService.getCurrent();
       expect(result).toEqual(mockData);
-      expect(mockFetch).toHaveBeenCalledWith('/api/breadth/current');
+      expect(apiModule.apiService.get).toHaveBeenCalledWith('/breadth/current');
     });
 
     it('应该处理API错误', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('API error: 500')
+      );
 
       await expect(breadthService.getCurrent()).rejects.toThrow('API error: 500');
     });
 
     it('应该处理业务错误', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: false, error: '数据库错误' }),
-      });
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('数据库错误')
+      );
 
       await expect(breadthService.getCurrent()).rejects.toThrow('数据库错误');
     });
@@ -69,14 +70,13 @@ describe('breadthService', () => {
         { sector: '医药', advancing: 25, declining: 15, avgChangePercent: 0.8, strength: 62 },
       ];
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockSectors }),
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: mockSectors,
       });
 
       const result = await breadthService.getSectors();
       expect(result).toEqual(mockSectors);
-      expect(mockFetch).toHaveBeenCalledWith('/api/breadth/sectors');
+      expect(apiModule.apiService.get).toHaveBeenCalledWith('/breadth/sectors');
     });
   });
 
@@ -87,24 +87,22 @@ describe('breadthService', () => {
         period: '5d',
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockHistory }),
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: mockHistory,
       });
 
       const result = await breadthService.getHistory('5d');
       expect(result).toEqual(mockHistory);
-      expect(mockFetch).toHaveBeenCalledWith('/api/breadth/history?period=5d');
+      expect(apiModule.apiService.get).toHaveBeenCalledWith('/breadth/history?period=5d');
     });
 
     it('应该使用默认周期', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { data: [], period: '5d' } }),
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: { data: [], period: '5d' },
       });
 
       await breadthService.getHistory();
-      expect(mockFetch).toHaveBeenCalledWith('/api/breadth/history?period=5d');
+      expect(apiModule.apiService.get).toHaveBeenCalledWith('/breadth/history?period=5d');
     });
   });
 
@@ -112,13 +110,13 @@ describe('breadthService', () => {
     it('应该获取McClellan指标', async () => {
       const mockData = { value: 50, signal: 'neutral', trend: '上升趋势' };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockData }),
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: mockData,
       });
 
       const result = await breadthService.getMcClellan();
       expect(result).toEqual(mockData);
+      expect(apiModule.apiService.get).toHaveBeenCalledWith('/breadth/mcclellan');
     });
   });
 
@@ -126,13 +124,13 @@ describe('breadthService', () => {
     it('应该获取缓存统计', async () => {
       const mockStats = { breadth: 1, sectors: 1, history: 3 };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockStats }),
+      (apiModule.apiService.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: mockStats,
       });
 
       const result = await breadthService.getCacheStats();
       expect(result).toEqual(mockStats);
+      expect(apiModule.apiService.get).toHaveBeenCalledWith('/breadth/cache-stats');
     });
   });
 });

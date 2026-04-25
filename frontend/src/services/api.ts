@@ -118,6 +118,12 @@ function retryDelay(attempt: number): number {
 class ApiService {
   private client: AxiosInstance;
   private retryCount = new Map<string, number>(); // 跟踪每个URL的重试次数
+  private authToken: string | null = null;
+
+  /** 设置认证token，供authService在登录/刷新后调用 */
+  setAuthToken(token: string | null): void {
+    this.authToken = token;
+  }
 
   constructor() {
     this.client = axios.create({
@@ -126,10 +132,13 @@ class ApiService {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // 请求拦截器 - 添加请求ID、时间戳
+    // 请求拦截器 - 添加请求ID、时间戳 + 自动注入认证token
     this.client.interceptors.request.use(
       (config) => {
         (config as AxiosRequestConfig & { __startTime?: number }).__startTime = Date.now();
+        if (this.authToken) {
+          config.headers.Authorization = `Bearer ${this.authToken}`;
+        }
         return config;
       },
       (error) => Promise.reject(error)
@@ -272,6 +281,14 @@ class ApiService {
   async get<T = unknown>(path: string, params?: object): Promise<ApiResponse<T>> {
     const response = await this.retryRequest(
       () => this.client.get<ApiResponse<T>>(path, { params }),
+      path
+    );
+    return response.data;
+  }
+
+  async put<T = unknown>(path: string, data?: Record<string, unknown>): Promise<ApiResponse<T>> {
+    const response = await this.retryRequest(
+      () => this.client.put<ApiResponse<T>>(path, data),
       path
     );
     return response.data;

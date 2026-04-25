@@ -4,9 +4,9 @@
   "private": true,
   "description": "A股行情分析网站后端",
   "scripts": {
-    "dev": "ts-node src/app.ts",
+    "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/app.js",
+    "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/"

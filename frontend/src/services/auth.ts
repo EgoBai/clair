@@ -3,7 +3,7 @@
  * Token管理、自动刷新、请求拦截
  */
 
-const API_BASE = '/api';
+import { apiService } from './api';
 
 interface AuthTokens {
   accessToken: string;
@@ -57,8 +57,11 @@ class AuthService {
       const stored = localStorage.getItem('auth_tokens');
       if (stored) {
         this.tokens = JSON.parse(stored);
-        if (this.tokens && Date.now() / 1000 > this.tokens.expiresAt - 60) {
-          this.refreshTokens();
+        if (this.tokens) {
+          apiService.setAuthToken(this.tokens.accessToken);
+          if (Date.now() / 1000 > this.tokens.expiresAt - 60) {
+            this.refreshTokens();
+          }
         }
       }
     } catch {
@@ -71,6 +74,7 @@ class AuthService {
    */
   private saveTokens(tokens: AuthTokens): void {
     this.tokens = tokens;
+    apiService.setAuthToken(tokens.accessToken);
     localStorage.setItem('auth_tokens', JSON.stringify(tokens));
   }
 
@@ -79,6 +83,7 @@ class AuthService {
    */
   private clearTokens(): void {
     this.tokens = null;
+    apiService.setAuthToken(null);
     localStorage.removeItem('auth_tokens');
     localStorage.removeItem('user_info');
   }
@@ -109,42 +114,30 @@ class AuthService {
    * 注册
    */
   async register(data: { email: string; password: string; nickname: string }): Promise<{ user: User; token: string }> {
-    const res = await fetch(`${API_BASE}/user/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
+    const res = await apiService.post<{ user: User; token: string }>('/user/register', data as Record<string, unknown>);
     this.saveTokens({
-      accessToken: json.data.token,
-      refreshToken: json.data.token,
+      accessToken: res.data.token,
+      refreshToken: res.data.token,
       expiresAt: Math.floor(Date.now() / 1000) + 3600,
     });
-    localStorage.setItem('user_info', JSON.stringify(json.data.user));
-    return json.data;
+    localStorage.setItem('user_info', JSON.stringify(res.data.user));
+    return res.data;
   }
 
   /**
    * 登录
    */
   async login(data: { email: string; password: string; rememberMe?: boolean }): Promise<{ user: User; token: string }> {
-    const res = await fetch(`${API_BASE}/user/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
+    const res = await apiService.post<{ user: User; token: string }>('/user/login', data as Record<string, unknown>);
     const expiry = data.rememberMe ? 30 * 24 * 3600 : 3600;
     this.saveTokens({
-      accessToken: json.data.token,
-      refreshToken: json.data.token,
+      accessToken: res.data.token,
+      refreshToken: res.data.token,
       expiresAt: Math.floor(Date.now() / 1000) + expiry,
     });
-    localStorage.setItem('user_info', JSON.stringify(json.data.user));
-    this.notifyListeners(json.data.user);
-    return json.data;
+    localStorage.setItem('user_info', JSON.stringify(res.data.user));
+    this.notifyListeners(res.data.user);
+    return res.data;
   }
 
   /**
@@ -152,10 +145,7 @@ class AuthService {
    */
   async logout(): Promise<void> {
     try {
-      await fetch(`${API_BASE}/user/logout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${this.tokens?.accessToken}` },
-      });
+      await apiService.post('/user/logout');
     } catch {
       // 忽略网络错误
     }
@@ -167,51 +157,28 @@ class AuthService {
    * 请求密码重置
    */
   async requestPasswordReset(email: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/user/password-reset/request`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
+    await apiService.post('/user/password-reset/request', { email });
   }
 
   /**
    * 重置密码
    */
   async resetPassword(token: string, password: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/user/password-reset/confirm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, password }),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
+    await apiService.post('/user/password-reset/confirm', { token, password });
   }
 
   /**
    * 发送邮箱验证
    */
   async sendVerificationEmail(): Promise<void> {
-    const res = await fetch(`${API_BASE}/user/verify-email/send`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.tokens?.accessToken}` },
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
+    await apiService.post('/user/verify-email/send');
   }
 
   /**
    * 验证邮箱
    */
   async verifyEmail(token: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/user/verify-email/confirm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
+    await apiService.post('/user/verify-email/confirm', { token });
   }
 
   /**
@@ -249,21 +216,12 @@ class AuthService {
    * 更新用户设置
    */
   async updateSettings(settings: Partial<UserSettings>): Promise<UserSettings> {
-    const res = await fetch(`${API_BASE}/user/settings`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.tokens?.accessToken}`,
-      },
-      body: JSON.stringify(settings),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
-    return json.data;
+    const res = await apiService.put<UserSettings>('/user/settings', settings as Record<string, unknown>);
+    return res.data;
   }
 
   /**
-   * 带 token 的 fetch
+   * 带 token 的 fetch（保留向后兼容，所有新代码应直接使用 apiService）
    */
   async authFetch(url: string, options: RequestInit = {}): Promise<Response> {
     if (this.isTokenExpiring()) {

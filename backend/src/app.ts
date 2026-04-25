@@ -40,6 +40,9 @@ import lockupSharesRouter from './api/lockup-shares.ts';
 import aiStockSelectionRouter from './api/ai-stock-selection.ts';
 import etfRouter from './api/etf.ts';
 import apiDocsRouter from './api/api-docs.ts';
+import breadthRouter from './api/breadth.ts';
+import divergenceRouter from './api/divergence.ts';
+import notificationsRouter from './api/notifications.ts';
 import { wsService } from './websocket/server.ts';
 import { dataSyncService } from './data-sync/DataSyncService.ts';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit.ts';
@@ -106,6 +109,9 @@ app.use('/api', shareholderChangesRouter);
 app.use('/api', lockupSharesRouter);
 app.use('/api', aiStockSelectionRouter);
 app.use('/api/etf', etfRouter);
+app.use('/api', breadthRouter);
+app.use('/api', divergenceRouter);
+app.use('/api/notifications', notificationsRouter);
 
 // ==================== API 文档 ====================
 app.use(apiDocsRouter);
@@ -266,6 +272,9 @@ app.get('/', (_req, res) => {
       aiDiagnose: '/api/ai/diagnose/:symbol',
       aiSectorRotation: '/api/ai/sector-rotation',
       aiAlertSuggestions: '/api/ai/alert-suggestions',
+      breadth: '/api/breadth/current | /api/breadth/sectors | /api/breadth/history | /api/breadth/mcclellan',
+      divergence: '/api/divergence/analyze | /api/divergence/rsi | /api/divergence/macd | /api/divergence/detect',
+      notifications: '/api/notifications/user/:userId | POST /api/notifications',
       sync: {
         realtime: 'POST /api/sync/realtime',
         kline: 'POST /api/sync/kline/:symbol',

@@ -2,7 +2,7 @@
  * 市场宽度服务
  */
 
-const API_BASE = '/api/breadth';
+import { apiService } from './api';
 
 export interface BreadthData {
   timestamp: number;
@@ -39,20 +39,12 @@ export interface McClellanData {
   trend: string;
 }
 
-async function fetchApi<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Unknown error');
-  return json.data;
-}
-
 export const breadthService = {
-  getCurrent: () => fetchApi<BreadthData>('/current'),
-  getSectors: () => fetchApi<SectorBreadth[]>('/sectors'),
-  getHistory: (period: string = '5d') => fetchApi<BreadthHistory>(`/history?period=${period}`),
-  getMcClellan: () => fetchApi<McClellanData>('/mcclellan'),
-  getCacheStats: () => fetchApi<{ breadth: number; sectors: number; history: number }>('/cache-stats'),
+  getCurrent: () => apiService.get<BreadthData>('/breadth/current').then(r => r.data),
+  getSectors: () => apiService.get<SectorBreadth[]>('/breadth/sectors').then(r => r.data),
+  getHistory: (period: string = '5d') => apiService.get<BreadthHistory>(`/breadth/history?period=${period}`).then(r => r.data),
+  getMcClellan: () => apiService.get<McClellanData>('/breadth/mcclellan').then(r => r.data),
+  getCacheStats: () => apiService.get<{ breadth: number; sectors: number; history: number }>('/breadth/cache-stats').then(r => r.data),
 };
 
 export default breadthService;
