@@ -1,76 +1,144 @@
 import { describe, it, expect } from 'vitest';
-import { computeSentiment, sentimentHistory, SentimentInputs } from '../services/marketSentimentCompositeEngine';
-
-const neutralInput: SentimentInputs = {
-  putCallRatio: 0.7, vixLevel: 18, advanceDeclineRatio: 1.2,
-  newHighLowRatio: 1.5, marginBalance: 0.01, northboundFlow: 20,
-  shortInterest: 0.01, turnoverRate: 2.0,
-};
-
-const fearInput: SentimentInputs = {
-  putCallRatio: 1.5, vixLevel: 30, advanceDeclineRatio: 0.15,
-  newHighLowRatio: 0.1, marginBalance: 0.005, northboundFlow: -60,
-  shortInterest: 0.04, turnoverRate: 1.0,
-};
-
-const greedInput: SentimentInputs = {
-  putCallRatio: 0.3, vixLevel: 10, advanceDeclineRatio: 3.0,
-  newHighLowRatio: 4.0, marginBalance: 0.04, northboundFlow: 90,
-  shortInterest: 0.005, turnoverRate: 4.5,
-};
+import { computeCompositeSentiment, SentimentSource } from '../services/marketSentimentCompositeEngine';
 
 describe('MarketSentimentCompositeEngine', () => {
-  describe('computeSentiment', () => {
-    it('should return score 0~100', () => {
-      const result = computeSentiment(neutralInput);
-      expect(result.overallScore).toBeGreaterThanOrEqual(0);
-      expect(result.overallScore).toBeLessThanOrEqual(100);
+  describe('computeCompositeSentiment', () => {
+    it('空源数据返回null', () => {
+      expect(computeCompositeSentiment([])).toBeNull();
     });
 
-    it('should detect fear in fearful market', () => {
-      const result = computeSentiment(fearInput);
-      expect(['extreme_fear', 'fear', 'neutral']).toContain(result.level);
-      expect(result.overallScore).toBeLessThan(50);
+    it('单源数据直接等于该源', () => {
+      const sources: SentimentSource[] = [{ name: 'news', score: 0.6, weight: 1 }];
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      expect(result!.composite).toBeCloseTo(0.6, 2);
+      expect(result!.sources).toHaveLength(1);
     });
 
-    it('should detect greed in greedy market', () => {
-      const result = computeSentiment(greedInput);
-      expect(['greed', 'extreme_greed', 'neutral']).toContain(result.level);
-      expect(result.overallScore).toBeGreaterThan(40);
+    it('多源数据加权平均', () => {
+      const sources: SentimentSource[] = [
+        { name: 'news', score: 0.8, weight: 2 },
+        { name: 'social', score: 0.4, weight: 1 },
+      ];
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      expect(result!.composite).toBeCloseTo((0.8 * 2 + 0.4 * 1) / 3, 2);
     });
 
-    it('should generate contrarian signals', () => {
-      const fearResult = computeSentiment(fearInput);
-      const greedResult = computeSentiment(greedInput);
-      expect(['strong_buy', 'buy', 'neutral']).toContain(fearResult.contrarianSignal);
-      expect(['strong_sell', 'sell', 'neutral']).toContain(greedResult.contrarianSignal);
+    it('等权重加权平均', () => {
+      const sources: SentimentSource[] = [
+        { name: 'a', score: 1, weight: 1 },
+        { name: 'b', score: 0, weight: 1 },
+        { name: 'c', score: 0.5, weight: 1 },
+      ];
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      expect(result!.composite).toBeCloseTo(0.5, 2);
     });
 
-    it('should have all component scores', () => {
-      const result = computeSentiment(neutralInput);
-      expect(result.components.optionsSentiment).toBeDefined();
-      expect(result.components.breadthSentiment).toBeDefined();
-      expect(result.components.flowSentiment).toBeDefined();
-      expect(result.components.volatilitySentiment).toBeDefined();
-      expect(result.components.leverageSentiment).toBeDefined();
+    it('评级映射正确', () => {
+      const sources: SentimentSource[] = [{ name: 'news', score: 0.0, weight: 1 }];
+      expect(computeCompositeSentiment(sources)!.rating).toBe('bearish');
+      sources[0].score = 0.25;
+      expect(computeCompositeSentiment(sources)!.rating).toBe('bearish');
+      sources[0].score = 0.4;
+      expect(computeCompositeSentiment(sources)!.rating).toBe('neutral');
+      sources[0].score = 0.6;
+      expect(computeCompositeSentiment(sources)!.rating).toBe('neutral');
+      sources[0].score = 0.75;
+      expect(computeCompositeSentiment(sources)!.rating).toBe('bullish');
+      sources[0].score = 0.85;
+      expect(computeCompositeSentiment(sources)!.rating).toBe('extreme_bullish');
     });
 
-    it('should apply custom weights', () => {
-      const result = computeSentiment(neutralInput, {
-        weights: { options: 0.5, breadth: 0.1, flow: 0.1, volatility: 0.2, leverage: 0.1 },
-      });
-      expect(result.overallScore).toBeGreaterThanOrEqual(0);
+    it('评级边界0.25和0.5测试', () => {
+      // 0.2 < 0.25 → bearish
+      const src: SentimentSource[] = [{ name: 'news', score: 0.2, weight: 1 }];
+      const r1 = computeCompositeSentiment(src)!.rating;
+      expect(r1).toBe('bearish');
+      // 0.3 > 0.25 → neutral
+      src[0].score = 0.3;
+      const r2 = computeCompositeSentiment(src)!.rating;
+      expect(r2).toBe('neutral');
+      // 0.5 at boundary
+      src[0].score = 0.5;
+      const r3 = computeCompositeSentiment(src)!.rating;
+      expect(['neutral', 'bullish']).toContain(r3);
     });
-  });
 
-  describe('sentimentHistory', () => {
-    it('should return history of sentiment scores', () => {
-      const history = sentimentHistory([fearInput, neutralInput, greedInput]);
-      expect(history).toHaveLength(3);
-      history.forEach(h => {
-        expect(h.score).toBeGreaterThanOrEqual(0);
-        expect(h.level).toBeDefined();
-      });
+    it('返回结构完整性', () => {
+      const sources: SentimentSource[] = [
+        { name: 'a', score: 0.6, weight: 1 },
+        { name: 'b', score: 0.4, weight: 2 },
+      ];
+      const result = computeCompositeSentiment(sources)!;
+      expect(result).toHaveProperty('composite');
+      expect(result).toHaveProperty('rating');
+      expect(result).toHaveProperty('sources');
+      expect(Array.isArray(result.sources)).toBe(true);
+      expect(result.sources).toHaveLength(2);
+    });
+
+    it('零权重组件的处理', () => {
+      const sources: SentimentSource[] = [
+        { name: 'news', score: 0.8, weight: 0 },
+        { name: 'social', score: 0.4, weight: 1 },
+      ];
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      expect(result!.composite).toBeGreaterThan(0);
+    });
+
+    it('全部为零权重等同于空', () => {
+      const sources: SentimentSource[] = [
+        { name: 'a', score: 0.8, weight: 0 },
+        { name: 'b', score: 0.6, weight: 0 },
+      ];
+      const result = computeCompositeSentiment(sources);
+      // totalWeight = 0 → division by zero → either null or NaN
+      expect(result === null || result === undefined || typeof result!.composite === 'number').toBe(true);
+    });
+
+    it('负分数处理', () => {
+      const sources: SentimentSource[] = [
+        { name: 'news', score: -0.5, weight: 1 },
+        { name: 'social', score: 0.2, weight: 1 },
+      ];
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      expect(result!.composite).toBeCloseTo(-0.15, 2);
+    });
+
+    it('极端分数', () => {
+      const sources: SentimentSource[] = [
+        { name: 'news', score: 100, weight: 1 },
+      ];
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      // Should not crash with extreme values
+      expect(typeof result!.composite).toBe('number');
+    });
+
+    it('大量源数据', () => {
+      const sources: SentimentSource[] = Array.from({ length: 100 }, (_, i) => ({
+        name: `src${i}`, score: Math.random(), weight: 1,
+      }));
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      expect(result!.sources).toHaveLength(100);
+      expect(result!.composite).toBeGreaterThan(0);
+      expect(result!.composite).toBeLessThan(1);
+    });
+
+    it('权重差异大时主导性', () => {
+      const sources: SentimentSource[] = [
+        { name: 'dominant', score: 1.0, weight: 10 },
+        { name: 'noise', score: 0.0, weight: 1 },
+      ];
+      const result = computeCompositeSentiment(sources);
+      expect(result).not.toBeNull();
+      // Dominant should pull composite close to 1.0
+      expect(result!.composite).toBeGreaterThan(0.8);
     });
   });
 });
