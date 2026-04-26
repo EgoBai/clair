@@ -7,6 +7,7 @@ import { db } from '../db/dbFactory';
 import { validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendValidationError } from '../utils/apiResponse';
 import { runBacktest, STRATEGY_PRESETS } from '../utils/backtestEngine';
+import type { StrategyType } from '../utils/backtestEngine';
 import type { KLineData } from '@shared/types';
 
 const router = Router();
@@ -48,7 +49,7 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
     }
 
     const klineData: KLineData[] = klineRows.map((r: Record<string, string>) => ({
-      ...r,
+      tradeDate: r.trade_date ?? r.tradeDate ?? '',
       open: parseFloat(r.open),
       close: parseFloat(r.close),
       high: parseFloat(r.high),
@@ -132,7 +133,7 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
     }
 
     const klineData: KLineData[] = klineRows.map((r: Record<string, string>) => ({
-      ...r,
+      tradeDate: r.trade_date,
       open: parseFloat(r.open),
       close: parseFloat(r.close),
       high: parseFloat(r.high),
@@ -145,7 +146,7 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
     const results = strategies.map((strat: { name: string; description: string; type: string; params: Record<string, unknown> }) => {
       try {
         const result = runBacktest(klineData, {
-          type: strat.type,
+          type: strat.type as StrategyType,
           ...strat.params,
         });
         result.symbol = symbol;

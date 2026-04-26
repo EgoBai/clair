@@ -157,7 +157,7 @@ describe('SubscriptionManager', () => {
         userId: 'u1', type: 'stock_limit', name: 'EQ',
         enabled: true,
         conditions: [{ field: 'isLimitUp', operator: 'eq', value: true }],
-        channels: ['websocket'], priority: 'urgent',
+        channels: ['websocket'], priority: 'high',
         cooldownSeconds: 0, maxTriggersPerDay: 100,
         quietHoursEnabled: false, quietHoursStart: '', quietHoursEnd: '',
       });

@@ -71,7 +71,7 @@ describe('服务降级策略', () => {
       cb.recordFailure();
       cb.recordSuccess();
       expect(cb.getState()).toBe('closed');
-      expect(cb.failureCount).toBe(0);
+      expect((cb as any).failureCount).toBe(0);
     });
   });
 

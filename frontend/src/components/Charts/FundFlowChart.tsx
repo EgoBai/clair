@@ -24,7 +24,7 @@ interface FundFlowChartProps {
 }
 
 /** 个股资金流向柱状图 */
-export const FundFlowChart: React.FC<FundFlowChartProps> = ({
+export const FundFlowChart = React.memo<FundFlowChartProps>(({
   data,
   title = '资金流向',
   height = 350,
@@ -140,7 +140,7 @@ export const FundFlowChart: React.FC<FundFlowChartProps> = ({
       notMerge={true}
     />
   );
-};
+});
 
 // ==================== 行业资金流向排行 ====================
 
@@ -157,7 +157,7 @@ interface IndustryFlowChartProps {
   height?: number;
 }
 
-export const IndustryFlowChart: React.FC<IndustryFlowChartProps> = ({
+export const IndustryFlowChart = React.memo<IndustryFlowChartProps>(({
   data,
   title = '行业资金流向',
   height = 400,
@@ -232,7 +232,7 @@ export const IndustryFlowChart: React.FC<IndustryFlowChartProps> = ({
   return (
     <ReactECharts option={option} style={{ height: `${height}px`, width: '100%' }} notMerge={true} />
   );
-};
+});
 
 // ==================== 工具函数 ====================
 

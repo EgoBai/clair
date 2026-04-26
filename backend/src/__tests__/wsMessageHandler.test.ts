@@ -3,7 +3,7 @@
  * 覆盖消息解析、订阅管理、广播逻辑
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 describe('WebSocket 消息处理', () => {
   describe('消息格式解析', () => {

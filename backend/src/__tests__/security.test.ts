@@ -83,11 +83,11 @@ describe('安全性测试', () => {
     });
 
     it('过期的 access token 应该验证失败', async () => {
-      // 创建一个极短有效期的 token (1秒)
+      // 创建一个极短有效期的 token (0.5秒)
       const shortTm = new TokenManager({ accessExpiresIn: 1 });
       const tokens = shortTm.generateTokenPair(payload);
 
-      // 等 2.5秒 确保过期（需要超过 Math.floor 边界）
+      // 等 2.5秒 确保过期（需要超过 Math.floor 边界，避免同一秒内仍有效）
       await new Promise(r => setTimeout(r, 2500));
 
       const result = shortTm.verifyAccessToken(tokens.accessToken);
@@ -170,7 +170,7 @@ describe('安全性测试', () => {
           return { json: () => ({}) };
         },
       };
-      limiter(req, mockRes, () => {});
+      limiter(req, mockRes as any, () => {});
       expect(blocked).toBe(true);
     });
   });

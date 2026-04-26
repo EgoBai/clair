@@ -42,7 +42,7 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
       page: params.page,
       pageSize: params.pageSize,
       totalCount,
-      totalPages: Math.ceil(totalCount / params.pageSize),
+      totalPages: Math.ceil(totalCount / (params.pageSize ?? 20)),
     },
   });
 }));

@@ -64,7 +64,7 @@ const SHORTCUT_GROUPS: ShortcutEntry[] = [
   { keys: ['?'], description: '快捷键帮助', category: '帮助' },
 ];
 
-export default function ShortcutHelpOverlay({ visible, onClose }: ShortcutHelpOverlayProps) {
+const ShortcutHelpOverlay: React.FC<ShortcutHelpOverlayProps> = ({ visible, onClose }) => {
   // ESC 关闭
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -240,4 +240,6 @@ export default function ShortcutHelpOverlay({ visible, onClose }: ShortcutHelpOv
       </div>
     </div>
   );
-}
+};
+
+export default React.memo(ShortcutHelpOverlay);

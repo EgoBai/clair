@@ -37,7 +37,7 @@ interface LinkedChartsProps {
   subIndicator?: 'volume' | 'turnover' | 'amount';
 }
 
-const LinkedCharts: React.FC<LinkedChartsProps> = ({
+const LinkedCharts: React.FC<LinkedChartsProps> = React.memo(({
   klineData,
   fundData,
   height = 520,
@@ -312,7 +312,7 @@ const LinkedCharts: React.FC<LinkedChartsProps> = ({
       </div>
     </Card>
   );
-};
+});
 
 function formatAmount(val: number): string {
   if (Math.abs(val) >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;

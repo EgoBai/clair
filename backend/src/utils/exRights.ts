@@ -49,6 +49,18 @@ export type DividendType =
 
 /** 复权计算结果 */
 export interface AdjustedKLine extends KLineData {
+  /** 复权后收盘价 */
+  close: number;
+  /** 复权后开盘价 */
+  open: number;
+  /** 复权后最高价 */
+  high: number;
+  /** 复权后最低价 */
+  low: number;
+  /** 复权后成交量 */
+  volume: number;
+  /** 复权后成交额 */
+  turnover: number;
   /** 原始价格 (未复权) */
   originalOpen: number;
   originalClose: number;

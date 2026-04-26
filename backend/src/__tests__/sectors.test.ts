@@ -53,6 +53,7 @@ describe('Sectors API', () => {
       const sorted = [...mockIndustries].sort((a: any, b: any) => {
         const aVal = a[sortBy] ?? 0;
         const bVal = b[sortBy] ?? 0;
+        // @ts-expect-error - this branch is for when sortOrder could be 'desc' in production
         return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
       });
       expect(sorted[0].stock_count).toBeLessThanOrEqual(sorted[1].stock_count);

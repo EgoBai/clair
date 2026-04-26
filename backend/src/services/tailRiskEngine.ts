@@ -315,7 +315,15 @@ export function riskReport(returns: number[], prices?: number[]): {
   riskScore: number;
   maxDrawdown?: { maxDD: number; duration: number };
 } {
-  const report = {
+  const report: {
+    var95: number; var99: number;
+    cvar95: number; cvar99: number;
+    cornishFisherVaR99: number;
+    historicalVaR95: number;
+    skewness: number; excessKurtosis: number;
+    riskScore: number;
+    maxDrawdown?: { maxDD: number; duration: number };
+  } = {
     var95: parametricVaR(returns, 0.95),
     var99: parametricVaR(returns, 0.99),
     cvar95: calcCVaR(returns, 0.95),

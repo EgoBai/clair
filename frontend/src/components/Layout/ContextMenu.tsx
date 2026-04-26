@@ -136,4 +136,4 @@ export function useContextMenu() {
   return { ...state, handleContextMenu, close };
 }
 
-export default ContextMenu;
+export default React.memo(ContextMenu);

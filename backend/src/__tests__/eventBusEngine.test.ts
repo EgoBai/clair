@@ -229,9 +229,9 @@ describe('事件总线引擎', () => {
   describe('优先级', () => {
     it('应该按优先级执行', async () => {
       const order: number[] = [];
-      bus.on('test', () => order.push(1), 1);
-      bus.on('test', () => order.push(3), 3);
-      bus.on('test', () => order.push(2), 2);
+      bus.on('test', () => { order.push(1); }, 1);
+      bus.on('test', () => { order.push(3); }, 3);
+      bus.on('test', () => { order.push(2); }, 2);
       await bus.emit('test');
       expect(order).toEqual([3, 2, 1]);
     });

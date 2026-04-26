@@ -214,8 +214,9 @@ describe('投资组合优化与资产配置', () => {
     });
     it('交易方向', () => {
       const result = rebalanceSignal([0.5, 0.2, 0.3], [0.4, 0.3, 0.3], 0.05);
-      expect(result.trades[0]).toBeLessThan(0);
-      expect(result.trades[1]).toBeGreaterThan(0);
+      expect(result.trades!.length).toBe(3);
+      expect(result.trades![0]).toBeLessThan(0);
+      expect(result.trades![1]).toBeGreaterThan(0);
     });
     it('长度不匹配', () => {
       const result = rebalanceSignal([0.5, 0.5], [0.33, 0.33, 0.34], 0.05);

@@ -34,4 +34,4 @@ export function LazyPage({ component: Component, name }: LazyPageProps) {
   );
 }
 
-export default LazyPage;
+export default React.memo(LazyPage);

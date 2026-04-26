@@ -22,7 +22,7 @@ interface VolumeChartProps {
   loading?: boolean;
 }
 
-const VolumeChart: React.FC<VolumeChartProps> = ({
+const VolumeChart: React.FC<VolumeChartProps> = React.memo(({
   data,
   title = '成交量',
   height = 300,
@@ -187,7 +187,7 @@ const VolumeChart: React.FC<VolumeChartProps> = ({
       notMerge={true}
     />
   );
-};
+});
 
 function calculateMA(values: number[], period: number): (number | null)[] {
   const result: (number | null)[] = [];

@@ -389,7 +389,7 @@ export class CrossAssetCorrelationEngine {
     if (rollingCorrs.length < 2) return 0;
 
     const mean = rollingCorrs.reduce((s, v) => s + v, 0) / rollingCorrs.length;
-    const variance = rollingCorrs.reduce((s, v) => s + (v - mean) ** 2, 0) / rollingCorrs.length;
+    const variance = rollingCorrs.reduce((s, v) => s + (v - mean) ** 2, 0) / (rollingCorrs.length - 1);
     const std = Math.sqrt(variance);
 
     // Coefficient of variation inverted

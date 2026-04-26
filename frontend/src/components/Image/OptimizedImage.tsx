@@ -426,4 +426,4 @@ export function withOptimizedImage<P extends { src: string; alt: string }>(
 }
 
 // 默认导出
-export default OptimizedImage;
+export default React.memo(OptimizedImage);

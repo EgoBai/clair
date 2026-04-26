@@ -24,7 +24,7 @@ interface QuickActionsProps {
   direction?: 'horizontal' | 'vertical';
 }
 
-export const QuickActions: React.FC<QuickActionsProps> = ({
+export const QuickActions: React.FC<QuickActionsProps> = React.memo(({
   symbol,
   name,
   inWatchlist = false,
@@ -95,7 +95,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
       </Tooltip>
     </div>
   );
-};
+});
 
 // 股票卡片（含快捷操作）
 export const StockCard: React.FC<{
@@ -105,7 +105,7 @@ export const StockCard: React.FC<{
   changePercent: number;
   inWatchlist?: boolean;
   onToggleWatchlist?: (symbol: string) => void;
-}> = ({ symbol, name, price, changePercent, inWatchlist, onToggleWatchlist }) => {
+}> = React.memo(({ symbol, name, price, changePercent, inWatchlist, onToggleWatchlist }) => {
   const isUp = changePercent > 0;
   const isFlat = changePercent === 0;
   const color = isFlat ? '#999' : isUp ? '#ef4444' : '#22c55e';
@@ -139,6 +139,6 @@ export const StockCard: React.FC<{
       </div>
     </div>
   );
-};
+});
 
 export default QuickActions;

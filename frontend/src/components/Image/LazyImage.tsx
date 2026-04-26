@@ -198,4 +198,4 @@ export function withLazyImage<P extends { src: string; alt: string }>(
 }
 
 // 默认导出
-export default LazyImage;
+export default React.memo(LazyImage);

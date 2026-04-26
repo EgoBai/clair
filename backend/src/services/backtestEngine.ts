@@ -299,7 +299,7 @@ export class BacktestEngine {
     }
     
     const avgReturn = returns.reduce((s, r) => s + r, 0) / returns.length;
-    const variance = returns.reduce((s, r) => s + Math.pow(r - avgReturn, 2), 0) / returns.length;
+    const variance = returns.reduce((s, r) => s + Math.pow(r - avgReturn, 2), 0) / (returns.length - 1);
     const stdDev = Math.sqrt(variance);
     
     return stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;

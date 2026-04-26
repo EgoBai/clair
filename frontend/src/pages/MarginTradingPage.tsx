@@ -17,6 +17,7 @@ import {
   ArrowUpOutlined, ArrowDownOutlined, DollarOutlined, StockOutlined,
 } from '@ant-design/icons';
 import { fetchMarginOverview, fetchMarginData, fetchMarginRank } from '../services/api';
+import type { MarginOverview } from '../../../shared/types';
 
 const { Title, Text } = Typography;
 
@@ -32,7 +33,7 @@ interface MarginRecord {
 }
 
 const MarginTradingPage: React.FC = () => {
-  const [overview, setOverview] = useState<any>(null);
+  const [overview, setOverview] = useState<MarginOverview | null>(null);
   const [rankData, setRankData] = useState<any[]>([]);
   const [rankType, setRankType] = useState<string>('financing');
   const [loading, setLoading] = useState(true);

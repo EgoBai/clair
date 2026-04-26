@@ -188,6 +188,7 @@ describe('FundFlowService', () => {
     it('should add and retrieve unread alerts', () => {
       const alert = service.addAlert({
         stockSymbol: '600519',
+        stockId: 0,
         alertType: 'main_inflow_surge',
         threshold: 1000000,
         isActive: true,
@@ -203,6 +204,7 @@ describe('FundFlowService', () => {
     it('should mark alert as read', () => {
       const alert = service.addAlert({
         stockSymbol: '600519',
+        stockId: 0,
         alertType: 'main_inflow_surge',
         threshold: 1000000,
         isActive: true,

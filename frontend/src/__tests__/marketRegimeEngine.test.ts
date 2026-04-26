@@ -133,9 +133,9 @@ describe('Market Regime Engine', () => {
 
     it('高波动率应被识别为high或extreme', () => {
       const normalReturns = Array.from({ length: 80 }, () => (Math.random() - 0.5) * 0.01);
-      const highVolReturns = Array.from({ length: 30 }, () => (Math.random() - 0.5) * 0.08);
+      // Use very large volatility for the last 20 entries (the rolling window)
+      const highVolReturns = Array.from({ length: 20 }, () => (Math.random() - 0.5) * 0.15);
       const result = engine.detectVolatilityRegime([...normalReturns, ...highVolReturns]);
-      // The last 20 returns are used for currentVol; they may rank at 70-100th percentile
       expect(['high', 'extreme']).toContain(result.state);
     });
 

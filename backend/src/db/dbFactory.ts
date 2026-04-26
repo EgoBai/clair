@@ -74,15 +74,46 @@ export function isMemoryMode(): boolean {
 }
 
 /**
+ * 懒加载代理类型 — 暴露 Database 和 InMemoryDatabase 的公共方法签名
+ * 实际调用时会委托给 getDb()
+ */
+interface DatabaseProxy {
+  connection: import('knex').Knex;
+  testConnection(): Promise<boolean>;
+  close(): Promise<void>;
+  healthCheck(): Promise<{ healthy: boolean; latency: number; poolSize: number }>;
+  getStockBySymbol(symbol: string): Promise<import('../models/Stock').Stock | null>;
+  getDailyQuotes(stockId: number, startDate?: Date, endDate?: Date, limit?: number): Promise<import('../models/Stock').DailyQuote[]>;
+  getLatestDailyQuote(stockId: number): Promise<import('../models/Stock').DailyQuote | null>;
+  getStockWithLatestQuote(symbol: string): Promise<import('../models/Stock').StockWithQuotes | null>;
+  getStocksWithLatestQuotes(symbols: string[]): Promise<import('../models/Stock').StockWithQuotes[]>;
+  getStocks(params: import('../models/Stock').StockSearchParams): Promise<import('../models/Stock').Stock[]>;
+  getStockCount(params: Omit<import('../models/Stock').StockSearchParams, 'page' | 'pageSize' | 'sortBy' | 'sortOrder'>): Promise<number>;
+  getStockById(id: number): Promise<import('../models/Stock').Stock | null>;
+  createStock(stock: Omit<import('../models/Stock').Stock, 'id' | 'createdAt' | 'updatedAt'>): Promise<import('../models/Stock').Stock>;
+  updateStock(id: number, updates: Partial<Omit<import('../models/Stock').Stock, 'id' | 'createdAt' | 'updatedAt'>>): Promise<import('../models/Stock').Stock | null>;
+  createDailyQuote(quote: Omit<import('../models/Stock').DailyQuote, 'id' | 'createdAt' | 'updatedAt'>): Promise<import('../models/Stock').DailyQuote>;
+  getMarketSummary(date: Date): Promise<Record<string, unknown>>;
+  getIndustryPerformance(date: Date): Promise<Record<string, unknown>[]>;
+  getTopGainers(date: Date, limit?: number): Promise<Record<string, unknown>[]>;
+  getTopLosers(date: Date, limit?: number): Promise<Record<string, unknown>[]>;
+  getTopTurnover(date: Date, limit?: number): Promise<Record<string, unknown>[]>;
+  cleanupOldData(retentionDays: number): Promise<{ dailyQuotes: number; minuteQuotes: number }>;
+  rebuildIndexes(): Promise<void>;
+  getDatabaseStats(): Promise<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+/**
  * 懒加载代理 — API文件可以直接 import { db } 然后 db.getStockBySymbol(...)
  * 实际调用时会委托给 getDb()
  */
-export const db = new Proxy({} as any, {
-  get(_target, prop) {
+export const db = new Proxy<DatabaseProxy>({} as DatabaseProxy, {
+  get(_target, prop: string) {
     const instance = getDb();
-    const value = (instance as any)[prop];
+    const value = (instance as unknown as Record<string, unknown>)[prop];
     if (typeof value === 'function') {
-      return value.bind(instance);
+      return (value as CallableFunction).bind(instance);
     }
     return value;
   }

@@ -8,6 +8,7 @@ import { Request, Response, Router } from 'express';
 import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
+import type { NotificationPayload, NotificationPriority, NotificationChannel, NotificationStatus } from '../services/notification/types';
 
 const router = Router();
 
@@ -614,7 +615,9 @@ function evaluateIndicatorCondition(alert: AlertRule, quote: any): { triggered: 
  */
 async function getAverageVolume(stockId: number, days: number = 20): Promise<number> {
   try {
-    const quotes = await db.getDailyQuotes(stockId, days);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const quotes = await db.getDailyQuotes(stockId, startDate);
     if (!quotes || quotes.length === 0) return 0;
     const total = quotes.reduce((sum: number, q: any) => sum + (q.volume || 0), 0);
     return total / quotes.length;
@@ -634,10 +637,10 @@ function pushAlertNotification(alert: AlertRule, actualValue: number): void {
     const priority = alert.alertType === 'composite' ? 'urgent' : 
       (Math.abs(actualValue - alert.threshold) / Math.max(Math.abs(alert.threshold), 1) > 0.1 ? 'high' : 'medium');
     
-    const notification = {
+    const notification: NotificationPayload = {
       id: `alert_push_${alert.id}_${Date.now()}`,
-      type: 'price_alert' as const,
-      priority: priority as 'low' | 'medium' | 'high' | 'urgent',
+      type: 'price_alert',
+      priority: priority as NotificationPriority,
       title: `预警触发: ${alert.symbol}`,
       body: alert.message || `${alert.symbol} 触发 ${alert.alertType} 告警`,
       data: {
@@ -648,19 +651,19 @@ function pushAlertNotification(alert: AlertRule, actualValue: number): void {
         actualValue,
         triggerCount: alert.triggerCount,
       },
-      channels: alert.channels || ['websocket'],
+      channels: alert.channels as NotificationChannel[] || ['websocket'],
       userId: String(alert.userId),
       read: false,
-      status: 'sent' as const,
+      status: 'sent' as NotificationStatus,
       createdAt: Date.now(),
     };
     
     // 通过优先级路由器分发
-    const routingResult = notificationRouter.route(notification as any);
+    const routingResult = notificationRouter.route(notification);
     
     // WebSocket推送
     if (routingResult.channels.includes('websocket')) {
-      wsPushEngine.pushToUser(String(alert.userId), notification as any);
+      wsPushEngine.pushToUser(String(alert.userId), notification);
     }
   } catch (err) {
     // 静默失败，不影响告警主流程

@@ -14,7 +14,7 @@ interface CollapsibleSectionProps {
   className?: string;
 }
 
-export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+export const CollapsibleSection: React.FC<CollapsibleSectionProps> = React.memo(({
   title,
   children,
   defaultOpen = false,
@@ -110,6 +110,6 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default CollapsibleSection;

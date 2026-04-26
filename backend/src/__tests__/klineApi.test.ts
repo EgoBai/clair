@@ -82,6 +82,7 @@ describe('K-Line API Logic', () => {
   // limit参数验证
   describe('Limit Parameter', () => {
     it('should default limit to 120', () => {
+      // @ts-expect-error: testing nullish coalescing behavior
       const limit = undefined ?? 120;
       expect(limit).toBe(120);
     });
@@ -191,6 +192,7 @@ describe('K-Line API Logic', () => {
     });
 
     it('should default to forward', () => {
+      // @ts-expect-error: testing nullish coalescing behavior
       const type = undefined ?? 'forward';
       expect(type).toBe('forward');
     });

@@ -21,7 +21,7 @@ interface FundFlowPieChartProps {
 
 const COLORS = ['#cf1322', '#ff4d4f', '#ff7a45', '#3f8600', '#52c41a'];
 
-export const FundFlowPieChart: React.FC<FundFlowPieChartProps> = ({
+export const FundFlowPieChart = React.memo<FundFlowPieChartProps>(({
   mainNet, superLargeNet, largeNet, mediumNet, smallNet, loading, title = '资金流向分布',
 }) => {
   const data = [
@@ -84,7 +84,7 @@ export const FundFlowPieChart: React.FC<FundFlowPieChartProps> = ({
       </div>
     </Card>
   );
-};
+});
 
 // 行业资金流向饼图
 interface IndustryFlowPieProps {
@@ -97,7 +97,7 @@ const INDUSTRY_COLORS = [
   '#13c2c2', '#faad14', '#f5222d', '#2f54eb', '#a0d911',
 ];
 
-export const IndustryFlowPieChart: React.FC<IndustryFlowPieProps> = ({ data, loading }) => {
+export const IndustryFlowPieChart = React.memo<IndustryFlowPieProps>(({ data, loading }) => {
   const chartData = data.map(d => ({
     name: d.industry,
     value: Math.abs(d.netInflow),
@@ -128,7 +128,7 @@ export const IndustryFlowPieChart: React.FC<IndustryFlowPieProps> = ({ data, loa
       </ResponsiveContainer>
     </Card>
   );
-};
+});
 
 function formatAmount(val: number): string {
   const abs = Math.abs(val);

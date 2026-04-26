@@ -35,7 +35,7 @@ interface UserProfile {
   displayName: string;
   avatarUrl: string;
   bio: string;
-  role: 'user' | 'analyst' | 'vip';
+  role: 'user' | 'analyst' | 'vip' | 'admin';
   followers: number;
   following: number;
   totalPosts: number;
@@ -121,7 +121,9 @@ mockComments.forEach(c => {
  * 获取评论列表
  */
 router.get('/social/comments', validateQuery(schemas.commentQuery), (req: Request, res: Response) => {
-  const { stockSymbol, userId, sortBy, page, pageSize } = req.query as Record<string, string | undefined>;
+  const { stockSymbol, userId, sortBy } = req.query as Record<string, string | undefined>;
+  const page = parseInt((req.query.page as string) || '1', 10);
+  const pageSize = parseInt((req.query.pageSize as string) || '20', 10);
 
   let filtered = [...comments];
 

@@ -507,6 +507,7 @@ function calculateMaxDrawdown(portfolio: DailyPortfolio[]): { maxDrawdown: numbe
 }
 
 function calculateVolatility(returns: number[]): number {
+  if (returns.length === 0) return 0;
   const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
   const squaredDiffs = returns.map((r) => Math.pow(r - mean, 2));
   return Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / returns.length);

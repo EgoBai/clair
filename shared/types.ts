@@ -581,6 +581,26 @@ export interface TopTraderOverview {
   industryDistribution: Record<string, number>;
 }
 
+export interface SeatRankEntry {
+  rank: number;
+  seatName: string;
+  totalBuyAmount: number;
+  totalSellAmount: number;
+  netAmount: number;
+  appearCount: number;
+  isOrganizational: boolean;
+}
+
+export interface MarginRankEntry {
+  rank: number;
+  symbol: string;
+  name: string;
+  financingBalance: number;
+  financingChange: number;
+  securitiesBalance: number;
+  securitiesChange: number;
+}
+
 // ==================== 股东持股 ====================
 
 export interface ShareholderInfo {

@@ -24,7 +24,7 @@ interface RiverChartProps {
   height?: number;
 }
 
-const RiverChart: React.FC<RiverChartProps> = ({
+const RiverChart = React.memo<RiverChartProps>(({
   data,
   sectors,
   title = '板块资金河流图',
@@ -92,6 +92,6 @@ const RiverChart: React.FC<RiverChartProps> = ({
       </ResponsiveContainer>
     </Card>
   );
-};
+});
 
 export default RiverChart;

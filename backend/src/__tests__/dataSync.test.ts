@@ -91,8 +91,8 @@ describe('数据同步服务', () => {
         timestamp: Date.now(),
         source: 'tencent',
       };
-      expect(quote.peRatio).toBeUndefined();
-      expect(quote.pbRatio).toBeUndefined();
+      expect((quote as Record<string, unknown>).peRatio).toBeUndefined();
+      expect((quote as Record<string, unknown>).pbRatio).toBeUndefined();
     });
   });
 

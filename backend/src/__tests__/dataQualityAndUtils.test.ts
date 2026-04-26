@@ -124,11 +124,11 @@ function normalizeStockData(raw: Record<string, string>): {
   return {
     code: raw.code || '',
     name: raw.name || '',
-    price: parseFloat(raw.price) || 0,
-    change: parseFloat(raw.change) || 0,
-    volume: parseInt(raw.volume) || 0,
-    turnover: parseFloat(raw.turnover) || 0,
-    marketCap: parseFloat(raw.marketCap) || 0
+    price: isFinite(parseFloat(raw.price)) ? parseFloat(raw.price) : 0,
+    change: isFinite(parseFloat(raw.change)) ? parseFloat(raw.change) : 0,
+    volume: Number.isSafeInteger(parseInt(raw.volume)) ? parseInt(raw.volume) : 0,
+    turnover: isFinite(parseFloat(raw.turnover)) ? parseFloat(raw.turnover) : 0,
+    marketCap: isFinite(parseFloat(raw.marketCap)) ? parseFloat(raw.marketCap) : 0
   };
 }
 

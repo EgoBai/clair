@@ -21,7 +21,7 @@ interface ChartSkeletonProps {
   extra?: React.ReactNode;
 }
 
-export const ChartSkeleton: React.FC<ChartSkeletonProps> = ({
+export const ChartSkeleton: React.FC<ChartSkeletonProps> = React.memo(({
   title,
   height = 300,
   loading = false,
@@ -44,12 +44,12 @@ export const ChartSkeleton: React.FC<ChartSkeletonProps> = ({
       </div>
     </Card>
   );
-};
+});
 
 /**
  * 简单的图表加载占位（无卡片包裹）
  */
-export const ChartLoadingPlaceholder: React.FC<{ height?: number }> = ({ height = 300 }) => (
+export const ChartLoadingPlaceholder: React.FC<{ height?: number }> = React.memo(({ height = 300 }) => (
   <div
     style={{
       height,
@@ -62,6 +62,6 @@ export const ChartLoadingPlaceholder: React.FC<{ height?: number }> = ({ height 
   >
     <Skeleton active paragraph={{ rows: 3 }} style={{ width: '80%' }} />
   </div>
-);
+));
 
 export default ChartSkeleton;

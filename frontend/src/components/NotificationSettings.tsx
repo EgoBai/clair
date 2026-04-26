@@ -328,4 +328,4 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ user
   );
 };
 
-export default NotificationSettings;
+export default React.memo(NotificationSettings);

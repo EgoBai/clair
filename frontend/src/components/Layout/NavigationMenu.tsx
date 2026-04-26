@@ -420,4 +420,4 @@ export const NavigationMenu: React.FC = () => {
   );
 };
 
-export default NavigationMenu;
+export default React.memo(NavigationMenu);

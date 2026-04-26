@@ -30,13 +30,13 @@ const COLORS = [
   '#722ed1', '#13c2c2', '#eb2f96', '#a0d911',
 ];
 
-function StockCompareChart({
+const StockCompareChart = React.memo<StockCompareChartProps>(({
   stocks,
   width = 800,
   height = 400,
   normalize = true,
   loading = false,
-}: StockCompareChartProps) {
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const chartData = useMemo(() => {
@@ -226,6 +226,6 @@ function StockCompareChart({
       />
     </div>
   );
-}
+});
 
 export default StockCompareChart;

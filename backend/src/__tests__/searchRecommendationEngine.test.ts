@@ -82,10 +82,10 @@ describe('搜索与推荐引擎', () => {
     };
 
     it('同行业得分高', () => {
-      const stocks = [
-        { code: 'A', sector: 'bank', marketCap: 100, corr: { B: 0.8, C: 0.3 } },
-        { code: 'B', sector: 'bank', marketCap: 90, corr: { A: 0.8, C: 0.2 } },
-        { code: 'C', sector: 'tech', marketCap: 200, corr: { A: 0.3, B: 0.2 } },
+      const stocks: ({ code: string; sector: string; marketCap: number; corr: Record<string, number> })[] = [
+        { code: 'A', sector: 'bank', marketCap: 100, corr: { B: 0.8, C: 0.3 } as Record<string, number> },
+        { code: 'B', sector: 'bank', marketCap: 90, corr: { A: 0.8, C: 0.2 } as Record<string, number> },
+        { code: 'C', sector: 'tech', marketCap: 200, corr: { A: 0.3, B: 0.2 } as Record<string, number> },
       ];
       const result = recommendRelated('A', stocks);
       expect(result[0].code).toBe('B');

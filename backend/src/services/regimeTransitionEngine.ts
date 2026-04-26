@@ -58,7 +58,7 @@ export class RegimeTransitionEngine {
     for (let i = window; i <= returns.length; i++) {
       const slice = returns.slice(i - window, i);
       const mean = slice.reduce((s, v) => s + v, 0) / slice.length;
-      const std = Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / slice.length);
+      const std = Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / (slice.length - 1));
       const annualizedVol = std * Math.sqrt(252);
       const annualizedReturn = mean * 252;
 

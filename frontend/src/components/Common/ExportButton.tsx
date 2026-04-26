@@ -16,13 +16,13 @@ interface ExportButtonProps {
   onImageExport?: () => void;
 }
 
-export default function ExportButton({
+const ExportButton: React.FC<ExportButtonProps> = ({
   data,
   filename = 'export',
   columns = STOCK_EXPORT_COLUMNS,
   showImage = false,
   onImageExport,
-}: ExportButtonProps) {
+}) => {
   const [exporting, setExporting] = useState(false);
 
   const handleExport = async (type: string) => {
@@ -91,4 +91,6 @@ export default function ExportButton({
       </Button>
     </Dropdown>
   );
-}
+};
+
+export default React.memo(ExportButton);

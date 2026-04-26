@@ -68,7 +68,7 @@ describe('Watchlist API', () => {
         w.symbol === '000001.SZ' ? { ...w, notes: '银行龙头' } : w
       );
       const target = updated.find(w => w.symbol === '000001.SZ');
-      expect(target?.notes).toBe('银行龙头');
+      expect((target as any as { notes?: string }).notes).toBe('银行龙头');
     });
   });
 

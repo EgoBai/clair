@@ -71,7 +71,7 @@ export function shouldShowOnboarding(): boolean {
   }
 }
 
-export default function Onboarding() {
+const Onboarding: React.FC = () => {
   const [visible, setVisible] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
 
@@ -204,7 +204,9 @@ export default function Onboarding() {
       </div>
     </Modal>
   );
-}
+};
+
+export default React.memo(Onboarding);
 
 // 重置引导（在设置中可调用）
 export function resetOnboarding() {

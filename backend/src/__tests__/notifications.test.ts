@@ -96,12 +96,14 @@ describe('通知系统API', () => {
 
   describe('通知列表查询参数', () => {
     it('默认limit应该为50', () => {
-      const limit = undefined ? 50 : parseInt('50', 10);
+      // @ts-expect-error - testing undefined default behavior
+      const limit = undefined ?? 50;
       expect(limit).toBe(50);
     });
 
     it('默认offset应该为0', () => {
-      const offset = undefined ? 0 : parseInt('0', 10);
+      // @ts-expect-error - testing undefined default behavior
+      const offset = undefined ?? 0;
       expect(offset).toBe(0);
     });
 

@@ -41,7 +41,7 @@ interface StockTableProps {
  * />
  * ```
  */
-export const StockTable: React.FC<StockTableProps> = ({
+export const StockTable: React.FC<StockTableProps> = React.memo(({
   stocks,
   loading = false,
   sortBy = 'symbol',
@@ -497,7 +497,7 @@ export const StockTable: React.FC<StockTableProps> = ({
       `}</style>
     </div>
   );
-};
+});
 
 // 默认导出
 export default StockTable;

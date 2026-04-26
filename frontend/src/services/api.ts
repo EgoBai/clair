@@ -14,6 +14,10 @@ import type {
   StockSearchParams,
   QuoteParams,
   PaginatedData,
+  MarginOverview,
+  TopTraderOverview,
+  SeatRankEntry,
+  MarginRankEntry,
 } from '../../../shared/types';
 
 // Re-export shared types for consumers
@@ -512,9 +516,18 @@ export async function fetchMarginData(symbol: string, days = 30) {
   return rawGet(`/api/margin/${symbol}?days=${days}`);
 }
 
-export async function fetchMarginRank(type: string, count = 20) {
-  const result = await rawGet<{ rank: unknown }>(`/api/margin/rank/${type}?count=${count}`);
+export async function fetchMarginRank(type: string, count = 20): Promise<MarginRankEntry[]> {
+  const result = await rawGet<{ rank: MarginRankEntry[] }>(`/api/margin/rank/${type}?count=${count}`);
   return result.rank;
+}
+
+export async function fetchMarginOverviewTyped(): Promise<MarginOverview> {
+  return rawGet<MarginOverview>('/api/margin/overview');
+}
+
+export async function fetchTopTraderOverviewTyped(date?: string): Promise<TopTraderOverview> {
+  const params = date ? `?date=${date}` : '';
+  return rawGet<TopTraderOverview>(`/api/top-traders/overview${params}`);
 }
 
 // ==================== 龙虎榜 ====================
@@ -533,8 +546,9 @@ export async function fetchTopTraderHistory(symbol: string, days = 10) {
   return rawGet(`/api/top-traders/history/${symbol}?days=${days}`);
 }
 
-export async function fetchTopTraderSeatRank(count = 20) {
-  const result = await rawGet<{ rank: unknown }>(`/api/top-traders/seat/rank?count=${count}`);
+export async function fetchTopTraderSeatRank(count = 20): Promise<SeatRankEntry[] | undefined> {
+  const result = await rawGet<{ rank: SeatRankEntry[] }>(`/api/top-traders/seat/rank?count=${count}`);
+  if (!Array.isArray(result?.rank)) return undefined;
   return result.rank;
 }
 

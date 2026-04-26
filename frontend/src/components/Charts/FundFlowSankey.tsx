@@ -36,7 +36,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   stock: '#3b82f6',
 };
 
-const FundFlowSankey: React.FC<FundFlowSankeyProps> = ({
+const FundFlowSankey = React.memo<FundFlowSankeyProps>(({
   nodes,
   links,
   title = '资金流向桑基图',
@@ -165,7 +165,7 @@ const FundFlowSankey: React.FC<FundFlowSankeyProps> = ({
       </div>
     </Card>
   );
-};
+});
 
 function formatAmount(val: number): string {
   const abs = Math.abs(val);

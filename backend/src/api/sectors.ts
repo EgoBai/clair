@@ -23,9 +23,9 @@ router.get('/sectors', validateQuery(schemas.sectorQuery), asyncHandler(async (r
   const industries = await db.getIndustryPerformance(date);
 
   // 排序
-  industries.sort((a: Record<string, number>, b: Record<string, number>) => {
-    const aVal = a[sortBy] ?? 0;
-    const bVal = b[sortBy] ?? 0;
+  industries.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+    const aVal = (a[sortBy] as number) ?? 0;
+    const bVal = (b[sortBy] as number) ?? 0;
     return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
   });
 
@@ -69,10 +69,10 @@ router.get('/sectors/ranking', validateQuery(schemas.sectorQuery), asyncHandler(
 
   const industries = await db.getIndustryPerformance(date);
 
-  const sorted = [...industries].sort((a: Record<string, number>, b: Record<string, number>) =>
+  const sorted = [...industries].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
     type === 'gainers'
-      ? (b.avg_change_percent ?? 0) - (a.avg_change_percent ?? 0)
-      : (a.avg_change_percent ?? 0) - (b.avg_change_percent ?? 0)
+      ? ((b.avg_change_percent as number) ?? 0) - ((a.avg_change_percent as number) ?? 0)
+      : ((a.avg_change_percent as number) ?? 0) - ((b.avg_change_percent as number) ?? 0)
   );
 
   sendSuccess(res, {

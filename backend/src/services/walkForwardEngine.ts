@@ -237,7 +237,7 @@ export function parameterStability(
     }
 
     const mean = values.reduce((s, v) => s + v, 0) / values.length;
-    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1);
     const cv = mean !== 0 ? Math.sqrt(variance) / Math.abs(mean) : 0;
 
     // 漂移：前后半段均值差异

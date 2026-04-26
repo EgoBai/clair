@@ -94,7 +94,7 @@ describe('AI Analysis Proper', () => {
         high: 103 + Math.random() * 3,
         low: 97 - Math.random() * 3,
         volume: 100000,
-        amount: 10000000,
+        turnover: 10000000,
         symbol: '600519',
       }));
       const result = calculator.calculateByATR('600519', 100, kline);
@@ -108,7 +108,7 @@ describe('AI Analysis Proper', () => {
       const kline = Array.from({ length: 30 }, (_, i) => ({
         tradeDate: `2024-01-${String(i + 1).padStart(2, '0')}`,
         open: 100, close: 100, high: 102, low: 98,
-        volume: 100000, amount: 10000000, symbol: '600519',
+        volume: 100000, turnover: 10000000, symbol: '600519',
       }));
       const r1 = calculator.calculateByATR('600519', 100, kline, 1);
       const r2 = calculator.calculateByATR('600519', 100, kline, 3);
@@ -119,7 +119,7 @@ describe('AI Analysis Proper', () => {
       const kline = Array.from({ length: 30 }, (_, i) => ({
         tradeDate: `2024-01-${String(i + 1).padStart(2, '0')}`,
         open: 100, close: 100, high: 102, low: 98,
-        volume: 100000, amount: 10000000, symbol: '600519',
+        volume: 100000, turnover: 10000000, symbol: '600519',
       }));
       const result = calculator.calculateByATR('600519', 100, kline);
       expect(result.riskRewardRatio).toBeGreaterThan(0);

@@ -152,7 +152,7 @@ describe('StopLossCalculator', () => {
   const calc = new StopLossCalculator();
 
   const makeKLine = (close: number, high: number, low: number) => ({
-    tradeDate: '2024-01-02', open: close, close, high, low, volume: 10000,
+    tradeDate: '2024-01-02', open: close, close, high, low, volume: 10000, turnover: 0,
   });
 
   const klineData = [

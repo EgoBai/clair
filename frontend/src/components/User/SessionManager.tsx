@@ -137,4 +137,4 @@ export function SessionManager({ sessions, onRevoke, onRevokeAll }: {
   );
 }
 
-export default SessionManager;
+export default React.memo(SessionManager);

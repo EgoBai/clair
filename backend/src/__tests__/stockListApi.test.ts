@@ -5,12 +5,12 @@ describe('Stock List API Logic', () => {
   // 分页参数验证
   describe('Pagination Validation', () => {
     it('should default page to 1 when not provided', () => {
-      const page = undefined ?? 1;
+      const page = 1; // default page to 1 when not provided
       expect(page).toBe(1);
     });
 
     it('should default pageSize to 20 when not provided', () => {
-      const pageSize = undefined ?? 20;
+      const pageSize = 20; // default pageSize to 20 when not provided
       expect(pageSize).toBe(20);
     });
 
@@ -69,7 +69,7 @@ describe('Stock List API Logic', () => {
     });
 
     it('should default sort order to desc', () => {
-      const order = undefined ?? 'desc';
+      const order = 'desc' as const; // default sort order to desc
       expect(order).toBe('desc');
     });
 

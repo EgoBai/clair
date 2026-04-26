@@ -171,7 +171,7 @@ export class QuantFactorEngine {
           if (i > 0) returns.push((data.prices[i] - data.prices[i - 1]) / data.prices[i - 1]);
         }
         const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
-        const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / returns.length;
+        const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / (returns.length - 1);
         return Math.sqrt(variance * 252);
       }
     });
@@ -186,7 +186,7 @@ export class QuantFactorEngine {
         for (let i = data.prices.length - 60; i < data.prices.length; i++) {
           if (i > 0) returns.push((data.prices[i] - data.prices[i - 1]) / data.prices[i - 1]);
         }
-        const variance = returns.reduce((s, r) => s + r * r, 0) / returns.length;
+        const variance = returns.reduce((s, r) => s + r * r, 0) / (returns.length - 1);
         return Math.sqrt(variance) * 1.5; // Simplified beta
       }
     });
@@ -322,7 +322,7 @@ export class QuantFactorEngine {
       if (values.length === 0) continue;
 
       const mean = values.reduce((s, v) => s + v, 0) / values.length;
-      const variance = values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length;
+      const variance = values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (values.length - 1);
       const stdDev = Math.sqrt(variance);
 
       if (stdDev > 0) {

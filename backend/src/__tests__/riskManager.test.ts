@@ -138,7 +138,7 @@ class RiskManager {
     for (const limit of this.limits.values()) {
       let value = 0;
       if (limit.type === 'portfolio') {
-        value = (portfolioRisk as Record<string, unknown>)[limit.metric] as number ?? 0;
+        value = (portfolioRisk as unknown as Record<string, unknown>)[limit.metric] as number ?? 0;
       }
 
       if (Math.abs(value) >= limit.hardLimit) {

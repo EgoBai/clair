@@ -25,7 +25,7 @@ interface SectorHeatmapProps {
   loading?: boolean;
 }
 
-const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ data, onSectorClick, colorMode = 'change', loading = false }) => {
+const SectorHeatmap = React.memo<SectorHeatmapProps>(({ data, onSectorClick, colorMode = 'change', loading = false }) => {
   const sortedData = useMemo(() => {
     return [...data].sort((a, b) => {
       if (colorMode === 'volume') return b.turnover - a.turnover;
@@ -153,7 +153,7 @@ const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ data, onSectorClick, colo
       </div>
     </Card>
   );
-};
+});
 
 export default SectorHeatmap;
 export type { SectorHeatData };

@@ -43,7 +43,7 @@ class LogAggregator {
     let result = [...this.logs];
     if (filter?.level) result = result.filter(l => l.level === filter.level);
     if (filter?.source) result = result.filter(l => l.source === filter.source);
-    if (filter?.since) result = result.filter(l => l.timestamp >= filter.since);
+    if (filter?.since) result = result.filter(l => l.timestamp >= filter.since!);
     return result;
   }
 

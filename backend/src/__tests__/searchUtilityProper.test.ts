@@ -130,7 +130,7 @@ describe('Search Utility Proper', () => {
     });
 
     it('should add search history', () => {
-      addSearchHistory(1, { symbol: '600519', name: '贵州茅台' });
+      addSearchHistory(1, { query: '茅台', symbol: '600519', name: '贵州茅台' });
       const history = getSearchHistory(1);
       expect(history.length).toBe(1);
       expect(history[0].symbol).toBe('600519');
@@ -142,15 +142,15 @@ describe('Search Utility Proper', () => {
     });
 
     it('should clear search history', () => {
-      addSearchHistory(1, { symbol: '600519', name: '贵州茅台' });
+      addSearchHistory(1, { query: '茅台', symbol: '600519', name: '贵州茅台' });
       clearSearchHistory(1);
       const history = getSearchHistory(1);
       expect(history.length).toBe(0);
     });
 
     it('should deduplicate search history', () => {
-      addSearchHistory(1, { symbol: '600519', name: '贵州茅台' });
-      addSearchHistory(1, { symbol: '600519', name: '贵州茅台' });
+      addSearchHistory(1, { query: '茅台', symbol: '600519', name: '贵州茅台' });
+      addSearchHistory(1, { query: '茅台', symbol: '600519', name: '贵州茅台' });
       const history = getSearchHistory(1);
       expect(history.length).toBe(1);
     });

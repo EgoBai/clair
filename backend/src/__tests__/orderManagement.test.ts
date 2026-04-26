@@ -17,12 +17,10 @@ const createOrder = (params: Partial<Order>): Order => ({
   type: params.type ?? 'limit',
   price: params.price ?? 0,
   quantity: params.quantity ?? 100,
-  filledQty: 0,
-  status: 'pending',
-  timestamp: params.timestamp ?? Date.now(),
-  ...params,
   filledQty: params.filledQty ?? 0,
   status: params.status ?? 'pending',
+  stopPrice: params.stopPrice,
+  timestamp: params.timestamp ?? Date.now(),
 });
 
 const validateOrder = (order: Order): { valid: boolean; errors: string[] } => {

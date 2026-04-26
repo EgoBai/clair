@@ -52,7 +52,7 @@ interface WatchlistPanelProps {
   onStockClick?: (symbol: string) => void;
 }
 
-const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ onStockClick }) => {
+const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({ onStockClick }) => {
   const [groups, setGroups] = useState<WatchlistGroup[]>([
     { id: 'default', name: '默认分组', stocks: [], isDefault: true },
   ]);
@@ -366,7 +366,7 @@ const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ onStockClick }) => {
       </Modal>
     </Card>
   );
-};
+});
 
 // ==================== 添加股票搜索表单 ====================
 

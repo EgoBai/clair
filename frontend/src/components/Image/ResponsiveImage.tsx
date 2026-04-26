@@ -216,4 +216,4 @@ export function withResponsiveImage<P extends { src: string; alt: string }>(
 }
 
 // 默认导出
-export default ResponsiveImage;
+export default React.memo(ResponsiveImage);

@@ -16,7 +16,7 @@ function parseAmount(amount: string): number {
   if (cleaned.endsWith('万亿')) return parseFloat(cleaned) * 1e12;
   if (cleaned.endsWith('亿')) return parseFloat(cleaned) * 1e8;
   if (cleaned.endsWith('万')) return parseFloat(cleaned) * 1e4;
-  return parseFloat(cleaned) || 0;
+  return Number.isFinite(parseFloat(cleaned)) ? parseFloat(cleaned) : 0;
 }
 
 function formatNumberWithUnit(n: number): string {

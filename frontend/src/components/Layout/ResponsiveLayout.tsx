@@ -256,4 +256,4 @@ export const Row: React.FC<{
   </div>
 );
 
-export default ResponsiveLayout;
+export default React.memo(ResponsiveLayout);

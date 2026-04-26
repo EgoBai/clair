@@ -11,6 +11,7 @@ import {
   CollectorConfig,
   CollectorResult,
 } from './base';
+import { toValidNumber } from '../utils';
 
 const TENCENT_CONFIG: CollectorConfig = {
   name: 'tencent',
@@ -181,7 +182,7 @@ export class TencentCollector extends BaseCollector {
    */
   parseRawData(raw: string): RawQuoteData[] {
     const quotes: RawQuoteData[] = [];
-    const lines = raw.split('\n').filter(line => line.trim());
+    const lines = raw.split(/\r?\n/).filter(line => line.trim());
 
     for (const line of lines) {
       try {
@@ -212,8 +213,8 @@ export class TencentCollector extends BaseCollector {
     const market = this.getMarketFromSymbol(rawSymbol);
     if (market === 'UNKNOWN') return null;
 
-    const currentPrice = parseFloat(parts[3]) || 0;
-    const prevClose = parseFloat(parts[4]) || 0;
+    const currentPrice = toValidNumber(parseFloat(parts[3]), 0);
+    const prevClose = toValidNumber(parseFloat(parts[4]), 0);
     const change = currentPrice - prevClose;
     const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
@@ -221,24 +222,24 @@ export class TencentCollector extends BaseCollector {
       symbol: `${rawSymbol}.${market}`,
       name: parts[1],
       currentPrice,
-      openPrice: parseFloat(parts[5]) || 0,
-      highPrice: parseFloat(parts[33]) || currentPrice,
-      lowPrice: parseFloat(parts[34]) || currentPrice,
+      openPrice: toValidNumber(parseFloat(parts[5]), 0),
+      highPrice: toValidNumber(parseFloat(parts[33]), currentPrice),
+      lowPrice: toValidNumber(parseFloat(parts[34]), currentPrice),
       prevClose,
-      volume: parseFloat(parts[6]) || 0,
-      turnover: parseFloat(parts[37]) || 0,
+      volume: toValidNumber(parseFloat(parts[6]), 0),
+      turnover: toValidNumber(parseFloat(parts[37]), 0),
       change,
-      changePercent: parseFloat(parts[32]) || changePercent,
-      amplitude: parseFloat(parts[43]) || 0,
-      turnoverRate: parseFloat(parts[38]) || 0,
-      peRatio: parseFloat(parts[39]) || undefined,
-      pbRatio: parseFloat(parts[46]) || undefined,
-      marketCap: parseFloat(parts[45]) * 10000 || undefined,
-      circulatingMarketCap: parseFloat(parts[44]) * 10000 || undefined,
-      bidPrice1: parseFloat(parts[9]) || undefined,
-      askPrice1: parseFloat(parts[19]) || undefined,
-      bidVolume1: parseFloat(parts[10]) || undefined,
-      askVolume1: parseFloat(parts[20]) || undefined,
+      changePercent: toValidNumber(parseFloat(parts[32]), changePercent),
+      amplitude: toValidNumber(parseFloat(parts[43]), 0),
+      turnoverRate: toValidNumber(parseFloat(parts[38]), 0),
+      peRatio: toValidNumber(parseFloat(parts[39])),
+      pbRatio: toValidNumber(parseFloat(parts[46])),
+      marketCap: toValidNumber(parseFloat(parts[45]) * 10000),
+      circulatingMarketCap: toValidNumber(parseFloat(parts[44]) * 10000),
+      bidPrice1: toValidNumber(parseFloat(parts[9])),
+      askPrice1: toValidNumber(parseFloat(parts[19])),
+      bidVolume1: toValidNumber(parseFloat(parts[10])),
+      askVolume1: toValidNumber(parseFloat(parts[20])),
       timestamp: Date.now(),
       source: 'tencent',
     };
@@ -260,12 +261,12 @@ export class TencentCollector extends BaseCollector {
         result.push({
           symbol,
           tradeDate: item[0],
-          openPrice: parseFloat(item[1]),
-          closePrice: parseFloat(item[2]),
-          highPrice: parseFloat(item[3]),
-          lowPrice: parseFloat(item[4]),
-          volume: parseFloat(item[5]),
-          turnover: parseFloat(item[6]) || 0,
+          openPrice: toValidNumber(parseFloat(item[1]), 0),
+          closePrice: toValidNumber(parseFloat(item[2]), 0),
+          highPrice: toValidNumber(parseFloat(item[3]), 0),
+          lowPrice: toValidNumber(parseFloat(item[4]), 0),
+          volume: toValidNumber(parseFloat(item[5]), 0),
+          turnover: toValidNumber(parseFloat(item[6]), 0),
         });
       }
     } catch (error) {

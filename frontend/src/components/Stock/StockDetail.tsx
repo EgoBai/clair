@@ -60,7 +60,7 @@ interface StockDetailProps {
   onRefresh?: () => void;
 }
 
-const StockDetail: React.FC<StockDetailProps> = ({
+const StockDetail: React.FC<StockDetailProps> = React.memo(({
   stock,
   symbol,
   quote,
@@ -294,6 +294,6 @@ const StockDetail: React.FC<StockDetailProps> = ({
       </Row>
     </Spin>
   );
-};
+});
 
 export default StockDetail;

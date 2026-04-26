@@ -105,8 +105,8 @@ describe('User Model', () => {
     it('should allow UserPreferences creation', () => {
       const prefs: UserPreferences = {
         id: 1,
-        userId: 1,
         ...getDefaultPreferences(1),
+        userId: 1,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

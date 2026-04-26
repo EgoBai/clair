@@ -166,7 +166,8 @@ describe('Database Factory', () => {
     await initDatabase();
     // After init, dbProxy should proxy to InMemoryDatabase
     mockInMemoryDb.testConnection.mockResolvedValue(true);
-    const result = await dbProxy.testConnection();
+    const testConnFn = (dbProxy as Record<string, unknown>).testConnection as unknown as (...args: unknown[]) => Promise<boolean>;
+    const result = await testConnFn();
     expect(result).toBe(true);
   });
 
@@ -174,7 +175,8 @@ describe('Database Factory', () => {
     delete process.env.DATABASE_URL;
     await initDatabase();
     // Access a property on the proxy
-    expect(typeof dbProxy.getTopGainers).toBe('function');
+    const hasMethod = typeof (dbProxy as Record<string, unknown>).getTopGainers;
+    expect(hasMethod).toBe('function');
   });
 
   // --- Edge Cases ---
@@ -200,7 +202,8 @@ describe('Database Factory', () => {
     await initDatabase();
     const expectedStocks = [{ symbol: '000001', name: '平安银行' }];
     mockInMemoryDb.getQuotes.mockReturnValue(expectedStocks);
-    const quotes = dbProxy.getQuotes('000001');
-    expect(quotes).toEqual(expectedStocks);
+    const quotes = (dbProxy as Record<string, unknown>).getQuotes as unknown as (symbol: string) => unknown[];
+    const result = quotes('000001');
+    expect(result).toEqual(expectedStocks);
   });
 });

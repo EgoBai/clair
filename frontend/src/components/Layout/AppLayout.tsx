@@ -384,4 +384,4 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   );
 };
 
-export default AppLayout;
+export default React.memo(AppLayout);

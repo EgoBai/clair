@@ -235,7 +235,7 @@ describe('Stock Model Operations', () => {
 
   describe('Data Normalization', () => {
     it('should normalize valid raw data', () => {
-      const raw = { code: '600000', name: '浦发银行', price: '10.5' };
+      const raw = { code: '600000', name: '浦发银行', price: 10.5 };
       const result = normalizeStockData(raw);
       expect(result).not.toBeNull();
       expect(result!.code).toBe('600000');

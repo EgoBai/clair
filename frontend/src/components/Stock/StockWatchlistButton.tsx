@@ -7,7 +7,7 @@ interface StockWatchlistButtonProps {
   showLabel?: boolean;
 }
 
-const StockWatchlistButton: React.FC<StockWatchlistButtonProps> = ({
+const StockWatchlistButton: React.FC<StockWatchlistButtonProps> = React.memo(({
   symbol,
   size = 'medium',
   showLabel = false,
@@ -103,6 +103,6 @@ const StockWatchlistButton: React.FC<StockWatchlistButtonProps> = ({
       `}</style>
     </button>
   );
-};
+});
 
 export default StockWatchlistButton;

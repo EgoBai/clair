@@ -75,7 +75,7 @@ export class RiskBudgetEngine {
     if (returns.length < 10) return 0;
 
     const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const variance = returns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / returns.length;
+    const variance = returns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / (returns.length - 1);
     const std = Math.sqrt(variance);
 
     // Z-score for confidence level

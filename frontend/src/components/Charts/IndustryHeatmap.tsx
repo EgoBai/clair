@@ -135,7 +135,7 @@ function getTextColor(changePercent: number): string {
 }
 
 // ============= Component =============
-export default function IndustryHeatmap({ data, width = 800, height = 400, loading = false }: IndustryHeatmapProps) {
+const IndustryHeatmap = React.memo<IndustryHeatmapProps>(({ data, width = 800, height = 400, loading = false }) => {
   const navigate = useNavigate();
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
@@ -265,4 +265,6 @@ export default function IndustryHeatmap({ data, width = 800, height = 400, loadi
       </svg>
     </div>
   );
-}
+});
+
+export default IndustryHeatmap;

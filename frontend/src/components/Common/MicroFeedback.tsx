@@ -133,4 +133,4 @@ export const MicroFeedback: React.FC<{
   );
 };
 
-export default MicroFeedback;
+export default React.memo(MicroFeedback);

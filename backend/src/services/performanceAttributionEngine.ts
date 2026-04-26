@@ -158,12 +158,17 @@ export function computePerformanceMetrics(
   const annualizedReturn = Math.pow(1 + totalReturn, 252 / n) - 1;
 
   const mean = returns.reduce((s, v) => s + v, 0) / n;
-  const variance = returns.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1);
+  let variance = 0;
+  if (n > 1) {
+    variance = returns.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1);
+  }
   const volatility = Math.sqrt(variance) * Math.sqrt(252);
 
-  const downsideReturns = returns.filter(r => r < riskFreeRate);
-  const downsideVariance = downsideReturns.length > 0
-    ? downsideReturns.reduce((s, v) => s + (v - riskFreeRate) ** 2, 0) / downsideReturns.length : 0;
+  // Use mean return as downside threshold — conceptually correct: downside is below average
+  const downsideThreshold = Math.min(mean, riskFreeRate);
+  const downsideReturns = returns.filter(r => r < downsideThreshold);
+  const downsideVariance = downsideReturns.length > 1
+    ? downsideReturns.reduce((s, v) => s + (v - downsideThreshold) ** 2, 0) / (downsideReturns.length - 1) : 0;
   const downsideDev = Math.sqrt(downsideVariance) * Math.sqrt(252);
 
   const sharpeRatio = volatility > 0 ? (annualizedReturn - riskFreeRate * 252) / volatility : 0;

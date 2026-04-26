@@ -382,12 +382,14 @@ function applyConditionToBuilder(builder: Knex.QueryBuilder, cond: ScreenerCondi
       break;
     case 'in':
       if (Array.isArray(cond.value)) {
-        (builder as any)[method + 'In'](dbField, cond.value);
+        const fnIn = (builder as unknown as Record<string, Function>)[method + 'In'];
+        fnIn.call(builder, dbField, cond.value);
       }
       break;
     case 'not_in':
       if (Array.isArray(cond.value)) {
-        (builder as any)[method === 'where' ? 'whereNotIn' : 'orWhereNotIn'](dbField, cond.value);
+        const fnNotIn = (builder as unknown as Record<string, Function>)[method === 'where' ? 'whereNotIn' : 'orWhereNotIn'];
+        fnNotIn.call(builder, dbField, cond.value);
       }
       break;
   }
@@ -404,8 +406,8 @@ function buildAdvancedQuery() {
         LIMIT 1
       )
     `)
-    .leftJoinRaw(`
-      technical_indicators ti ON ti.stock_id = s.id
+    .joinRaw(`
+      LEFT JOIN technical_indicators ti ON ti.stock_id = s.id
       AND ti.trade_date = (
         SELECT MAX(trade_date) FROM technical_indicators WHERE stock_id = s.id
       )
@@ -465,34 +467,37 @@ const SELECT_COLUMNS = [
 ];
 
 function mapStockRow(s: Record<string, string | null>): MappedStock {
+  const pf = (v: string | null) => { const x = parseFloat(String(v)); return Number.isFinite(x) ? x : 0; };
+  const pi = (v: string | null) => { const x = parseFloat(String(v)); return Number.isFinite(x) ? Math.floor(x) : 0; };
+  const pn = (v: string | null) => { if (v == null) return null; const x = parseFloat(String(v)); return Number.isFinite(x) ? x : null; };
   return {
-    id: parseInt(String(s.id)) || 0,
+    id: pi(s.id),
     symbol: String(s.symbol || ''),
     name: String(s.name || ''),
     market: String(s.market || ''),
     industry: String(s.industry || ''),
-    price: parseFloat(String(s.price)) || 0,
-    changePercent: parseFloat(String(s.change_percent)) || 0,
-    volume: parseInt(String(s.volume)) || 0,
-    turnover: parseFloat(String(s.turnover)) || 0,
-    turnoverRate: parseFloat(String(s.turnover_rate)) || 0,
-    peRatio: s.pe_ratio != null ? parseFloat(String(s.pe_ratio)) : null,
-    pbRatio: s.pb_ratio != null ? parseFloat(String(s.pb_ratio)) : null,
-    marketCap: s.market_cap != null ? parseFloat(String(s.market_cap)) : null,
-    circulatingMarketCap: s.circulating_market_cap != null ? parseFloat(String(s.circulating_market_cap)) : null,
-    dividendYield: s.dividend_yield != null ? parseFloat(String(s.dividend_yield)) : null,
-    roe: s.roe != null ? parseFloat(String(s.roe)) : null,
-    rsi: s.rsi != null ? parseFloat(String(s.rsi)) : null,
-    macd: s.macd != null ? parseFloat(String(s.macd)) : null,
-    macdSignal: s.macd_signal != null ? parseFloat(String(s.macd_signal)) : null,
-    macdHistogram: s.macd_histogram != null ? parseFloat(String(s.macd_histogram)) : null,
-    kdjK: s.kdj_k != null ? parseFloat(String(s.kdj_k)) : null,
-    kdjD: s.kdj_d != null ? parseFloat(String(s.kdj_d)) : null,
-    kdjJ: s.kdj_j != null ? parseFloat(String(s.kdj_j)) : null,
-    ma5: s.ma5 != null ? parseFloat(String(s.ma5)) : null,
-    ma10: s.ma10 != null ? parseFloat(String(s.ma10)) : null,
-    ma20: s.ma20 != null ? parseFloat(String(s.ma20)) : null,
-    ma60: s.ma60 != null ? parseFloat(String(s.ma60)) : null,
+    price: pf(s.price),
+    changePercent: pf(s.change_percent),
+    volume: pf(s.volume),
+    turnover: pf(s.turnover),
+    turnoverRate: pf(s.turnover_rate),
+    peRatio: pn(s.pe_ratio),
+    pbRatio: pn(s.pb_ratio),
+    marketCap: pn(s.market_cap),
+    circulatingMarketCap: pn(s.circulating_market_cap),
+    dividendYield: pn(s.dividend_yield),
+    roe: pn(s.roe),
+    rsi: pn(s.rsi),
+    macd: pn(s.macd),
+    macdSignal: pn(s.macd_signal),
+    macdHistogram: pn(s.macd_histogram),
+    kdjK: pn(s.kdj_k),
+    kdjD: pn(s.kdj_d),
+    kdjJ: pn(s.kdj_j),
+    ma5: pn(s.ma5),
+    ma10: pn(s.ma10),
+    ma20: pn(s.ma20),
+    ma60: pn(s.ma60),
   };
 }
 

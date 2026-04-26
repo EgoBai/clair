@@ -9,14 +9,14 @@ describe('前端数据转换管道', () => {
     interface ProcessedStock { code: string; name: string; price: number; change: number; changePercent: number; volume: number; isUp: boolean; color: string; }
 
     function processStock(raw: RawStock, prevClose: number): ProcessedStock {
-      const price = parseFloat(raw.price) || 0;
+      const price = isFinite(parseFloat(raw.price)) ? parseFloat(raw.price) : 0;
       const change = price - prevClose;
       const changePercent = prevClose === 0 ? 0 : (change / prevClose) * 100;
       return {
         code: raw.code, name: raw.name, price,
         change: Math.round(change * 100) / 100,
         changePercent: Math.round(changePercent * 100) / 100,
-        volume: parseInt(raw.volume) || 0,
+        volume: Number.isSafeInteger(parseInt(raw.volume)) ? parseInt(raw.volume) : 0,
         isUp: change >= 0,
         color: change > 0 ? '#ef4444' : change < 0 ? '#22c55e' : '#6b7280'
       };

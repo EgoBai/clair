@@ -235,7 +235,7 @@ describe('Notification Types', () => {
         updatedAt: 1700000000000,
       };
       expect(sub.enabled).toBe(false);
-      expect(sub.quietHoursStart).toBeUndefined();
+      expect((sub as Record<string, unknown>).quietHoursStart).toBeUndefined();
     });
   });
 
@@ -288,8 +288,8 @@ describe('Notification Types', () => {
         body: '重要公告',
       };
       expect(req.userIds).toHaveLength(3);
-      expect(req.channels).toBeUndefined();
-      expect(req.priority).toBeUndefined();
+      expect((req as Record<string, unknown>).channels).toBeUndefined();
+      expect((req as Record<string, unknown>).priority).toBeUndefined();
     });
   });
 

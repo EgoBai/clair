@@ -18,41 +18,9 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { fetchTopTraderOverview, fetchTopTraderSeatRank } from '../services/api';
+import type { TopTraderOverview, SeatRankEntry } from '../../../shared/types';
 
 const { Title, Text } = Typography;
-
-interface TopTraderEntry {
-  rank: number;
-  stockName: string;
-  stockCode: string;
-  netAmount: number;
-  buyAmount: number;
-  sellAmount: number;
-  reason: string;
-  seatName?: string;
-  isOrganizational?: boolean;
-  [key: string]: unknown;
-}
-
-interface TopTraderOverview {
-  totalStocks: number;
-  totalNetBuy: number;
-  totalNetAmount: number;
-  buyDominantCount: number;
-  sellDominantCount: number;
-  industryDistribution: { name: string; value: number }[];
-  topEntries: TopTraderEntry[];
-  topBuyStocks: TopTraderEntry[];
-  topSellStocks: TopTraderEntry[];
-}
-
-interface SeatRankEntry {
-  rank: number;
-  seatName: string;
-  netAmount: number;
-  isOrganizational: boolean;
-  [key: string]: unknown;
-}
 
 const COLORS = ['#cf1322', '#3f8600', '#1890ff', '#fa8c16', '#722ed1', '#13c2c2'];
 
@@ -93,7 +61,7 @@ const TopTradersPage: React.FC = () => {
           {val > 0 ? '+' : ''}{formatAmount(val)}
         </span>
       ),
-      sorter: (a: TopTraderEntry, b: TopTraderEntry) => a.netAmount - b.netAmount,
+      sorter: (a: Record<string, unknown>, b: Record<string, unknown>) => (a.netAmount as number) - (b.netAmount as number),
     },
     { title: '上榜原因', dataIndex: 'reason', key: 'reason',
       render: (v: string) => <Tag color="blue">{v}</Tag> },

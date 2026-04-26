@@ -15,7 +15,7 @@ function makeEvent(overrides: Partial<ExRightsEvent> = {}): ExRightsEvent {
     symbol: '600519',
     announceDate: '2024-05-20',
     exRightsDate: '2024-06-01',
-    type: 'cash_dividend',
+    type: 'cash',
     cashDividendPerShare: 0.5,
     bonusSharesPerShare: 0,
     capitalReservePerShare: 0,
@@ -121,16 +121,16 @@ describe('Ex-Rights Engine Proper', () => {
 
     it('should handle empty kline data', () => {
       const engine = new AdjustmentEngine();
-      const result = engine.adjustKLineData('600519', [], 'forward');
+      const result = engine.adjustKLineData('600519', [], { type: 'forward' });
       expect(result).toEqual([]);
     });
 
     it('should handle no events (passthrough)', () => {
       const engine = new AdjustmentEngine();
       const kline = [
-        { tradeDate: '2024-01-01', open: 10, close: 10.5, high: 11, low: 9.5, volume: 1000, amount: 10000 },
+        { tradeDate: '2024-01-01', open: 10, close: 10.5, high: 11, low: 9.5, volume: 1000, turnover: 10000 },
       ];
-      const result = engine.adjustKLineData('600519', kline, 'forward');
+      const result = engine.adjustKLineData('600519', kline, { type: 'forward' });
       expect(result.length).toBe(1);
       expect(result[0].close).toBeCloseTo(10.5, 2);
     });
@@ -139,10 +139,10 @@ describe('Ex-Rights Engine Proper', () => {
       const engine = new AdjustmentEngine();
       engine.addEvent(makeEvent({ exRightsDate: '2024-06-01', cashDividendPerShare: 1 }));
       const kline = [
-        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, amount: 10000 },
-        { tradeDate: '2024-06-02', open: 9, close: 9, high: 9, low: 9, volume: 1000, amount: 9000 },
+        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, turnover: 10000 },
+        { tradeDate: '2024-06-02', open: 9, close: 9, high: 9, low: 9, volume: 1000, turnover: 9000 },
       ];
-      const result = engine.adjustKLineData('600519', kline, 'forward');
+      const result = engine.adjustKLineData('600519', kline, { type: 'forward' });
       expect(result.length).toBe(2);
       expect(result[1].adjustmentFactor).toBeLessThanOrEqual(1);
     });
@@ -151,10 +151,10 @@ describe('Ex-Rights Engine Proper', () => {
       const engine = new AdjustmentEngine();
       engine.addEvent(makeEvent({ exRightsDate: '2024-06-01', cashDividendPerShare: 0.5 }));
       const kline = [
-        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, amount: 10000 },
-        { tradeDate: '2024-06-02', open: 9.5, close: 9.5, high: 9.5, low: 9.5, volume: 1000, amount: 9500 },
+        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, turnover: 10000 },
+        { tradeDate: '2024-06-02', open: 9.5, close: 9.5, high: 9.5, low: 9.5, volume: 1000, turnover: 9500 },
       ];
-      const result = engine.adjustKLineData('600519', kline, 'backward');
+      const result = engine.adjustKLineData('600519', kline, { type: 'backward' });
       expect(result.length).toBe(2);
     });
 
@@ -162,8 +162,8 @@ describe('Ex-Rights Engine Proper', () => {
       const engine = new AdjustmentEngine();
       engine.addEvent(makeEvent());
       const kline = [
-        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, amount: 10000 },
-        { tradeDate: '2024-06-02', open: 9.5, close: 9.5, high: 9.5, low: 9.5, volume: 1000, amount: 9500 },
+        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, turnover: 10000 },
+        { tradeDate: '2024-06-02', open: 9.5, close: 9.5, high: 9.5, low: 9.5, volume: 1000, turnover: 9500 },
       ];
       const result = engine.adjustKLineData('600519', kline, { type: 'none' });
       expect(result.length).toBe(2);
@@ -175,8 +175,8 @@ describe('Ex-Rights Engine Proper', () => {
     it('should calculate adjusted change percent', () => {
       const engine = new AdjustmentEngine();
       const adjusted = [
-        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, amount: 10000, adjustmentFactor: 1, adjustmentType: 'forward' as const },
-        { tradeDate: '2024-01-02', open: 10.5, close: 10.5, high: 10.5, low: 10.5, volume: 1000, amount: 10500, adjustmentFactor: 1, adjustmentType: 'forward' as const },
+        { tradeDate: '2024-01-01', open: 10, close: 10, high: 10, low: 10, volume: 1000, amount: 10000, originalOpen: 10, originalClose: 10, originalHigh: 10, originalLow: 10, turnover: 10000, adjustmentFactor: 1, adjustmentType: 'forward' as const },
+        { tradeDate: '2024-01-02', open: 10.5, close: 10.5, high: 10.5, low: 10.5, volume: 1000, amount: 10500, originalOpen: 10.5, originalClose: 10.5, originalHigh: 10.5, originalLow: 10.5, turnover: 10500, adjustmentFactor: 1, adjustmentType: 'forward' as const },
       ];
       const changes = engine.calculateAdjustedChangePercent(adjusted);
       expect(changes.length).toBe(2);
@@ -194,7 +194,7 @@ describe('Ex-Rights Engine Proper', () => {
 
     it('should describe bonus shares', () => {
       const desc = describeDividendEvent(makeEvent({
-        type: 'bonus_share',
+        type: 'bonus',
         cashDividendPerShare: 0,
         bonusSharesPerShare: 0.3,
       }));

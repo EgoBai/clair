@@ -114,7 +114,7 @@ function generateCashFlow(symbol: string, period: string) {
   };
 }
 
-function generateMultiPeriod(generateFn: typeof generateBalanceSheet, symbol: string, periods: number) {
+function generateMultiPeriod(generateFn: (symbol: string, period: string) => Record<string, unknown>, symbol: string, periods: number) {
   const results = [];
   const currentYear = 2025;
   for (let i = 0; i < periods; i++) {

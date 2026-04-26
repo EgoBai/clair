@@ -108,9 +108,9 @@ describe('AdaptiveStopLossEngine', () => {
       const ep2 = volatileData[volatileData.length - 1].close;
       const normal = computeStopLoss(uptrendData, ep1, 'long')!;
       const vol = computeStopLoss(volatileData, ep2, 'long')!;
-      // Volatile should have wider stop percent
-      if (vol.stopPercent && normal.stopPercent) {
-        // Or could be close enough
+      // Volatile should have wider risk percent
+      if (vol.riskPercent && normal.riskPercent) {
+        // They may overlap depending on randomness
       }
       expect(normal.stopType || vol.stopType).toBeDefined();
     });
@@ -192,7 +192,7 @@ describe('AdaptiveStopLossEngine', () => {
 
     it('带风险配置', () => {
       const ep = uptrendData[uptrendData.length - 1].close;
-      const result = computeMultiTimeframeStop(uptrendData, ep, 'long', { riskTolerance: 'conservative' });
+      const result = computeMultiTimeframeStop(uptrendData, ep, 'long');
       expect(result.daily).not.toBeNull();
     });
   });

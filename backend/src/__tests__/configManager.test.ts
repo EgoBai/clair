@@ -75,7 +75,7 @@ class ConfigManager {
       const listeners = this.listeners.get(key);
       if (listeners) {
         for (const listener of listeners) {
-          listener(value, oldValue);
+          listener(value, oldValue as ConfigValue);
         }
       }
     }

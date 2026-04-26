@@ -162,7 +162,7 @@ function getTextColor(changePercent: number): string {
 
 // ============= Main Component =============
 
-const MarketHeatmap: React.FC<MarketHeatmapProps> = ({
+const MarketHeatmap = React.memo<MarketHeatmapProps>(({
   data,
   sizeField = 'turnover',
   onCellClick,
@@ -344,6 +344,6 @@ const MarketHeatmap: React.FC<MarketHeatmapProps> = ({
       </div>
     </Card>
   );
-};
+});
 
 export default MarketHeatmap;

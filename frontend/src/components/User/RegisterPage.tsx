@@ -157,4 +157,4 @@ export function RegisterPage({ onRegister, onLogin }: {
   );
 }
 
-export default RegisterPage;
+export default React.memo(RegisterPage);

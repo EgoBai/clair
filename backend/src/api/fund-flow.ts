@@ -214,10 +214,10 @@ router.get('/fund-flow/industry', validateQuery(schemas.industryFlowQuery), asyn
         .limit(limit);
 
       industryFlow = industries.map((ind: Record<string, string | number>) => ({
-        industry: ind.industry,
+        industry: String(ind.industry),
         mainNet: (Math.random() - 0.5) * 50000,
         netInflow: (Math.random() - 0.5) * 30000,
-        stockCount: ind.stockCount,
+        stockCount: Number(ind.stockCount),
         topStocks: [],
       }));
     }

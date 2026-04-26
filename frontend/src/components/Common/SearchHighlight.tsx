@@ -71,4 +71,4 @@ export function SearchHighlight({
   );
 }
 
-export default SearchHighlight;
+export default React.memo(SearchHighlight);

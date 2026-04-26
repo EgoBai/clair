@@ -59,13 +59,13 @@ interface LanguageSwitcherProps {
   className?: string;
 }
 
-export default function LanguageSwitcher({
+const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
   variant = 'dropdown',
   size = 'small',
   onChange,
   showCode = false,
   className,
-}: LanguageSwitcherProps) {
+}) => {
   const { locale, setLocale } = useI18n();
 
   const current = useMemo(
@@ -206,6 +206,6 @@ export default function LanguageSwitcher({
       </Button>
     </Dropdown>
   );
-}
+};
 
-export { LanguageSwitcher };
+export default React.memo(LanguageSwitcher);

@@ -17,7 +17,7 @@ interface WatchlistToggleProps {
   showText?: boolean;
 }
 
-export default function WatchlistToggle({
+export default React.memo(function WatchlistToggle({
   symbol,
   name,
   market,
@@ -57,4 +57,4 @@ export default function WatchlistToggle({
       </Button>
     </Tooltip>
   );
-}
+});

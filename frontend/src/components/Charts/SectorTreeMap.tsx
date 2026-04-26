@@ -36,7 +36,7 @@ const getColor = (changePercent: number): string => {
   return '#135200';
 };
 
-const SectorTreeMap: React.FC<SectorTreeMapProps> = ({
+const SectorTreeMap = React.memo<SectorTreeMapProps>(({
   sectors,
   title = '板块涨跌分布',
   height = 400,
@@ -134,6 +134,6 @@ const SectorTreeMap: React.FC<SectorTreeMapProps> = ({
       </ResponsiveContainer>
     </Card>
   );
-};
+});
 
 export default SectorTreeMap;

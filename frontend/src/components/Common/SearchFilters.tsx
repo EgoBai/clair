@@ -33,4 +33,4 @@ export const SearchFilters: React.FC<SearchFiltersProps> = ({ filterGroups, comp
   );
 };
 
-export default SearchFilters;
+export default React.memo(SearchFilters);

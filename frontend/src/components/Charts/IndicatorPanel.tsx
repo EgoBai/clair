@@ -36,7 +36,7 @@ interface IndicatorPanelProps {
   loading?: boolean;
 }
 
-const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
+const IndicatorPanel = React.memo<IndicatorPanelProps>(({
   data,
   activeKey = 'macd',
   onTabChange,
@@ -88,7 +88,7 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
       />
     </Card>
   );
-};
+});
 
 // ==================== 各指标配置构建 ====================
 

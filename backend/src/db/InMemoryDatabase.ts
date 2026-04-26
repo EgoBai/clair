@@ -1,16 +1,54 @@
 /**
  * 内存数据库 — 无需PostgreSQL即可运行后端
  * 提供与Database.ts相同的接口，使用内存数据
+ *
+ * @note 类型安全版本: 所有 `: any` 已替换为具体类型
+ * @see Stock, DailyQuote, MarketSummary 来自 ../models/Stock
  */
 
-import { Stock, DailyQuote, StockWithQuotes } from '../models/Stock';
+import {
+  Stock,
+  DailyQuote,
+  StockWithQuotes,
+  MarketSummary,
+  IndustryPerformance,
+  StockSearchParams,
+} from '../models/Stock';
+
+// ==================== 内部类型定义 ====================
+
+/** Where 子句过滤谓词 */
+type RowPredicate = (row: Record<string, unknown>) => boolean;
+
+/** 行业汇总统计 */
+interface IndustryStats {
+  count: number;
+  totalChange: number;
+  totalCap: number;
+}
+
+/** 行业性能行（返回格式） */
+interface IndustryPerformanceRow {
+  industry: string;
+  stock_count: number;
+  avg_change_percent: number;
+  total_market_cap: number;
+}
+
+/** 股票 + 最新报价（内部排序用） */
+interface StockWithLatestQuote extends Stock {
+  latestQuote?: DailyQuote;
+}
+
+/** MockQueryBuilder 可接受的数据行类型 */
+type QueryRow = Record<string, unknown>;
 
 // ==================== Mock数据生成 ====================
 
 /** 轻量MockQueryBuilder，模拟Knex查询链 */
 class MockQueryBuilder {
-  private _data: any[];
-  private _filters: Array<(row: any) => boolean> = [];
+  private _data: QueryRow[];
+  private _filters: RowPredicate[] = [];
   private _sortField?: string;
   private _sortDir: 'asc' | 'desc' = 'asc';
   private _limitN?: number;
@@ -20,11 +58,11 @@ class MockQueryBuilder {
   private _groupBy?: string;
   private _countMode = false;
 
-  constructor(data: any[], private _tableName: string) {
+  constructor(data: QueryRow[], private _tableName: string) {
     this._data = data;
   }
 
-  where(fieldOrObj: any, opOrVal?: any, val?: any): this {
+  where(fieldOrObj: string | Record<string, unknown>, opOrVal?: unknown, val?: unknown): this {
     if (typeof fieldOrObj === 'object' && fieldOrObj !== null) {
       Object.entries(fieldOrObj).forEach(([k, v]) => {
         this._filters.push((row) => row[k] === v);
@@ -32,26 +70,26 @@ class MockQueryBuilder {
     } else if (opOrVal === 'like') {
       const pattern = String(val || '').replace(/%/g, '');
       this._filters.push((row) => String(row[fieldOrObj] || '').includes(pattern));
-    } else if (opOrVal === '>=' ) {
-      this._filters.push((row) => row[fieldOrObj] >= val);
+    } else if (opOrVal === '>=') {
+      this._filters.push((row) => (row[fieldOrObj] as number) >= (val as number));
     } else if (opOrVal === '<=') {
-      this._filters.push((row) => row[fieldOrObj] <= val);
+      this._filters.push((row) => (row[fieldOrObj] as number) <= (val as number));
     } else if (opOrVal === '<') {
-      this._filters.push((row) => row[fieldOrObj] < val);
+      this._filters.push((row) => (row[fieldOrObj] as number) < (val as number));
     } else if (opOrVal === '>') {
-      this._filters.push((row) => row[fieldOrObj] > val);
+      this._filters.push((row) => (row[fieldOrObj] as number) > (val as number));
     } else {
       this._filters.push((row) => row[fieldOrObj] === opOrVal);
     }
     return this;
   }
 
-  whereIn(field: string, values: any[]): this {
+  whereIn(field: string, values: unknown[]): this {
     this._filters.push((row) => values.includes(row[field]));
     return this;
   }
 
-  whereNot(field: string, value: any): this {
+  whereNot(field: string, value: unknown): this {
     this._filters.push((row) => row[field] !== value);
     return this;
   }
@@ -76,14 +114,14 @@ class MockQueryBuilder {
     return this;
   }
 
-  insert(data: any | any[]): this { return this; }
-  update(data: any): this { return this; }
+  insert(_data: unknown): this { return this; }
+  update(_data: unknown): this { return this; }
   delete(): this { return this; }
   returning(..._fields: string[]): this { return this; }
 
   /** Execute and return results (async thenable) */
-  private _exec(): any[] {
-    let result = this._data.filter(row => this._filters.every(f => f(row)));
+  private _exec(): QueryRow[] {
+    let result = this._data.filter((row) => this._filters.every((f) => f(row)));
     if (this._sortField) {
       const sf = this._sortField;
       const sd = this._sortDir;
@@ -92,15 +130,15 @@ class MockQueryBuilder {
         if (av == null && bv == null) return 0;
         if (av == null) return 1;
         if (bv == null) return -1;
-        return sd === 'asc' ? (av > bv ? 1 : av < bv ? -1 : 0) : (av < bv ? 1 : av > bv ? -1 : 0);
+        return sd === 'asc' ? ((av as number) > (bv as number) ? 1 : (av as number) < (bv as number) ? -1 : 0) : ((av as number) < (bv as number) ? 1 : (av as number) > (bv as number) ? -1 : 0);
       });
     }
     if (this._offsetN) result = result.slice(this._offsetN);
     if (this._limitN) result = result.slice(0, this._limitN);
     if (this._selectFields && this._selectFields.length > 0 && !this._countMode) {
-      result = result.map(r => {
-        const obj: any = {};
-        this._selectFields!.forEach(f => { obj[f] = r[f]; });
+      result = result.map((r) => {
+        const obj: Record<string, unknown> = {};
+        this._selectFields!.forEach((f) => { obj[f] = r[f]; });
         return obj;
       });
     }
@@ -111,17 +149,25 @@ class MockQueryBuilder {
   }
 
   // Make it thenable so `await db.connection('stocks').where(...)` works
-  then<TResult1 = any, TResult2 = never>(
-    onfulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+  then<TResult1 = QueryRow[], TResult2 = never>(
+    onfulfilled?: ((value: QueryRow[]) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): PromiseLike<TResult1 | TResult2> {
     return Promise.resolve(this._exec()).then(onfulfilled, onrejected);
   }
 
-  first(): any {
+  first(): QueryRow | null {
     const results = this._exec();
     return results[0] || null;
   }
+}
+
+/** MockKnex 连接函数类型 */
+interface MockKnexConnection {
+  (tableName: string): MockQueryBuilder;
+  _table: (tableName: string) => MockQueryBuilder;
+  raw: (sql: string) => Promise<{ rows: unknown[] }>;
+  destroy: () => Promise<void>;
 }
 
 const STOCK_SYMBOLS = [
@@ -194,6 +240,8 @@ function generateQuotes(symbol: string, days: number = 120): DailyQuote[] {
       pbRatio: Math.round((1 + Math.random() * 10) * 100) / 100,
       marketCap: Math.floor(close * (1e8 + Math.random() * 1e10)),
       circulatingMarketCap: Math.floor(close * (5e7 + Math.random() * 5e9)),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
     currentPrice = close;
@@ -240,20 +288,20 @@ class InMemoryDatabase {
   }
 
   // 模拟Knex接口 — connection is a callable function like Knex
-  get connection() {
+  get connection(): MockKnexConnection {
     const self = this;
-    const conn: any = function(tableName: string) {
+    const conn: MockKnexConnection = function(tableName: string) {
       return conn._table(tableName);
-    };
+    } as MockKnexConnection;
     conn._table = function(tableName: string) {
       // Return data based on table name
-      let data: any[];
+      let data: QueryRow[];
       if (tableName === 'stocks') {
-        data = self.stocks;
+        data = self.stocks as unknown as QueryRow[];
       } else if (tableName.startsWith('daily_quotes')) {
         // Flatten all quotes
         data = [];
-        self.quotes.forEach((quotes) => { data.push(...quotes); });
+        self.quotes.forEach((quotes) => { data.push(...(quotes as unknown as QueryRow[])); });
       } else if (tableName === 'user_watchlist' || tableName === 'watchlist_groups') {
         data = [];
       } else {
@@ -261,7 +309,7 @@ class InMemoryDatabase {
       }
       return new MockQueryBuilder(data, tableName);
     };
-    conn.raw = function(sql: string) { return Promise.resolve({ rows: [] }); };
+    conn.raw = function(_sql: string) { return Promise.resolve({ rows: [] }); };
     conn.destroy = function() { return Promise.resolve(); };
     return conn;
   }
@@ -273,28 +321,28 @@ class InMemoryDatabase {
 
   getQuotes(symbol: string): DailyQuote[] { return this.quotes.get(symbol) || []; }
   
-  async getMarketSummary(_date?: any): Promise<any> {
+  async getMarketSummary(_date?: unknown): Promise<MarketSummary> {
     return this.getMarketSummaryInternal();
   }
 
   getTopGainers(limit: number = 10) {
-    return this.stocks.map(s => {
+    return this.stocks.map((s): StockWithLatestQuote => {
       const quotes = this.quotes.get(s.symbol);
       const latest = quotes ? quotes[quotes.length - 1] : undefined;
       return { ...s, latestQuote: latest };
     })
-    .filter(s => s.latestQuote)
+    .filter((s): s is StockWithLatestQuote => s.latestQuote !== undefined)
     .sort((a, b) => (b.latestQuote?.changePercent || 0) - (a.latestQuote?.changePercent || 0))
     .slice(0, limit);
   }
 
   getTopLosers(limit: number = 10) {
-    return this.stocks.map(s => {
+    return this.stocks.map((s): StockWithLatestQuote => {
       const quotes = this.quotes.get(s.symbol);
       const latest = quotes ? quotes[quotes.length - 1] : undefined;
       return { ...s, latestQuote: latest };
     })
-    .filter(s => s.latestQuote)
+    .filter((s): s is StockWithLatestQuote => s.latestQuote !== undefined)
     .sort((a, b) => (a.latestQuote?.changePercent || 0) - (b.latestQuote?.changePercent || 0))
     .slice(0, limit);
   }
@@ -309,19 +357,31 @@ class InMemoryDatabase {
     return this.stocks.find(s => s.id === id) || null;
   }
 
-  async getStocks(params: any = {}): Promise<Stock[]> {
+  async getStocks(params: Partial<StockSearchParams> = {}): Promise<Stock[]> {
     const { symbol, name, market, industry, page = 1, pageSize = 20, sortBy = 'symbol', sortOrder = 'asc' } = params;
     let result = this.stocks.filter(s => s.isActive !== false);
     if (symbol) result = result.filter(s => s.symbol.includes(symbol));
     if (name) result = result.filter(s => s.name.includes(name));
     if (market) result = result.filter(s => s.market === market);
     if (industry) result = result.filter(s => s.industry === industry);
-    result.sort((a: any, b: any) => sortOrder === 'asc' ? (a[sortBy] > b[sortBy] ? 1 : -1) : (a[sortBy] < b[sortBy] ? 1 : -1));
+    result.sort((a, b) => {
+      const aVal = a[sortBy as keyof Stock];
+      const bVal = b[sortBy as keyof Stock];
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        const cmp = aVal.localeCompare(bVal, 'zh-CN');
+        return sortOrder === 'asc' ? cmp : -cmp;
+      }
+      const aStr = String(aVal), bStr = String(bVal);
+      return sortOrder === 'asc' ? (aStr > bStr ? 1 : aStr < bStr ? -1 : 0) : (aStr < bStr ? 1 : aStr > bStr ? -1 : 0);
+    });
     const offset = (page - 1) * pageSize;
     return result.slice(offset, offset + pageSize);
   }
 
-  async getStockCount(params: any = {}): Promise<number> {
+  async getStockCount(params: Partial<StockSearchParams> = {}): Promise<number> {
     const { symbol, name, market, industry } = params;
     let result = this.stocks.filter(s => s.isActive !== false);
     if (symbol) result = result.filter(s => s.symbol.includes(symbol));
@@ -331,12 +391,18 @@ class InMemoryDatabase {
     return result.length;
   }
 
-  async getDailyQuotes(stockId: number, startDate?: any, endDate?: any, limit?: number): Promise<DailyQuote[]> {
+  async getDailyQuotes(stockId: number, startDate?: Date | string, endDate?: Date | string, limit?: number): Promise<DailyQuote[]> {
     const stock = this.stocks.find(s => s.id === stockId);
     if (!stock) return [];
     let quotes = this.quotes.get(stock.symbol) || [];
-    if (startDate) quotes = quotes.filter(q => q.tradeDate >= (typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0]));
-    if (endDate) quotes = quotes.filter(q => q.tradeDate <= (typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0]));
+    if (startDate) {
+      const startStr = typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0];
+      quotes = quotes.filter(q => q.tradeDate >= new Date(startStr));
+    }
+    if (endDate) {
+      const endStr = typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0];
+      quotes = quotes.filter(q => q.tradeDate <= new Date(endStr));
+    }
     quotes.sort((a, b) => b.tradeDate.getTime() - a.tradeDate.getTime());
     if (limit) quotes = quotes.slice(0, limit);
     return quotes;
@@ -358,16 +424,18 @@ class InMemoryDatabase {
   }
 
   async getStocksWithLatestQuotes(symbols: string[]): Promise<StockWithQuotes[]> {
-    return symbols.map(symbol => {
-      const stock = this.stocks.find(s => s.symbol === symbol);
-      if (!stock) return null;
-      const quotes = this.quotes.get(symbol) || [];
-      return { ...stock, latestQuote: quotes.length > 0 ? quotes[quotes.length - 1] : undefined };
-    }).filter(Boolean) as StockWithQuotes[];
+    return symbols
+      .map(symbol => {
+        const stock = this.stocks.find(s => s.symbol === symbol);
+        if (!stock) return null;
+        const quotes = this.quotes.get(symbol) || [];
+        return { ...stock, latestQuote: quotes.length > 0 ? quotes[quotes.length - 1] : undefined } as StockWithQuotes;
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null);
   }
 
-  async getIndustryPerformance(_date?: any): Promise<any[]> {
-    const industryMap = new Map<string, { count: number; totalChange: number; totalCap: number }>();
+  async getIndustryPerformance(_date?: unknown): Promise<IndustryPerformanceRow[]> {
+    const industryMap = new Map<string, IndustryStats>();
     this.stocks.forEach(s => {
       const quotes = this.quotes.get(s.symbol);
       const latest = quotes ? quotes[quotes.length - 1] : null;
@@ -378,40 +446,47 @@ class InMemoryDatabase {
       existing.totalCap += latest.marketCap || 0;
       industryMap.set(s.industry, existing);
     });
-    return Array.from(industryMap.entries()).map(([industry, stats]) => ({
-      industry,
-      stock_count: stats.count,
-      avg_change_percent: Math.round((stats.totalChange / stats.count) * 100) / 100,
-      total_market_cap: stats.totalCap,
-    })).sort((a, b) => b.avg_change_percent - a.avg_change_percent);
+    return Array.from(industryMap.entries())
+      .map(([industry, stats]) => ({
+        industry,
+        stock_count: stats.count,
+        avg_change_percent: Math.round((stats.totalChange / stats.count) * 100) / 100,
+        total_market_cap: stats.totalCap,
+      }))
+      .sort((a, b) => b.avg_change_percent - a.avg_change_percent);
   }
 
-  async getTopTurnover(_date?: any, limit: number = 10): Promise<any[]> {
-    return this.stocks.map(s => {
-      const quotes = this.quotes.get(s.symbol);
-      const latest = quotes ? quotes[quotes.length - 1] : undefined;
-      return { ...s, latestQuote: latest };
-    })
-    .filter(s => s.latestQuote)
-    .sort((a, b) => (b.latestQuote?.turnover || 0) - (a.latestQuote?.turnover || 0))
-    .slice(0, limit);
+  async getTopTurnover(_date?: unknown, limit: number = 10): Promise<StockWithLatestQuote[]> {
+    return this.stocks
+      .map((s): StockWithLatestQuote => {
+        const quotes = this.quotes.get(s.symbol);
+        const latest = quotes ? quotes[quotes.length - 1] : undefined;
+        return { ...s, latestQuote: latest };
+      })
+      .filter((s): s is StockWithLatestQuote => s.latestQuote !== undefined)
+      .sort((a, b) => (b.latestQuote?.turnover || 0) - (a.latestQuote?.turnover || 0))
+      .slice(0, limit);
   }
 
-  private getMarketSummaryInternal() {
-    const latest = this.stocks.map(s => {
-      const quotes = this.quotes.get(s.symbol);
-      return quotes ? quotes[quotes.length - 1] : null;
-    }).filter(Boolean);
+  private getMarketSummaryInternal(): MarketSummary {
+    const latest = this.stocks
+      .map(s => {
+        const quotes = this.quotes.get(s.symbol);
+        return quotes ? quotes[quotes.length - 1] : null;
+      })
+      .filter((q): q is DailyQuote => q !== null);
 
-    const rising = latest.filter(q => q!.changePercent > 0).length;
-    const falling = latest.filter(q => q!.changePercent < 0).length;
+    const rising = latest.filter(q => q.changePercent > 0).length;
+    const falling = latest.filter(q => q.changePercent < 0).length;
 
     return {
-      date: new Date().toISOString().split('T')[0],
+      date: new Date(),
       totalStocks: this.stocks.length,
-      totalMarketCap: latest.reduce((sum, q) => sum + (q!.marketCap || 0), 0),
-      totalVolume: latest.reduce((sum, q) => sum + q!.volume, 0),
-      totalTurnover: latest.reduce((sum, q) => sum + q!.turnover, 0),
+      totalMarketCap: latest.reduce((sum, q) => sum + (q.marketCap || 0), 0),
+      totalVolume: latest.reduce((sum, q) => sum + q.volume, 0),
+      totalTurnover: latest.reduce((sum, q) => sum + q.turnover, 0),
+      avgPeRatio: 0,
+      avgPbRatio: 0,
       risingStocks: rising,
       fallingStocks: falling,
       unchangedStocks: this.stocks.length - rising - falling,

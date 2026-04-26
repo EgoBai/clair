@@ -38,8 +38,6 @@ function generateKLine(count: number, options: {
     const volume = Math.floor(Math.random() * 100000 + 10000);
 
     data.push({
-      id: i + 1,
-      stockId: 1,
       tradeDate: date.toISOString().split('T')[0],
       open: Math.round(open * 100) / 100,
       close: Math.round(close * 100) / 100,
@@ -47,10 +45,6 @@ function generateKLine(count: number, options: {
       low: Math.round(low * 100) / 100,
       volume,
       turnover: volume * close,
-      change: close - data[i - 1]?.close || 0,
-      changePercent: 0,
-      amplitude: 0,
-      turnoverRate: Math.random() * 10,
     });
 
     price = close;

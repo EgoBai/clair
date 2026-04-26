@@ -44,7 +44,7 @@ export class Database {
    * 获取连接池状态
    */
   getPoolStats(): { used: number; free: number; pending: number; min: number; max: number } {
-    const pool = (this.knexInstance as any).client?.pool;
+    const pool = this.knexInstance.client?.pool;
     if (!pool) return { used: 0, free: 0, pending: 0, min: 0, max: 0 };
     return {
       used: pool.numUsed?.() ?? 0,
@@ -125,23 +125,24 @@ export class Database {
   async getStockCount(params: Omit<StockSearchParams, 'page' | 'pageSize' | 'sortBy' | 'sortOrder'>): Promise<number> {
     const { symbol, name, market, industry, isActive = true } = params;
 
-    const query = this.knexInstance<Stock>('stocks')
+    const knexInstance = this.knexInstance;
+    let query = knexInstance<Stock>('stocks')
       .where('is_active', isActive);
 
     if (symbol) {
-      query.where('symbol', 'like', `%${symbol}%`);
+      query = query.where('symbol', 'like', `%${symbol}%`);
     }
     if (name) {
-      query.where('name', 'like', `%${name}%`);
+      query = query.where('name', 'like', `%${name}%`);
     }
     if (market) {
-      query.where('market', market);
+      query = query.where('market', market);
     }
     if (industry) {
-      query.where('industry', industry);
+      query = query.where('industry', industry);
     }
 
-    const result = await query.count('id as count').first();
+    const result = await query.count({ count: 'id' }).first();
     return result ? Number(result.count) : 0;
   }
 
@@ -149,30 +150,33 @@ export class Database {
    * 根据ID获取股票
    */
   async getStockById(id: number): Promise<Stock | null> {
-    return this.knexInstance<Stock>('stocks')
+    const stock = await this.knexInstance<Stock>('stocks')
       .where('id', id)
       .first();
+    return stock ?? null;
   }
 
   /**
    * 根据代码获取股票
    */
   async getStockBySymbol(symbol: string): Promise<Stock | null> {
-    return this.knexInstance<Stock>('stocks')
+    const stock = await this.knexInstance<Stock>('stocks')
       .where('symbol', symbol)
       .first();
+    return stock ?? null;
   }
 
   /**
    * 创建股票
    */
   async createStock(stock: Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>): Promise<Stock> {
+    const insertData: Record<string, unknown> = {
+      ...stock,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
     const [created] = await this.knexInstance<Stock>('stocks')
-      .insert({
-        ...stock,
-        created_at: new Date(),
-        updated_at: new Date()
-      })
+      .insert(insertData)
       .returning('*');
 
     return created;
@@ -182,12 +186,13 @@ export class Database {
    * 更新股票
    */
   async updateStock(id: number, updates: Partial<Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Stock | null> {
+    const updateData: Record<string, unknown> = {
+      ...updates,
+      updated_at: new Date()
+    };
     const [updated] = await this.knexInstance<Stock>('stocks')
       .where('id', id)
-      .update({
-        ...updates,
-        updated_at: new Date()
-      })
+      .update(updateData)
       .returning('*');
 
     return updated || null;
@@ -209,7 +214,7 @@ export class Database {
    */
   async batchCreateStocks(stocks: Array<Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Stock[]> {
     const now = new Date();
-    const stocksWithTimestamps = stocks.map(stock => ({
+    const stocksWithTimestamps: Record<string, unknown>[] = stocks.map(stock => ({
       ...stock,
       created_at: now,
       updated_at: now
@@ -249,22 +254,24 @@ export class Database {
    * 获取最新日行情
    */
   async getLatestDailyQuote(stockId: number): Promise<DailyQuote | null> {
-    return this.knexInstance<DailyQuote>('daily_quotes')
+    const quote = await this.knexInstance<DailyQuote>('daily_quotes')
       .where('stock_id', stockId)
       .orderBy('trade_date', 'desc')
       .first();
+    return quote ?? null;
   }
 
   /**
    * 创建日行情
    */
   async createDailyQuote(quote: Omit<DailyQuote, 'id' | 'createdAt' | 'updatedAt'>): Promise<DailyQuote> {
+    const insertData: Record<string, unknown> = {
+      ...quote,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
     const [created] = await this.knexInstance<DailyQuote>('daily_quotes')
-      .insert({
-        ...quote,
-        created_at: new Date(),
-        updated_at: new Date()
-      })
+      .insert(insertData)
       .returning('*');
 
     return created;
@@ -275,7 +282,7 @@ export class Database {
    */
   async batchCreateDailyQuotes(quotes: Array<Omit<DailyQuote, 'id' | 'createdAt' | 'updatedAt'>>): Promise<DailyQuote[]> {
     const now = new Date();
-    const quotesWithTimestamps = quotes.map(quote => ({
+    const quotesWithTimestamps: Record<string, unknown>[] = quotes.map(quote => ({
       ...quote,
       created_at: now,
       updated_at: now
@@ -290,12 +297,13 @@ export class Database {
    * 更新日行情
    */
   async updateDailyQuote(id: number, updates: Partial<Omit<DailyQuote, 'id' | 'createdAt' | 'updatedAt'>>): Promise<DailyQuote | null> {
+    const updateData: Record<string, unknown> = {
+      ...updates,
+      updated_at: new Date()
+    };
     const [updated] = await this.knexInstance<DailyQuote>('daily_quotes')
       .where('id', id)
-      .update({
-        ...updates,
-        updated_at: new Date()
-      })
+      .update(updateData)
       .returning('*');
 
     return updated || null;

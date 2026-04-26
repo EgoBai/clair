@@ -61,4 +61,4 @@ export const ShortcutHint: React.FC<ShortcutHintProps> = ({ shortcut, descriptio
   );
 };
 
-export default ShortcutHint;
+export default React.memo(ShortcutHint);

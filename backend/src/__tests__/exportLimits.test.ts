@@ -2,7 +2,7 @@
  * 导出限制系统 - Round 175
  * 覆盖：CSV/JSON/PDF导出限制、格式验证、水印、批量导出控制
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 // ============ 类型 ============
 

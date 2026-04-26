@@ -473,27 +473,42 @@ const STOCK_COLUMNS = [
 ];
 
 function mapStockRow(s: Record<string, string | null>) {
+  const pf = (x: string | null | undefined): number => {
+    if (x == null) return 0;
+    const v = parseFloat(String(x));
+    return Number.isFinite(v) ? v : 0;
+  };
+  const pn = (x: string | null | undefined): number | null => {
+    if (x == null) return null;
+    const v = parseFloat(String(x));
+    return Number.isFinite(v) ? v : null;
+  };
+  const pi = (x: string | null | undefined): number => {
+    if (x == null) return 0;
+    const v = parseInt(String(x), 10);
+    return Number.isFinite(v) ? v : 0;
+  };
   return {
     id: s.id,
     symbol: s.symbol,
     name: s.name,
     market: s.market,
     industry: s.industry,
-    price: parseFloat(String(s.price)) || 0,
-    changePercent: parseFloat(String(s.change_percent)) || 0,
-    volume: parseInt(String(s.volume)) || 0,
-    turnover: parseFloat(String(s.turnover)) || 0,
-    turnoverRate: parseFloat(String(s.turnover_rate)) || 0,
-    amplitude: parseFloat(String(s.amplitude)) || 0,
-    peRatio: s.pe_ratio != null ? parseFloat(String(s.pe_ratio)) : null,
-    pbRatio: s.pb_ratio != null ? parseFloat(String(s.pb_ratio)) : null,
-    psRatio: s.ps_ratio != null ? parseFloat(String(s.ps_ratio)) : null,
-    marketCap: s.market_cap != null ? parseFloat(String(s.market_cap)) : null,
-    circulatingMarketCap: s.circulating_market_cap != null ? parseFloat(String(s.circulating_market_cap)) : null,
-    dividendYield: s.dividend_yield != null ? parseFloat(String(s.dividend_yield)) : null,
-    roe: s.roe != null ? parseFloat(String(s.roe)) : null,
-    roa: s.roa != null ? parseFloat(String(s.roa)) : null,
-    eps: s.eps != null ? parseFloat(String(s.eps)) : null,
+    price: pf(s.price),
+    changePercent: pf(s.change_percent),
+    volume: pi(s.volume),
+    turnover: pf(s.turnover),
+    turnoverRate: pf(s.turnover_rate),
+    amplitude: pf(s.amplitude),
+    peRatio: pn(s.pe_ratio),
+    pbRatio: pn(s.pb_ratio),
+    psRatio: pn(s.ps_ratio),
+    marketCap: pn(s.market_cap),
+    circulatingMarketCap: pn(s.circulating_market_cap),
+    dividendYield: pn(s.dividend_yield),
+    roe: pn(s.roe),
+    roa: pn(s.roa),
+    eps: pn(s.eps),
   };
 }
 

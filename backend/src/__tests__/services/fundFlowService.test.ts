@@ -170,6 +170,7 @@ describe('FundFlowService', () => {
         alertType: 'main_inflow_surge',
         threshold: 100000000,
         currentValue: 0,
+        isActive: true
       });
 
       const unread = service.getUnreadAlerts();
@@ -183,6 +184,7 @@ describe('FundFlowService', () => {
         alertType: 'main_inflow_surge',
         threshold: 100000000,
         currentValue: 0,
+        isActive: true
       });
 
       service.markAlertRead(alert.id);

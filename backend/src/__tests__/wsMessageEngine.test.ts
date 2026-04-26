@@ -253,13 +253,13 @@ describe('WebSocket消息处理引擎', () => {
       });
 
       it('缺少type应该返回错误', () => {
-        const result = handler.handleMessage({ payload: {} });
+        const result = handler.handleMessage({ payload: {} } as WSMessage);
         expect(result.handled).toBe(false);
         expect(result.error).toContain('Missing message type');
       });
 
       it('未知type应该返回错误', () => {
-        const result = handler.handleMessage({ type: 'unknown' });
+        const result = handler.handleMessage({ type: 'unknown' } as unknown as WSMessage);
         expect(result.handled).toBe(false);
         expect(result.error).toContain('Unknown');
       });

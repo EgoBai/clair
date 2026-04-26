@@ -158,7 +158,7 @@ export class CapitalFlowEngine {
 
     const amounts = flows.map(f => f.amount);
     const mean = amounts.reduce((s, v) => s + v, 0) / amounts.length;
-    const variance = amounts.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / amounts.length;
+    const variance = amounts.length > 1 ? amounts.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (amounts.length - 1) : 0;
     const stdDev = Math.sqrt(variance);
     
     const latest = amounts[amounts.length - 1];

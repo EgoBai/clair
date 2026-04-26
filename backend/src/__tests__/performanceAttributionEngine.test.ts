@@ -59,14 +59,14 @@ describe('performanceAttributionEngine', () => {
 
   describe('computePerformanceMetrics', () => {
     it('should compute all performance metrics', () => {
-      const returns = Array.from({ length: 252 }, () => (Math.random() - 0.45) * 0.02);
-      const benchmark = Array.from({ length: 252 }, () => (Math.random() - 0.48) * 0.015);
+      const returns = Array.from({ length: 252 }, (_, i) => 0.001 + Math.sin(i * 0.5) * 0.005);
+      const benchmark = Array.from({ length: 252 }, (_, i) => 0.0008 + Math.cos(i * 0.7) * 0.003);
       const metrics = computePerformanceMetrics(returns, benchmark);
 
       expect(metrics.totalReturn).toBeTypeOf('number');
       expect(metrics.volatility).toBeGreaterThan(0);
       expect(metrics.sharpeRatio).toBeTypeOf('number');
-      expect(metrics.maxDrawdown).toBeGreaterThanOrEqual(0);
+      expect(metrics.maxDrawdown).toBeGreaterThan(0);
       expect(metrics.winRate).toBeGreaterThan(0);
       expect(metrics.winRate).toBeLessThanOrEqual(1);
       expect(metrics.maxConsecutiveWins).toBeGreaterThanOrEqual(0);
@@ -79,7 +79,7 @@ describe('performanceAttributionEngine', () => {
     });
 
     it('should compute positive Sharpe for profitable returns', () => {
-      const returns = Array.from({ length: 100 }, () => 0.001 + Math.random() * 0.002);
+      const returns = Array.from({ length: 100 }, (_, i) => 0.002 + Math.sin(i * 0.3) * 0.001);
       const metrics = computePerformanceMetrics(returns, []);
       expect(metrics.sharpeRatio).toBeGreaterThan(0);
     });
@@ -134,7 +134,7 @@ describe('performanceAttributionEngine', () => {
 
   describe('rollingPerformance', () => {
     it('should compute rolling metrics', () => {
-      const returns = Array.from({ length: 100 }, () => (Math.random() - 0.48) * 0.02);
+      const returns = Array.from({ length: 100 }, (_, i) => 0.001 + Math.sin(i * 0.4) * 0.005);
       const result = rollingPerformance(returns, 20);
       expect(result).toHaveLength(81);
       result.forEach(r => {
@@ -147,8 +147,8 @@ describe('performanceAttributionEngine', () => {
     });
 
     it('should include benchmark when provided', () => {
-      const returns = Array.from({ length: 50 }, () => Math.random() * 0.02 - 0.01);
-      const bench = Array.from({ length: 50 }, () => Math.random() * 0.015 - 0.005);
+      const returns = Array.from({ length: 50 }, (_, i) => 0.001 + Math.sin(i * 0.5) * 0.005);
+      const bench = Array.from({ length: 50 }, (_, i) => 0.0008 + Math.sin(i * 0.5 + 0.5) * 0.003);
       const result = rollingPerformance(returns, 20, bench);
       expect(result.length).toBeGreaterThan(0);
     });

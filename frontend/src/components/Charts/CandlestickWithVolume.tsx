@@ -34,7 +34,7 @@ interface CandlestickWithVolumeProps {
   showBrush?: boolean;
 }
 
-const CandlestickWithVolume: React.FC<CandlestickWithVolumeProps> = ({
+const CandlestickWithVolume = React.memo<CandlestickWithVolumeProps>(({
   data,
   stockName = '',
   stockCode = '',
@@ -190,6 +190,6 @@ const CandlestickWithVolume: React.FC<CandlestickWithVolumeProps> = ({
       </ResponsiveContainer>
     </Card>
   );
-};
+});
 
 export default CandlestickWithVolume;

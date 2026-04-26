@@ -19,7 +19,7 @@ interface ShareholderChartProps {
   loading?: boolean;
 }
 
-export const ShareholderChart: React.FC<ShareholderChartProps> = ({ data, loading }) => {
+export const ShareholderChart = React.memo<ShareholderChartProps>(({ data, loading }) => {
   if (!data) return <Card loading={loading} title="十大股东" />;
 
   const columns = [
@@ -143,7 +143,7 @@ export const ShareholderChart: React.FC<ShareholderChartProps> = ({ data, loadin
       />
     </Card>
   );
-};
+});
 
 function formatShares(val: number): string {
   if (val >= 1e8) return (val / 1e8).toFixed(2) + '亿股';

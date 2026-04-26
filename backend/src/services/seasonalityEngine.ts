@@ -120,7 +120,7 @@ export class SeasonalityEngine {
       const sorted = [...monthReturns].sort((a, b) => a - b);
       const medianReturn = sorted[Math.floor(sorted.length / 2)];
       const winRate = monthReturns.filter(r => r > 0).length / monthReturns.length;
-      const variance = monthReturns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / monthReturns.length;
+      const variance = monthReturns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / (monthReturns.length - 1);
       const volatility = Math.sqrt(variance);
       const sharpeRatio = volatility === 0 ? 0 : (avgReturn / volatility) * Math.sqrt(252);
 
@@ -162,7 +162,7 @@ export class SeasonalityEngine {
       const sorted = [...dayReturns].sort((a, b) => a - b);
       const medianReturn = sorted[Math.floor(sorted.length / 2)];
       const winRate = dayReturns.filter(r => r > 0).length / dayReturns.length;
-      const variance = dayReturns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / dayReturns.length;
+      const variance = dayReturns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / (dayReturns.length - 1);
       const volatility = Math.sqrt(variance);
       const tStat = volatility === 0 ? 0 : (avgReturn / volatility) * Math.sqrt(dayReturns.length);
 

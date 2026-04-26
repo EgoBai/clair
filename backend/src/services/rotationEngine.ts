@@ -83,7 +83,7 @@ export class RotationEngine {
       // Mean reversion signal
       const prices = asset.prices.slice(-lookback);
       const currentPrice = prices[prices.length - 1];
-      const meanPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+      const meanPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
       const meanReversion = meanPrice > 0 ? -(currentPrice - meanPrice) / meanPrice : 0;
 
       // Value signal (if data available)
@@ -327,9 +327,10 @@ export class RotationEngine {
   }
 
   private std(data: number[]): number {
-    if (data.length === 0) return 0;
+    if (data.length <= 1) return 0;
     const mean = data.reduce((a, b) => a + b, 0) / data.length;
-    return Math.sqrt(data.reduce((sum, v) => sum + (v - mean) ** 2, 0) / data.length);
+    const variance = data.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (data.length - 1);
+    return Math.sqrt(variance);
   }
 }
 

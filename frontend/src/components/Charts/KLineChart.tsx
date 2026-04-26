@@ -42,7 +42,7 @@ interface KLineChartProps {
   loading?: boolean;
 }
 
-const KLineChart: React.FC<KLineChartProps> = ({
+const KLineChart = React.memo<KLineChartProps>(({
   data,
   title,
   height = 500,
@@ -454,7 +454,7 @@ const KLineChart: React.FC<KLineChartProps> = ({
       opts={{ renderer: 'canvas' }}
     />
   );
-};
+});
 
 // === 工具函数 ===
 

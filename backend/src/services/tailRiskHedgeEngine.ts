@@ -109,7 +109,7 @@ export class TailRiskHedgeEngine {
 
     // Method of moments for GPD
     const mean = exceedances.reduce((s, v) => s + v, 0) / exceedances.length;
-    const variance = exceedances.reduce((s, v) => s + (v - mean) ** 2, 0) / exceedances.length;
+    const variance = exceedances.reduce((s, v) => s + (v - mean) ** 2, 0) / (exceedances.length - 1);
 
     // ξ = 0.5 * (mean² / variance - 1)
     const shape = variance > 0 ? 0.5 * ((mean * mean) / variance - 1) : 0;

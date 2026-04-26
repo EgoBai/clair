@@ -126,4 +126,4 @@ export const ResponsiveMenu: React.FC<ResponsiveMenuProps> = ({
   );
 };
 
-export default ResponsiveMenu;
+export default React.memo(ResponsiveMenu);

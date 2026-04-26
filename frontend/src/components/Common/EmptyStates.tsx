@@ -31,7 +31,7 @@ interface EmptyStateProps {
 }
 
 // 通用空状态
-export function EmptyState({ icon, title, description, action, secondaryAction }: EmptyStateProps) {
+export const EmptyState = React.memo(function EmptyState({ icon, title, description, action, secondaryAction }: EmptyStateProps) {
   return (
     <div style={{
       display: 'flex',
@@ -68,7 +68,7 @@ export function EmptyState({ icon, title, description, action, secondaryAction }
       </Space>
     </div>
   );
-}
+});
 
 // 预设空状态
 
@@ -168,7 +168,7 @@ export function EmptyHistory() {
 }
 
 // 错误状态
-export function ErrorState({
+export const ErrorState = React.memo(function ErrorState({
   title = '出了点问题',
   description = '请稍后再试，或联系技术支持',
   onRetry,
@@ -188,10 +188,10 @@ export function ErrorState({
       } : undefined}
     />
   );
-}
+});
 
 // 网络断开
-export function DisconnectedState({ onReconnect }: { onReconnect?: () => void }) {
+export const DisconnectedState = React.memo(function DisconnectedState({ onReconnect }: { onReconnect?: () => void }) {
   return (
     <EmptyState
       icon={<DisconnectOutlined style={{ color: '#f5222d' }} />}
@@ -204,7 +204,7 @@ export function DisconnectedState({ onReconnect }: { onReconnect?: () => void })
       } : undefined}
     />
   );
-}
+});
 
 // 自选股星标图标
 function StarOutlined(props: any) {

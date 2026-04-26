@@ -3,7 +3,7 @@ import { SlippageEstimationEngine } from '../services/slippageEstimationEngine';
 
 describe('SlippageEstimationEngine', () => {
   const engine = new SlippageEstimationEngine();
-  const mkOrder = (qty: number, price = 10.50) => ({ side: 'buy' as const, quantity: qty, price, orderType: 'market' as const });
+  const mkOrder = (qty: number, price = 10.50) => ({ side: 'buy' as const, quantity: qty, price, orderType: 'market' as const, symbol: 'TEST' });
   const mkMarket = () => ({ bid: 10.48, ask: 10.52, volume: 5000000, avgVolume20d: 4800000, volatility: 0.02, spread: 0.004 });
 
   it('should estimate slippage for market order', () => {

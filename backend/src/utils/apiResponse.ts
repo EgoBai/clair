@@ -133,7 +133,7 @@ export function sendServiceUnavailable(res: Response, message = '服务暂不可
  * 支持返回 Promise<void> 和普通返回值（兼容 queryCache 回调）
  */
 export function asyncHandler(
-  fn: (req: Request, res: Response, next: NextFunction) => void
+  fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>
 ) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {

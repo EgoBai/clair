@@ -132,7 +132,7 @@ describe('tokenManager - token expiry logic', () => {
   });
 
   it('should handle token without exp claim', () => {
-    const payload = { userId: 1 };
+    const payload = { exp: undefined as unknown as number };
     expect(isExpired(payload)).toBe(false);
   });
 

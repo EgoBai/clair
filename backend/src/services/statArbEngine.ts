@@ -116,7 +116,7 @@ export function computeZScores(spread: number[], windowSize: number): number[] {
   for (let i = windowSize - 1; i < spread.length; i++) {
     const window = spread.slice(i - windowSize + 1, i + 1);
     const mean = window.reduce((s, v) => s + v, 0) / window.length;
-    const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / window.length;
+    const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / (window.length - 1);
     const stdDev = Math.sqrt(variance);
     zScores.push(stdDev > 1e-10 ? (spread[i] - mean) / stdDev : 0);
   }
@@ -218,7 +218,7 @@ export function analyzeSpread(pricesA: number[], pricesB: number[], config?: Par
   const adf = adfTest(spread);
 
   const mean = spread.reduce((s, v) => s + v, 0) / spread.length;
-  const variance = spread.reduce((s, v) => s + (v - mean) ** 2, 0) / spread.length;
+  const variance = spread.reduce((s, v) => s + (v - mean) ** 2, 0) / (spread.length - 1);
   const stdDev = Math.sqrt(variance);
 
   return { spread, mean, stdDev, zScore, halfLife, hurstExponent, isStationary: adf.isStationary };

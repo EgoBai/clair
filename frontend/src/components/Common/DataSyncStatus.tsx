@@ -5,12 +5,12 @@ interface DataSyncStatusProps {
   className?: string;
 }
 
-export const DataSyncStatus: React.FC<DataSyncStatusProps> = ({ compact, className }) => {
+export const DataSyncStatus: React.FC<DataSyncStatusProps> = React.memo(({ compact, className }) => {
   return (
     <div className={className} data-testid="sync-status">
       {compact ? '🔄' : '数据已同步'}
     </div>
   );
-};
+});
 
 export default DataSyncStatus;

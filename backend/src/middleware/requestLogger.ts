@@ -110,7 +110,7 @@ export function requestLogger(options: Partial<RequestLoggingOptions> = {}) {
     const traceId = getTraceId(req);
 
     // 将 traceId 注入请求对象，供后续处理使用
-    (req as any).traceId = traceId;
+    req.traceId = traceId;
 
     // 设置响应头，方便客户端追踪
     res.setHeader('X-Trace-Id', traceId);

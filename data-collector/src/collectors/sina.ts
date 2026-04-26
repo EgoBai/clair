@@ -11,6 +11,7 @@ import {
   CollectorConfig,
   CollectorResult,
 } from './base';
+import { toValidNumber } from '../utils';
 
 const SINA_CONFIG: CollectorConfig = {
   name: 'sina',
@@ -127,7 +128,7 @@ export class SinaCollector extends BaseCollector {
    */
   parseRawData(raw: string): RawQuoteData[] {
     const quotes: RawQuoteData[] = [];
-    const lines = raw.split('\n').filter(line => line.trim());
+    const lines = raw.split(/\r?\n/).filter(line => line.trim());
 
     for (const line of lines) {
       try {
@@ -162,16 +163,15 @@ export class SinaCollector extends BaseCollector {
     if (fields.length < 10) return null;
 
     const name = fields[0];
-    const openPrice = parseFloat(fields[1]) || 0;
-    const prevClose = parseFloat(fields[2]) || 0;
-    const currentPrice = parseFloat(fields[3]) || 0;
-    const highPrice = parseFloat(fields[4]) || 0;
-    const lowPrice = parseFloat(fields[5]) || 0;
+    const openPrice = toValidNumber(parseFloat(fields[1]), 0);
+    const prevClose = toValidNumber(parseFloat(fields[2]), 0);
+    const currentPrice = toValidNumber(parseFloat(fields[3]), 0);
+    const highPrice = toValidNumber(parseFloat(fields[4]), 0);
+    const lowPrice = toValidNumber(parseFloat(fields[5]), 0);
     // fields[6] = 买一价, fields[7] = 卖一价
     // fields[8] = 成交量(手), fields[9] = 成交额
-    const volume = (parseFloat(fields[8]) || 0) * 100; // 手 -> 股
-    const turnover = parseFloat(fields[9]) || 0;
-
+    const volume = toValidNumber(parseFloat(fields[8]), 0) * 100; // 手 -> 股
+    const turnover = toValidNumber(parseFloat(fields[9]), 0);
     const change = currentPrice - prevClose;
     const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
     const amplitude = (prevClose > 0 && highPrice > 0 && lowPrice > 0)
@@ -194,8 +194,8 @@ export class SinaCollector extends BaseCollector {
       changePercent,
       amplitude,
       turnoverRate: 0, // 新浪默认不提供换手率
-      bidPrice1: parseFloat(fields[6]) || undefined,
-      askPrice1: parseFloat(fields[7]) || undefined,
+      bidPrice1: toValidNumber(parseFloat(fields[6])),
+      askPrice1: toValidNumber(parseFloat(fields[7])),
       bidVolume1: fields[10] ? parseFloat(fields[10]) * 100 : undefined,
       askVolume1: fields[20] ? parseFloat(fields[20]) * 100 : undefined,
       timestamp: Date.now(),
@@ -216,12 +216,12 @@ export class SinaCollector extends BaseCollector {
         result.push({
           symbol,
           tradeDate: item.day,
-          openPrice: parseFloat(item.open),
-          closePrice: parseFloat(item.close),
-          highPrice: parseFloat(item.high),
-          lowPrice: parseFloat(item.low),
-          volume: parseFloat(item.volume),
-          turnover: parseFloat(item.amount) || 0,
+          openPrice: toValidNumber(parseFloat(item.open), 0),
+          closePrice: toValidNumber(parseFloat(item.close), 0),
+          highPrice: toValidNumber(parseFloat(item.high), 0),
+          lowPrice: toValidNumber(parseFloat(item.low), 0),
+          volume: toValidNumber(parseFloat(item.volume), 0),
+          turnover: toValidNumber(parseFloat(item.amount), 0),
         });
       } catch {
         continue;

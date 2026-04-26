@@ -120,4 +120,4 @@ export function LoginPage({ onLogin, onForgotPassword, onRegister }: {
   );
 }
 
-export default LoginPage;
+export default React.memo(LoginPage);

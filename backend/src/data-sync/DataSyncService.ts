@@ -309,6 +309,7 @@ export class DataSyncService {
     const lines = raw.split('\n').filter(line => line.trim());
 
     for (const line of lines) {
+      let rawSymbol = '';
       try {
         const match = line.match(/v_\w+="(.+)"/);
         if (!match) continue;
@@ -316,28 +317,33 @@ export class DataSyncService {
         const parts = match[1].split('~');
         if (parts.length < 45) continue;
 
-        const rawSymbol = parts[2];
+        rawSymbol = parts[2];
         const market = this.getMarketFromSymbol(rawSymbol);
         if (market === 'UNKNOWN') continue;
 
-        const currentPrice = parseFloat(parts[3]) || 0;
-        const prevClose = parseFloat(parts[4]) || 0;
+        const v = (idx: number) => { const x = parseFloat(parts[idx]); return Number.isFinite(x) ? x : 0; };
+
+        const currentPrice = v(3);
+        const prevClose = v(4);
         const change = currentPrice - prevClose;
+        const changePct = v(32);
+        const finalChangePct = Number.isFinite(changePct) ? changePct :
+          (prevClose > 0 ? (change / prevClose) * 100 : 0);
 
         quotes.push({
           symbol: `${rawSymbol}.${market}`,
           name: parts[1],
           currentPrice,
-          openPrice: parseFloat(parts[5]) || 0,
-          highPrice: parseFloat(parts[33]) || currentPrice,
-          lowPrice: parseFloat(parts[34]) || currentPrice,
+          openPrice: v(5),
+          highPrice: v(33) || currentPrice,
+          lowPrice: v(34) || currentPrice,
           prevClose,
-          volume: parseFloat(parts[6]) || 0,
-          turnover: parseFloat(parts[37]) || 0,
+          volume: v(6),
+          turnover: v(37),
           change,
-          changePercent: parseFloat(parts[32]) || (prevClose > 0 ? (change / prevClose) * 100 : 0),
-          amplitude: parseFloat(parts[43]) || 0,
-          turnoverRate: parseFloat(parts[38]) || 0,
+          changePercent: finalChangePct,
+          amplitude: v(43),
+          turnoverRate: v(38),
           peRatio: (() => { const v = parseFloat(parts[39]); return Number.isFinite(v) ? v : undefined; })(),
           pbRatio: (() => { const v = parseFloat(parts[46]); return Number.isFinite(v) ? v : undefined; })(),
           marketCap: (() => { const v = parseFloat(parts[45]); return Number.isFinite(v) ? v * 10000 : undefined; })(),
@@ -348,7 +354,7 @@ export class DataSyncService {
           source: 'tencent',
         });
       } catch (error) {
-        // 忽略解析错误
+        console.warn(`[DataSync] 行情解析失败: ${rawSymbol || 'unknown'}`, error instanceof Error ? error.message : error);
       }
     }
 
@@ -369,15 +375,16 @@ export class DataSyncService {
 
       for (const item of dayData) {
         if (item.length >= 5) {
+          const k = (idx: number) => { const v = parseFloat(item[idx]); return Number.isFinite(v) ? v : 0; };
           result.push({
             symbol,
             tradeDate: item[0],
-            openPrice: parseFloat(item[1]) || 0,
-            closePrice: parseFloat(item[2]) || 0,
-            highPrice: parseFloat(item[3]) || 0,
-            lowPrice: parseFloat(item[4]) || 0,
-            volume: parseFloat(item[5]) || 0,
-            turnover: parseFloat(item[6]) || 0,
+            openPrice: k(1),
+            closePrice: k(2),
+            highPrice: k(3),
+            lowPrice: k(4),
+            volume: k(5),
+            turnover: k(6),
           });
         }
       }

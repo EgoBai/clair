@@ -1,0 +1,4 @@
+# Errors
+
+## Command Failures & Exceptions
+

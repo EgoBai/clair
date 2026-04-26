@@ -92,7 +92,7 @@ describe('Real-time Data Aggregation Engine', () => {
   })
 
   it('should return empty when data < window', () => {
-    expect(slidingWindow([1, 2], 3, Math.max)).toEqual([])
+    expect(slidingWindow([1, 2], 3, (w: number[]) => Math.max(...w))).toEqual([])
   })
 
   it('should calculate sliding window max', () => {

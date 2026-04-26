@@ -13,7 +13,7 @@ interface OrderBookPanelProps {
   loading?: boolean;
 }
 
-export const OrderBookPanel: React.FC<OrderBookPanelProps> = ({ data, loading }) => {
+export const OrderBookPanel = React.memo<OrderBookPanelProps>(({ data, loading }) => {
   const bidColumns = [
     {
       title: '买盘',
@@ -121,7 +121,7 @@ export const OrderBookPanel: React.FC<OrderBookPanelProps> = ({ data, loading })
       )}
     </Card>
   );
-};
+});
 
 // 格式化成交量(短)
 function formatVolumeShort(vol: number): string {

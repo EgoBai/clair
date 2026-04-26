@@ -652,4 +652,4 @@ export const PerformanceToggle: React.FC = () => {
 };
 
 // 默认导出
-export default PerformanceDashboard;
+export default React.memo(PerformanceDashboard);

@@ -35,8 +35,8 @@ function analyzeETF(etf: ETFData, navHistory: number[], priceHistory: number[]):
   const minLength = Math.min(navHistory.length, priceHistory.length);
   let trackingError = 0;
   if (minLength > 1) {
-    const navReturns = [];
-    const priceReturns = [];
+    const navReturns: number[] = [];
+    const priceReturns: number[] = [];
     for (let i = 1; i < minLength; i++) {
       navReturns.push((navHistory[i] - navHistory[i - 1]) / navHistory[i - 1]);
       priceReturns.push((priceHistory[i] - priceHistory[i - 1]) / priceHistory[i - 1]);

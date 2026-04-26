@@ -223,19 +223,21 @@ describe('NotificationCoordinator', () => {
 
     it('should retry on failure', async () => {
       let attempts = 0;
-      coord.registerChannel('push', async () => {
+      const fastCoord = new TestCoordinator({ retryDelayMs: 10, maxRetries: 3 });
+      fastCoord.registerChannel('push', async () => {
         attempts++;
         if (attempts < 3) throw new Error('Transient error');
         return true;
       });
-      const tasks = await coord.send(makeNotif({ channels: ['push'] }));
+      const tasks = await fastCoord.send(makeNotif({ channels: ['push'] }));
       expect(tasks[0].status).toBe('sent');
       expect(tasks[0].attempts).toBeGreaterThan(1);
     });
 
     it('should fail after exhausting retries', async () => {
-      coord.registerChannel('push', async () => { throw new Error('Persistent error'); });
-      const tasks = await coord.send(makeNotif({ channels: ['push'] }));
+      const fastCoord = new TestCoordinator({ retryDelayMs: 10, maxRetries: 3 });
+      fastCoord.registerChannel('push', async () => { throw new Error('Persistent error'); });
+      const tasks = await fastCoord.send(makeNotif({ channels: ['push'] }));
       expect(tasks[0].status).toBe('failed');
       expect(tasks[0].attempts).toBe(3);
     });
@@ -243,6 +245,9 @@ describe('NotificationCoordinator', () => {
 
   describe('Fallback', () => {
     beforeEach(() => {
+      // Use fast retry for fallback tests - the push will fail and retry 3 times,
+      // then fallback to email. Without fast retry, this wastes ~2s per test.
+      coord = new TestCoordinator({ retryDelayMs: 10 });
       coord.registerChannel('push', async () => { throw new Error('Failed'); });
       coord.registerChannel('email', async () => true);
     });

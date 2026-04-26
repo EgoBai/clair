@@ -89,9 +89,18 @@ class TestInMemoryDB {
     if (market) result = result.filter(s => s.market === market);
     if (industry) result = result.filter(s => s.industry === industry);
 
-    result.sort((a: any, b: any) =>
-      sortOrder === 'asc' ? (a[sortBy] > b[sortBy] ? 1 : -1) : (a[sortBy] < b[sortBy] ? 1 : -1),
-    );
+    result.sort((a: any, b: any) => {
+      const aVal = a[sortBy], bVal = b[sortBy];
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        const cmp = aVal.localeCompare(bVal, 'zh-CN');
+        return sortOrder === 'asc' ? cmp : -cmp;
+      }
+      if (aVal === bVal) return 0;
+      return sortOrder === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+    });
 
     const offset = (page - 1) * pageSize;
     return result.slice(offset, offset + pageSize);
@@ -300,7 +309,8 @@ describe('InMemoryDatabase', () => {
     const asc = db.getStocks({ sortBy: 'name', sortOrder: 'asc' });
     expect(asc.length).toBeGreaterThan(0);
     for (let i = 1; i < asc.length; i++) {
-      expect(asc[i].name.localeCompare(asc[i - 1].name)).toBeGreaterThanOrEqual(0);
+      const cmp = asc[i].name.localeCompare(asc[i - 1].name, 'zh-CN');
+      expect(cmp).toBeGreaterThanOrEqual(0);
     }
   });
 

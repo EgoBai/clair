@@ -22,7 +22,7 @@ interface TimeLineChartProps {
   loading?: boolean;
 }
 
-const TimeLineChart: React.FC<TimeLineChartProps> = ({
+const TimeLineChart: React.FC<TimeLineChartProps> = React.memo(({
   data,
   title,
   height = 400,
@@ -206,7 +206,7 @@ const TimeLineChart: React.FC<TimeLineChartProps> = ({
       opts={{ renderer: 'canvas' }}
     />
   );
-};
+});
 
 function formatVolume(vol: number): string {
   if (vol >= 1e8) return `${(vol / 1e8).toFixed(2)}亿手`;

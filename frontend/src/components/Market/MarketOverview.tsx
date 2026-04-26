@@ -283,4 +283,4 @@ const MarketOverview: React.FC<MarketOverviewProps> = ({
   );
 };
 
-export default MarketOverview;
+export default React.memo(MarketOverview);

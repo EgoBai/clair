@@ -33,7 +33,7 @@ interface TechnicalIndicatorChartProps {
   loading?: boolean;
 }
 
-const TechnicalIndicatorChart: React.FC<TechnicalIndicatorChartProps> = ({
+const TechnicalIndicatorChart = React.memo<TechnicalIndicatorChartProps>(({
   data,
   type,
   title,
@@ -77,7 +77,7 @@ const TechnicalIndicatorChart: React.FC<TechnicalIndicatorChartProps> = ({
       notMerge={true}
     />
   );
-};
+});
 
 function buildMACDOption(data: IndicatorData[], dates: string[], title?: string) {
   const macdValues = data.map(d => d.macd ?? null);

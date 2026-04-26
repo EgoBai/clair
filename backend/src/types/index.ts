@@ -1,5 +1,6 @@
 // 共享类型定义 — 从 shared/types 导入
-export type { KLineData, DailyQuote } from '../../shared/types';
+// NOTE: KLineData requires: tradeDate, open, close, high, low, volume, turnover
+export type { KLineData, DailyQuote } from '../../../shared/types';
 
 // 本地后端特有类型
 export interface StockData {

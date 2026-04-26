@@ -178,6 +178,7 @@ router.get('/lockup/:symbol', validateParams(schemas.stockSymbol), asyncHandler(
             unlockRatio: Math.round(Math.random() * 10 * 100) / 100,
             marketValue: Math.floor(Math.random() * 5000000000) + 100000000,
             price: 50,
+            actualCirculating: Math.floor(Math.random() * 500000000) + 100000000,
           });
         }
       }

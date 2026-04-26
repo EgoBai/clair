@@ -52,7 +52,7 @@ function getSentimentInfo(score: number): { label: string; color: string; icon: 
   return { label: '极度悲观', color: '#2f54eb', icon: <FrownOutlined /> };
 }
 
-export default function MarketSentiment({
+const MarketSentiment = React.memo(function MarketSentiment({
   riseCount,
   fallCount,
   flatCount = 0,
@@ -188,4 +188,6 @@ export default function MarketSentiment({
       </Row>
     </Card>
   );
-}
+});
+
+export default MarketSentiment;

@@ -2,6 +2,22 @@
 
 All notable changes to the A股行情分析网站 project.
 
+## [3.2.0] - 2026-04-25 (Round 113 — parseFloat 假零陷阱系统性修复)
+
+### 修复
+- **后端数据管道 parseFloat||0 系统性修复** (DataSyncService.ts + advanced-screener.ts + screener.ts)
+  - 47 处 `parseFloat(x) || 0` / `parseInt(x) || 0` 替换为 `Number.isFinite()` 守卫
+  - 引入 `pf()`/`pn()`/`pi()` 辅助函数消除重复模式
+  - 修复 `catch (error) { // 忽略解析错误 }` 为结构化日志输出
+  - 可空字段（peRatio, marketCap, MA 等）使用 `pn()` 返回 `number | null`
+- **dbFactory 代理测试修复** (dbFactory.test.ts)
+  - 修复 `as unknown as Promise<T>` 导致的函数引用未调用 bug (2处)
+
+### 质量
+- 全量测试 32,980/32,980 通过，0 回归
+- 累计 parseFloat||0 消除率:~49/115(43%)
+- 累计 bug 修复: 105+
+
 ## [3.0.0] - 2026-03-30 (Round 104 - 用户系统增强)
 
 ### 新增

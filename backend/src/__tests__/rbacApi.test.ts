@@ -218,7 +218,7 @@ describe('RBAC API模拟', () => {
       const api = createAPIHandlers(engine);
       const res = api.getEffectivePermissions('admin');
       expect(res.status).toBe(200);
-      expect(res.data.length).toBeGreaterThan(0);
+      expect(res.data!.length).toBeGreaterThan(0);
     });
 
     it('GET /api/permissions/effective/:roleId 不存在返回404', () => {
@@ -253,7 +253,7 @@ describe('RBAC API模拟', () => {
       const api = createAPIHandlers(engine);
       const res = api.getInheritanceTree('admin');
       expect(res.status).toBe(200);
-      expect(res.data.some((n: any) => n.roleId === 'analyst')).toBe(true);
+      expect(res.data!.some((n: any) => n.roleId === 'analyst')).toBe(true);
     });
 
     it('GET /api/roles/:id/inheritance 不存在返回404', () => {
@@ -330,7 +330,7 @@ describe('RBAC API模拟', () => {
 
       // 3. 查看有效权限
       const permsRes = api.getEffectivePermissions('workflow-role');
-      expect(permsRes.data.length).toBe(2);
+      expect(permsRes.data!.length).toBe(2);
 
       // 4. 查看审计
       const auditRes = api.getAuditLog({ userId: 'wf-user' });

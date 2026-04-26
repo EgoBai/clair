@@ -24,8 +24,8 @@ export function analyzeSkew(options: OptionIV[], atmStrike: number): SkewResult 
   const ivs = sorted.map(o => o.iv);
 
   const mean = ivs.reduce((s, v) => s + v, 0) / ivs.length;
-  const std = Math.sqrt(ivs.reduce((s, v) => s + (v - mean) ** 2, 0) / ivs.length);
-  const skewness = std > 0 ? ivs.reduce((s, v) => s + ((v - mean) / std) ** 3, 0) / ivs.length : 0;
+  const std = Math.sqrt(ivs.reduce((s, v) => s + (v - mean) ** 2, 0) / (ivs.length - 1));
+  const skewness = std > 0 ? ivs.reduce((s, v) => s + ((v - mean) / std) ** 3, 0) / (ivs.length - 1) : 0;
 
   const atm = sorted.reduce((prev, curr) => Math.abs(curr.strike - atmStrike) < Math.abs(prev.strike - atmStrike) ? curr : prev);
   const otm = sorted.filter(o => o.delta < 0 && o.delta > -0.5);

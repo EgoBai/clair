@@ -361,4 +361,4 @@ export class ComponentPriorityManager {
 export const componentPriorityManager = new ComponentPriorityManager();
 
 // 默认导出
-export default LazyComponentWrapper;
+export default React.memo(LazyComponentWrapper);

@@ -204,7 +204,7 @@ export class DataSourceManager {
       // 自定义验证
       if (validators) {
         for (const [field, validator] of Object.entries(validators)) {
-          if (record[field] !== undefined && !validator(record[field])) {
+          if (record[field] !== undefined && validator && !validator(record[field])) {
             isValid = false;
             const issue = issueMap.get(`invalid_${field}`) || { count: 0, examples: [] };
             issue.count++;

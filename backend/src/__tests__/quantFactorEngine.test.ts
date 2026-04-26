@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { QuantFactorEngine, StockData, FactorCategory } from '../services/quantFactorEngine';
 
 function createStockData(overrides: Partial<StockData> = {}): StockData {

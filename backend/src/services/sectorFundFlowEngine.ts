@@ -183,7 +183,7 @@ export class SectorFundFlowEngine {
     // Divergence
     const netFlows = flows.map(f => f.flow);
     const meanFlow = netFlows.reduce((a, b) => a + b, 0) / netFlows.length;
-    const variance = netFlows.reduce((sum, f) => sum + (f - meanFlow) ** 2, 0) / netFlows.length;
+    const variance = netFlows.reduce((sum, f) => sum + (f - meanFlow) ** 2, 0) / (netFlows.length - 1);
     const divergence = Math.sqrt(variance);
 
     const hotSectors = flows.filter(f => f.flow > 0).slice(0, 3).map(f => f.sector);

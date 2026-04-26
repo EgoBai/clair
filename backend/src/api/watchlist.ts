@@ -3,7 +3,7 @@
  * 支持分组管理、拖拽排序、批量操作
  */
 
-import { Router } from 'express';
+import { Request, Response, Router } from 'express';
 import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';

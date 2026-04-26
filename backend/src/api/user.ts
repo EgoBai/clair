@@ -5,13 +5,11 @@
  */
 
 import { Request, Response, Router } from 'express';
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import { signAccessToken, generateRefreshToken, consumeRefreshToken } from '../middleware/auth';
 import { validateBody, validateQuery, schemas } from '../middleware/validation';
-import { RBACEngine, RBACContext } from '../utils/rbacEngine';
-import { authMiddleware, signAccessToken, generateRefreshToken, consumeRefreshToken, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
-const rbacEngine = new RBACEngine();
 
 // ==================== 内存用户存储（生产环境应使用数据库）====================
 
@@ -145,15 +143,16 @@ function defaultSettings(): UserSettings {
 }
 
 interface AuthenticatedRequest extends Request {
-  userId?: string;
+  userId: string;
 }
 
 function authMiddleware(req: Request, res: Response, next: Function) {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token || !tokens.has(token)) {
+  const userId = token ? tokens.get(token) : undefined;
+  if (!token || !userId) {
     return res.status(401).json({ success: false, message: '未登录' });
   }
-  (req as AuthenticatedRequest).userId = tokens.get(token);
+  (req as AuthenticatedRequest).userId = userId;
   next();
 }
 
