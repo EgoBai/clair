@@ -87,7 +87,9 @@ const Onboarding: React.FC = () => {
   const handleComplete = () => {
     try {
       localStorage.setItem(STORAGE_KEY, 'true');
-    } catch { /* ignore */ }
+    } catch {
+      console.warn('Onboarding: failed to save completion state');
+    }
     setVisible(false);
   };
 

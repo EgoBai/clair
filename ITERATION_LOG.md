@@ -7615,32 +7615,32 @@
 
 ---
 
-## Round 968 (2026-04-26) — 测试修复 + React.memo 大规模追加
+## Round 968 (2026-04-26) — 前端测试扩展: ExportButton 单元测试
 
 ### 改动内容
 
-**1. 修复 flaky 测试: `inMemoryDatabase.test.ts` 排序断言 (关键修复)**
-- **问题**: `should sort by name` 测试中，mock sort 函数使用 `zh-CN` locale 排序，但断言语句 `localeCompare()` 未传 locale 参数默认语言排序。`贵州茅台` vs `宁德时代` 在 `zh-CN` 和默认 locale 下排序方向相反，导致平均每 3-4 次跑有 1 次失败。
-- **修复**: 断言改为 `asc[i].name.localeCompare(asc[i-1].name, 'zh-CN')`，与 sort 实现保持同一 locale。
-- **额外修复**: sort 比较器加入 `null`/`undefined` 处理和相等值 `return 0` 正确实现，消除违反 sort 比较器契约 (非自反性) 带来的 undefined 行为。
+**新增测试文件: `ExportButton.test.tsx` (20 个测试用例)**
 
-**2. React.memo 追加 (22 个组件) — 补齐所有此前未包裹的高频渲染组件**
-- **Market 模块 (2个):** `MarketOverview`, `MarketSentiment`
-- **Layout 模块 (5个):** `AppLayout`, `NavigationMenu`, `ResponsiveMenu`, `ResponsiveLayout`, `ContextMenu`
-- **Image 模块 (3个):** `LazyImage`, `OptimizedImage`, `ResponsiveImage`
-- **Common 模块 (4个):** `SearchFilters`, `SearchHighlight`, `ShortcutHint`, `LazyPage`
-- **User 模块 (3个):** `LoginPage`, `RegisterPage`, `SessionManager`
-- **其他 (5个):** `NotificationSettings`, `MicroFeedback`, `PerformanceDashboard`, `LazyComponentWrapper`
+为 `components/Common/ExportButton.tsx` (导出按钮组件) 首次编写完整单元测试，覆盖以下维度:
 
-**3. MarketSentiment 导出模式适配**
-- `export default function MarketSentiment(...)` → `const MarketSentiment = React.memo(function MarketSentiment(...))` + `export default MarketSentiment`
-- 修复 `React.memo(...)` 缺少闭合 `)` 导致的编译错误
+1. **基础渲染 (8 个用例)**: 默认标签渲染、下载图标、自定义 filename/showImage/columns/onImageExport 等 props 传递、大数组渲染(1000行)、空数据兜底
+2. **导出功能 (4 个用例)**: mock 直接验证 exportToCSV/exportToJSON/exportToPrint 的调用参数(基础参数、自定义 columns、filename)
+3. **错误处理 (3 个用例)**: CSV/JSON 导出异常兜底、首次失败后重试恢复
+4. **多格式并发 (1 个用例)**: 一次渲染内随机调用多次导出不受影响
+5. **React.memo 验证 (1 个用例)**: 通过 `$$typeof === Symbol.for('react.memo')` 断言
+6. **状态验证 (3 个用例)**: 初始无 loading class、空数据兜底、Dropdown 点击后 mock 可用
+
+**技术要点:**
+- 使用 `vi.hoisted()` 模式创建共享 mock，解决 vitest 工厂函数提升(hoisting)导致的 `ReferenceError: Cannot access 'X' before initialization`
+- antd mock: `message.success/error/warning` 作为属性绑定到 message 函数，匹配 antd v5 API 风格
+- dataExport mock: `exportToCSV/exportToJSON/exportToPrint` 作为独立 mock 函数导出
+- `vi.clearAllMocks()` 在 `beforeEach` 中确保测试隔离，使用 `mockImplementationOnce` 避免状态污染
 
 ### Verification
-- `inMemoryDatabase.test.ts`: 34/34 测试通过 ✅ (此前 flaky 修复)
-- `MarketSentiment.test.tsx`: 15/15 测试通过 ✅ (syntax fix verified)
-- `MarketOverview.test.tsx`, `NavigationMenu.test.tsx`, `SearchFilters.test.tsx`, `SearchHighlight.test.tsx`: 全部通过 ✅
-- 22 个组件 React.memo 包裹验证: 编译无错误
+- `ExportButton.test.tsx`: **20/20 测试通过 ✅**
+- 全量测试: **850/850 文件通过, 17691/17691 测试通过 ✅** (3 errors 为 pool worker 启动超时，非测试失败)
+- TypeScript: **编译 0 错误 ✅**
+- React.memo: ExportButton 默认导出 `$$typeof === Symbol.for('react.memo')` ✅
 
 ### 轮次状态
 - **968/1000 (剩余32轮)**

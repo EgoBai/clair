@@ -16,7 +16,7 @@ import {
 import {
   ArrowUpOutlined, ArrowDownOutlined, DollarOutlined, StockOutlined,
 } from '@ant-design/icons';
-import { fetchMarginOverview, fetchMarginData, fetchMarginRank } from '../services/api';
+import { fetchMarginOverviewTyped, fetchMarginData, fetchMarginRank } from '../services/api';
 import type { MarginOverview } from '../../../shared/types';
 
 const { Title, Text } = Typography;
@@ -50,7 +50,7 @@ const MarginTradingPage: React.FC = () => {
     setLoading(true);
     try {
       const [overviewRes, rankRes] = await Promise.all([
-        fetchMarginOverview(),
+        fetchMarginOverviewTyped(),
         fetchMarginRank('financing'),
       ]);
       setOverview(overviewRes);

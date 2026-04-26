@@ -1,7 +1,7 @@
 /**
  * 登录页面组件
  */
-import { useState } from 'react';
+import { useState, memo } from 'react';
 
 interface LoginForm {
   email: string;
@@ -120,4 +120,4 @@ export function LoginPage({ onLogin, onForgotPassword, onRegister }: {
   );
 }
 
-export default React.memo(LoginPage);
+export default memo(LoginPage);

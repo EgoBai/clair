@@ -6,6 +6,7 @@
  * - 领先滞后关系
  * - 超配/中性/低配信号
  */
+import { waveRandom } from './deterministic';
 export interface IndustryData {
   name: string;
   returns: number[]; // 日收益率序列
@@ -41,7 +42,7 @@ export function analyzeIndustryRotation(
 ): RotationAnalysis {
   if (industries.length === 0) throw new Error('行业数据不能为空');
 
-  const signals: RotationSignal[] = industries.map(ind => {
+  const signals: RotationSignal[] = industries.map((ind, i) => {
     const rets = ind.returns;
     const n = rets.length;
 
@@ -76,8 +77,8 @@ export function analyzeIndustryRotation(
 
     const confidence = Math.min(1, 0.5 + Math.abs(score));
 
-    // 排名变化 (模拟)
-    const rankChange = Math.floor((Math.random() - 0.5) * 10);
+    // 排名变化 (确定性波函数)
+    const rankChange = Math.floor((waveRandom(i, 0.5) - 0.5) * 10);
 
     return { industry: ind.name, momentum, relativeStrength, valuation, cyclePhase, recommendation, confidence, rankChange };
   });
@@ -92,8 +93,8 @@ export function analyzeIndustryRotation(
   const avgRankChange = rankChanges.reduce((s, v) => s + Math.abs(v), 0) / rankChanges.length;
   const rotationSpeed = avgRankChange / industries.length;
 
-  // 动量持续性
-  const momentumPersistence = 0.5 + Math.random() * 0.3;
+  // 动量持续性 (确定性波函数)
+  const momentumPersistence = 0.5 + waveRandom(industries.length, 0.2) * 0.3;
 
   // 周期位置
   const leadingCount = signals.filter(s => s.cyclePhase === 'leading').length;

@@ -20,6 +20,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import { apiService } from '../services/api';
+import type { MarketSummary } from '../../../shared/types';
 
 const { Title, Text } = Typography;
 
@@ -61,7 +62,7 @@ const MarketHeatDashboard: React.FC = () => {
         (api.getFundFlowOverview?.() as Promise<{ success: boolean }>)?.catch(() => ({ success: false })) ?? Promise.resolve({ success: false }),
       ]);
 
-      const summary: any = summaryRes.success ? summaryRes.data : null;
+      const summary: MarketSummary | null = summaryRes.success ? summaryRes.data : null;
       const total = (summary?.rising || 0) + (summary?.falling || 0) + (summary?.flat || 0);
 
       // 计算热度指数 (0-100)

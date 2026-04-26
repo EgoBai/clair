@@ -9,6 +9,7 @@ import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 import type { NotificationPayload, NotificationPriority, NotificationChannel, NotificationStatus } from '../services/notification/types';
+import type { DailyQuote } from '../models/Stock';
 
 const router = Router();
 
@@ -562,7 +563,7 @@ export async function checkAlerts(): Promise<AlertRule[]> {
 /**
  * 评估复合条件 (AND/OR逻辑)
  */
-function evaluateCompositeCondition(alert: AlertRule, quote: any): boolean {
+function evaluateCompositeCondition(alert: AlertRule, quote: DailyQuote): boolean {
   if (!alert.subConditions || alert.subConditions.length === 0) return false;
   
   const results = alert.subConditions.map(cond => {
@@ -583,7 +584,7 @@ function evaluateCompositeCondition(alert: AlertRule, quote: any): boolean {
 /**
  * 评估指标条件
  */
-function evaluateIndicatorCondition(alert: AlertRule, quote: any): { triggered: boolean; value: number } {
+function evaluateIndicatorCondition(alert: AlertRule, quote: DailyQuote): { triggered: boolean; value: number } {
   const params = alert.indicatorParams || {};
   const value = quote.closePrice;
   
@@ -619,7 +620,7 @@ async function getAverageVolume(stockId: number, days: number = 20): Promise<num
     startDate.setDate(startDate.getDate() - days);
     const quotes = await db.getDailyQuotes(stockId, startDate);
     if (!quotes || quotes.length === 0) return 0;
-    const total = quotes.reduce((sum: number, q: any) => sum + (q.volume || 0), 0);
+    const total = quotes.reduce((sum: number, q: DailyQuote) => sum + (q.volume || 0), 0);
     return total / quotes.length;
   } catch {
     return 0;

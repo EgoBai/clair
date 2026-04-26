@@ -148,7 +148,7 @@ describe('errorBoundary', () => {
       const result = await withFallback(
         () => { calls++; throw new Error('fail'); },
         () => 'fallback',
-        { retries: 2 }
+        { retries: 2, retryDelay: 1 }
       );
 
       expect(result).toBe('fallback');
@@ -164,7 +164,7 @@ describe('errorBoundary', () => {
           return Promise.resolve('success');
         },
         () => 'fallback',
-        { retries: 2 }
+        { retries: 2, retryDelay: 1 }
       );
 
       expect(result).toBe('success');
@@ -176,7 +176,7 @@ describe('errorBoundary', () => {
         withFallback(
           () => { throw new Error('primary fail'); },
           () => { throw new Error('fallback fail'); },
-          { retries: 1 }
+          { retries: 1, retryDelay: 1 }
         )
       ).rejects.toThrow('primary fail');
     });

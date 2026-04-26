@@ -270,10 +270,47 @@ export const useStockStats = () => {
   };
 };
 
-// 初始化示例数据
-export const initializeSampleData = () => {
+// 初始化数据：优先从真实API获取，失败则使用示例数据
+export const initializeSampleData = async () => {
   const { setStocks } = useStockStore.getState();
   
+  try {
+    // 1. 获取股票列表
+    const resp = await fetch('/api/stocks?limit=50');
+    const data = await resp.json();
+    const apiStocks = data?.data?.stocks;
+    if (!apiStocks?.length) throw new Error('empty');
+
+    // 2. 批量获取最新行情
+    const symbols = apiStocks.map((s: any) => s.symbol);
+    const quotesResp = await fetch('/api/stocks/batch/quotes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols }),
+    });
+    const quotesData = await quotesResp.json();
+    const stocksWithQuotes = quotesData?.data?.stocks || [];
+
+    // 3. 合并数据
+    const realStocks: Stock[] = stocksWithQuotes.map((s: any) => ({
+      symbol: s.symbol?.replace(/\.(SH|SZ)$/, '') || s.symbol,
+      name: s.name || s.symbol,
+      price: s.latestQuote?.closePrice || s.closePrice || 0,
+      change: s.latestQuote?.change || s.change || 0,
+      changePercent: s.latestQuote?.changePercent || s.changePercent || 0,
+      volume: s.latestQuote?.volume ? (s.latestQuote.volume / 1e8).toFixed(1) + '亿' : (s.volume || '—'),
+      marketCap: s.latestQuote?.marketCap ? (s.latestQuote.marketCap / 1e8).toFixed(0) + '亿' : (s.marketCap || '—'),
+      industry: s.industry || '—',
+      peRatio: s.latestQuote?.peRatio || s.peRatio || 0,
+      dividendYield: 0,
+    }));
+    if (realStocks.length > 0) { setStocks(realStocks); return; }
+  } catch (e) {
+    console.warn('API数据获取失败，使用示例数据:', e);
+  }
+
+  // 后备示例数据
+  const { setStocks: set } = useStockStore.getState();
   const sampleStocks: Stock[] = [
     {
       symbol: '000001',

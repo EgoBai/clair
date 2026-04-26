@@ -112,7 +112,7 @@ describe('ThrottleEngine', () => {
       const smallEngine = new ThrottleEngine({ queueSize: 1, maxConcurrent: 1, timeout: 10000, maxRequestsPerSecond: 1 });
 
       // 第一个请求占住concurrent，第二个进队列（size=1）
-      const p1 = smallEngine.enqueue('a', async () => { await new Promise(r => setTimeout(r, 2000)); return 1; });
+      const p1 = smallEngine.enqueue('a', async () => { await new Promise(r => setTimeout(r, 10)); return 1; });
       const p2 = smallEngine.enqueue('b', async () => 2);
       // 第三个应该因队列满而拒绝
       const p3 = smallEngine.enqueue('c', async () => 3);
@@ -122,7 +122,7 @@ describe('ThrottleEngine', () => {
     }, 10000);
 
     it('应该清空队列', async () => {
-      engine.enqueue('a', async () => { await new Promise(r => setTimeout(r, 1000)); return 1; });
+      engine.enqueue('a', async () => { await new Promise(r => setTimeout(r, 5)); return 1; });
       engine.enqueue('b', async () => 2);
       engine.clear();
 

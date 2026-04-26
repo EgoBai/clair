@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
+  plugins: [react()],
   test: {
     globals: true,
     include: [
@@ -19,6 +21,14 @@ export default defineConfig({
       ['backend/src/**', 'node'],
     ],
     setupFiles: ['frontend/src/__tests__/setup.ts'],
+    // 测试超时设置
+    testTimeout: 10000,
+    hookTimeout: 10000,
+    // 优化测试性能
+    threads: true,
+    maxWorkers: 4,
+    minWorkers: 2,
+    isolate: true,
   },
   resolve: {
     alias: {

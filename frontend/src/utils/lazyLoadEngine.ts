@@ -8,6 +8,7 @@ export interface LazyLoadConfig {
   rootMargin: string;     // 根边距
   delay: number;          // 延迟加载(ms)
   retryCount: number;     // 重试次数
+  retryDelay: number;     // 重试退避基数(ms)
   priority: 'high' | 'medium' | 'low';
 }
 
@@ -30,6 +31,7 @@ export class LazyLoadEngine {
     rootMargin: '200px',
     delay: 100,
     retryCount: 3,
+    retryDelay: 1000,
     priority: 'medium',
   };
 
@@ -90,7 +92,8 @@ export class LazyLoadEngine {
           throw err;
         }
         // 指数退避
-        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+        const retryDelay = config.retryDelay || 1000;
+        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * retryDelay));
       }
     }
     // Should never reach here, but satisfies TS

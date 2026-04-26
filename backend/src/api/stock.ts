@@ -1,7 +1,6 @@
 /**
  * 股票API接口
- * 提供股票查询、行情获取等功能
- * 已集成输入验证和限流，统一响应格式
+ * 提供股票查询、行情获取、市场指数等功能
  */
 
 import { Router } from 'express';
@@ -14,10 +13,8 @@ import {
 
 const router = Router();
 
-/**
- * 获取股票列表
- * GET /api/stocks
- */
+// ==================== 股票查询 ====================
+
 router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (req, res) => {
   const params: StockSearchParams = {
     symbol: req.query.symbol as string,
@@ -47,96 +44,63 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
   });
 }));
 
-/**
- * 获取单只股票详情
- * GET /api/stocks/:symbol
- */
+// 注意：特定路径必须在通配符路径之前定义，否则 /stocks/:symbol 会匹配 /stocks/xxx/quotes
+router.get('/stocks/:symbol/quotes', validateParams(schemas.stockSymbol), validateQuery(schemas.quoteQuery), asyncHandler(async (req, res) => {
+  const { symbol } = req.params;
+  const stock = await db.getStockBySymbol(symbol);
+  if (!stock) return sendNotFound(res, '股票');
+  const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+  const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+  const limit = req.query.limit ? parseInt(req.query.limit as string) : 120;
+  const quotes = await db.getDailyQuotes(stock.id, startDate, endDate, limit);
+  sendSuccess(res, { stock: { symbol: stock.symbol, name: stock.name }, quotes });
+}));
+
+router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
+  const { symbol } = req.params;
+  const stockWithQuote = await db.getStockWithLatestQuote(symbol);
+  if (!stockWithQuote) return sendNotFound(res, '股票');
+  sendSuccess(res, stockWithQuote);
+}));
+
 router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
   const { symbol } = req.params;
   const stock = await db.getStockBySymbol(symbol);
-
   if (!stock) return sendNotFound(res, '股票');
-
   const latestQuote = await db.getLatestDailyQuote(stock.id);
   sendSuccess(res, { ...stock, latestQuote });
 }));
 
-/**
- * 获取股票行情
- * GET /api/stocks/:symbol/quotes
- */
-router.get(
-  '/stocks/:symbol/quotes',
-  validateParams(schemas.stockSymbol),
-  validateQuery(schemas.quoteQuery),
-  asyncHandler(async (req, res) => {
-    const { symbol } = req.params;
-    const stock = await db.getStockBySymbol(symbol);
-
-    if (!stock) return sendNotFound(res, '股票');
-
-    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 120;
-
-    const quotes = await db.getDailyQuotes(stock.id, startDate, endDate, limit);
-    sendSuccess(res, {
-      stock: { symbol: stock.symbol, name: stock.name },
-      quotes,
-    });
-  })
-);
-
-/**
- * 获取最新行情
- * GET /api/stocks/:symbol/latest
- */
-router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
-  const { symbol } = req.params;
-  const stockWithQuote = await db.getStockWithLatestQuote(symbol);
-
-  if (!stockWithQuote) return sendNotFound(res, '股票');
-
-  sendSuccess(res, stockWithQuote);
-}));
-
-/**
- * 批量获取股票行情
- * POST /api/stocks/batch/quotes
- */
 router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHandler(async (req, res) => {
   const { symbols } = req.body;
   const stocks = await db.getStocksWithLatestQuotes(symbols);
   sendSuccess(res, { stocks, count: stocks.length });
 }));
 
-/**
- * 获取市场概况
- * GET /api/market/summary
- */
+// ==================== 市场数据 ====================
+
 router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const summary = await db.getMarketSummary(date);
-
   if (!summary) return sendNotFound(res, '当日市场数据');
-
+  try {
+    const indices = await fetchMarketIndices();
+    (summary as Record<string, unknown>).indices = indices;
+  } catch (e) { /* 指数获取失败不影响主流程 */ }
   sendSuccess(res, summary);
 }));
 
-/**
- * 获取行业表现
- * GET /api/market/industries
- */
+router.get('/market/indices', asyncHandler(async (_req, res) => {
+  const indices = await fetchMarketIndices();
+  sendSuccess(res, { indices });
+}));
+
 router.get('/market/industries', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const industries = await db.getIndustryPerformance(date);
   sendSuccess(res, { date, industries });
 }));
 
-/**
- * 获取涨幅榜
- * GET /api/market/top-gainers
- */
 router.get('/market/top-gainers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const limit = parseInt(req.query.limit as string) || 10;
@@ -144,10 +108,6 @@ router.get('/market/top-gainers', validateQuery(schemas.marketQuery), asyncHandl
   sendSuccess(res, { date, topGainers });
 }));
 
-/**
- * 获取跌幅榜
- * GET /api/market/top-losers
- */
 router.get('/market/top-losers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const limit = parseInt(req.query.limit as string) || 10;
@@ -155,15 +115,47 @@ router.get('/market/top-losers', validateQuery(schemas.marketQuery), asyncHandle
   sendSuccess(res, { date, topLosers });
 }));
 
-/**
- * 获取成交额榜
- * GET /api/market/top-turnover
- */
 router.get('/market/top-turnover', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const limit = parseInt(req.query.limit as string) || 10;
   const topTurnover = await db.getTopTurnover(date, limit);
   sendSuccess(res, { date, topTurnover });
 }));
+
+// ==================== 三大指数实时行情 ====================
+
+async function fetchMarketIndices() {
+  // 腾讯API符号格式: sh000001, sz399001, sz399006
+  const indexConfig: { tencentSymbol: string; name: string; displaySymbol: string }[] = [
+    { tencentSymbol: 'sh000001', name: '上证指数', displaySymbol: '000001.SH' },
+    { tencentSymbol: 'sz399001', name: '深证成指', displaySymbol: '399001.SZ' },
+    { tencentSymbol: 'sz399006', name: '创业板指', displaySymbol: '399006.SZ' },
+  ];
+  const symbols = indexConfig.map(c => c.tencentSymbol).join(',');
+  const resp = await fetch(`https://qt.gtimg.cn/q=${symbols}`, {
+    headers: { 'Referer': 'https://finance.qq.com' },
+  });
+  const text = await resp.text();
+  const indices: Record<string, unknown>[] = [];
+  for (const cfg of indexConfig) {
+    const pattern = new RegExp(`v_${cfg.tencentSymbol}="([^"]+)"`);
+    const match = text.match(pattern);
+    if (!match) continue;
+    const parts = match[1].split('~');
+    if (parts.length < 40) continue;
+    indices.push({
+      name: cfg.name,
+      symbol: cfg.displaySymbol,
+      closePrice: parseFloat(parts[3]) || 0,
+      openPrice: parseFloat(parts[5]) || 0,
+      highPrice: parseFloat(parts[33]) || 0,
+      lowPrice: parseFloat(parts[34]) || 0,
+      changePercent: parseFloat(parts[32]) || 0,
+      volume: parseInt(parts[6]) || 0,
+      turnover: parseInt(parts[37]) || 0,
+    });
+  }
+  return indices;
+}
 
 export default router;

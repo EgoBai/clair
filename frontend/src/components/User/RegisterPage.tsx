@@ -1,7 +1,7 @@
 /**
  * 注册页面组件
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 
 interface RegisterForm {
   email: string;
@@ -157,4 +157,4 @@ export function RegisterPage({ onRegister, onLogin }: {
   );
 }
 
-export default React.memo(RegisterPage);
+export default memo(RegisterPage);

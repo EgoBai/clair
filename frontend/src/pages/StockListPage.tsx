@@ -1,23 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ROUTE_PATHS } from '../routes';
-
-// 模拟股票数据
-const mockStocks = [
-  { symbol: '000001', name: '平安银行', price: 12.34, change: 0.23, changePercent: 1.90, volume: '1.2亿', marketCap: '2400亿' },
-  { symbol: '000002', name: '万科A', price: 15.67, change: -0.45, changePercent: -2.79, volume: '0.8亿', marketCap: '1800亿' },
-  { symbol: '000333', name: '美的集团', price: 56.78, change: 1.23, changePercent: 2.21, volume: '0.5亿', marketCap: '4000亿' },
-  { symbol: '000858', name: '五粮液', price: 156.78, change: 3.45, changePercent: 2.25, volume: '0.3亿', marketCap: '6000亿' },
-  { symbol: '002415', name: '海康威视', price: 34.56, change: 0.78, changePercent: 2.31, volume: '0.4亿', marketCap: '3200亿' },
-  { symbol: '300750', name: '宁德时代', price: 234.56, change: 8.45, changePercent: 3.73, volume: '0.6亿', marketCap: '10000亿' },
-  { symbol: '600036', name: '招商银行', price: 32.45, change: -0.23, changePercent: -0.70, volume: '0.9亿', marketCap: '8000亿' },
-  { symbol: '600519', name: '贵州茅台', price: 1678.90, change: 45.32, changePercent: 2.77, volume: '0.1亿', marketCap: '21000亿' },
-  { symbol: '601318', name: '中国平安', price: 45.67, change: -0.89, changePercent: -1.91, volume: '1.1亿', marketCap: '8300亿' },
-  { symbol: '601988', name: '中国银行', price: 3.45, change: -0.02, changePercent: -0.58, volume: '2.3亿', marketCap: '9500亿' },
-];
+import {
+  useStocks,
+  useStockStats,
+  useStockActions,
+  useWatchlist,
+  initializeSampleData,
+} from '../store/useStockStore';
 
 const StockListPage: React.FC = () => {
-  const [stocks, setStocks] = useState(mockStocks);
+  const stocks = useStocks();
+  const stats = useStockStats();
+  const watchlist = useWatchlist();
+  const { toggleWatchlist } = useStockActions();
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'symbol' | 'name' | 'price' | 'changePercent'>('symbol');
@@ -25,12 +21,11 @@ const StockListPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // 模拟数据加载
+  // 初始化数据：如果 store 为空，加载示例数据
   useEffect(() => {
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-    }, 500);
+    if (stocks.length === 0) {
+      initializeSampleData();
+    }
   }, []);
 
   // 使用useMemo缓存过滤和排序结果
@@ -89,10 +84,9 @@ const StockListPage: React.FC = () => {
   // 刷新数据 - 使用useCallback优化
   const refreshData = useCallback(() => {
     setLoading(true);
-    setTimeout(() => {
-      // 在实际应用中这里应该调用API
-      setLoading(false);
-    }, 1000);
+    // 从 store 重新初始化数据
+    initializeSampleData();
+    setLoading(false);
   }, []);
 
   // 处理搜索输入 - 使用useCallback优化
@@ -145,7 +139,7 @@ const StockListPage: React.FC = () => {
         <div className="stat-card">
           <div className="stat-icon">📊</div>
           <div className="stat-content">
-            <div className="stat-value">{stocks.length}</div>
+            <div className="stat-value">{stats.totalStocks}</div>
             <div className="stat-label">总股票数</div>
           </div>
         </div>
@@ -153,7 +147,7 @@ const StockListPage: React.FC = () => {
           <div className="stat-icon">📈</div>
           <div className="stat-content">
             <div className="stat-value positive">
-              {stocks.filter(s => s.changePercent > 0).length}
+              {stats.risingStocks}
             </div>
             <div className="stat-label">上涨股票</div>
           </div>
@@ -162,7 +156,7 @@ const StockListPage: React.FC = () => {
           <div className="stat-icon">📉</div>
           <div className="stat-content">
             <div className="stat-value negative">
-              {stocks.filter(s => s.changePercent < 0).length}
+              {stats.fallingStocks}
             </div>
             <div className="stat-label">下跌股票</div>
           </div>
@@ -171,7 +165,7 @@ const StockListPage: React.FC = () => {
           <div className="stat-icon">💰</div>
           <div className="stat-content">
             <div className="stat-value">
-              {stocks.reduce((sum, stock) => sum + stock.price, 0).toFixed(0)}
+              {stats.totalMarketCap.toFixed(0)}
             </div>
             <div className="stat-label">总市值(亿)</div>
           </div>
@@ -238,7 +232,12 @@ const StockListPage: React.FC = () => {
                         >
                           查看详情
                         </Link>
-                        <button className="watch-btn">⭐</button>
+                        <button 
+                          className="watch-btn"
+                          onClick={() => toggleWatchlist(stock.symbol)}
+                        >
+                          {watchlist.includes(stock.symbol) ? '⭐' : '☆'}
+                        </button>
                       </td>
                     </tr>
                   ))}

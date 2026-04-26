@@ -1,12 +1,9 @@
-import React, { type ReactNode } from 'react';
+import React from 'react';
+import { Outlet } from 'react-router-dom';
 import NavigationMenu from './NavigationMenu';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
 
-interface AppLayoutProps {
-  children?: ReactNode;
-}
-
-export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
+export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   return (
     <SimpleErrorBoundary name="AppLayout">
       <div className="app-layout">
@@ -14,7 +11,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         
         <main className="app-content">
           <div className="content-wrapper">
-            {children}
+            {children || <Outlet />}
           </div>
         </main>
 

@@ -17,7 +17,7 @@ import {
   TrophyOutlined, ArrowUpOutlined, ArrowDownOutlined, BankOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { fetchTopTraderOverview, fetchTopTraderSeatRank } from '../services/api';
+import { fetchTopTraderOverviewTyped, fetchTopTraderSeatRank } from '../services/api';
 import type { TopTraderOverview, SeatRankEntry } from '../../../shared/types';
 
 const { Title, Text } = Typography;
@@ -37,11 +37,11 @@ const TopTradersPage: React.FC = () => {
     setLoading(true);
     try {
       const [overviewRes, seatRes] = await Promise.all([
-        fetchTopTraderOverview(),
+        fetchTopTraderOverviewTyped(),
         fetchTopTraderSeatRank(20),
       ]);
       setOverview(overviewRes);
-      setSeatRank(seatRes);
+      setSeatRank(seatRes || []);
     } catch (err) {
       logger.error('加载龙虎榜数据失败:', err);
     } finally {

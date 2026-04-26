@@ -63,7 +63,7 @@ describe('LazyLoadEngine', () => {
     });
 
     it('应该支持重试', async () => {
-      engine.register('chart-retry', { delay: 0, retryCount: 2 });
+      engine.register('chart-retry', { delay: 0, retryCount: 2, retryDelay: 1 });
       let attempts = 0;
 
       const result = await engine.load('chart-retry', async () => {

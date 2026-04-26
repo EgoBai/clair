@@ -468,7 +468,58 @@ class InMemoryDatabase {
       .slice(0, limit);
   }
 
-  private getMarketSummaryInternal(): MarketSummary {
+  // ==================== 写入方法（供 DataSyncService 使用） ====================
+
+  async createStock(stock: Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>): Promise<Stock> {
+    const newId = Math.max(0, ...this.stocks.map(s => s.id)) + 1;
+    const newStock: Stock = {
+      ...stock,
+      id: newId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.stocks.push(newStock);
+    return newStock;
+  }
+
+  async createDailyQuote(quote: Omit<DailyQuote, 'id' | 'createdAt' | 'updatedAt'>): Promise<DailyQuote> {
+    // 通过 stockId 找到对应的 symbol
+    const stock = this.stocks.find(s => s.id === quote.stockId);
+    const symbol = stock?.symbol || `unknown_${quote.stockId}`;
+    const existing = this.quotes.get(symbol) || [];
+    const newId = existing.length + 1;
+    const newQuote: DailyQuote = {
+      ...quote,
+      id: newId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    existing.push(newQuote);
+    this.quotes.set(symbol, existing);
+    return newQuote;
+  }
+
+  async updateStock(id: number, updates: Partial<Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Stock | null> {
+    const idx = this.stocks.findIndex(s => s.id === id);
+    if (idx === -1) return null;
+    this.stocks[idx] = { ...this.stocks[idx], ...updates, updatedAt: new Date() };
+    return this.stocks[idx];
+  }
+
+  async cleanupOldData(_retentionDays: number): Promise<{ dailyQuotes: number; minuteQuotes: number }> {
+    return { dailyQuotes: 0, minuteQuotes: 0 };
+  }
+
+  async rebuildIndexes(): Promise<void> {}
+
+  async getDatabaseStats(): Promise<Record<string, unknown>> {
+    return {
+      stockCount: this.stocks.length,
+      quoteCount: Array.from(this.quotes.values()).reduce((sum, q) => sum + q.length, 0),
+    };
+  }
+
+  getMarketSummaryInternal(): MarketSummary {
     const latest = this.stocks
       .map(s => {
         const quotes = this.quotes.get(s.symbol);

@@ -20,40 +20,10 @@ import {
 import { apiService } from '../services/api';
 import { formatCurrency, formatChangePercent, formatTurnover } from '../utils/formatters';
 import { useDebounce } from '../hooks/useHooks';
+import type { BacktestTrade, BacktestResult } from '../../../shared/types';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
-
-// ==================== 类型 ====================
-
-interface BacktestResult {
-  strategy: string;
-  params: any;
-  symbol: string;
-  startDate: string;
-  endDate: string;
-  totalDays: number;
-  initialCapital: number;
-  finalValue: number;
-  totalReturn: number;
-  annualizedReturn: number;
-  benchmarkReturn: number;
-  maxDrawdown: number;
-  maxDrawdownDate: string;
-  sharpeRatio: number;
-  sortinoRatio: number;
-  volatility: number;
-  totalTrades: number;
-  winningTrades: number;
-  losingTrades: number;
-  winRate: number;
-  avgWin: number;
-  avgLoss: number;
-  profitFactor: number;
-  trades: any[];
-  equityCurve: { date: string; value: number }[];
-  drawdownCurve: { date: string; drawdown: number }[];
-}
 
 // ==================== 策略配置 ====================
 

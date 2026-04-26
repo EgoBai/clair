@@ -42,13 +42,13 @@ const VITAL_THRESHOLDS = {
 function generateMockVitals() {
   const vitals: VitalDisplay[] = [];
   
-  Object.entries(VITAL_CONFIG).forEach(([name, config]) => {
+  Object.entries(VITAL_CONFIG).forEach(([name, config], idx) => {
     const thresholds = VITAL_THRESHOLDS[name as keyof typeof VITAL_THRESHOLDS];
     if (!thresholds) return;
     
-    // 生成随机值，偏向良好性能
+    // Deterministic factor based on vital index for consistent rendering
     const baseValue = thresholds.good * 0.7;
-    const randomFactor = 0.6 + Math.random() * 0.8;
+    const randomFactor = 0.6 + (Math.sin(idx * 0.7) * 0.4 + 0.4);
     const value = baseValue * randomFactor;
     
     let rating: 'good' | 'needs-improvement' | 'poor' = 'good';

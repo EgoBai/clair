@@ -141,7 +141,7 @@ export const BarChartSkeleton: React.FC<{ height?: number }> = ({ height = 280 }
         key={i}
         style={{
           flex: 1,
-          height: `${20 + Math.random() * 60}%`,
+          height: `${20 + Math.abs(Math.sin(i * 0.7)) * 60}%`,
           background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)',
           backgroundSize: '200% 100%',
           animation: 'shimmer 1.5s infinite',

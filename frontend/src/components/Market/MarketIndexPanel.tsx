@@ -100,13 +100,27 @@ export const MarketIndexPanel: React.FC<MarketIndexPanelProps> = ({
   useEffect(() => {
     if (refreshInterval <= 0) return;
 
+    // Simple deterministic hash from stock symbol string
+    const hashCode = (s: string): number => {
+      let hash = 0;
+      for (let i = 0; i < s.length; i++) {
+        hash = ((hash << 5) - hash) + s.charCodeAt(i);
+        hash |= 0; // Convert to 32bit integer
+      }
+      return hash;
+    };
+
     const timer = setInterval(() => {
-      // 模拟数据更新
-      setData(prev => prev.map(idx => ({
-        ...idx,
-        current: idx.current + (Math.random() - 0.5) * 2,
-        change: idx.change + (Math.random() - 0.5) * 1,
-      })));
+      // Simulated data update using deterministic pseudorandom based on stock code hash
+      const t = Date.now() * 0.001;
+      setData(prev => prev.map(idx => {
+        const seed = hashCode(idx.symbol);
+        return {
+          ...idx,
+          current: idx.current + Math.sin((seed + t) * 0.7) * 2,
+          change: idx.change + Math.sin((seed + t + 1) * 0.7) * 1,
+        };
+      }));
       setLastUpdate(new Date());
     }, refreshInterval);
 

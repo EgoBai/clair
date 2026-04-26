@@ -59,7 +59,9 @@ const CustomDashboard: React.FC<CustomDashboardProps> = ({
     if (saved && !initialWidgets) {
       try {
         setWidgets(JSON.parse(saved));
-      } catch { /* ignore */ }
+      } catch {
+        console.warn('CustomDashboard: failed to parse saved layout');
+      }
     }
   }, [initialWidgets]);
 
@@ -160,13 +162,13 @@ const CustomDashboard: React.FC<CustomDashboardProps> = ({
             {['白酒', '新能源', '半导体', '银行', '医药'].map((ind, i) => (
               <div key={ind} style={{
                 flex: 1,
-                background: `rgba(${i < 2 ? '239,68,68' : '34,197,94'},${0.2 + Math.random() * 0.3})`,
+                background: `rgba(${i < 2 ? '239,68,68' : '34,197,94'},${0.2 + Math.sin(i * 0.7) * 0.15})`,
                 borderRadius: 4, padding: '4px 8px',
                 fontSize: 12, color: '#e5e7eb',
                 display: 'flex', justifyContent: 'space-between',
               }}>
                 <span>{ind}</span>
-                <span>{(Math.random() * 6 - 3).toFixed(2)}%</span>
+                <span>{(Math.sin(i * 1.3) * 3).toFixed(2)}%</span>
               </div>
             ))}
           </div>

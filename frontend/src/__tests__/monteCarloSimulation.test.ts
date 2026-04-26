@@ -103,7 +103,7 @@ describe('蒙特卡洛模拟与风险度量引擎', () => {
     });
 
     it('CVaR大于等于VaR', () => {
-      const returns = Array.from({ length: 100 }, (_, i) => (Math.random() - 0.5) * 0.1);
+      const returns = Array.from({ length: 100 }, (_, i) => (Math.sin(i * 0.5 + 2) * 0.05));
       const varVal = historicalVaR(returns, 0.95);
       const cvarVal = cvar(returns, 0.95);
       expect(cvarVal).toBeGreaterThanOrEqual(varVal - 0.001);
@@ -252,7 +252,7 @@ describe('蒙特卡洛模拟与风险度量引擎', () => {
     });
 
     it('高lambda衰减更慢', () => {
-      const returns = Array.from({ length: 50 }, () => (Math.random() - 0.5) * 0.04);
+      const returns = Array.from({ length: 50 }, (_, i) => Math.sin(i * 0.7 + 1) * 0.02);
       const vol1 = ewmaVolatility(returns, 0.99);
       const vol2 = ewmaVolatility(returns, 0.8);
       // Both should be positive, values depend on data

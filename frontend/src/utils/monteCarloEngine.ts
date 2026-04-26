@@ -70,9 +70,11 @@ export interface StressTestResult {
 export function simulateGBMPaths(config: MonteCarloConfig): SimulationPath[] {
   const {
     numSimulations, numSteps, initialValue,
-    drift, volatility, dt = 1 / 252
+    drift, volatility, dt = 1 / 252,
+    randomSeed
   } = config;
 
+  const rng = randomSeed !== undefined ? createSeededRNG(randomSeed) : undefined;
   const paths: SimulationPath[] = [];
 
   for (let sim = 0; sim < numSimulations; sim++) {
@@ -84,7 +86,7 @@ export function simulateGBMPaths(config: MonteCarloConfig): SimulationPath[] {
     let maxDDDuration = 0;
 
     for (let step = 1; step <= numSteps; step++) {
-      const z = boxMullerRandom();
+      const z = boxMullerRandom(rng);
       const newValue = currentValue * Math.exp(
         (drift - 0.5 * volatility ** 2) * dt + volatility * Math.sqrt(dt) * z
       );
@@ -130,9 +132,12 @@ export function simulateJumpDiffusion(
   const {
     numSimulations, numSteps, initialValue,
     drift, volatility, dt = 1 / 252,
-    jumpIntensity, jumpMean, jumpStd
+    jumpIntensity, jumpMean, jumpStd,
+    randomSeed
   } = config;
 
+  const rng = randomSeed !== undefined ? createSeededRNG(randomSeed) : undefined;
+  const jumpRng = randomSeed !== undefined ? createSeededRNG(randomSeed + 1) : undefined;
   const paths: SimulationPath[] = [];
 
   for (let sim = 0; sim < numSimulations; sim++) {
@@ -144,11 +149,11 @@ export function simulateJumpDiffusion(
     let maxDDDuration = 0;
 
     for (let step = 1; step <= numSteps; step++) {
-      const z = boxMullerRandom();
+      const z = boxMullerRandom(rng);
 
       // 泊松跳跃
-      const jump = Math.random() < jumpIntensity * dt
-        ? Math.exp(jumpMean + jumpStd * boxMullerRandom()) - 1
+      const jump = (jumpRng || Math.random)() < jumpIntensity * dt
+        ? Math.exp(jumpMean + jumpStd * boxMullerRandom(rng)) - 1
         : 0;
 
       const newValue = currentValue * Math.exp(
@@ -248,7 +253,8 @@ export function stressTest(
 export function evaluateStrategyRobustness(
   baseReturns: number[],
   numSimulations: number = 1000,
-  blockSize: number = 20
+  blockSize: number = 20,
+  randomSeed?: number
 ): {
   meanReturn: number;
   probPositive: number;
@@ -259,21 +265,23 @@ export function evaluateStrategyRobustness(
   const n = baseReturns.length;
   const simulatedReturns: number[] = [];
   const sharpes: number[] = [];
+  const rng = randomSeed !== undefined ? createSeededRNG(randomSeed) : undefined;
+  const r = rng || Math.random;
 
   for (let sim = 0; sim < numSimulations; sim++) {
     // Block bootstrap
     const simReturns: number[] = [];
     while (simReturns.length < n) {
-      const start = Math.floor(Math.random() * Math.max(1, n - blockSize));
+      const start = Math.floor(r() * Math.max(1, n - blockSize));
       const block = baseReturns.slice(start, start + blockSize);
       simReturns.push(...block);
     }
 
-    const totalReturn = simReturns.slice(0, n).reduce((acc, r) => acc * (1 + r), 1) - 1;
+    const totalReturn = simReturns.slice(0, n).reduce((acc, ret) => acc * (1 + ret), 1) - 1;
     simulatedReturns.push(totalReturn);
 
     const mean = simReturns.slice(0, n).reduce((a, b) => a + b, 0) / n;
-    const std = Math.sqrt(simReturns.slice(0, n).reduce((a, r) => a + (r - mean) ** 2, 0) / n);
+    const std = Math.sqrt(simReturns.slice(0, n).reduce((a, ret) => a + (ret - mean) ** 2, 0) / n);
     sharpes.push(std > 0 ? mean / std : 0);
   }
 
@@ -286,28 +294,49 @@ export function evaluateStrategyRobustness(
 
   return {
     meanReturn: simulatedReturns.reduce((a, b) => a + b, 0) / simulatedReturns.length,
-    probPositive: simulatedReturns.filter(r => r > 0).length / simulatedReturns.length,
+    probPositive: simulatedReturns.filter(ret => ret > 0).length / simulatedReturns.length,
     worstCase5pct: sorted[p5Index],
     bestCase95pct: sorted[p95Index],
     sharpeDistribution: { mean: sharpeMean, std: sharpeStd }
   };
 }
 
+// ===== Seeded RNG =====
+
+export function createSeededRNG(seed: number): () => number {
+  let s = seed >>> 0;
+  if (s === 0) s = 12345;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+}
+
 // ===== Helper Functions =====
 
-function boxMullerRandom(): number {
-  const u1 = Math.random();
-  const u2 = Math.random();
-  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+function boxMullerRandom(rng?: () => number): number {
+  const r = rng || Math.random;
+  const u1 = r();
+  const u2 = r();
+  return Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10))) * Math.cos(2 * Math.PI * u2);
 }
 
 function calculateStats(values: number[]): SimulationStatistics {
   const n = values.length;
-  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const mean = n === 0 ? 0 : values.reduce((a, b) => a + b, 0) / n;
   const sorted = [...values].sort((a, b) => a - b);
-  const median = sorted[Math.floor(n / 2)];
+  const median = sorted[Math.floor(n / 2)] ?? 0;
+
+  if (n <= 1) {
+    return { mean, median, std: 0, skewness: 0, kurtosis: 0, min: mean, max: mean };
+  }
+
   const variance = values.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1);
   const std = Math.sqrt(variance);
+
+  if (std === 0 || !isFinite(std)) {
+    return { mean, median, std: 0, skewness: 0, kurtosis: 0, min: sorted[0] ?? mean, max: sorted[n - 1] ?? mean };
+  }
 
   const skewness = values.reduce((a, v) => a + ((v - mean) / std) ** 3, 0) / n;
   const kurtosis = values.reduce((a, v) => a + ((v - mean) / std) ** 4, 0) / n - 3;

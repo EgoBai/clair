@@ -64,6 +64,42 @@ describe('蒙特卡洛模拟引擎', () => {
       expect(avgFinal).toBeGreaterThan(100);
     });
 
+    it('should produce deterministic results with randomSeed', () => {
+      const config: MonteCarloConfig = {
+        numSimulations: 100,
+        numSteps: 50,
+        initialValue: 100,
+        drift: 0.05,
+        volatility: 0.2,
+        randomSeed: 42
+      };
+      const paths1 = simulateGBMPaths(config);
+      const paths2 = simulateGBMPaths(config);
+      expect(paths1.length).toBe(paths2.length);
+      for (let i = 0; i < paths1.length; i++) {
+        expect(paths1[i].values).toEqual(paths2[i].values);
+        expect(paths1[i].finalValue).toBe(paths2[i].finalValue);
+        expect(paths1[i].maxDrawdown).toBe(paths2[i].maxDrawdown);
+      }
+    });
+
+    it('different seeds should produce different results', () => {
+      const config1: MonteCarloConfig = {
+        numSimulations: 50,
+        numSteps: 30,
+        initialValue: 100,
+        drift: 0.05,
+        volatility: 0.2,
+        randomSeed: 42
+      };
+      const config2: MonteCarloConfig = { ...config1, randomSeed: 99 };
+      const paths1 = simulateGBMPaths(config1);
+      const paths2 = simulateGBMPaths(config2);
+      const avgFinal1 = paths1.reduce((s, p) => s + p.finalValue, 0) / paths1.length;
+      const avgFinal2 = paths2.reduce((s, p) => s + p.finalValue, 0) / paths2.length;
+      expect(avgFinal1).not.toBe(avgFinal2);
+    });
+
     it('should track max drawdown', () => {
       const config: MonteCarloConfig = {
         numSimulations: 100,
@@ -180,8 +216,9 @@ describe('蒙特卡洛模拟引擎', () => {
 
   describe('evaluateStrategyRobustness', () => {
     it('should evaluate from returns', () => {
-      const returns = Array.from({ length: 200 }, () => (Math.random() - 0.45) * 0.02);
-      const result = evaluateStrategyRobustness(returns, 100);
+      // 使用确定性波函数生成测试数据
+      const returns = Array.from({ length: 200 }, (_, i) => 0.005 + Math.sin(i * 0.3) * 0.003);
+      const result = evaluateStrategyRobustness(returns, 100, 20, 42);
 
       expect(result.probPositive).toBeGreaterThanOrEqual(0);
       expect(result.probPositive).toBeLessThanOrEqual(1);
@@ -189,8 +226,8 @@ describe('蒙特卡洛模拟引擎', () => {
     });
 
     it('should handle positive returns', () => {
-      const returns = Array.from({ length: 100 }, () => 0.005 + Math.random() * 0.01);
-      const result = evaluateStrategyRobustness(returns, 50);
+      const returns = Array.from({ length: 100 }, (_, i) => 0.005 + Math.sin(i * 0.3) * 0.002);
+      const result = evaluateStrategyRobustness(returns, 50, 20, 42);
       expect(result.probPositive).toBeGreaterThan(0.9);
     });
   });
