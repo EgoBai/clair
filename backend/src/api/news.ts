@@ -79,7 +79,62 @@ function relevanceScore(news: NewsItem): number {
   return timeScore * 0.35 + credScore * 0.25 + viewScore * 0.2 + sentimentBoost * 0.2;
 }
 
-// ==================== 模拟新闻数据 ====================
+// ==================== 东方财富实时新闻 ====================
+
+interface EastMoneyNewsItem {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
+  url: string;
+  publishTime: string;
+  category: 'market' | 'company' | 'policy' | 'global' | 'analysis';
+  tags: string[];
+}
+
+async function fetchEastMoneyNews(limit: number = 20): Promise<NewsItem[]> {
+  try {
+    const url = 'https://np-listapi.eastmoney.com/comm/web/getNewsList';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Referer': 'https://finance.eastmoney.com',
+      },
+      body: JSON.stringify({
+        clientCode: 'web',
+        pageIndex: 1,
+        pageSize: Math.min(limit, 50),
+        sortName: 'publicDate',
+        sortType: 'DESC',
+      }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data?.result?.list) return [];
+
+    let idCounter = 10000;
+    return data.result.list.map((item: Record<string, unknown>) => ({
+      id: idCounter++,
+      title: String(item.title || ''),
+      summary: String(item.digest || item.summary || '').substring(0, 200),
+      source: String(item.source || '东方财富'),
+      url: String(item.url || `https://finance.eastmoney.com/a/${item.art_code}`),
+      publishTime: String(item.publicDate || item.pub_time || new Date().toISOString()),
+      category: 'market' as const,
+      sentiment: 'neutral' as const,
+      sentimentScore: 0,
+      relatedSymbols: [],
+      tags: [],
+      viewCount: Number(item.viewCount || item.click_count || 0),
+    }));
+  } catch (e) {
+    console.warn('[News] 东方财富新闻获取失败，使用备用数据:', (e as Error).message);
+    return [];
+  }
+}
+
+// ==================== 模拟新闻数据（备用）====================
 
 const MOCK_NEWS: NewsItem[] = [
   {
@@ -236,7 +291,8 @@ router.get('/news', validateQuery(schemas.newsQuery), asyncHandler(async (req: R
   const sentiment = req.query.sentiment as string;
   const search = (req.query.q as string || '').trim();
 
-  let filtered = deduplicateNews([...MOCK_NEWS]);
+  let realNews = await fetchEastMoneyNews(pageSize);
+  let filtered = realNews.length > 0 ? realNews : deduplicateNews([...MOCK_NEWS]);
   const sortBy = (req.query.sortBy as string) || 'relevance';
 
   // 分类筛选

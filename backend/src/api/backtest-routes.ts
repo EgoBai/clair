@@ -6,8 +6,7 @@ import { Router } from 'express';
 import { db } from '../db/dbFactory';
 import { validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendValidationError } from '../utils/apiResponse';
-import { runBacktest, STRATEGY_PRESETS } from '../utils/backtestEngine';
-import type { StrategyType } from '../utils/backtestEngine';
+import { runBacktest, STRATEGY_PRESETS, type StrategyType } from '../utils/backtestEngine';
 import type { KLineData } from '@shared/types';
 
 const router = Router();
