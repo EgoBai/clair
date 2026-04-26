@@ -25,6 +25,26 @@ interface UserSettings {
   };
 }
 
+interface User {
+  id: string;
+  nickname: string;
+  email: string;
+  avatar?: string;
+  createdAt?: string;
+  settings: UserSettings;
+}
+
+interface LoginFormValues {
+  email: string;
+  password: string;
+}
+
+interface RegisterFormValues {
+  nickname: string;
+  email: string;
+  password: string;
+}
+
 interface HistoryItem {
   id: string;
   type: string;
@@ -44,7 +64,7 @@ const ACTION_TYPE_MAP: Record<string, { label: string; color: string; icon: Reac
 };
 
 export default function UserSettingsPage() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -70,7 +90,9 @@ export default function UserSettingsPage() {
         setSettings(data.data.settings);
         setIsLoggedIn(true);
       }
-    } catch { /* ignore */ }
+    } catch {
+      console.warn('UserSettings: failed to check auth');
+    }
   };
 
   const loadHistory = async () => {
@@ -82,10 +104,12 @@ export default function UserSettingsPage() {
       });
       const data = await res.json();
       if (data.success) setHistory(data.data.items);
-    } catch { /* ignore */ }
+    } catch {
+      console.warn('UserSettings: failed to load history');
+    }
   };
 
-  const handleLogin = async (values: any) => {
+  const handleLogin = async (values: LoginFormValues) => {
     setLoading(true);
     try {
       const res = await fetch('/api/user/login', {
@@ -111,7 +135,7 @@ export default function UserSettingsPage() {
     }
   };
 
-  const handleRegister = async (values: any) => {
+  const handleRegister = async (values: RegisterFormValues) => {
     setLoading(true);
     try {
       const res = await fetch('/api/user/register', {
@@ -136,7 +160,7 @@ export default function UserSettingsPage() {
     }
   };
 
-  const handleSaveSettings = async (values: any) => {
+  const handleSaveSettings = async (values: Partial<UserSettings>) => {
     const token = localStorage.getItem('user_token');
     if (!token) return;
     try {

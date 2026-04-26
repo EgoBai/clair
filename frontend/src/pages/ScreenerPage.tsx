@@ -107,6 +107,41 @@ const DEFAULT_OPERATORS: OperatorInfo[] = [
   { operator: 'between', name: '介于', symbol: '~' },
 ];
 
+// ==================== API 请求/响应类型 ====================
+
+interface ScreenerRequest {
+  conditions: ScreenerCondition[];
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+  page: number;
+  pageSize: number;
+}
+
+interface SaveTemplateRequest {
+  name: string;
+  description: string;
+  conditions: ScreenerCondition[];
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
+interface SaveTemplateFormValues {
+  name: string;
+  description: string;
+}
+
+interface ScreenerResponse {
+  stocks: ScreenerStock[];
+  pagination: Pagination;
+}
+
+interface Pagination {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 // ==================== API ====================
 
 async function fetchTemplates(): Promise<{ presets: ScreenerTemplate[]; customs: ScreenerTemplate[] }> {
@@ -115,13 +150,13 @@ async function fetchTemplates(): Promise<{ presets: ScreenerTemplate[]; customs:
   return res.data;
 }
 
-async function runScreener(data: any): Promise<{ stocks: ScreenerStock[]; pagination: any }> {
+async function runScreener(data: ScreenerRequest): Promise<ScreenerResponse> {
   const res = await apiService.runScreener(data);
   if (!res.success) throw new Error(res.error);
-  return res.data as any;
+  return res.data as ScreenerResponse;
 }
 
-async function saveTemplate(data: any): Promise<ScreenerTemplate> {
+async function saveTemplate(data: SaveTemplateRequest): Promise<ScreenerTemplate> {
   const res = await apiService.saveScreenerTemplate(data);
   if (!res.success) throw new Error(res.error);
   return res.data as ScreenerTemplate;
@@ -225,7 +260,7 @@ export default function ScreenerPage() {
   };
 
   // 保存模板
-  const handleSave = async (values: any) => {
+  const handleSave = async (values: SaveTemplateFormValues) => {
     try {
       const template = await saveTemplate({
         name: values.name,
