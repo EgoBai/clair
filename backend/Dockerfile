@@ -5,12 +5,9 @@ ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
-# Copy and install ALL deps (tsx needs them at runtime)
+# Copy and install ALL deps + tsx runner
 COPY package*.json ./
-RUN npm ci --no-audit --no-fund
-
-# Globally install tsx runner
-RUN npm install -g tsx
+RUN npm ci --no-audit --no-fund && npm install tsx
 
 COPY . .
 
@@ -29,4 +26,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 ENV NODE_ENV=production
 ENV PORT=4000
 
-CMD ["tsx", "src/index.ts"]
+CMD ["npx", "tsx", "src/index.ts"]
