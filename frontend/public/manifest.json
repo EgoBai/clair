@@ -1,7 +1,7 @@
 {
-  "name": "AStock - AI驱动投资研究平台",
-  "short_name": "AStock",
-  "description": "AI驱动的A股行情分析平台 — 板块景气度发掘 · 智能筛选 · 实时追踪",
+  "name": "澄观 Clair · 水静则明",
+  "short_name": "澄观",
+  "description": "AI驱动的A股投资研究平台 — 板块景气度发掘 · 智能筛选 · 实时追踪",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",

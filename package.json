@@ -1,5 +1,6 @@
 {
-  "name": "a-stock-website",
+  "name": "clair",
+  "description": "澄观 · AI驱动的A股投资研究平台 | clair.market",
   "version": "1.0.0",
   "description": "A股行情分析网站 - 实时行情、技术分析、选股策略",
   "private": true,

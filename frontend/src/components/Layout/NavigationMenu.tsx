@@ -86,8 +86,8 @@ export const NavigationMenu: React.FC = () => {
       {/* 桌面端导航 */}
       <div className={`nav-container ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
         <div className="nav-header">
-          <h2 className="nav-title">AStock</h2>
-          <div className="nav-subtitle">AI驱动 · 板块景气度发掘</div>
+          <h2 className="nav-title">澄观</h2>
+          <div className="nav-subtitle">Clair · 水静则明</div>
         </div>
 
         <ul className="nav-list">
