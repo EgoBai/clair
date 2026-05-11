@@ -28,7 +28,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run build -- --mode github
+      - run: npx tsc && npx vite build --mode github
         env:
           VITE_API_BASE: https://clair-production-1189.up.railway.app
       - uses: actions/upload-pages-artifact@v3
