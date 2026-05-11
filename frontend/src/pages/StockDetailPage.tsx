@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import KLineChart, { KLineData } from '../components/Charts/KLineChart';
 import { useStockActions, useWatchlist } from '../store/useStockStore';
+import { analyze, StrategyResult } from '../utils/strategy';
 
 const { Title, Text } = Typography;
 
@@ -332,6 +333,76 @@ const StockDetailPage: React.FC = () => {
             </div>
           )}
         </Card>
+
+        {/* ===== 策略分析 ===== */}
+        {klineData.length >= 20 && (() => {
+          const strategy = analyze(klineData);
+          const trendColors = { up: COLOR_UP, down: COLOR_DOWN, sideways: '#f59e0b' };
+          const trendLabels = { up: '上升趋势', down: '下降趋势', sideways: '横盘整理' };
+          return (
+            <Card
+              size="small"
+              title={<span style={{ fontWeight: 700, color: TEXT_PRIMARY, fontSize: 14 }}>📊 策略分析</span>}
+              style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
+            >
+              <Row gutter={[16, 12]}>
+                <Col xs={24} sm={8}>
+                  <div style={{ textAlign: 'center', padding: 8 }}>
+                    <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginBottom: 4 }}>趋势判断</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: trendColors[strategy.trend] }}>
+                      {trendLabels[strategy.trend]}
+                    </div>
+                    <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 2 }}>
+                      强度 {strategy.trendStrength.toFixed(0)}%
+                    </div>
+                  </div>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <div style={{ padding: 8 }}>
+                    <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginBottom: 6 }}>支撑位</div>
+                    {strategy.sr.support.map((s, i) => (
+                      <div key={i} style={{ fontSize: 13, fontWeight: 600, color: COLOR_DOWN, marginBottom: 2 }}>
+                        ¥{s.price.toFixed(2)}
+                        <span style={{ fontSize: 11, color: TEXT_SECONDARY, marginLeft: 6 }}>
+                          {s.strength > 1 ? `${s.strength}重支撑` : ''}
+                        </span>
+                      </div>
+                    ))}
+                    {strategy.sr.support.length === 0 && <Text type="secondary" style={{ fontSize: 12 }}>暂无</Text>}
+                  </div>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <div style={{ padding: 8 }}>
+                    <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginBottom: 6 }}>压力位</div>
+                    {strategy.sr.resistance.map((r, i) => (
+                      <div key={i} style={{ fontSize: 13, fontWeight: 600, color: COLOR_UP, marginBottom: 2 }}>
+                        ¥{r.price.toFixed(2)}
+                        <span style={{ fontSize: 11, color: TEXT_SECONDARY, marginLeft: 6 }}>
+                          {r.strength > 1 ? `${r.strength}重压力` : ''}
+                        </span>
+                      </div>
+                    ))}
+                    {strategy.sr.resistance.length === 0 && <Text type="secondary" style={{ fontSize: 12 }}>暂无</Text>}
+                  </div>
+                </Col>
+              </Row>
+              {strategy.signals.length > 0 && (
+                <>
+                  <Divider style={{ margin: '8px 0' }} />
+                  <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginBottom: 4 }}>近期信号</div>
+                  <Space wrap size={[4, 4]}>
+                    {strategy.signals.slice(-3).reverse().map((s, i) => (
+                      <Tag key={i} color={s.direction === 'buy' ? 'red' : s.direction === 'sell' ? 'green' : 'orange'}
+                        style={{ fontSize: 11, borderRadius: 4 }}>
+                        {s.date?.slice(0, 10)} {s.description}
+                      </Tag>
+                    ))}
+                  </Space>
+                </>
+              )}
+            </Card>
+          );
+        })()}
 
         {/* ===== 基本信息 ===== */}
         {stockInfo && (
