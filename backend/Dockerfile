@@ -1,27 +1,7 @@
-# ===== Backend Dockerfile - Optimized Multi-Stage Build =====
-# Stage 1: Build dependencies and compile TypeScript
-FROM node:20-alpine AS builder
-
-LABEL stage=builder
-
-WORKDIR /app
-
-# Copy package files for layer caching
-COPY package*.json ./
-
-# Install ALL dependencies (devDependencies needed for TypeScript build)
-RUN npm ci --no-audit --no-fund
-
-# Copy source code (including shared module)
-COPY . .
-
-# Build TypeScript
-RUN npm run build
-
-# Stage 2: Production runtime
+# ===== Backend Dockerfile - tsx 直接运行 TypeScript =====
 FROM node:20-alpine
 
-# Install runtime system dependencies
+# Install runtime dependencies
 RUN apk add --no-cache tzdata curl
 
 # Set timezone
@@ -29,13 +9,12 @@ ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
-# Copy production dependencies
+# Copy all source
 COPY package*.json ./
-COPY --from=builder /app/dist ./dist
+RUN npm ci --omit=dev --no-audit --no-fund
+RUN npm install tsx --no-save
 
-# Install ONLY production dependencies (smaller final image)
-RUN npm ci --omit=dev --no-audit --no-fund && \
-    npm cache clean --force 2>/dev/null || true
+COPY . .
 
 # Create non-root user
 RUN addgroup -g 1001 -S appgroup && \
@@ -45,16 +24,12 @@ RUN addgroup -g 1001 -S appgroup && \
 
 USER appuser
 
-# Expose port
 EXPOSE 4000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1
 
-# Environment
 ENV NODE_ENV=production
 ENV PORT=4000
 
-# Start
-CMD ["node", "dist/app.js"]
+CMD ["npx", "tsx", "src/index.ts"]

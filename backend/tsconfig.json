@@ -3,7 +3,6 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "strict": true,
     "outDir": "dist",
@@ -11,6 +10,7 @@
     "declaration": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["../shared/*"]
