@@ -1,9 +1,11 @@
 /**
- * API 基础配置 — 自动适配开发/生产环境
- * 开发: 相对路径 → Vite proxy → localhost:3001
- * 生产: 绝对路径 → VITE_API_BASE → 后端服务器
+ * API 基础配置
+ * 开发: /api → Vite proxy → localhost:3001  
+ * 生产: 直接指向 Railway 后端
  */
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+const API_BASE = import.meta.env.DEV 
+  ? '' 
+  : 'https://clair-production-1189.up.railway.app';
 
 export function apiUrl(path: string): string {
   if (path.startsWith('http')) return path;
