@@ -49,6 +49,16 @@ const DEV_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+// 生产环境额外白名单（可通过 CORS_ORIGINS 环境变量追加）
+const PROD_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .filter(Boolean);
+const STATIC_PROD_ORIGINS = [
+  'https://egobai.github.io',
+  'https://clair-pi.vercel.app',
+  'https://clair.market',
+];
+
 // ==================== 违规日志（内存环形缓冲） ====================
 const MAX_VIOLATIONS = 1000;
 const violationLog: CorsViolation[] = [];
@@ -123,8 +133,8 @@ function getEffectiveOrigins(): string[] {
     return DEV_ORIGINS;
   }
 
-  // 生产环境无配置 → 禁止所有跨域
-  return [];
+  // 生产环境：静态白名单 + 环境变量
+  return [...STATIC_PROD_ORIGINS, ...PROD_ORIGINS];
 }
 
 // ==================== 主中间件 ====================
