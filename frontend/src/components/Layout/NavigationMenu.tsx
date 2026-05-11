@@ -15,53 +15,25 @@ interface NavItem {
 // 导航配置
 const NAV_ITEMS: NavItem[] = [
   {
-    id: 'home',
-    label: '首页',
-    path: ROUTE_PATHS.HOME,
-    icon: '🏠',
-    description: '市场概览和快速访问'
-  },
-  {
-    id: 'stocks',
-    label: '股票列表',
-    path: ROUTE_PATHS.STOCKS,
-    icon: '📈',
-    description: '查看所有股票行情'
-  },
-  {
-    id: 'market',
-    label: '市场分析',
-    path: ROUTE_PATHS.MARKET,
-    icon: '📊',
-    description: '市场趋势和数据分析'
+    id: 'discover',
+    label: '发掘',
+    path: '/discover',
+    icon: '🔭',
+    description: 'AI 驱动：大盘→板块→个股三级穿透'
   },
   {
     id: 'watchlist',
-    label: '自选股',
+    label: '自选',
     path: ROUTE_PATHS.WATCHLIST,
     icon: '⭐',
-    description: '关注感兴趣的股票'
+    description: '追踪关注的标的'
   },
   {
-    id: 'screener',
-    label: '股票筛选',
-    path: ROUTE_PATHS.SCREENER,
-    icon: '🔍',
-    description: '按条件筛选股票'
-  },
-  {
-    id: 'dashboard',
-    label: '仪表板',
-    path: ROUTE_PATHS.DASHBOARD,
-    icon: '📋',
-    description: '性能监控和统计'
-  },
-  {
-    id: 'alerts',
-    label: '提醒',
-    path: ROUTE_PATHS.ALERTS,
-    icon: '🔔',
-    description: '价格提醒和通知'
+    id: 'market',
+    label: '市场',
+    path: ROUTE_PATHS.MARKET,
+    icon: '📊',
+    description: '市场趋势和数据分析'
   },
   {
     id: 'settings',
@@ -114,8 +86,8 @@ export const NavigationMenu: React.FC = () => {
       {/* 桌面端导航 */}
       <div className={`nav-container ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
         <div className="nav-header">
-          <h2 className="nav-title">📊 A股行情</h2>
-          <div className="nav-subtitle">专业股票分析平台</div>
+          <h2 className="nav-title">AStock</h2>
+          <div className="nav-subtitle">AI驱动 · 板块景气度发掘</div>
         </div>
 
         <ul className="nav-list">

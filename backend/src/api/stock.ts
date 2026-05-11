@@ -125,11 +125,17 @@ router.get('/market/top-turnover', validateQuery(schemas.marketQuery), asyncHand
 // ==================== 三大指数实时行情 ====================
 
 async function fetchMarketIndices() {
-  // 腾讯API符号格式: sh000001, sz399001, sz399006
-  const indexConfig: { tencentSymbol: string; name: string; displaySymbol: string }[] = [
-    { tencentSymbol: 'sh000001', name: '上证指数', displaySymbol: '000001.SH' },
-    { tencentSymbol: 'sz399001', name: '深证成指', displaySymbol: '399001.SZ' },
-    { tencentSymbol: 'sz399006', name: '创业板指', displaySymbol: '399006.SZ' },
+  // 腾讯API符号格式
+  const indexConfig: { tencentSymbol: string; name: string; displaySymbol: string; category: string }[] = [
+    { tencentSymbol: 'sh000001', name: '上证指数', displaySymbol: '000001.SH', category: '综合' },
+    { tencentSymbol: 'sz399001', name: '深证成指', displaySymbol: '399001.SZ', category: '综合' },
+    { tencentSymbol: 'sz399006', name: '创业板指', displaySymbol: '399006.SZ', category: '综合' },
+    { tencentSymbol: 'sh000016', name: '上证50', displaySymbol: '000016.SH', category: '大盘' },
+    { tencentSymbol: 'sh000300', name: '沪深300', displaySymbol: '000300.SH', category: '大盘' },
+    { tencentSymbol: 'sh000905', name: '中证500', displaySymbol: '000905.SH', category: '中盘' },
+    { tencentSymbol: 'sh000852', name: '中证1000', displaySymbol: '000852.SH', category: '小盘' },
+    { tencentSymbol: 'sh000688', name: '科创50', displaySymbol: '000688.SH', category: '科创' },
+    { tencentSymbol: 'sz399005', name: '中小100', displaySymbol: '399005.SZ', category: '中盘' },
   ];
   const symbols = indexConfig.map(c => c.tencentSymbol).join(',');
   const resp = await fetch(`https://qt.gtimg.cn/q=${symbols}`, {
@@ -153,6 +159,7 @@ async function fetchMarketIndices() {
       changePercent: parseFloat(parts[32]) || 0,
       volume: parseInt(parts[6]) || 0,
       turnover: parseInt(parts[37]) || 0,
+      category: cfg.category,
     });
   }
   return indices;

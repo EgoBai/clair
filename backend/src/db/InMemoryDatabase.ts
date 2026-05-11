@@ -58,52 +58,68 @@ class MockQueryBuilder {
   private _groupBy?: string;
   private _countMode = false;
 
+  /** 蛇形 → 驼峰映射 (InMemoryDatabase 用驼峰属性) */
+  private static SNAKE_TO_CAMEL: Record<string, string> = {
+    is_active: 'isActive', close_price: 'closePrice', change_percent: 'changePercent',
+    open_price: 'openPrice', high_price: 'highPrice', low_price: 'lowPrice',
+    turnover_rate: 'turnoverRate', pe_ratio: 'peRatio', pb_ratio: 'pbRatio',
+    market_cap: 'marketCap', circulating_market_cap: 'circulatingMarketCap',
+    trade_date: 'tradeDate', sort_index: 'sortIndex', stock_id: 'stockId',
+  };
+  private static resolveField(name: string): string {
+    return MockQueryBuilder.SNAKE_TO_CAMEL[name] || name;
+  }
+
   constructor(data: QueryRow[], private _tableName: string) {
     this._data = data;
   }
 
   where(fieldOrObj: string | Record<string, unknown>, opOrVal?: unknown, val?: unknown): this {
+    const resolve = MockQueryBuilder.resolveField;
     if (typeof fieldOrObj === 'object' && fieldOrObj !== null) {
       Object.entries(fieldOrObj).forEach(([k, v]) => {
-        this._filters.push((row) => row[k] === v);
+        this._filters.push((row) => row[resolve(k)] === v);
       });
     } else if (opOrVal === 'like') {
       const pattern = String(val || '').replace(/%/g, '');
-      this._filters.push((row) => String(row[fieldOrObj] || '').includes(pattern));
-    } else if (opOrVal === '>=') {
-      this._filters.push((row) => (row[fieldOrObj] as number) >= (val as number));
-    } else if (opOrVal === '<=') {
-      this._filters.push((row) => (row[fieldOrObj] as number) <= (val as number));
-    } else if (opOrVal === '<') {
-      this._filters.push((row) => (row[fieldOrObj] as number) < (val as number));
-    } else if (opOrVal === '>') {
-      this._filters.push((row) => (row[fieldOrObj] as number) > (val as number));
+      this._filters.push((row) => String(row[resolve(fieldOrObj)] || '').includes(pattern));
+    } else if (typeof opOrVal === 'string' && ['>=', '<=', '<', '>'].includes(opOrVal)) {
+      const f = resolve(fieldOrObj);
+      if (opOrVal === '>=') this._filters.push(r => (r[f] as number) >= (val as number));
+      else if (opOrVal === '<=') this._filters.push(r => (r[f] as number) <= (val as number));
+      else if (opOrVal === '<') this._filters.push(r => (r[f] as number) < (val as number));
+      else this._filters.push(r => (r[f] as number) > (val as number));
     } else {
-      this._filters.push((row) => row[fieldOrObj] === opOrVal);
+      this._filters.push((row) => row[resolve(fieldOrObj)] === opOrVal);
     }
     return this;
   }
 
   whereIn(field: string, values: unknown[]): this {
-    this._filters.push((row) => values.includes(row[field]));
+    const f = MockQueryBuilder.resolveField(field);
+    this._filters.push((row) => values.includes(row[f]));
     return this;
   }
 
   whereNot(field: string, value: unknown): this {
-    this._filters.push((row) => row[field] !== value);
+    const f = MockQueryBuilder.resolveField(field);
+    this._filters.push((row) => row[f] !== value);
     return this;
   }
 
   orderBy(field: string, dir: 'asc' | 'desc' = 'asc'): this {
-    this._sortField = field;
+    this._sortField = MockQueryBuilder.resolveField(field);
     this._sortDir = dir;
+    return this;
+  }
+
+  select(...fields: string[]): this {
+    this._selectFields = fields.map(f => MockQueryBuilder.resolveField(f));
     return this;
   }
 
   limit(n: number): this { this._limitN = n; return this; }
   offset(n: number): this { this._offsetN = n; return this; }
-
-  select(...fields: string[]): this { this._selectFields = fields; return this; }
 
   join(_table: string, _on1: string, _on2: string): this { this._joins.push(_table); return this; }
   groupBy(field: string): this { this._groupBy = field; return this; }
@@ -258,6 +274,17 @@ class InMemoryDatabase {
 
   constructor() {
     this.initializeData();
+  }
+
+  /** 重新分类所有股票行业 */
+  reclassifyAll(): number {
+    let changed = 0;
+    for (const stock of this.stocks) {
+      const newIndustry = this.guessIndustry(stock.symbol, stock.name);
+      if (stock.industry !== newIndustry) { stock.industry = newIndustry; changed++; }
+    }
+    if (changed > 0) console.log(`📊 行业重分类: ${changed} 只`);
+    return changed;
   }
 
   private initializeData(): void {
@@ -434,6 +461,47 @@ class InMemoryDatabase {
       .filter((s): s is NonNullable<typeof s> => s !== null);
   }
 
+  /** 智能搜索 —— 代码/名称模糊匹配，按相关性排序 */
+  searchStocks(query: string, limit: number = 20): Array<{ id: number; symbol: string; name: string; market: string; industry: string }> {
+    if (!query?.trim()) return [];
+    const q = query.trim().toLowerCase();
+    const results: Array<{ item: Stock; score: number }> = [];
+    for (const s of this.stocks) {
+      if (!s.isActive) continue;
+      let score = 0;
+      const symLower = s.symbol.toLowerCase();
+      const nameLower = s.name.toLowerCase();
+      // 精确匹配符号
+      if (symLower === q) score = 100;
+      else if (symLower.includes(q)) score = 80 + (symLower.indexOf(q) === 0 ? 10 : 0);
+      // 名称匹配
+      else if (nameLower === q) score = 70;
+      else if (nameLower.includes(q)) score = 60 + (nameLower.indexOf(q) === 0 ? 10 : 0);
+      else continue;
+      // 去后缀匹配加权 (如搜 '600519' 优先匹配 600519.SH 而非 1600519)
+      if (q.match(/^\d{6}$/) && symLower.startsWith(q)) score += 15;
+      results.push({ item: s, score });
+    }
+    results.sort((a, b) => b.score - a.score);
+    // 去重：同名股票优先保留带后缀(.SH/.SZ)的
+    const seen = new Map<string, typeof results[0]>();
+    for (const r of results) {
+      const existing = seen.get(r.item.name);
+      if (!existing || r.item.symbol.length > existing.item.symbol.length) {
+        seen.set(r.item.name, r);
+      }
+    }
+    const deduped = Array.from(seen.values());
+    deduped.sort((a, b) => b.score - a.score);
+    return deduped.slice(0, limit).map(r => ({
+      id: r.item.id,
+      symbol: r.item.symbol,
+      name: r.item.name,
+      market: r.item.market,
+      industry: r.item.industry || '',
+    }));
+  }
+
   async getIndustryPerformance(_date?: unknown): Promise<IndustryPerformanceRow[]> {
     const industryMap = new Map<string, IndustryStats>();
     this.stocks.forEach(s => {
@@ -471,6 +539,11 @@ class InMemoryDatabase {
   // ==================== 写入方法（供 DataSyncService 使用） ====================
 
   async createStock(stock: Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>): Promise<Stock> {
+    // 自动分配行业（如果未提供）
+    if (!stock.industry) {
+      const ind = this.guessIndustry(stock.symbol, stock.name);
+      stock = { ...stock, industry: ind };
+    }
     const newId = Math.max(0, ...this.stocks.map(s => s.id)) + 1;
     const newStock: Stock = {
       ...stock,
@@ -480,6 +553,43 @@ class InMemoryDatabase {
     };
     this.stocks.push(newStock);
     return newStock;
+  }
+
+  private guessIndustry(symbol: string, name: string): string {
+    // 先精确匹配关键行业词（同花顺/富途标准分类）
+    const rules: [string[], string][] = [
+      [['银行', '招商银行', '浦发银行', '兴业银行', '民生银行', '中信银行', '光大银行', '华夏银行', '北京银行', '南京银行', '宁波银行'], '银行'],
+      [['保险', '中国平安', '中国人寿', '新华保险', '中国太保'], '保险'],
+      [['证券', '券商', '中信证券', '华泰证券', '国泰君安', '海通证券', '广发证券', '招商证券', '申万宏源', '东方财富'], '证券'],
+      [['白酒', '茅台', '五粮液', '泸州老窖', '洋河', '汾酒', '古井贡', '酒鬼', '水井坊'], '白酒'],
+      [['医药', '药', '医', '恒瑞', '迈瑞', '片仔癀', '云南白药', '同仁堂', '长春高新', '智飞生物', '华兰', '沃森'], '医药'],
+      [['新能源', '电池', '宁德', '比亚迪', '隆基', '通威', '阳光电源', '天齐', '赣锋', '华友', '亿纬'], '新能源'],
+      [['半导体', '芯片', '集成电路', '中芯', '韦尔', '兆易', '卓胜微', '北方华创'], '半导体'],
+      [['电子', '立讯', '歌尔', '蓝思', '京东方', 'TCL', '海康', '大华'], '电子'],
+      [['家电', '美的', '格力', '海尔', '三花', '老板'], '家电'],
+      [['房地产', '地产', '万科', '保利', '招商蛇口', '新城', '绿地', '华夏幸福'], '房地产'],
+      [['汽车', '长城', '上汽', '广汽', '长安', '吉利', '小康'], '汽车'],
+      [['食品饮料', '食品', '饮料', '乳', '伊利', '海天', '双汇', '牧原', '温氏', '新希望'], '食品饮料'],
+      [['电力', '长江电力', '华能', '国电', '三峡', '华电'], '电力'],
+      [['煤炭', '煤', '神华', '兖矿', '中煤', '陕西煤业'], '煤炭'],
+      [['钢铁', '钢铁', '宝钢', '鞍钢', '河钢', '华菱'], '钢铁'],
+      [['有色金属', '有色', '黄金', '紫金', '洛阳钼业', '山东黄金', '中金黄金', '铜陵', '云铝'], '有色金属'],
+      [['化工', '化工', '化学', '万华', '恒力', '荣盛', '鲁西'], '化工'],
+      [['建筑', '建筑', '中国建筑', '中铁', '铁建', '交建', '电建', '中冶'], '建筑'],
+      [['交通运输', '航空', '机场', '港口', '铁路', '高速', '物流', '顺丰', '圆通', '韵达', '中通'], '交通运输'],
+      [['信息技术', '软件', '网络', '信息', '计算机', '科大讯飞', '恒生电子', '用友', '广联达', '金山'], '信息技术'],
+      [['传媒', '传媒', '广告', '游戏', '影视', '分众', '三七', '完美'], '传媒'],
+      [['农林牧渔', '农业', '养殖', '种业', '饲料', '北大荒'], '农林牧渔'],
+    ];
+    for (const [keywords, industry] of rules) {
+      if (keywords.some(kw => name.includes(kw))) return industry;
+    }
+    // 按板块前缀兜底
+    const prefix = symbol.replace(/\.(SH|SZ)$/, '');
+    if (prefix.startsWith('688')) return '科创板';
+    if (prefix.startsWith('300') || prefix.startsWith('301')) return '创业板';
+    if (prefix.startsWith('600') || prefix.startsWith('601') || prefix.startsWith('603') || prefix.startsWith('605')) return '沪市主板';
+    return '深市主板';
   }
 
   async createDailyQuote(quote: Omit<DailyQuote, 'id' | 'createdAt' | 'updatedAt'>): Promise<DailyQuote> {
@@ -542,6 +652,96 @@ class InMemoryDatabase {
       fallingStocks: falling,
       unchangedStocks: this.stocks.length - rising - falling,
     };
+  }
+
+  /** 板块内个股列表 */
+  async getSectorStocks(industry: string): Promise<StockWithLatestQuote[]> {
+    return this.stocks
+      .filter(s => s.industry === industry || (industry === '其他' && !s.industry))
+      .map(s => {
+        const quotes = this.quotes.get(s.symbol);
+        const latest = quotes ? quotes[quotes.length - 1] : undefined;
+        return { ...s, latestQuote: latest } as StockWithLatestQuote;
+      })
+      .filter(s => s.latestQuote !== undefined)
+      .sort((a, b) => (b.latestQuote?.changePercent || 0) - (a.latestQuote?.changePercent || 0));
+  }
+
+  /** 板块增强数据：含涨停家数、总成交额 */
+  async getSectorPerformanceEnhanced(): Promise<Array<{
+    industry: string;
+    stock_count: number;
+    avg_change_percent: number;
+    total_turnover: number;
+    total_market_cap: number;
+    limit_up_count: number;
+  }>> {
+    const map = new Map<string, {
+      count: number; totalChange: number; totalTurnover: number;
+      totalCap: number; limitUp: number;
+    }>();
+    this.stocks.forEach(s => {
+      const quotes = this.quotes.get(s.symbol);
+      const latest = quotes ? quotes[quotes.length - 1] : null;
+      if (!latest) return;
+      const ind = s.industry || '其他';
+      if (!map.has(ind)) map.set(ind, { count: 0, totalChange: 0, totalTurnover: 0, totalCap: 0, limitUp: 0 });
+      const e = map.get(ind)!;
+      e.count++;
+      e.totalChange += latest.changePercent;
+      e.totalTurnover += latest.turnover || 0;
+      e.totalCap += latest.marketCap || 0;
+      if (latest.changePercent >= 9.9) e.limitUp++;
+    });
+    return Array.from(map.entries())
+      .map(([industry, d]) => ({
+        industry,
+        stock_count: d.count,
+        avg_change_percent: Math.round((d.totalChange / d.count) * 100) / 100,
+        total_turnover: d.totalTurnover,
+        total_market_cap: d.totalCap,
+        limit_up_count: d.limitUp,
+      }))
+      .sort((a, b) => b.avg_change_percent - a.avg_change_percent);
+  }
+
+  /** 板块景气度综合评分 (0-100) */
+  async getSectorMomentumScore(): Promise<Array<{
+    industry: string;
+    score: number;
+    changeScore: number;
+    volumeScore: number;
+    breadthScore: number;
+    stock_count: number;
+    avg_change_percent: number;
+    total_turnover: number;
+    limit_up_count: number;
+  }>> {
+    const enhanced = await this.getSectorPerformanceEnhanced();
+    if (enhanced.length === 0) return [];
+
+    const maxChange = Math.max(...enhanced.map(s => Math.abs(s.avg_change_percent)), 1);
+    const maxTurnover = Math.max(...enhanced.map(s => s.total_turnover), 1);
+    const maxLimitUp = Math.max(...enhanced.map(s => s.limit_up_count), 1);
+
+    return enhanced.map(s => {
+      const changeScore = Math.min(100, (Math.abs(s.avg_change_percent) / maxChange) * 50);
+      const volumeScore = Math.min(100, (s.total_turnover / maxTurnover) * 25);
+      const breadthScore = Math.min(100, (s.limit_up_count / maxLimitUp) * 25);
+      const score = Math.round(changeScore + volumeScore + breadthScore);
+
+      return {
+        industry: s.industry,
+        score,
+        changeScore: Math.round(changeScore),
+        volumeScore: Math.round(volumeScore),
+        breadthScore: Math.round(breadthScore),
+        stock_count: s.stock_count,
+        avg_change_percent: s.avg_change_percent,
+        total_turnover: s.total_turnover,
+        limit_up_count: s.limit_up_count,
+      };
+    }).sort((a, b) => b.score - a.score);
   }
 }
 

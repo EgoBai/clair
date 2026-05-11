@@ -47,6 +47,7 @@ export const ErrorCodes = {
 // ==================== 成功响应 ====================
 
 export function sendSuccess<T>(res: Response, data: T, statusCode = 200): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(statusCode).json({
     success: true,
     data,
@@ -94,6 +95,7 @@ export function sendError(
   if (details && process.env.NODE_ENV === 'development') {
     body.details = details;
   }
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(statusCode).json(body);
 }
 

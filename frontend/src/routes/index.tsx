@@ -20,6 +20,9 @@ const MarketHeatDashboard = lazy(() => import('../pages/MarketHeatDashboard'));
 // 行业板块
 const SectorDetailPage = lazy(() => import('../pages/SectorDetailPage'));
 
+// 发掘
+const DiscoverPage = lazy(() => import('../pages/DiscoverPage'));
+
 // 自选股 & 筛选
 const WatchlistPage = lazy(() => import('../pages/WatchlistPage'));
 const ScreenerPage = lazy(() => import('../pages/ScreenerPage'));
@@ -88,6 +91,9 @@ export const AppRoutes = () => {
 
         {/* 行业板块 */}
         <Route path="/sectors/:symbol" element={<SectorDetailPage />} />
+
+        {/* 发掘 */}
+        <Route path="/discover" element={<DiscoverPage />} />
 
         {/* 自选股 & 筛选 */}
         <Route path="/watchlist" element={<WatchlistPage />} />

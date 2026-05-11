@@ -9,7 +9,8 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { corsMiddleware, corsStatusEndpoint } from './middleware/corsConfig.ts';
 import { createServer } from 'http';
-import { initDatabase, db, getDb } from './db/dbFactory.ts';
+import { initDatabase, db, getDb, isMemoryMode } from './db/dbFactory.ts';
+import { InMemoryDatabase } from './db/InMemoryDatabase.ts';
 import { createLogger } from './utils/logger.ts';
 // db is a lazy proxy, initialized via initDatabase()
 const log = createLogger('App');
@@ -54,6 +55,7 @@ import { requestLogger } from './middleware/requestLogger.ts';
 import { asyncHandler, sendSuccess, sendConflict } from './utils/apiResponse.ts';
 import { AppError, ErrorCodes, globalErrorHandler, notFoundHandler } from './middleware/errorHandler.ts';
 import { handleTokenRefresh, authMiddleware } from './middleware/auth.ts';
+import { apiCache } from './services/apiCache.ts';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -83,6 +85,10 @@ app.use(requestLogger({
 }));
 
 // ==================== API 路由 ====================
+// 首页核心路由 — 添加响应缓存 (市场数据 30s, 新闻 60s)
+app.use('/api/market', apiCache.middleware({ ttl: 30 }));
+app.use('/api/news', apiCache.middleware({ ttl: 60, key: 'cache:news' }));
+
 app.use('/api', stockRouter);
 app.use('/api', indicatorRouter);
 app.use('/api', sectorRouter);
@@ -141,19 +147,35 @@ app.get('/api/search', asyncHandler(async (req, res) => {
     return sendSuccess(res, { results: [], query: q });
   }
 
-  const stocks = await queryCache.query(
-    `search:${q}:${limit}`,
-    async () => {
-      const allStocks = await getDb().connection('stocks')
-        .where('is_active', true)
-        .select('id', 'symbol', 'name', 'market', 'industry')
-        .limit(500);
-      return allStocks;
-    },
-    60000
-  );
+  let results: Array<{ id: number; symbol: string; name: string; market: string; industry?: string }> = [];
 
-  const results = searchAndSort(stocks, q).slice(0, limit);
+  if (isMemoryMode()) {
+    // 内存模式：直接用 InMemoryDatabase 的智能搜索
+    const inMemDb = getDb() as unknown as InMemoryDatabase;
+    results = inMemDb.searchStocks(q, limit);
+  } else {
+    // PostgreSQL 模式：走原有 Knex 查询 + searchAndSort
+    try {
+      const stocks = await queryCache.query(
+        `search:${q}:${limit}`,
+        async () => {
+          const allStocks = await getDb().connection('stocks')
+            .where('is_active', true)
+            .select('id', 'symbol', 'name', 'market', 'industry')
+            .limit(500);
+          return allStocks;
+        },
+        60000
+      );
+      results = searchAndSort(stocks, q).slice(0, limit);
+    } catch (e) {
+      // PG 查询失败时降级到内存搜索
+      log.warn('PG 搜索失败，降级 InMemoryDB:', (e as Error).message);
+      const inMemDb = getDb() as unknown as InMemoryDatabase;
+      results = inMemDb.searchStocks(q, limit);
+    }
+  }
+
   const userId = parseInt(req.query.userId as string) || 1;
   addSearchHistory(userId, { query: q });
 
@@ -228,6 +250,11 @@ app.post('/api/sync/kline/:symbol', syncRateLimit, asyncHandler(async (req, res)
   const days = parseInt(req.query.days as string) || 120;
   const result = await dataSyncService.syncKLineData(symbol, days);
   sendSuccess(res, result);
+}));
+
+// 同步状态查询
+app.get('/api/sync/state', asyncHandler(async (_req, res) => {
+  sendSuccess(res, dataSyncService.getSyncState());
 }));
 
 // ==================== 根路径 ====================

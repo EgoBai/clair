@@ -173,14 +173,16 @@ function formatDateForFile(): string {
 }
 
 function formatVolume(v: number): string {
-  if (!v) return '';
+  if (v === null || v === undefined || !Number.isFinite(v)) return '';
+  if (v === 0) return '0';
   if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿';
   if (v >= 1e4) return (v / 1e4).toFixed(0) + '万';
   return v.toString();
 }
 
 function formatTurnover(v: number): string {
-  if (!v) return '';
+  if (v === null || v === undefined || !Number.isFinite(v)) return '';
+  if (v === 0) return '0.00';
   if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿';
   if (v >= 1e4) return (v / 1e4).toFixed(0) + '万';
   return v.toFixed(2);

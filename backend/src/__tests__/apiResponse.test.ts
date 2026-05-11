@@ -19,6 +19,7 @@ const mockRes = () => {
   const res: any = {
     status: vi.fn().mockReturnThis(),
     json: vi.fn().mockReturnThis(),
+    setHeader: vi.fn().mockReturnThis(),
   };
   return res;
 };

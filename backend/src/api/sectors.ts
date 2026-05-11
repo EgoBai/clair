@@ -11,75 +11,70 @@ import { asyncHandler, sendSuccess, sendPaginated } from '../utils/apiResponse';
 
 const router = Router();
 
-/**
- * 获取行业板块列表
- * GET /api/sectors
- */
 router.get('/sectors', validateQuery(schemas.sectorQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const sortBy = (req.query.sortBy as string) || 'avgChangePercent';
   const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
-
   const industries = await db.getIndustryPerformance(date);
-
-  // 排序
   industries.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
     const aVal = (a[sortBy] as number) ?? 0;
     const bVal = (b[sortBy] as number) ?? 0;
     return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
   });
-
-  sendSuccess(res, {
-    date: date.toISOString().split('T')[0],
-    sectors: industries,
-    count: industries.length,
-  });
+  sendSuccess(res, { date: date.toISOString().split('T')[0], sectors: industries, count: industries.length });
 }));
 
-/**
- * 获取行业板块详情
- * GET /api/sectors/:industry/stocks
- */
 router.get('/sectors/:industry/stocks', asyncHandler(async (req, res) => {
   const { industry } = req.params;
   const page = parseInt(req.query.page as string) || 1;
   const pageSize = parseInt(req.query.pageSize as string) || 20;
   const decodedIndustry = decodeURIComponent(industry);
-
-  const stocks = await db.getStocks({
-    industry: decodedIndustry,
-    page,
-    pageSize,
-    sortBy: 'symbol',
-    sortOrder: 'asc',
-  });
-  const totalCount = await db.getStockCount({ industry: decodedIndustry });
-
+  // 使用板块聚合方法获取个股（自动按行业分组）
+  const sectorStocks = await db.getSectorStocks(decodedIndustry);
+  const totalCount = sectorStocks.length;
+  const offset = (page - 1) * pageSize;
+  const paged = sectorStocks.slice(offset, offset + pageSize);
+  // 格式化为前端期望的结构
+  const stocks = paged.map((s: any) => ({
+    symbol: s.symbol,
+    name: s.name,
+    market: s.market,
+    industry: s.industry,
+    latestQuote: s.latestQuote || {
+      closePrice: s.latestQuote?.closePrice || 0,
+      changePercent: s.latestQuote?.changePercent || 0,
+      turnoverRate: s.latestQuote?.turnoverRate || 0,
+      peRatio: s.latestQuote?.peRatio || 0,
+    },
+  }));
   sendPaginated(res, stocks, page, pageSize, totalCount);
 }));
 
-/**
- * 获取行业涨跌排名
- * GET /api/sectors/ranking
- */
 router.get('/sectors/ranking', validateQuery(schemas.sectorQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const type = (req.query.type as string) || 'gainers';
   const limit = parseInt(req.query.limit as string) || 10;
-
   const industries = await db.getIndustryPerformance(date);
-
   const sorted = [...industries].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
     type === 'gainers'
       ? ((b.avg_change_percent as number) ?? 0) - ((a.avg_change_percent as number) ?? 0)
       : ((a.avg_change_percent as number) ?? 0) - ((b.avg_change_percent as number) ?? 0)
   );
+  sendSuccess(res, { date: date.toISOString().split('T')[0], type, ranking: sorted.slice(0, limit) });
+}));
 
-  sendSuccess(res, {
-    date: date.toISOString().split('T')[0],
-    type,
-    ranking: sorted.slice(0, limit),
-  });
+// 板块增强数据（含涨停家数）
+router.get('/sectors/performance/enhanced', asyncHandler(async (_req, res) => {
+  const sectors = await db.getSectorPerformanceEnhanced();
+  sendSuccess(res, { sectors });
+}));
+
+// 板块景气度综合评分
+router.get('/sectors/momentum', asyncHandler(async (_req, res) => {
+  // 首次访问时重分类所有股票
+  try { await db.reclassifyAll(); } catch {}
+  const scores = await db.getSectorMomentumScore();
+  sendSuccess(res, { sectors: scores });
 }));
 
 export default router;

@@ -82,6 +82,7 @@ export class APICache {
 
     entry.headers['ETag'] = entry.etag;
     entry.headers['X-Cache'] = 'HIT';
+    entry.headers['Cache-Control'] = `public, max-age=${entry.ttl}`;
 
     this.cache.set(key, entry);
   }
@@ -141,6 +142,7 @@ export class APICache {
         res.setHeader('ETag', cached.etag);
         res.setHeader('X-Cache', this.isStale(key) ? 'STALE' : 'HIT');
         res.setHeader('Age', String(Math.floor((Date.now() - cached.timestamp) / 1000)));
+        res.setHeader('Cache-Control', `public, max-age=${cached.ttl}`);
         res.status(cached.statusCode).json(cached.body);
         return;
       }

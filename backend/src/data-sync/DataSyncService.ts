@@ -5,6 +5,7 @@
 
 import { Knex } from 'knex';
 import axios from 'axios';
+import * as iconv from 'iconv-lite';
 import { db } from '../db/dbFactory';
 
 export interface SyncResult {
@@ -13,6 +14,16 @@ export interface SyncResult {
   quotesSaved: number;
   errors: string[];
   duration: number;
+}
+
+export interface SyncState {
+  running: boolean;
+  lastSyncAt: string | null;
+  lastSyncCount: number;
+  lastSyncError: string | null;
+  totalSyncs: number;
+  nextSyncAt: number | null;  // timestamp ms
+  intervalSeconds: number;
 }
 
 export interface RawQuoteData {
@@ -55,6 +66,68 @@ export interface RawKLineData {
  */
 export class DataSyncService {
   private isRunning: boolean = false;
+  private syncTimer: ReturnType<typeof setInterval> | null = null;
+  private syncState: SyncState = {
+    running: false,
+    lastSyncAt: null,
+    lastSyncCount: 0,
+    lastSyncError: null,
+    totalSyncs: 0,
+    nextSyncAt: null,
+    intervalSeconds: 300,
+  };
+
+  /**
+   * 启动定时同步 (默认每5分钟)
+   */
+  startScheduledSync(intervalSeconds: number = 300): void {
+    if (this.syncTimer) return;
+    this.syncState.intervalSeconds = intervalSeconds;
+    console.log(`[DataSync] 定时同步已启动，间隔 ${intervalSeconds}s`);
+
+    // 延迟 10s 首次执行
+    setTimeout(() => this.runScheduledSync(), 10000);
+
+    this.syncTimer = setInterval(() => {
+      this.runScheduledSync();
+    }, intervalSeconds * 1000);
+  }
+
+  /**
+   * 停止定时同步
+   */
+  stopScheduledSync(): void {
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
+      console.log('[DataSync] 定时同步已停止');
+    }
+  }
+
+  /**
+   * 获取同步状态
+   */
+  getSyncState(): SyncState {
+    return { ...this.syncState, running: this.isRunning };
+  }
+
+  private async runScheduledSync(): Promise<void> {
+    try {
+      this.syncState.running = true;
+      const result = await this.syncRealtimeQuotes();
+      this.syncState.lastSyncAt = new Date().toISOString();
+      this.syncState.lastSyncCount = result.quotesSaved;
+      this.syncState.lastSyncError = result.errors.length > 0 ? result.errors[0] : null;
+      this.syncState.totalSyncs++;
+      this.syncState.nextSyncAt = Date.now() + this.syncState.intervalSeconds * 1000;
+      console.log(`[DataSync] 定时同步完成: ${result.quotesSaved} 条, ${result.errors.length} 错误`);
+    } catch (error) {
+      this.syncState.lastSyncError = (error as Error).message;
+      console.error('[DataSync] 定时同步失败:', error);
+    } finally {
+      this.syncState.running = false;
+    }
+  }
 
   /**
    * 从腾讯API获取实时行情并同步到数据库
@@ -274,10 +347,12 @@ export class DataSyncService {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://finance.qq.com',
       },
-      responseType: 'text',
+      responseType: 'arraybuffer',  // GBK 编码，不能当 UTF-8 直接读
     });
 
-    return this.parseTencentResponse(response.data);
+    // 腾讯行情 API 返回 GBK 编码，需手动转 UTF-8
+    const rawText = iconv.decode(Buffer.from(response.data), 'gbk');
+    return this.parseTencentResponse(rawText);
   }
 
   /**
@@ -422,17 +497,38 @@ export class DataSyncService {
    */
   private getDefaultSymbols(): string[] {
     return [
+      // 三大指数
       'sh000001', 'sh000300', 'sh000905', 'sz399001', 'sz399006',
-      'sh600519', 'sz000858', 'sh601318', 'sz000002', 'sz000333',
-      'sh600036', 'sz000001', 'sh601166', 'sz002714', 'sh600276',
-      'sz002594', 'sh601012', 'sz300750', 'sh688981', 'sz002475',
-      'sh600900', 'sz002352', 'sh601398', 'sz000651', 'sh600030',
-      'sz300059', 'sh601888', 'sz002230', 'sh600887', 'sz002415',
-      'sh600309', 'sz000858', 'sh601288', 'sz002304', 'sh600585',
-      'sz300015', 'sh601668', 'sz002049', 'sh600703', 'sz000568',
-      'sh601601', 'sz002241', 'sh600809', 'sz000725', 'sh601919',
-      'sz002466', 'sh600547', 'sz300122', 'sh601857', 'sz002129',
-      'sh600196', 'sz000338', 'sh600028', 'sz002153', 'sh600588',
+      // 银行
+      'sh600036', 'sh601398', 'sh601288', 'sh601166', 'sh600000', 'sh601818', 'sh600015', 'sh601328',
+      // 白酒/消费
+      'sh600519', 'sz000858', 'sz000568', 'sh600809', 'sz002304', 'sh603369', 'sz000596', 'sz000799',
+      // 新能源/汽车
+      'sz002594', 'sz300750', 'sz002475', 'sz300014', 'sz300274', 'sz002126', 'sz300037',
+      // 医药
+      'sh600276', 'sz300015', 'sz002422', 'sz300003', 'sh600196', 'sz002007', 'sz300347', 'sh600763',
+      // 科技/半导体
+      'sh688981', 'sz300059', 'sh688036', 'sz002230', 'sz300496', 'sz002049', 'sz300782', 'sh688008',
+      // 地产/建筑
+      'sz000002', 'sz000069', 'sh600048', 'sz001979', 'sh600383', 'sz000031',
+      // 保险/证券
+      'sh601318', 'sh601601', 'sh600030', 'sh601688', 'sh601211', 'sz000776', 'sh600837',
+      // 钢铁/有色
+      'sh600019', 'sz000709', 'sh601899', 'sh600362', 'sz002460', 'sh601600', 'sh600547',
+      // 石油/化工
+      'sh600028', 'sh601857', 'sh600309', 'sz000338', 'sh600585', 'sz002493', 'sz000830',
+      // 电力/公用
+      'sh600900', 'sh601985', 'sh600886', 'sz000027', 'sh600023', 'sh601669',
+      // 家电/制造
+      'sz000651', 'sz000333', 'sz002032', 'sz002508', 'sh600690', 'sz000921',
+      // 通信/传媒
+      'sh601888', 'sz002153', 'sz300122', 'sz002602', 'sz300413', 'sz002555', 'sz300027',
+      // 农业/食品
+      'sz002714', 'sz002352', 'sh600887', 'sz000895', 'sz002311', 'sz002157',
+      // 交通运输
+      'sh601111', 'sh600009', 'sh601006', 'sz000089', 'sh600115', 'sh601872',
+      // 其他蓝筹
+      'sh600703', 'sh601012', 'sh601919', 'sh600588', 'sz002241', 'sz000725', 'sz002466',
     ];
   }
 

@@ -29,6 +29,7 @@ const StockListPage = lazy(() => import('./pages/StockListPage'));
 const StockDetailPage = lazy(() => import('./pages/StockDetailPage'));
 const MarketAnalysisPage = lazy(() => import('./pages/MarketAnalysisPage'));
 const WatchlistPage = lazy(() => import('./pages/WatchlistPage'));
+const DiscoverPage = lazy(() => import('./pages/DiscoverPage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 const ScreenerPage = lazy(() => import('./pages/ScreenerPage'));
 const AdvancedScreenerPage = lazy(() => import('./pages/AdvancedScreenerPage'));
@@ -147,14 +148,15 @@ function App() {
         v7_relativeSplatPath: true,
       }}>
         <GlobalShortcuts>
-          <Onboarding />
+          {/* <Onboarding /> */}
           <Routes>
             <Route path="/" element={<AppLayout />}>
               <Route index element={<HomePage />} />
               <Route path="stocks" element={<LazyPage component={StockListPage} name="股票列表" />} />
-              <Route path="stock/:symbol" element={<LazyPage component={StockDetailPage} name="股票详情" />} />
+              <Route path="stocks/:symbol" element={<LazyPage component={StockDetailPage} name="股票详情" />} />
               <Route path="market" element={<LazyPage component={MarketAnalysisPage} name="市场分析" />} />
               <Route path="watchlist" element={<LazyPage component={WatchlistPage} name="自选股" />} />
+              <Route path="discover" element={<LazyPage component={DiscoverPage} name="发掘" />} />
               <Route path="alerts" element={<LazyPage component={AlertsPage} name="预警" />} />
               <Route path="screener" element={<LazyPage component={ScreenerPage} name="选股器" />} />
               <Route path="advanced-screener" element={<LazyPage component={AdvancedScreenerPage} name="高级选股" />} />
@@ -193,7 +195,9 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <UnifiedErrorBoundary name="App Root" maxRetries={5}>
-      <App />
+      <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif', minHeight: '100vh' }}>
+        <App />
+      </div>
     </UnifiedErrorBoundary>
   </React.StrictMode>,
 );

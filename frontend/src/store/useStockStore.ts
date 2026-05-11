@@ -28,6 +28,15 @@ export interface UserPreferences {
   itemsPerPage: number;
 }
 
+// 搜索结果类型（包含API搜索）
+export interface SearchResult {
+  symbol: string;
+  name: string;
+  fullName?: string;
+  market?: string;
+  isActive?: boolean;
+}
+
 // 应用状态类型
 interface StockStore {
   // 状态
@@ -37,31 +46,39 @@ interface StockStore {
   loading: boolean;
   error: string | null;
   userPreferences: UserPreferences;
-  
+
+  // 搜索状态
+  searchResults: SearchResult[];
+  searchLoading: boolean;
+
   // 操作
   setStocks: (stocks: Stock[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   selectStock: (stock: Stock | null) => void;
-  
+
   // 自选股操作
   addToWatchlist: (symbol: string) => void;
   removeFromWatchlist: (symbol: string) => void;
   toggleWatchlist: (symbol: string) => void;
   isInWatchlist: (symbol: string) => boolean;
   clearWatchlist: () => void;
-  
+
   // 用户偏好操作
   updatePreferences: (preferences: Partial<UserPreferences>) => void;
   toggleTheme: () => void;
   toggleNotification: (key: keyof UserPreferences['notifications']) => void;
-  
+
   // 数据操作
   updateStockPrice: (symbol: string, price: number, change: number, changePercent: number) => void;
   searchStocks: (query: string) => Stock[];
   getStockBySymbol: (symbol: string) => Stock | undefined;
   getWatchlistStocks: () => Stock[];
-  
+
+  // API搜索
+  searchStocksAPI: (query: string) => Promise<void>;
+  clearSearchResults: () => void;
+
   // 重置
   reset: () => void;
 }
@@ -90,6 +107,8 @@ export const useStockStore = create<StockStore>()(
       loading: false,
       error: null,
       userPreferences: defaultPreferences,
+      searchResults: [],
+      searchLoading: false,
       
       // 设置股票列表
       setStocks: (stocks) => set({ stocks }),
@@ -179,6 +198,53 @@ export const useStockStore = create<StockStore>()(
           stock.name.toLowerCase().includes(lowerQuery)
         );
       },
+
+      // API搜索 - 从后端搜索股票
+      searchStocksAPI: async (query) => {
+        if (!query || query.trim().length === 0) {
+          set({ searchResults: [], searchLoading: false });
+          return;
+        }
+        set({ searchLoading: true });
+        try {
+          const encodedQuery = encodeURIComponent(query.trim());
+          // 同时按名称和代码搜索
+          const [byName, bySymbol] = await Promise.all([
+            fetch(`/api/stocks?name=${encodedQuery}&pageSize=10`).then(r => r.json()).catch(() => null),
+            fetch(`/api/stocks?symbol=${encodedQuery}&pageSize=10`).then(r => r.json()).catch(() => null),
+          ]);
+
+          const results: SearchResult[] = [];
+          const seen = new Set<string>();
+
+          // 合并去重
+          const addStocks = (data: any) => {
+            if (data?.success && data?.data?.stocks) {
+              for (const s of data.data.stocks) {
+                if (!seen.has(s.symbol)) {
+                  seen.add(s.symbol);
+                  results.push({
+                    symbol: s.symbol,
+                    name: s.name,
+                    fullName: s.fullName,
+                    market: s.market,
+                    isActive: s.isActive,
+                  });
+                }
+              }
+            }
+          };
+          addStocks(byName);
+          addStocks(bySymbol);
+
+          set({ searchResults: results, searchLoading: false });
+        } catch (e) {
+          console.error('API搜索失败:', e);
+          set({ searchLoading: false });
+        }
+      },
+
+      clearSearchResults: () => set({ searchResults: [], searchLoading: false }),
       
       getStockBySymbol: (symbol) => {
         const { stocks } = get();
@@ -217,6 +283,8 @@ export const useSelectedStock = () => useStockStore((state) => state.selectedSto
 export const useLoading = () => useStockStore((state) => state.loading);
 export const useError = () => useStockStore((state) => state.error);
 export const useUserPreferences = () => useStockStore((state) => state.userPreferences);
+export const useSearchResults = () => useStockStore((state) => state.searchResults);
+export const useSearchLoading = () => useStockStore((state) => state.searchLoading);
 
 // 操作钩子
 export const useStockActions = () => {
@@ -232,9 +300,11 @@ export const useStockActions = () => {
     toggleTheme,
     toggleNotification,
     updateStockPrice,
+    searchStocksAPI,
+    clearSearchResults,
     reset,
   } = useStockStore();
-  
+
   return {
     setStocks,
     setLoading,
@@ -247,6 +317,8 @@ export const useStockActions = () => {
     toggleTheme,
     toggleNotification,
     updateStockPrice,
+    searchStocksAPI,
+    clearSearchResults,
     reset,
   };
 };
@@ -293,7 +365,7 @@ export const initializeSampleData = async () => {
 
     // 3. 合并数据
     const realStocks: Stock[] = stocksWithQuotes.map((s: any) => ({
-      symbol: s.symbol?.replace(/\.(SH|SZ)$/, '') || s.symbol,
+      symbol: s.symbol || s.symbol,
       name: s.name || s.symbol,
       price: s.latestQuote?.closePrice || s.closePrice || 0,
       change: s.latestQuote?.change || s.change || 0,

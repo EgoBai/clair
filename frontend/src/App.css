@@ -13,6 +13,10 @@
   --color-primary: #3B82F6;
   --color-primary-hover: #2563EB;
   --color-primary-light: #EFF6FF;
+
+  /* 字体栈 — 优先系统原生中文字体，确保中文不乱码 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", Menlo, Courier, monospace;
   
   /* 中性色 */
   --color-bg: #F5F5F5;
@@ -622,4 +626,29 @@ a:hover { text-decoration: underline; }
   .ant-layout-sider, .ant-layout-header, .ant-float-btn, .no-print { display: none !important; }
   .ant-layout-content { padding: 0 !important; }
   .ant-card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; }
+}
+
+
+/* ==================== Discover Page Dark Table ==================== */
+.dark-table .ant-table {
+  background: transparent !important;
+}
+.dark-table .ant-table-thead > tr > th {
+  background: rgba(255,255,255,0.06) !important;
+  color: #94a3b8 !important;
+  border-bottom: 1px solid #334155 !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  padding: 8px 12px !important;
+}
+.dark-table .ant-table-tbody > tr > td {
+  background: transparent !important;
+  border-bottom: 1px solid #1e293b !important;
+  padding: 8px 12px !important;
+}
+.dark-table .ant-table-tbody > tr:hover > td {
+  background: rgba(59,130,246,0.08) !important;
+}
+.dark-table .ant-table-tbody > tr.ant-table-row:hover > td {
+  background: rgba(59,130,246,0.12) !important;
 }

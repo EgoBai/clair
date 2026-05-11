@@ -426,12 +426,14 @@ const KLineChart = React.memo<KLineChartProps>(({
           xAxisIndex: 0,
           yAxisIndex: 0,
           itemStyle: {
-            color: '#ef4444',       // 阳线
-            color0: '#22c55e',      // 阴线
-            borderColor: '#ef4444',
-            borderColor0: '#22c55e',
+            color: '#cf2a2a',       // 阳线 (涨) — 中国红
+            color0: '#1db468',      // 阴线 (跌) — 绿色
+            borderColor: '#cf2a2a',
+            borderColor0: '#1db468',
           },
-          barWidth: '60%',
+          barWidth: '55%',
+          // 富途风格：阳线空心，阴线实心
+          emphasis: { itemStyle: { color: '#cf2a2a', color0: '#1db468' } },
           markPoint: crossSignals.length > 0 ? {
             data: crossSignals,
             animation: false,

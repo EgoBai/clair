@@ -1,255 +1,268 @@
-'use client'
+/**
+ * 首页 v2 — 富途牛牛/芝士财富 参考设计
+ * 暗色导航 + 浅色内容区 + 指数卡片 + 涨跌榜 + 快捷入口
+ */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { Spin, Alert } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Spin, Alert, Card, Tag, Table } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined, RiseOutlined, FallOutlined, StockOutlined, SearchOutlined, StarOutlined, LineChartOutlined, CompassOutlined } from '@ant-design/icons';
 import { ROUTE_PATHS } from '../routes';
-import {
-  useStocks,
-  useStockStats,
-  useUserPreferences,
-  initializeSampleData
-} from '../store/useStockStore';
-import StockWatchlistButton from '../components/Stock/StockWatchlistButton';
+import { useStocks, useStockStats, initializeSampleData } from '../store/useStockStore';
 import { SimpleErrorBoundary } from '../components/Common/UnifiedErrorBoundary';
 
-const formatBigNumber = (num: number): string => {
-  if (num >= 1e8) return (num / 1e8).toFixed(1) + '亿';
-  if (num >= 1e4) return (num / 1e4).toFixed(1) + '万';
-  return num.toFixed(0);
+const BG = '#f5f6f8';
+const COLOR_UP = '#cf2a2a';
+const COLOR_DOWN = '#1db468';
+const TEXT = '#1a1a1a';
+const TEXT_SEC = '#8c8c8c';
+const BORDER = '#e8e8e8';
+const CARD_BG = '#ffffff';
+
+const formatBigNumber = (n: number): string => {
+  if (n >= 1e8) return (n / 1e8).toFixed(1) + '亿';
+  if (n >= 1e4) return (n / 1e4).toFixed(1) + '万';
+  return String(n);
 };
 
-const formatRelativeTime = (dateStr: string): string => {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return '刚刚';
-  if (diffMin < 60) return `${diffMin}分钟前`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}小时前`;
-  return `${Math.floor(diffHr / 24)}天前`;
-};
+interface MarketIndex {
+  name: string; symbol: string; closePrice: number;
+  changePercent: number; volume: number; category?: string;
+}
+interface StockQuote {
+  symbol: string; name: string; closePrice: number;
+  changePercent: number; change: number; volume: number; turnover: number;
+}
 
 const HomePage: React.FC = () => {
+  const navigate = useNavigate();
   const stocks = useStocks();
   const stats = useStockStats();
-  const userPreferences = useUserPreferences();
 
-  const [marketData, setMarketData] = useState<any[]>([{ name: '加载中...', symbol: '', closePrice: 0, changePercent: 0, volume: 0, turnover: 0 }]);
-  const [topGainers, setTopGainers] = useState<any[]>([]);
-  const [topLosers, setTopLosers] = useState<any[]>([]);
-  const [news, setNews] = useState<any[]>([]);
+  const [indices, setIndices] = useState<MarketIndex[]>([]);
+  const [topGainers, setTopGainers] = useState<StockQuote[]>([]);
+  const [topLosers, setTopLosers] = useState<StockQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [time, setTime] = useState(new Date());
 
-  // ===== 直接fetch真实数据（绕过有bug的apiService）=====
-  useEffect(() => {
-    let cancelled = false;
-    const baseUrl = '/api';
+  useEffect(() => { loadData(); const t = setInterval(() => setTime(new Date()), 60000); return () => clearInterval(t); }, []);
+  useEffect(() => { if (stocks.length === 0) initializeSampleData(); }, [stocks.length]);
 
-    async function load() {
-      setLoading(true);
-      try {
-        const [summaryRes, gainersRes, losersRes, newsRes] = await Promise.allSettled([
-          fetch(`${baseUrl}/market/summary`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
-          fetch(`${baseUrl}/market/top-gainers?limit=5`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
-          fetch(`${baseUrl}/market/top-losers?limit=5`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
-          fetch(`${baseUrl}/news?limit=5`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
-        ]);
+  const loadData = async () => {
+    setLoading(true); setError(null);
+    try {
+      const [indicesRes, stocksRes] = await Promise.all([
+        fetch('/api/market/indices').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/stocks?limit=50').then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      setIndices(indicesRes?.data?.indices || []);
 
-        if (cancelled) return;
+      const stockList = stocksRes?.data?.stocks || [];
+      if (stockList.length > 0) {
+        const symbols = stockList.map((s: any) => s.symbol);
+        const quotesRes = await fetch('/api/stocks/batch/quotes', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols }),
+        }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-        // 指数数据
-        if (summaryRes.status === 'fulfilled') {
-          const d = summaryRes.value as any;
-          if (d.data?.indices?.length) {
-            setMarketData(d.data.indices);
-          }
-        }
-
-        // 涨幅榜
-        if (gainersRes.status === 'fulfilled') {
-          const d = gainersRes.value as any;
-          setTopGainers((d.data?.topGainers || d.data?.top_gainers || []).slice(0, 5));
-        }
-
-        // 跌幅榜
-        if (losersRes.status === 'fulfilled') {
-          const d = losersRes.value as any;
-          setTopLosers((d.data?.topLosers || d.data?.top_losers || []).slice(0, 5));
-        }
-
-        // 新闻
-        if (newsRes.status === 'fulfilled') {
-          const d = newsRes.value as any;
-          const list = Array.isArray(d.data) ? d.data : (d.data?.news || d.data?.items || []);
-          setNews(list.slice(0, 5));
-        }
-      } catch (err) {
-        if (!cancelled) setError('数据加载中，请稍候...');
-      } finally {
-        if (!cancelled) setLoading(false);
+        const stocksData = quotesRes?.data?.stocks || [];
+        const withQuotes: StockQuote[] = stocksData
+          .filter((s: any) => s.latestQuote)
+          .map((s: any) => ({
+            symbol: s.symbol?.replace(/\.(SH|SZ)$/, '') || s.symbol,
+            name: s.name || s.symbol,
+            closePrice: s.latestQuote.closePrice || 0,
+            changePercent: s.latestQuote.changePercent || 0,
+            change: s.latestQuote.change || 0,
+            volume: s.latestQuote.volume || 0,
+            turnover: s.latestQuote.turnover || 0,
+          }));
+        const sorted = [...withQuotes].sort((a, b) => b.changePercent - a.changePercent);
+        setTopGainers(sorted.slice(0, 5));
+        setTopLosers(sorted.slice(-5).reverse());
       }
-    }
+    } catch { setError('数据加载失败'); }
+    finally { setLoading(false); }
+  };
 
-    load();
-    return () => { cancelled = true; };
-  }, []);  // 仅挂载时执行一次
+  const rankCols = [
+    { title: '#', width: 40, render: (_: any, __: any, i: number) => (
+      <span style={{ fontWeight: 700, color: i < 3 ? COLOR_UP : TEXT_SEC, fontSize: 12 }}>{i + 1}</span>
+    )},
+    { title: '代码', dataIndex: 'symbol', width: 80, render: (v: string) => (
+      <Link to={`/stocks/${v}`} style={{ color: '#2563eb', fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>{v}</Link>
+    )},
+    { title: '名称', dataIndex: 'name', ellipsis: true, render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
+    { title: '最新价', dataIndex: 'closePrice', align: 'right' as const, width: 80,
+      render: (v: number) => <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{v?.toFixed(2)}</span> },
+    { title: '涨跌幅', dataIndex: 'changePercent', align: 'right' as const, width: 80,
+      render: (v: number) => (
+        <span style={{ color: v >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 700, fontFamily: 'monospace', fontSize: 12 }}>
+          {v >= 0 ? '+' : ''}{v?.toFixed(2)}%
+        </span>
+      )},
+  ];
 
-  // 更新时间
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // 确保有示例数据
-  useEffect(() => {
-    if (stocks.length === 0) initializeSampleData();
-  }, [stocks.length]);
-
-  const indexCards = marketData.map((idx: any) => {
-    const isPositive = (idx.changePercent || 0) >= 0;
-    return (
-      <div key={idx.symbol || idx.name}
-        style={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          borderRadius: 16, padding: '18px 20px', color: 'white',
-          minWidth: 200, flex: 1,
-        }}>
-        <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>{idx.name}</div>
-        <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 4 }}>
-          {idx.closePrice?.toLocaleString?.() || idx.closePrice || '—'}
-        </div>
-        <div style={{ fontSize: 13, opacity: 0.9 }}>
-          <span style={{ color: isPositive ? '#4ade80' : '#f87171' }}>
-            {isPositive ? '+' : ''}{(idx.changePercent || 0).toFixed(2)}%
-          </span>
-          <span style={{ marginLeft: 12 }}>量 {formatBigNumber(idx.volume || 0)}</span>
-        </div>
-      </div>
-    );
-  });
+  // 富途风格：指数卡片用微妙红绿色调，不是大色块
+  const mainIndices = indices.slice(0, 3);
 
   return (
     <SimpleErrorBoundary name="HomePage">
-      <div style={{ padding: '24px 32px', maxWidth: 1400, margin: '0 auto' }}>
-        {/* Header */}
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>📊 A股行情分析系统</h1>
-          <p style={{ color: '#888', margin: '4px 0 0', fontSize: 14 }}>
-            实时市场数据 · 腾讯财经 & 东方财富
-          </p>
-          <div style={{ marginTop: 8, fontSize: 13, color: '#aaa' }}>
-            {time.toLocaleString('zh-CN', { hour12: false })}
-            <button onClick={() => window.location.reload()} style={{ marginLeft: 12, padding: '4px 12px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>
-              🔄 刷新数据
-            </button>
+      <div style={{ background: BG, minHeight: '100vh' }}>
+        {/* ===== Hero Banner ===== */}
+        <div style={{
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+          padding: '32px 32px 40px', color: '#fff',
+        }}>
+          <div style={{ maxWidth: 1400, margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 28 }}>
+              <div>
+                <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>市场概览</h1>
+                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
+                  {time.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })} · 腾讯财经实时数据
+                </div>
+              </div>
+              <button onClick={loadData} disabled={loading} style={{
+                padding: '8px 18px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 8, cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <ReloadOutlined spin={loading} /> 刷新
+              </button>
+            </div>
+
+            {/* 三大指数 - 富途风格：暗底 + 微妙色条 */}
+            {loading && indices.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30 }}><Spin /></div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+                {indices.map((idx) => {
+                  const up = idx.changePercent >= 0;
+                  return (
+                    <div key={idx.symbol} style={{
+                      background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: '18px 22px',
+                      border: '1px solid rgba(255,255,255,0.08)', position: 'relative', overflow: 'hidden',
+                      cursor: 'pointer', transition: 'background .2s',
+                    }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                      onClick={() => {
+                        const sym = idx.symbol || '';
+                        if (sym) navigate(`/stocks/${sym}`);
+                      }}
+                    >
+                      {/* 左侧色条 */}
+                      <div style={{
+                        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+                        background: up ? COLOR_UP : COLOR_DOWN,
+                      }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 13, color: '#cbd5e1', fontWeight: 500 }}>{idx.name}</span>
+                            {idx.category && (
+                              <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0, padding: '0 5px', lineHeight: '16px', background: 'rgba(255,255,255,0.1)', color: '#94a3b8', border: 'none' }}>
+                                {idx.category}
+                              </Tag>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 28, fontWeight: 800, fontFamily: '"DIN Alternate", monospace', color: '#f1f5f9' }}>
+                            {idx.closePrice?.toLocaleString?.() || idx.closePrice || '—'}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{
+                            fontSize: 16, fontWeight: 700, fontFamily: 'monospace',
+                            color: up ? COLOR_UP : COLOR_DOWN,
+                            background: up ? 'rgba(207,42,42,0.15)' : 'rgba(29,180,104,0.15)',
+                            padding: '4px 10px', borderRadius: 6,
+                          }}>
+                            {up ? '+' : ''}{idx.changePercent?.toFixed(2)}%
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                            量 {formatBigNumber(idx.volume || 0)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
-        {error && <Alert message={error} type="warning" showIcon style={{ marginBottom: 16 }} closable onClose={() => setError(null)} />}
+        {/* ===== Content Area ===== */}
+        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '20px 24px' }}>
+          {error && <Alert message={error} type="warning" showIcon closable onClose={() => setError(null)} style={{ marginBottom: 16 }} />}
 
-        {/* 快速操作 */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-          {[
-            { to: ROUTE_PATHS.STOCKS, label: '📈 股票列表', desc: '浏览所有A股股票实时行情' },
-            { to: ROUTE_PATHS.WATCHLIST, label: '⭐ 自选股', desc: '关注您感兴趣的股票' },
-            { to: ROUTE_PATHS.SCREENER, label: '🔍 股票筛选器', desc: '按条件筛选优质股票' },
-            { to: ROUTE_PATHS.MARKET, label: '📊 市场分析', desc: '查看市场趋势和数据分析' },
-          ].map(item => (
-            <Link key={item.to} to={item.to}
-              style={{
-                flex: '1 1 200px', padding: 16, background: '#fff',
-                borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-                textDecoration: 'none', color: '#333',
-                transition: 'box-shadow .2s',
+          {/* Quick Nav */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
+            {[
+              { to: '/discover', icon: <CompassOutlined />, label: '发掘', color: '#3b82f6' },
+              { to: ROUTE_PATHS.WATCHLIST, icon: <StarOutlined />, label: '自选', color: '#f59e0b' },
+              { to: ROUTE_PATHS.SCREENER, icon: <SearchOutlined />, label: '筛选', color: '#8b5cf6' },
+              { to: ROUTE_PATHS.MARKET, icon: <LineChartOutlined />, label: '市场', color: '#0891b2' },
+            ].map(item => (
+              <Link key={item.to} to={item.to} style={{
+                background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`,
+                padding: '14px 16px', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10,
+                transition: 'all .15s',
               }}
-              onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)')}
-              onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)')}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>{item.label}</div>
-              <div style={{ fontSize: 12, color: '#999' }}>{item.desc}</div>
-            </Link>
-          ))}
-        </div>
+                onMouseEnter={e => { e.currentTarget.style.borderColor = item.color; e.currentTarget.style.boxShadow = `0 2px 8px ${item.color}20`; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = BORDER; e.currentTarget.style.boxShadow = 'none'; }}
+              >
+                <span style={{ fontSize: 18, color: item.color }}>{item.icon}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, color: TEXT }}>{item.label}</span>
+              </Link>
+            ))}
+          </div>
 
-        {/* 主要指数 */}
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 14 }}>📈 主要指数</h2>
-          {loading && marketData[0]?.name === '加载中...' ? (
-            <Spin tip="加载指数数据..." />
-          ) : (
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              {indexCards}
-            </div>
-          )}
-        </div>
-
-        {/* 涨幅榜 + 跌幅榜 */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 28 }}>
-          <div>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 10 }}>📈 涨幅榜</h2>
-            {topGainers.length === 0 ? <div style={{ color: '#999', fontSize: 13 }}>暂无数据</div> : (
-              <div style={{ background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                {topGainers.map((s: any, i: number) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < topGainers.length - 1 ? '1px solid #f0f0f0' : 'none', fontSize: 13 }}>
-                    <span style={{ fontWeight: 500 }}>{s.symbol || s.name}</span>
-                    <span style={{ color: '#f43f5e' }}>+{(s.changePercent || s.latestQuote?.changePercent || 0).toFixed(2)}%</span>
-                  </div>
-                ))}
+          {/* Stats Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 20 }}>
+            {[
+              { label: '股票总数', value: stats.totalStocks, color: '#2563eb', bg: '#eff6ff' },
+              { label: '上涨', value: stats.risingStocks, color: COLOR_UP, bg: '#fef2f2' },
+              { label: '下跌', value: stats.fallingStocks, color: COLOR_DOWN, bg: '#f0fdf4' },
+              { label: '总市值(亿)', value: stats.totalMarketCap.toFixed(0), color: '#7c3aed', bg: '#faf5ff' },
+            ].map((s, i) => (
+              <div key={i} style={{ background: s.bg, borderRadius: 10, border: `1px solid ${s.color}20`, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: TEXT_SEC, marginBottom: 2 }}>{s.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: s.color, fontFamily: '"DIN Alternate", monospace' }}>{s.value}</div>
+                </div>
               </div>
-            )}
+            ))}
           </div>
-          <div>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 10 }}>📉 跌幅榜</h2>
-            {topLosers.length === 0 ? <div style={{ color: '#999', fontSize: 13 }}>暂无数据</div> : (
-              <div style={{ background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                {topLosers.map((s: any, i: number) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < topLosers.length - 1 ? '1px solid #f0f0f0' : 'none', fontSize: 13 }}>
-                    <span style={{ fontWeight: 500 }}>{s.symbol || s.name}</span>
-                    <span style={{ color: '#22c55e' }}>{(s.changePercent || s.latestQuote?.changePercent || 0).toFixed(2)}%</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* 市场新闻 */}
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 10 }}>📰 市场新闻</h2>
-          {news.length === 0 ? <div style={{ color: '#999', fontSize: 13 }}>暂无新闻</div> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {news.map((n: any, i: number) => (
-                <a key={i} href={n.url || '#'} target="_blank" rel="noopener noreferrer"
-                  style={{
-                    display: 'block', padding: '10px 14px', background: '#fff',
-                    borderRadius: 8, textDecoration: 'none', color: '#333',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                    fontSize: 14,
-                  }}>
-                  <div style={{ fontWeight: 500 }}>{n.title}</div>
-                  <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
-                    {n.source} · {n.publishTime ? new Date(n.publishTime).toLocaleString('zh-CN') : ''}
-                  </div>
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
+          {/* Gainers + Losers Side by Side */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 20 }}>
+            {/* Gainers */}
+            <Card size="small" style={{ borderRadius: 10, border: `1px solid ${BORDER}` }}
+              title={<span style={{ fontWeight: 700, color: TEXT, fontSize: 14 }}><RiseOutlined style={{ color: COLOR_UP, marginRight: 6 }} />涨幅榜 TOP5</span>}
+              extra={<Tag color="red" style={{ borderRadius: 4, fontWeight: 600 }}>{stats.risingStocks} 只上涨</Tag>}>
+              {topGainers.length > 0 ? (
+                <Table dataSource={topGainers} columns={rankCols} pagination={false} size="small" rowKey="symbol" showHeader={false}
+                  onRow={r => ({ onClick: () => navigate(`/stocks/${r.symbol}`), style: { cursor: 'pointer' } })} />
+              ) : <div style={{ textAlign: 'center', padding: 20, color: TEXT_SEC }}>{loading ? <Spin size="small" /> : '暂无数据'}</div>}
+            </Card>
 
-        {/* 系统状态 */}
-        <div style={{ padding: 16, background: '#f8fafc', borderRadius: 10, fontSize: 12, color: '#888' }}>
-          <strong style={{ color: '#555' }}>⚙️ 系统状态</strong>
-          <div style={{ display: 'flex', gap: 24, marginTop: 8 }}>
-            <span>股票数据: {stocks.length} 只</span>
-            <span>上涨: {stats.risingStocks || 0}</span>
-            <span>下跌: {stats.fallingStocks || 0}</span>
-            <span>总市值: {formatBigNumber(stats.totalMarketCap || 0)}</span>
+            {/* Losers */}
+            <Card size="small" style={{ borderRadius: 10, border: `1px solid ${BORDER}` }}
+              title={<span style={{ fontWeight: 700, color: TEXT, fontSize: 14 }}><FallOutlined style={{ color: COLOR_DOWN, marginRight: 6 }} />跌幅榜 TOP5</span>}
+              extra={<Tag color="green" style={{ borderRadius: 4, fontWeight: 600 }}>{stats.fallingStocks} 只下跌</Tag>}>
+              {topLosers.length > 0 ? (
+                <Table dataSource={topLosers} columns={rankCols} pagination={false} size="small" rowKey="symbol" showHeader={false}
+                  onRow={r => ({ onClick: () => navigate(`/stocks/${r.symbol}`), style: { cursor: 'pointer' } })} />
+              ) : <div style={{ textAlign: 'center', padding: 20, color: TEXT_SEC }}>{loading ? <Spin size="small" /> : '暂无数据'}</div>}
+            </Card>
           </div>
-          <div style={{ marginTop: 4, color: '#aaa' }}>数据源: 腾讯财经实时行情 + 东方财富新闻</div>
+
+          {/* Footer */}
+          <div style={{ padding: 16, background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, fontSize: 12, color: TEXT_SEC, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <span>数据源: 腾讯财经实时行情</span>
+            <span>股票数据: {stocks.length} 只 · 更新于 {time.toLocaleTimeString('zh-CN')}</span>
+          </div>
         </div>
       </div>
     </SimpleErrorBoundary>

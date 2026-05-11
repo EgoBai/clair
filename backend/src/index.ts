@@ -3,9 +3,11 @@
  * 导入 app 和 httpServer，初始化数据库，启动 HTTP 监听
  */
 
+import 'dotenv/config';
 import { app, httpServer } from './app';
 import { initDatabase, getDb } from './db/dbFactory';
 import { wsService } from './websocket/server';
+import { dataSyncService } from './data-sync/DataSyncService';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -13,6 +15,9 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 (async () => {
   const { db, type } = await initDatabase();
   console.log(`📊 数据库类型: ${type}`);
+
+  // 启动定时行情同步 (每5分钟)
+  dataSyncService.startScheduledSync(300);
 
   httpServer.listen(PORT, () => {
     console.log(`
@@ -33,6 +38,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 // ==================== 优雅退出 ====================
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n收到 ${signal} 信号，正在优雅关闭...`);
+  dataSyncService.stopScheduledSync();
   wsService.shutdown();
   await getDb().close();
   process.exit(0);
