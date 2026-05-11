@@ -3,6 +3,7 @@
  */
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiFetch } from '../utils/api';
 import { Card, Button, Tag, Table, Spin, Empty, Typography, InputNumber, message, Badge, Space, Segmented } from 'antd';
 import {
   RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined,
@@ -56,8 +57,8 @@ const ScreenerPage: React.FC = () => {
     try {
       // 获取股票列表 + 批量行情
       const [listResp, quotesResp] = await Promise.all([
-        fetch('/api/stocks?limit=120').then(r => r.json()),
-        fetch('/api/stocks/batch/quotes', {
+        apiFetch('/api/stocks?limit=120').then(r => r.json()),
+        apiFetch('/api/stocks/batch/quotes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ symbols: [] }), // 空数组拿全部

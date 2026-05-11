@@ -11,7 +11,7 @@ import {
   FolderOutlined, StarFilled, CaretUpOutlined, CaretDownOutlined,
   CloseOutlined, ReloadOutlined,
 } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
+import { apiFetch } from '../../utils/api';
 
 const { Text } = Typography;
 const STORAGE_KEY = 'astock_watchlist_v2';
@@ -47,7 +47,7 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
     if (symbols.length === 0) { setQuotes({}); return; }
     setQuotesLoading(true);
     try {
-      const resp = await fetch('/api/stocks/batch/quotes', {
+      const resp = await apiFetch('/api/stocks/batch/quotes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols }),
@@ -225,7 +225,7 @@ const AddStockModal: React.FC<{
     if (!q.trim()) { setResults([]); return; }
     setSearching(true);
     try {
-      const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=15`);
+      const resp = await apiFetch(`/api/search?q=${encodeURIComponent(q)}&limit=15`);
       const data = await resp.json();
       setResults(data.success ? (data.data?.results || []) : []);
     } catch { setResults([]); }
