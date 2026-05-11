@@ -5,9 +5,9 @@ ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
-# Copy and install ALL deps + tsx runner
+# Copy and install ALL deps
 COPY package*.json ./
-RUN npm ci --no-audit --no-fund && npm install tsx
+RUN npm ci --no-audit --no-fund
 
 COPY . .
 
