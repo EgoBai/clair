@@ -1,17 +1,5 @@
 {
-  "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "installCommand": "npm install",
-  "framework": null,
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "https://astock-api.railway.app/api/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ]
+  "installCommand": "npm install"
 }
