@@ -7,11 +7,12 @@ import {
   Popconfirm, Card, Empty, List,
 } from 'antd';
 import {
-  PlusOutlined, DeleteOutlined, SearchOutlined,
-  FolderOutlined, StarFilled, CaretUpOutlined, CaretDownOutlined,
+  PlusOutlined, SearchOutlined,
+  FolderOutlined, StarFilled,
   CloseOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { apiFetch } from '../../utils/api';
+import type { ColumnsType } from 'antd/es/table';
 
 const { Text } = Typography;
 const STORAGE_KEY = 'astock_watchlist_v2';
@@ -128,7 +129,7 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
       render: (s: string) => <Text strong style={{ cursor: 'pointer', color: '#3b82f6', fontFamily: 'monospace' }}
         onClick={() => onStockClick?.(s)}>{s.replace(/\.(SH|SZ)$/, '')}</Text> },
     { title: '名称', dataIndex: 'name', width: 100,
-      render: (n: string, r) => <Text style={{ cursor: 'pointer' }} onClick={() => onStockClick?.(r.symbol)}>{n}</Text> },
+      render: (n: string, r: WatchlistStock) => <Text style={{ cursor: 'pointer' }} onClick={() => onStockClick?.(r.symbol)}>{n}</Text> },
     { title: '最新价', width: 90, align: 'right' as const,
       render: (_: unknown, r: WatchlistStock) => {
         const q = quotes[r.symbol];
