@@ -57,6 +57,7 @@ const STATIC_PROD_ORIGINS = [
   'https://egobai.github.io',
   'https://clair-pi.vercel.app',
   'https://clair.market',
+  'https://clair-production-1189.up.railway.app',
 ];
 
 // ==================== 违规日志（内存环形缓冲） ====================
