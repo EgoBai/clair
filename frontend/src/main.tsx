@@ -1,7 +1,23 @@
 /**
  * 应用入口 v1.5
  * 集成：路由、主题、快捷键、状态管理、代码分割
+ * 
+ * 生产环境API代理：将所有 /api/ 请求重定向到后端
  */
+if (typeof window !== 'undefined' && !import.meta.env.DEV) {
+  const API_BASE = 'https://clair-production-1189.up.railway.app';
+  const originalFetch = window.fetch;
+  window.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
+    let url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+    if (url.startsWith('/api/')) {
+      url = API_BASE + url;
+    }
+    if (typeof input === 'string') {
+      return originalFetch(url, init);
+    }
+    return originalFetch(new Request(url, input as RequestInit), init);
+  } as typeof fetch;
+}
 
 import React, { useRef, useCallback, useState, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
