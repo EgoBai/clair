@@ -1,22 +1,19 @@
-# ===== Backend Dockerfile - tsx 直接运行 TypeScript =====
 FROM node:20-alpine
 
-# Install runtime dependencies
 RUN apk add --no-cache tzdata curl
-
-# Set timezone
 ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
-# Copy all source
+# Copy and install ALL deps (tsx needs them at runtime)
 COPY package*.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
-RUN npm install tsx --no-save
+RUN npm ci --no-audit --no-fund
+
+# Globally install tsx runner
+RUN npm install -g tsx
 
 COPY . .
 
-# Create non-root user
 RUN addgroup -g 1001 -S appgroup && \
     adduser -S appuser -u 1001 -G appgroup && \
     chown -R appuser:appgroup /app && \
@@ -32,4 +29,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 ENV NODE_ENV=production
 ENV PORT=4000
 
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["tsx", "src/index.ts"]
