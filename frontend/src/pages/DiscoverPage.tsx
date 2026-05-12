@@ -33,17 +33,20 @@ const DiscoverPage: React.FC = () => {
   const [sectorStocks, setSectorStocks] = useState<StockData[]>([]);
   const [view, setView] = useState<'market' | 'sector'>('market');
   const [loading, setLoading] = useState(true);
+  const [insight, setInsight] = useState<any>(null);
 
-  // Load market overview + scores
+  // Load market overview + scores + AI insight
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [iRes, sRes] = await Promise.all([
+      const [iRes, sRes, aiRes] = await Promise.all([
         fetch('/api/market/indices').then(r => r.json()).catch(() => ({ data: { indices: [] } })),
         fetch('/api/sectors/momentum').then(r => r.json()).catch(() => ({ data: { sectors: [] } })),
+        fetch('/api/ai/market-insight').then(r => r.json()).catch(() => null),
       ]);
       setIndices(iRes.data?.indices || []);
       setScores(sRes.data?.sectors || []);
+      if (aiRes?.data) setInsight(aiRes.data);
       setLoading(false);
     })();
   }, []);
@@ -105,34 +108,50 @@ const DiscoverPage: React.FC = () => {
         {view === 'market' ? (
           <>
             {/* AI 解读 */}
-            <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12 }}>
-              <BulbOutlined style={{ fontSize: 20, color: GOLD, marginTop: 2 }} />
-              <div style={{ flex: 1 }}>
-                <Text strong style={{ color: TEXT, fontSize: 14 }}>AI 市场解读</Text>
-                <Paragraph style={{ color: TEXT_SEC, fontSize: 13, margin: '4px 0 0', maxWidth: 700 }}>
-                  {(() => {
-                    const top3 = topScores.slice(0, 3);
-                    const topNames = top3.map(s => `${s.industry}(${s.score}分${s.avg_change_percent >= 0 ? '+' : ''}${s.avg_change_percent.toFixed(1)}%)`).join('、');
-                    const hotSectors = scores.filter(s => s.limit_up_count > 0).slice(0, 3);
-                    const hotNames = hotSectors.map(s => `${s.industry}${s.limit_up_count}只涨停`).join('、');
-                    
-                    if (upPct >= 60) {
-                      return `市场情绪偏乐观，${upCount}/${scores.length} 板块上涨（${upPct}%）。领涨板块：${topNames}。${hotSectors.length > 0 ? `涨停集中：${hotNames}。` : ''}资金活跃度高，建议聚焦景气评分 > 50 的板块，优选涨幅适中、换手率合理的个股。`;
-                    } else if (upPct >= 35) {
-                      return `市场结构性分化，${upCount} 涨 ${downCount} 跌。强势板块：${topNames}。${hotSectors.length > 0 ? `局部热点：${hotNames}。` : ''}结构性行情下，建议轻指数重板块，聚焦景气度评分最高的 3-5 个板块做个股精选。`;
-                    } else {
-                      return `市场情绪偏谨慎，仅 ${upPct}% 板块上涨。抗跌板块：${topNames}。防御策略为主，关注低估值、高股息、景气度触底回升的板块，等待市场情绪回暖信号。`;
-                    }
-                  })()}
-                </Paragraph>
-                {/* GPT接口预留 */}
-                <div style={{ marginTop: 8, fontSize: 11, color: '#64748b', display: 'flex', gap: 12 }}>
-                  <span>📊 数据驱动分析</span>
-                  <span style={{ opacity: 0.5 }}>|</span>
-                  <span>🔮 GPT深度解读（接入中）</span>
+            {insight ? (
+              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12 }}>
+                <span style={{ fontSize: 24 }}>{insight.moodEmoji}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Text strong style={{ color: TEXT, fontSize: 14 }}>AI 市场解读</Text>
+                    <Tag color={insight.moodColor} style={{ margin: 0, fontSize: 11 }}>{insight.mood}</Tag>
+                    <Tag style={{ margin: 0, fontSize: 11, background: '#334155', color: '#94a3b8', border: 'none' }}>
+                      宽度 {Math.round(insight.marketBreadth.breadthRatio * 100)}%
+                    </Tag>
+                  </div>
+                  <Paragraph style={{ color: TEXT_SEC, fontSize: 13, margin: '6px 0 0', maxWidth: 700, whiteSpace: 'pre-wrap' }}>
+                    {insight.text}
+                  </Paragraph>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>📊 {insight.marketBreadth.up}涨{insight.marketBreadth.down}跌 · 均涨跌{insight.avgIndexChange > 0 ? '+' : ''}{insight.avgIndexChange}%</span>
+                    <span style={{ color: '#334155' }}>|</span>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>🏆 {insight.topSectors?.map((s: any) => s.industry).join('、') || '—'}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12 }}>
+                <BulbOutlined style={{ fontSize: 20, color: GOLD, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <Text strong style={{ color: TEXT, fontSize: 14 }}>AI 市场解读</Text>
+                  <Paragraph style={{ color: TEXT_SEC, fontSize: 13, margin: '4px 0 0', maxWidth: 700 }}>
+                    {(() => {
+                      const top3 = topScores.slice(0, 3);
+                      const topNames = top3.map(s => `${s.industry}(${s.score}分${s.avg_change_percent >= 0 ? '+' : ''}${s.avg_change_percent.toFixed(1)}%)`).join('、');
+                      const hotSectors = scores.filter(s => s.limit_up_count > 0).slice(0, 3);
+                      const hotNames = hotSectors.map(s => `${s.industry}${s.limit_up_count}只涨停`).join('、');
+                      if (upPct >= 60) {
+                        return `市场情绪偏乐观，${upCount}/${scores.length} 板块上涨（${upPct}%）。领涨板块：${topNames}。${hotSectors.length > 0 ? `涨停集中：${hotNames}。` : ''}资金活跃度高，建议聚焦景气评分 > 50 的板块。`;
+                      } else if (upPct >= 35) {
+                        return `市场结构性分化，${upCount} 涨 ${downCount} 跌。强势板块：${topNames}。${hotSectors.length > 0 ? `局部热点：${hotNames}。` : ''}结构性行情下，轻指数重板块。`;
+                      } else {
+                        return `市场情绪偏谨慎，仅 ${upPct}% 板块上涨。抗跌板块：${topNames}。防御策略为主，关注低估值、高股息品种。`;
+                      }
+                    })()}
+                  </Paragraph>
+                </div>
+              </div>
+            )}
 
             {/* 指数 + 宽度 */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginBottom: 20 }}>
