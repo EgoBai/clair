@@ -108,25 +108,44 @@ const DiscoverPage: React.FC = () => {
         {view === 'market' ? (
           <>
             {/* AI 解读 */}
-            {insight ? (
-              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12 }}>
-                <span style={{ fontSize: 24 }}>{insight.moodEmoji}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Text strong style={{ color: TEXT, fontSize: 14 }}>AI 市场解读</Text>
-                    <Tag color={insight.moodColor} style={{ margin: 0, fontSize: 11 }}>{insight.mood}</Tag>
-                    <Tag style={{ margin: 0, fontSize: 11, background: '#334155', color: '#94a3b8', border: 'none' }}>
-                      宽度 {Math.round(insight.marketBreadth.breadthRatio * 100)}%
-                    </Tag>
-                  </div>
-                  <Paragraph style={{ color: TEXT_SEC, fontSize: 13, margin: '6px 0 0', maxWidth: 700, whiteSpace: 'pre-wrap' }}>
-                    {insight.text}
-                  </Paragraph>
-                  <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>📊 {insight.marketBreadth.up}涨{insight.marketBreadth.down}跌 · 均涨跌{insight.avgIndexChange > 0 ? '+' : ''}{insight.avgIndexChange}%</span>
-                    <span style={{ color: '#334155' }}>|</span>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>🏆 {insight.topSectors?.map((s: any) => s.industry).join('、') || '—'}</span>
-                  </div>
+            {insight?.sections ? (
+              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                  <span style={{ fontSize: 22 }}>{insight.moodEmoji}</span>
+                  <Text strong style={{ color: TEXT, fontSize: 15 }}>AI 市场解读</Text>
+                  <Tag color={insight.mood === '强势上攻' ? 'red' : insight.mood === '温和上行' ? 'orange' : insight.mood === '震荡整理' ? 'default' : 'blue'} style={{ margin: 0, fontSize: 11 }}>
+                    {insight.mood}
+                  </Tag>
+                  <Tag style={{ margin: 0, fontSize: 11, background: '#334155', color: '#94a3b8', border: 'none' }}>
+                    {insight.marketBreadth.stockUpRatio}%上涨
+                  </Tag>
+                  {insight.limitUpCount > 0 && (
+                    <Tag color="red" style={{ margin: 0, fontSize: 11 }}>{insight.limitUpCount}涨停</Tag>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                  {insight.sections.map((sec, i) => (
+                    <div key={i} style={{
+                      background: 'rgba(30,41,59,0.6)', border: `1px solid ${BORDER}`,
+                      borderRadius: 8, padding: '12px 14px',
+                    }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: ACCENT, marginBottom: 6 }}>
+                        {sec.icon} {sec.title}
+                      </div>
+                      <div style={{ fontSize: 12, color: TEXT_SEC, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                        {sec.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 12, display: 'flex', gap: 14, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>
+                    📊 指数{insight.marketBreadth.up}涨{insight.marketBreadth.down}跌 · 均涨跌{insight.avgIndexChange > 0 ? '+' : ''}{insight.avgIndexChange}%
+                  </span>
+                  <span style={{ color: '#334155' }}>|</span>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>
+                    🏆 {insight.topSectors?.map(s => s.industry).join('、') || '—'}
+                  </span>
                 </div>
               </div>
             ) : (

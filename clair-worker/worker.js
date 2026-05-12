@@ -18,62 +18,105 @@ const INDEX_SYMBOLS = [
   { name: '北证50',   symbol: 'bj899050', tencent: 'bj899050' },
 ];
 
-const STOCKS = [
-  { symbol: '000001', name: '平安银行', market: 'SZ', industry: '银行' },
-  { symbol: '000002', name: '万科A',   market: 'SZ', industry: '房地产' },
-  { symbol: '000858', name: '五粮液',  market: 'SZ', industry: '白酒' },
-  { symbol: '002594', name: '比亚迪',  market: 'SZ', industry: '新能源汽车' },
-  { symbol: '600036', name: '招商银行', market: 'SH', industry: '银行' },
-  { symbol: '600519', name: '贵州茅台', market: 'SH', industry: '白酒' },
-  { symbol: '601318', name: '中国平安', market: 'SH', industry: '保险' },
-  { symbol: '601012', name: '隆基绿能', market: 'SH', industry: '光伏' },
-  { symbol: '300750', name: '宁德时代', market: 'SZ', industry: '新能源电池' },
-  { symbol: '300059', name: '东方财富', market: 'SZ', industry: '证券' },
-  { symbol: '002475', name: '立讯精密', market: 'SZ', industry: '消费电子' },
-  { symbol: '600900', name: '长江电力', market: 'SH', industry: '电力' },
-  { symbol: '601888', name: '中国中免', market: 'SH', industry: '零售' },
-  { symbol: '000333', name: '美的集团', market: 'SZ', industry: '家电' },
-  { symbol: '600276', name: '恒瑞医药', market: 'SH', industry: '医药' },
-  { symbol: '002415', name: '海康威视', market: 'SZ', industry: '安防' },
-  { symbol: '601166', name: '兴业银行', market: 'SH', industry: '银行' },
-  { symbol: '002714', name: '牧原股份', market: 'SZ', industry: '养殖' },
-  { symbol: '600309', name: '万华化学', market: 'SH', industry: '化工' },
-  { symbol: '002352', name: '顺丰控股', market: 'SZ', industry: '物流' },
-  { symbol: '601899', name: '紫金矿业', market: 'SH', industry: '有色金属' },
-  { symbol: '000568', name: '泸州老窖', market: 'SZ', industry: '白酒' },
-  { symbol: '002230', name: '科大讯飞', market: 'SZ', industry: '人工智能' },
-  { symbol: '688981', name: '中芯国际', market: 'SH', industry: '半导体' },
-  { symbol: '300124', name: '汇川技术', market: 'SZ', industry: '工业自动化' },
-  { symbol: '601857', name: '中国石油', market: 'SH', industry: '石油' },
-  { symbol: '600030', name: '中信证券', market: 'SH', industry: '证券' },
-  { symbol: '000725', name: '京东方A',  market: 'SZ', industry: '面板' },
-  { symbol: '002049', name: '紫光国微', market: 'SZ', industry: '半导体' },
-  { symbol: '300274', name: '阳光电源', market: 'SZ', industry: '光伏' },
-  { symbol: '601138', name: '工业富联', market: 'SH', industry: '消费电子' },
-  { symbol: '601398', name: '工商银行', market: 'SH', industry: '银行' },
-  { symbol: '600809', name: '山西汾酒', market: 'SH', industry: '白酒' },
-  { symbol: '002371', name: '北方华创', market: 'SZ', industry: '半导体' },
-  { symbol: '603259', name: '药明康德', market: 'SH', industry: '医药' },
-  { symbol: '300308', name: '中际旭创', market: 'SZ', industry: '光通信' },
-  { symbol: '601728', name: '中国电信', market: 'SH', industry: '电信' },
-  { symbol: '000063', name: '中兴通讯', market: 'SZ', industry: '通信设备' },
-  { symbol: '600941', name: '中国移动', market: 'SH', industry: '电信' },
-  { symbol: '688041', name: '海光信息', market: 'SH', industry: '半导体' },
-  { symbol: '601127', name: '赛力斯',   market: 'SH', industry: '新能源汽车' },
-  { symbol: '600690', name: '海尔智家', market: 'SH', industry: '家电' },
-  { symbol: '000651', name: '格力电器', market: 'SZ', industry: '家电' },
-  { symbol: '600887', name: '伊利股份', market: 'SH', industry: '食品饮料' },
-  { symbol: '601088', name: '中国神华', market: 'SH', industry: '煤炭' },
-  { symbol: '300760', name: '迈瑞医疗', market: 'SZ', industry: '医疗器械' },
-  { symbol: '688012', name: '中微公司', market: 'SH', industry: '半导体' },
-  { symbol: '002459', name: '晶澳科技', market: 'SZ', industry: '光伏' },
-  { symbol: '601985', name: '中国核电', market: 'SH', industry: '电力' },
-  { symbol: '300033', name: '同花顺',   market: 'SZ', industry: '金融科技' },
-  { symbol: '688256', name: '寒武纪',   market: 'SH', industry: '人工智能' },
-  { symbol: '600028', name: '中国石化', market: 'SH', industry: '石油' },
-  { symbol: '300014', name: '亿纬锂能', market: 'SZ', industry: '新能源电池' },
-  { symbol: '002920', name: '德赛西威', market: 'SZ', industry: '智能驾驶' },
-];
+// ==================== 动态股票列表 (EastMoney API) ====================
+
+/**
+ * 从东方财富 API 获取全 A 股列表（含行业分类）
+ * 返回 { symbol, name, market, industry } 数组
+ * 缓存 1 小时
+ */
+let stockListCache = null;
+let stockListCacheTime = 0;
+const STOCK_LIST_CACHE_TTL = 3600_000; // 1 小时
+
+async function getStockList() {
+  const now = Date.now();
+  if (stockListCache && (now - stockListCacheTime) < STOCK_LIST_CACHE_TTL) {
+    return stockListCache;
+  }
+
+  try {
+    // 申万行业分类 — 从东方财富 API 拉取
+    // fs: m:0+t:6(沪A) + m:0+t:80(深A) + m:1+t:2(创业板) + m:1+t:23(科创板)
+    const url = 'https://push2.eastmoney.com/api/qt/clist/get' +
+      '?pn=1&pz=5000&po=1&np=1&fltt=2&invt=2&fid=f3' +
+      '&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23' +
+      '&fields=f2,f3,f4,f12,f14,f100,f102';
+
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com' },
+    });
+    const data = await resp.json();
+    const items = data?.data?.diff || [];
+
+    const stocks = [];
+    for (const item of items) {
+      const code = item.f12;
+      const name = item.f14;
+      const industry = item.f100 || '综合';
+      if (!code || !name) continue;
+
+      // 判断市场
+      let market = 'SZ';
+      if (code.startsWith('6')) market = 'SH';
+      else if (code.startsWith('0') || code.startsWith('3')) market = 'SZ';
+      else if (code.startsWith('8') || code.startsWith('4')) market = 'BJ';
+      else if (code.startsWith('68')) market = 'SH'; // 科创板
+
+      stocks.push({ symbol: code, name, market, industry, concept: null });
+    }
+
+    // 过滤掉重复和无效
+    const seen = new Set();
+    const unique = stocks.filter(s => {
+      if (seen.has(s.symbol)) return false;
+      seen.add(s.symbol);
+      return s.symbol.length === 6;
+    });
+
+    console.log(`[StockList] 从 EastMoney 拉取 ${unique.length} 只股票`);
+    stockListCache = unique;
+    stockListCacheTime = now;
+    return unique;
+  } catch (e) {
+    console.error('[StockList] EastMoney API 失败:', e.message);
+    // Fallback: 返回上次缓存或空数组
+    return stockListCache || [];
+  }
+}
+
+// 行业标准化映射 (EastMoney → 申万一级行业)
+const INDUSTRY_NORMALIZE = {
+  '银行': '银行', '保险': '非银金融', '证券': '非银金融', '多元金融': '非银金融',
+  '房地产': '房地产', '房地产开发': '房地产',
+  '白酒': '食品饮料', '食品饮料': '食品饮料', '乳业': '食品饮料', '调味品': '食品饮料',
+  '医药': '医药生物', '医疗器械': '医药生物', '生物制品': '医药生物', '中药': '医药生物',
+  '半导体': '电子', '消费电子': '电子', '面板': '电子', '光电子': '电子',
+  '新能源汽车': '汽车', '汽车': '汽车', '汽车零部件': '汽车', '智能驾驶': '汽车',
+  '光伏': '电力设备', '新能源电池': '电力设备', '风电': '电力设备', '储能': '电力设备',
+  '电力': '公用事业', '水力发电': '公用事业', '水务': '公用事业',
+  '煤炭': '煤炭', '石油': '石油石化', '化工': '基础化工', '化肥': '基础化工',
+  '有色金属': '有色金属', '黄金': '有色金属', '稀土': '有色金属',
+  '钢铁': '钢铁', '建材': '建筑材料', '水泥': '建筑材料',
+  '家电': '家用电器', '零售': '商贸零售', '服装': '纺织服饰',
+  '农林牧渔': '农林牧渔', '养殖': '农林牧渔', '种业': '农林牧渔',
+  '通信设备': '通信', '电信': '通信', '光通信': '通信',
+  '计算机': '计算机', '人工智能': '计算机', '软件开发': '计算机', '金融科技': '计算机',
+  '军工': '国防军工', '航天': '国防军工',
+  '传媒': '传媒', '游戏': '传媒', '影视': '传媒',
+  '交通运输': '交通运输', '物流': '交通运输', '港口': '交通运输',
+  '机械设备': '机械设备', '工业自动化': '机械设备',
+  '建筑装饰': '建筑装饰', '环保': '环保',
+  '社会服务': '社会服务', '旅游': '社会服务', '教育': '社会服务',
+  '美容护理': '美容护理', '轻工制造': '轻工制造',
+};
+
+function normalizeIndustry(raw) {
+  if (!raw) return '综合';
+  // 去掉"行业"/"板块"等后缀
+  let clean = raw.replace(/行业$|板块$|产业$/g, '');
+  return INDUSTRY_NORMALIZE[clean] || clean;
+}
 
 // ==================== 腾讯 API 解析 ====================
 
@@ -133,10 +176,12 @@ async function getAllQuotes() {
   const now = Date.now();
   if (cacheData && (now - cacheTime) < CACHE_TTL) return cacheData;
 
-  // 腾讯 API 格式: sh600519,sz000858 (收盘后 index 前缀变 sz 或 sh)
+  const stocks = await getStockList();
+
+  // 腾讯 API 格式: sh600519,sz000858
   const allSymbols = [
     ...INDEX_SYMBOLS.map(i => i.tencent),
-    ...STOCKS.map(s => `${s.market === 'SH' ? 'sh' : 'sz'}${s.symbol}`),
+    ...stocks.slice(0, 300).map(s => `${s.market === 'SH' ? 'sh' : 'sz'}${s.symbol}`),
   ];
 
   // 分批请求（腾讯 API 建议每批不超过 50 个）
@@ -216,16 +261,17 @@ async function handleMarketIndices() {
 async function handleSectorMomentum() {
   try {
     const { quotes } = await getAllQuotes();
+    const stocks = await getStockList();
 
-    // 按行业聚合
+    // 按标准化行业聚合
     const sectorMap = {};
-    for (const stock of STOCKS) {
-      const tencentSym = `${stock.market === 'SH' ? 'sh' : 'sz'}${stock.symbol}`;
+    for (const stock of stocks) {
       const q = quotes.find(qu => qu.symbol === stock.symbol);
       if (!q) continue;
+      const normIndustry = normalizeIndustry(stock.industry);
 
-      if (!sectorMap[stock.industry]) {
-        sectorMap[stock.industry] = {
+      if (!sectorMap[normIndustry]) {
+        sectorMap[normIndustry] = {
           stocks: [],
           totalChange: 0,
           totalVolume: 0,
@@ -233,41 +279,41 @@ async function handleSectorMomentum() {
           limitUpCount: 0,
         };
       }
-      sectorMap[stock.industry].stocks.push({ ...stock, quote: q });
-      sectorMap[stock.industry].totalChange += q.changePercent;
-      sectorMap[stock.industry].totalVolume += q.volume;
-      sectorMap[stock.industry].totalTurnover += q.turnover;
-      if (q.changePercent >= 9.9) sectorMap[stock.industry].limitUpCount++;
+      sectorMap[normIndustry].stocks.push({ ...stock, quote: q });
+      sectorMap[normIndustry].totalChange += q.changePercent;
+      sectorMap[normIndustry].totalVolume += q.volume;
+      sectorMap[normIndustry].totalTurnover += q.turnover;
+      if (q.changePercent >= 9.9) sectorMap[normIndustry].limitUpCount++;
     }
 
-    // 计算得分
+    // 计算得分 (4维度)
     const sectors = Object.entries(sectorMap).map(([industry, data]) => {
       const count = data.stocks.length;
+      if (count < 3) return null; // 过滤样本过小的板块
       const avgChange = data.totalChange / count;
       const upCount = data.stocks.filter(s => s.quote.changePercent > 0).length;
       const breadthScore = (upCount / count) * 100;
-
-      // 综合评分: 涨跌幅40% + 上涨广度30% + 成交量30%
       const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 10));
-      const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 10));
-      const score = Math.round(changeScore * 0.4 + breadthScore * 0.3 + volumeScore * 0.3);
+      const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 8));
+      const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 8));
+      const score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
 
       return {
-        industry,
-        score,
+        industry, score,
         changeScore: Math.round(changeScore),
         volumeScore: Math.round(volumeScore),
         breadthScore: Math.round(breadthScore),
+        momentumScore: Math.round(momentumScore),
         stock_count: count,
         avg_change_percent: Math.round(avgChange * 100) / 100,
         total_turnover: data.totalTurnover,
         limit_up_count: data.limitUpCount,
       };
-    });
+    }).filter(Boolean);
 
     sectors.sort((a, b) => b.score - a.score);
 
-    return json({ data: { sectors }, success: true });
+    return json({ data: { sectors, type: 'industry', total_stocks: stocks.length }, success: true });
   } catch (e) {
     return error(e.message);
   }
@@ -276,18 +322,18 @@ async function handleSectorMomentum() {
 async function handleSectorStocks(industry, pageSize = 50) {
   try {
     const { quotes } = await getAllQuotes();
+    const stocks = await getStockList();
     const decodedIndustry = decodeURIComponent(industry);
 
-    const matched = STOCKS
-      .filter(s => s.industry === decodedIndustry)
+    const matched = stocks
+      .filter(s => normalizeIndustry(s.industry) === decodedIndustry)
       .map(s => {
-        const tencentSym = `${s.market === 'SH' ? 'sh' : 'sz'}${s.symbol}`;
         const q = quotes.find(qu => qu.symbol === s.symbol);
         return {
           symbol: s.symbol,
           name: s.name,
           market: s.market,
-          industry: s.industry,
+          industry: normalizeIndustry(s.industry),
           latestQuote: q ? {
             closePrice: q.price,
             changePercent: q.changePercent,
@@ -313,7 +359,8 @@ async function handleSectorStocks(industry, pageSize = 50) {
 
 async function handleStockDetail(symbol) {
   try {
-    const stock = STOCKS.find(s => s.symbol === symbol);
+    const stocks = await getStockList();
+    const stock = stocks.find(s => s.symbol === symbol);
     if (!stock) return error('Stock not found', 404);
 
     const { quotes } = await getAllQuotes();
@@ -349,91 +396,170 @@ async function handleStockDetail(symbol) {
 
 async function handleStockSearch(q) {
   const keyword = (q || '').toLowerCase();
-  const results = STOCKS
+  const stocks = await getStockList();
+  const results = stocks
     .filter(s => s.symbol.includes(keyword) || s.name.includes(keyword))
     .slice(0, 20)
-    .map(s => ({ symbol: s.symbol, name: s.name, market: s.market, industry: s.industry }));
+    .map(s => ({ symbol: s.symbol, name: s.name, market: s.market, industry: normalizeIndustry(s.industry) }));
   return json({ data: { items: results }, success: true });
 }
 
 // ==================== Phase 2: AI 市场解读 ====================
 
-function generateMarketInsight(indices, sectors) {
+function generateMarketInsight(indices, sectors, stocks, quotes) {
   const upIndices = indices.filter(i => i.changePercent > 0);
   const downIndices = indices.filter(i => i.changePercent < 0);
-  const topSectors = sectors.slice(0, 3);
+  const topSectors = sectors.slice(0, 5);
   const bottomSectors = sectors.slice(-3).reverse();
-  const avgIndexChange = indices.reduce((s, i) => s + i.changePercent, 0) / indices.length;
-  const marketBreadth = upIndices.length / indices.length;
+  const avgIndexChange = indices.reduce((s, i) => s + i.changePercent, 0) / (indices.length || 1);
+  const marketBreadth = upIndices.length / (indices.length || 1);
 
-  // 市场状态判定
-  let mood, moodEmoji, moodColor;
-  if (avgIndexChange > 1 && marketBreadth > 0.7) {
-    mood = '强势上涨'; moodEmoji = '🔥'; moodColor = '#cf2a2a';
-  } else if (avgIndexChange > 0.3) {
-    mood = '温和上行'; moodEmoji = '📈'; moodColor = '#f59e0b';
-  } else if (avgIndexChange > -0.3) {
-    mood = '震荡整理'; moodEmoji = '⚖️'; moodColor = '#94a3b8';
-  } else if (avgIndexChange > -1) {
-    mood = '弱势调整'; moodEmoji = '📉'; moodColor = '#3b82f6';
-  } else {
-    mood = '大幅下挫'; moodEmoji = '🌧️'; moodColor = '#1db468';
+  // ====== 市场状态 ======
+  let mood, moodEmoji;
+  if (avgIndexChange > 1.5 && marketBreadth > 0.7) { mood = '强势上攻'; moodEmoji = '🔥'; }
+  else if (avgIndexChange > 0.5) { mood = '温和上行'; moodEmoji = '📈'; }
+  else if (avgIndexChange > -0.3) { mood = '震荡整理'; moodEmoji = '⚖️'; }
+  else if (avgIndexChange > -1) { mood = '弱势调整'; moodEmoji = '📉'; }
+  else { mood = '大幅下挫'; moodEmoji = '🌧️'; }
+
+  // ====== 一、市场基本面 ======
+  const indexLines = indices.slice(0, 5).map(i =>
+    `· ${i.name}: ${i.changePercent > 0 ? '+' : ''}${i.changePercent.toFixed(2)}%（${i.changePercent > 0 ? '上涨' : '下跌'}）`
+  );
+
+  const allQuotes = quotes.filter(q => q && q.changePercent !== undefined && isFinite(q.changePercent));
+  const upStocks = allQuotes.filter(q => q.changePercent > 0).length;
+  const downStocks = allQuotes.filter(q => q.changePercent < 0).length;
+  const totalStocks = allQuotes.length || 1;
+  const upRatio = Math.round(upStocks / totalStocks * 100);
+
+  const limitUpStocks = allQuotes.filter(q => q.changePercent >= 9.9);
+  const limitDownStocks = allQuotes.filter(q => q.changePercent <= -9.9);
+
+  let breadthAnalysis;
+  if (upRatio >= 70) breadthAnalysis = `普涨格局（${upRatio}%个股上涨），市场赚钱效应显著，做多情绪高涨`;
+  else if (upRatio >= 50) breadthAnalysis = `涨多跌少（${upRatio}%个股上涨），市场情绪偏积极，但分化明显需要精选方向`;
+  else if (upRatio >= 30) breadthAnalysis = `跌多涨少（${upRatio}%个股上涨），市场偏弱，操作难度加大，控制仓位为主`;
+  else breadthAnalysis = `普跌格局（仅${upRatio}%个股上涨），市场恐慌情绪蔓延，建议观望等待企稳信号`;
+
+  // PE 分布简析
+  const peValues = allQuotes.map(q => q.peRatio).filter(p => p > 0 && p < 1000);
+  const avgPE = peValues.length > 0 ? Math.round(peValues.reduce((s, p) => s + p, 0) / peValues.length) : null;
+  let peAnalysis = '';
+  if (avgPE) {
+    if (avgPE < 15) peAnalysis = `整体PE偏低（均${avgPE}倍），市场估值处于历史低位区域，中长期配置价值显现`;
+    else if (avgPE < 25) peAnalysis = `整体PE适中（均${avgPE}倍），估值处于合理区间，精选盈利增长确定的标的`;
+    else peAnalysis = `整体PE偏高（均${avgPE}倍），估值扩张阶段需注意回调风险，关注业绩能否消化估值`;
   }
 
-  // 生成解读文本
-  const indexSummary = indices.slice(0, 3).map(i =>
-    `${i.name} ${i.changePercent > 0 ? '+' : ''}${i.changePercent.toFixed(2)}%`
-  ).join('，');
+  const fundamentalText = [
+    `**指数表现**`,
+    ...indexLines,
+    `**涨跌分布**: ${upStocks}涨 / ${downStocks}跌 / ${totalStocks - upStocks - downStocks}平`,
+    `**涨停/跌停**: ${limitUpStocks.length}只涨停 / ${limitDownStocks.length}只跌停`,
+    breadthAnalysis,
+    avgPE ? peAnalysis : '',
+    '',
+  ].filter(Boolean).join('\n');
 
-  const sectorSummary = topSectors.map(s =>
-    `${s.industry}(+${s.avg_change_percent}% ${s.limit_up_count > 0 ? s.limit_up_count + '家涨停' : ''})`
-  ).join('、');
+  // ====== 二、资金面 ======
+  const totalTurnover = allQuotes.reduce((s, q) => s + (q.turnover || 0), 0);
+  const turnoverStr = totalTurnover > 1e12
+    ? (totalTurnover / 1e12).toFixed(1) + '万亿'
+    : (totalTurnover / 1e8).toFixed(0) + '亿';
 
-  const weakSummary = bottomSectors[0]
-    ? `${bottomSectors[0].industry}(${bottomSectors[0].avg_change_percent}%)`
+  const sectorFlowLines = topSectors.slice(0, 3).map(s =>
+    `· ${s.industry}: 成交${(s.total_turnover / 1e8).toFixed(0)}亿，均涨${s.avg_change_percent > 0 ? '+' : ''}${s.avg_change_percent}%，资金集中度高`
+  );
+
+  const volumeSurgeSectors = sectors
+    .filter(s => s.stock_count >= 5 && s.avg_change_percent > 1)
+    .slice(0, 3);
+  const surgeText = volumeSurgeSectors.length > 0
+    ? `资金聚焦：${volumeSurgeSectors.map(s => s.industry).join('、')} 量价齐升`
+    : '无明显资金集中方向，市场观望情绪浓厚';
+
+  const outflowSectors = bottomSectors.filter(s => s.avg_change_percent < -1);
+  const outflowText = outflowSectors.length > 0
+    ? `资金流出：${outflowSectors.map(s => s.industry).join('、')} 板块弱势，资金撤离明显`
     : '';
 
-  const lines = [
-    `${moodEmoji} 今日市场${mood}`,
+  const capitalText = [
+    `**市场总成交**: ${turnoverStr}`,
+    surgeText,
+    `**资金流入板块**`,
+    ...sectorFlowLines,
+    outflowText,
+    `**资金特征**: ${avgIndexChange > 0.3 ? '增量资金入场迹象，关注成交量能否持续放大' : avgIndexChange < -0.3 ? '存量博弈为主，观望资金较多，缺乏增量驱动' : '存量博弈，结构性行情为主，资金在板块间轮动'}`,
     '',
-    `**指数表现**`,
-    `${indexSummary}`,
-    `上涨 ${upIndices.length} 个 / 下跌 ${downIndices.length} 个，市场宽度 ${Math.round(marketBreadth * 100)}%`,
+  ].filter(Boolean).join('\n');
+
+  // ====== 三、政策/消息面 ======
+  const topIndustry = topSectors[0];
+  const hotEvents = [];
+  if (limitUpStocks.length >= 10) hotEvents.push(`${limitUpStocks.length}只个股涨停，短线情绪活跃`);
+  if (limitDownStocks.length >= 10) hotEvents.push(`${limitDownStocks.length}只个股跌停，注意规避风险`);
+  if (topSectors.length > 0 && topSectors[0].avg_change_percent > 3)
+    hotEvents.push(`${topSectors[0].industry}板块大涨${topSectors[0].avg_change_percent.toFixed(1)}%，催化因素值得跟踪`);
+
+  let policyNote;
+  if (topIndustry && ['电子', '计算机', '国防军工', '通信'].includes(topIndustry.industry))
+    policyNote = '科技自主可控、国产替代等政策方向持续受到市场关注';
+  else if (topIndustry && ['电力设备', '公用事业', '环保'].includes(topIndustry.industry))
+    policyNote = '"双碳"目标及新型电力系统建设带来结构性机会';
+  else if (topIndustry && ['食品饮料', '家用电器', '商贸零售'].includes(topIndustry.industry))
+    policyNote = '促消费政策持续发力，关注消费复苏节奏及CPI数据变化';
+  else if (topIndustry && ['医药生物', '社会服务'].includes(topIndustry.industry))
+    policyNote = '医药集采政策边际缓和，创新药/医疗器械出海逻辑值得跟踪';
+  else if (topIndustry && ['非银金融', '银行'].includes(topIndustry.industry))
+    policyNote = '资本市场改革深化（注册制、并购重组等），关注券商及金融IT';
+  else
+    policyNote = '保持对产业政策、货币政策信号及外围市场走势的跟踪';
+
+  const policyText = [
+    `**市场动态**`,
+    ...(hotEvents.length > 0 ? hotEvents.map(e => `· ${e}`) : ['· 今日市场表现相对平稳，无极端事件']),
+    `**政策观察**`,
+    `· ${policyNote}`,
+    `**操作建议**`,
+    avgIndexChange > 1
+      ? '· 强势行情下不宜追高，可关注回调到位的二线龙头补涨机会'
+      : avgIndexChange > 0.3
+        ? '· 结构性行情中，聚焦景气评分 > 60 的板块，精选龙头做波段'
+        : avgIndexChange > -0.3
+          ? '· 震荡市中多看少动，控制仓位 3-5 成，等待方向选择'
+          : avgIndexChange > -1
+            ? '· 弱势环境下降低仓位至 3 成以下，保留现金等待市场企稳'
+            : '· 急跌后不宜恐慌杀跌，关注超跌板块的反弹机会，分批建仓',
     '',
-    `**领涨板块**`,
-    `${sectorSummary}`,
-    '',
-    `**弱势板块**`,
-    `${weakSummary}`,
-    '',
-    avgIndexChange > 0.5
-      ? '💡 资金集中在领涨板块，关注板块内龙头股的持续性。'
-      : avgIndexChange < -0.3
-        ? '💡 市场调整中，关注抗跌板块和低估值品种，控制仓位。'
-        : '💡 市场方向不明，建议多看少动，等待趋势明朗。',
-  ];
+  ].join('\n');
 
   return {
-    mood,
-    moodEmoji,
-    moodColor,
-    text: lines.join('\n'),
+    mood, moodEmoji,
+    sections: [
+      { title: '一、市场基本面', icon: '📊', text: fundamentalText },
+      { title: '二、资金面分析', icon: '💰', text: capitalText },
+      { title: '三、政策/消息面', icon: '📰', text: policyText },
+    ],
     marketBreadth: {
-      up: upIndices.length,
-      down: downIndices.length,
+      up: upIndices.length, down: downIndices.length,
       neutral: indices.length - upIndices.length - downIndices.length,
       breadthRatio: marketBreadth,
+      stockUpRatio: upRatio,
     },
     avgIndexChange: Math.round(avgIndexChange * 100) / 100,
     topSectors: topSectors.map(s => ({ industry: s.industry, score: s.score, avgChange: s.avg_change_percent })),
     weakSectors: bottomSectors.map(s => ({ industry: s.industry, score: s.score, avgChange: s.avg_change_percent })),
+    limitUpCount: limitUpStocks.length,
+    limitDownCount: limitDownStocks.length,
     timestamp: Date.now(),
   };
 }
 
 async function handleMarketInsight() {
   try {
-    const { quoteMap } = await getAllQuotes();
+    const { quoteMap, quotes } = await getAllQuotes();
+    const stocks = await getStockList();
     const indices = INDEX_SYMBOLS.map(idx => {
       const q = quoteMap[idx.tencent] || quoteMap[idx.symbol];
       return {
@@ -443,10 +569,8 @@ async function handleMarketInsight() {
       };
     });
 
-    // Get sectors for context
     const sectors = await getSectorData();
-
-    const insight = generateMarketInsight(indices, sectors);
+    const insight = generateMarketInsight(indices, sectors, stocks, quotes);
     return json({ data: insight, success: true });
   } catch (e) {
     return error(e.message);
@@ -456,48 +580,44 @@ async function handleMarketInsight() {
 // Extract sector data for reuse
 async function getSectorData() {
   const { quotes } = await getAllQuotes();
+  const stocks = await getStockList();
   const sectorMap = {};
-  for (const stock of STOCKS) {
+  for (const stock of stocks) {
     const q = quotes.find(qu => qu.symbol === stock.symbol);
     if (!q) continue;
-    if (!sectorMap[stock.industry]) {
-      sectorMap[stock.industry] = { stocks: [], totalChange: 0, totalVolume: 0, totalTurnover: 0, limitUpCount: 0 };
+    const ind = normalizeIndustry(stock.industry);
+    if (!sectorMap[ind]) {
+      sectorMap[ind] = { stocks: [], totalChange: 0, totalVolume: 0, totalTurnover: 0, limitUpCount: 0 };
     }
-    sectorMap[stock.industry].stocks.push({ ...stock, quote: q });
-    sectorMap[stock.industry].totalChange += q.changePercent;
-    sectorMap[stock.industry].totalVolume += q.volume;
-    sectorMap[stock.industry].totalTurnover += q.turnover;
-    if (q.changePercent >= 9.9) sectorMap[stock.industry].limitUpCount++;
+    sectorMap[ind].stocks.push({ ...stock, quote: q });
+    sectorMap[ind].totalChange += q.changePercent;
+    sectorMap[ind].totalVolume += q.volume;
+    sectorMap[ind].totalTurnover += q.turnover;
+    if (q.changePercent >= 9.9) sectorMap[ind].limitUpCount++;
   }
 
   return Object.entries(sectorMap).map(([industry, data]) => {
     const count = data.stocks.length;
+    if (count < 3) return null;
     const avgChange = data.totalChange / count;
     const upCount = data.stocks.filter(s => s.quote.changePercent > 0).length;
     const breadthScore = (upCount / count) * 100;
     const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 10));
-    const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 10));
-
-    // Phase 2 增强: 动量 + 趋势强度 + 广度 + 集中度
+    const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 8));
     const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 8));
-    const trendScore = changeScore;
-    const concentrationScore = count <= 3 ? 70 : count <= 6 ? 80 : 90;
-    const score = Math.round(momentumScore * 0.35 + trendScore * 0.25 + breadthScore * 0.25 + concentrationScore * 0.15);
-
+    const score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
     return {
       industry, score,
       changeScore: Math.round(changeScore),
       volumeScore: Math.round(volumeScore),
       breadthScore: Math.round(breadthScore),
       momentumScore: Math.round(momentumScore),
-      trendScore: Math.round(trendScore),
-      concentrationScore,
       stock_count: count,
       avg_change_percent: Math.round(avgChange * 100) / 100,
       total_turnover: data.totalTurnover,
       limit_up_count: data.limitUpCount,
     };
-  }).sort((a, b) => b.score - a.score);
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
 
 // ==================== Phase 3: 策略信号引擎 ====================
@@ -706,7 +826,8 @@ function generateStrategySummary(score, maAlignment, crossover, macdSignal, rsi)
  * Fetch K-line data from Tencent API
  */
 async function fetchKLine(symbol) {
-  const stock = STOCKS.find(s => s.symbol === symbol);
+  const stocks = await getStockList();
+  const stock = stocks.find(s => s.symbol === symbol);
   if (!stock) return null;
   const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
   const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,120,qfq`;
