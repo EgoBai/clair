@@ -5,9 +5,8 @@
  * 生产环境API代理：将所有 /api/ 请求重定向到后端
  */
 if (typeof window !== 'undefined' && !import.meta.env.DEV) {
-  // Workers 部署后替换为 https://clair-api.<your-subdomain>.workers.dev
   const API_BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE)
-    || 'https://clair-api.egobai.workers.dev';
+    || 'https://clair-production-1189.up.railway.app';
   const originalFetch = window.fetch;
   window.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
     let url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
