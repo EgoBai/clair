@@ -30,7 +30,7 @@ jobs:
       - run: npm ci
       - run: npx tsc && npx vite build --mode github
         env:
-          VITE_API_BASE: ${{ vars.VITE_API_BASE || 'https://clair-production-1189.up.railway.app' }}
+          VITE_API_BASE: ${{ vars.VITE_API_BASE || 'https://clair-api.pages.dev' }}
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -6,7 +6,7 @@
  */
 if (typeof window !== 'undefined' && !import.meta.env.DEV) {
   const API_BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE)
-    || 'https://clair-production-1189.up.railway.app';
+    || 'https://clair-api.pages.dev';
   const originalFetch = window.fetch;
   window.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
     let url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
