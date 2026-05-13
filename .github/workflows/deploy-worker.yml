@@ -22,10 +22,10 @@ jobs:
 
       - run: npm install
 
-      - name: Deploy to Cloudflare Workers
+      - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: clair-worker
-          command: deploy
+          command: pages deploy . --project-name=clair-api --branch=main

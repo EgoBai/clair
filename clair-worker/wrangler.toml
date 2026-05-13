@@ -1,11 +1,4 @@
 name = "clair-api"
-main = "worker.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-
-# Free tier: 100k req/day
-workers_dev = true
-
-[observability]
-enabled = true
-head_sampling_rate = 0.1
+pages_build_output_dir = "."
