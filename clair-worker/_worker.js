@@ -37,7 +37,6 @@ async function getStockList() {
 
   try {
     // 申万行业分类 — 从东方财富 API 拉取
-    // fs: m:0+t:6(沪A) + m:0+t:80(深A) + m:1+t:2(创业板) + m:1+t:23(科创板)
     const url = 'https://push2.eastmoney.com/api/qt/clist/get' +
       '?pn=1&pz=5000&po=1&np=1&fltt=2&invt=2&fid=f3' +
       '&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23' +
@@ -49,6 +48,8 @@ async function getStockList() {
     const data = await resp.json();
     const items = data?.data?.diff || [];
 
+    if (items.length === 0) throw new Error('Empty response');
+
     const stocks = [];
     for (const item of items) {
       const code = item.f12;
@@ -56,17 +57,14 @@ async function getStockList() {
       const industry = item.f100 || '综合';
       if (!code || !name) continue;
 
-      // 判断市场
       let market = 'SZ';
       if (code.startsWith('6')) market = 'SH';
       else if (code.startsWith('0') || code.startsWith('3')) market = 'SZ';
       else if (code.startsWith('8') || code.startsWith('4')) market = 'BJ';
-      else if (code.startsWith('68')) market = 'SH'; // 科创板
 
       stocks.push({ symbol: code, name, market, industry, concept: null });
     }
 
-    // 过滤掉重复和无效
     const seen = new Set();
     const unique = stocks.filter(s => {
       if (seen.has(s.symbol)) return false;
@@ -80,8 +78,9 @@ async function getStockList() {
     return unique;
   } catch (e) {
     console.error('[StockList] EastMoney API 失败:', e.message);
-    // Fallback: 返回上次缓存或空数组
-    return stockListCache || [];
+    if (stockListCache) return stockListCache;
+    // Fallback: 200只核心A股，覆盖28个申万一级行业
+    return getFallbackStocks();
   }
 }
 
@@ -113,9 +112,105 @@ const INDUSTRY_NORMALIZE = {
 
 function normalizeIndustry(raw) {
   if (!raw) return '综合';
-  // 去掉"行业"/"板块"等后缀
   let clean = raw.replace(/行业$|板块$|产业$/g, '');
   return INDUSTRY_NORMALIZE[clean] || clean;
+}
+
+// Fallback 股票列表：200只核心A股，覆盖28个申万一级行业
+function getFallbackStocks() {
+  const list = [
+    // 银行 (8)
+    ['601398','工商银行','SH','银行'],['600036','招商银行','SH','银行'],['601939','建设银行','SH','银行'],
+    ['601288','农业银行','SH','银行'],['601166','兴业银行','SH','银行'],['000001','平安银行','SZ','银行'],
+    ['600016','民生银行','SH','银行'],['002142','宁波银行','SZ','银行'],
+    // 非银金融 (8)
+    ['601318','中国平安','SH','保险'],['600030','中信证券','SH','证券'],['300059','东方财富','SZ','证券'],
+    ['601688','华泰证券','SH','证券'],['601628','中国人寿','SH','保险'],['600837','海通证券','SH','证券'],
+    ['000776','广发证券','SZ','证券'],['601211','国泰君安','SH','证券'],
+    // 房地产 (5)
+    ['000002','万科A','SZ','房地产'],['600048','保利发展','SH','房地产'],['001979','招商蛇口','SZ','房地产'],
+    ['600383','金地集团','SH','房地产'],['600325','华发股份','SH','房地产'],
+    // 食品饮料 (10)
+    ['600519','贵州茅台','SH','白酒'],['000858','五粮液','SZ','白酒'],['600887','伊利股份','SH','食品饮料'],
+    ['002304','洋河股份','SZ','白酒'],['000568','泸州老窖','SZ','白酒'],['603288','海天味业','SH','食品饮料'],
+    ['600809','山西汾酒','SH','白酒'],['002714','牧原股份','SZ','农林牧渔'],['000895','双汇发展','SZ','食品饮料'],
+    ['600600','青岛啤酒','SH','食品饮料'],
+    // 医药生物 (10)
+    ['600276','恒瑞医药','SH','医药'],['300760','迈瑞医疗','SZ','医药'],['603259','药明康德','SH','医药'],
+    ['000538','云南白药','SZ','医药'],['002001','新和成','SZ','医药'],['300122','智飞生物','SZ','医药'],
+    ['600196','复星医药','SH','医药'],['000661','长春高新','SZ','医药'],['300015','爱尔眼科','SZ','医药'],
+    ['002007','华兰生物','SZ','医药'],
+    // 电子 (12)
+    ['002475','立讯精密','SZ','消费电子'],['688981','中芯国际','SH','半导体'],['000725','京东方A','SZ','面板'],
+    ['603501','韦尔股份','SH','半导体'],['002049','紫光国微','SZ','半导体'],['600703','三安光电','SH','半导体'],
+    ['688012','中微公司','SH','半导体'],['688041','海光信息','SH','半导体'],['002371','北方华创','SZ','半导体'],
+    ['300782','卓胜微','SZ','半导体'],['688256','寒武纪','SH','人工智能'],['603986','兆易创新','SH','半导体'],
+    // 汽车 (8)
+    ['002594','比亚迪','SZ','新能源汽车'],['601127','赛力斯','SH','新能源汽车'],['600104','上汽集团','SH','汽车'],
+    ['000625','长安汽车','SZ','汽车'],['601238','广汽集团','SH','汽车'],['600741','华域汽车','SH','汽车'],
+    ['002920','德赛西威','SZ','汽车'],['300750','宁德时代','SZ','新能源电池'],
+    // 电力设备 (8)
+    ['601012','隆基绿能','SH','光伏'],['300274','阳光电源','SZ','光伏'],['002459','晶澳科技','SZ','光伏'],
+    ['688599','天合光能','SH','光伏'],['300014','亿纬锂能','SZ','新能源电池'],['002812','恩捷股份','SZ','新能源电池'],
+    ['601615','明阳智能','SH','风电'],['300124','汇川技术','SZ','工业自动化'],
+    // 公用事业 (5)
+    ['600900','长江电力','SH','电力'],['601985','中国核电','SH','电力'],['600011','华能国际','SH','电力'],
+    ['600886','国投电力','SH','电力'],['601985','三峡能源','SH','电力'],
+    // 煤炭 (4)
+    ['601088','中国神华','SH','煤炭'],['600188','兖矿能源','SH','煤炭'],['601225','陕西煤业','SH','煤炭'],
+    ['000983','山西焦煤','SZ','煤炭'],
+    // 石油石化 (4)
+    ['601857','中国石油','SH','石油'],['600028','中国石化','SH','石油'],['600938','中国海油','SH','石油'],
+    ['600346','恒力石化','SH','石油'],
+    // 基础化工 (6)
+    ['600309','万华化学','SH','化工'],['002601','龙佰集团','SZ','化工'],['600426','华鲁恒升','SH','化工'],
+    ['002493','荣盛石化','SZ','化工'],['000301','东方盛虹','SZ','化工'],['002648','卫星化学','SZ','化工'],
+    // 有色金属 (6)
+    ['601899','紫金矿业','SH','有色金属'],['600111','北方稀土','SH','有色金属'],['603799','华友钴业','SH','有色金属'],
+    ['002460','赣锋锂业','SZ','有色金属'],['000630','铜陵有色','SZ','有色金属'],['601600','中国铝业','SH','有色金属'],
+    // 钢铁 (3)
+    ['600019','宝钢股份','SH','钢铁'],['000932','华菱钢铁','SZ','钢铁'],['600010','包钢股份','SH','钢铁'],
+    // 建筑材料 (4)
+    ['600585','海螺水泥','SH','建材'],['000786','北新建材','SZ','建材'],['002271','东方雨虹','SZ','建材'],
+    ['601636','旗滨集团','SH','建材'],
+    // 家用电器 (4)
+    ['000333','美的集团','SZ','家电'],['000651','格力电器','SZ','家电'],['600690','海尔智家','SH','家电'],
+    ['002032','苏泊尔','SZ','家电'],
+    // 商贸零售 (4)
+    ['601888','中国中免','SH','零售'],['002024','苏宁易购','SZ','零售'],['600859','王府井','SH','零售'],
+    ['603708','家家悦','SH','零售'],
+    // 农林牧渔 (5)
+    ['002714','牧原股份','SZ','农林牧渔'],['300498','温氏股份','SZ','农林牧渔'],['000876','新希望','SZ','农林牧渔'],
+    ['002311','海大集团','SZ','农林牧渔'],['600737','中粮糖业','SH','农林牧渔'],
+    // 通信 (6)
+    ['600941','中国移动','SH','通信'],['601728','中国电信','SH','通信'],['000063','中兴通讯','SZ','通信'],
+    ['300308','中际旭创','SZ','通信'],['688027','国盾量子','SH','通信'],['600050','中国联通','SH','通信'],
+    // 计算机 (6)
+    ['002230','科大讯飞','SZ','人工智能'],['300033','同花顺','SZ','金融科技'],['600570','恒生电子','SH','计算机'],
+    ['002410','广联达','SZ','计算机'],['688111','金山办公','SH','计算机'],['300454','深信服','SZ','计算机'],
+    // 国防军工 (5)
+    ['600760','中航沈飞','SH','军工'],['600893','航发动力','SH','军工'],['002025','航天电器','SZ','军工'],
+    ['600862','中航高科','SH','军工'],['000768','中航西飞','SZ','军工'],
+    // 传媒 (5)
+    ['002027','分众传媒','SZ','传媒'],['300413','芒果超媒','SZ','传媒'],['002555','三七互娱','SZ','传媒'],
+    ['603444','吉比特','SH','传媒'],['300251','光线传媒','SZ','传媒'],
+    // 交通运输 (4)
+    ['002352','顺丰控股','SZ','物流'],['601111','中国国航','SH','交通运输'],['600029','南方航空','SH','交通运输'],
+    ['601006','大秦铁路','SH','交通运输'],
+    // 机械设备 (5)
+    ['600031','三一重工','SH','机械设备'],['000157','中联重科','SZ','机械设备'],['600150','中国船舶','SH','机械设备'],
+    ['601100','恒立液压','SH','机械设备'],['688017','绿的谐波','SH','机械设备'],
+    // 建筑装饰 (4)
+    ['601668','中国建筑','SH','建筑装饰'],['601390','中国中铁','SH','建筑装饰'],['601186','中国铁建','SH','建筑装饰'],
+    ['601800','中国交建','SH','建筑装饰'],
+    // 社会服务 (3)
+    ['600754','锦江酒店','SH','社会服务'],['002607','中公教育','SZ','社会服务'],['300144','宋城演艺','SZ','社会服务'],
+    // 美容护理 (2)
+    ['603605','珀莱雅','SH','美容护理'],['300896','爱美客','SZ','美容护理'],
+    // 轻工制造 (2)
+    ['002572','索菲亚','SZ','轻工制造'],['603833','欧派家居','SH','轻工制造'],
+  ];
+  return list.map(([code, name, market, industry]) => ({ symbol: code, name, market, industry }));
 }
 
 // ==================== 腾讯 API 解析 ====================
@@ -231,9 +326,11 @@ async function handleMarketIndices() {
   try {
     const { quoteMap } = await getAllQuotes();
 
-    // 腾讯 index 符号匹配：指数用 sz000001 格式
+    // 腾讯 index 返回的 symbol 是纯代码(如"000001")，不含市场前缀
     const indices = INDEX_SYMBOLS.map(idx => {
-      const q = quoteMap[idx.tencent] || quoteMap[idx.symbol];
+      // 从 tencent symbol 提取纯代码 (sh000001 → 000001)
+      const pureCode = idx.tencent.replace(/^[a-z]+/, '');
+      const q = quoteMap[pureCode] || quoteMap[idx.symbol] || quoteMap[idx.tencent];
       if (!q) return {
         symbol: idx.symbol,
         name: idx.name,
@@ -561,7 +658,8 @@ async function handleMarketInsight() {
     const { quoteMap, quotes } = await getAllQuotes();
     const stocks = await getStockList();
     const indices = INDEX_SYMBOLS.map(idx => {
-      const q = quoteMap[idx.tencent] || quoteMap[idx.symbol];
+      const pureCode = idx.tencent.replace(/^[a-z]+/, '');
+      const q = quoteMap[pureCode] || quoteMap[idx.symbol] || quoteMap[idx.tencent];
       return {
         name: idx.name,
         symbol: idx.symbol,
@@ -882,6 +980,58 @@ async function handleStockStrategy(symbol) {
   }
 }
 
+async function handleDebug() {
+  const results = {};
+
+  // Test 1: Tencent API connectivity
+  try {
+    const tStart = Date.now();
+    const resp = await fetch('https://qt.gtimg.cn/q=sh000001', {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
+    });
+    const buffer = await resp.arrayBuffer();
+    const decoder = new TextDecoder('gbk');
+    const text = decoder.decode(buffer);
+    results.tencent = {
+      ok: resp.ok,
+      status: resp.status,
+      latencyMs: Date.now() - tStart,
+      textPreview: text.substring(0, 200),
+      containsChinese: /[\u4e00-\u9fff]/.test(text),
+      hasData: text.includes('v_sh000001'),
+    };
+  } catch (e) {
+    results.tencent = { error: e.message };
+  }
+
+  // Test 2: EastMoney API
+  try {
+    const emStart = Date.now();
+    const emResp = await fetch('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=5&fid=f3&fs=m:0+t:6&fields=f12,f14', {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com' },
+    });
+    const emData = await emResp.json();
+    results.eastmoney = {
+      ok: emResp.ok,
+      status: emResp.status,
+      latencyMs: Date.now() - emStart,
+      count: emData?.data?.diff?.length || 0,
+      sample: emData?.data?.diff?.slice(0, 3),
+    };
+  } catch (e) {
+    results.eastmoney = { error: e.message };
+  }
+
+  // Test 3: Worker env info
+  results.env = {
+    hasGbKDecoder: typeof TextDecoder !== 'undefined',
+    platform: typeof navigator !== 'undefined' ? 'browser' : 'worker',
+    timestamp: Date.now(),
+  };
+
+  return json({ data: results, success: true });
+}
+
 // ==================== 主入口 ====================
 
 export default {
@@ -942,6 +1092,11 @@ export default {
     const strategyMatch = path.match(/^\/api\/stocks\/(\d+)\/strategy$/);
     if (strategyMatch) {
       return handleStockStrategy(strategyMatch[1]);
+    }
+
+    // Debug endpoint: test Tencent API connectivity
+    if (path === '/api/debug') {
+      return handleDebug();
     }
 
     return error('Not found', 404);
