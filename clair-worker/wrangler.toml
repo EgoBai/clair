@@ -3,13 +3,9 @@ main = "worker.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Free tier: 100k req/day, auto-scaling
+# Free tier: 100k req/day
 workers_dev = true
 
 [observability]
 enabled = true
 head_sampling_rate = 0.1
-
-[[routes]]
-pattern = "clair-api.*"
-custom_domain = false
