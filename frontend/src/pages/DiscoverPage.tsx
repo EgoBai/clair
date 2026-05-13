@@ -79,6 +79,7 @@ const DiscoverPage: React.FC = () => {
   const downCount = scores.filter(s => s.avg_change_percent < 0).length;
   const upPct = scores.length > 0 ? Math.round((upCount / scores.length) * 100) : 0;
   const topScores = scores.slice(0, 3);
+  const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
 
   if (loading) return <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
 
@@ -206,7 +207,22 @@ const DiscoverPage: React.FC = () => {
             </div>
 
             {/* 板块景气度评分 */}
-            <Text strong style={{ color: TEXT, fontSize: 15, display: 'block', marginBottom: 12 }}>🏢 板块景气度评分</Text>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text strong style={{ color: TEXT, fontSize: 15 }}>🏢 板块景气度评分</Text>
+              <div style={{ display: 'flex', gap: 4, background: '#1e293b', borderRadius: 8, padding: 2 }}>
+                {(['industry', 'concept'] as const).map(t => (
+                  <div key={t} onClick={() => setSectorType(t)} style={{
+                    padding: '3px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                    fontWeight: sectorType === t ? 700 : 400,
+                    color: sectorType === t ? TEXT : TEXT_SEC,
+                    background: sectorType === t ? '#334155' : 'transparent',
+                    transition: 'all .15s',
+                  }}>
+                    {t === 'industry' ? '行业板块' : '概念板块'}
+                  </div>
+                ))}
+              </div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {scores.map(s => (
                 <div key={s.industry} onClick={() => openSector(s)}
@@ -232,14 +248,14 @@ const DiscoverPage: React.FC = () => {
                       {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
                     </div>
                     <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
-                      <Tooltip title="涨跌幅得分 (权重50%)">
+                      <Tooltip title="动量得分 (权重35%)">
+                        <span>🚀 {s.momentumScore}</span>
+                      </Tooltip>
+                      <Tooltip title="趋势得分 (权重25%)">
                         <span>📈 {s.changeScore}</span>
                       </Tooltip>
-                      <Tooltip title="成交额得分 (权重25%)">
-                        <span>💰 {s.volumeScore}</span>
-                      </Tooltip>
-                      <Tooltip title="涨停家数得分 (权重25%)">
-                        <span>🔥 {s.breadthScore}</span>
+                      <Tooltip title="广度得分 (权重25%)">
+                        <span>📊 {s.breadthScore}</span>
                       </Tooltip>
                       <span style={{ color: s.avg_change_percent >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
                         {s.avg_change_percent >= 0 ? '+' : ''}{s.avg_change_percent.toFixed(2)}%

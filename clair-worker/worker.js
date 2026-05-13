@@ -253,7 +253,7 @@ async function fetchTencentQuotes(tencentSymbols) {
       changePercent: v(32),
       high: v(33),
       low: v(34),
-      turnover: v(37),
+      turnover: v(37) * 10000, // 腾讯返回万元 → 元
       turnoverRate: v(38),
       peRatio: (() => { const n = parseFloat(parts[39]); return isFinite(n) && n > 0 ? n : undefined; })(),
     });
