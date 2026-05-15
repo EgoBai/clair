@@ -156,13 +156,15 @@ async function getAllQuotes() {
   const stocks = await getStockList();
 
   // 腾讯 API 格式: sh600519,sz000858
+  // 限制实时行情获取数量（Worker 子请求限制：免费50个，30s超时）
+  const QUOTE_LIMIT = 800;
   const allSymbols = [
     ...INDEX_SYMBOLS.map(i => i.tencent),
-    ...stocks.slice(0, 300).map(s => `${s.market === 'SH' ? 'sh' : 'sz'}${s.symbol}`),
+    ...stocks.slice(0, QUOTE_LIMIT).map(s => `${s.market === 'SH' ? 'sh' : 'sz'}${s.symbol}`),
   ];
 
-  // 分批请求（腾讯 API 建议每批不超过 50 个）
-  const batchSize = 50;
+  // 分批请求（腾讯 API 建议每批不超过 80 个，实测 150 可行）
+  const batchSize = 150;
   const batches = [];
   for (let i = 0; i < allSymbols.length; i += batchSize) {
     batches.push(allSymbols.slice(i, i + batchSize));
