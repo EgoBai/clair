@@ -417,27 +417,28 @@ function error(msg, status = 500) {
 
 async function handleMarketIndices() {
   try {
-    const { quoteMap } = await getAllQuotes();
+    // Fetch indices directly to avoid symbol collision (000001 = 上证指数 VS 平安银行)
+    const symbols = INDEX_SYMBOLS.map(i => i.tencent).join(',');
+    const qUrl = `https://qt.gtimg.cn/q=${symbols}`;
+    const qResp = await fetch(qUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
+    });
+    const qBuffer = await qResp.arrayBuffer();
+    const qText = new TextDecoder('gbk').decode(qBuffer);
 
-    // 腾讯 index 返回的 symbol 是纯代码(如"000001")，不含市场前缀
     const indices = INDEX_SYMBOLS.map(idx => {
-      // 从 tencent symbol 提取纯代码 (sh000001 → 000001)
-      const pureCode = idx.tencent.replace(/^[a-z]+/, '');
-      const q = quoteMap[pureCode] || quoteMap[idx.symbol] || quoteMap[idx.tencent];
-      if (!q) return {
-        symbol: idx.symbol,
-        name: idx.name,
-        closePrice: 0,
-        changePercent: 0,
-        volume: 0,
-        category: 'index',
+      const qMatch = qText.match(new RegExp(`v_${idx.tencent}="([^"]+)"`));
+      if (!qMatch) return {
+        symbol: idx.symbol, name: idx.name,
+        closePrice: 0, changePercent: 0, volume: 0, category: 'index',
       };
+      const parts = qMatch[1].split('~');
       return {
         symbol: idx.symbol,
         name: idx.name,
-        closePrice: q.price,
-        changePercent: q.changePercent,
-        volume: q.volume,
+        closePrice: parseFloat(parts[3]) || 0,
+        changePercent: parseFloat(parts[32]) || 0,
+        volume: parseInt(parts[6]) || 0,
         category: 'index',
       };
     });
@@ -931,50 +932,41 @@ async function handleStockKLine(symbol) {
  */
 async function handleIndexDetail(tencentSymbol) {
   try {
-    // 查找指数配置
     const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentSymbol);
     if (!idxConfig) return error('Index not found', 404);
 
-    const { quoteMap } = await getAllQuotes();
-    const pureCode = tencentSymbol.replace(/^[a-z]+/, '');
-    const q = quoteMap[pureCode] || quoteMap[tencentSymbol];
-
-    // 获取指数成分股涨幅分布
-    const stocks = await getStockList();
-    const { quotes } = await getAllQuotes();
-    const components = [];
-    // 根据指数代码匹配市场
-    const marketPrefix = tencentSymbol.startsWith('sz') ? 'SZ' : 'SH';
-    for (const stock of stocks) {
-      if (stock.market !== marketPrefix) continue;
-      const sq = quotes.find(qu => qu.symbol === stock.symbol);
-      if (!sq) continue;
-      components.push({
-        symbol: stock.symbol,
-        name: stock.name,
-        price: sq.price,
-        changePercent: sq.changePercent,
-      });
+    // Fetch index quote directly to avoid collision with stock codes (000001 = 上证指数 VS 平安银行)
+    const qUrl = `https://qt.gtimg.cn/q=${tencentSymbol}`;
+    const qResp = await fetch(qUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
+    });
+    const qBuffer = await qResp.arrayBuffer();
+    const qText = new TextDecoder('gbk').decode(qBuffer);
+    
+    let closePrice = 0, changePercent = 0, volume = 0, turnover = 0;
+    let highPrice = 0, lowPrice = 0, openPrice = 0;
+    
+    const qMatch = qText.match(new RegExp(`v_${tencentSymbol}="([^"]+)"`));
+    if (qMatch) {
+      const parts = qMatch[1].split('~');
+      closePrice = parseFloat(parts[3]) || 0;
+      changePercent = parseFloat(parts[32]) || 0;
+      volume = parseInt(parts[6]) || 0;
+      turnover = (parseFloat(parts[37]) || 0) * 10000; // 万元→元
+      highPrice = parseFloat(parts[33]) || 0;
+      lowPrice = parseFloat(parts[34]) || 0;
+      openPrice = parseFloat(parts[5]) || 0;
     }
-    // 只取前20只代表性个股（按涨跌幅排序取极值）
-    const sorted = components.sort((a, b) => b.changePercent - a.changePercent);
-    const topGainers = sorted.slice(0, 10);
-    const topLosers = sorted.slice(-10).reverse();
 
     return json({
       data: {
         symbol: tencentSymbol,
         name: idxConfig.name,
         displaySymbol: idxConfig.symbol,
-        closePrice: q ? q.price : 0,
-        changePercent: q ? q.changePercent : 0,
-        volume: q ? q.volume : 0,
-        turnover: q ? q.turnover : 0,
-        highPrice: q ? q.highPrice : 0,
-        lowPrice: q ? q.lowPrice : 0,
-        openPrice: q ? q.openPrice : 0,
-        topGainers,
-        topLosers,
+        closePrice, changePercent, volume, turnover,
+        highPrice, lowPrice, openPrice,
+        topGainers: [],
+        topLosers: [],
       },
       success: true,
     });
@@ -1028,9 +1020,21 @@ async function handleIndexStrategy(tencentSymbol) {
     const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentSymbol);
     if (!idxConfig) return error('Index not found', 404);
 
-    const { quoteMap } = await getAllQuotes();
-    const pureCode = tencentSymbol.replace(/^[a-z]+/, '');
-    const q = quoteMap[pureCode] || quoteMap[tencentSymbol];
+    // Fetch index quote directly to avoid symbol collision
+    const qUrl = `https://qt.gtimg.cn/q=${tencentSymbol}`;
+    const qResp = await fetch(qUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
+    });
+    const qBuffer = await qResp.arrayBuffer();
+    const qText = new TextDecoder('gbk').decode(qBuffer);
+    
+    let price = 0, changePercent = 0;
+    const qMatch = qText.match(new RegExp(`v_${tencentSymbol}="([^"]+)"`));
+    if (qMatch) {
+      const parts = qMatch[1].split('~');
+      price = parseFloat(parts[3]) || 0;
+      changePercent = parseFloat(parts[32]) || 0;
+    }
 
     // 获取 K 线数据用于计算指标
     const limit = 120;
@@ -1044,8 +1048,8 @@ async function handleIndexStrategy(tencentSymbol) {
       return json({
         data: {
           symbol: tencentSymbol,
-          currentPrice: q ? q.price : 0,
-          changePercent: q ? q.changePercent : 0,
+          currentPrice: price,
+          changePercent: changePercent,
           note: 'K线数据不足(需≥30日)',
         },
         success: true,
@@ -1053,7 +1057,7 @@ async function handleIndexStrategy(tencentSymbol) {
     }
 
     const prices = dayData.map(d => parseFloat(d[2])).filter(p => isFinite(p) && p > 0);
-    const strategy = generateStrategy({ ...q, symbol: tencentSymbol }, prices);
+    const strategy = generateStrategy({ price, changePercent, symbol: tencentSymbol }, prices);
 
     return json({ data: { ...strategy, name: idxConfig.name }, success: true });
   } catch (e) {
