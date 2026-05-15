@@ -924,6 +924,143 @@ async function handleStockKLine(symbol) {
   }
 }
 
+// ==================== 指数详情 API ====================
+
+/**
+ * 指数详情 — 返回指数实时报价 + 基础信息
+ */
+async function handleIndexDetail(tencentSymbol) {
+  try {
+    // 查找指数配置
+    const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentSymbol);
+    if (!idxConfig) return error('Index not found', 404);
+
+    const { quoteMap } = await getAllQuotes();
+    const pureCode = tencentSymbol.replace(/^[a-z]+/, '');
+    const q = quoteMap[pureCode] || quoteMap[tencentSymbol];
+
+    // 获取指数成分股涨幅分布
+    const stocks = await getStockList();
+    const { quotes } = await getAllQuotes();
+    const components = [];
+    // 根据指数代码匹配市场
+    const marketPrefix = tencentSymbol.startsWith('sz') ? 'SZ' : 'SH';
+    for (const stock of stocks) {
+      if (stock.market !== marketPrefix) continue;
+      const sq = quotes.find(qu => qu.symbol === stock.symbol);
+      if (!sq) continue;
+      components.push({
+        symbol: stock.symbol,
+        name: stock.name,
+        price: sq.price,
+        changePercent: sq.changePercent,
+      });
+    }
+    // 只取前20只代表性个股（按涨跌幅排序取极值）
+    const sorted = components.sort((a, b) => b.changePercent - a.changePercent);
+    const topGainers = sorted.slice(0, 10);
+    const topLosers = sorted.slice(-10).reverse();
+
+    return json({
+      data: {
+        symbol: tencentSymbol,
+        name: idxConfig.name,
+        displaySymbol: idxConfig.symbol,
+        closePrice: q ? q.price : 0,
+        changePercent: q ? q.changePercent : 0,
+        volume: q ? q.volume : 0,
+        turnover: q ? q.turnover : 0,
+        highPrice: q ? q.highPrice : 0,
+        lowPrice: q ? q.lowPrice : 0,
+        openPrice: q ? q.openPrice : 0,
+        topGainers,
+        topLosers,
+      },
+      success: true,
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+/**
+ * 指数 K 线数据
+ */
+async function handleIndexKLine(tencentSymbol) {
+  try {
+    const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentSymbol);
+    if (!idxConfig) return error('Index not found', 404);
+
+    const limit = 120;
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
+
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
+    });
+    const data = await resp.json();
+    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
+
+    if (!dayData || !Array.isArray(dayData) || dayData.length === 0) {
+      return json({ data: { quotes: [], symbol: tencentSymbol, note: 'K线数据暂不可用' }, success: true });
+    }
+
+    const quotes = dayData.map(d => ({
+      tradeDate: d[0],
+      openPrice: parseFloat(d[1]) || 0,
+      closePrice: parseFloat(d[2]) || 0,
+      highPrice: parseFloat(d[3]) || 0,
+      lowPrice: parseFloat(d[4]) || 0,
+      volume: parseFloat(d[5]) || 0,
+      turnover: 0,
+    })).filter(q => q.openPrice > 0);
+
+    return json({ data: { quotes, symbol: tencentSymbol, count: quotes.length }, success: true });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+/**
+ * 指数策略分析 — 基于 K 线计算技术指标
+ */
+async function handleIndexStrategy(tencentSymbol) {
+  try {
+    const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentSymbol);
+    if (!idxConfig) return error('Index not found', 404);
+
+    const { quoteMap } = await getAllQuotes();
+    const pureCode = tencentSymbol.replace(/^[a-z]+/, '');
+    const q = quoteMap[pureCode] || quoteMap[tencentSymbol];
+
+    // 获取 K 线数据用于计算指标
+    const limit = 120;
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
+
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
+
+    if (!dayData || dayData.length < 30) {
+      return json({
+        data: {
+          symbol: tencentSymbol,
+          currentPrice: q ? q.price : 0,
+          changePercent: q ? q.changePercent : 0,
+          note: 'K线数据不足(需≥30日)',
+        },
+        success: true,
+      });
+    }
+
+    const prices = dayData.map(d => parseFloat(d[2])).filter(p => isFinite(p) && p > 0);
+    const strategy = generateStrategy({ ...q, symbol: tencentSymbol }, prices);
+
+    return json({ data: { ...strategy, name: idxConfig.name }, success: true });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
 // ==================== Phase 3: 策略信号引擎 ====================
 
 /**
@@ -1311,6 +1448,24 @@ export default {
     const klineMatch = path.match(/^\/api\/stocks\/(\d+)\/kline$/);
     if (klineMatch) {
       return handleStockKLine(klineMatch[1]);
+    }
+
+    // Index detail: /api/index/:symbol
+    const indexMatch = path.match(/^\/api\/index\/([a-z]+\d+)$/);
+    if (indexMatch) {
+      return handleIndexDetail(indexMatch[1]);
+    }
+
+    // Index K-line: /api/index/:symbol/kline
+    const indexKlineMatch = path.match(/^\/api\/index\/([a-z]+\d+)\/kline$/);
+    if (indexKlineMatch) {
+      return handleIndexKLine(indexKlineMatch[1]);
+    }
+
+    // Index strategy: /api/index/:symbol/strategy
+    const indexStrategyMatch = path.match(/^\/api\/index\/([a-z]+\d+)\/strategy$/);
+    if (indexStrategyMatch) {
+      return handleIndexStrategy(indexStrategyMatch[1]);
     }
 
     // Debug endpoint: test Tencent API connectivity
