@@ -148,7 +148,7 @@ const HomePage: React.FC = () => {
                       onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                       onClick={() => {
                         const sym = idx.symbol || '';
-                        if (sym) navigate(`/stocks/${sym}`);
+                        if (sym) navigate(`/index/${sym}`);
                       }}
                     >
                       {/* 左侧色条 */}

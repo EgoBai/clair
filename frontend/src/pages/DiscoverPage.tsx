@@ -22,7 +22,7 @@ const ACCENT = '#3b82f6';
 const GOLD = '#f59e0b';
 
 interface IndexData { name: string; symbol: string; closePrice: number; changePercent: number; volume: number; category?: string; }
-interface SectorScore { industry: string; score: number; changeScore: number; volumeScore: number; breadthScore: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number; }
+interface SectorScore { industry: string; score: number; changeScore: number; volumeScore: number; breadthScore: number; momentumScore?: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number; }
 interface StockData { symbol: string; name: string; price: number; changePercent: number; turnoverRate?: number; peRatio?: number; market: string; }
 
 const DiscoverPage: React.FC = () => {
@@ -34,6 +34,7 @@ const DiscoverPage: React.FC = () => {
   const [view, setView] = useState<'market' | 'sector'>('market');
   const [loading, setLoading] = useState(true);
   const [insight, setInsight] = useState<any>(null);
+  const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
 
   // Load market overview + scores + AI insight
   useEffect(() => {
@@ -80,7 +81,6 @@ const DiscoverPage: React.FC = () => {
   const downCount = scores.filter(s => s.avg_change_percent < 0).length;
   const upPct = scores.length > 0 ? Math.round((upCount / scores.length) * 100) : 0;
   const topScores = scores.slice(0, 3);
-  const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
 
   if (loading) return <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
 
@@ -126,7 +126,7 @@ const DiscoverPage: React.FC = () => {
                   )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                  {insight.sections.map((sec, i) => (
+                  {insight.sections.map((sec: any, i: number) => (
                     <div key={i} style={{
                       background: 'rgba(30,41,59,0.6)', border: `1px solid ${BORDER}`,
                       borderRadius: 8, padding: '12px 14px',
@@ -146,7 +146,7 @@ const DiscoverPage: React.FC = () => {
                   </span>
                   <span style={{ color: '#334155' }}>|</span>
                   <span style={{ fontSize: 11, color: '#64748b' }}>
-                    🏆 {insight.topSectors?.map(s => s.industry).join('、') || '—'}
+                    🏆 {insight.topSectors?.map((s: any) => s.industry).join('、') || '—'}
                   </span>
                 </div>
               </div>
@@ -180,7 +180,7 @@ const DiscoverPage: React.FC = () => {
                 {indices.slice(0, 6).map(idx => {
                   const up = idx.changePercent >= 0;
                   return (
-                    <div key={idx.symbol} onClick={() => navigate(`/stocks/${idx.symbol}`)} style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '10px 12px', cursor: 'pointer' }}>
+                    <div key={idx.symbol} onClick={() => navigate(`/index/${idx.symbol}`)} style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '10px 12px', cursor: 'pointer' }}>
                       <div style={{ fontSize: 11, color: TEXT_SEC }}>{idx.name}</div>
                       <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'monospace', color: TEXT }}>{idx.closePrice?.toLocaleString()}</div>
                       <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', color: up ? COLOR_UP : COLOR_DOWN }}>{up ? '+' : ''}{idx.changePercent?.toFixed(2)}%</span>

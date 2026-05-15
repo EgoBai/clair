@@ -133,16 +133,16 @@ const KLineChart = React.memo<KLineChartProps>(({
       }
     }
     bollSeries.push(
-      { name: 'BOLL上轨', type: 'line', data: bollUpper, smooth: false, symbol: 'none', lineStyle: { width: 0.8, color: 'rgba(59,130,246,0.4)' } },
-      { name: 'BOLL中轨', type: 'line', data: bollMid, smooth: false, symbol: 'none', lineStyle: { width: 1, color: 'rgba(59,130,246,0.6)' } },
-      { name: 'BOLL下轨', type: 'line', data: bollLower, smooth: false, symbol: 'none', lineStyle: { width: 0.8, color: 'rgba(59,130,246,0.4)' } },
+      { name: 'BOLL上轨', type: 'line', data: bollUpper, smooth: false, symbol: 'none', lineStyle: { width: 0.8, color: 'rgba(59,130,246,0.4)' } as any },
+      { name: 'BOLL中轨', type: 'line', data: bollMid, smooth: false, symbol: 'none', lineStyle: { width: 1, color: 'rgba(59,130,246,0.6)' } as any },
+      { name: 'BOLL下轨', type: 'line', data: bollLower, smooth: false, symbol: 'none', lineStyle: { width: 0.8, color: 'rgba(59,130,246,0.4)' } as any },
     );
     // BOLL 带区域
     bollSeries.push({
       name: 'BOLL带', type: 'line', data: bollUpper, smooth: false, symbol: 'none',
       lineStyle: { opacity: 0 },
       areaStyle: { color: 'rgba(59,130,246,0.05)' },
-    });
+    } as any);
 
     // 检测均线交叉信号（金叉/死叉）- 使用短周期MA5和MA10
     interface CrossSignalPoint {

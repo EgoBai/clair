@@ -22,6 +22,7 @@ const SectorDetailPage = lazy(() => import('../pages/SectorDetailPage'));
 
 // 发掘
 const DiscoverPage = lazy(() => import('../pages/DiscoverPage'));
+const IndexDetailPage = lazy(() => import('../pages/IndexDetailPage'));
 
 // 自选股 & 筛选
 const WatchlistPage = lazy(() => import('../pages/WatchlistPage'));
@@ -94,6 +95,7 @@ export const AppRoutes = () => {
 
         {/* 发掘 */}
         <Route path="/discover" element={<DiscoverPage />} />
+        <Route path="/index/:symbol" element={<IndexDetailPage />} />
 
         {/* 自选股 & 筛选 */}
         <Route path="/watchlist" element={<WatchlistPage />} />
