@@ -1,9 +1,12 @@
 import React from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import NavigationMenu from './NavigationMenu';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
+import { SettingOutlined } from '@ant-design/icons';
+import { Tooltip } from 'antd';
 
 export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
+  const navigate = useNavigate();
   return (
     <SimpleErrorBoundary name="AppLayout">
       <div className="app-layout">
@@ -14,6 +17,22 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
             {children || <Outlet />}
           </div>
         </main>
+
+        {/* 设置按钮 — 右下角小图标 */}
+        <Tooltip title="设置">
+          <div onClick={() => navigate('/settings')} style={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
+            width: 36, height: 36, borderRadius: 18,
+            background: '#1e293b', border: '1px solid #334155',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', opacity: 0.5, transition: 'opacity .2s',
+          }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
+          >
+            <SettingOutlined style={{ color: '#94a3b8', fontSize: 16 }} />
+          </div>
+        </Tooltip>
 
       <style>{`
         .app-layout {

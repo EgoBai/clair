@@ -22,13 +22,6 @@ const NAV_ITEMS: NavItem[] = [
     description: 'AI 驱动：大盘→板块→个股三级穿透'
   },
   {
-    id: 'watchlist',
-    label: '自选',
-    path: ROUTE_PATHS.WATCHLIST,
-    icon: '⭐',
-    description: '追踪关注的标的'
-  },
-  {
     id: 'market',
     label: '市场',
     path: ROUTE_PATHS.MARKET,
@@ -36,11 +29,11 @@ const NAV_ITEMS: NavItem[] = [
     description: '市场趋势和数据分析'
   },
   {
-    id: 'settings',
-    label: '设置',
-    path: ROUTE_PATHS.SETTINGS,
-    icon: '⚙️',
-    description: '系统设置和偏好'
+    id: 'watchlist',
+    label: '自选',
+    path: ROUTE_PATHS.WATCHLIST,
+    icon: '⭐',
+    description: '追踪关注的标的'
   }
 ];
 

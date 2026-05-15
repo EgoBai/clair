@@ -146,20 +146,12 @@ const StockDetailPage: React.FC = () => {
     if (!symbol) return;
     setKlineLoading(true);
     try {
-      const limit = klinePeriod === 'daily' ? 120 : klinePeriod === 'weekly' ? 52 : 24;
-      // 使用与 fetchStockData 相同的符号候选逻辑
-      const candidates = symbol.includes('.') ? [symbol] : [`${symbol}.SH`, `${symbol}.SZ`, symbol];
-      let quotes: any[] = [];
-      for (const sym of candidates) {
-        const resp = await fetch(`/api/stocks/${sym}/quotes?limit=${limit}`);
-        const data = await resp.json();
-        if (data.success && data.data?.quotes?.length > 0) {
-          quotes = data.data.quotes;
-          break;
-        }
-      }
-      if (quotes.length > 0) {
-        const kData: KLineData[] = quotes
+      const pureSymbol = symbol.replace(/\.(SH|SZ)$/, '');
+      // 使用 Worker 的 K 线端点获取真实数据
+      const resp = await fetch(`/api/stocks/${pureSymbol}/kline`);
+      const data = await resp.json();
+      if (data.success && data.data?.quotes?.length > 0) {
+        const kData: KLineData[] = data.data.quotes
           .map((q: any) => ({
             tradeDate: q.tradeDate,
             open: q.openPrice || 0,
@@ -168,8 +160,7 @@ const StockDetailPage: React.FC = () => {
             low: q.lowPrice || 0,
             volume: q.volume || 0,
             turnover: q.turnover || 0,
-          }))
-          .reverse();
+          }));
         setKlineData(kData);
       }
     } catch (e) {
