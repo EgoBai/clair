@@ -30,8 +30,8 @@ interface MarketIndex {
   changePercent: number; volume: number; category?: string;
 }
 interface StockQuote {
-  symbol: string; name: string; closePrice: number;
-  changePercent: number; change: number; volume: number; turnover: number;
+  symbol: string; name: string; price: number;
+  changePercent: number; volume: number; turnover: number;
 }
 
 const HomePage: React.FC = () => {
@@ -52,35 +52,14 @@ const HomePage: React.FC = () => {
   const loadData = async () => {
     setLoading(true); setError(null);
     try {
-      const [indicesRes, stocksRes] = await Promise.all([
+      const [indicesRes, topRes] = await Promise.all([
         fetch('/api/market/indices').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/stocks?limit=50').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/stocks/top').then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       setIndices(indicesRes?.data?.indices || []);
-
-      const stockList = stocksRes?.data?.stocks || [];
-      if (stockList.length > 0) {
-        const symbols = stockList.map((s: any) => s.symbol);
-        const quotesRes = await fetch('/api/stocks/batch/quotes', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbols }),
-        }).then(r => r.ok ? r.json() : null).catch(() => null);
-
-        const stocksData = quotesRes?.data?.stocks || [];
-        const withQuotes: StockQuote[] = stocksData
-          .filter((s: any) => s.latestQuote)
-          .map((s: any) => ({
-            symbol: s.symbol?.replace(/\.(SH|SZ)$/, '') || s.symbol,
-            name: s.name || s.symbol,
-            closePrice: s.latestQuote.closePrice || 0,
-            changePercent: s.latestQuote.changePercent || 0,
-            change: s.latestQuote.change || 0,
-            volume: s.latestQuote.volume || 0,
-            turnover: s.latestQuote.turnover || 0,
-          }));
-        const sorted = [...withQuotes].sort((a, b) => b.changePercent - a.changePercent);
-        setTopGainers(sorted.slice(0, 5));
-        setTopLosers(sorted.slice(-5).reverse());
+      if (topRes?.data) {
+        setTopGainers(topRes.data.gainers || []);
+        setTopLosers(topRes.data.losers || []);
       }
     } catch { setError('数据加载失败'); }
     finally { setLoading(false); }
@@ -94,7 +73,7 @@ const HomePage: React.FC = () => {
       <Link to={`/stocks/${v}`} style={{ color: '#2563eb', fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>{v}</Link>
     )},
     { title: '名称', dataIndex: 'name', ellipsis: true, render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
-    { title: '最新价', dataIndex: 'closePrice', align: 'right' as const, width: 80,
+    { title: '最新价', dataIndex: 'price', align: 'right' as const, width: 80,
       render: (v: number) => <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{v?.toFixed(2)}</span> },
     { title: '涨跌幅', dataIndex: 'changePercent', align: 'right' as const, width: 80,
       render: (v: number) => (

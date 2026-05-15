@@ -98,6 +98,40 @@ function getFallbackStocks() {
 // ==================== 腾讯 API 解析 ====================
 
 /**
+ * Top movers: returns top 10 gainers and losers from real-time quotes
+ */
+async function handleTopMovers() {
+  try {
+    const { quotes } = await getAllQuotes();
+    const stocks = await getStockList();
+
+    // Build name map from stock list
+    const nameMap = {};
+    for (const s of stocks) nameMap[s.symbol] = s.name;
+
+    // Attach names and sort
+    const enriched = quotes
+      .filter(q => q.price > 0.01 && q.changePercent !== 0)
+      .map(q => ({
+        symbol: q.symbol,
+        name: nameMap[q.symbol] || q.symbol,
+        price: q.price,
+        changePercent: q.changePercent,
+        volume: q.volume,
+        turnover: q.turnover,
+      }));
+
+    const sorted = [...enriched].sort((a, b) => b.changePercent - a.changePercent);
+    const gainers = sorted.slice(0, 10);
+    const losers = sorted.slice(-10).reverse();
+
+    return json({ data: { gainers, losers, total: enriched.length }, success: true });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+/**
  * 腾讯行情 API 返回 GBK 编码的文本
  * 格式: v_sh600519="1~贵州茅台~600519~1850.00~..."
  * 字段索引: 1=name, 2=symbol, 3=price, 4=prevClose, 5=open, 6=volume,
@@ -1226,6 +1260,11 @@ export default {
     // Stock search: /api/stocks/search?q=
     if (path === '/api/stocks/search') {
       return handleStockSearch(url.searchParams.get('q'));
+    }
+
+    // Top movers: /api/stocks/top
+    if (path === '/api/stocks/top') {
+      return handleTopMovers();
     }
 
     // Phase 2: AI market insight
