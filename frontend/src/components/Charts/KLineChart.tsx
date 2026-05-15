@@ -113,6 +113,37 @@ const KLineChart = React.memo<KLineChartProps>(({
       }
     }
 
+    // 布林带 BOLL (MA20 ± 2σ)
+    const bollSeries: LineSeriesOption[] = [];
+    const bollMid = calculateMA(data.map(d => d.close), 20);
+    const bollUpper: (number | null)[] = [];
+    const bollLower: (number | null)[] = [];
+    for (let i = 0; i < data.length; i++) {
+      if (bollMid[i] === null) {
+        bollUpper.push(null); bollLower.push(null);
+      } else {
+        let sumSq = 0, count = 0;
+        for (let j = Math.max(0, i - 19); j <= i; j++) {
+          sumSq += Math.pow(data[j].close - bollMid[i]!, 2);
+          count++;
+        }
+        const std = Math.sqrt(sumSq / count);
+        bollUpper.push(parseFloat((bollMid[i]! + 2 * std).toFixed(2)));
+        bollLower.push(parseFloat((bollMid[i]! - 2 * std).toFixed(2)));
+      }
+    }
+    bollSeries.push(
+      { name: 'BOLL上轨', type: 'line', data: bollUpper, smooth: false, symbol: 'none', lineStyle: { width: 0.8, color: 'rgba(59,130,246,0.4)' } },
+      { name: 'BOLL中轨', type: 'line', data: bollMid, smooth: false, symbol: 'none', lineStyle: { width: 1, color: 'rgba(59,130,246,0.6)' } },
+      { name: 'BOLL下轨', type: 'line', data: bollLower, smooth: false, symbol: 'none', lineStyle: { width: 0.8, color: 'rgba(59,130,246,0.4)' } },
+    );
+    // BOLL 带区域
+    bollSeries.push({
+      name: 'BOLL带', type: 'line', data: bollUpper, smooth: false, symbol: 'none',
+      lineStyle: { opacity: 0 },
+      areaStyle: { color: 'rgba(59,130,246,0.05)' },
+    });
+
     // 检测均线交叉信号（金叉/死叉）- 使用短周期MA5和MA10
     interface CrossSignalPoint {
       coord: [number, number];
@@ -344,6 +375,7 @@ const KLineChart = React.memo<KLineChartProps>(({
       legend: {
         data: [
           ...(showMA ? maLines.map(p => `MA${p}`) : []),
+          'BOLL上轨', 'BOLL中轨', 'BOLL下轨',
           ...(showEMA ? emaLines.map(p => `EMA${p}`) : []),
         ],
         top: 28,
@@ -440,6 +472,7 @@ const KLineChart = React.memo<KLineChartProps>(({
           } : undefined,
         },
         ...maSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),
+        ...bollSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),
         ...emaSeries.map(s => ({ ...s, xAxisIndex: 0, yAxisIndex: 0 })),
         ...subChartSeries,
       ],

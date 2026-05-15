@@ -2,3 +2,7 @@ name = "clair-api"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "."
+
+[[kv_namespaces]]
+binding = "STOCK_DATA"
+id = "010c09cd7c8e49d887da37f5514e861f"

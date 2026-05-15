@@ -35,53 +35,22 @@ async function getStockList() {
     return stockListCache;
   }
 
+  // Try KV (full list from Cloudflare KV storage)
   try {
-    // 申万行业分类 — 从东方财富 API 拉取
-    const url = 'https://push2.eastmoney.com/api/qt/clist/get' +
-      '?pn=1&pz=5000&po=1&np=1&fltt=2&invt=2&fid=f3' +
-      '&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23' +
-      '&fields=f2,f3,f4,f12,f14,f100,f102';
-
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com' },
-    });
-    const data = await resp.json();
-    const items = data?.data?.diff || [];
-
-    if (items.length === 0) throw new Error('Empty response');
-
-    const stocks = [];
-    for (const item of items) {
-      const code = item.f12;
-      const name = item.f14;
-      const industry = item.f100 || '综合';
-      if (!code || !name) continue;
-
-      let market = 'SZ';
-      if (code.startsWith('6')) market = 'SH';
-      else if (code.startsWith('0') || code.startsWith('3')) market = 'SZ';
-      else if (code.startsWith('8') || code.startsWith('4')) market = 'BJ';
-
-      stocks.push({ symbol: code, name, market, industry, concept: null });
+    const kv = globalThis.__env?.STOCK_DATA;
+    if (kv) {
+      const kvData = await kv.get('all_stocks_json', { type: 'json' });
+      if (kvData && Array.isArray(kvData) && kvData.length > 500) {
+        stockListCache = kvData;
+        stockListCacheTime = now;
+        console.log(`[StockList] KV: ${kvData.length} stocks`);
+        return kvData;
+      }
     }
+  } catch (e) { /* fall through */ }
 
-    const seen = new Set();
-    const unique = stocks.filter(s => {
-      if (seen.has(s.symbol)) return false;
-      seen.add(s.symbol);
-      return s.symbol.length === 6;
-    });
-
-    console.log(`[StockList] 从 EastMoney 拉取 ${unique.length} 只股票`);
-    stockListCache = unique;
-    stockListCacheTime = now;
-    return unique;
-  } catch (e) {
-    console.error('[StockList] EastMoney API 失败:', e.message);
-    if (stockListCache) return stockListCache;
-    // Fallback: 200只核心A股，覆盖28个申万一级行业
-    return getFallbackStocks();
-  }
+  // Fallback: hardcoded list
+  return getFallbackStocks();
 }
 
 // 行业标准化映射 (EastMoney → 申万一级行业)
@@ -553,7 +522,6 @@ async function handleConceptMomentum() {
       if (!q) continue;
       const concepts = stock.concepts || [];
       if (concepts.length === 0) continue;
-
       for (const concept of concepts) {
         if (!conceptMap[concept]) {
           conceptMap[concept] = { stocks: [], totalChange: 0, totalVolume: 0, totalTurnover: 0, limitUpCount: 0 };
@@ -1274,6 +1242,8 @@ async function handleDebug() {
 
 export default {
   async fetch(request, env, ctx) {
+    // Make env available to all handler functions
+    globalThis.__env = env;
     const url = new URL(request.url);
     const path = url.pathname;
 

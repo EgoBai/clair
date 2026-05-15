@@ -67,6 +67,7 @@ const StockDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [klineLoading, setKlineLoading] = useState(true);
   const [klinePeriod, setKlinePeriod] = useState<string>('daily');
+  const [subIndicator, setSubIndicator] = useState<'volume'|'macd'|'rsi'>('volume');
 
   const changeColor = useMemo(() => {
     if (!latestQuote) return COLOR_FLAT;
@@ -101,40 +102,22 @@ const StockDetailPage: React.FC = () => {
     if (!symbol) return;
     setLoading(true);
     try {
-      // 优先查带后缀的真实数据
-      const candidates = symbol.includes('.') 
-        ? [symbol] 
-        : [`${symbol}.SH`, `${symbol}.SZ`, symbol];
+      // 去后缀，纯代码查询
+      const pureSymbol = symbol.replace(/\.(SH|SZ)$/, '');
+      const resp = await fetch(`/api/stocks/${pureSymbol}`);
+      const data = await resp.json();
       
-      let bestData: any = null;
-      for (const sym of candidates) {
-        try {
-          const resp = await fetch(`/api/stocks/${sym}/latest`);
-          const data = await resp.json();
-          if (data.success && data.data?.latestQuote?.closePrice > 0) {
-            bestData = data.data;
-            break;
-          }
-        } catch {}
-      }
-      
-      // Fallback to first candidate
-      if (!bestData) {
-        const resp = await fetch(`/api/stocks/${candidates[0]}/latest`);
-        const data = await resp.json();
-        if (data.success) bestData = data.data;
-      }
-
-      if (bestData) {
+      if (data.success && data.data) {
+        const d = data.data;
         setStockInfo({
-          symbol: bestData.symbol || symbol,
-          name: bestData.name || symbol,
-          fullName: bestData.fullName,
-          market: bestData.market || (symbol.includes('.SH') ? 'SH' : symbol.includes('.SZ') ? 'SZ' : ''),
-          industry: bestData.industry,
+          symbol: d.symbol || symbol,
+          name: d.name || symbol,
+          fullName: d.fullName,
+          market: d.market || '',
+          industry: d.industry || '',
         });
-        if (bestData.latestQuote && bestData.latestQuote.closePrice > 0) {
-          setLatestQuote(bestData.latestQuote);
+        if (d.quote && d.quote.closePrice > 0) {
+          setLatestQuote(d.quote);
         }
       }
     } finally {
@@ -174,7 +157,7 @@ const StockDetailPage: React.FC = () => {
   useEffect(() => { fetchKlineData(); }, [fetchKlineData]);
 
   const displaySymbol = symbol?.replace(/\.(SH|SZ)$/, '') || symbol || '';
-  const marketLabel = stockInfo?.market === 'SH' ? '沪' : stockInfo?.market === 'SZ' ? '深' : '';
+  const marketLabel = stockInfo?.market === 'SH' ? '沪' : stockInfo?.market === 'SZ' ? '深' : stockInfo?.market === 'INDEX' ? '指' : '';
 
   if (!symbol) {
     return <div style={{ padding: 24, textAlign: 'center' }}><Empty description="未指定股票代码" /></div>;
@@ -215,8 +198,8 @@ const StockDetailPage: React.FC = () => {
                   </Title>
                   <Tag style={{ fontSize: 12, borderRadius: 4 }}>{displaySymbol}</Tag>
                   {marketLabel && (
-                    <Tag color={marketLabel === '沪' ? 'red' : 'green'} style={{ borderRadius: 4 }}>
-                      {marketLabel === '沪' ? '沪市' : '深市'}
+                    <Tag color={marketLabel === '沪' ? 'red' : marketLabel === '深' ? 'green' : 'blue'} style={{ borderRadius: 4 }}>
+                      {marketLabel === '沪' ? '沪市' : marketLabel === '深' ? '深市' : '指数'}
                     </Tag>
                   )}
                   <Tooltip title={isInWatchlist ? '取消自选' : '加入自选'}>
@@ -309,15 +292,26 @@ const StockDetailPage: React.FC = () => {
           style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
         >
           {klineData.length > 0 ? (
-            <KLineChart
-              data={klineData}
-              title={`${stockInfo?.name || symbol} - ${klinePeriod === 'daily' ? '日K' : klinePeriod === 'weekly' ? '周K' : '月K'}`}
-              height={520}
-              loading={klineLoading}
-              showMA={true}
-              maLines={[5, 10, 20, 60]}
-              subIndicator="volume"
-            />
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'flex-end' }}>
+                {(['volume','macd','rsi'] as const).map(ind => (
+                  <Button key={ind} size="small" type={subIndicator === ind ? 'primary' : 'default'}
+                    onClick={() => setSubIndicator(ind)}
+                    style={{ fontSize: 11, padding: '0 8px' }}>
+                    {ind === 'volume' ? '成交量' : ind.toUpperCase()}
+                  </Button>
+                ))}
+              </div>
+              <KLineChart
+                data={klineData}
+                title={`${stockInfo?.name || symbol} - ${klinePeriod === 'daily' ? '日K' : klinePeriod === 'weekly' ? '周K' : '月K'}`}
+                height={520}
+                loading={klineLoading}
+                showMA={true}
+                maLines={[5, 10, 20, 60]}
+                subIndicator={subIndicator}
+              />
+            </>
           ) : (
             <div style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {klineLoading ? <Spin tip="加载K线数据..." /> : <Empty description="暂无K线数据" />}
