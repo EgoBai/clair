@@ -118,6 +118,44 @@ function normalizeIndustry(raw) {
 
 // Fallback 股票列表：200只核心A股，覆盖28个申万一级行业
 function getFallbackStocks() {
+  // 概念标签映射
+  const CONCEPT_TAGS = {
+    '600519': ['白酒龙头','消费升级','价值投资'], '000858': ['白酒龙头','消费升级'],
+    '002594': ['新能源汽车','锂电池','比亚迪产业链'], '300750': ['新能源电池','宁德时代产业链','储能'],
+    '601012': ['光伏','碳中和','新能源'], '300274': ['光伏逆变器','储能','新能源'],
+    '002230': ['人工智能','ChatGPT','数字经济'], '688256': ['AI芯片','人工智能','半导体'],
+    '688981': ['半导体','国产替代','芯片'], '002371': ['半导体设备','国产替代'],
+    '300059': ['互联网金融','券商','AI金融'], '300033': ['金融科技','AI金融'],
+    '600941': ['数字经济','央企改革','5G'], '601728': ['数字经济','央企改革'],
+    '601318': ['保险龙头','金融科技'], '600036': ['银行龙头','高股息'],
+    '601088': ['煤炭','高股息','央企改革'], '600900': ['电力','高股息','碳中和'],
+    '601899': ['黄金','有色金属','贵金属'], '603799': ['锂电池','新能源','钴'],
+    '600276': ['创新药','医药龙头'], '300760': ['医疗器械','医药龙头'],
+    '601857': ['石油','央企改革','高股息'], '600028': ['石油','央企改革'],
+    '601127': ['新能源汽车','华为产业链'], '002475': ['消费电子','苹果产业链'],
+    '300308': ['光通信','AI算力','CPO'], '000063': ['5G','通信设备','数字经济'],
+    '601985': ['核电','央企改革','碳中和'], '600031': ['工程机械','基建'],
+    '601668': ['基建','央企改革','一带一路'], '601390': ['基建','央企改革'],
+    '002352': ['物流','快递'], '603259': ['CRO','创新药','医药'],
+    '688012': ['半导体设备','国产替代','中芯国际产业链'],
+    '600760': ['军工','航天','国企改革'], '600893': ['军工','航空发动机'],
+    '002027': ['传媒','数字经济'], '002555': ['游戏','元宇宙'],
+    '600754': ['旅游','消费复苏'], '300896': ['医美','消费升级'],
+    '688111': ['信创','数字经济','办公软件'], '600570': ['金融科技','信创'],
+    '002459': ['光伏','新能源'], '300014': ['新能源电池','储能'],
+    '600048': ['房地产','央企改革'], '000002': ['房地产'],
+    '601111': ['航空','国企改革'], '600029': ['航空','国企改革'],
+    '002714': ['猪肉','农林牧渔'], '300498': ['猪肉','农林牧渔'],
+    '600809': ['白酒','消费升级'], '000568': ['白酒','消费升级'],
+    '600887': ['乳业','消费升级'], '603288': ['调味品','消费升级'],
+    '688041': ['AI芯片','半导体','国产替代'], '002049': ['半导体','国产替代','军工电子'],
+    '688599': ['光伏','新能源'], '002812': ['锂电池','新能源'],
+    '600150': ['船舶','军工','国企改革'], '600111': ['稀土','有色金属','新能源'],
+    '002460': ['锂电池','新能源','锂矿'], '000725': ['面板','消费电子'],
+    '603501': ['半导体','消费电子','芯片'], '300782': ['射频','5G','半导体'],
+    '601615': ['风电','新能源','碳中和'],
+  };
+
   const list = [
     // 银行 (8)
     ['601398','工商银行','SH','银行'],['600036','招商银行','SH','银行'],['601939','建设银行','SH','银行'],
@@ -210,7 +248,10 @@ function getFallbackStocks() {
     // 轻工制造 (2)
     ['002572','索菲亚','SZ','轻工制造'],['603833','欧派家居','SH','轻工制造'],
   ];
-  return list.map(([code, name, market, industry]) => ({ symbol: code, name, market, industry }));
+  return list.map(([code, name, market, industry]) => ({ 
+    symbol: code, name, market, industry,
+    concepts: CONCEPT_TAGS[code] || []
+  }));
 }
 
 // ==================== 腾讯 API 解析 ====================
@@ -383,34 +424,67 @@ async function handleSectorMomentum() {
       if (q.changePercent >= 9.9) sectorMap[normIndustry].limitUpCount++;
     }
 
-    // 计算得分 (4维度)
-    const sectors = Object.entries(sectorMap).map(([industry, data]) => {
-      const count = data.stocks.length;
-      if (count < 3) return null; // 过滤样本过小的板块
-      const avgChange = data.totalChange / count;
-      const upCount = data.stocks.filter(s => s.quote.changePercent > 0).length;
-      const breadthScore = (upCount / count) * 100;
-      const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 10));
-      const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 8));
-      const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 8));
-      const score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
-
-      return {
-        industry, score,
-        changeScore: Math.round(changeScore),
-        volumeScore: Math.round(volumeScore),
-        breadthScore: Math.round(breadthScore),
-        momentumScore: Math.round(momentumScore),
-        stock_count: count,
-        avg_change_percent: Math.round(avgChange * 100) / 100,
-        total_turnover: data.totalTurnover,
-        limit_up_count: data.limitUpCount,
-      };
-    }).filter(Boolean);
-
-    sectors.sort((a, b) => b.score - a.score);
-
+    const sectors = buildSectorScores(sectorMap);
     return json({ data: { sectors, type: 'industry', total_stocks: stocks.length }, success: true });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+function buildSectorScores(sectorMap) {
+  return Object.entries(sectorMap).map(([industry, data]) => {
+    const count = data.stocks.length;
+    if (count < 3) return null;
+    const avgChange = data.totalChange / count;
+    const upCount = data.stocks.filter(s => s.quote.changePercent > 0).length;
+    const breadthScore = (upCount / count) * 100;
+    const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 10));
+    const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 8));
+    const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 8));
+    const score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
+
+    return {
+      industry, score,
+      changeScore: Math.round(changeScore),
+      volumeScore: Math.round(volumeScore),
+      breadthScore: Math.round(breadthScore),
+      momentumScore: Math.round(momentumScore),
+      stock_count: count,
+      avg_change_percent: Math.round(avgChange * 100) / 100,
+      total_turnover: data.totalTurnover,
+      limit_up_count: data.limitUpCount,
+    };
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+}
+
+// ==================== 概念板块 ====================
+
+async function handleConceptMomentum() {
+  try {
+    const { quotes } = await getAllQuotes();
+    const stocks = await getStockList();
+
+    const conceptMap = {};
+    for (const stock of stocks) {
+      const q = quotes.find(qu => qu.symbol === stock.symbol);
+      if (!q) continue;
+      const concepts = stock.concepts || [];
+      if (concepts.length === 0) continue;
+
+      for (const concept of concepts) {
+        if (!conceptMap[concept]) {
+          conceptMap[concept] = { stocks: [], totalChange: 0, totalVolume: 0, totalTurnover: 0, limitUpCount: 0 };
+        }
+        conceptMap[concept].stocks.push({ ...stock, quote: q });
+        conceptMap[concept].totalChange += q.changePercent;
+        conceptMap[concept].totalVolume += q.volume;
+        conceptMap[concept].totalTurnover += q.turnover;
+        if (q.changePercent >= 9.9) conceptMap[concept].limitUpCount++;
+      }
+    }
+
+    const sectors = buildSectorScores(conceptMap);
+    return json({ data: { sectors, type: 'concept', total_stocks: stocks.length }, success: true });
   } catch (e) {
     return error(e.message);
   }
@@ -1063,6 +1137,11 @@ export default {
     // Sector momentum
     if (path === '/api/sectors/momentum') {
       return handleSectorMomentum();
+    }
+
+    // Concept momentum
+    if (path === '/api/sectors/concept') {
+      return handleConceptMomentum();
     }
 
     // Sector stocks: /api/sectors/:industry/stocks

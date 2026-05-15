@@ -39,9 +39,10 @@ const DiscoverPage: React.FC = () => {
   useEffect(() => {
     (async () => {
       setLoading(true);
+      const apiPath = sectorType === 'industry' ? '/api/sectors/momentum' : '/api/sectors/concept';
       const [iRes, sRes, aiRes] = await Promise.all([
         fetch('/api/market/indices').then(r => r.json()).catch(() => ({ data: { indices: [] } })),
-        fetch('/api/sectors/momentum').then(r => r.json()).catch(() => ({ data: { sectors: [] } })),
+        fetch(apiPath).then(r => r.json()).catch(() => ({ data: { sectors: [] } })),
         fetch('/api/ai/market-insight').then(r => r.json()).catch(() => null),
       ]);
       setIndices(iRes.data?.indices || []);
@@ -49,7 +50,7 @@ const DiscoverPage: React.FC = () => {
       if (aiRes?.data) setInsight(aiRes.data);
       setLoading(false);
     })();
-  }, []);
+  }, [sectorType]);
 
   // Load sector stocks
   const openSector = useCallback(async (s: SectorScore) => {
