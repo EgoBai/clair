@@ -68,6 +68,7 @@ const StockDetailPage: React.FC = () => {
   const [klineLoading, setKlineLoading] = useState(true);
   const [klinePeriod, setKlinePeriod] = useState<string>('daily');
   const [subIndicator, setSubIndicator] = useState<'volume'|'macd'|'rsi'>('volume');
+  const [aiStrategy, setAiStrategy] = useState<any>(null);
 
   const changeColor = useMemo(() => {
     if (!latestQuote) return COLOR_FLAT;
@@ -130,11 +131,13 @@ const StockDetailPage: React.FC = () => {
     setKlineLoading(true);
     try {
       const pureSymbol = symbol.replace(/\.(SH|SZ)$/, '');
-      // 使用 Worker 的 K 线端点获取真实数据
-      const resp = await fetch(`/api/stocks/${pureSymbol}/kline`);
-      const data = await resp.json();
-      if (data.success && data.data?.quotes?.length > 0) {
-        const kData: KLineData[] = data.data.quotes
+      const [kResp, sResp] = await Promise.all([
+        fetch(`/api/stocks/${pureSymbol}/kline`).then(r => r.json()),
+        fetch(`/api/stocks/${pureSymbol}/strategy`).then(r => r.json()).catch(() => null),
+      ]);
+      // K-line data
+      if (kResp.success && kResp.data?.quotes?.length > 0) {
+        const kData: KLineData[] = kResp.data.quotes
           .map((q: any) => ({
             tradeDate: q.tradeDate,
             open: q.openPrice || 0,
@@ -146,6 +149,8 @@ const StockDetailPage: React.FC = () => {
           }));
         setKlineData(kData);
       }
+      // Strategy data from Worker
+      if (sResp?.success && sResp.data) setAiStrategy(sResp.data);
     } catch (e) {
       console.error('获取K线数据失败:', e);
     } finally {
@@ -319,7 +324,74 @@ const StockDetailPage: React.FC = () => {
           )}
         </Card>
 
-        {/* ===== 策略分析 ===== */}
+        {/* ===== AI策略建议 (Worker端) ===== */}
+        {aiStrategy && aiStrategy.score !== undefined && (
+          <Card
+            size="small"
+            title={<span style={{ fontWeight: 700, color: TEXT_PRIMARY, fontSize: 14 }}>🤖 AI策略建议</span>}
+            style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
+          >
+            <Row gutter={[16, 12]}>
+              <Col xs={12} sm={6}>
+                <div style={{ textAlign: 'center', padding: 8 }}>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>综合评分</div>
+                  <div style={{ fontSize: 28, fontWeight: 800,
+                    color: aiStrategy.score >= 70 ? COLOR_UP : aiStrategy.score >= 40 ? '#f59e0b' : COLOR_DOWN }}>
+                    {aiStrategy.score}
+                  </div>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY }}>分</div>
+                </div>
+              </Col>
+              <Col xs={12} sm={6}>
+                <div style={{ textAlign: 'center', padding: 8 }}>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>仓位建议</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: aiStrategy.positionPct > 50 ? COLOR_UP : aiStrategy.positionPct > 20 ? '#f59e0b' : COLOR_DOWN }}>
+                    {aiStrategy.position || '-'}
+                  </div>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY }}>{aiStrategy.positionPct || 0}%</div>
+                </div>
+              </Col>
+              <Col xs={12} sm={6}>
+                <div style={{ textAlign: 'center', padding: 8 }}>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>止损/止盈</div>
+                  <div style={{ fontSize: 13, fontFamily: 'monospace' }}>
+                    <span style={{ color: COLOR_DOWN }}>↓{aiStrategy.stopLoss?.toFixed(2) || '-'}</span>
+                    <span style={{ margin: '0 6px', color: BORDER }}>|</span>
+                    <span style={{ color: COLOR_UP }}>↑{aiStrategy.takeProfit?.toFixed(2) || '-'}</span>
+                  </div>
+                </div>
+              </Col>
+              <Col xs={12} sm={6}>
+                <div style={{ textAlign: 'center', padding: 8 }}>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>RSI(14)</div>
+                  <div style={{ fontSize: 20, fontWeight: 700,
+                    color: (aiStrategy.rsi || 50) > 70 ? COLOR_DOWN : (aiStrategy.rsi || 50) < 30 ? COLOR_UP : TEXT_PRIMARY }}>
+                    {aiStrategy.rsi?.toFixed(1) || '-'}
+                  </div>
+                </div>
+              </Col>
+            </Row>
+            {aiStrategy.summary && (
+              <>
+                <Divider style={{ margin: '8px 0' }} />
+                <div style={{ fontSize: 13, color: TEXT_PRIMARY, lineHeight: 1.8, background: '#f8fafc', padding: '10px 14px', borderRadius: 6 }}>
+                  {aiStrategy.summary}
+                </div>
+              </>
+            )}
+            {(aiStrategy.maAlignment || aiStrategy.crossover) && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {aiStrategy.maAlignment && <Tag color="blue">{aiStrategy.maAlignment}</Tag>}
+                {aiStrategy.crossover === 'golden_cross' && <Tag color="red">金叉</Tag>}
+                {aiStrategy.crossover === 'death_cross' && <Tag color="green">死叉</Tag>}
+                {aiStrategy.macdSignal === 'bullish' && <Tag color="red">MACD金叉</Tag>}
+                {aiStrategy.macdSignal === 'bearish' && <Tag color="green">MACD死叉</Tag>}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* ===== 策略分析 (客户端) ===== */}
         {klineData.length >= 20 && (() => {
           const strategy = analyze(klineData);
           const trendColors = { up: COLOR_UP, down: COLOR_DOWN, sideways: '#f59e0b' };
