@@ -1261,12 +1261,13 @@ async function handleDebug() {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com' },
     });
     const emData = await emResp.json();
+    const diff = emData?.data?.diff;
     results.eastmoney = {
       ok: emResp.ok,
       status: emResp.status,
       latencyMs: Date.now() - emStart,
-      count: emData?.data?.diff?.length || 0,
-      sample: emData?.data?.diff?.slice(0, 3),
+      count: Array.isArray(diff) ? diff.length : 0,
+      sample: Array.isArray(diff) ? diff.slice(0, 3) : null,
     };
   } catch (e) {
     results.eastmoney = { error: e.message };
