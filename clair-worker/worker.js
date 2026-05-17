@@ -1386,6 +1386,66 @@ async function handleStockNews(symbol) {
   }
 }
 
+// ==================== Alerts API ====================
+
+/**
+ * Watchlist alerts: check for significant price/volume changes
+ * GET /api/alerts?symbols=600519,000001
+ */
+async function handleAlerts(url) {
+  try {
+    const params = new URL(url).searchParams;
+    const symbolsStr = params.get('symbols') || '';
+    const symbols = symbolsStr.split(',').map(s => s.trim()).filter(Boolean);
+    
+    if (symbols.length === 0) {
+      return json({ data: [], note: 'No symbols provided' });
+    }
+    
+    const { quotes } = await getAllQuotes();
+    const alerts = [];
+    
+    for (const symbol of symbols) {
+      const q = quotes.find(qu => qu.symbol === symbol);
+      if (!q) continue;
+      
+      const stockAlerts = [];
+      const pct = Math.abs(q.changePercent || 0);
+      const name = q.name || symbol;
+      
+      // Price change alerts
+      if (pct >= 9.5) {
+        stockAlerts.push({ type: 'limit_move', level: 'critical', message: `${name}逼近涨跌停(${q.changePercent > 0 ? '+' : ''}${q.changePercent}%)`, color: q.changePercent > 0 ? 'red' : 'green' });
+      } else if (pct >= 7) {
+        stockAlerts.push({ type: 'big_move', level: 'warning', message: `${name}大幅${q.changePercent > 0 ? '上涨' : '下跌'}(${q.changePercent > 0 ? '+' : ''}${q.changePercent}%)`, color: q.changePercent > 0 ? '#ff4d4f' : '#52c41a' });
+      } else if (pct >= 5) {
+        stockAlerts.push({ type: 'notable_move', level: 'info', message: `${name}显著${q.changePercent > 0 ? '上涨' : '下跌'}(${q.changePercent > 0 ? '+' : ''}${q.changePercent}%)`, color: q.changePercent > 0 ? '#fa8c16' : '#1890ff' });
+      }
+      
+      // Volume spike (>3x average is notable, but we don't track avg here, so use turnover rate)
+      if (q.turnoverRate && q.turnoverRate > 15) {
+        stockAlerts.push({ type: 'volume_spike', level: 'warning', message: `${name}换手率异常(${q.turnoverRate}%)，资金博弈激烈`, color: '#fa8c16' });
+      } else if (q.turnoverRate && q.turnoverRate > 8) {
+        stockAlerts.push({ type: 'volume_active', level: 'info', message: `${name}交投活跃(换手率${q.turnoverRate}%)`, color: '#1890ff' });
+      }
+      
+      if (stockAlerts.length > 0) {
+        alerts.push({
+          symbol,
+          name: q.name,
+          price: q.price,
+          changePercent: q.changePercent,
+          alerts: stockAlerts,
+        });
+      }
+    }
+    
+    return json({ data: alerts, count: alerts.length, timestamp: Date.now() });
+  } catch (e) {
+    return json({ data: [], error: e.message });
+  }
+}
+
 async function handleDebug() {
   const results = {};
 
@@ -1552,6 +1612,11 @@ export default {
     const stockNewsMatch = path.match(/^\/api\/news\/(\d+)$/);
     if (stockNewsMatch) {
       return handleStockNews(stockNewsMatch[1]);
+    }
+
+    // Watchlist alerts: /api/alerts?symbols=600519,000001
+    if (path === '/api/alerts') {
+      return handleAlerts(url);
     }
 
     return error('Not found', 404);
