@@ -446,6 +446,7 @@ async function handleStockDetail(symbol) {
       });
     }
 
+    // Stock detail (with quote matching frontend field names)
     const q = quotes.find(qu => qu.symbol === symbol);
     if (!q) return error('Quote not available', 404);
 
@@ -456,16 +457,21 @@ async function handleStockDetail(symbol) {
         market: stock.market,
         industry: stock.industry,
         quote: {
-          price: q.price,
+          closePrice: q.price,
+          openPrice: q.open,
+          highPrice: q.high,
+          lowPrice: q.low,
           prevClose: q.prevClose,
-          open: q.open,
-          high: q.high,
-          low: q.low,
+          change: q.price - q.prevClose,
+          changePercent: q.changePercent,
           volume: q.volume,
           turnover: q.turnover,
-          changePercent: q.changePercent,
           turnoverRate: q.turnoverRate,
           peRatio: q.peRatio,
+          pbRatio: q.pbRatio,
+          marketCap: 0,
+          circulatingMarketCap: 0,
+          amplitude: q.high > 0 && q.low > 0 ? ((q.high - q.low) / q.prevClose * 100) : 0,
         },
       },
       success: true,
