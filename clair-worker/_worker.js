@@ -1139,6 +1139,7 @@ function generateStrategy(quote, prices) {
       supportResistance: sr,
     },
     summary: generateStrategySummary(score, maAlignment, crossover, macd.signal, rsi14),
+    aiNarrative: generateAINarrative(quote, score, maAlignment, crossover, macd.signal, rsi14, sr, currentPrice),
   };
 }
 
@@ -1168,6 +1169,64 @@ function generateStrategySummary(score, maAlignment, crossover, macdSignal, rsi)
   }
 
   return parts.join('；');
+}
+
+function generateAINarrative(quote, score, maAlignment, crossover, macdSignal, rsi, sr, price) {
+  const name = quote.name || quote.symbol;
+  const changeSign = quote.changePercent > 0 ? '+' : '';
+  const direction = quote.changePercent > 0 ? '上涨' : '下跌';
+
+  // Section 1: Overall assessment
+  let overall;
+  if (score >= 75) overall = `${name}当前技术面表现强劲，综合评分${score}分，属于A级标的。多项技术指标形成共振看多信号，短期动能充沛。`;
+  else if (score >= 60) overall = `${name}技术面偏多，综合评分${score}分(B级)。技术指标总体向好，但尚未形成全面共振，需关注后续确认信号。`;
+  else if (score >= 40) overall = `${name}信号中性偏谨慎，综合评分${score}分(C级)。市场方向尚不明朗，建议等待更明确的技术信号出现后再做决策。`;
+  else if (score >= 25) overall = `${name}技术面偏弱，综合评分${score}分(D级)。多项指标发出警示信号，短期下行风险加大。`;
+  else overall = `${name}技术面疲软，综合评分${score}分(E级)。空头力量占优，建议暂时回避等待趋势反转信号。`;
+
+  // Section 2: Trend analysis
+  let trend;
+  if (maAlignment === 'bullish_perfect') trend = '均线系统呈现完美的多头排列(MA5>MA10>MA20>MA60)，各周期均线方向一致向上，表明上升趋势稳固，中长期资金持续流入。';
+  else if (maAlignment === 'bullish') trend = '短期均线(MA5/MA10)上穿中长期均线，形成多头排列雏形。上方MA60构成中期压力位，关注能否有效突破。';
+  else if (maAlignment === 'bearish_perfect') trend = '均线系统空头排列(MA5<MA10<MA20<MA60)，各周期均线向下发散，下跌趋势明确。下方需寻找有效支撑。';
+  else if (maAlignment === 'bearish') trend = '短期均线下穿中长期均线，空头力量占优。短期反弹可能遇到MA20/MA60压制。';
+  else trend = '均线系统交织缠绕，未形成明确趋势方向。短期均线与中长期均线出现粘合，市场处于方向选择窗口期。';
+
+  // Section 3: Signal analysis
+  let signals = [];
+  if (crossover === 'golden_cross') signals.push('5日均线上穿10日均线形成"黄金交叉"，这是经典的中短期买入信号，通常预示着一波上涨行情的启动');
+  if (crossover === 'death_cross') signals.push('5日均线下穿10日均线形成"死亡交叉"，属于中短期卖出信号，建议减仓或设置更紧的止损');
+  if (macdSignal === 'bullish') signals.push('MACD指标DIF上穿DEA形成金叉，红色动能柱开始放大，多头力量正在积聚');
+  if (macdSignal === 'bearish') signals.push('MACD指标DIF下穿DEA形成死叉，绿色动能柱放大，空头力量正在释放');
+  if (rsi !== null) {
+    if (rsi > 70) signals.push(`RSI(14)读数为${rsi}，处于超买区间。虽然强势股可能持续超买，但回调风险在累积，不宜追高`);
+    else if (rsi < 30) signals.push(`RSI(14)读数为${rsi}，处于超卖区间。技术性反弹概率增大，可关注底部企稳信号择机布局`);
+    else signals.push(`RSI(14)读数为${rsi}，处于中性区间，未出现极端超买或超卖信号`);
+  }
+  const signalText = signals.length > 0 ? signals.join('。') + '。' : '当前无突出的技术信号事件。';
+
+  // Section 4: Support/resistance and risk
+  let risk;
+  const supportText = sr.support ? `${sr.support}元(支撑位)` : '待确认';
+  const resistanceText = sr.resistance ? `${sr.resistance}元(压力位)` : '待确认';
+  const stopLoss = sr.support
+    ? Math.round(Math.min(sr.support * 0.98, price * 0.95) * 100) / 100
+    : Math.round(price * 0.93 * 100) / 100;
+  const stopLossPct = Math.round((price - stopLoss) / price * 10000) / 100;
+
+  if (score >= 60) {
+    risk = `关键支撑位${supportText}，压力位${resistanceText}。建议止损设置在${stopLoss}元(约-${stopLossPct}%)，止盈目标${Math.round(price * 1.15 * 100) / 100}元(约+15%)。当前价格距支撑位${sr.supportDistance !== null ? Math.abs(sr.supportDistance).toFixed(1) + '%' : '较远'}，安全边际${sr.supportDistance !== null && sr.supportDistance > -5 ? '充足' : '不足'}。`;
+  } else {
+    risk = `下方支撑${supportText}，上方压力${resistanceText}。若持有该股，建议设置止损于${stopLoss}元(约-${stopLossPct}%)。当前价格距压力位${sr.resistanceDistance !== null ? sr.resistanceDistance.toFixed(1) + '%' : '较远'}，反弹空间${sr.resistanceDistance !== null && sr.resistanceDistance > 5 ? '充足' : '有限'}。`;
+  }
+
+  return {
+    overall,
+    trend,
+    signals: signalText,
+    risk,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 /**
@@ -1227,6 +1286,103 @@ async function handleStockStrategy(symbol) {
     return json({ data: strategy, success: true });
   } catch (e) {
     return error(e.message);
+  }
+}
+
+// ==================== News API ====================
+
+/**
+ * Fetch financial news from EastMoney API
+ * GET /api/news?limit=20
+ */
+async function handleNews(url) {
+  try {
+    const params = new URL(url).searchParams;
+    const limit = parseInt(params.get('limit') || '20');
+    
+    // EastMoney news API — A股重要新闻
+    const emUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f3,f12,f14&secids=1.000001,0.399001,0.399006&pn=1&pz=${Math.min(limit, 50)}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281`;
+    
+    // Try financial news headlines instead
+    const newsUrl = 'https://np-listapi.eastmoney.com/comm/headline/getNewsList?cb=jQuery&client=web&biz=N06&classify=0&pageIndex=1&pageSize=' + Math.min(limit, 30);
+    
+    const resp = await fetch(newsUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.eastmoney.com' },
+    });
+    const text = await resp.text();
+    
+    // Extract JSON from jQuery callback
+    const jsonMatch = text.match(/jQuery\((\{.*\})\)/);
+    if (!jsonMatch) {
+      // Fallback: try direct JSON
+      try {
+        const data = JSON.parse(text);
+        return json({ data: parseNewsItems(data, limit) });
+      } catch {
+        return json({ data: [], source: 'eastmoney', note: 'News API format changed' });
+      }
+    }
+    
+    const data = JSON.parse(jsonMatch[1]);
+    return json({ data: parseNewsItems(data, limit), source: 'eastmoney' });
+  } catch (e) {
+    return json({ data: [], source: 'eastmoney', error: e.message });
+  }
+}
+
+function parseNewsItems(data, limit) {
+  const items = [];
+  const list = data?.Data || data?.data?.list || data?.result?.data || [];
+  for (const item of list.slice(0, limit)) {
+    items.push({
+      title: item.Title || item.title || '',
+      summary: item.Digest || item.summary || '',
+      url: item.Url || item.url || '',
+      source: item.Source || item.source || '东方财富',
+      time: item.ShowTime || item.showTime || item.publishTime || '',
+      sentiment: analyzeSentiment(item.Title || item.title || ''),
+    });
+  }
+  return items;
+}
+
+/**
+ * Simple sentiment analysis based on keywords
+ */
+function analyzeSentiment(title) {
+  if (!title) return 'neutral';
+  const positive = /利好|大涨|突破|涨停|增长|盈利|分红|回购|增持|中标|签约/;
+  const negative = /利空|大跌|跌停|亏损|减持|处罚|调查|退市|暴雷|违约|诉讼/;
+  if (positive.test(title)) return 'positive';
+  if (negative.test(title)) return 'negative';
+  return 'neutral';
+}
+
+/**
+ * Stock-specific news
+ * GET /api/news/:symbol
+ */
+async function handleStockNews(symbol) {
+  try {
+    // EastMoney stock news API
+    const market = symbol.startsWith('6') ? 'SH' : 'SZ';
+    const stockCode = `${market}${symbol}`;
+    const url = `https://np-listapi.eastmoney.com/comm/headline/getNewsList?cb=jQuery&client=web&biz=N06&classify=0&stockCode=${stockCode}&pageIndex=1&pageSize=10`;
+    
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.eastmoney.com' },
+    });
+    const text = await resp.text();
+    const jsonMatch = text.match(/jQuery\((\{.*\})\)/);
+    
+    if (!jsonMatch) {
+      return json({ data: [], symbol, note: 'No news available' });
+    }
+    
+    const data = JSON.parse(jsonMatch[1]);
+    return json({ data: parseNewsItems(data, 10), symbol });
+  } catch (e) {
+    return json({ data: [], symbol, error: e.message });
   }
 }
 
@@ -1384,6 +1540,18 @@ export default {
     // Debug endpoint: test Tencent API connectivity
     if (path === '/api/debug') {
       return handleDebug();
+    }
+
+    // News endpoint: /api/news?limit=20
+    const newsMatch = path.match(/^\/api\/news$/);
+    if (newsMatch) {
+      return handleNews(url);
+    }
+
+    // Stock news: /api/news/:symbol
+    const stockNewsMatch = path.match(/^\/api\/news\/(\d+)$/);
+    if (stockNewsMatch) {
+      return handleStockNews(stockNewsMatch[1]);
     }
 
     return error('Not found', 404);
