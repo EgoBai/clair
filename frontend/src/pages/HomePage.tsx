@@ -1,251 +1,150 @@
 /**
- * 首页 v2 — 富途牛牛/芝士财富 参考设计
- * 暗色导航 + 浅色内容区 + 指数卡片 + 涨跌榜 + 快捷入口
+ * 首页 v3 — 暗色仪表盘
+ * 市场概览：指数行情 + AI 解读 + 热门板块 + 涨跌分布
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Spin, Alert, Card, Tag, Table } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined, RiseOutlined, FallOutlined, StockOutlined, SearchOutlined, StarOutlined, LineChartOutlined, CompassOutlined } from '@ant-design/icons';
-import { ROUTE_PATHS } from '../routes';
-import { useStocks, useStockStats, initializeSampleData } from '../store/useStockStore';
-import { SimpleErrorBoundary } from '../components/Common/UnifiedErrorBoundary';
+import { useNavigate } from 'react-router-dom';
+import { Spin, Tag } from 'antd';
+import { CompassOutlined } from '@ant-design/icons';
 
-const BG = '#f5f6f8';
+const BG = '#0f172a';
+const CARD_BG = '#1e293b';
+const BORDER = '#334155';
+const TEXT = '#f1f5f9';
+const TEXT_SEC = '#94a3b8';
 const COLOR_UP = '#cf2a2a';
 const COLOR_DOWN = '#1db468';
-const TEXT = '#1a1a1a';
-const TEXT_SEC = '#8c8c8c';
-const BORDER = '#e8e8e8';
-const CARD_BG = '#ffffff';
-
-const formatBigNumber = (n: number): string => {
-  if (n >= 1e8) return (n / 1e8).toFixed(1) + '亿';
-  if (n >= 1e4) return (n / 1e4).toFixed(1) + '万';
-  return String(n);
-};
-
-interface MarketIndex {
-  name: string; symbol: string; closePrice: number;
-  changePercent: number; volume: number; category?: string;
-}
-interface StockQuote {
-  symbol: string; name: string; price: number;
-  changePercent: number; volume: number; turnover: number;
-}
+const ACCENT = '#3b82f6';
+const GOLD = '#f59e0b';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const stocks = useStocks();
-  const stats = useStockStats();
-
-  const [indices, setIndices] = useState<MarketIndex[]>([]);
-  const [topGainers, setTopGainers] = useState<StockQuote[]>([]);
-  const [topLosers, setTopLosers] = useState<StockQuote[]>([]);
+  const [indices, setIndices] = useState<any[]>([]);
+  const [insight, setInsight] = useState<any>(null);
+  const [sectors, setSectors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [time, setTime] = useState(new Date());
 
-  useEffect(() => { loadData(); const t = setInterval(() => setTime(new Date()), 60000); return () => clearInterval(t); }, []);
-  useEffect(() => { if (stocks.length === 0) initializeSampleData(); }, [stocks.length]);
-
-  const loadData = async () => {
-    setLoading(true); setError(null);
-    try {
-      const [indicesRes, topRes] = await Promise.all([
-        fetch('/api/market/indices').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/stocks/top').then(r => r.ok ? r.json() : null).catch(() => null),
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [iRes, aiRes, sRes] = await Promise.all([
+        fetch('/api/market/indices').then(r => r.json()).catch(() => ({ data: { indices: [] } })),
+        fetch('/api/ai/market-insight').then(r => r.json()).catch(() => null),
+        fetch('/api/sectors/momentum').then(r => r.json()).catch(() => ({ data: { sectors: [] } })),
       ]);
-      setIndices(indicesRes?.data?.indices || []);
-      if (topRes?.data) {
-        setTopGainers(topRes.data.gainers || []);
-        setTopLosers(topRes.data.losers || []);
-      }
-    } catch { setError('数据加载失败'); }
-    finally { setLoading(false); }
-  };
+      setIndices(iRes.data?.indices || []);
+      if (aiRes?.data) setInsight(aiRes.data);
+      setSectors((sRes.data?.sectors || []).slice(0, 5));
+      setLoading(false);
+    })();
+  }, []);
 
-  const rankCols = [
-    { title: '#', width: 40, render: (_: any, __: any, i: number) => (
-      <span style={{ fontWeight: 700, color: i < 3 ? COLOR_UP : TEXT_SEC, fontSize: 12 }}>{i + 1}</span>
-    )},
-    { title: '代码', dataIndex: 'symbol', width: 80, render: (v: string) => (
-      <Link to={`/stocks/${v}`} style={{ color: '#2563eb', fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>{v}</Link>
-    )},
-    { title: '名称', dataIndex: 'name', ellipsis: true, render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
-    { title: '最新价', dataIndex: 'price', align: 'right' as const, width: 80,
-      render: (v: number) => <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{v?.toFixed(2)}</span> },
-    { title: '涨跌幅', dataIndex: 'changePercent', align: 'right' as const, width: 80,
-      render: (v: number) => (
-        <span style={{ color: v >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 700, fontFamily: 'monospace', fontSize: 12 }}>
-          {v >= 0 ? '+' : ''}{v?.toFixed(2)}%
-        </span>
-      )},
-  ];
+  if (loading) return <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
 
-  // 富途风格：指数卡片用微妙红绿色调，不是大色块
-  const mainIndices = indices.slice(0, 3);
+  const upCount = indices.filter(i => i.changePercent > 0).length;
+  const topSectors = sectors.slice(0, 3);
 
   return (
-    <SimpleErrorBoundary name="HomePage">
-      <div style={{ background: BG, minHeight: '100vh' }}>
-        {/* ===== Hero Banner ===== */}
-        <div style={{
-          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-          padding: '32px 32px 40px', color: '#fff',
-        }}>
-          <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 28 }}>
-              <div>
-                <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>市场概览</h1>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
-                  {time.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })} · 腾讯财经实时数据
-                </div>
-              </div>
-              <button onClick={loadData} disabled={loading} style={{
-                padding: '8px 18px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 8, cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <ReloadOutlined spin={loading} /> 刷新
-              </button>
-            </div>
-
-            {/* 三大指数 - 富途风格：暗底 + 微妙色条 */}
-            {loading && indices.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 30 }}><Spin /></div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-                {indices.map((idx) => {
-                  const up = idx.changePercent >= 0;
-                  return (
-                    <div key={idx.symbol} style={{
-                      background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: '18px 22px',
-                      border: '1px solid rgba(255,255,255,0.08)', position: 'relative', overflow: 'hidden',
-                      cursor: 'pointer', transition: 'background .2s',
-                    }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                      onClick={() => {
-                        const sym = idx.symbol || '';
-                        if (sym) navigate(`/index/${sym}`);
-                      }}
-                    >
-                      {/* 左侧色条 */}
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-                        background: up ? COLOR_UP : COLOR_DOWN,
-                      }} />
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                            <span style={{ fontSize: 13, color: '#cbd5e1', fontWeight: 500 }}>{idx.name}</span>
-                            {idx.category && (
-                              <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0, padding: '0 5px', lineHeight: '16px', background: 'rgba(255,255,255,0.1)', color: '#94a3b8', border: 'none' }}>
-                                {idx.category}
-                              </Tag>
-                            )}
-                          </div>
-                          <div style={{ fontSize: 28, fontWeight: 800, fontFamily: '"DIN Alternate", monospace', color: '#f1f5f9' }}>
-                            {idx.closePrice?.toLocaleString?.() || idx.closePrice || '—'}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{
-                            fontSize: 16, fontWeight: 700, fontFamily: 'monospace',
-                            color: up ? COLOR_UP : COLOR_DOWN,
-                            background: up ? 'rgba(207,42,42,0.15)' : 'rgba(29,180,104,0.15)',
-                            padding: '4px 10px', borderRadius: 6,
-                          }}>
-                            {up ? '+' : ''}{idx.changePercent?.toFixed(2)}%
-                          </div>
-                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                            量 {formatBigNumber(idx.volume || 0)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+    <div style={{ background: BG, minHeight: '100vh', color: TEXT }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px' }}>
+        
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <CompassOutlined style={{ fontSize: 22, color: ACCENT }} />
+          <span style={{ fontSize: 18, fontWeight: 700, color: TEXT }}>市场概览</span>
+          {insight && (
+            <Tag color={insight.mood === '强势上攻' ? 'red' : 'blue'} style={{ margin: 0 }}>
+              {insight.moodEmoji} {insight.mood}
+            </Tag>
+          )}
         </div>
 
-        {/* ===== Content Area ===== */}
-        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '20px 24px' }}>
-          {error && <Alert message={error} type="warning" showIcon closable onClose={() => setError(null)} style={{ marginBottom: 16 }} />}
-
-          {/* Quick Nav */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
-            {[
-              { to: '/discover', icon: <CompassOutlined />, label: '发掘', color: '#3b82f6' },
-              { to: ROUTE_PATHS.WATCHLIST, icon: <StarOutlined />, label: '自选', color: '#f59e0b' },
-              { to: ROUTE_PATHS.SCREENER, icon: <SearchOutlined />, label: '筛选', color: '#8b5cf6' },
-              { to: ROUTE_PATHS.MARKET, icon: <LineChartOutlined />, label: '市场', color: '#0891b2' },
-            ].map(item => (
-              <Link key={item.to} to={item.to} style={{
-                background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`,
-                padding: '14px 16px', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10,
-                transition: 'all .15s',
-              }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = item.color; e.currentTarget.style.boxShadow = `0 2px 8px ${item.color}20`; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = BORDER; e.currentTarget.style.boxShadow = 'none'; }}
-              >
-                <span style={{ fontSize: 18, color: item.color }}>{item.icon}</span>
-                <span style={{ fontWeight: 600, fontSize: 13, color: TEXT }}>{item.label}</span>
-              </Link>
-            ))}
-          </div>
-
-          {/* Stats Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 20 }}>
-            {[
-              { label: '股票总数', value: stats.totalStocks, color: '#2563eb', bg: '#eff6ff' },
-              { label: '上涨', value: stats.risingStocks, color: COLOR_UP, bg: '#fef2f2' },
-              { label: '下跌', value: stats.fallingStocks, color: COLOR_DOWN, bg: '#f0fdf4' },
-              { label: '总市值(亿)', value: stats.totalMarketCap.toFixed(0), color: '#7c3aed', bg: '#faf5ff' },
-            ].map((s, i) => (
-              <div key={i} style={{ background: s.bg, borderRadius: 10, border: `1px solid ${s.color}20`, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div>
-                  <div style={{ fontSize: 11, color: TEXT_SEC, marginBottom: 2 }}>{s.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: s.color, fontFamily: '"DIN Alternate", monospace' }}>{s.value}</div>
+        {/* 指数卡片 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8, marginBottom: 20 }}>
+          {indices.slice(0, 9).map(idx => {
+            const up = idx.changePercent >= 0;
+            return (
+              <div key={idx.symbol} onClick={() => navigate(`/stocks/${idx.symbol}`)}
+                style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '12px', cursor: 'pointer', transition: 'border-color .15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
+                onMouseLeave={e => e.currentTarget.style.borderColor = BORDER}>
+                <div style={{ fontSize: 11, color: TEXT_SEC, marginBottom: 4 }}>{idx.name}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'monospace', color: TEXT, marginBottom: 2 }}>
+                  {idx.closePrice?.toLocaleString()}
                 </div>
+                <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', color: up ? COLOR_UP : COLOR_DOWN }}>
+                  {up ? '+' : ''}{idx.changePercent?.toFixed(2)}%
+                </span>
               </div>
-            ))}
-          </div>
+            );
+          })}
+        </div>
 
-          {/* Gainers + Losers Side by Side */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 20 }}>
-            {/* Gainers */}
-            <Card size="small" style={{ borderRadius: 10, border: `1px solid ${BORDER}` }}
-              title={<span style={{ fontWeight: 700, color: TEXT, fontSize: 14 }}><RiseOutlined style={{ color: COLOR_UP, marginRight: 6 }} />涨幅榜 TOP5</span>}
-              extra={<Tag color="red" style={{ borderRadius: 4, fontWeight: 600 }}>{stats.risingStocks} 只上涨</Tag>}>
-              {topGainers.length > 0 ? (
-                <Table dataSource={topGainers} columns={rankCols} pagination={false} size="small" rowKey="symbol" showHeader={false}
-                  onRow={r => ({ onClick: () => navigate(`/stocks/${r.symbol}`), style: { cursor: 'pointer' } })} />
-              ) : <div style={{ textAlign: 'center', padding: 20, color: TEXT_SEC }}>{loading ? <Spin size="small" /> : '暂无数据'}</div>}
-            </Card>
+        {/* 两栏布局 */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 16 }}>
+          
+          {/* AI 解读 */}
+          {insight?.sections && (
+            <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '16px' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, marginBottom: 12 }}>
+                {insight.moodEmoji} AI 市场解读 · {insight.mood}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {insight.sections.slice(0, 2).map((sec: any, i: number) => (
+                  <div key={i} style={{ fontSize: 11, color: TEXT_SEC, lineHeight: 1.6 }}>
+                    <span style={{ color: ACCENT, fontWeight: 600 }}>{sec.icon} {sec.title}</span>
+                    <div style={{ marginTop: 2 }}>
+                      {sec.text.split('\n').filter((l: string) => l.trim() && !l.startsWith('**')).slice(0, 4).map((line: string, j: number) => (
+                        <div key={j}>{line.trim()}</div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div onClick={() => navigate('/discover')} style={{ marginTop: 10, fontSize: 11, color: ACCENT, cursor: 'pointer' }}>
+                查看完整分析 →
+              </div>
+            </div>
+          )}
 
-            {/* Losers */}
-            <Card size="small" style={{ borderRadius: 10, border: `1px solid ${BORDER}` }}
-              title={<span style={{ fontWeight: 700, color: TEXT, fontSize: 14 }}><FallOutlined style={{ color: COLOR_DOWN, marginRight: 6 }} />跌幅榜 TOP5</span>}
-              extra={<Tag color="green" style={{ borderRadius: 4, fontWeight: 600 }}>{stats.fallingStocks} 只下跌</Tag>}>
-              {topLosers.length > 0 ? (
-                <Table dataSource={topLosers} columns={rankCols} pagination={false} size="small" rowKey="symbol" showHeader={false}
-                  onRow={r => ({ onClick: () => navigate(`/stocks/${r.symbol}`), style: { cursor: 'pointer' } })} />
-              ) : <div style={{ textAlign: 'center', padding: 20, color: TEXT_SEC }}>{loading ? <Spin size="small" /> : '暂无数据'}</div>}
-            </Card>
-          </div>
+          {/* 右侧：市场宽度 + 热门板块 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* 市场宽度 */}
+            <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 8 }}>市场宽度</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                <span style={{ color: COLOR_UP, fontWeight: 600 }}>{upCount} ↑</span>
+                <span style={{ color: COLOR_DOWN, fontWeight: 600 }}>{indices.length - upCount} ↓</span>
+                <span style={{ color: TEXT }}>{Math.round(upCount / indices.length * 100)}%</span>
+              </div>
+              <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${(upCount / indices.length * 100)}%`, background: COLOR_UP }} />
+                <div style={{ width: `${((indices.length - upCount) / indices.length * 100)}%`, background: COLOR_DOWN }} />
+              </div>
+            </div>
 
-          {/* Footer */}
-          <div style={{ padding: 16, background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, fontSize: 12, color: TEXT_SEC, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <span>数据源: 腾讯财经实时行情</span>
-            <span>股票数据: {stocks.length} 只 · 更新于 {time.toLocaleTimeString('zh-CN')}</span>
+            {/* 热门板块 */}
+            <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 10 }}>🏆 热门板块</div>
+              {topSectors.map(s => (
+                <div key={s.industry} onClick={() => navigate(`/discover`)}
+                  style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}`, cursor: 'pointer', fontSize: 12 }}>
+                  <span style={{ color: TEXT }}>{s.industry}</span>
+                  <span style={{ color: s.avg_change_percent >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
+                    {s.avg_change_percent >= 0 ? '+' : ''}{s.avg_change_percent}%
+                  </span>
+                </div>
+              ))}
+              <div onClick={() => navigate('/discover')} style={{ marginTop: 8, fontSize: 11, color: ACCENT, cursor: 'pointer' }}>
+                发掘更多 →
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </SimpleErrorBoundary>
+    </div>
   );
 };
 
-export default React.memo(HomePage);
+export default HomePage;

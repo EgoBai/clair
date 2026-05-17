@@ -30,26 +30,8 @@ let stockListCacheTime = 0;
 const STOCK_LIST_CACHE_TTL = 3600_000; // 1 小时
 
 async function getStockList() {
-  const now = Date.now();
-  if (stockListCache && (now - stockListCacheTime) < STOCK_LIST_CACHE_TTL) {
-    return stockListCache;
-  }
-
-  // Try KV (full list from Cloudflare KV storage)
-  try {
-    const kv = globalThis.__env?.STOCK_DATA;
-    if (kv) {
-      const kvData = await kv.get('all_stocks_json', { type: 'json' });
-      if (kvData && Array.isArray(kvData) && kvData.length > 500) {
-        stockListCache = kvData;
-        stockListCacheTime = now;
-        console.log(`[StockList] KV: ${kvData.length} stocks`);
-        return kvData;
-      }
-    }
-  } catch (e) { /* fall through */ }
-
-  // Fallback: hardcoded list
+  // Use FULL_STOCK_LIST directly (5541 stocks with industries)
+  // KV fallback disabled until cache invalidation is fixed
   return getFallbackStocks();
 }
 

@@ -15,6 +15,13 @@ interface NavItem {
 // 导航配置
 const NAV_ITEMS: NavItem[] = [
   {
+    id: 'home',
+    label: '首页',
+    path: '/',
+    icon: '🏠',
+    description: '市场概览仪表盘'
+  },
+  {
     id: 'discover',
     label: '发掘',
     path: '/discover',
@@ -23,10 +30,10 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'market',
-    label: '市场',
+    label: '筛选',
     path: ROUTE_PATHS.MARKET,
-    icon: '📊',
-    description: '市场趋势和数据分析'
+    icon: '🔍',
+    description: '全市场股票筛选与排行'
   },
   {
     id: 'watchlist',

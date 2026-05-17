@@ -111,44 +111,54 @@ const DiscoverPage: React.FC = () => {
           <>
             {/* AI 解读 */}
             {insight?.sections ? (
-              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px', marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                  <span style={{ fontSize: 22 }}>{insight.moodEmoji}</span>
-                  <Text strong style={{ color: TEXT, fontSize: 15 }}>AI 市场解读</Text>
-                  <Tag color={insight.mood === '强势上攻' ? 'red' : insight.mood === '温和上行' ? 'orange' : insight.mood === '震荡整理' ? 'default' : 'blue'} style={{ margin: 0, fontSize: 11 }}>
-                    {insight.mood}
-                  </Tag>
-                  <Tag style={{ margin: 0, fontSize: 11, background: '#334155', color: '#94a3b8', border: 'none' }}>
-                    {insight.marketBreadth.stockUpRatio}%上涨
-                  </Tag>
-                  {insight.limitUpCount > 0 && (
-                    <Tag color="red" style={{ margin: 0, fontSize: 11 }}>{insight.limitUpCount}涨停</Tag>
-                  )}
+              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+                {/* 顶部情绪栏 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${BORDER}` }}>
+                  <span style={{ fontSize: 28 }}>{insight.moodEmoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Text strong style={{ color: TEXT, fontSize: 16 }}>{insight.mood}</Text>
+                      <Tag color={insight.mood === '强势上攻' ? 'red' : insight.mood === '温和上行' ? 'orange' : insight.mood === '震荡整理' ? 'default' : 'blue'} style={{ margin: 0 }}>
+                        AI 解读
+                      </Tag>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: TEXT_SEC }}>
+                    <span>📊 涨跌比 <b style={{color:TEXT}}>{insight.marketBreadth.up}</b>:<b style={{color:TEXT}}>{insight.marketBreadth.down}</b></span>
+                    <span>📈 均涨跌 <b style={{color:insight.avgIndexChange>=0?COLOR_UP:COLOR_DOWN}}>{insight.avgIndexChange>0?'+':''}{insight.avgIndexChange}%</b></span>
+                    {insight.limitUpCount > 0 && <span>🔥 <b style={{color:COLOR_UP}}>{insight.limitUpCount}</b>涨停</span>}
+                    {insight.limitDownCount > 0 && <span>❄️ <b style={{color:COLOR_DOWN}}>{insight.limitDownCount}</b>跌停</span>}
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                {/* 三栏内容 */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                   {insight.sections.map((sec: any, i: number) => (
                     <div key={i} style={{
-                      background: 'rgba(30,41,59,0.6)', border: `1px solid ${BORDER}`,
-                      borderRadius: 8, padding: '12px 14px',
+                      background: 'rgba(15,23,42,0.5)', border: `1px solid ${BORDER}`,
+                      borderRadius: 8, padding: '10px 12px',
                     }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: ACCENT, marginBottom: 6 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: ACCENT, marginBottom: 8 }}>
                         {sec.icon} {sec.title}
                       </div>
-                      <div style={{ fontSize: 12, color: TEXT_SEC, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-                        {sec.text}
+                      <div style={{ fontSize: 11, color: TEXT_SEC, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+                        {sec.text.split('\n').filter(l => l.trim() && !l.startsWith('**')).map((line, j) => (
+                          <div key={j} style={{ marginBottom: 2 }}>{line.trim()}</div>
+                        ))}
                       </div>
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop: 12, display: 'flex', gap: 14, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>
-                    📊 指数{insight.marketBreadth.up}涨{insight.marketBreadth.down}跌 · 均涨跌{insight.avgIndexChange > 0 ? '+' : ''}{insight.avgIndexChange}%
-                  </span>
-                  <span style={{ color: '#334155' }}>|</span>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>
-                    🏆 {insight.topSectors?.map((s: any) => s.industry).join('、') || '—'}
-                  </span>
-                </div>
+                {/* 领涨板块 */}
+                {insight.topSectors?.length > 0 && (
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 14, alignItems: 'center', fontSize: 11 }}>
+                    <span style={{ color: ACCENT }}>🏆 领涨</span>
+                    {insight.topSectors.slice(0, 5).map((s: any) => (
+                      <span key={s.industry} style={{ color: TEXT }}>
+                        {s.industry} <span style={{ color: s.avgChange >= 0 ? COLOR_UP : COLOR_DOWN }}>{s.avgChange >= 0 ? '+' : ''}{s.avgChange}%</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12 }}>
