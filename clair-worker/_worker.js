@@ -117,9 +117,54 @@ function generateConcepts(name, industry) {
 
 function getFallbackStocks() {
   return FULL_STOCK_LIST.map(([code, name, market, industry]) => ({
-    symbol: code, name, market, industry,
+    symbol: code, name, market,
+    industry: reclassify(name, industry),
     concepts: generateConcepts(name, industry)
   }));
+}
+
+// 智能行业重分类：修复"综合"和"计算机"两大类误分类
+function reclassify(name, industry) {
+  // Already has proper industry
+  const good = ['银行','非银金融','房地产','食品饮料','医药生物','农林牧渔',
+    '纺织服饰','轻工制造','家用电器','商贸零售','社会服务','美容护理',
+    '电子','计算机','通信','传媒','国防军工','电力设备','汽车','机械设备',
+    '公用事业','环保','基础化工','有色金属','钢铁','建筑材料','煤炭','石油石化','交通运输','建筑装饰'];
+  if (good.includes(industry) && industry !== '计算机' && industry !== '综合') return industry;
+
+  // Name-based reclassification
+  const n = name;
+  if (/银行/.test(n)) return '银行';
+  if (/证券|保险|信托|期货/.test(n)) return '非银金融';
+  if (/地产|房产|园区/.test(n)) return '房地产';
+  if (/酒|食品|饮料|乳|奶|醋|酱油|酵母|糖|盐|面|肉|粮|油/.test(n)) return '食品饮料';
+  if (/药|医|生物|基因|疫苗|细胞|诊断|器械|卫生/.test(n)) return '医药生物';
+  if (/农牧|种业|养殖|饲料|兽药|农业|林业|渔业|畜牧/.test(n)) return '农林牧渔';
+  if (/服装|纺织|服饰|鞋|袜|帽|皮革/.test(n)) return '纺织服饰';
+  if (/家电|电器|视像|冰箱|洗衣|空调/.test(n)) return '家用电器';
+  if (/零售|百货|超市|商业|贸易|商店/.test(n)) return '商贸零售';
+  if (/旅游|酒店|景区|教育|培训/.test(n)) return '社会服务';
+  if (/化妆|护肤|美容|日化/.test(n)) return '美容护理';
+  if (/纸|包装|家具|文具|印刷|珠宝/.test(n)) return '轻工制造';
+  if (/半导|芯片|集成|电子|电路|光电/.test(n)) return '电子';
+  if (/软件|信息|数据|互联|智能|科技|网络|数字|通信|通讯|5G/.test(n)) return '计算机';
+  if (/传媒|影视|出版|广告|游戏|娱乐|文化|体育/.test(n)) return '传媒';
+  if (/通信|通訊|电信|联通/.test(n)) return '通信';
+  if (/航空|航天|军工|武器|雷达|导航|卫星/.test(n)) return '国防军工';
+  if (/电力|电气|电机|电缆|电工|电池|光伏|风电|储能|充电|新能源|锂/.test(n)) return '电力设备';
+  if (/汽车|客车|摩托|轮胎|车/.test(n)) return '汽车';
+  if (/机械|设备|机床|重工|轴承|齿轮|泵|阀|工具/.test(n)) return '机械设备';
+  if (/电力|发电|水电|火电|核电|风电|电网/.test(n)) return '公用事业';
+  if (/环保|水务|节能|环境|生态|环卫/.test(n)) return '环保';
+  if (/化工|化学|塑料|橡胶|涂料|颜料|纤维|树脂|聚/.test(n)) return '基础化工';
+  if (/钢|铁|铝|铜|金属|矿|黄金|白银|稀土|钴|镍|锌|锡|钨/.test(n)) return '有色金属';
+  if (/煤|炭/.test(n)) return '煤炭';
+  if (/石油|石化|燃气|天然气|油田|管道/.test(n)) return '石油石化';
+  if (/水泥|玻璃|建材|防水|涂料|陶瓷|石材/.test(n)) return '建筑材料';
+  if (/交通|运输|港口|机场|高速|铁路|地铁|物流|快递|航运|海运/.test(n)) return '交通运输';
+  if (/建筑|建设|工程|装饰|装修|园林|路桥/.test(n)) return '建筑装饰';
+
+  return industry;
 }
 
 // ==================== 腾讯 API 解析 ====================
@@ -747,7 +792,7 @@ async function handleStockKLine(symbol) {
     if (!stock) return error('Stock not found', 404);
 
     const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
-    const limit = 120;
+    const limit = 2000; // 全部可用历史（~10年）
     const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
 
     const resp = await fetch(url, {
@@ -841,7 +886,7 @@ async function handleIndexKLine(tencentSymbol) {
     const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentSymbol);
     if (!idxConfig) return error('Index not found', 404);
 
-    const limit = 120;
+    const limit = 2000; // 全部历史
     const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
 
     const resp = await fetch(url, {
@@ -895,7 +940,7 @@ async function handleIndexStrategy(tencentSymbol) {
     }
 
     // 获取 K 线数据用于计算指标
-    const limit = 120;
+    const limit = 2000; // 全部历史
     const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
 
     const resp = await fetch(url);
