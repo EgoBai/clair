@@ -1446,6 +1446,143 @@ async function handleAlerts(url) {
   }
 }
 
+// ==================== Backtest API ====================
+
+/**
+ * Strategy backtest: replay signals over historical data
+ * GET /api/backtest/:symbol
+ */
+async function handleBacktest(symbol) {
+  try {
+    const stocks = await getStockList();
+    const stock = stocks.find(s => s.symbol === symbol);
+    if (!stock) return error('Stock not found', 404);
+
+    const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,250,qfq`;
+    
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
+    });
+    const data = await resp.json();
+    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
+    
+    if (!dayData || !Array.isArray(dayData) || dayData.length < 60) {
+      return json({ data: null, note: '历史K线数据不足(需≥60日)' });
+    }
+
+    // Parse K-line: [date, open, close, high, low, volume]
+    const closes = dayData.map(d => parseFloat(d[2])).filter(p => isFinite(p) && p > 0);
+    if (closes.length < 60) {
+      return json({ data: null, note: '有效收盘价数据不足' });
+    }
+
+    // Rolling backtest: simulate strategy at each point using trailing 120-day window
+    const results = [];
+    let totalTrades = 0, winTrades = 0;
+    let cumulativeReturn = 1; // Start with 1.0 (100%)
+    const equityCurve = [{ day: 0, equity: 1 }];
+    let maxEquity = 1, maxDrawdown = 0;
+
+    for (let i = 120; i < closes.length; i++) {
+      const windowPrices = closes.slice(i - 120, i);
+      const currentPrice = closes[i];
+      const prevPrice = closes[i - 1];
+      
+      // Simulate strategy on this window
+      const ma5 = calcSMA(windowPrices, 5);
+      const ma10 = calcSMA(windowPrices, 10);
+      const ma20 = calcSMA(windowPrices, 20);
+      const ma60 = calcSMA(windowPrices, 60);
+      const rsi14 = calcRSI(windowPrices, 14);
+      
+      let signal = 'hold';
+      if (ma5 && ma10 && ma20) {
+        const prevWindow = closes.slice(i - 121, i - 1);
+        const prevMA5 = calcSMA(prevWindow, 5);
+        const prevMA10 = calcSMA(prevWindow, 10);
+        
+        // Golden cross: prev MA5 <= MA10, now MA5 > MA10
+        if (prevMA5 !== null && prevMA10 !== null && prevMA5 <= prevMA10 && ma5 > ma10) {
+          signal = 'buy';
+        }
+        // Death cross: prev MA5 >= MA10, now MA5 < MA10
+        else if (prevMA5 !== null && prevMA10 !== null && prevMA5 >= prevMA10 && ma5 < ma10) {
+          signal = 'sell';
+        }
+        // RSI extremes
+        else if (rsi14 !== null && rsi14 < 25) signal = 'buy';
+        else if (rsi14 !== null && rsi14 > 75) signal = 'sell';
+      }
+
+      // Track trades
+      let tradeReturn = 0;
+      if (signal === 'buy') {
+        totalTrades++;
+        // Look ahead up to 20 days for exit
+        const lookAhead = Math.min(20, closes.length - i - 1);
+        let exitPrice = currentPrice;
+        for (let j = 1; j <= lookAhead; j++) {
+          const futurePrice = closes[i + j];
+          if (futurePrice >= currentPrice * 1.1) { exitPrice = futurePrice; break; } // +10% take profit
+          if (futurePrice <= currentPrice * 0.93) { exitPrice = futurePrice; break; } // -7% stop loss
+          exitPrice = futurePrice;
+        }
+        tradeReturn = (exitPrice - currentPrice) / currentPrice;
+        if (tradeReturn > 0) winTrades++;
+        cumulativeReturn *= (1 + tradeReturn);
+      }
+
+      // Buy-and-hold benchmark
+      const buyHoldReturn = closes[closes.length - 1] / closes[120] - 1;
+
+      // Track equity curve
+      equityCurve.push({ day: i - 120, equity: Math.round(cumulativeReturn * 10000) / 10000 });
+      maxEquity = Math.max(maxEquity, cumulativeReturn);
+      const drawdown = (maxEquity - cumulativeReturn) / maxEquity;
+      maxDrawdown = Math.max(maxDrawdown, drawdown);
+
+      if (signal !== 'hold') {
+        results.push({
+          day: i - 120,
+          date: dayData[i]?.[0] || '',
+          price: currentPrice,
+          signal,
+          cumulativeReturn: Math.round((cumulativeReturn - 1) * 10000) / 100,
+        });
+      }
+    }
+
+    const finalReturn = Math.round((cumulativeReturn - 1) * 10000) / 100;
+    const winRate = totalTrades > 0 ? Math.round(winTrades / totalTrades * 10000) / 100 : 0;
+    const avgReturnPerTrade = totalTrades > 0 ? Math.round(finalReturn / totalTrades * 100) / 100 : 0;
+    const buyHoldBenchmark = Math.round((closes[closes.length - 1] / closes[120] - 1) * 10000) / 100;
+
+    return json({
+      data: {
+        symbol,
+        name: stock.name,
+        period: `${dayData[120]?.[0] || 'N/A'} ~ ${dayData[dayData.length - 1]?.[0] || 'N/A'}`,
+        totalDays: closes.length - 120,
+        totalSignals: results.length,
+        totalTrades,
+        winTrades,
+        winRate,
+        strategyReturn: finalReturn,
+        buyHoldReturn: buyHoldBenchmark,
+        alpha: Math.round((finalReturn - buyHoldBenchmark) * 100) / 100,
+        maxDrawdown: Math.round(maxDrawdown * 10000) / 100,
+        avgReturnPerTrade,
+        recentSignals: results.slice(-10),
+        equityCurve: equityCurve.filter((_, i) => i % 5 === 0 || i === equityCurve.length - 1), // Sample every 5 days
+      },
+      success: true,
+    });
+  } catch (e) {
+    return json({ data: null, error: e.message });
+  }
+}
+
 async function handleDebug() {
   const results = {};
 
@@ -1617,6 +1754,12 @@ export default {
     // Watchlist alerts: /api/alerts?symbols=600519,000001
     if (path === '/api/alerts') {
       return handleAlerts(url);
+    }
+
+    // Backtest: /api/backtest/:symbol
+    const backtestMatch = path.match(/^\/api\/backtest\/(\d+)$/);
+    if (backtestMatch) {
+      return handleBacktest(backtestMatch[1]);
     }
 
     return error('Not found', 404);
