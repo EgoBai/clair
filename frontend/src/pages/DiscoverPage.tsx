@@ -35,6 +35,7 @@ const DiscoverPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [insight, setInsight] = useState<any>(null);
   const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
+  const [news, setNews] = useState<any[]>([]);
 
   // Load market overview + scores + AI insight
   useEffect(() => {
@@ -49,6 +50,8 @@ const DiscoverPage: React.FC = () => {
       setIndices(iRes.data?.indices || []);
       setScores(sRes.data?.sectors || []);
       if (aiRes?.data) setInsight(aiRes.data);
+      // Load news
+      fetch('/api/news?limit=6').then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
       setLoading(false);
     })();
   }, [sectorType]);
@@ -180,6 +183,37 @@ const DiscoverPage: React.FC = () => {
                       }
                     })()}
                   </Paragraph>
+                </div>
+              </div>
+            )}
+
+            {/* 资讯速览 */}
+            {news.length > 0 && (
+              <div style={{ background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '12px 16px', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 14 }}>📰</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: TEXT }}>实时资讯</span>
+                  <span style={{ fontSize: 10, color: TEXT_SEC, marginLeft: 'auto' }}>东方财富</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {news.slice(0, 6).map((item, i) => (
+                    <div key={i} style={{
+                      flex: '1 1 calc(33% - 8px)', minWidth: 180,
+                      background: 'rgba(15,23,42,0.5)', border: `1px solid ${BORDER}`,
+                      borderRadius: 6, padding: '8px 10px', cursor: 'pointer',
+                    }} onClick={() => item.url && window.open(item.url, '_blank')}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                        <Tag color={item.sentiment === 'positive' ? 'red' : item.sentiment === 'negative' ? 'green' : 'default'} 
+                          style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0, flexShrink: 0 }}>
+                          {item.sentiment === 'positive' ? '利好' : item.sentiment === 'negative' ? '利空' : '中性'}
+                        </Tag>
+                        <div style={{ fontSize: 12, color: TEXT, lineHeight: 1.5, flex: 1 }}>
+                          {item.title?.length > 40 ? item.title.slice(0, 40) + '...' : item.title}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10, color: TEXT_SEC, marginTop: 4 }}>{item.time?.slice(0, 10) || ''}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

@@ -388,6 +388,35 @@ const StockDetailPage: React.FC = () => {
                 {aiStrategy.macdSignal === 'bearish' && <Tag color="green">MACD死叉</Tag>}
               </div>
             )}
+            {/* AI 四段叙事 */}
+            {aiStrategy.aiNarrative && (
+              <div style={{ marginTop: 8 }}>
+                <Divider style={{ margin: '6px 0' }} />
+                <div style={{ background: '#f0f7ff', borderRadius: 8, padding: '10px 14px', border: '1px solid #d6e4ff' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#1890ff', marginBottom: 8 }}>📋 AI 详细分析</div>
+                  
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>📊 综合评估</div>
+                    <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.overall}</div>
+                  </div>
+                  
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>📈 趋势分析</div>
+                    <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.trend}</div>
+                  </div>
+                  
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>⚡ 信号解读</div>
+                    <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.signals}</div>
+                  </div>
+                  
+                  <div>
+                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>⚠️ 风险控制</div>
+                    <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.risk}</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </Card>
         )}
 

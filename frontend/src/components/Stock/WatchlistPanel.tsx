@@ -36,6 +36,7 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({});
   const [quotesLoading, setQuotesLoading] = useState(false);
   const fetchTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [alerts, setAlerts] = useState<any[]>([]);
 
   // 持久化
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(groups)); }, [groups]);
@@ -72,6 +73,15 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
   }, [symbols.join(',')]);
 
   useEffect(() => { fetchQuotes(); }, [fetchQuotes]);
+
+  // 异动提醒
+  useEffect(() => {
+    if (symbols.length === 0) { setAlerts([]); return; }
+    fetch(`/api/alerts?symbols=${symbols.join(',')}`)
+      .then(r => r.json())
+      .then(d => setAlerts(d.data || []))
+      .catch(() => {});
+  }, [symbols.join(',')]);
 
   // 定时刷新(30秒)
   useEffect(() => {
@@ -163,6 +173,23 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
       style={{ borderRadius: 10, border: '1px solid #e8e8e8', marginBottom: 16 }}
       styles={{ body: { padding: '10px 16px' } }}
     >
+      {/* 异动提醒 */}
+      {alerts.length > 0 && (
+        <div style={{ background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#d46b08', marginBottom: 6 }}>⚠️ 异动提醒</div>
+          {alerts.map(stock => stock.alerts.map((a: any, i: number) => (
+            <div key={`${stock.symbol}-${i}`} style={{ fontSize: 12, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600, color: '#d46b08', fontFamily: 'monospace', cursor: 'pointer' }}
+                onClick={() => onStockClick?.(stock.symbol)}>{stock.name}</span>
+              <Tag color={a.level === 'critical' ? 'red' : a.level === 'warning' ? 'orange' : 'blue'} 
+                style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                {a.type === 'limit_move' ? '涨跌停' : a.type === 'big_move' ? '大幅波动' : a.type === 'volume_spike' ? '放量' : '异动'}
+              </Tag>
+              <span style={{ color: '#555' }}>{a.message}</span>
+            </div>
+          )))}
+        </div>
+      )}
       {/* 分组标签栏 — 每分组带加号按钮 */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         {groups.map(g => (
