@@ -41,6 +41,13 @@ const NAV_ITEMS: NavItem[] = [
     path: ROUTE_PATHS.WATCHLIST,
     icon: '⭐',
     description: '追踪关注的标的'
+  },
+  {
+    id: 'backtest',
+    label: '回测',
+    path: '/backtest',
+    icon: '📊',
+    description: '策略历史回测与复盘'
   }
 ];
 
