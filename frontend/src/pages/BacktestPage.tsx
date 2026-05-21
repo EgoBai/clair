@@ -1,400 +1,213 @@
 /**
- * 策略回测页面
- * 支持选择策略、股票、参数，运行回测并可视化结果
+ * 策略回测仪表盘 📊
+ * 输入股票代码 → 查看历史策略表现
  */
-
-import React, { useState, useCallback, useMemo } from 'react';
-import {
-  Card, Row, Col, Select, InputNumber, Button, Table, Tag, Statistic,
-  Space, Divider, Typography, Alert, Radio, Tooltip, Form, Spin,
-} from 'antd';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
-  ResponsiveContainer, AreaChart, Area, ReferenceDot, BarChart, Bar,
-  Legend, ComposedChart,
-} from 'recharts';
-import {
-  ThunderboltOutlined, BarChartOutlined, RiseOutlined, FallOutlined,
-  SwapOutlined, InfoCircleOutlined, SearchOutlined,
-} from '@ant-design/icons';
-import { apiService } from '../services/api';
-import { formatCurrency, formatChangePercent, formatTurnover } from '../utils/formatters';
-import { useDebounce } from '../hooks/useHooks';
-import type { BacktestTrade, BacktestResult } from '../../../shared/types';
+import React, { useState } from 'react';
+import { Input, Button, Card, Spin, Empty, Tag, Typography, Divider, Table } from 'antd';
+import { SearchOutlined, RiseOutlined, FallOutlined, TrophyOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
 
-// ==================== 策略配置 ====================
+const COLOR_UP = '#cf2a2a';
+const COLOR_DOWN = '#1db468';
+const BG = '#f5f6f8';
+const CARD_BG = '#ffffff';
 
-const STRATEGY_OPTIONS = [
-  { value: 'ma_cross', label: '均线交叉', desc: '短期均线上穿长期均线买入' },
-  { value: 'rsi', label: 'RSI超买超卖', desc: 'RSI低于超卖线买入，高于超买线卖出' },
-  { value: 'macd', label: 'MACD金叉死叉', desc: 'DIF上穿DEA买入，下穿卖出' },
-];
+interface BacktestResult {
+  symbol: string;
+  name: string;
+  period: string;
+  totalDays: number;
+  totalSignals: number;
+  totalTrades: number;
+  winTrades: number;
+  winRate: number;
+  strategyReturn: number;
+  buyHoldReturn: number;
+  alpha: number;
+  maxDrawdown: number;
+  avgReturnPerTrade: number;
+  recentSignals: Signal[];
+  equityCurve: EquityPoint[];
+}
 
-// ==================== 组件 ====================
+interface Signal {
+  day: number;
+  date: string;
+  price: number;
+  signal: 'buy' | 'sell';
+  cumulativeReturn: number;
+}
 
-function BacktestPage() {
-  const [symbol, setSymbol] = useState('000001.SZ');
-  const [strategy, setStrategy] = useState('ma_cross');
+interface EquityPoint {
+  day: number;
+  equity: number;
+}
+
+const BacktestPage: React.FC = () => {
+  const [symbol, setSymbol] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [chartType, setChartType] = useState<'equity' | 'drawdown'>('equity');
-  const [form] = Form.useForm();
+  const [error, setError] = useState('');
 
-  // 默认参数
-  const defaultParams: Record<string, any> = {
-    ma_cross: { fastPeriod: 5, slowPeriod: 20 },
-    rsi: { rsiPeriod: 14, rsiOversold: 30, rsiOverbought: 70 },
-    macd: { macdFast: 12, macdSlow: 26, macdSignal: 9 },
-  };
-
-  const handleRun = useCallback(async () => {
+  const runBacktest = async () => {
+    if (!symbol.trim()) return;
     setLoading(true);
-    setError(null);
+    setError('');
     try {
-      const params = {
-        ...defaultParams[strategy],
-        initialCapital: 100000,
-        commission: 0.0003,
-      };
-      const response = await apiService.runBacktest(symbol, strategy, params);
-      if (response.success) {
-        setResult(response.data as unknown as BacktestResult);
+      const resp = await fetch(`/api/backtest/${symbol.trim()}`);
+      const data = await resp.json();
+      if (data.success && data.data) {
+        setResult(data.data);
       } else {
-        setError(response.error || '回测失败');
+        setError(data.note || '回测数据不足');
+        setResult(null);
       }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '回测执行出错');
+    } catch {
+      setError('请求失败');
     } finally {
       setLoading(false);
     }
-  }, [symbol, strategy]);
+  };
 
-  // 收益曲线数据
-  const equityData = useMemo(() => {
-    if (!result?.equityCurve) return [];
-    // 降采样避免过多数据点
-    const step = Math.max(1, Math.floor(result.equityCurve.length / 200));
-    return result.equityCurve.filter((_, i) => i % step === 0).map((d) => ({
-      date: d.date.slice(5),
-      value: Math.round(d.value),
-    }));
-  }, [result?.equityCurve]);
+  const formatPct = (v: number) => {
+    const sign = v >= 0 ? '+' : '';
+    return { text: `${sign}${v.toFixed(2)}%`, color: v >= 0 ? COLOR_UP : COLOR_DOWN };
+  };
 
-  // 回撤曲线数据
-  const drawdownData = useMemo(() => {
-    if (!result?.drawdownCurve) return [];
-    const step = Math.max(1, Math.floor(result.drawdownCurve.length / 200));
-    return result.drawdownCurve.filter((_, i) => i % step === 0).map((d) => ({
-      date: d.date.slice(5),
-      drawdown: -d.drawdown,
-    }));
-  }, [result?.drawdownCurve]);
-
-  // 交易记录表格列
-  const tradeColumns = [
+  const signalColumns = [
+    { title: '日期', dataIndex: 'date', width: 120, render: (d: string) => d?.slice(0, 10) },
+    { title: '价格', dataIndex: 'price', width: 100, render: (p: number) => p?.toFixed(2) },
     {
-      title: '日期',
-      dataIndex: 'date',
-      key: 'date',
-      width: 100,
-    },
-    {
-      title: '操作',
-      dataIndex: 'type',
-      key: 'type',
-      width: 60,
-      render: (type: string) => (
-        <Tag color={type === 'buy' ? 'red' : 'green'}>
-          {type === 'buy' ? '买入' : type === 'sell' ? '卖出' : '平仓'}
-        </Tag>
+      title: '信号', dataIndex: 'signal', width: 100,
+      render: (s: string) => (
+        <Tag color={s === 'buy' ? 'red' : 'green'}>{s === 'buy' ? '买入' : '卖出'}</Tag>
       ),
     },
     {
-      title: '价格',
-      dataIndex: 'price',
-      key: 'price',
-      width: 80,
-      render: (v: number) => v?.toFixed(2),
-    },
-    {
-      title: '数量',
-      dataIndex: 'quantity',
-      key: 'quantity',
-      width: 80,
-      render: (v: number) => v?.toLocaleString(),
-    },
-    {
-      title: '金额',
-      dataIndex: 'amount',
-      key: 'amount',
-      width: 100,
-      render: (v: number) => formatTurnover(v),
-    },
-    {
-      title: '信号',
-      dataIndex: 'reason',
-      key: 'reason',
-      ellipsis: true,
+      title: '累计收益', dataIndex: 'cumulativeReturn', width: 120,
+      render: (r: number) => {
+        const fmt = formatPct(r);
+        return <span style={{ color: fmt.color, fontWeight: 600 }}>{fmt.text}</span>;
+      },
     },
   ];
 
-  // 收益率分布
-  const returnColor = (v: number) => v >= 0 ? '#EF4444' : '#22C55E';
+  // Mini equity chart (ASCII-style bar chart)
+  const maxEquity = result ? Math.max(...result.equityCurve.map(p => p.equity), 1.1) : 1;
+  const minEquity = result ? Math.min(...result.equityCurve.map(p => p.equity), 0.9) : 1;
 
   return (
-    <div style={{ padding: 24 }}>
-      <Title level={3}>
-        <ThunderboltOutlined style={{ marginRight: 8 }} />
-        策略回测
-      </Title>
+    <div style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
+      <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+        <Title level={3} style={{ marginBottom: 20 }}>
+          <TrophyOutlined style={{ color: '#f59e0b', marginRight: 8 }} />
+          策略回测
+        </Title>
 
-      {/* 配置面板 */}
-      <Card style={{ marginBottom: 16 }}>
-        <Row gutter={16} align="middle">
-          <Col span={5}>
-            <Text strong>股票代码</Text>
-            <Select
+        <Card style={{ marginBottom: 20, borderRadius: 10 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Input
+              placeholder="输入股票代码（如：600519）"
               value={symbol}
-              onChange={setSymbol}
-              style={{ width: '100%', marginTop: 4 }}
-              placeholder="选择股票"
-            >
-              <Option value="000001.SZ">平安银行 000001</Option>
-              <Option value="600519.SH">贵州茅台 600519</Option>
-              <Option value="000858.SZ">五粮液 000858</Option>
-              <Option value="300750.SZ">宁德时代 300750</Option>
-              <Option value="601318.SH">中国平安 601318</Option>
-            </Select>
-          </Col>
-          <Col span={6}>
-            <Text strong>策略类型</Text>
-            <Select
-              value={strategy}
-              onChange={setStrategy}
-              style={{ width: '100%', marginTop: 4 }}
-            >
-              {STRATEGY_OPTIONS.map((s) => (
-                <Option key={s.value} value={s.value}>
-                  <Tooltip title={s.desc}>{s.label}</Tooltip>
-                </Option>
-              ))}
-            </Select>
-          </Col>
-          <Col span={5}>
-            <Text strong>初始资金</Text>
-            <InputNumber
-              value={100000}
-              disabled
-              style={{ width: '100%', marginTop: 4 }}
-              formatter={(v) => `¥${v ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              onChange={e => setSymbol(e.target.value)}
+              onPressEnter={runBacktest}
+              style={{ flex: 1 }}
+              prefix={<SearchOutlined />}
             />
-          </Col>
-          <Col span={4}>
-            <Text strong>佣金费率</Text>
-            <InputNumber
-              value={0.03}
-              disabled
-              style={{ width: '100%', marginTop: 4 }}
-              formatter={(v) => `${v ?? ''}%`}
-            />
-          </Col>
-          <Col span={4}>
-            <Button
-              type="primary"
-              icon={<SearchOutlined />}
-              onClick={handleRun}
-              loading={loading}
-              size="large"
-              style={{ marginTop: 20 }}
-              block
-            >
-              运行回测
+            <Button type="primary" onClick={runBacktest} loading={loading} icon={<SearchOutlined />}>
+              回测
             </Button>
-          </Col>
-        </Row>
-      </Card>
-
-      {error && (
-        <Alert type="error" message={error} style={{ marginBottom: 16 }} closable onClose={() => setError(null)} />
-      )}
-
-      {loading && (
-        <Card style={{ textAlign: 'center', padding: 60 }}>
-          <Spin size="large" />
-          <div style={{ marginTop: 16 }}>
-            <Text type="secondary">正在执行回测计算...</Text>
           </div>
         </Card>
-      )}
 
-      {result && !loading && (
-        <>
-          {/* 核心指标 */}
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={4}>
-              <Card>
-                <Statistic
-                  title="总收益率"
-                  value={result.totalReturn}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{ color: returnColor(result.totalReturn) }}
-                  prefix={result.totalReturn >= 0 ? <RiseOutlined /> : <FallOutlined />}
-                />
-              </Card>
-            </Col>
-            <Col span={4}>
-              <Card>
-                <Statistic
-                  title="年化收益率"
-                  value={result.annualizedReturn}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{ color: returnColor(result.annualizedReturn) }}
-                />
-              </Card>
-            </Col>
-            <Col span={4}>
-              <Card>
-                <Statistic
-                  title="最大回撤"
-                  value={result.maxDrawdown}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{ color: '#22C55E' }}
-                />
-              </Card>
-            </Col>
-            <Col span={4}>
-              <Card>
-                <Statistic
-                  title="夏普比率"
-                  value={result.sharpeRatio}
-                  precision={2}
-                  valueStyle={{ color: result.sharpeRatio > 1 ? '#EF4444' : '#6B7280' }}
-                />
-              </Card>
-            </Col>
-            <Col span={4}>
-              <Card>
-                <Statistic
-                  title="胜率"
-                  value={result.winRate}
-                  precision={1}
-                  suffix="%"
-                />
-              </Card>
-            </Col>
-            <Col span={4}>
-              <Card>
-                <Statistic
-                  title="基准收益"
-                  value={result.benchmarkReturn}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{ color: returnColor(result.benchmarkReturn) }}
-                />
-              </Card>
-            </Col>
-          </Row>
+        {loading && <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>}
 
-          {/* 图表 */}
-          <Card
-            title="收益曲线"
-            extra={
-              <Radio.Group value={chartType} onChange={(e) => setChartType(e.target.value)} size="small">
-                <Radio.Button value="equity">权益曲线</Radio.Button>
-                <Radio.Button value="drawdown">回撤曲线</Radio.Button>
-              </Radio.Group>
-            }
-            style={{ marginBottom: 16 }}
-          >
-            <ResponsiveContainer width="100%" height={350}>
-              {chartType === 'equity' ? (
-                <AreaChart data={equityData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
-                  <RTooltip
-                    formatter={(v: any) => [`¥${Number(v).toLocaleString()}`, '资产']}
-                    labelFormatter={(l: any) => `日期: ${l}`}
-                  />
-                  <defs>
-                    <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <Area type="monotone" dataKey="value" stroke="#3B82F6" fill="url(#equityGrad)" strokeWidth={2} />
-                </AreaChart>
-              ) : (
-                <AreaChart data={drawdownData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
-                  <RTooltip
-                    formatter={(v: any) => [`${Number(v).toFixed(2)}%`, '回撤']}
-                    labelFormatter={(l: any) => `日期: ${l}`}
-                  />
-                  <defs>
-                    <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <Area type="monotone" dataKey="drawdown" stroke="#22C55E" fill="url(#ddGrad)" strokeWidth={2} />
-                </AreaChart>
-              )}
-            </ResponsiveContainer>
-          </Card>
+        {error && <Empty description={error} />}
 
-          {/* 详细指标 + 交易记录 */}
-          <Row gutter={16}>
-            <Col span={8}>
-              <Card title="详细指标" size="small">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <Statistic title="初始资金" value={result.initialCapital} prefix="¥" formatter={(v) => String(Number(v).toLocaleString())} />
-                  <Statistic title="最终资金" value={result.finalValue} prefix="¥" formatter={(v) => String(Number(v).toLocaleString())} />
-                  <Statistic title="总交易次数" value={result.totalTrades} />
-                  <Statistic title="盈利次数" value={result.winningTrades} valueStyle={{ color: '#EF4444' }} />
-                  <Statistic title="亏损次数" value={result.losingTrades} valueStyle={{ color: '#22C55E' }} />
-                  <Statistic title="盈亏比" value={result.profitFactor} precision={2} />
-                  <Statistic title="波动率" value={result.volatility} precision={2} suffix="%" />
-                  <Statistic title="索提诺比率" value={result.sortinoRatio} precision={2} />
+        {result && !loading && (
+          <>
+            {/* Summary cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+              <Card size="small" style={{ borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: '#8c8c8c' }}>策略收益</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: formatPct(result.strategyReturn).color }}>
+                  {formatPct(result.strategyReturn).text}
+                </div>
+                <div style={{ fontSize: 10, color: '#8c8c8c' }}>{result.period}</div>
+              </Card>
+              <Card size="small" style={{ borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: '#8c8c8c' }}>买入持有</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: formatPct(result.buyHoldReturn).color }}>
+                  {formatPct(result.buyHoldReturn).text}
+                </div>
+                <div style={{ fontSize: 11, color: '#8c8c8c' }}>
+                  α值 <span style={{ color: result.alpha >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
+                    {result.alpha >= 0 ? '+' : ''}{result.alpha}%
+                  </span>
                 </div>
               </Card>
-            </Col>
-            <Col span={16}>
-              <Card title={`交易记录 (${result.trades?.length || 0}笔)`} size="small">
-                <Table
-                  columns={tradeColumns}
-                  dataSource={result.trades || []}
-                  rowKey={(r, i) => `${r.date}-${r.type}-${i}`}
-                  size="small"
-                  pagination={{ pageSize: 8, size: 'small' }}
-                  scroll={{ y: 300 }}
-                />
+              <Card size="small" style={{ borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: '#8c8c8c' }}>胜率</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: result.winRate >= 50 ? COLOR_UP : COLOR_DOWN }}>
+                  {result.winRate}%
+                </div>
+                <div style={{ fontSize: 10, color: '#8c8c8c' }}>{result.winTrades}/{result.totalTrades} 笔</div>
               </Card>
-            </Col>
-          </Row>
-        </>
-      )}
+              <Card size="small" style={{ borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: '#8c8c8c' }}>最大回撤</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: COLOR_DOWN }}>
+                  -{result.maxDrawdown}%
+                </div>
+                <div style={{ fontSize: 10, color: '#8c8c8c' }}>{result.totalDays}天/{result.totalSignals}信号</div>
+              </Card>
+            </div>
 
-      {/* 空状态 */}
-      {!result && !loading && (
-        <Card style={{ textAlign: 'center', padding: 60 }}>
-          <ThunderboltOutlined style={{ fontSize: 48, color: '#d9d9d9', marginBottom: 16 }} />
-          <div>
-            <Text type="secondary">选择股票和策略，点击"运行回测"开始</Text>
-          </div>
-        </Card>
-      )}
+            {/* Equity curve */}
+            <Card title="📈 权益曲线" size="small" style={{ marginBottom: 16, borderRadius: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 100, padding: '0 4px' }}>
+                {result.equityCurve.map((p, i) => {
+                  const height = ((p.equity - minEquity) / (maxEquity - minEquity)) * 100;
+                  const isProfit = p.equity >= 1;
+                  return (
+                    <div
+                      key={i}
+                      title={`Day ${p.day}: ${((p.equity - 1) * 100).toFixed(1)}%`}
+                      style={{
+                        flex: 1,
+                        height: `${Math.max(height, 1)}%`,
+                        background: isProfit ? COLOR_UP : COLOR_DOWN,
+                        opacity: 0.7,
+                        borderRadius: '1px 1px 0 0',
+                        minWidth: 3,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#8c8c8c', marginTop: 4 }}>
+                <span>起始</span>
+                <span style={{ color: result.strategyReturn >= 0 ? COLOR_UP : COLOR_DOWN }}>
+                  {formatPct(result.strategyReturn).text}
+                </span>
+              </div>
+            </Card>
+
+            {/* Recent signals */}
+            <Card title="📋 近期交易信号" size="small" style={{ borderRadius: 8 }}>
+              <Table
+                dataSource={result.recentSignals}
+                columns={signalColumns}
+                rowKey="day"
+                size="small"
+                pagination={false}
+              />
+            </Card>
+          </>
+        )}
+      </div>
     </div>
   );
-}
+};
 
 export default BacktestPage;
