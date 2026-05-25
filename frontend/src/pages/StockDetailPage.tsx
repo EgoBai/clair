@@ -13,6 +13,7 @@ import {
   HomeOutlined, StockOutlined, CompassOutlined,
   ReloadOutlined, StarOutlined, StarFilled, LineChartOutlined,
   RiseOutlined, FallOutlined,
+  FundProjectionScreenOutlined,
 } from '@ant-design/icons';
 import KLineChart, { KLineData } from '../components/Charts/KLineChart';
 import { useStockActions, useWatchlist } from '../store/useStockStore';
@@ -243,6 +244,7 @@ const StockDetailPage: React.FC = () => {
             <Col xs={24} md={6} style={{ textAlign: 'right' }}>
               <Space>
                 <Button icon={<ReloadOutlined />} onClick={() => { fetchStockData(); fetchKlineData(); }}>刷新</Button>
+                <Button icon={<FundProjectionScreenOutlined />} onClick={() => navigate(`/backtest?symbol=${displaySymbol}`)}>回测</Button>
                 <Button icon={<LineChartOutlined />} onClick={() => navigate('/stocks')}>返回列表</Button>
               </Space>
             </Col>

@@ -43,11 +43,11 @@ const NAV_ITEMS: NavItem[] = [
     description: '追踪关注的标的'
   },
   {
-    id: 'backtest',
-    label: '回测',
-    path: '/backtest',
-    icon: '📊',
-    description: '策略历史回测与复盘'
+    id: 'review',
+    label: '复盘',
+    path: '/review',
+    icon: '📋',
+    description: '交易复盘与策略回顾'
   }
 ];
 

@@ -15,8 +15,6 @@ const StockComparePage = lazy(() => import('../pages/StockComparePage'));
 // 市场分析
 const MarketAnalysisPage = lazy(() => import('../pages/MarketAnalysisPage'));
 const MarketStatsPage = lazy(() => import('../pages/MarketStatsPage'));
-const MarketHeatDashboard = lazy(() => import('../pages/MarketHeatDashboard'));
-
 // 行业板块
 const SectorDetailPage = lazy(() => import('../pages/SectorDetailPage'));
 
@@ -32,6 +30,7 @@ const AdvancedScreenerPage = lazy(() => import('../pages/AdvancedScreenerPage'))
 // 交易 & 投资
 const PortfolioPage = lazy(() => import('../pages/PortfolioPage'));
 const BacktestPage = lazy(() => import('../pages/BacktestPage'));
+const ReviewPage = lazy(() => import('../pages/ReviewPage'));
 const BlockTradesPage = lazy(() => import('../pages/BlockTradesPage'));
 const MarginTradingPage = lazy(() => import('../pages/MarginTradingPage'));
 const ETFPage = lazy(() => import('../pages/ETFPage'));
@@ -88,7 +87,6 @@ export const AppRoutes = () => {
         <Route path="/market" element={<MarketAnalysisPage />} />
         <Route path="/market/analysis" element={<MarketAnalysisPage />} />
         <Route path="/market/stats" element={<MarketStatsPage />} />
-        <Route path="/market/heatmap" element={<MarketHeatDashboard />} />
 
         {/* 行业板块 */}
         <Route path="/sectors/:symbol" element={<SectorDetailPage />} />
@@ -105,6 +103,7 @@ export const AppRoutes = () => {
         {/* 交易 & 投资 */}
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
+        <Route path="/review" element={<ReviewPage />} />
         <Route path="/block-trades" element={<BlockTradesPage />} />
         <Route path="/margin" element={<MarginTradingPage />} />
         <Route path="/etf" element={<ETFPage />} />
@@ -162,6 +161,7 @@ export const ROUTE_PATHS = {
   // 交易 & 投资
   PORTFOLIO: '/portfolio',
   BACKTEST: '/backtest',
+  REVIEW: '/review',
   BLOCK_TRADES: '/block-trades',
   MARGIN: '/margin',
   ETF: '/etf',

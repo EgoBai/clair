@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip } from 'antd';
+import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message } from 'antd';
 import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassOutlined, RightOutlined, BulbOutlined, StarOutlined, BarChartOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
@@ -364,7 +364,22 @@ const DiscoverPage: React.FC = () => {
                   { title: 'PE', dataIndex: 'peRatio', align: 'right' as const, width: 65, render: (v?: number) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v?.toFixed(1) ?? '-'}</span> },
                   { title: '', width: 40, render: (_: any, r: StockData) => (
                     <StarOutlined style={{ color: TEXT_SEC, cursor: 'pointer', fontSize: 14 }}
-                      onClick={e => { e.stopPropagation(); /* TODO: add to watchlist */ }} />
+                      onClick={e => {
+                        e.stopPropagation();
+                        try {
+                          const KEY = 'astock_watchlist_v2';
+                          const saved = localStorage.getItem(KEY);
+                          const groups = saved ? JSON.parse(saved) : [{ id: 'default', name: '默认分组', stocks: [], isDefault: true }];
+                          const def = groups.find((g: any) => g.id === 'default') || groups[0];
+                          if (def.stocks.find((s: any) => s.symbol === r.symbol)) {
+                            message.warning(`${r.name} 已在自选列表中`);
+                            return;
+                          }
+                          def.stocks.push({ symbol: r.symbol, name: r.name, market: r.market || '', sortIndex: def.stocks.length, groupId: def.id });
+                          localStorage.setItem(KEY, JSON.stringify(groups));
+                          message.success(`已将 ${r.name} 添加到自选股`);
+                        } catch { message.error('添加失败'); }
+                      }} />
                   )},
                 ]}
                 onRow={r => ({ onClick: () => navigate(`/stocks/${r.symbol}`), style: { cursor: 'pointer' } })} />

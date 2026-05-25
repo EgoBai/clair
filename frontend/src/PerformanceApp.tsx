@@ -1,5 +1,6 @@
 import React from 'react';
-import PerformanceDemo from './pages/PerformanceDemo';
+// PerformanceDemo removed during cleanup — this entry point is legacy
+const PerformanceDemo = () => <div style={{ padding: 40, textAlign: 'center' }}>性能监控演示已移除</div>;
 import { perfMonitor } from './utils/performanceMonitorEnhanced';
 
 const PerformanceApp: React.FC = () => {
