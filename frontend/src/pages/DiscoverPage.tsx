@@ -144,9 +144,22 @@ const DiscoverPage: React.FC = () => {
                         {sec.icon} {sec.title}
                       </div>
                       <div style={{ fontSize: 11, color: TEXT_SEC, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-                        {sec.text.split('\n').filter(l => l.trim() && !l.startsWith('**')).map((line, j) => (
-                          <div key={j} style={{ marginBottom: 2 }}>{line.trim()}</div>
-                        ))}
+                        {sec.text.split('\n').filter(l => l.trim()).map((line, j) => {
+                          const trimmed = line.trim();
+                          const isBold = trimmed.startsWith('**') && trimmed.endsWith('**');
+                          const isBullet = trimmed.startsWith('·') || trimmed.startsWith('-') || trimmed.startsWith('•');
+                          const isArrow = trimmed.startsWith('→') || trimmed.startsWith('▸');
+                          return (
+                            <div key={j} style={{
+                              marginBottom: 3,
+                              paddingLeft: isBullet ? 8 : 0,
+                              color: isArrow ? ACCENT : TEXT_SEC,
+                              fontWeight: isBold ? 700 : 400,
+                            }}>
+                              {isBold ? trimmed.replace(/\*\*/g, '') : trimmed}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -220,8 +233,8 @@ const DiscoverPage: React.FC = () => {
 
             {/* 指数 + 宽度 */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginBottom: 20 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
-                {indices.slice(0, 6).map(idx => {
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                {indices.map(idx => {
                   const up = idx.changePercent >= 0;
                   return (
                     <div key={idx.symbol} onClick={() => navigate(`/index/${idx.symbol}`)} style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '10px 12px', cursor: 'pointer' }}>
@@ -363,7 +376,7 @@ const DiscoverPage: React.FC = () => {
                   { title: '换手率', dataIndex: 'turnoverRate', align: 'right' as const, width: 75, render: (v?: number) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v?.toFixed(2) ?? '-'}%</span> },
                   { title: 'PE', dataIndex: 'peRatio', align: 'right' as const, width: 65, render: (v?: number) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v?.toFixed(1) ?? '-'}</span> },
                   { title: '', width: 40, render: (_: any, r: StockData) => (
-                    <StarOutlined style={{ color: TEXT_SEC, cursor: 'pointer', fontSize: 14 }}
+                    <StarOutlined style={{ color: GOLD, cursor: 'pointer', fontSize: 15, background: 'rgba(245,158,11,0.12)', borderRadius: 4, padding: '2px 3px' }}
                       onClick={e => {
                         e.stopPropagation();
                         try {

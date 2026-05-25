@@ -1,6 +1,6 @@
 /**
  * 股票详情页 v2 — 芝士财富/富途风格
- * 纯白卡片 + 红涨绿跌(A股惯例) + 清晰K线 + 高对比度
+ * 深色主题卡片 + 红涨绿跌(A股惯例) + 清晰K线 + 高对比度
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -25,11 +25,11 @@ const { Title, Text } = Typography;
 const COLOR_UP = '#cf2a2a';      // 大红
 const COLOR_DOWN = '#1db468';    // 深绿
 const COLOR_FLAT = '#666666';
-const BG_CARD = '#ffffff';
-const BG_PAGE = '#f5f6f8';
-const TEXT_PRIMARY = '#1a1a1a';
-const TEXT_SECONDARY = '#8c8c8c';
-const BORDER = '#e8e8e8';
+const BG_CARD = '#1e293b';
+const BG_PAGE = '#0f172a';
+const TEXT_PRIMARY = '#f1f5f9';
+const TEXT_SECONDARY = '#94a3b8';
+const BORDER = '#334155';
 
 interface StockInfo {
   symbol: string;
@@ -244,7 +244,7 @@ const StockDetailPage: React.FC = () => {
             <Col xs={24} md={6} style={{ textAlign: 'right' }}>
               <Space>
                 <Button icon={<ReloadOutlined />} onClick={() => { fetchStockData(); fetchKlineData(); }}>刷新</Button>
-                <Button icon={<FundProjectionScreenOutlined />} onClick={() => navigate(`/backtest?symbol=${displaySymbol}`)}>回测</Button>
+                <Button type="primary" icon={<FundProjectionScreenOutlined />} onClick={() => navigate(`/backtest?symbol=${displaySymbol}`)} style={{ background: '#2563eb', borderColor: '#2563eb' }}>📊 回测</Button>
                 <Button icon={<LineChartOutlined />} onClick={() => navigate('/stocks')}>返回列表</Button>
               </Space>
             </Col>
@@ -376,7 +376,7 @@ const StockDetailPage: React.FC = () => {
             {aiStrategy.summary && (
               <>
                 <Divider style={{ margin: '8px 0' }} />
-                <div style={{ fontSize: 13, color: TEXT_PRIMARY, lineHeight: 1.8, background: '#f8fafc', padding: '10px 14px', borderRadius: 6 }}>
+                <div style={{ fontSize: 13, color: TEXT_PRIMARY, lineHeight: 1.8, background: 'rgba(15,23,42,0.5)', padding: '10px 14px', borderRadius: 6 }}>
                   {aiStrategy.summary}
                 </div>
               </>
@@ -394,26 +394,26 @@ const StockDetailPage: React.FC = () => {
             {aiStrategy.aiNarrative && (
               <div style={{ marginTop: 8 }}>
                 <Divider style={{ margin: '6px 0' }} />
-                <div style={{ background: '#f0f7ff', borderRadius: 8, padding: '10px 14px', border: '1px solid #d6e4ff' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#1890ff', marginBottom: 8 }}>📋 AI 详细分析</div>
+                <div style={{ background: 'rgba(30,41,59,0.8)', borderRadius: 8, padding: '10px 14px', border: '1px solid rgba(59,130,246,0.3)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 8 }}>📋 AI 详细分析</div>
                   
                   <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>📊 综合评估</div>
+                    <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 2 }}>📊 综合评估</div>
                     <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.overall}</div>
                   </div>
                   
                   <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>📈 趋势分析</div>
+                    <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 2 }}>📈 趋势分析</div>
                     <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.trend}</div>
                   </div>
                   
                   <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>⚡ 信号解读</div>
+                    <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 2 }}>⚡ 信号解读</div>
                     <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.signals}</div>
                   </div>
                   
                   <div>
-                    <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>⚠️ 风险控制</div>
+                    <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 2 }}>⚠️ 风险控制</div>
                     <div style={{ fontSize: 12, color: TEXT_PRIMARY, lineHeight: 1.7 }}>{aiStrategy.aiNarrative.risk}</div>
                   </div>
                 </div>

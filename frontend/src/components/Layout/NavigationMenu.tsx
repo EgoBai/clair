@@ -48,6 +48,13 @@ const NAV_ITEMS: NavItem[] = [
     path: '/review',
     icon: '📋',
     description: '交易复盘与策略回顾'
+  },
+  {
+    id: 'settings',
+    label: '设置',
+    path: '/settings',
+    icon: '⚙️',
+    description: '账户与通用设置'
   }
 ];
 

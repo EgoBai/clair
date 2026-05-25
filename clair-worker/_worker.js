@@ -388,10 +388,12 @@ function buildSectorScores(sectorMap) {
     const avgChange = data.totalChange / count;
     const upCount = data.stocks.filter(s => s.quote.changePercent > 0).length;
     const breadthScore = (upCount / count) * 100;
-    const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 10));
+    const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 6));
     const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 8));
-    const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 8));
-    const score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
+    const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 5));
+    let score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
+    if (count < 5) score = Math.round(score * 0.6);
+    else if (count < 10) score = Math.round(score * 0.8);
 
     return {
       industry, score,
@@ -762,10 +764,12 @@ async function getSectorData() {
     const avgChange = data.totalChange / count;
     const upCount = data.stocks.filter(s => s.quote.changePercent > 0).length;
     const breadthScore = (upCount / count) * 100;
-    const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 10));
+    const changeScore = Math.min(100, Math.max(0, 50 + avgChange * 6));
     const volumeScore = Math.min(100, Math.max(0, Math.log10(data.totalVolume / count + 1) * 8));
-    const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 8));
-    const score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
+    const momentumScore = Math.min(100, Math.max(0, 50 + avgChange * 5));
+    let score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
+    if (count < 5) score = Math.round(score * 0.6);
+    else if (count < 10) score = Math.round(score * 0.8);
     return {
       industry, score,
       changeScore: Math.round(changeScore),
