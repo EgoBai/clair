@@ -144,7 +144,7 @@ const DiscoverPage: React.FC = () => {
                         {sec.icon} {sec.title}
                       </div>
                       <div style={{ fontSize: 11, color: TEXT_SEC, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-                        {sec.text.split('\n').filter(l => l.trim()).map((line, j) => {
+                        {sec.text.split('\n').filter((l: string) => l.trim()).map((line: string, j: number) => {
                           const trimmed = line.trim();
                           const isBold = trimmed.startsWith('**') && trimmed.endsWith('**');
                           const isBullet = trimmed.startsWith('·') || trimmed.startsWith('-') || trimmed.startsWith('•');

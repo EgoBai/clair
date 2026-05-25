@@ -67,6 +67,7 @@ const ShareholderChangesPage = lazy(() => import('./pages/ShareholderChangesPage
 const LockupCalendarPage = lazy(() => import('./pages/LockupCalendarPage'));
 const AIStockSelectionPage = lazy(() => import('./pages/AIStockSelectionPage'));
 const ETFPage = lazy(() => import('./pages/ETFPage'));
+const ReviewPage = lazy(() => import('./pages/ReviewPage'));
 const IndexDetailPage = lazy(() => import('./pages/IndexDetailPage'));
 const MarketStatsPage = lazy(() => import('./pages/MarketStatsPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
@@ -178,6 +179,7 @@ function App() {
               <Route path="screener" element={<LazyPage component={ScreenerPage} name="选股器" />} />
               <Route path="advanced-screener" element={<LazyPage component={AdvancedScreenerPage} name="高级选股" />} />
               <Route path="backtest" element={<LazyPage component={BacktestPage} name="回测" />} />
+              <Route path="review" element={<LazyPage component={ReviewPage} name="复盘" />} />
               <Route path="portfolio" element={<LazyPage component={PortfolioPage} name="持仓" />} />
               <Route path="news" element={<LazyPage component={NewsPage} name="资讯" />} />
               <Route path="social" element={<LazyPage component={SocialPage} name="社区" />} />
