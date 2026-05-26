@@ -16,7 +16,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import {
   useStocks, useWatchlist, useStockActions,
-  initializeSampleData, Stock,
+  Stock,
 } from '../store/useStockStore';
 
 const COLOR_UP = '#ef4444';
@@ -103,9 +103,6 @@ const DashboardPage: React.FC = () => {
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      if (stocks.length === 0) {
-        await initializeSampleData();
-      }
       await Promise.all([fetchMarketData(), fetchNews()]);
       setLoading(false);
     };
@@ -197,7 +194,7 @@ const DashboardPage: React.FC = () => {
             </Tooltip>
             <Button
               icon={<ReloadOutlined />}
-              onClick={() => { fetchMarketData(); fetchNews(); initializeSampleData(); }}
+              onClick={() => { fetchMarketData(); fetchNews(); }}
               size="small"
             >
               刷新

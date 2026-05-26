@@ -5,7 +5,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { createLogger } from '../utils/logger.ts';
+import { createLogger } from '../utils/logger';
 
 const log = createLogger('RateLimit');
 

@@ -11,7 +11,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { createLogger } from '../utils/logger.ts';
+import { createLogger } from '../utils/logger';
 import crypto from 'crypto';
 
 const log = createLogger('HTTP');

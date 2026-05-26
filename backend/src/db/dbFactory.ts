@@ -98,6 +98,17 @@ interface DatabaseProxy {
   getTopGainers(date: Date, limit?: number): Promise<Record<string, unknown>[]>;
   getTopLosers(date: Date, limit?: number): Promise<Record<string, unknown>[]>;
   getTopTurnover(date: Date, limit?: number): Promise<Record<string, unknown>[]>;
+  getSectorStocks(industry: string): Promise<import('../models/Stock').StockWithQuotes[]>;
+  getSectorPerformanceEnhanced(): Promise<Array<{
+    industry: string; stock_count: number; avg_change_percent: number;
+    total_turnover: number; total_market_cap: number; limit_up_count: number;
+  }>>;
+  reclassifyAll(): number | Promise<number>;
+  getSectorMomentumScore(): Promise<Array<{
+    industry: string; score: number; changeScore: number; volumeScore: number;
+    breadthScore: number; stock_count: number; avg_change_percent: number;
+    total_turnover: number; limit_up_count: number;
+  }>>;
   cleanupOldData(retentionDays: number): Promise<{ dailyQuotes: number; minuteQuotes: number }>;
   rebuildIndexes(): Promise<void>;
   getDatabaseStats(): Promise<Record<string, unknown>>;

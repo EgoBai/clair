@@ -10,7 +10,7 @@ import { SearchOutlined, ReloadOutlined, StarOutlined, StarFilled, RiseOutlined,
 import type { ColumnsType } from 'antd/es/table';
 import {
   useStocks, useStockStats, useStockActions, useWatchlist,
-  initializeSampleData, Stock,
+  Stock,
 } from '../store/useStockStore';
 
 const BG = '#f5f6f8';
@@ -36,9 +36,7 @@ const StockListPage: React.FC = () => {
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (stocks.length === 0) {
-      initializeSampleData().then(() => setLoading(false)).catch(() => setLoading(false));
-    }
+    setLoading(false);
   }, []);
 
   const filteredAndSortedStocks = useMemo(() => {
@@ -65,7 +63,7 @@ const StockListPage: React.FC = () => {
 
   const refreshData = useCallback(() => {
     setLoading(true);
-    initializeSampleData().then(() => setLoading(false)).catch(() => setLoading(false));
+    setTimeout(() => setLoading(false), 500);
   }, []);
 
   const columns: ColumnsType<Stock> = [

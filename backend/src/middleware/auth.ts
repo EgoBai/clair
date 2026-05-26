@@ -7,7 +7,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { createLogger } from '../utils/logger.ts';
+import { createLogger } from '../utils/logger';
 
 const log = createLogger('Auth');
 
