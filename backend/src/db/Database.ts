@@ -171,7 +171,12 @@ export class Database {
    */
   async createStock(stock: Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>): Promise<Stock> {
     const insertData: Record<string, unknown> = {
-      ...stock,
+      symbol: stock.symbol,
+      code: stock.symbol.split('.')[0], // 提取纯代码部分
+      name: stock.name,
+      market: stock.market,
+      industry: stock.industry,
+      is_active: stock.isActive !== undefined ? stock.isActive : true,
       created_at: new Date(),
       updated_at: new Date()
     };
@@ -258,7 +263,30 @@ export class Database {
       .where('stock_id', stockId)
       .orderBy('trade_date', 'desc')
       .first();
-    return quote ?? null;
+    
+    if (!quote) return null;
+    
+    // PostgreSQL 返回 snake_case，DailyQuote 类型为 camelCase，需安全转换
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q = quote as any;
+    return {
+      id: q.id,
+      stockId: q.stock_id || q.stockId,
+      tradeDate: q.trade_date || q.tradeDate,
+      openPrice: q.open_price || q.openPrice,
+      closePrice: q.close_price || q.closePrice,
+      highPrice: q.high_price || q.highPrice,
+      lowPrice: q.low_price || q.lowPrice,
+      volume: q.volume,
+      turnover: q.turnover,
+      change: q.change_amount || q.change,
+      changePercent: q.change_percent || q.changePercent,
+      amplitude: q.amplitude,
+      turnoverRate: q.turnover_rate || q.turnoverRate,
+      marketCap: q.market_cap || q.marketCap,
+      createdAt: q.created_at || q.createdAt,
+      updatedAt: q.updated_at || q.updatedAt,
+    };
   }
 
   /**
@@ -266,12 +294,25 @@ export class Database {
    */
   async createDailyQuote(quote: Omit<DailyQuote, 'id' | 'createdAt' | 'updatedAt'>): Promise<DailyQuote> {
     const insertData: Record<string, unknown> = {
-      ...quote,
+      stock_id: quote.stockId,
+      trade_date: quote.tradeDate,
+      open_price: quote.openPrice,
+      close_price: quote.closePrice,
+      high_price: quote.highPrice,
+      low_price: quote.lowPrice,
+      volume: quote.volume,
+      turnover: quote.turnover,
+      change_amount: quote.change || 0,
+      change_percent: quote.changePercent || 0,
+      amplitude: quote.amplitude || 0,
+      turnover_rate: quote.turnoverRate || 0,
+      market_cap: quote.marketCap,
       created_at: new Date(),
-      updated_at: new Date()
     };
     const [created] = await this.knexInstance<DailyQuote>('daily_quotes')
       .insert(insertData)
+      .onConflict(['stock_id', 'trade_date'])
+      .merge()
       .returning('*');
 
     return created;

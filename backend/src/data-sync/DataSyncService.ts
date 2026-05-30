@@ -170,7 +170,6 @@ export class DataSyncService {
                 stock = await db.createStock({
                   symbol: quote.symbol,
                   name: quote.name,
-                  fullName: quote.name,
                   market: this.getMarketFromSymbol(quote.symbol),
                   isActive: true,
                 });
@@ -196,10 +195,7 @@ export class DataSyncService {
                 changePercent: quote.changePercent,
                 amplitude: quote.amplitude,
                 turnoverRate: quote.turnoverRate,
-                peRatio: quote.peRatio,
-                pbRatio: quote.pbRatio,
                 marketCap: quote.marketCap,
-                circulatingMarketCap: quote.circulatingMarketCap,
               });
 
               result.quotesSaved++;
