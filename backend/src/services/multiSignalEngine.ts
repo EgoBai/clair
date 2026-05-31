@@ -5,12 +5,30 @@
  */
 
 import { createLogger } from '../utils/logger';
-import { db } from '../db/dbFactory';
+import { getDb } from '../db/dbFactory';
+import { analyzeRegime } from './engineOrchestrator';
 
 const log = createLogger('MultiSignalEngine');
 
 // Digital Oracle 微服务地址
 const DIGITAL_ORACLE_URL = process.env.DIGITAL_ORACLE_URL || 'http://localhost:8001';
+
+/**
+ * 符号格式转换: sh.600519 → 600519.SH, sz.000001 → 000001.SZ
+ * 数据库存储格式为 CODE.SH/SZ，API 传入格式为 sh/sz.CODE
+ */
+function normalizeSymbol(symbol: string): string {
+  if (!symbol) return symbol;
+  // 已经是 CODE.SH/SZ 格式
+  if (/^\d{6}\.(SH|SZ)$/i.test(symbol)) return symbol.toUpperCase();
+  // sh.600519 → 600519.SH
+  const match = symbol.match(/^(sh|sz)\.?(\d{6})$/i);
+  if (match) {
+    const suffix = match[1].toUpperCase();
+    return `${match[2]}.${suffix}`;
+  }
+  return symbol;
+}
 
 export interface Signal {
   name: string;
@@ -78,6 +96,7 @@ async function fetchTechnicalSignals(symbol: string): Promise<Signal[]> {
   try {
     // 从数据库获取股票和行情数据
     console.log(`[DEBUG] Fetching data for ${symbol}...`);
+    const db = getDb();
     const stockWithQuote = await db.getStockWithLatestQuote(symbol);
     console.log(`[DEBUG] stockWithQuote:`, stockWithQuote ? 'found' : 'null');
     
@@ -148,6 +167,74 @@ async function fetchTechnicalSignals(symbol: string): Promise<Signal[]> {
       });
     }
     
+    // HMM 市场状态识别
+    try {
+      const regimeResult = await analyzeRegime(symbol);
+      if (regimeResult) {
+        const regimeLabels: Record<string, string> = {
+          'bull': '牛市',
+          'bear': '熊市',
+          'sideways': '震荡',
+          'volatile': '高波动',
+        };
+        const regimeDirections: Record<string, 'bullish' | 'bearish' | 'neutral'> = {
+          'bull': 'bullish',
+          'bear': 'bearish',
+          'sideways': 'neutral',
+          'volatile': 'neutral',
+        };
+        signals.push({
+          name: '市场状态(HMM)',
+          source: 'RegimeTransitionEngine',
+          value: regimeLabels[regimeResult.currentRegime] || regimeResult.currentRegime,
+          direction: regimeDirections[regimeResult.currentRegime] || 'neutral',
+          confidence: regimeResult.probability,
+          timeframe: 'medium',
+          detail: `概率 ${(regimeResult.probability * 100).toFixed(0)}%，稳态分布: 牛${(regimeResult.steadyState[0] * 100).toFixed(0)}% 熊${(regimeResult.steadyState[1] * 100).toFixed(0)}% 震${(regimeResult.steadyState[2] * 100).toFixed(0)}%`,
+        });
+      }
+    } catch (e) {
+      log.warn(`Regime analysis failed for ${symbol}: ${e}`);
+    }
+    
+    // 市场宽度信号 (涨跌家数)
+    try {
+      const db = getDb();
+      const knex = (db as any).connection || (db as any).knexInstance;
+      const widthQuery = await knex('daily_quotes as dq')
+        .join('stocks as s', 'dq.stock_id', 's.id')
+        .whereRaw('dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)')
+        .select(
+          knex.raw('SUM(CASE WHEN dq.change_percent > 0 THEN 1 ELSE 0 END) as up_count'),
+          knex.raw('SUM(CASE WHEN dq.change_percent < 0 THEN 1 ELSE 0 END) as down_count'),
+          knex.raw('SUM(CASE WHEN dq.change_percent >= 9.9 THEN 1 ELSE 0 END) as limit_up'),
+          knex.raw('SUM(CASE WHEN dq.change_percent <= -9.9 THEN 1 ELSE 0 END) as limit_down'),
+          knex.raw('COUNT(*) as total')
+        )
+        .first();
+      
+      if (widthQuery && widthQuery.total > 0) {
+        const upCount = parseInt(widthQuery.up_count) || 0;
+        const downCount = parseInt(widthQuery.down_count) || 0;
+        const limitUp = parseInt(widthQuery.limit_up) || 0;
+        const limitDown = parseInt(widthQuery.limit_down) || 0;
+        const total = parseInt(widthQuery.total) || 1;
+        const ratio = upCount / (downCount || 1);
+        
+        signals.push({
+          name: '市场宽度',
+          source: '数据库统计',
+          value: `涨${upCount}/跌${downCount}`,
+          direction: ratio > 1.5 ? 'bullish' : ratio < 0.67 ? 'bearish' : 'neutral',
+          confidence: 0.7,
+          timeframe: 'short',
+          detail: `涨跌比 ${ratio.toFixed(2)}，涨停${limitUp}家 跌停${limitDown}家，样本${total}只`,
+        });
+      }
+    } catch (e) {
+      log.warn(`Market breadth signal failed: ${e}`);
+    }
+    
   } catch (e) {
     console.error(`[ERROR] Technical signals failed for ${symbol}:`, e);
     log.warn(`Technical signals failed for ${symbol}: ${e}`);
@@ -163,6 +250,7 @@ async function fetchSectorSignals(symbol: string): Promise<Signal[]> {
   const signals: Signal[] = [];
   
   try {
+    const db = getDb();
     const stockWithQuote = await db.getStockWithLatestQuote(symbol);
     if (!stockWithQuote?.industry) return signals;
     
@@ -241,13 +329,15 @@ function summarizeSignals(signals: Signal[]): MultiSignalResult['summary'] {
  * 主入口：聚合多维度信号
  */
 export async function getMultiSignals(symbol: string): Promise<MultiSignalResult> {
-  log.info(`Gathering multi-signals for ${symbol}`);
+  // 统一符号格式: sh.600519 → 600519.SH
+  const normalizedSymbol = normalizeSymbol(symbol);
+  log.info(`Gathering multi-signals for ${symbol} → ${normalizedSymbol}`);
   
   // 并行获取所有信号
   const [externalSignals, technicalSignals, sectorSignals] = await Promise.all([
     fetchExternalSignals(),
-    fetchTechnicalSignals(symbol),
-    fetchSectorSignals(symbol),
+    fetchTechnicalSignals(normalizedSymbol),
+    fetchSectorSignals(normalizedSymbol),
   ]);
   
   const allSignals = [...externalSignals, ...technicalSignals, ...sectorSignals];
@@ -256,13 +346,14 @@ export async function getMultiSignals(symbol: string): Promise<MultiSignalResult
   // 获取股票名称
   let stockName = '';
   try {
-    const stock = await db.getStockBySymbol(symbol);
+    const db = getDb();
+    const stock = await db.getStockBySymbol(normalizedSymbol);
     if (stock) stockName = stock.name;
   } catch (e) {
     // ignore
   }
   
-  log.info(`Got ${allSignals.length} signals for ${symbol}: overall=${summary.overall}`);
+  log.info(`Got ${allSignals.length} signals for ${normalizedSymbol}: overall=${summary.overall}`);
   
   return {
     symbol,
