@@ -19,33 +19,30 @@ const renderWithRouter = (ui: React.ReactElement, initialEntries = ['/']) => {
 describe('NavigationMenu', () => {
   it('should render the navigation menu', () => {
     renderWithRouter(<NavigationMenu />);
-    expect(screen.getByText(/A股行情/)).toBeDefined();
+    expect(screen.getByText('澄观')).toBeDefined();
   });
 
   it('should display subtitle', () => {
     renderWithRouter(<NavigationMenu />);
-    expect(screen.getByText('专业股票分析平台')).toBeDefined();
+    expect(screen.getByText('Clair · 水静则明')).toBeDefined();
   });
 
   it('should display all navigation items', () => {
     renderWithRouter(<NavigationMenu />);
     expect(screen.getByText('首页')).toBeDefined();
-    expect(screen.getByText('股票列表')).toBeDefined();
-    expect(screen.getByText('市场分析')).toBeDefined();
-    expect(screen.getByText('自选股')).toBeDefined();
-    expect(screen.getByText('股票筛选')).toBeDefined();
-    expect(screen.getByText('仪表板')).toBeDefined();
-    expect(screen.getByText('提醒')).toBeDefined();
-    expect(screen.getByText('设置')).toBeDefined();
+    expect(screen.getByText('发掘')).toBeDefined();
+    expect(screen.getByText('筛选')).toBeDefined();
+    expect(screen.getByText('自选')).toBeDefined();
+    expect(screen.getByText('复盘')).toBeDefined();
   });
 
   it('should display navigation icons', () => {
     renderWithRouter(<NavigationMenu />);
     expect(screen.getByText('🏠')).toBeDefined();
-    expect(screen.getByText('📈')).toBeDefined();
-    expect(screen.getByText('📊')).toBeDefined();
-    expect(screen.getByText('⭐')).toBeDefined();
+    expect(screen.getByText('🔭')).toBeDefined();
     expect(screen.getByText('🔍')).toBeDefined();
+    expect(screen.getByText('⭐')).toBeDefined();
+    expect(screen.getByText('📋')).toBeDefined();
   });
 
   it('should display service status', () => {
