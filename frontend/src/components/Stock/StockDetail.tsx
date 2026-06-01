@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons';
 import KLineChart, { KLineData } from '../Charts/KLineChart';
 import VolumeChart, { VolumeData } from '../Charts/VolumeChart';
+import MultiSignalPanel from '../AI/MultiSignalPanel';
 
 interface StockInfo {
   symbol: string;
@@ -253,6 +254,11 @@ const StockDetail: React.FC<StockDetailProps> = React.memo(({
               size="small"
             />
           </Card>
+        </Col>
+
+        {/* 多信号AI分析面板 */}
+        <Col span={24}>
+          <MultiSignalPanel symbol={stockInfo.symbol} />
         </Col>
 
         {/* 股票基本信息 */}

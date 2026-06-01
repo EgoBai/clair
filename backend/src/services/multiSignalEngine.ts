@@ -209,7 +209,9 @@ async function fetchTechnicalSignals(symbol: string): Promise<Signal[]> {
           knex.raw('SUM(CASE WHEN dq.change_percent < 0 THEN 1 ELSE 0 END) as down_count'),
           knex.raw('SUM(CASE WHEN dq.change_percent >= 9.9 THEN 1 ELSE 0 END) as limit_up'),
           knex.raw('SUM(CASE WHEN dq.change_percent <= -9.9 THEN 1 ELSE 0 END) as limit_down'),
-          knex.raw('COUNT(*) as total')
+          knex.raw('COUNT(*) as total'),
+          knex.raw('AVG(dq.change_percent) as avg_change'),
+          knex.raw('STDDEV(dq.change_percent) as std_change')
         )
         .first();
       
@@ -220,6 +222,8 @@ async function fetchTechnicalSignals(symbol: string): Promise<Signal[]> {
         const limitDown = parseInt(widthQuery.limit_down) || 0;
         const total = parseInt(widthQuery.total) || 1;
         const ratio = upCount / (downCount || 1);
+        const avgChange = parseFloat(widthQuery.avg_change) || 0;
+        const stdChange = parseFloat(widthQuery.std_change) || 0;
         
         signals.push({
           name: '市场宽度',
@@ -230,9 +234,61 @@ async function fetchTechnicalSignals(symbol: string): Promise<Signal[]> {
           timeframe: 'short',
           detail: `涨跌比 ${ratio.toFixed(2)}，涨停${limitUp}家 跌停${limitDown}家，样本${total}只`,
         });
+        
+        // 市场波动率信号
+        if (stdChange > 0) {
+          signals.push({
+            name: '市场波动率',
+            source: '数据库统计',
+            value: `${stdChange.toFixed(2)}%`,
+            direction: stdChange > 5 ? 'bearish' : stdChange < 2 ? 'neutral' : 'neutral',
+            confidence: 0.6,
+            timeframe: 'short',
+            detail: `平均涨跌 ${avgChange.toFixed(2)}%，标准差 ${stdChange.toFixed(2)}%`,
+          });
+        }
       }
     } catch (e) {
       log.warn(`Market breadth signal failed: ${e}`);
+    }
+    
+    // 价格相对位置信号 (基于历史数据)
+    try {
+      const db = getDb();
+      const knex = (db as any).connection || (db as any).knexInstance;
+      
+      // 获取该股票的历史价格范围
+      const priceRange = await knex('daily_quotes')
+        .where('stock_id', stockWithQuote.id)
+        .select(
+          knex.raw('MIN(low_price) as min_price'),
+          knex.raw('MAX(high_price) as max_price'),
+          knex.raw('AVG(close_price) as avg_price')
+        )
+        .first();
+      
+      if (priceRange) {
+        const minPrice = parseFloat(priceRange.min_price) || 0;
+        const maxPrice = parseFloat(priceRange.max_price) || 0;
+        const avgPrice = parseFloat(priceRange.avg_price) || 0;
+        
+        if (maxPrice > minPrice && closePrice > 0) {
+          // 计算当前价格在历史范围中的位置
+          const position = (closePrice - minPrice) / (maxPrice - minPrice);
+          
+          signals.push({
+            name: '价格位置',
+            source: '历史统计',
+            value: `${(position * 100).toFixed(0)}%`,
+            direction: position > 0.8 ? 'bearish' : position < 0.2 ? 'bullish' : 'neutral',
+            confidence: 0.65,
+            timeframe: 'medium',
+            detail: `当前 ${closePrice}，历史范围 ${minPrice.toFixed(2)}-${maxPrice.toFixed(2)}，均值 ${avgPrice.toFixed(2)}`,
+          });
+        }
+      }
+    } catch (e) {
+      log.warn(`Price position signal failed: ${e}`);
     }
     
   } catch (e) {
