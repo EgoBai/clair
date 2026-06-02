@@ -4,8 +4,8 @@
  */
 
 import 'dotenv/config';
-import { initDatabase, getDb } from './db/dbFactory';
-import { dataSyncService } from './data-sync/DataSyncService';
+import { initDatabase, getDb } from '../src/db/dbFactory';
+import { dataSyncService } from '../src/data-sync/DataSyncService';
 import axios from 'axios';
 import * as iconv from 'iconv-lite';
 
