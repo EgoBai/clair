@@ -1,10 +1,12 @@
 /**
  * LLM 叙事引擎
  * 基于多信号数据生成结构化分析报告
- * 参考 Digital Oracle 的6步工作流
+ * 
+ * 已升级：使用 aiService 统一调用层，支持 OpenAI/Claude/本地模型
  */
 
 import { createLogger } from '../utils/logger';
+import { chat } from './aiService';
 import type { MultiSignalResult, Signal } from './multiSignalEngine';
 
 const log = createLogger('NarrativeEngine');
@@ -88,45 +90,27 @@ function formatSignalsForPrompt(result: MultiSignalResult): string {
 }
 
 /**
- * 调用 LLM 生成叙事报告
+ * 调用 LLM 生成叙事报告（使用 aiService 统一调用层）
  */
 export async function generateNarrative(result: MultiSignalResult): Promise<string> {
   const userMessage = formatSignalsForPrompt(result);
   
   log.info(`Generating narrative for ${result.symbol} with ${result.signals.length} signals`);
   
-  // 如果没有配置 OpenAI API Key，返回模板报告
-  if (!process.env.OPENAI_API_KEY) {
-    log.warn('OPENAI_API_KEY not set, returning template narrative');
-    return generateTemplateNarrative(result);
-  }
-  
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4-turbo-preview',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-        temperature: 0.3,
-        max_tokens: 2000,
-      }),
+    const response = await chat({
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+      temperature: 0.3,
+      maxTokens: 2000,
     });
     
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    return data.choices[0].message.content;
+    return response.content;
   } catch (e) {
-    log.error(`LLM generation failed: ${e}`);
+    log.error(`LLM generation failed: ${e instanceof Error ? e : new Error(String(e))}`);
+    log.warn('Falling back to template narrative');
     return generateTemplateNarrative(result);
   }
 }
@@ -191,3 +175,5 @@ function generateTemplateNarrative(result: MultiSignalResult): string {
   
   return narrative;
 }
+
+export default { generateNarrative };

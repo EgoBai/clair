@@ -18,6 +18,7 @@ import {
 import KLineChart, { KLineData } from '../components/Charts/KLineChart';
 import { useStockActions, useWatchlist } from '../store/useStockStore';
 import { analyze, StrategyResult } from '../utils/strategy';
+import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 
 const { Title, Text } = Typography;
 
@@ -70,6 +71,8 @@ const StockDetailPage: React.FC = () => {
   const [klinePeriod, setKlinePeriod] = useState<string>('daily');
   const [subIndicator, setSubIndicator] = useState<'volume'|'macd'|'rsi'>('volume');
   const [aiStrategy, setAiStrategy] = useState<any>(null);
+  const [aiDiagnosis, setAiDiagnosis] = useState<string>('');
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false);
 
   const changeColor = useMemo(() => {
     if (!latestQuote) return COLOR_FLAT;
@@ -421,6 +424,61 @@ const StockDetailPage: React.FC = () => {
             )}
           </Card>
         )}
+
+        {/* ===== 多信号融合面板 ===== */}
+        <MultiSignalPanel symbol={symbol || ''} />
+
+        {/* ===== AI 诊断面板 ===== */}
+        <Card
+          size="small"
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, color: TEXT_PRIMARY, fontSize: 14 }}>🔬 AI 深度诊断</span>
+              <Button
+                size="small"
+                type="primary"
+                loading={diagnosisLoading}
+                onClick={async () => {
+                  if (!symbol) return;
+                  setDiagnosisLoading(true);
+                  try {
+                    const resp = await fetch(`/api/ai/diagnose/${symbol}`);
+                    const data = await resp.json();
+                    setAiDiagnosis(data.diagnosis || '诊断失败，请稍后重试');
+                  } catch {
+                    setAiDiagnosis('网络错误，请稍后重试');
+                  } finally {
+                    setDiagnosisLoading(false);
+                  }
+                }}
+              >
+                {aiDiagnosis ? '重新诊断' : '开始诊断'}
+              </Button>
+            </div>
+          }
+          style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
+        >
+          {aiDiagnosis ? (
+            <div
+              style={{
+                fontSize: 13,
+                color: TEXT_PRIMARY,
+                lineHeight: 1.8,
+                background: 'rgba(15,23,42,0.5)',
+                padding: '12px 16px',
+                borderRadius: 8,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {aiDiagnosis}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 20, color: TEXT_SECONDARY }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>🤖</div>
+              <div>点击"开始诊断"，AI 将从估值、技术面、基本面三个维度进行综合分析</div>
+            </div>
+          )}
+        </Card>
 
         {/* ===== 策略分析 (客户端) ===== */}
         {klineData.length >= 20 && (() => {
