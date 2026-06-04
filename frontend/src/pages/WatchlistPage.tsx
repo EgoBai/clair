@@ -273,6 +273,8 @@ const WatchlistPage: React.FC = () => {
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [signals, setSignals] = useState<Record<string, StrategySignal>>({});
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [aiSummary, setAiSummary] = useState<string>('');
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
 
   const fetchTimerRef = useRef<ReturnType<typeof setInterval>>();
   const refreshIconRef = useRef<HTMLDivElement>(null);
@@ -374,6 +376,33 @@ const WatchlistPage: React.FC = () => {
     setSignals(newSignals);
   }, [symbols.join(',')]);
 
+  /* ─── Fetch AI summary ─── */
+  const fetchAiSummary = useCallback(async () => {
+    if (symbols.length === 0) { setAiSummary(''); return; }
+    setAiSummaryLoading(true);
+    try {
+      const quoteData = symbols.map(sym => {
+        const q = quotes[sym];
+        return {
+          price: q?.price || 0,
+          changePercent: q?.changePercent || 0,
+          turnoverRate: q?.turnoverRate || 0,
+        };
+      });
+      const resp = await apiFetch('/api/ai/watchlist-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols, quotes: quoteData }),
+      });
+      const data = await resp.json();
+      if (data.summary) setAiSummary(data.summary);
+    } catch {
+      // silent fail
+    } finally {
+      setAiSummaryLoading(false);
+    }
+  }, [symbols.join(','), JSON.stringify(quotes)]);
+
   /* ─── Initial fetch + auto-refresh (30s) ─── */
   useEffect(() => {
     fetchQuotes();
@@ -390,6 +419,13 @@ const WatchlistPage: React.FC = () => {
       if (fetchTimerRef.current) clearInterval(fetchTimerRef.current);
     };
   }, [fetchQuotes, fetchAlerts, fetchSignals]);
+
+  /* ─── Fetch AI summary when quotes update ─── */
+  useEffect(() => {
+    if (symbols.length > 0 && Object.keys(quotes).length > 0) {
+      fetchAiSummary();
+    }
+  }, [quotes, fetchAiSummary]);
 
   /* ─── Manual refresh ─── */
   const handleManualRefresh = () => {
@@ -1047,6 +1083,15 @@ const WatchlistPage: React.FC = () => {
                 <Text style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.6 }}>
                   添加股票到追踪列表后，AI 将为您生成个性化追踪总结，包括板块分析、资金流向、技术面信号等。
                 </Text>
+              ) : aiSummaryLoading ? (
+                <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.6 }}>
+                  <Spin size="small" style={{ marginRight: 8 }} />
+                  AI 正在分析您的自选股组合...
+                </div>
+              ) : aiSummary ? (
+                <div style={{ color: TEXT, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                  {aiSummary}
+                </div>
               ) : (
                 <div style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}>
                   <Paragraph style={{ color: TEXT, marginBottom: 8 }}>

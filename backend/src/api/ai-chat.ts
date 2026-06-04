@@ -188,6 +188,209 @@ router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Respons
 // 健康检查
 // ============================================================
 
+// ============================================================
+// 市场洞察（DiscoverPage 专用）
+// ============================================================
+
+router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    // 使用模拟数据（后续可接入真实数据源）
+    const marketData = {
+      shanghai: { price: 3200, change: 0.5 },
+      shenzhen: { price: 10500, change: 0.8 },
+      chinext: { price: 2100, change: 1.2 },
+      upCount: 3200,
+      downCount: 1800,
+      limitUp: 45,
+      limitDown: 12,
+      avgChange: 0.8,
+      topSectors: [
+        { industry: '新能源', avgChange: 3.5 },
+        { industry: '半导体', avgChange: 2.8 },
+        { industry: '白酒', avgChange: 2.1 },
+        { industry: '医药', avgChange: 1.5 },
+        { industry: '汽车', avgChange: 1.2 },
+      ],
+    };
+
+    const avgChange = marketData.avgChange;
+    const stat = {
+      up_count: marketData.upCount,
+      down_count: marketData.downCount,
+      limit_up: marketData.limitUp,
+      limit_down: marketData.limitDown,
+    };
+    const topSectors = marketData.topSectors;
+
+    // 使用 LLM 生成市场解读
+    const prompt = `请根据以下A股市场数据，生成结构化的市场解读报告。
+
+## 市场数据
+- 上证指数: ${marketData.shanghai.price} (${marketData.shanghai.change}%)
+- 深证成指: ${marketData.shenzhen.price} (${marketData.shenzhen.change}%)
+- 创业板指: ${marketData.chinext.price} (${marketData.chinext.change}%)
+- 涨跌比: ${stat.up_count}:${stat.down_count}
+- 涨停: ${stat.limit_up}只
+- 跌停: ${stat.limit_down}只
+- 平均涨跌幅: ${avgChange.toFixed(2)}%
+- 领涨板块: ${topSectors.map((s: any) => `${s.industry}(+${s.avgChange}%)`).join(', ')}
+
+## 输出格式要求
+请严格按照以下JSON格式输出，不要添加任何其他内容：
+
+{
+  "mood": "市场情绪（强势上攻/温和上行/震荡整理/弱势调整/恐慌下跌）",
+  "moodEmoji": "对应emoji（🔥/📈/📊/📉/❄️）",
+  "sections": [
+    {"icon": "📊", "title": "基本面", "text": "2-3行分析"},
+    {"icon": "💰", "title": "资金面", "text": "2-3行分析"},
+    {"icon": "📰", "title": "政策面", "text": "2-3行分析"}
+  ]
+}
+
+注意：text中可以用**加粗**标记重点，用·或-标记列表项。`;
+
+    const aiResponse = await aiService.chat({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5,
+      maxTokens: 1000,
+    });
+
+    // 解析 AI 响应
+    let aiData: any;
+    try {
+      // 提取 JSON 部分
+      const jsonMatch = aiResponse.content.match(/\{[\s\S]*\}/);
+      aiData = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    } catch {
+      aiData = null;
+    }
+
+    // 如果 AI 解析失败，使用默认值
+    if (!aiData) {
+      const mood = avgChange > 1 ? '强势上攻' : avgChange > 0 ? '温和上行' : avgChange > -1 ? '震荡整理' : '弱势调整';
+      const moodEmoji = avgChange > 1 ? '🔥' : avgChange > 0 ? '📈' : avgChange > -1 ? '📊' : '📉';
+      aiData = {
+        mood,
+        moodEmoji,
+        sections: [
+          { icon: '📊', title: '基本面', text: `市场${mood}，涨跌比${stat.up_count}:${stat.down_count}` },
+          { icon: '💰', title: '资金面', text: `涨停${stat.limit_up}只，跌停${stat.limit_down}只` },
+          { icon: '📰', title: '政策面', text: '暂无重大政策消息' },
+        ],
+      };
+    }
+
+    res.json({
+      data: {
+        ...aiData,
+        marketBreadth: { up: stat.up_count, down: stat.down_count },
+        avgIndexChange: avgChange,
+        limitUpCount: stat.limit_up,
+        limitDownCount: stat.limit_down,
+        topSectors: topSectors.map((s: any) => ({
+          industry: s.industry,
+          avgChange: parseFloat(s.avg_change).toFixed(2),
+        })),
+      },
+    });
+  } catch (error) {
+    logger.error('Market insight error:', error as Error);
+    res.status(500).json({ error: '市场洞察生成失败' });
+  }
+}));
+
+// ============================================================
+// 自选股追踪总结（WatchlistPage 专用）
+// ============================================================
+
+router.post('/ai/watchlist-summary', asyncHandler(async (req: Request, res: Response) => {
+  const { symbols, quotes } = req.body;
+
+  if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
+    res.status(400).json({ error: '请提供自选股列表' });
+    return;
+  }
+
+  try {
+    // 构建股票数据摘要
+    const stockSummary = symbols.map((sym: string, i: number) => {
+      const q = quotes?.[i] || {};
+      return `- ${sym}: 价格${q.price || 'N/A'}, 涨跌幅${q.changePercent || 0}%, 换手率${q.turnoverRate || 0}%`;
+    }).join('\n');
+
+    const prompt = `请为以下自选股组合生成追踪总结报告。
+
+## 自选股数据
+${stockSummary}
+
+## 输出要求
+1. 整体表现概述（1-2句话）
+2. 板块分布分析
+3. 值得关注的信号（异动、趋势变化）
+4. 操作建议（简短）
+
+请用简洁的中文回答，控制在200字以内。`;
+
+    const aiResponse = await aiService.chat({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5,
+      maxTokens: 500,
+    });
+
+    res.json({ summary: aiResponse.content });
+  } catch (error) {
+    logger.error('Watchlist summary error:', error as Error);
+    res.status(500).json({ error: '追踪总结生成失败' });
+  }
+}));
+
+// ============================================================
+// 交易行为分析（ReviewPage 专用）
+// ============================================================
+
+router.post('/ai/trade-analysis', asyncHandler(async (req: Request, res: Response) => {
+  const { trades, stats } = req.body;
+
+  try {
+    const prompt = `请根据以下交易记录，分析用户的交易行为模式并给出改进建议。
+
+## 交易统计
+- 总交易次数: ${stats?.totalTrades || 0}
+- 胜率: ${stats?.winRate || 0}%
+- 平均持仓天数: ${stats?.avgHoldingDays || 0}
+- 总收益率: ${stats?.totalReturn || 0}%
+- 最大回撤: ${stats?.maxDrawdown || 0}%
+
+## 近期交易记录
+${trades?.slice(0, 10).map((t: any) =>
+  `- ${t.symbol} ${t.type} ${t.date} 价格${t.price} 数量${t.quantity} 收益${t.profit || 'N/A'}`
+).join('\n') || '暂无交易记录'}
+
+## 输出要求
+请从以下维度分析：
+1. 交易频率与时机偏好
+2. 止损/止盈行为模式
+3. 持仓周期分布
+4. 策略使用偏好
+5. 风险暴露评估
+6. 改进建议
+
+请用简洁的中文回答，控制在300字以内。`;
+
+    const aiResponse = await aiService.chat({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5,
+      maxTokens: 800,
+    });
+
+    res.json({ analysis: aiResponse.content });
+  } catch (error) {
+    logger.error('Trade analysis error:', error as Error);
+    res.status(500).json({ error: '交易分析失败' });
+  }
+}));
+
 router.get('/ai/health', asyncHandler(async (_req: Request, res: Response) => {
   const health = await aiService.healthCheck();
   res.json(health);

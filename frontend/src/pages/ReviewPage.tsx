@@ -308,8 +308,37 @@ const StrategyBar: React.FC<{ label: string; value: number; color: string }> = (
 const ReviewPage: React.FC = () => {
   const navigate = useNavigate();
   const [dateRange, setDateRange] = useState<string>('30days');
+  const [aiAnalysis, setAiAnalysis] = useState<string>('');
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
 
   const stats = computeStats(MOCK_TRADES);
+
+  /* --- AI Trade Analysis ---------------------------------------------- */
+  const handleAiAnalysis = async () => {
+    setAiAnalysisLoading(true);
+    try {
+      const resp = await fetch('/api/ai/trade-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          trades: MOCK_TRADES.slice(0, 10),
+          stats: {
+            totalTrades: stats.totalTrades,
+            winRate: stats.winRate,
+            avgReturn: stats.avgReturn,
+            totalReturn: stats.totalReturn,
+            maxDrawdown: stats.maxDrawdown,
+          },
+        }),
+      });
+      const data = await resp.json();
+      if (data.analysis) setAiAnalysis(data.analysis);
+    } catch {
+      // silent fail
+    } finally {
+      setAiAnalysisLoading(false);
+    }
+  };
 
   /* --- Table columns ---------------------------------------------- */
   const columns = [
@@ -760,13 +789,28 @@ const ReviewPage: React.FC = () => {
                 height: 42,
                 fontWeight: 600,
               }}
-              onClick={() => {
-                // Placeholder – no backend yet
-                message.info('AI 分析功能即将上线，敬请期待！');
-              }}
+              onClick={handleAiAnalysis}
+              loading={aiAnalysisLoading}
             >
-              开始分析
+              {aiAnalysisLoading ? '分析中...' : '开始分析'}
             </Button>
+            {aiAnalysis && (
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: 16,
+                  background: 'rgba(15,23,42,0.5)',
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.cardBorder}`,
+                  color: THEME.text,
+                  fontSize: 13,
+                  lineHeight: 1.8,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {aiAnalysis}
+              </div>
+            )}
           </Card>
 
           {/* Quick Backtest Entry */}
