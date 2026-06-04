@@ -45,18 +45,23 @@ export interface AIStreamChunk {
   done: boolean;
 }
 
-export type AIProvider = 'openai' | 'claude' | 'local';
+export type AIProvider = 'openai' | 'claude' | 'local' | 'deepseek';
 
 // ============================================================
 // 配置
 // ============================================================
 
 const AI_CONFIG = {
-  provider: (process.env.AI_PROVIDER as AIProvider) || 'openai',
+  provider: (process.env.AI_PROVIDER as AIProvider) || 'deepseek',
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
     baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
     model: process.env.OPENAI_MODEL || 'gpt-4o',
+  },
+  deepseek: {
+    apiKey: process.env.DEEPSEEK_API_KEY || '',
+    baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
+    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
   },
   claude: {
     apiKey: process.env.CLAUDE_API_KEY || '',
@@ -123,6 +128,7 @@ export async function chat(request: AIRequest): Promise<AIResponse> {
   try {
     switch (provider) {
       case 'openai':
+      case 'deepseek':
         return await callOpenAI(messages, request);
       case 'claude':
         return await callClaude(messages, request);
@@ -151,6 +157,7 @@ export async function* chatStream(request: AIRequest): AsyncGenerator<AIStreamCh
   try {
     switch (provider) {
       case 'openai':
+      case 'deepseek':
         yield* streamOpenAI(messages, request);
         break;
       case 'claude':
@@ -173,7 +180,8 @@ export async function* chatStream(request: AIRequest): AsyncGenerator<AIStreamCh
 // ============================================================
 
 async function callOpenAI(messages: AIMessage[], request: AIRequest): Promise<AIResponse> {
-  const config = AI_CONFIG.openai;
+  const provider = AI_CONFIG.provider;
+  const config = provider === 'deepseek' ? AI_CONFIG.deepseek : AI_CONFIG.openai;
   
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
@@ -211,7 +219,8 @@ async function callOpenAI(messages: AIMessage[], request: AIRequest): Promise<AI
 }
 
 async function* streamOpenAI(messages: AIMessage[], request: AIRequest): AsyncGenerator<AIStreamChunk> {
-  const config = AI_CONFIG.openai;
+  const provider = AI_CONFIG.provider;
+  const config = provider === 'deepseek' ? AI_CONFIG.deepseek : AI_CONFIG.openai;
   
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
