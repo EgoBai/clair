@@ -11,11 +11,11 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
-import { Card, Button, Tag, Table, Spin, Empty, Typography, InputNumber, message, Space, Tooltip } from 'antd';
+import { Card, Button, Tag, Table, Spin, Empty, Typography, message, Space, Tooltip } from 'antd';
 import {
-  RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined,
-  DollarOutlined, ReloadOutlined, SearchOutlined, FilterOutlined,
-  FundOutlined, LineChartOutlined, BarChartOutlined, StockOutlined,
+  RiseOutlined, FireOutlined, ThunderboltOutlined,
+  ReloadOutlined, SearchOutlined, FilterOutlined,
+  FundOutlined, LineChartOutlined,
 } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
@@ -69,58 +69,8 @@ interface StrategyTemplate {
   filter: (s: StockData) => boolean;
 }
 
-// 核心筛选指标
+// 核心筛选指标 — 精简为4个最实用的
 const FILTER_METRICS: FilterMetric[] = [
-  // 资金面指标
-  {
-    id: 'capital_inflow',
-    name: '主力资金流入',
-    icon: <DollarOutlined />,
-    color: '#3b82f6',
-    category: 'capital',
-    description: '当日主力资金净流入的股票',
-    filter: (s) => s.changePercent > 0 && (s.turnoverRate ?? 0) > 3,
-  },
-  {
-    id: 'high_turnover',
-    name: '高换手率',
-    icon: <FireOutlined />,
-    color: '#ef4444',
-    category: 'capital',
-    description: '换手率超过5%的活跃股',
-    filter: (s) => s.turnoverRate ? s.turnoverRate > 5 : false,
-  },
-  
-  // 基本面指标
-  {
-    id: 'low_pe',
-    name: '低估值',
-    icon: <FundOutlined />,
-    color: '#22c55e',
-    category: 'fundamental',
-    description: 'PE低于20倍的价值股',
-    filter: (s) => s.pe ? s.pe > 0 && s.pe < 20 : false,
-  },
-  {
-    id: 'high_roe',
-    name: '高ROE',
-    icon: <BarChartOutlined />,
-    color: '#8b5cf6',
-    category: 'fundamental',
-    description: 'ROE超过15%的优质公司',
-    filter: (s) => s.roe ? s.roe > 15 : false,
-  },
-  {
-    id: 'low_pb',
-    name: '低PB',
-    icon: <StockOutlined />,
-    color: '#06b6d4',
-    category: 'fundamental',
-    description: 'PB低于1.5倍的低估股',
-    filter: (s) => s.pb ? s.pb > 0 && s.pb < 1.5 : false,
-  },
-  
-  // 技术面指标
   {
     id: 'strong_momentum',
     name: '强势动量',
@@ -131,29 +81,27 @@ const FILTER_METRICS: FilterMetric[] = [
     filter: (s) => s.changePercent > 3,
   },
   {
-    id: 'oversold',
-    name: '超卖反弹',
-    icon: <FallOutlined />,
-    color: '#10b981',
-    category: 'technical',
-    description: '跌幅超过5%的超卖股',
-    filter: (s) => s.changePercent < -5,
+    id: 'low_pe',
+    name: '低估值',
+    icon: <FundOutlined />,
+    color: '#22c55e',
+    category: 'fundamental',
+    description: 'PE低于20倍的价值股',
+    filter: (s) => s.pe ? s.pe > 0 && s.pe < 20 : false,
   },
   {
-    id: 'limit_up',
-    name: '涨停板',
-    icon: <ThunderboltOutlined />,
-    color: '#dc2626',
-    category: 'technical',
-    description: '当日涨停的股票',
-    filter: (s) => s.changePercent >= 9.9,
+    id: 'high_turnover',
+    name: '高换手率',
+    icon: <FireOutlined />,
+    color: '#ef4444',
+    category: 'capital',
+    description: '换手率超过5%的活跃股',
+    filter: (s) => s.turnoverRate ? s.turnoverRate > 5 : false,
   },
-  
-  // 行业景气度
   {
     id: 'hot_industry',
     name: '热门行业',
-    icon: <FireOutlined />,
+    icon: <ThunderboltOutlined />,
     color: '#f97316',
     category: 'industry',
     description: '当前热门行业的股票',
@@ -164,61 +112,31 @@ const FILTER_METRICS: FilterMetric[] = [
   },
 ];
 
-// 策略模板
+// 策略模板 — 精简为2个核心策略
 const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
     id: 'value_investing',
     name: '价值投资',
-    description: '低估值 + 高ROE + 稳定盈利',
+    description: '低估值 + 稳定盈利',
     icon: <FundOutlined />,
     color: '#22c55e',
-    metrics: ['low_pe', 'high_roe', 'low_pb'],
+    metrics: ['low_pe'],
     filter: (s) => {
       const peOk = s.pe ? s.pe > 0 && s.pe < 20 : false;
-      const roeOk = s.roe ? s.roe > 15 : false;
-      const pbOk = s.pb ? s.pb > 0 && s.pb < 1.5 : false;
-      return peOk && roeOk && pbOk;
-    },
-  },
-  {
-    id: 'growth_stock',
-    name: '成长股',
-    description: '高换手率 + 强势动量 + 热门行业',
-    icon: <RiseOutlined />,
-    color: '#3b82f6',
-    metrics: ['high_turnover', 'strong_momentum', 'hot_industry'],
-    filter: (s) => {
-      const turnoverOk = s.turnoverRate ? s.turnoverRate > 5 : false;
-      const momentumOk = s.changePercent > 3;
-      const hotIndustries = ['新能源', '半导体', '人工智能', '光模块', '存储'];
-      const industryOk = hotIndustries.some(ind => s.industry?.includes(ind));
-      return turnoverOk && momentumOk && industryOk;
+      return peOk;
     },
   },
   {
     id: 'momentum_strategy',
     name: '动量策略',
-    description: '强势上涨 + 高成交 + 资金流入',
+    description: '强势上涨 + 高成交',
     icon: <LineChartOutlined />,
     color: '#f59e0b',
-    metrics: ['strong_momentum', 'capital_inflow', 'high_turnover'],
+    metrics: ['strong_momentum', 'high_turnover'],
     filter: (s) => {
       const momentumOk = s.changePercent > 3;
       const turnoverOk = s.turnoverRate ? s.turnoverRate > 3 : false;
       return momentumOk && turnoverOk;
-    },
-  },
-  {
-    id: 'oversold_rebound',
-    name: '超卖反弹',
-    description: '深度超卖 + 低估值 + 基本面健康',
-    icon: <FallOutlined />,
-    color: '#10b981',
-    metrics: ['oversold', 'low_pe', 'high_roe'],
-    filter: (s) => {
-      const oversoldOk = s.changePercent < -5;
-      const peOk = s.pe ? s.pe > 0 && s.pe < 20 : false;
-      return oversoldOk && peOk;
     },
   },
 ];
@@ -443,17 +361,6 @@ const ScreenerPage: React.FC = () => {
     },
   ];
 
-  // 按类别分组指标
-  const metricsByCategory = useMemo(() => {
-    const categories = {
-      capital: { name: '💰 资金面', metrics: FILTER_METRICS.filter(m => m.category === 'capital') },
-      fundamental: { name: '📊 基本面', metrics: FILTER_METRICS.filter(m => m.category === 'fundamental') },
-      technical: { name: '📈 技术面', metrics: FILTER_METRICS.filter(m => m.category === 'technical') },
-      industry: { name: '🏭 行业', metrics: FILTER_METRICS.filter(m => m.category === 'industry') },
-    };
-    return categories;
-  }, []);
-
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
@@ -475,7 +382,7 @@ const ScreenerPage: React.FC = () => {
           style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
           bodyStyle={{ padding: '16px' }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             {STRATEGY_TEMPLATES.map(strategy => (
               <div
                 key={strategy.id}
@@ -505,40 +412,33 @@ const ScreenerPage: React.FC = () => {
           style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
           bodyStyle={{ padding: '16px' }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-            {Object.entries(metricsByCategory).map(([category, { name, metrics }]) => (
-              <div key={category}>
-                <div style={{ color: TEXT, fontWeight: 600, marginBottom: 12, fontSize: 14 }}>{name}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {metrics.map(metric => (
-                    <Tooltip key={metric.id} title={metric.description}>
-                      <div
-                        onClick={() => toggleMetric(metric.id)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '8px 12px',
-                          background: activeMetrics.includes(metric.id) ? metric.color + '20' : BG,
-                          border: `1px solid ${activeMetrics.includes(metric.id) ? metric.color : BORDER}`,
-                          borderRadius: 6,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                        }}
-                      >
-                        <span style={{ color: metric.color }}>{metric.icon}</span>
-                        <span style={{ 
-                          color: activeMetrics.includes(metric.id) ? metric.color : TEXT,
-                          fontSize: 13,
-                          fontWeight: activeMetrics.includes(metric.id) ? 600 : 400,
-                        }}>
-                          {metric.name}
-                        </span>
-                      </div>
-                    </Tooltip>
-                  ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {FILTER_METRICS.map(metric => (
+              <Tooltip key={metric.id} title={metric.description}>
+                <div
+                  onClick={() => toggleMetric(metric.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '12px 16px',
+                    background: activeMetrics.includes(metric.id) ? metric.color + '20' : BG,
+                    border: `1px solid ${activeMetrics.includes(metric.id) ? metric.color : BORDER}`,
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <span style={{ color: metric.color, fontSize: 18 }}>{metric.icon}</span>
+                  <span style={{ 
+                    color: activeMetrics.includes(metric.id) ? metric.color : TEXT,
+                    fontSize: 14,
+                    fontWeight: activeMetrics.includes(metric.id) ? 600 : 400,
+                  }}>
+                    {metric.name}
+                  </span>
                 </div>
-              </div>
+              </Tooltip>
             ))}
           </div>
         </Card>

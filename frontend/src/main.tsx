@@ -43,7 +43,6 @@ const { Text } = Typography;
 // 懒加载页面组件 - 减小首屏bundle
 const StockListPage = lazy(() => import('./pages/StockListPage'));
 const StockDetailPage = lazy(() => import('./pages/StockDetailPage'));
-const MarketAnalysisPage = lazy(() => import('./pages/MarketAnalysisPage'));
 const WatchlistPage = lazy(() => import('./pages/WatchlistPage'));
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
@@ -168,9 +167,9 @@ function App() {
           {/* <Onboarding /> */}
           <Routes>
             <Route path="/" element={<AppLayout />}>
+              <Route index element={<LazyPage component={DiscoverPage} name="发掘" />} />
               <Route path="stocks" element={<LazyPage component={StockListPage} name="股票列表" />} />
               <Route path="stocks/:symbol" element={<LazyPage component={StockDetailPage} name="股票详情" />} />
-              <Route path="market" element={<LazyPage component={MarketAnalysisPage} name="市场分析" />} />
               <Route path="watchlist" element={<LazyPage component={WatchlistPage} name="自选股" />} />
               <Route path="discover" element={<LazyPage component={DiscoverPage} name="发掘" />} />
               <Route path="alerts" element={<LazyPage component={AlertsPage} name="预警" />} />

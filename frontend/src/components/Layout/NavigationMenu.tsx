@@ -24,9 +24,9 @@ const NAV_ITEMS: NavItem[] = [
   {
     id: 'market',
     label: '筛选',
-    path: ROUTE_PATHS.MARKET,
+    path: ROUTE_PATHS.SCREENER,
     icon: '🔍',
-    description: '全市场股票筛选与排行'
+    description: '核心指标筛选 + 策略模板'
   },
   {
     id: 'watchlist',
@@ -41,13 +41,6 @@ const NAV_ITEMS: NavItem[] = [
     path: '/review',
     icon: '📋',
     description: '交易复盘与策略回顾'
-  },
-  {
-    id: 'settings',
-    label: '设置',
-    path: '/settings',
-    icon: '⚙️',
-    description: '账户与通用设置'
   }
 ];
 

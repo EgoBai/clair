@@ -12,7 +12,6 @@ const StockDetailPage = lazy(() => import('../pages/StockDetailPage'));
 const StockComparePage = lazy(() => import('../pages/StockComparePage'));
 
 // 市场分析
-const MarketAnalysisPage = lazy(() => import('../pages/MarketAnalysisPage'));
 const MarketStatsPage = lazy(() => import('../pages/MarketStatsPage'));
 // 行业板块
 const SectorDetailPage = lazy(() => import('../pages/SectorDetailPage'));
@@ -83,8 +82,6 @@ export const AppRoutes = () => {
         <Route path="/stocks/compare" element={<StockComparePage />} />
 
         {/* 市场分析 */}
-        <Route path="/market" element={<MarketAnalysisPage />} />
-        <Route path="/market/analysis" element={<MarketAnalysisPage />} />
         <Route path="/market/stats" element={<MarketStatsPage />} />
 
         {/* 行业板块 */}

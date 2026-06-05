@@ -143,7 +143,6 @@ export function initResourceHints(config: ResourceHintConfig = {}): void {
 export function prefetchRouteChunk(routePath: string): void {
   const routeChunkMap: Record<string, string[]> = {
     '/stocks': ['StockListPage'],
-    '/market': ['MarketAnalysisPage'],
     '/watchlist': ['WatchlistPage'],
     '/dashboard': ['DashboardPage'],
     '/screener': ['ScreenerPage', 'AdvancedScreenerPage'],
@@ -164,8 +163,7 @@ export function prefetchRouteChunk(routePath: string): void {
         case 'StockListPage':
           import('../pages/StockListPage');
           break;
-        case 'MarketAnalysisPage':
-          import('../pages/MarketAnalysisPage');
+
           break;
         case 'WatchlistPage':
           import('../pages/WatchlistPage');
