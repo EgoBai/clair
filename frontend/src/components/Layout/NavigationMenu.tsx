@@ -15,16 +15,9 @@ interface NavItem {
 // 导航配置
 const NAV_ITEMS: NavItem[] = [
   {
-    id: 'home',
-    label: '首页',
-    path: '/',
-    icon: '🏠',
-    description: '市场概览仪表盘'
-  },
-  {
     id: 'discover',
     label: '发掘',
-    path: '/discover',
+    path: '/',
     icon: '🔭',
     description: 'AI 驱动：大盘→板块→个股三级穿透'
   },

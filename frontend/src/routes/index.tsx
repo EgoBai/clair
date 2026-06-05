@@ -76,7 +76,7 @@ export const AppRoutes = () => {
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
         {/* 首页 */}
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<DiscoverPage />} />
 
         {/* 股票相关页面 */}
         <Route path="/stocks" element={<StockListPage />} />
@@ -92,7 +92,6 @@ export const AppRoutes = () => {
         <Route path="/sectors/:symbol" element={<SectorDetailPage />} />
 
         {/* 发掘 */}
-        <Route path="/discover" element={<DiscoverPage />} />
         <Route path="/index/:symbol" element={<IndexDetailPage />} />
 
         {/* 自选股 & 筛选 */}
