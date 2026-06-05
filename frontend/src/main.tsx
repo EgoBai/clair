@@ -27,7 +27,6 @@ import { Modal, Typography } from 'antd';
 import AppLayout from './components/Layout/AppLayout';
 import ThemeProvider from './components/Common/ThemeProvider';
 import { UnifiedErrorBoundary } from './components/Common/UnifiedErrorBoundary';
-import HomePage from './pages/HomePage';
 import { useKeyboardShortcuts, useShortcutHints } from './hooks/useKeyboardShortcuts';
 import { useAppStore } from './store/useAppStore';
 import Onboarding from './components/Common/Onboarding';
@@ -169,7 +168,6 @@ function App() {
           {/* <Onboarding /> */}
           <Routes>
             <Route path="/" element={<AppLayout />}>
-              <Route index element={<HomePage />} />
               <Route path="stocks" element={<LazyPage component={StockListPage} name="股票列表" />} />
               <Route path="stocks/:symbol" element={<LazyPage component={StockDetailPage} name="股票详情" />} />
               <Route path="market" element={<LazyPage component={MarketAnalysisPage} name="市场分析" />} />

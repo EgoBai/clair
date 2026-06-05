@@ -4,7 +4,6 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 // ===== 页面组件 - 使用懒加载 =====
 
 // 核心页面
-const HomePage = lazy(() => import('../pages/HomePage'));
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
 
 // 股票相关
