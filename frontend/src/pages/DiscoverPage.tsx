@@ -126,24 +126,43 @@ const DiscoverPage: React.FC = () => {
                       </Tag>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: TEXT_SEC }}>
-                    <span>📊 涨跌比 <b style={{color:TEXT}}>{insight.marketBreadth.up}</b>:<b style={{color:TEXT}}>{insight.marketBreadth.down}</b></span>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: TEXT_SEC, alignItems: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      📊 市场宽度
+                      <span style={{ 
+                        display: 'inline-flex', 
+                        width: 80, 
+                        height: 8, 
+                        background: COLOR_DOWN, 
+                        borderRadius: 4, 
+                        overflow: 'hidden' 
+                      }}>
+                        <span style={{ 
+                          width: `${(insight.marketBreadth.up / (insight.marketBreadth.up + insight.marketBreadth.down)) * 100}%`, 
+                          background: COLOR_UP, 
+                          borderRadius: 4 
+                        }} />
+                      </span>
+                      <b style={{color:COLOR_UP}}>{insight.marketBreadth.up}</b>
+                      <span style={{color:TEXT_SEC}}>/</span>
+                      <b style={{color:COLOR_DOWN}}>{insight.marketBreadth.down}</b>
+                    </span>
                     <span>📈 均涨跌 <b style={{color:insight.avgIndexChange>=0?COLOR_UP:COLOR_DOWN}}>{insight.avgIndexChange>0?'+':''}{insight.avgIndexChange}%</b></span>
                     {insight.limitUpCount > 0 && <span>🔥 <b style={{color:COLOR_UP}}>{insight.limitUpCount}</b>涨停</span>}
                     {insight.limitDownCount > 0 && <span>❄️ <b style={{color:COLOR_DOWN}}>{insight.limitDownCount}</b>跌停</span>}
                   </div>
                 </div>
                 {/* 三栏内容 */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                   {insight.sections.map((sec: any, i: number) => (
                     <div key={i} style={{
-                      background: 'rgba(15,23,42,0.5)', border: `1px solid ${BORDER}`,
-                      borderRadius: 8, padding: '10px 12px',
+                      background: 'rgba(15,23,42,0.7)', border: `1px solid ${BORDER}`,
+                      borderRadius: 8, padding: '14px 16px',
                     }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: ACCENT, marginBottom: 8 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: ACCENT, marginBottom: 10 }}>
                         {sec.icon} {sec.title}
                       </div>
-                      <div style={{ fontSize: 11, color: TEXT_SEC, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+                      <div style={{ fontSize: 13, color: TEXT, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
                         {sec.text.split('\n').filter((l: string) => l.trim()).map((line: string, j: number) => {
                           const trimmed = line.trim();
                           const isBold = trimmed.startsWith('**') && trimmed.endsWith('**');
@@ -151,9 +170,9 @@ const DiscoverPage: React.FC = () => {
                           const isArrow = trimmed.startsWith('→') || trimmed.startsWith('▸');
                           return (
                             <div key={j} style={{
-                              marginBottom: 3,
-                              paddingLeft: isBullet ? 8 : 0,
-                              color: isArrow ? ACCENT : TEXT_SEC,
+                              marginBottom: 4,
+                              paddingLeft: isBullet ? 10 : 0,
+                              color: isArrow ? ACCENT : TEXT,
                               fontWeight: isBold ? 700 : 400,
                             }}>
                               {isBold ? trimmed.replace(/\*\*/g, '') : trimmed}
