@@ -194,44 +194,35 @@ router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Respons
 
 router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Response) => {
   try {
-    // 使用模拟数据（后续可接入真实数据源）
-    const marketData = {
-      shanghai: { price: 3200, change: 0.5 },
-      shenzhen: { price: 10500, change: 0.8 },
-      chinext: { price: 2100, change: 1.2 },
-      upCount: 3200,
-      downCount: 1800,
-      limitUp: 45,
-      limitDown: 12,
-      avgChange: 0.8,
-      topSectors: [
-        { industry: '新能源', avgChange: 3.5 },
-        { industry: '半导体', avgChange: 2.8 },
-        { industry: '白酒', avgChange: 2.1 },
-        { industry: '医药', avgChange: 1.5 },
-        { industry: '汽车', avgChange: 1.2 },
-      ],
-    };
-
-    const avgChange = marketData.avgChange;
-    const stat = {
-      up_count: marketData.upCount,
-      down_count: marketData.downCount,
-      limit_up: marketData.limitUp,
-      limit_down: marketData.limitDown,
-    };
-    const topSectors = marketData.topSectors;
+    // 从数据库获取真实市场数据
+    const { getDb } = await import('../db/dbFactory');
+    const db = getDb();
+    
+    // 获取市场摘要
+    const today = new Date();
+    const marketSummary = await db.getMarketSummary(today);
+    
+    // 提取数据
+    const risingStocks = marketSummary?.risingStocks || 0;
+    const fallingStocks = marketSummary?.fallingStocks || 0;
+    const avgChange = marketSummary?.totalStocks > 0 
+      ? (risingStocks - fallingStocks) / marketSummary.totalStocks * 100 
+      : 0;
+    
+    // 获取领涨板块（前5）
+    const topSectors = (marketSummary?.industryPerformance || [])
+      .slice(0, 5)
+      .map((s: any) => ({ 
+        industry: s.industry, 
+        avgChange: parseFloat(s.avg_change_percent || 0).toFixed(2) 
+      }));
 
     // 使用 LLM 生成市场解读
     const prompt = `请根据以下A股市场数据，生成结构化的市场解读报告。
 
 ## 市场数据
-- 上证指数: ${marketData.shanghai.price} (${marketData.shanghai.change}%)
-- 深证成指: ${marketData.shenzhen.price} (${marketData.shenzhen.change}%)
-- 创业板指: ${marketData.chinext.price} (${marketData.chinext.change}%)
-- 涨跌比: ${stat.up_count}:${stat.down_count}
-- 涨停: ${stat.limit_up}只
-- 跌停: ${stat.limit_down}只
+- 涨跌比: ${risingStocks}:${fallingStocks}
+- 总股票数: ${marketSummary?.totalStocks || 0}
 - 平均涨跌幅: ${avgChange.toFixed(2)}%
 - 领涨板块: ${topSectors.map((s: any) => `${s.industry}(+${s.avgChange}%)`).join(', ')}
 
@@ -274,8 +265,8 @@ router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Respons
         mood,
         moodEmoji,
         sections: [
-          { icon: '📊', title: '基本面', text: `市场${mood}，涨跌比${stat.up_count}:${stat.down_count}` },
-          { icon: '💰', title: '资金面', text: `涨停${stat.limit_up}只，跌停${stat.limit_down}只` },
+          { icon: '📊', title: '基本面', text: `市场${mood}，涨跌比${risingStocks}:${fallingStocks}` },
+          { icon: '💰', title: '资金面', text: `总股票数${marketSummary?.totalStocks || 0}只` },
           { icon: '📰', title: '政策面', text: '暂无重大政策消息' },
         ],
       };
@@ -284,14 +275,11 @@ router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Respons
     res.json({
       data: {
         ...aiData,
-        marketBreadth: { up: stat.up_count, down: stat.down_count },
+        marketBreadth: { up: risingStocks, down: fallingStocks },
         avgIndexChange: avgChange,
-        limitUpCount: stat.limit_up,
-        limitDownCount: stat.limit_down,
-        topSectors: topSectors.map((s: any) => ({
-          industry: s.industry,
-          avgChange: parseFloat(s.avg_change).toFixed(2),
-        })),
+        limitUpCount: 0, // 涨停数据需要额外计算
+        limitDownCount: 0, // 跌停数据需要额外计算
+        topSectors,
       },
     });
   } catch (error) {
