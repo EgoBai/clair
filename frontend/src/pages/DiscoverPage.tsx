@@ -6,8 +6,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message } from 'antd';
-import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassOutlined, RightOutlined, BulbOutlined, StarOutlined, BarChartOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button } from 'antd';
+import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassOutlined, RightOutlined, BulbOutlined, StarOutlined, BarChartOutlined, ArrowLeftOutlined, FilterOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -188,7 +188,11 @@ const DiscoverPage: React.FC = () => {
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 14, alignItems: 'center', fontSize: 11 }}>
                     <span style={{ color: ACCENT }}>🏆 领涨</span>
                     {insight.topSectors.slice(0, 5).map((s: any) => (
-                      <span key={s.industry} style={{ color: TEXT }}>
+                      <span 
+                        key={s.industry} 
+                        style={{ color: TEXT, cursor: 'pointer', textDecoration: 'underline' }}
+                        onClick={() => navigate(`/screener?industry=${encodeURIComponent(s.industry)}`)}
+                      >
                         {s.industry} <span style={{ color: s.avgChange >= 0 ? COLOR_UP : COLOR_DOWN }}>{s.avgChange >= 0 ? '+' : ''}{s.avgChange}%</span>
                       </span>
                     ))}
@@ -371,6 +375,14 @@ const DiscoverPage: React.FC = () => {
                       <Progress percent={selectedSector.breadthScore} showInfo={false} size="small" strokeColor={GOLD} style={{ width: 60 }} />
                     </div>
                   </div>
+                  <Button 
+                    type="primary" 
+                    icon={<FilterOutlined />}
+                    onClick={() => navigate(`/screener?industry=${encodeURIComponent(selectedSector.industry)}`)}
+                    style={{ background: ACCENT, borderColor: ACCENT }}
+                  >
+                    筛选该板块
+                  </Button>
                 </div>
               </div>
             )}
