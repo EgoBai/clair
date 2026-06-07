@@ -797,6 +797,54 @@ const WatchlistPage: React.FC = () => {
           </Col>
         </Row>
 
+        {/* ── 策略信号概览 ── */}
+        {symbols.length > 0 && Object.keys(signals).length > 0 && (
+          <Card
+            style={{
+              background: CARD_BG,
+              border: `1px solid ${CARD_BORDER}`,
+              borderRadius: 10,
+              marginBottom: 20,
+            }}
+            styles={{ body: { padding: '16px 20px' } }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <LineChartOutlined style={{ color: ACCENT, fontSize: 16 }} />
+              <Text strong style={{ color: TEXT, fontSize: 14 }}>策略信号</Text>
+              <Text style={{ color: TEXT_SEC, fontSize: 12 }}>基于技术分析的交易建议</Text>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {Object.entries(signals).map(([sym, sig]) => {
+                const signalColor = sig.signal === 'buy' ? COLOR_UP : sig.signal === 'sell' ? COLOR_DOWN : TEXT_SEC;
+                const signalText = sig.signal === 'buy' ? '买入' : sig.signal === 'sell' ? '卖出' : '持有';
+                const q = quotes[sym];
+                return (
+                  <div
+                    key={sym}
+                    onClick={() => navigate(`/stocks/${sym}`)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '8px 12px', background: 'rgba(15,23,42,0.5)',
+                      border: `1px solid ${CARD_BORDER}`, borderRadius: 6,
+                      cursor: 'pointer', transition: 'border-color .15s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = CARD_BORDER}
+                  >
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: TEXT, fontSize: 13 }}>
+                      {sym.replace(/\.(SH|SZ)$/, '')}
+                    </span>
+                    <Tag color={signalColor} style={{ margin: 0, fontSize: 11 }}>{signalText}</Tag>
+                    <span style={{ fontFamily: 'monospace', color: signalColor, fontSize: 12, fontWeight: 600 }}>
+                      {sig.score}分
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
         {/* ── Alerts Banner ── */}
         {alerts.length > 0 && (
           <Card

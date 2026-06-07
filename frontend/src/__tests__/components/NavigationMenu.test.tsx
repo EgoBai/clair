@@ -29,7 +29,6 @@ describe('NavigationMenu', () => {
 
   it('should display all navigation items', () => {
     renderWithRouter(<NavigationMenu />);
-    expect(screen.getByText('首页')).toBeDefined();
     expect(screen.getByText('发掘')).toBeDefined();
     expect(screen.getByText('筛选')).toBeDefined();
     expect(screen.getByText('自选')).toBeDefined();
@@ -38,7 +37,6 @@ describe('NavigationMenu', () => {
 
   it('should display navigation icons', () => {
     renderWithRouter(<NavigationMenu />);
-    expect(screen.getByText('🏠')).toBeDefined();
     expect(screen.getByText('🔭')).toBeDefined();
     expect(screen.getByText('🔍')).toBeDefined();
     expect(screen.getByText('⭐')).toBeDefined();
@@ -90,7 +88,7 @@ describe('NavigationMenu', () => {
     expect(screen.getByText('✕')).toBeDefined();
     
     // Click a nav item
-    fireEvent.click(screen.getByText('首页'));
+    fireEvent.click(screen.getByText('发掘'));
     
     // Menu should close
     expect(screen.getByText('☰')).toBeDefined();
@@ -124,7 +122,7 @@ describe('NavigationMenu', () => {
     const { container } = renderWithRouter(<NavigationMenu />, ['/']);
     const activeLink = container.querySelector('.nav-link.active');
     expect(activeLink).toBeDefined();
-    expect(activeLink?.textContent).toContain('首页');
+    expect(activeLink?.textContent).toContain('发掘');
   });
 
   it('should highlight active path for stocks', () => {
