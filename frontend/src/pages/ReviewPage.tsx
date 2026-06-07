@@ -469,7 +469,7 @@ const ReviewPage: React.FC = () => {
 
   const handleRowClick = (record: TradeRecord) => {
     // Navigate to stock detail page
-    navigate(`/stock/${record.symbol}`);
+    navigate(`/stocks/${record.symbol}`);
   };
 
   const cardStyle: React.CSSProperties = {

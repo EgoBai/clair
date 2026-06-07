@@ -1,89 +1,90 @@
-# Clair (AStock) 研发计划 — AI原生化优先交付
+# Clair (AStock) 研发计划
 
-> 更新于 2026-06-03 | 状态：Phase 5 进行中
+> 更新于 2026-06-07 | 状态：Phase 6 完成，Phase 7 进行中
 
 ## 核心原则
 
-**Clair 是当前最高优先级项目**，必须先完成 AI 原生化，再启动 MediaForge 编辑器。
+**Clair 是当前最高优先级项目**。定位：AI陪伴式投资研究助手。
+核心循环：发掘 → 筛选 → 自选 → 复盘
 
 ## 当前状态
 
 | 指标 | 状态 |
 |------|------|
-| 构建 | ✅ 通过（Vite 4.76s + tsc 0错误） |
+| 构建 | ✅ 通过（Vite + tsc 0错误） |
 | 测试 | ✅ 17749/17750 通过 |
 | 部署 | ✅ GitHub Actions 自动部署 |
-| AI核心 | ✅ aiService + ChatPanel + API路由 |
-| AI集成 | 🟡 narrativeEngine已升级，StockDetailPage已集成 |
-| API Key | ❌ 需要配置 OPENAI_API_KEY |
+| AI核心 | ✅ DeepSeek v4-pro 集成 |
+| 核心循环 | ✅ 发掘→筛选→自选→复盘 四页闭环 |
+| 导航 | ✅ 4项核心导航 |
 
-## Phase 5: AI原生化（进行中）
+## Phase 5: AI原生化 ✅ 完成
 
-### 已完成 ✅
-- [x] aiService.ts — LLM统一调用层（OpenAI/Claude/本地）
-- [x] ai-chat.ts — AI API路由（6个端点）
+- [x] aiService.ts — LLM统一调用层
+- [x] ai-chat.ts — AI API路由（9个端点）
 - [x] ChatPanel.tsx — 对话界面组件
-- [x] aiClient.ts — 前端AI客户端
 - [x] narrativeEngine.ts — 叙事引擎升级为LLM
-- [x] StockDetailPage — 集成MultiSignalPanel + AI诊断
-- [x] .env — AI配置（API Key占位）
+- [x] StockDetailPage — 集成AI诊断
+- [x] DeepSeek v4-pro 集成
 
-### 待完成 🔄
-- [ ] **配置 OPENAI_API_KEY**（阻塞所有AI功能）
-- [ ] **测试AI对话流程**（启动服务，验证端到端）
-- [ ] **DiscoverPage AI解读增强**（替换模板为LLM）
-- [ ] **WatchlistPage 智能提醒**（接入AI分析）
-- [ ] **ReviewPage AI复盘**（交易行为分析）
+## Phase 6: 产品打磨 ✅ 完成
 
-### 交付标准
-- AI对话界面可用（Streaming打字机效果）
-- 个股诊断返回真实LLM分析
-- 市场解读由LLM生成（非模板）
-- 所有AI功能端到端可测
+- [x] 代码瘦身：归档41个未使用Engine + 31个测试文件
+- [x] Prompt优化：AI分析质量提升
+- [x] 删除首页，发掘页作为唯一入口
+- [x] 筛选页重新设计（核心指标+策略模板）
+- [x] 自选页策略信号概览
+- [x] 导航精简为4项核心页面
 
-## Phase 6: 产品打磨（计划中）
+## Phase 7: 页面清理与代码瘦身 🔄 进行中
 
-### 任务清单
-- [ ] 清理未使用的Engine（150+ → 50+）
-- [ ] 清理未使用的页面（31 → 10）
+### 任务
+- [ ] 清理未使用页面（30 → 10）
+- [ ] 路由精简
 - [ ] 前端代码分割优化
-- [ ] 后端pytest测试补全
-- [ ] 性能监控面板
+- [ ] 后端API端点审查
 
-## 时间线
+## Phase 8: 数据质量提升 📋 计划中
 
-```
-本周（6/3-6/9）：
-├── 配置API Key
-├── 测试AI对话流程
-├── 修复发现的bug
-└── 提交 Phase 5 完整版本
+### 任务
+- [ ] 全量A股数据完整性验证（5517只）
+- [ ] 行业/板块/概念标签准确性
+- [ ] 实时行情数据源稳定性
+- [ ] 历史数据回补
 
-下周（6/10-6/16）：
-├── DiscoverPage AI增强
-├── WatchlistPage 智能提醒
-├── ReviewPage AI复盘
-└── Phase 5 交付验收
+## Phase 9: 交互体验优化 📋 计划中
 
-后续：
-├── Phase 6 产品打磨
-└── 启动 MediaForge 编辑器（依赖 Clair Phase 5 完成）
-```
+### 任务
+- [ ] 页面间数据流串联
+- [ ] AI对话体验优化（Streaming）
+- [ ] 移动端适配
+- [ ] 加载状态与错误处理
 
-## 依赖关系
+## Phase 10: 策略引擎 📋 计划中
 
-```
-Clair Phase 5 完成
-    ↓
-MediaForge 编辑器启动
-    ↓
-两个项目并行开发
-```
+### 任务
+- [ ] 策略模板系统
+- [ ] 自定义筛选条件
+- [ ] 策略回测
+- [ ] AI策略推荐
 
-**规则：Clair Phase 5 未完成前，不得启动 MediaForge 编辑器的新功能开发。**
+## Phase 11: 性能优化 📋 计划中
+
+### 任务
+- [ ] 后端查询优化
+- [ ] 前端渲染性能
+- [ ] 缓存策略
+- [ ] 数据库索引优化
+
+## Phase 12: 部署与监控 📋 计划中
+
+### 任务
+- [ ] 生产环境部署
+- [ ] 性能监控
+- [ ] 错误追踪
+- [ ] 用户分析
 
 ## 相关文件
 
-- 复盘报告：`~/.openclaw/workspace/memory/2026-06-01-REVIEW.md`
 - 项目代码：`~/.openclaw/workspace/a-stock-website/`
 - GitHub：https://github.com/EgoBai/clair.git

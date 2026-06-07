@@ -30,6 +30,6 @@
     }
   },
   "include": ["src", "../shared"],
-  "exclude": ["src/sw.ts", "src/__tests__"],
+  "exclude": ["src/sw.ts", "src/__tests__", "src/pages/_archived"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

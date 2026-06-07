@@ -142,52 +142,37 @@ export function initResourceHints(config: ResourceHintConfig = {}): void {
  */
 export function prefetchRouteChunk(routePath: string): void {
   const routeChunkMap: Record<string, string[]> = {
+    '/': ['DiscoverPage'],
     '/stocks': ['StockListPage'],
     '/watchlist': ['WatchlistPage'],
-    '/dashboard': ['DashboardPage'],
-    '/screener': ['ScreenerPage', 'AdvancedScreenerPage'],
+    '/screener': ['ScreenerPage'],
+    '/review': ['ReviewPage'],
     '/backtest': ['BacktestPage'],
-    '/portfolio': ['PortfolioPage'],
-    '/news': ['NewsPage'],
-    '/alerts': ['AlertsPage'],
   };
 
   const chunks = routeChunkMap[routePath];
   if (!chunks) return;
 
-  // 通过动态 import 预加载
   chunks.forEach(chunk => {
     scheduleIdleTask(() => {
-      // Vite 会自动处理动态 import 的预加载
       switch (chunk) {
+        case 'DiscoverPage':
+          import('../pages/DiscoverPage');
+          break;
         case 'StockListPage':
           import('../pages/StockListPage');
-          break;
-
           break;
         case 'WatchlistPage':
           import('../pages/WatchlistPage');
           break;
-        case 'DashboardPage':
-          import('../pages/DashboardPage');
-          break;
         case 'ScreenerPage':
           import('../pages/ScreenerPage');
           break;
-        case 'AdvancedScreenerPage':
-          import('../pages/AdvancedScreenerPage');
+        case 'ReviewPage':
+          import('../pages/ReviewPage');
           break;
         case 'BacktestPage':
           import('../pages/BacktestPage');
-          break;
-        case 'PortfolioPage':
-          import('../pages/PortfolioPage');
-          break;
-        case 'NewsPage':
-          import('../pages/NewsPage');
-          break;
-        case 'AlertsPage':
-          import('../pages/AlertsPage');
           break;
       }
     });

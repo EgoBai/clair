@@ -135,11 +135,10 @@ export function createLazyMount(): {
 
 // Route-based code splitting helpers
 export const routeComponents = {
-  Dashboard: lazyWithRetry(() => import('../pages/DashboardPage')),
-  StockDetail: lazyWithRetry(() => import('../pages/StockDetailPage')),
-  Portfolio: lazyWithRetry(() => import('../pages/PortfolioPage')),
+  Discover: lazyWithRetry(() => import('../pages/DiscoverPage')),
   Screener: lazyWithRetry(() => import('../pages/ScreenerPage')),
   Watchlist: lazyWithRetry(() => import('../pages/WatchlistPage')),
-  News: lazyWithRetry(() => import('../pages/NewsPage')),
-  Settings: lazyWithRetry(() => import('../pages/UserSettingsPage')),
+  Review: lazyWithRetry(() => import('../pages/ReviewPage')),
+  StockDetail: lazyWithRetry(() => import('../pages/StockDetailPage')),
+  StockList: lazyWithRetry(() => import('../pages/StockListPage')),
 } as const;

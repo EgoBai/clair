@@ -43,11 +43,11 @@ const NotFoundPage: React.FC = () => {
                 <p>查看所有股票行情</p>
               </div>
             </Link>
-            <Link to={ROUTE_PATHS.MARKET} className="link-card">
+            <Link to={ROUTE_PATHS.SCREENER} className="link-card">
               <div className="link-icon">📊</div>
               <div className="link-content">
-                <h4>市场分析</h4>
-                <p>市场趋势和数据分析</p>
+                <h4>股票筛选</h4>
+                <p>按条件筛选股票</p>
               </div>
             </Link>
             <Link to={ROUTE_PATHS.WATCHLIST} className="link-card">
