@@ -4,9 +4,9 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { queryCache } from '../utils/queryCache';
-import { validateQuery, validateParams, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess, sendPaginated } from '../utils/apiResponse';
+import { queryCache } from '../../utils/queryCache';
+import { validateQuery, validateParams, schemas } from '../../middleware/validation';
+import { asyncHandler, sendSuccess, sendPaginated } from '../../utils/apiResponse';
 
 const router = Router();
 

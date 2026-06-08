@@ -5,8 +5,8 @@
  */
 
 import { Request, Response, Router } from 'express';
-import { validateParams, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import { validateParams, schemas } from '../../middleware/validation';
+import { asyncHandler, sendSuccess } from '../../utils/apiResponse';
 import type { TopTraderRecord, TopTraderEntry, TopTraderOverview } from '@shared/types';
 
 const router = Router();

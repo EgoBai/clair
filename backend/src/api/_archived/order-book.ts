@@ -11,8 +11,8 @@
  */
 
 import { Request, Response, Router } from 'express';
-import { validateParams, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import { validateParams, schemas } from '../../middleware/validation';
+import { asyncHandler, sendSuccess } from '../../utils/apiResponse';
 
 // ────────────────────────────────────────────────────────────
 // Types

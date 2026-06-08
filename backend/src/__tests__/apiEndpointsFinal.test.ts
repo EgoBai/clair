@@ -15,12 +15,6 @@ describe('API Endpoints Final Coverage', () => {
     });
   });
 
-  describe('Shareholder Changes Module', () => {
-    it('should be importable', async () => {
-      const mod = await import('../api/shareholder-changes');
-      expect(mod).toBeDefined();
-    });
-  });
 
   describe('Lockup Shares Module', () => {
     it('should be importable', async () => {
@@ -71,12 +65,6 @@ describe('API Endpoints Final Coverage', () => {
     });
   });
 
-  describe('Order Book Module', () => {
-    it('should be importable', async () => {
-      const mod = await import('../api/order-book');
-      expect(mod).toBeDefined();
-    });
-  });
 
   describe('Margin Trading Module', () => {
     it('should be importable', async () => {
@@ -85,12 +73,6 @@ describe('API Endpoints Final Coverage', () => {
     });
   });
 
-  describe('Top Traders Module', () => {
-    it('should be importable', async () => {
-      const mod = await import('../api/top-traders');
-      expect(mod).toBeDefined();
-    });
-  });
 
   describe('Backtest Routes', () => {
     it('should be importable', async () => {
