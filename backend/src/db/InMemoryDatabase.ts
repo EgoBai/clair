@@ -15,6 +15,9 @@ import {
   StockSearchParams,
 } from '../models/Stock';
 
+import * as fs from 'fs';
+import * as path from 'path';
+
 // ==================== 内部类型定义 ====================
 
 /** Where 子句过滤谓词 */
@@ -288,7 +291,25 @@ class InMemoryDatabase {
   }
 
   private initializeData(): void {
-    STOCK_SYMBOLS.forEach((s, idx) => {
+    // 尝试从JSON文件加载完整股票列表
+    let stockList = STOCK_SYMBOLS;
+    try {
+      const jsonPath = path.resolve(__dirname, '../../../clair-worker/all_stocks_compact.json');
+      if (fs.existsSync(jsonPath)) {
+        const rawData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+        stockList = rawData.map((item: [string, string, string, string]) => ({
+          symbol: item[0],
+          name: item[1],
+          market: item[2],
+          industry: item[3] || '未分类',
+        }));
+        console.log(`📂 从JSON文件加载股票列表: ${stockList.length} 只`);
+      }
+    } catch (error) {
+      console.warn('⚠️ 无法加载JSON文件，使用默认股票列表:', (error as Error).message);
+    }
+
+    stockList.forEach((s, idx) => {
       const stock: Stock = {
         id: idx + 1,
         symbol: s.symbol,
