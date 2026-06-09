@@ -255,8 +255,8 @@ const DiscoverPage: React.FC = () => {
             )}
 
             {/* 指数 + 宽度 */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginBottom: 20 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '2fr 1fr', gap: 12, marginBottom: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 480 ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: 8 }}>
                 {indices.map(idx => {
                   const up = idx.changePercent >= 0;
                   return (
