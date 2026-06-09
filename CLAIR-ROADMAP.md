@@ -78,13 +78,13 @@
 - [x] 缓存策略 — 内存缓存 + API缓存增强(getStats/getOrSet/cleanup)
 - [x] 前端渲染性能 — VirtualList虚拟列表 + performance.ts工具库(防抖/节流/懒加载)
 
-## Phase 12: 部署与监控 📋 计划中
+## Phase 12: 部署与监控 🔄 进行中
 
 ### 任务
-- [ ] 生产环境部署
-- [ ] 性能监控
-- [ ] 错误追踪
-- [ ] 用户分析
+- [x] 生产环境部署 — GitHub Pages + Cloudflare Workers
+- [x] 性能监控 — webVitals.ts (FCP/LCP/CLS/FID/TTFB/INP)
+- [x] 错误追踪 — UnifiedErrorBoundary + 自动重试
+- [x] 用户分析 — analytics.ts + /api/analytics 端点
 
 ## 相关文件
 
