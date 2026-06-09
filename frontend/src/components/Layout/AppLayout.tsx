@@ -4,6 +4,7 @@ import NavigationMenu from './NavigationMenu';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
 import { SettingOutlined, InfoCircleOutlined, GithubOutlined } from '@ant-design/icons';
 import { Tooltip, Modal, Typography } from 'antd';
+import FloatingChat from '../AI/FloatingChat';
 
 const { Text, Link } = Typography;
 
@@ -21,6 +22,9 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
             {children || <Outlet />}
           </div>
         </main>
+
+        {/* AI 浮动对话入口 */}
+        <FloatingChat />
 
         {/* 设置按钮 — 右下角小图标，点击弹出信息面板 */}
         <Tooltip title="关于澄观">

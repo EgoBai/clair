@@ -165,6 +165,24 @@ const StockDetailPage: React.FC = () => {
   useEffect(() => { fetchStockData(); }, [fetchStockData]);
   useEffect(() => { fetchKlineData(); }, [fetchKlineData]);
 
+  // 自动触发AI诊断（页面加载后延迟执行，避免阻塞首屏）
+  useEffect(() => {
+    if (!symbol) return;
+    const timer = setTimeout(async () => {
+      setDiagnosisLoading(true);
+      try {
+        const resp = await fetch(`/api/ai/diagnose/${symbol}`);
+        const data = await resp.json();
+        setAiDiagnosis(data.diagnosis || '');
+      } catch {
+        // silent
+      } finally {
+        setDiagnosisLoading(false);
+      }
+    }, 2000); // 延迟2秒，让页面先渲染完
+    return () => clearTimeout(timer);
+  }, [symbol]);
+
   const displaySymbol = symbol?.replace(/\.(SH|SZ)$/, '') || symbol || '';
   const marketLabel = stockInfo?.market === 'SH' ? '沪' : stockInfo?.market === 'SZ' ? '深' : stockInfo?.market === 'INDEX' ? '指' : '';
 
