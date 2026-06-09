@@ -17,6 +17,7 @@ import {
   ReloadOutlined, SearchOutlined, FilterOutlined,
   FundOutlined, LineChartOutlined,
   StarOutlined, StarFilled, PlusOutlined, SettingOutlined,
+  RobotOutlined, BulbOutlined,
 } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
@@ -161,6 +162,11 @@ const ScreenerPage: React.FC = () => {
   // API策略模板状态
   const [apiTemplates, setApiTemplates] = useState<any[]>([]);
 
+  // AI 推荐状态
+  const [aiInsight, setAiInsight] = useState<string>('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiPicks, setAiPicks] = useState<Array<{symbol: string; name: string; reason: string}>>([]);
+
   // 加载自选列表
   useEffect(() => {
     const saved = localStorage.getItem('watchlist');
@@ -185,7 +191,7 @@ const ScreenerPage: React.FC = () => {
   const toggleWatchlist = (symbol: string) => {
     setWatchlist(prev => {
       const next = prev.includes(symbol) 
-        ? prev.filter(s => s !== symbol) 
+        ? prev.filter(s => s !== symbol)
         : [...prev, symbol];
       localStorage.setItem('watchlist', JSON.stringify(next));
       message.success(prev.includes(symbol) ? '已取消自选' : '已加入自选');
@@ -288,6 +294,40 @@ const ScreenerPage: React.FC = () => {
 
     return result;
   }, [stocks, activeMetrics, activeStrategy, searchText]);
+
+  // AI 智能推荐（依赖 filtered）
+  const fetchAiRecommendation = useCallback(async () => {
+    setAiLoading(true);
+    try {
+      const context = activeStrategy
+        ? `当前策略: ${STRATEGY_TEMPLATES.find(s => s.id === activeStrategy)?.name || activeStrategy}`
+        : activeMetrics.length > 0
+        ? `当前指标: ${activeMetrics.map(m => FILTER_METRICS.find(fm => fm.id === m)?.name).join(', ')}`
+        : '无特定筛选条件';
+
+      const resp = await apiFetch('/api/ai/strategy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `作为投资研究助手，请基于以下筛选条件给出选股建议：${context}。
+当前筛选结果共${filtered.length}只股票。
+请推荐3-5只值得关注的A股，包含股票代码、名称和推荐理由。
+输出JSON格式：{"picks":[{"symbol":"xxx.SZ","name":"xxx","reason":"理由"}],"insight":"整体分析"}`,
+          context: { activeStrategy, activeMetrics, totalStocks: filtered.length },
+        }),
+      });
+      const data = await resp.json();
+      if (data?.data) {
+        const content = data.data.content || data.data.insight || '';
+        setAiInsight(content);
+        if (data.data.picks) setAiPicks(data.data.picks);
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setAiLoading(false);
+    }
+  }, [activeStrategy, activeMetrics, filtered.length]);
 
   // 分页
   const paged = useMemo(() => {
@@ -501,6 +541,101 @@ const ScreenerPage: React.FC = () => {
               </div>
             ))}
           </div>
+        </Card>
+
+        {/* AI 智能推荐 */}
+        <Card
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: TEXT }}>
+                <RobotOutlined style={{ marginRight: 8, color: '#8b5cf6' }} />
+                AI 选股助手
+              </span>
+              <Button
+                type="primary"
+                size="small"
+                icon={<BulbOutlined />}
+                loading={aiLoading}
+                onClick={fetchAiRecommendation}
+                style={{ background: '#8b5cf6', borderColor: '#8b5cf6' }}
+              >
+                {aiInsight ? '重新分析' : 'AI 推荐'}
+              </Button>
+            </div>
+          }
+          style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
+          bodyStyle={{ padding: '16px' }}
+        >
+          {aiLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: TEXT_SEC }}>
+              <Spin size="small" />
+              <span>AI 正在分析市场数据，为您推荐...</span>
+            </div>
+          ) : aiPicks.length > 0 ? (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, marginBottom: 16 }}>
+                {aiPicks.map((pick, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: BG,
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: 8,
+                      padding: '12px',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => navigate(`/stocks/${pick.symbol}`)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ color: ACCENT, fontWeight: 600, fontFamily: 'monospace' }}>
+                        {pick.symbol?.replace(/\.(SH|SZ)$/, '')}
+                      </span>
+                      <span style={{ color: TEXT, fontWeight: 600 }}>{pick.name}</span>
+                    </div>
+                    <div style={{ color: TEXT_SEC, fontSize: 12, lineHeight: 1.6 }}>
+                      {pick.reason}
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<StarOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleWatchlist(pick.symbol);
+                        }}
+                        style={{ padding: 0, color: watchlist.includes(pick.symbol) ? GOLD : TEXT_SEC }}
+                      >
+                        {watchlist.includes(pick.symbol) ? '已自选' : '加入自选'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {aiInsight && (
+                <div style={{
+                  background: '#8b5cf610',
+                  border: '1px solid #8b5cf640',
+                  borderRadius: 8,
+                  padding: '12px',
+                  color: TEXT,
+                  fontSize: 13,
+                  lineHeight: 1.8,
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {aiInsight}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ color: TEXT_SEC, textAlign: 'center', padding: '12px 0' }}>
+              <BulbOutlined style={{ fontSize: 24, marginBottom: 8, display: 'block' }} />
+              <div>点击「AI 推荐」获取智能选股建议</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                AI 将根据当前筛选条件，推荐值得关注的标的
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* 核心筛选指标 */}

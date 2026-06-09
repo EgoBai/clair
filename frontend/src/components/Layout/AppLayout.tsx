@@ -1,12 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import NavigationMenu from './NavigationMenu';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
-import { SettingOutlined } from '@ant-design/icons';
-import { Tooltip } from 'antd';
+import { SettingOutlined, InfoCircleOutlined, GithubOutlined } from '@ant-design/icons';
+import { Tooltip, Modal, Typography } from 'antd';
+
+const { Text, Link } = Typography;
 
 export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (
     <SimpleErrorBoundary name="AppLayout">
       <div className="app-layout">
@@ -18,9 +22,9 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
           </div>
         </main>
 
-        {/* 设置按钮 — 右下角小图标 */}
-        <Tooltip title="设置">
-          <div onClick={() => navigate('/settings')} style={{
+        {/* 设置按钮 — 右下角小图标，点击弹出信息面板 */}
+        <Tooltip title="关于澄观">
+          <div onClick={() => setSettingsOpen(true)} style={{
             position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
             width: 36, height: 36, borderRadius: 18,
             background: '#1e293b', border: '1px solid #334155',
@@ -33,6 +37,44 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
             <SettingOutlined style={{ color: '#94a3b8', fontSize: 16 }} />
           </div>
         </Tooltip>
+
+        {/* 设置弹窗 */}
+        <Modal
+          title="关于澄观"
+          open={settingsOpen}
+          onCancel={() => setSettingsOpen(false)}
+          footer={null}
+          width={400}
+        >
+          <div style={{ textAlign: 'center', padding: '16px 0' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🔭</div>
+            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>澄观 Clair</div>
+            <Text type="secondary">AI 陪伴式投资研究助手</Text>
+          </div>
+          <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16, marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text type="secondary">版本</Text>
+              <Text>v2.0.0</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text type="secondary">核心循环</Text>
+              <Text>发掘 → 筛选 → 自选 → 复盘</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text type="secondary">AI 引擎</Text>
+              <Text>DeepSeek v4-pro</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text type="secondary">数据覆盖</Text>
+              <Text>5541 只 A 股</Text>
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, marginTop: 8, textAlign: 'center' }}>
+            <Link href="https://github.com/EgoBai/clair" target="_blank">
+              <GithubOutlined style={{ marginRight: 4 }} /> GitHub
+            </Link>
+          </div>
+        </Modal>
 
       <style>{`
         .app-layout {
