@@ -1,6 +1,6 @@
 # Clair (AStock) 研发计划
 
-> 更新于 2026-06-09 | 状态：Phase 10 完成 — 策略引擎
+> 更新于 2026-06-09 | 状态：Phase 11 完成 — 性能优化
 
 ## 核心原则
 
@@ -70,13 +70,13 @@
 - [x] 策略回测 — 深色主题BacktestPage + 多策略选择 + 可视化
 - [x] AI策略推荐 — DeepSeek集成 + 市场洞察 + 流式响应
 
-## Phase 11: 性能优化 📋 计划中
+## Phase 11: 性能优化 ✅ 完成
 
 ### 任务
-- [ ] 后端查询优化
-- [ ] 前端渲染性能
-- [ ] 缓存策略
-- [ ] 数据库索引优化
+- [x] 数据库索引优化 — 10+性能索引 + 2个物化视图(mv_market_stats, mv_industry_stats)
+- [x] 后端查询优化 — queryOptimizer.ts (批量查询/避免N+1/高效分页)
+- [x] 缓存策略 — 内存缓存 + API缓存增强(getStats/getOrSet/cleanup)
+- [x] 前端渲染性能 — VirtualList虚拟列表 + performance.ts工具库(防抖/节流/懒加载)
 
 ## Phase 12: 部署与监控 📋 计划中
 
