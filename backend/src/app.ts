@@ -44,6 +44,7 @@ import apiDocsRouter from './api/api-docs';
 import breadthRouter from './api/breadth';
 import divergenceRouter from './api/divergence';
 import notificationsRouter from './api/notifications';
+import historyRouter from './api/history';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
@@ -118,6 +119,7 @@ app.use('/api/etf', etfRouter);
 app.use('/api', breadthRouter);
 app.use('/api', divergenceRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api', historyRouter);
 
 // ==================== API 文档 ====================
 app.use(apiDocsRouter);
@@ -317,6 +319,8 @@ app.use(globalErrorHandler);
 
 // ==================== WebSocket 初始化 ====================
 wsService.initialize(httpServer);
+
+// ==================== 导出供 index.ts 使用 ====================
 
 // ==================== 导出供 index.ts 使用 ====================
 export { app, httpServer };
