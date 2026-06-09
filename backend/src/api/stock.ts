@@ -10,6 +10,7 @@ import { validateQuery, validateBody, validateParams, schemas } from '../middlew
 import {
   asyncHandler, sendSuccess, sendPaginated, sendNotFound, sendInternalError,
 } from '../utils/apiResponse';
+import { queryCache } from '../utils/queryCache';
 
 const router = Router();
 
@@ -28,20 +29,25 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
     sortOrder: (req.query.sortOrder as 'asc' | 'desc') || 'asc',
   };
 
-  const [stocks, totalCount] = await Promise.all([
-    db.getStocks(params),
-    db.getStockCount(params),
-  ]);
+  const cacheKey = `stocks:${JSON.stringify(params)}`;
+  const result = await queryCache.query(cacheKey, async () => {
+    const [stocks, totalCount] = await Promise.all([
+      db.getStocks(params),
+      db.getStockCount(params),
+    ]);
 
-  sendSuccess(res, {
-    stocks,
-    pagination: {
-      page: params.page,
-      pageSize: params.pageSize,
-      totalCount,
-      totalPages: Math.ceil(totalCount / (params.pageSize ?? 20)),
-    },
-  });
+    return {
+      stocks,
+      pagination: {
+        page: params.page,
+        pageSize: params.pageSize,
+        totalCount,
+        totalPages: Math.ceil(totalCount / (params.pageSize ?? 20)),
+      },
+    };
+  }, 30000); // 30秒缓存
+
+  sendSuccess(res, result);
 }));
 
 // 注意：特定路径必须在通配符路径之前定义，否则 /stocks/:symbol 会匹配 /stocks/xxx/quotes

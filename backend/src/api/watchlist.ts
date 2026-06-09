@@ -7,6 +7,7 @@ import { Request, Response, Router } from 'express';
 import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
+import { queryCache } from '../utils/queryCache';
 
 const router = Router();
 
@@ -18,58 +19,60 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
   try {
     const userId = parseInt(req.query.userId as string) || 1;
     const groupId = req.query.groupId as string;
+    const cacheKey = `watchlist:${userId}:${groupId || 'all'}`;
 
-    // 优化：使用子查询获取最新行情，避免在JOIN条件中使用子查询
-    const latestQuotes = db.connection('daily_quotes as dq')
-      .select('dq.stock_id')
-      .max('dq.trade_date as max_date')
-      .groupBy('dq.stock_id');
+    const result = await queryCache.query(cacheKey, async () => {
+      // 优化：使用子查询获取最新行情，避免在JOIN条件中使用子查询
+      const latestQuotes = db.connection('daily_quotes as dq')
+        .select('dq.stock_id')
+        .max('dq.trade_date as max_date')
+        .groupBy('dq.stock_id');
 
-    let query = db.connection('user_watchlist as w')
-      .join('stocks as s', 'w.stock_id', 's.id')
-      .leftJoin('daily_quotes as dq', function() {
-        this.on('s.id', '=', 'dq.stock_id')
-          .andOn('dq.trade_date', '=', db.connection.raw('latest_quotes.max_date'));
-      })
-      .leftJoin(latestQuotes.as('latest_quotes'), 's.id', '=', 'latest_quotes.stock_id')
-      .where('w.user_id', userId)
-      .select(
-        's.id',
-        's.symbol',
-        's.name',
-        's.market',
-        's.industry',
-        'w.added_at as addedAt',
-        'w.notes',
-        'w.group_id as groupId',
-        'w.sort_index as sortIndex',
-        'dq.close_price as closePrice',
-        'dq.change_percent as changePercent',
-        'dq.volume',
-        'dq.turnover',
-        'dq.market_cap as marketCap'
-      );
+      let query = db.connection('user_watchlist as w')
+        .join('stocks as s', 'w.stock_id', 's.id')
+        .leftJoin('daily_quotes as dq', function() {
+          this.on('s.id', '=', 'dq.stock_id')
+            .andOn('dq.trade_date', '=', db.connection.raw('latest_quotes.max_date'));
+        })
+        .leftJoin(latestQuotes.as('latest_quotes'), 's.id', '=', 'latest_quotes.stock_id')
+        .where('w.user_id', userId)
+        .select(
+          's.id',
+          's.symbol',
+          's.name',
+          's.market',
+          's.industry',
+          'w.added_at as addedAt',
+          'w.notes',
+          'w.group_id as groupId',
+          'w.sort_index as sortIndex',
+          'dq.close_price as closePrice',
+          'dq.change_percent as changePercent',
+          'dq.volume',
+          'dq.turnover',
+          'dq.market_cap as marketCap'
+        );
 
-    if (groupId) {
-      query = query.where('w.group_id', groupId);
-    }
+      if (groupId) {
+        query = query.where('w.group_id', groupId);
+      }
 
-    const watchlist = await query.orderBy('w.sort_index', 'asc').orderBy('w.added_at', 'desc');
+      const watchlist = await query.orderBy('w.sort_index', 'asc').orderBy('w.added_at', 'desc');
 
-    // 获取分组信息
-    const groups = await db.connection('watchlist_groups')
-      .where('user_id', userId)
-      .select('id', 'name', 'sort_index as sortIndex')
-      .orderBy('sort_index', 'asc')
-      .catch(() => []);
+      // 获取分组信息
+      const groups = await db.connection('watchlist_groups')
+        .where('user_id', userId)
+        .select('id', 'name', 'sort_index as sortIndex')
+        .orderBy('sort_index', 'asc')
+        .catch(() => []);
 
-    res.json({
-      success: true,
-      data: {
+      return {
         watchlist,
         groups: groups.length > 0 ? groups : [{ id: 'default', name: '默认分组', sortIndex: 0 }],
-      },
-    });
+      };
+    }, 10000); // 10秒缓存
+
+    res.json({ success: true, data: result });
   } catch (error) {
     console.error('获取自选股列表失败:', error);
     // InMemoryDatabase doesn't support watchlist joins — return empty gracefully
