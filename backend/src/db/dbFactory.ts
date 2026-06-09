@@ -23,8 +23,18 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
       const config = {
         client: 'pg',
         connection: pgUrl,
-        pool: { min: 2, max: 10 },
-        acquireConnectionTimeout: 2000,
+        pool: { 
+          min: 2, 
+          max: 20,
+          acquireTimeoutMillis: 30000,
+          createTimeoutMillis: 30000,
+          destroyTimeoutMillis: 5000,
+          idleTimeoutMillis: 30000,
+          reapIntervalMillis: 1000,
+          createRetryIntervalMillis: 200,
+        },
+        acquireConnectionTimeout: 5000,
+        debug: process.env.NODE_ENV === 'development',
       };
       const pgDb = new Database(config);
       const connected = await pgDb.testConnection();

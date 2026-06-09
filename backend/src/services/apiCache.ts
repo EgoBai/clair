@@ -23,9 +23,68 @@ interface CacheEntry {
 export class APICache {
   private cache: Map<string, CacheEntry> = new Map();
   private defaultTTL: number;
+  private maxSize: number;
+  private stats = {
+    hits: 0,
+    misses: 0,
+    evictions: 0
+  };
 
-  constructor(defaultTTL: number = 60) {
+  constructor(defaultTTL: number = 60, maxSize: number = 1000) {
     this.defaultTTL = defaultTTL;
+    this.maxSize = maxSize;
+  }
+
+  /**
+   * 获取缓存统计信息
+   */
+  getStats() {
+    return {
+      ...this.stats,
+      size: this.cache.size,
+      hitRate: this.stats.hits / (this.stats.hits + this.stats.misses) || 0
+    };
+  }
+
+  /**
+   * 清理过期缓存
+   */
+  cleanup(): number {
+    const now = Date.now();
+    let cleaned = 0;
+    
+    for (const [key, entry] of this.cache.entries()) {
+      const age = (now - entry.timestamp) / 1000;
+      if (age > entry.ttl * 1.5) {
+        this.cache.delete(key);
+        cleaned++;
+      }
+    }
+    
+    return cleaned;
+  }
+
+  /**
+   * 获取或设置缓存（如果不存在则执行函数）
+   */
+  async getOrSet<T>(
+    key: string,
+    factory: () => Promise<T>,
+    ttl?: number
+  ): Promise<T> {
+    const cached = this.get(key);
+    if (cached) {
+      this.stats.hits++;
+      return cached.body as T;
+    }
+
+    this.stats.misses++;
+    const data = await factory();
+    
+    // 自动缓存
+    this.set(key, data, { 'Content-Type': 'application/json' }, 200, ttl);
+    
+    return data;
   }
 
   generateKey(url: string, method: string, query?: Record<string, string>, varyBy?: string[]): string {
@@ -158,33 +217,8 @@ export class APICache {
     };
   }
 
-  getStats(): { entries: number; memoryEstimate: string } {
-    const entries = this.cache.size;
-    let bytes = 0;
-    for (const entry of this.cache.values()) {
-      bytes += JSON.stringify(entry).length * 2; // rough estimate
-    }
-    const memoryEstimate = bytes > 1024 * 1024
-      ? `${(bytes / 1024 / 1024).toFixed(2)}MB`
-      : `${(bytes / 1024).toFixed(2)}KB`;
-    return { entries, memoryEstimate };
-  }
-
   clear(): void {
     this.cache.clear();
-  }
-
-  cleanExpired(): number {
-    let cleaned = 0;
-    const now = Date.now();
-    for (const [key, entry] of this.cache) {
-      const age = (now - entry.timestamp) / 1000;
-      if (age > entry.ttl * 1.5) {
-        this.cache.delete(key);
-        cleaned++;
-      }
-    }
-    return cleaned;
   }
 }
 

@@ -116,8 +116,8 @@ describe('APICache', () => {
       cache.set('k1', 'a', {}, 200);
       cache.set('k2', 'b', {}, 200);
       const stats = cache.getStats();
-      expect(stats.entries).toBe(2);
-      expect(stats.memoryEstimate).toBeDefined();
+      expect(stats.size).toBe(2);
+      expect(stats.hitRate).toBeDefined();
     });
   });
 
@@ -126,7 +126,7 @@ describe('APICache', () => {
       cache.set('k1', 'a', {}, 200);
       cache.set('k2', 'b', {}, 200);
       cache.clear();
-      expect(cache.getStats().entries).toBe(0);
+      expect(cache.getStats().size).toBe(0);
     });
   });
 
@@ -136,7 +136,7 @@ describe('APICache', () => {
       const c = new APICache(1);
       c.set('key', 'data', {}, 200);
       vi.advanceTimersByTime(2000);
-      const cleaned = c.cleanExpired();
+      const cleaned = c.cleanup();
       expect(cleaned).toBe(1);
       vi.useRealTimers();
     });

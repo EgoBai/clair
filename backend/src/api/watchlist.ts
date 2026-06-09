@@ -19,14 +19,19 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
     const userId = parseInt(req.query.userId as string) || 1;
     const groupId = req.query.groupId as string;
 
+    // 优化：使用子查询获取最新行情，避免在JOIN条件中使用子查询
+    const latestQuotes = db.connection('daily_quotes as dq')
+      .select('dq.stock_id')
+      .max('dq.trade_date as max_date')
+      .groupBy('dq.stock_id');
+
     let query = db.connection('user_watchlist as w')
       .join('stocks as s', 'w.stock_id', 's.id')
       .leftJoin('daily_quotes as dq', function() {
         this.on('s.id', '=', 'dq.stock_id')
-          .andOn('dq.trade_date', '=', db.connection.raw(
-            '(SELECT MAX(trade_date) FROM daily_quotes WHERE stock_id = s.id)'
-          ));
+          .andOn('dq.trade_date', '=', db.connection.raw('latest_quotes.max_date'));
       })
+      .leftJoin(latestQuotes.as('latest_quotes'), 's.id', '=', 'latest_quotes.stock_id')
       .where('w.user_id', userId)
       .select(
         's.id',
