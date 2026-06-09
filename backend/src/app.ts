@@ -39,12 +39,14 @@ import aiStockSelectionRouter from './api/ai-stock-selection';
 import multiSignalRouter from './api/multi-signal';
 import dailyBriefingRouter from './api/daily-briefing';
 import aiChatRouter from './api/ai-chat';
+import aiStrategyRouter from './api/ai-strategy';
 import etfRouter from './api/etf';
 import apiDocsRouter from './api/api-docs';
 import breadthRouter from './api/breadth';
 import divergenceRouter from './api/divergence';
 import notificationsRouter from './api/notifications';
 import historyRouter from './api/history';
+import strategyTemplatesRouter from './api/strategy-templates';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
@@ -115,11 +117,13 @@ app.use('/api', aiStockSelectionRouter);
 app.use('/api', multiSignalRouter);
 app.use('/api', dailyBriefingRouter);
 app.use('/api', aiChatRouter);
+app.use('/api', aiStrategyRouter);
 app.use('/api/etf', etfRouter);
 app.use('/api', breadthRouter);
 app.use('/api', divergenceRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api', historyRouter);
+app.use('/api', strategyTemplatesRouter);
 
 // ==================== API 文档 ====================
 app.use(apiDocsRouter);

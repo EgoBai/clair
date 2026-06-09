@@ -16,7 +16,7 @@ import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
   ReloadOutlined, SearchOutlined, FilterOutlined,
   FundOutlined, LineChartOutlined,
-  StarOutlined, StarFilled,
+  StarOutlined, StarFilled, PlusOutlined, SettingOutlined,
 } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
@@ -157,6 +157,9 @@ const ScreenerPage: React.FC = () => {
 
   // 自选列表状态
   const [watchlist, setWatchlist] = useState<string[]>([]);
+  
+  // API策略模板状态
+  const [apiTemplates, setApiTemplates] = useState<any[]>([]);
 
   // 加载自选列表
   useEffect(() => {
@@ -164,6 +167,18 @@ const ScreenerPage: React.FC = () => {
     if (saved) {
       try { setWatchlist(JSON.parse(saved)); } catch {}
     }
+  }, []);
+
+  // 加载API策略模板
+  useEffect(() => {
+    apiFetch('/api/strategy-templates')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.data?.templates) {
+          setApiTemplates(data.data.templates);
+        }
+      })
+      .catch(e => console.warn('加载策略模板失败:', e));
   }, []);
 
   // 切换自选
@@ -400,23 +415,44 @@ const ScreenerPage: React.FC = () => {
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         
         {/* 页面标题 */}
-        <div style={{ marginBottom: 24 }}>
-          <Title level={3} style={{ color: TEXT, marginBottom: 8 }}>
-            <FilterOutlined style={{ marginRight: 8 }} />
-            股票筛选
-          </Title>
-          <Text style={{ color: TEXT_SEC }}>
-            选择核心指标或策略模板，快速筛选符合条件的股票
-          </Text>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+          <div>
+            <Title level={3} style={{ color: TEXT, marginBottom: 8 }}>
+              <FilterOutlined style={{ marginRight: 8 }} />
+              股票筛选
+            </Title>
+            <Text style={{ color: TEXT_SEC }}>
+              选择核心指标或策略模板，快速筛选符合条件的股票
+            </Text>
+          </div>
+          <Button 
+            icon={<SettingOutlined />}
+            onClick={() => navigate('/strategies')}
+          >
+            管理策略
+          </Button>
         </div>
 
         {/* 策略模板 */}
         <Card 
-          title={<span style={{ color: TEXT }}>🎯 推荐策略</span>}
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: TEXT }}>🎯 推荐策略</span>
+              <Button 
+                type="link" 
+                size="small" 
+                icon={<PlusOutlined />}
+                onClick={() => navigate('/strategies')}
+              >
+                查看全部
+              </Button>
+            </div>
+          }
           style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
           bodyStyle={{ padding: '16px' }}
         >
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {/* 系统预设策略 */}
             {STRATEGY_TEMPLATES.map(strategy => (
               <div
                 key={strategy.id}
@@ -435,6 +471,33 @@ const ScreenerPage: React.FC = () => {
                   <span style={{ color: TEXT, fontWeight: 600, fontSize: 14 }}>{strategy.name}</span>
                 </div>
                 <div style={{ color: TEXT_SEC, fontSize: 12 }}>{strategy.description}</div>
+              </div>
+            ))}
+            
+            {/* API策略模板（最多显示4个） */}
+            {apiTemplates.slice(0, 4).map(template => (
+              <div
+                key={`api-${template.id}`}
+                onClick={() => {
+                  setActiveStrategy(null);
+                  setActiveMetrics([]);
+                  // 应用模板条件进行筛选
+                  message.info(`已选择策略: ${template.name}`);
+                }}
+                style={{
+                  background: BG,
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: 8,
+                  padding: '12px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 18 }}>{template.icon || '📊'}</span>
+                  <span style={{ color: TEXT, fontWeight: 600, fontSize: 14 }}>{template.name}</span>
+                </div>
+                <div style={{ color: TEXT_SEC, fontSize: 12 }}>{template.description || '自定义策略'}</div>
               </div>
             ))}
           </div>
