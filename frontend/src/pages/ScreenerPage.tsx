@@ -16,6 +16,7 @@ import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
   ReloadOutlined, SearchOutlined, FilterOutlined,
   FundOutlined, LineChartOutlined,
+  StarOutlined, StarFilled,
 } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
@@ -153,6 +154,29 @@ const ScreenerPage: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 20;
+
+  // 自选列表状态
+  const [watchlist, setWatchlist] = useState<string[]>([]);
+
+  // 加载自选列表
+  useEffect(() => {
+    const saved = localStorage.getItem('watchlist');
+    if (saved) {
+      try { setWatchlist(JSON.parse(saved)); } catch {}
+    }
+  }, []);
+
+  // 切换自选
+  const toggleWatchlist = (symbol: string) => {
+    setWatchlist(prev => {
+      const next = prev.includes(symbol) 
+        ? prev.filter(s => s !== symbol) 
+        : [...prev, symbol];
+      localStorage.setItem('watchlist', JSON.stringify(next));
+      message.success(prev.includes(symbol) ? '已取消自选' : '已加入自选');
+      return next;
+    });
+  };
 
   // 从URL参数读取初始筛选条件
   useEffect(() => {
@@ -350,13 +374,23 @@ const ScreenerPage: React.FC = () => {
       title: '操作',
       width: 80,
       render: (_: any, r: StockData) => (
-        <Button 
-          type="link" 
-          size="small"
-          onClick={() => navigate(`/stocks/${r.symbol}`)}
-        >
-          详情
-        </Button>
+        <Space>
+          <Tooltip title={watchlist.includes(r.symbol) ? '取消自选' : '加入自选'}>
+            <Button
+              type="text"
+              size="small"
+              icon={watchlist.includes(r.symbol) ? <StarFilled style={{ color: GOLD }} /> : <StarOutlined />}
+              onClick={() => toggleWatchlist(r.symbol)}
+            />
+          </Tooltip>
+          <Button 
+            type="link" 
+            size="small"
+            onClick={() => navigate(`/stocks/${r.symbol}`)}
+          >
+            详情
+          </Button>
+        </Space>
       ),
     },
   ];
