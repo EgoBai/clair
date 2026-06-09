@@ -13,5 +13,14 @@ export function apiUrl(path: string): string {
 }
 
 export async function apiFetch(path: string, options?: RequestInit): Promise<Response> {
-  return fetch(apiUrl(path), options);
+  const response = await fetch(apiUrl(path), options);
+  
+  // 统一处理HTTP错误
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData.message || errorData.error || `请求失败: ${response.status}`;
+    throw new Error(errorMessage);
+  }
+  
+  return response;
 }
