@@ -1,46 +1,49 @@
+# Prometheus 配置
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# 告警规则
 rule_files:
-  - 'alert_rules.yml'
+  - "alert_rules.yml"
 
+# 告警管理器
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: ['alertmanager:9093']
+        - targets:
+          # - alertmanager:9093
 
+# 监控目标
 scrape_configs:
-  # A股后端服务
-  - job_name: 'astock-backend'
-    metrics_path: '/health/simple'
-    scrape_interval: 10s
-    static_configs:
-      - targets: ['backend:3001']
-        labels:
-          service: 'astock-backend'
-          environment: 'production'
-
-  # Node Exporter - 系统指标
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['node-exporter:9100']
-
   # Prometheus 自身监控
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
-  # PostgreSQL 监控
+  # Clair 后端监控
+  - job_name: 'clair-backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['backend:4000']
+    scrape_interval: 10s
+
+  # PostgreSQL 监控 (需要 postgres_exporter)
   - job_name: 'postgres'
     static_configs:
       - targets: ['postgres-exporter:9187']
-        labels:
-          service: 'postgresql'
 
-  # Redis 监控
+  # Redis 监控 (需要 redis_exporter)
   - job_name: 'redis'
     static_configs:
       - targets: ['redis-exporter:9121']
-        labels:
-          service: 'redis'
+
+  # Nginx 监控 (需要 nginx_exporter)
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+
+  # Node 系统监控
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']

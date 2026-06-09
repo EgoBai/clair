@@ -20,9 +20,9 @@ if (typeof window !== 'undefined' && !import.meta.env.DEV) {
   } as typeof fetch;
 }
 
-import React, { useRef, useCallback, useState, lazy } from 'react';
+import React, { useRef, useCallback, useState, lazy, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Modal, Typography } from 'antd';
 import AppLayout from './components/Layout/AppLayout';
 import ThemeProvider from './components/Common/ThemeProvider';
@@ -32,6 +32,7 @@ import { useAppStore } from './store/useAppStore';
 import { initWebVitals } from './utils/webVitals';
 import LazyPage from './components/Common/LazyPage';
 import I18nProvider from './i18n';
+import analytics from './utils/analytics';
 import './App.css';
 
 // 初始化 Web Vitals 监控
@@ -115,6 +116,19 @@ function GlobalShortcuts({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ==================== 页面访问追踪组件 ====================
+
+function PageViewTracker() {
+  const location = useLocation();
+  
+  useEffect(() => {
+    // 追踪页面访问
+    analytics.trackPageView(location.pathname, document.title);
+  }, [location.pathname]);
+  
+  return null;
+}
+
 // ==================== 应用根组件 ====================
 
 function App() {
@@ -125,6 +139,7 @@ function App() {
         v7_startTransition: true,
         v7_relativeSplatPath: true,
       }}>
+        <PageViewTracker />
         <GlobalShortcuts>
           <Routes>
             <Route path="/" element={<AppLayout />}>

@@ -47,6 +47,7 @@ import divergenceRouter from './api/divergence';
 import notificationsRouter from './api/notifications';
 import historyRouter from './api/history';
 import strategyTemplatesRouter from './api/strategy-templates';
+import analyticsRouter from './api/analytics';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
@@ -124,6 +125,7 @@ app.use('/api', divergenceRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api', historyRouter);
 app.use('/api', strategyTemplatesRouter);
+app.use('/api', analyticsRouter);
 
 // ==================== API 文档 ====================
 app.use(apiDocsRouter);
