@@ -1,148 +1,175 @@
 /**
- * 用户分析工具
- * 轻量级页面访问和用户行为追踪
- * 
- * 功能：
- * - 页面访问追踪
- * - 事件追踪
- * - 用户会话管理
- * - 性能指标收集
+ * 用户行为分析工具
+ * 提供前端埋点、事件追踪和数据统计
  */
-
-import logger from './logger';
 
 // ==================== 类型定义 ====================
 
-interface AnalyticsEvent {
+export interface AnalyticsEvent {
   name: string;
-  properties?: Record<string, unknown>;
-  timestamp: number;
-  sessionId: string;
+  properties?: Record<string, any>;
+  timestamp?: number;
   userId?: string;
+  sessionId?: string;
 }
 
-interface PageView {
+export interface PageView {
   path: string;
-  title: string;
-  referrer: string;
-  timestamp: number;
-  sessionId: string;
-  loadTime: number;
+  title?: string;
+  referrer?: string;
+  timestamp?: number;
+  userId?: string;
+  sessionId?: string;
 }
 
-interface SessionInfo {
-  id: string;
-  startTime: number;
-  lastActivity: number;
-  pageViews: number;
-  events: number;
+export interface UserProperties {
+  userId: string;
+  [key: string]: any;
 }
 
-// ==================== 配置 ====================
-
-const CONFIG = {
-  // 会话超时时间（30分钟）
-  sessionTimeout: 30 * 60 * 1000,
-  // 批量发送间隔（5秒）
-  batchInterval: 5000,
-  // 最大缓存事件数
-  maxCacheSize: 50,
-  // 是否启用调试模式
-  debug: import.meta.env.DEV,
-};
-
-// ==================== 分析类 ====================
+// ==================== 分析追踪器 ====================
 
 class Analytics {
   private sessionId: string;
-  private session: SessionInfo;
-  private eventQueue: AnalyticsEvent[] = [];
-  private pageViewQueue: PageView[] = [];
-  private batchTimer: ReturnType<typeof setInterval> | null = null;
-  private isInitialized = false;
+  private userId?: string;
+  private queue: AnalyticsEvent[] = [];
+  private flushInterval: number = 30000; // 30秒
+  private maxQueueSize: number = 50;
+  private endpoint: string = '/api/analytics';
+  private isInitialized: boolean = false;
 
   constructor() {
-    this.sessionId = this.getOrCreateSessionId();
-    this.session = this.getOrCreateSession();
+    this.sessionId = this.generateSessionId();
+    this.init();
   }
 
   /**
-   * 初始化分析系统
+   * 初始化分析追踪器
    */
-  init(): void {
-    if (this.isInitialized) return;
-    this.isInitialized = true;
+  private init(): void {
+    if (typeof window === 'undefined') return;
+
+    // 从localStorage恢复userId
+    this.userId = localStorage.getItem('analytics_user_id') || undefined;
+
+    // 定期发送队列中的事件
+    setInterval(() => this.flush(), this.flushInterval);
+
+    // 页面卸载前发送剩余事件
+    window.addEventListener('beforeunload', () => this.flush());
 
     // 监听页面可见性变化
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        this.updateSessionActivity();
+        this.trackEvent('page_visible');
+      } else {
+        this.trackEvent('page_hidden');
+        this.flush();
       }
     });
 
-    // 监听页面卸载
-    window.addEventListener('beforeunload', () => {
-      this.flush();
-    });
+    this.isInitialized = true;
+  }
 
-    // 启动批量发送定时器
-    this.startBatchTimer();
-
-    if (CONFIG.debug) {
-      logger.log('[Analytics] 初始化完成', { sessionId: this.sessionId });
+  /**
+   * 设置用户ID
+   */
+  setUserId(userId: string): void {
+    this.userId = userId;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('analytics_user_id', userId);
     }
   }
 
   /**
-   * 追踪页面访问
+   * 追踪页面浏览
    */
-  trackPageView(path: string, title: string): void {
+  trackPageView(path: string, title?: string): void {
     const pageView: PageView = {
       path,
-      title,
+      title: title || document.title,
       referrer: document.referrer,
       timestamp: Date.now(),
-      sessionId: this.sessionId,
-      loadTime: this.getPageLoadTime(),
+      userId: this.userId,
+      sessionId: this.sessionId
     };
 
-    this.pageViewQueue.push(pageView);
-    this.session.pageViews++;
-    this.updateSessionActivity();
+    this.trackEvent('page_view', pageView);
+  }
 
-    if (CONFIG.debug) {
-      logger.log('[Analytics] 页面访问', pageView);
-    }
+  /**
+   * 追踪自定义事件
+   */
+  trackEvent(name: string, properties: Record<string, any> = {}): void {
+    const event: AnalyticsEvent = {
+      name,
+      properties: {
+        ...properties,
+        url: typeof window !== 'undefined' ? window.location.href : undefined,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined
+      },
+      timestamp: Date.now(),
+      userId: this.userId,
+      sessionId: this.sessionId
+    };
 
-    // 如果缓存满了，立即发送
-    if (this.pageViewQueue.length >= CONFIG.maxCacheSize) {
+    this.queue.push(event);
+
+    // 如果队列满了，立即发送
+    if (this.queue.length >= this.maxQueueSize) {
       this.flush();
     }
   }
 
   /**
-   * 追踪用户事件
+   * 追踪用户交互
    */
-  trackEvent(name: string, properties?: Record<string, unknown>): void {
-    const event: AnalyticsEvent = {
-      name,
-      properties,
-      timestamp: Date.now(),
-      sessionId: this.sessionId,
-    };
+  trackInteraction(element: string, action: string, properties: Record<string, any> = {}): void {
+    this.trackEvent('interaction', {
+      element,
+      action,
+      ...properties
+    });
+  }
 
-    this.eventQueue.push(event);
-    this.session.events++;
-    this.updateSessionActivity();
+  /**
+   * 追踪搜索
+   */
+  trackSearch(query: string, results: number): void {
+    this.trackEvent('search', {
+      query,
+      results_count: results
+    });
+  }
 
-    if (CONFIG.debug) {
-      logger.log('[Analytics] 事件追踪', event);
-    }
+  /**
+   * 追踪股票查看
+   */
+  trackStockView(symbol: string, name: string): void {
+    this.trackEvent('stock_view', {
+      symbol,
+      name
+    });
+  }
 
-    // 如果缓存满了，立即发送
-    if (this.eventQueue.length >= CONFIG.maxCacheSize) {
-      this.flush();
-    }
+  /**
+   * 追踪策略使用
+   */
+  trackStrategyUse(strategyId: string, strategyName: string): void {
+    this.trackEvent('strategy_use', {
+      strategy_id: strategyId,
+      strategy_name: strategyName
+    });
+  }
+
+  /**
+   * 追踪AI对话
+   */
+  trackAIChat(action: 'start' | 'message' | 'error', properties: Record<string, any> = {}): void {
+    this.trackEvent('ai_chat', {
+      action,
+      ...properties
+    });
   }
 
   /**
@@ -152,177 +179,189 @@ class Analytics {
     this.trackEvent('performance', {
       metric,
       value,
-      unit,
+      unit
     });
   }
 
   /**
    * 追踪错误
    */
-  trackError(error: Error, context?: Record<string, unknown>): void {
+  trackError(error: Error, context?: Record<string, any>): void {
     this.trackEvent('error', {
-      message: error.message,
-      stack: error.stack,
-      ...context,
+      error_name: error.name,
+      error_message: error.message,
+      error_stack: error.stack,
+      ...context
     });
   }
 
   /**
-   * 获取会话信息
+   * 设置用户属性
    */
-  getSession(): SessionInfo {
-    return { ...this.session };
+  setUserProperties(properties: UserProperties): void {
+    this.trackEvent('user_properties', properties);
   }
 
   /**
-   * 获取队列状态
+   * 发送队列中的事件
    */
-  getQueueStatus(): { events: number; pageViews: number } {
-    return {
-      events: this.eventQueue.length,
-      pageViews: this.pageViewQueue.length,
-    };
-  }
+  private async flush(): Promise<void> {
+    if (this.queue.length === 0) return;
 
-  /**
-   * 手动刷新队列
-   */
-  flush(): void {
-    if (this.eventQueue.length === 0 && this.pageViewQueue.length === 0) {
-      return;
-    }
+    const events = [...this.queue];
+    this.queue = [];
 
-    const events = [...this.eventQueue];
-    const pageViews = [...this.pageViewQueue];
-    this.eventQueue = [];
-    this.pageViewQueue = [];
-
-    // 发送到后端（异步，不阻塞）
-    this.sendBatch(events, pageViews).catch(error => {
-      if (CONFIG.debug) {
-        logger.warn('[Analytics] 发送失败', error);
-      }
-    });
-  }
-
-  /**
-   * 销毁分析实例
-   */
-  destroy(): void {
-    this.flush();
-    if (this.batchTimer) {
-      clearInterval(this.batchTimer);
-      this.batchTimer = null;
-    }
-    this.isInitialized = false;
-  }
-
-  // ==================== 私有方法 ====================
-
-  private getOrCreateSessionId(): string {
-    const key = 'analytics_session_id';
-    let sessionId = sessionStorage.getItem(key);
-    
-    if (!sessionId) {
-      sessionId = this.generateId();
-      sessionStorage.setItem(key, sessionId);
-    }
-
-    return sessionId;
-  }
-
-  private getOrCreateSession(): SessionInfo {
-    const key = 'analytics_session';
-    const stored = sessionStorage.getItem(key);
-    
-    if (stored) {
-      try {
-        const session = JSON.parse(stored) as SessionInfo;
-        // 检查会话是否超时
-        if (Date.now() - session.lastActivity < CONFIG.sessionTimeout) {
-          return session;
-        }
-      } catch {
-        // 解析失败，创建新会话
-      }
-    }
-
-    const session: SessionInfo = {
-      id: this.sessionId,
-      startTime: Date.now(),
-      lastActivity: Date.now(),
-      pageViews: 0,
-      events: 0,
-    };
-
-    sessionStorage.setItem(key, JSON.stringify(session));
-    return session;
-  }
-
-  private updateSessionActivity(): void {
-    this.session.lastActivity = Date.now();
-    sessionStorage.setItem('analytics_session', JSON.stringify(this.session));
-  }
-
-  private getPageLoadTime(): number {
-    if (window.performance) {
-      const timing = window.performance.timing;
-      return timing.loadEventEnd - timing.navigationStart;
-    }
-    return 0;
-  }
-
-  private generateId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  private startBatchTimer(): void {
-    this.batchTimer = setInterval(() => {
-      this.flush();
-    }, CONFIG.batchInterval);
-  }
-
-  private async sendBatch(events: AnalyticsEvent[], pageViews: PageView[]): Promise<void> {
     try {
-      const response = await fetch('/api/analytics/batch', {
+      await fetch(this.endpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           events,
-          pageViews,
-          session: this.session,
-          timestamp: Date.now(),
+          sessionId: this.sessionId,
+          userId: this.userId
         }),
+        keepalive: true
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      if (CONFIG.debug) {
-        logger.log('[Analytics] 批量发送成功', {
-          events: events.length,
-          pageViews: pageViews.length,
-        });
-      }
     } catch (error) {
-      // 静默失败，不影响用户体验
-      if (CONFIG.debug) {
-        logger.warn('[Analytics] 发送失败', error);
-      }
+      // 发送失败，将事件放回队列
+      console.warn('Analytics flush failed:', error);
+      this.queue = [...events, ...this.queue];
     }
+  }
+
+  /**
+   * 生成会话ID
+   */
+  private generateSessionId(): string {
+    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 }
 
-// ==================== 导出 ====================
-
+// 单例导出
 export const analytics = new Analytics();
 
-// 自动初始化
-if (typeof window !== 'undefined') {
-  analytics.init();
+// ==================== React Hooks ====================
+
+import { useEffect, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+
+/**
+ * 页面浏览追踪Hook
+ */
+export function usePageTracking(): void {
+  const location = useLocation();
+
+  useEffect(() => {
+    analytics.trackPageView(location.pathname);
+  }, [location.pathname]);
 }
 
-export default analytics;
+/**
+ * 事件追踪Hook
+ */
+export function useEventTracking() {
+  const trackEvent = useCallback((name: string, properties?: Record<string, any>) => {
+    analytics.trackEvent(name, properties);
+  }, []);
+
+  const trackClick = useCallback((element: string, properties?: Record<string, any>) => {
+    analytics.trackInteraction(element, 'click', properties);
+  }, []);
+
+  const trackSearch = useCallback((query: string, results: number) => {
+    analytics.trackSearch(query, results);
+  }, []);
+
+  return { trackEvent, trackClick, trackSearch };
+}
+
+/**
+ * 性能追踪Hook
+ */
+export function usePerformanceTracking(componentName: string) {
+  const renderStart = useRef<number>(Date.now());
+  const renderCount = useRef<number>(0);
+
+  useEffect(() => {
+    renderCount.current++;
+    
+    // 追踪首次渲染时间
+    if (renderCount.current === 1) {
+      const renderTime = Date.now() - renderStart.current;
+      analytics.trackPerformance(`${componentName}_first_render`, renderTime);
+    }
+  });
+
+  useEffect(() => {
+    renderStart.current = Date.now();
+  });
+}
+
+// ==================== 分析数据 API ====================
+
+export interface AnalyticsSummary {
+  totalEvents: number;
+  uniqueUsers: number;
+  topEvents: Array<{ name: string; count: number }>;
+  pageViews: number;
+  avgSessionDuration: number;
+}
+
+/**
+ * 获取分析摘要（后端使用）
+ */
+export function getAnalyticsSummary(events: AnalyticsEvent[]): AnalyticsSummary {
+  const uniqueUsers = new Set(events.map(e => e.userId).filter(Boolean)).size;
+  const topEvents = getTopEvents(events, 10);
+  const pageViews = events.filter(e => e.name === 'page_view').length;
+  const avgSessionDuration = calculateAvgSessionDuration(events);
+
+  return {
+    totalEvents: events.length,
+    uniqueUsers,
+    topEvents,
+    pageViews,
+    avgSessionDuration
+  };
+}
+
+function getTopEvents(events: AnalyticsEvent[], limit: number): Array<{ name: string; count: number }> {
+  const counts: Record<string, number> = {};
+  
+  for (const event of events) {
+    counts[event.name] = (counts[event.name] || 0) + 1;
+  }
+
+  return Object.entries(counts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
+function calculateAvgSessionDuration(events: AnalyticsEvent[]): number {
+  // 按会话分组
+  const sessions: Record<string, number[]> = {};
+  
+  for (const event of events) {
+    if (event.sessionId && event.timestamp) {
+      if (!sessions[event.sessionId]) {
+        sessions[event.sessionId] = [];
+      }
+      sessions[event.sessionId].push(event.timestamp);
+    }
+  }
+
+  // 计算每个会话的持续时间
+  const durations = Object.values(sessions)
+    .map(timestamps => {
+      if (timestamps.length < 2) return 0;
+      const sorted = timestamps.sort((a, b) => a - b);
+      return sorted[sorted.length - 1] - sorted[0];
+    })
+    .filter(d => d > 0);
+
+  if (durations.length === 0) return 0;
+  return durations.reduce((a, b) => a + b, 0) / durations.length;
+}

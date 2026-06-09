@@ -1,170 +1,232 @@
 /**
  * Prometheus 指标中间件
- * 收集 HTTP 请求指标：请求数、延迟、状态码分布
+ * 收集HTTP请求指标供Prometheus抓取
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('Metrics');
+
+// ==================== 指标收集器 ====================
 
 interface MetricEntry {
-  method: string;
-  path: string;
-  statusCode: number;
-  duration: number;
+  value: number;
+  labels: Record<string, string>;
   timestamp: number;
 }
 
 class MetricsCollector {
-  private requests: MetricEntry[] = [];
-  private maxEntries = 10000;
+  private counters = new Map<string, number>();
+  private gauges = new Map<string, number>();
+  private histograms = new Map<string, number[]>();
+  private labels = new Map<string, Record<string, string>>();
 
-  record(entry: MetricEntry): void {
-    this.requests.push(entry);
-    if (this.requests.length > this.maxEntries) {
-      this.requests = this.requests.slice(-this.maxEntries / 2);
-    }
+  // 计数器递增
+  incCounter(name: string, labels: Record<string, string> = {}, value: number = 1): void {
+    const key = this.getKey(name, labels);
+    this.counters.set(key, (this.counters.get(key) || 0) + value);
+    this.labels.set(key, labels);
   }
 
-  /**
-   * 生成 Prometheus 格式的指标
-   */
-  toPrometheusFormat(): string {
-    const lines: string[] = [];
-
-    // HTTP 请求总数
-    lines.push('# HELP http_requests_total Total HTTP requests');
-    lines.push('# TYPE http_requests_total counter');
-
-    const requestCounts = new Map<string, number>();
-    for (const r of this.requests) {
-      const key = `${r.method}|${r.statusCode}`;
-      requestCounts.set(key, (requestCounts.get(key) || 0) + 1);
-    }
-    for (const [key, count] of requestCounts) {
-      const [method, status] = key.split('|');
-      lines.push(`http_requests_total{method="${method}",status="${status}"} ${count}`);
-    }
-
-    // 活跃请求数
-    lines.push('');
-    lines.push('# HELP http_request_duration_ms Request duration in ms');
-    lines.push('# TYPE http_request_duration_ms summary');
-
-    const durations = new Map<string, number[]>();
-    for (const r of this.requests.slice(-1000)) {
-      const key = `${r.method}|${r.path}`;
-      if (!durations.has(key)) durations.set(key, []);
-      durations.get(key)!.push(r.duration);
-    }
-    for (const [key, vals] of durations) {
-      const [method, path] = key.split('|');
-      const sorted = vals.sort((a, b) => a - b);
-      const p50 = sorted[Math.floor(sorted.length * 0.5)] || 0;
-      const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0;
-      const p99 = sorted[Math.floor(sorted.length * 0.99)] || 0;
-      const sum = vals.reduce((a, b) => a + b, 0);
-      lines.push(
-        `http_request_duration_ms{method="${method}",path="${path}",quantile="0.5"} ${p50}`
-      );
-      lines.push(
-        `http_request_duration_ms{method="${method}",path="${path}",quantile="0.95"} ${p95}`
-      );
-      lines.push(
-        `http_request_duration_ms{method="${method}",path="${path}",quantile="0.99"} ${p99}`
-      );
-      lines.push(
-        `http_request_duration_ms_sum{method="${method}",path="${path}"} ${sum}`
-      );
-      lines.push(
-        `http_request_duration_ms_count{method="${method}",path="${path}"} ${vals.length}`
-      );
-    }
-
-    // Node.js 进程指标
-    const mem = process.memoryUsage();
-    lines.push('');
-    lines.push('# HELP process_memory_bytes Process memory usage');
-    lines.push('# TYPE process_memory_bytes gauge');
-    lines.push(`process_memory_bytes{type="rss"} ${mem.rss}`);
-    lines.push(`process_memory_bytes{type="heapTotal"} ${mem.heapTotal}`);
-    lines.push(`process_memory_bytes{type="heapUsed"} ${mem.heapUsed}`);
-    lines.push(`process_memory_bytes{type="external"} ${mem.external}`);
-
-    lines.push('');
-    lines.push('# HELP process_uptime_seconds Process uptime');
-    lines.push('# TYPE process_uptime_seconds gauge');
-    lines.push(`process_uptime_seconds ${Math.round(process.uptime())}`);
-
-    return lines.join('\n') + '\n';
+  // 设置仪表盘值
+  setGauge(name: string, value: number, labels: Record<string, string> = {}): void {
+    const key = this.getKey(name, labels);
+    this.gauges.set(key, value);
+    this.labels.set(key, labels);
   }
 
-  /**
-   * 获取 JSON 格式的摘要
-   */
-  getSummary(): Record<string, unknown> {
-    const recent = this.requests.slice(-1000);
-    const durations = recent.map((r) => r.duration).sort((a, b) => a - b);
-    const statusCounts: Record<string, number> = {};
+  // 记录直方图值
+  observeHistogram(name: string, value: number, labels: Record<string, string> = {}): void {
+    const key = this.getKey(name, labels);
+    const values = this.histograms.get(key) || [];
+    values.push(value);
+    this.histograms.set(key, values);
+    this.labels.set(key, labels);
+  }
 
-    for (const r of this.requests) {
-      const bucket = `${Math.floor(r.statusCode / 100)}xx`;
-      statusCounts[bucket] = (statusCounts[bucket] || 0) + 1;
+  // 记录请求（兼容旧API）
+  record(entry: { method: string; path: string; statusCode: number; duration: number; timestamp: number }): void {
+    this.incCounter('http_requests_total', { method: entry.method, path: entry.path, status: entry.statusCode.toString() });
+    this.observeHistogram('http_request_duration_seconds', entry.duration / 1000, { method: entry.method, path: entry.path });
+  }
+
+  // 获取摘要（兼容旧API）
+  getSummary(): { totalRequests: number; avgDuration: number } {
+    let totalRequests = 0;
+    let totalDuration = 0;
+    
+    for (const [key, value] of this.counters.entries()) {
+      if (key.startsWith('http_requests_total')) {
+        totalRequests += value;
+      }
     }
-
+    
+    for (const [, values] of this.histograms.entries()) {
+      totalDuration += values.reduce((a, b) => a + b, 0);
+    }
+    
     return {
-      totalRequests: this.requests.length,
-      recentRequests: recent.length,
-      latency: {
-        p50: durations[Math.floor(durations.length * 0.5)] || 0,
-        p95: durations[Math.floor(durations.length * 0.95)] || 0,
-        p99: durations[Math.floor(durations.length * 0.99)] || 0,
-        avg: durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0,
-      },
-      statusCodes: statusCounts,
-      memory: {
-        rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
-        heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      },
-      uptime: Math.round(process.uptime()),
+      totalRequests,
+      avgDuration: totalRequests > 0 ? totalDuration / totalRequests : 0
     };
   }
 
+  // 重置（兼容旧API）
   reset(): void {
-    this.requests = [];
+    this.counters.clear();
+    this.gauges.clear();
+    this.histograms.clear();
+    this.labels.clear();
+  }
+
+  // 导出Prometheus格式（兼容旧API）
+  toPrometheusFormat(): string {
+    return this.export();
+  }
+
+  // 导出Prometheus格式
+  export(): string {
+    const lines: string[] = [];
+
+    // 导出计数器
+    for (const [key, value] of this.counters.entries()) {
+      const { name, labels } = this.parseKey(key);
+      lines.push(`# TYPE ${name} counter`);
+      lines.push(`${name}${this.formatLabels(labels)} ${value}`);
+    }
+
+    // 导出仪表盘
+    for (const [key, value] of this.gauges.entries()) {
+      const { name, labels } = this.parseKey(key);
+      lines.push(`# TYPE ${name} gauge`);
+      lines.push(`${name}${this.formatLabels(labels)} ${value}`);
+    }
+
+    // 导出直方图
+    for (const [key, values] of this.histograms.entries()) {
+      const { name, labels } = this.parseKey(key);
+      lines.push(`# TYPE ${name} histogram`);
+      
+      const sorted = values.sort((a, b) => a - b);
+      const buckets = [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10];
+      
+      for (const bucket of buckets) {
+        const count = sorted.filter(v => v <= bucket).length;
+        lines.push(`${name}_bucket{le="${bucket}",...${this.formatLabels(labels).slice(1)} ${count}`);
+      }
+      
+      lines.push(`${name}_sum${this.formatLabels(labels)} ${values.reduce((a, b) => a + b, 0)}`);
+      lines.push(`${name}_count${this.formatLabels(labels)} ${values.length}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  private getKey(name: string, labels: Record<string, string>): string {
+    const labelStr = Object.entries(labels)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}="${v}"`)
+      .join(',');
+    return `${name}{${labelStr}}`;
+  }
+
+  private parseKey(key: string): { name: string; labels: Record<string, string> } {
+    const match = key.match(/^([^{]+)\{(.*)\}$/);
+    if (!match) return { name: key, labels: {} };
+    
+    const name = match[1];
+    const labels: Record<string, string> = {};
+    
+    match[2].split(',').forEach(pair => {
+      const [k, v] = pair.split('=');
+      if (k && v) {
+        labels[k] = v.replace(/"/g, '');
+      }
+    });
+    
+    return { name, labels };
+  }
+
+  private formatLabels(labels: Record<string, string>): string {
+    const entries = Object.entries(labels);
+    if (entries.length === 0) return '';
+    return `{${entries.map(([k, v]) => `${k}="${v}"`).join(',')}}`;
   }
 }
 
-export const metricsCollector = new MetricsCollector();
+export const metrics = new MetricsCollector();
+export const metricsCollector = metrics;
 
-/**
- * Express 中间件：记录请求指标
- */
-export function metricsMiddleware() {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const start = Date.now();
+// ==================== HTTP 请求指标中间件 ====================
 
-    res.on('finish', () => {
-      // 跳过健康检查和指标端点
-      if (req.path === '/metrics' || req.path.startsWith('/health')) return;
+export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const start = Date.now();
+  const path = req.path;
 
-      metricsCollector.record({
-        method: req.method,
-        path: req.route?.path || req.path,
-        statusCode: res.statusCode,
-        duration: Date.now() - start,
-        timestamp: start,
-      });
+  // 监听响应完成事件
+  res.on('finish', () => {
+    const duration = (Date.now() - start) / 1000;
+    const statusCode = res.statusCode;
+    const method = req.method;
+
+    // 记录请求计数
+    metrics.incCounter('http_requests_total', {
+      method,
+      path,
+      status: statusCode.toString()
     });
 
-    next();
-  };
+    // 记录请求持续时间
+    metrics.observeHistogram('http_request_duration_seconds', duration, {
+      method,
+      path
+    });
+
+    // 记录活跃请求数
+    metrics.setGauge('http_requests_active', 1, { method });
+  });
+
+  next();
 }
 
-/**
- * Prometheus 指标端点
- */
-export function metricsEndpoint() {
-  return (_req: Request, res: Response): void => {
-    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    res.send(metricsCollector.toPrometheusFormat());
-  };
+// ==================== 系统指标收集 ====================
+
+export function collectSystemMetrics(): void {
+  const memUsage = process.memoryUsage();
+  
+  metrics.setGauge('nodejs_heap_used_bytes', memUsage.heapUsed);
+  metrics.setGauge('nodejs_heap_total_bytes', memUsage.heapTotal);
+  metrics.setGauge('nodejs_external_bytes', memUsage.external);
+  metrics.setGauge('nodejs_rss_bytes', memUsage.rss);
+  
+  metrics.setGauge('nodejs_uptime_seconds', process.uptime());
+}
+
+// 定期收集系统指标
+setInterval(collectSystemMetrics, 10000);
+
+// ==================== 指标端点 ====================
+
+export function metricsEndpoint(_req: Request, res: Response): void {
+  collectSystemMetrics();
+  
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.send(metrics.export());
+}
+
+// ==================== 业务指标 ====================
+
+export function recordDatabaseQuery(duration: number, success: boolean): void {
+  metrics.observeHistogram('db_query_duration_seconds', duration);
+  metrics.incCounter('db_queries_total', { success: success.toString() });
+}
+
+export function recordCacheHit(hit: boolean): void {
+  metrics.incCounter('cache_operations_total', { type: hit ? 'hit' : 'miss' });
+}
+
+export function recordAICall(provider: string, duration: number, success: boolean): void {
+  metrics.observeHistogram('ai_call_duration_seconds', duration, { provider });
+  metrics.incCounter('ai_calls_total', { provider, success: success.toString() });
 }

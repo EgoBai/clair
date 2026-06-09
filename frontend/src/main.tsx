@@ -32,7 +32,7 @@ import { useAppStore } from './store/useAppStore';
 import { initWebVitals } from './utils/webVitals';
 import LazyPage from './components/Common/LazyPage';
 import I18nProvider from './i18n';
-import analytics from './utils/analytics';
+import { analytics } from './utils/analytics';
 import './App.css';
 
 // 初始化 Web Vitals 监控

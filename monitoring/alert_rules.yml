@@ -1,105 +1,73 @@
+# Prometheus 告警规则
 groups:
-  # 服务可用性告警
-  - name: astock_availability
+  - name: clair_alerts
     rules:
+      # 服务可用性
       - alert: ServiceDown
         expr: up == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: '服务 {{ $labels.job }} 已宕机'
-          description: '{{ $labels.instance }} 已超过1分钟无法访问'
+          summary: "服务 {{ $labels.job }} 已停止"
+          description: "{{ $labels.instance }} 的 {{ $labels.job }} 服务已停止超过1分钟"
 
-      - alert: HighErrorRate
+      # API 响应时间
+      - alert: HighAPIResponseTime
+        expr: http_request_duration_seconds{quantile="0.95"} > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API响应时间过长"
+          description: "P95响应时间超过2秒，当前值: {{ $value }}s"
+
+      # API 错误率
+      - alert: HighAPIErrorRate
         expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: '服务错误率过高 (>5%)'
-          description: '{{ $labels.job }} 的5xx错误率为 {{ $value | humanizePercentage }}'
+          summary: "API错误率过高"
+          description: "5xx错误率超过5%，当前值: {{ $value | humanizePercentage }}"
 
-  # 性能告警
-  - name: astock_performance
-    rules:
-      - alert: HighLatency
-        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 2
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: 'P99响应时间超过2秒'
-          description: '{{ $labels.job }} P99延迟为 {{ $value }}s'
-
-      - alert: HighCPU
-        expr: rate(process_cpu_seconds_total[5m]) > 0.8
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: 'CPU使用率过高 (>80%)'
-          description: '{{ $labels.job }} CPU使用率为 {{ $value | humanizePercentage }}'
-
-      - alert: HighMemory
-        expr: process_resident_memory_bytes / (1024 * 1024 * 1024) > 2
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: '内存使用超过2GB'
-          description: '{{ $labels.job }} 内存使用 {{ $value | humanize }}GB'
-
-  # 数据库告警
-  - name: astock_database
-    rules:
-      - alert: DatabaseConnectionsHigh
+      # 数据库连接
+      - alert: DatabaseConnectionHigh
         expr: pg_stat_activity_count > 80
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: '数据库连接数过高'
-          description: 'PostgreSQL 活跃连接数: {{ $value }}'
+          summary: "数据库连接数过高"
+          description: "PostgreSQL连接数超过80，当前值: {{ $value }}"
 
-      - alert: DatabaseSlowQueries
-        expr: rate(pg_stat_activity_max_tx_duration[5m]) > 30
+      # 磁盘空间
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100 < 20
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: '数据库慢查询增多'
-          description: '检测到持续30秒以上的事务'
+          summary: "磁盘空间不足"
+          description: "根分区剩余空间低于20%，当前值: {{ $value | humanizePercentage }}"
 
-  # Redis 告警
-  - name: astock_redis
-    rules:
-      - alert: RedisMemoryHigh
-        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+      # 内存使用
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: 'Redis内存使用超过80%'
-          description: 'Redis已使用 {{ $value | humanizePercentage }} 内存'
+          summary: "内存使用率过高"
+          description: "内存使用率超过90%，当前值: {{ $value | humanizePercentage }}"
 
-      - alert: RedisDown
-        expr: up{job="redis"} == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: 'Redis服务宕机'
-          description: 'Redis Exporter 无法连接'
-
-  # WebSocket 告警
-  - name: astock_websocket
-    rules:
-      - alert: WebSocketConnectionsHigh
-        expr: websocket_connections_active > 1000
-        for: 5m
+      # CPU 使用
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
         labels:
           severity: warning
         annotations:
-          summary: 'WebSocket连接数过高'
-          description: '当前活跃连接: {{ $value }}'
+          summary: "CPU使用率过高"
+          description: "CPU使用率超过80%持续10分钟，当前值: {{ $value | humanizePercentage }}"
