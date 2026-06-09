@@ -7,6 +7,7 @@ import { Knex } from 'knex';
 import axios from 'axios';
 import * as iconv from 'iconv-lite';
 import { db } from '../db/dbFactory';
+import { getInMemoryDb } from '../db/InMemoryDatabase';
 
 export interface SyncResult {
   success: boolean;
@@ -492,6 +493,19 @@ export class DataSyncService {
    * 获取默认股票列表
    */
   private getDefaultSymbols(): string[] {
+    // 尝试从数据库获取所有活跃股票
+    try {
+      const memDb = getInMemoryDb();
+      const stocks = (memDb as any).stocks;
+      if (stocks && stocks.length > 100) {
+        return stocks
+          .filter((s: any) => s.isActive !== false)
+          .map((s: any) => this.toTencentSymbol(s.symbol));
+      }
+    } catch (error) {
+      console.warn('[DataSync] 无法从数据库获取股票列表，使用默认列表');
+    }
+
     return [
       // 三大指数
       'sh000001', 'sh000300', 'sh000905', 'sz399001', 'sz399006',
