@@ -1,6 +1,6 @@
 # Clair (AStock) 研发计划
 
-> 更新于 2026-06-09 | 状态：Phase 12 完成 — 部署与监控 | 全部Phase完成 ✅
+> 更新于 2026-06-10 | 状态：Phase 13 — AI融合深化 + 数据层修复
 
 ## 核心原则
 
@@ -85,6 +85,22 @@
 - [x] 性能监控 — webVitals.ts (FCP/LCP/CLS/FID/TTFB/INP)
 - [x] 错误追踪 — UnifiedErrorBoundary + 自动重试
 - [x] 用户分析 — analytics.ts + /api/analytics 端点
+
+## Phase 13: AI融合深化 🔄 进行中
+
+### 已完成
+- [x] FloatingChat上下文感知 — 根据页面(发掘/筛选/个股/自选/复盘)动态调整AI上下文和快捷指令
+- [x] ChatPanel系统提示注入 — 页面上下文自动传入AI对话，实现"AI陪伴"而非"AI工具"
+- [x] multi-signal端点优化 — 默认模板叙事(毫秒级)，LLM叙事可选+15s超时保护
+- [x] normalizeSymbol修复 — 纯6位代码自动推断交易所(6→SH, 0/3→SZ, 8/4→BJ)
+- [x] stock API symbol修复 — /api/stocks/000001 自动解析为 000001.SZ
+- [x] 板块表现NaN修复 — PostgreSQL numeric类型parseFloat处理
+
+### 待完成
+- [ ] ReviewPage复盘数据真实性验证
+- [ ] WebSocket实时行情推送
+- [ ] 全链路端到端测试(发掘→筛选→自选→复盘)
+- [ ] 生产环境部署验证
 
 ## 相关文件
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table,
   Card,
@@ -9,6 +9,8 @@ import {
   Col,
   Typography,
   Space,
+  Spin,
+  Empty,
   message,
 } from 'antd';
 import {
@@ -20,6 +22,7 @@ import {
   LineChartOutlined,
   CalendarOutlined,
   ThunderboltOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
@@ -43,212 +46,104 @@ const THEME = {
 /* ------------------------------------------------------------------ */
 /*  TypeScript interfaces                                              */
 /* ------------------------------------------------------------------ */
-interface TradeRecord {
+interface StockRecord {
   key: string;
-  date: string;
   symbol: string;
   name: string;
-  direction: 'buy' | 'sell';
-  buyPrice: number;
-  sellPrice: number | null;
-  returnPct: number | null;
-  strategy: string;
-  status: 'holding' | 'closed';
+  price: number;
+  changePct: number;
+  changeAmt: number;
+  volume: number;
+  industry: string;
 }
 
-interface StrategyPerformance {
-  strategyName: string;
-  strategyReturn: number;
-  buyHoldReturn: number;
+interface WatchlistGroup {
+  name: string;
+  stocks: { symbol: string; name?: string }[];
+}
+
+interface WatchlistData {
+  groups: WatchlistGroup[];
+}
+
+interface StatsResult {
+  totalStocks: number;
+  avgChangePct: number;
+  bestPerformer: { symbol: string; name: string; changePct: number } | null;
+  worstPerformer: { symbol: string; name: string; changePct: number } | null;
+  upCount: number;
+  downCount: number;
+  flatCount: number;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Mock data – 13 records covering wins, losses, holds, strategies    */
+/*  Helper: read watchlist from localStorage                           */
 /* ------------------------------------------------------------------ */
-const MOCK_TRADES: TradeRecord[] = [
-  {
-    key: '1',
-    date: '2026-05-20',
-    symbol: '600519.SH',
-    name: '贵州茅台',
-    direction: 'buy',
-    buyPrice: 1680.00,
-    sellPrice: null,
-    returnPct: null,
-    strategy: 'MA金叉',
-    status: 'holding',
-  },
-  {
-    key: '2',
-    date: '2026-05-18',
-    symbol: '000858.SZ',
-    name: '五粮液',
-    direction: 'buy',
-    buyPrice: 152.30,
-    sellPrice: 161.80,
-    returnPct: 6.24,
-    strategy: 'MACD底背离',
-    status: 'closed',
-  },
-  {
-    key: '3',
-    date: '2026-05-16',
-    symbol: '300750.SZ',
-    name: '宁德时代',
-    direction: 'buy',
-    buyPrice: 218.50,
-    sellPrice: 205.20,
-    returnPct: -6.09,
-    strategy: 'RSI超卖反弹',
-    status: 'closed',
-  },
-  {
-    key: '4',
-    date: '2026-05-14',
-    symbol: '002594.SZ',
-    name: '比亚迪',
-    direction: 'buy',
-    buyPrice: 285.00,
-    sellPrice: 312.40,
-    returnPct: 9.61,
-    strategy: '趋势突破',
-    status: 'closed',
-  },
-  {
-    key: '5',
-    date: '2026-05-12',
-    symbol: '600036.SH',
-    name: '招商银行',
-    direction: 'buy',
-    buyPrice: 38.60,
-    sellPrice: 40.25,
-    returnPct: 4.27,
-    strategy: '布林带收窄',
-    status: 'closed',
-  },
-  {
-    key: '6',
-    date: '2026-05-10',
-    symbol: '601899.SH',
-    name: '紫金矿业',
-    direction: 'buy',
-    buyPrice: 18.92,
-    sellPrice: 17.35,
-    returnPct: -8.30,
-    strategy: 'KDJ金叉',
-    status: 'closed',
-  },
-  {
-    key: '7',
-    date: '2026-05-08',
-    symbol: '000001.SZ',
-    name: '平安银行',
-    direction: 'buy',
-    buyPrice: 13.80,
-    sellPrice: 14.55,
-    returnPct: 5.43,
-    strategy: 'MA金叉',
-    status: 'closed',
-  },
-  {
-    key: '8',
-    date: '2026-05-06',
-    symbol: '002475.SZ',
-    name: '立讯精密',
-    direction: 'buy',
-    buyPrice: 35.20,
-    sellPrice: null,
-    returnPct: null,
-    strategy: '放量突破',
-    status: 'holding',
-  },
-  {
-    key: '9',
-    date: '2026-04-30',
-    symbol: '600900.SH',
-    name: '长江电力',
-    direction: 'buy',
-    buyPrice: 27.45,
-    sellPrice: 28.90,
-    returnPct: 5.28,
-    strategy: '股息策略',
-    status: 'closed',
-  },
-  {
-    key: '10',
-    date: '2026-04-28',
-    symbol: '300059.SZ',
-    name: '东方财富',
-    direction: 'buy',
-    buyPrice: 16.80,
-    sellPrice: 14.95,
-    returnPct: -11.01,
-    strategy: 'MACD底背离',
-    status: 'closed',
-  },
-  {
-    key: '11',
-    date: '2026-04-25',
-    symbol: '601318.SH',
-    name: '中国平安',
-    direction: 'buy',
-    buyPrice: 52.10,
-    sellPrice: 55.30,
-    returnPct: 6.14,
-    strategy: 'KDJ金叉',
-    status: 'closed',
-  },
-  {
-    key: '12',
-    date: '2026-04-22',
-    symbol: '002714.SZ',
-    name: '牧原股份',
-    direction: 'buy',
-    buyPrice: 42.80,
-    sellPrice: 39.50,
-    returnPct: -7.71,
-    strategy: '布林带收窄',
-    status: 'closed',
-  },
-  {
-    key: '13',
-    date: '2026-04-20',
-    symbol: '600585.SH',
-    name: '海螺水泥',
-    direction: 'buy',
-    buyPrice: 26.30,
-    sellPrice: 27.85,
-    returnPct: 5.90,
-    strategy: 'RSI超卖反弹',
-    status: 'closed',
-  },
-];
+const readWatchlistSymbols = (): { symbol: string }[] => {
+  try {
+    const raw = localStorage.getItem('astock_watchlist_v2');
+    if (!raw) return [];
+    const data: WatchlistData = JSON.parse(raw);
+    if (!data.groups || !Array.isArray(data.groups)) return [];
+    const symbols: { symbol: string }[] = [];
+    for (const group of data.groups) {
+      if (Array.isArray(group.stocks)) {
+        for (const stock of group.stocks) {
+          if (stock.symbol) symbols.push({ symbol: stock.symbol });
+        }
+      }
+    }
+    return symbols;
+  } catch {
+    return [];
+  }
+};
 
 /* ------------------------------------------------------------------ */
 /*  Derived stats                                                      */
 /* ------------------------------------------------------------------ */
-const computeStats = (trades: TradeRecord[]) => {
-  const closedTrades = trades.filter((t) => t.status === 'closed');
-  const totalTrades = trades.length;
-  const wins = closedTrades.filter((t) => (t.returnPct ?? 0) > 0).length;
-  const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
-  const totalReturn = closedTrades.reduce((acc, t) => acc + (t.returnPct ?? 0), 0);
-  const avgReturn = closedTrades.length > 0 ? totalReturn / closedTrades.length : 0;
-  const maxDrawdown = Math.min(...closedTrades.map((t) => t.returnPct ?? 0));
+const computeStats = (stocks: StockRecord[]): StatsResult => {
+  if (stocks.length === 0) {
+    return {
+      totalStocks: 0,
+      avgChangePct: 0,
+      bestPerformer: null,
+      worstPerformer: null,
+      upCount: 0,
+      downCount: 0,
+      flatCount: 0,
+    };
+  }
 
-  return { totalTrades, wins, winRate, avgReturn, totalReturn, maxDrawdown };
+  const totalChangePct = stocks.reduce((acc, s) => acc + s.changePct, 0);
+  const avgChangePct = totalChangePct / stocks.length;
+
+  const sorted = [...stocks].sort((a, b) => b.changePct - a.changePct);
+  const bestPerformer = {
+    symbol: sorted[0].symbol,
+    name: sorted[0].name,
+    changePct: sorted[0].changePct,
+  };
+  const worstPerformer = {
+    symbol: sorted[sorted.length - 1].symbol,
+    name: sorted[sorted.length - 1].name,
+    changePct: sorted[sorted.length - 1].changePct,
+  };
+
+  const upCount = stocks.filter((s) => s.changePct > 0).length;
+  const downCount = stocks.filter((s) => s.changePct < 0).length;
+  const flatCount = stocks.filter((s) => s.changePct === 0).length;
+
+  return {
+    totalStocks: stocks.length,
+    avgChangePct,
+    bestPerformer,
+    worstPerformer,
+    upCount,
+    downCount,
+    flatCount,
+  };
 };
-
-const STRATEGY_PERFORMANCE: StrategyPerformance[] = [
-  { strategyName: 'MA金叉', strategyReturn: 12.5, buyHoldReturn: 5.2 },
-  { strategyName: 'MACD底背离', strategyReturn: -4.8, buyHoldReturn: 5.2 },
-  { strategyName: '趋势突破', strategyReturn: 18.3, buyHoldReturn: 5.2 },
-  { strategyName: '布林带收窄', strategyReturn: -2.4, buyHoldReturn: 5.2 },
-  { strategyName: 'RSI超卖反弹', strategyReturn: 1.6, buyHoldReturn: 5.2 },
-  { strategyName: 'KDJ金叉', strategyReturn: -2.2, buyHoldReturn: 5.2 },
-  { strategyName: '放量突破', strategyReturn: 8.9, buyHoldReturn: 5.2 },
-  { strategyName: '股息策略', strategyReturn: 5.3, buyHoldReturn: 5.2 },
-];
 
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
@@ -266,41 +161,6 @@ const SectionTitle: React.FC<{ children: React.ReactNode; icon?: React.ReactNode
   </div>
 );
 
-const StrategyBar: React.FC<{ label: string; value: number; color: string }> = ({
-  label,
-  value,
-  color,
-}) => {
-  const maxWidth = 300;
-  const maxAbs = 25;
-  const width = Math.min(Math.abs(value) / maxAbs, 1) * maxWidth;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-      <div style={{ width: 100, textAlign: 'right', color: THEME.textSecondary, fontSize: 13 }}>
-        {label}
-      </div>
-      <div
-        style={{
-          height: 22,
-          width,
-          borderRadius: 4,
-          background: color,
-          transition: 'width 0.3s ease',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          paddingRight: 8,
-        }}
-      >
-        <span style={{ color: '#fff', fontSize: 11, fontWeight: 600 }}>
-          {value > 0 ? '+' : ''}
-          {value.toFixed(1)}%
-        </span>
-      </div>
-    </div>
-  );
-};
-
 /* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
@@ -311,9 +171,80 @@ const ReviewPage: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
 
-  const stats = computeStats(MOCK_TRADES);
+  // Real data state
+  const [stocks, setStocks] = useState<StockRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hasWatchlist, setHasWatchlist] = useState<boolean | null>(null); // null = not checked yet
 
-  /* --- AI Trade Analysis ---------------------------------------------- */
+  const stats = computeStats(stocks);
+
+  /* --- Load watchlist and fetch real quotes ------------------------- */
+  const loadStockData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const watchlistSymbols = readWatchlistSymbols();
+
+      if (watchlistSymbols.length === 0) {
+        setHasWatchlist(false);
+        setStocks([]);
+        setLoading(false);
+        return;
+      }
+
+      setHasWatchlist(true);
+      const symbolList = watchlistSymbols.map((s) => s.symbol);
+
+      const resp = await fetch('/api/stocks/batch/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: symbolList }),
+      });
+
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+
+      // Normalize the response into StockRecord[]
+      const records: StockRecord[] = (data.quotes || data.stocks || data || [])
+        .filter((q: Record<string, unknown>) => q && (q.symbol || q.code))
+        .map((q: Record<string, unknown>, idx: number) => {
+          const symbol = (q.symbol || q.code || '') as string;
+          const name = (q.name || q.stockName || symbol) as string;
+          const price = Number(q.price || q.currentPrice || q.latestPrice || q.close || 0);
+          const changePct = Number(q.changePct || q.pctChange || q.changePercent || q.changeRate || 0);
+          const changeAmt = Number(q.changeAmt || q.change || q.changeAmount || 0);
+          const volume = Number(q.volume || q.totalVolume || 0);
+          const industry = (q.industry || q.sector || '-') as string;
+
+          return {
+            key: String(idx),
+            symbol,
+            name,
+            price,
+            changePct,
+            changeAmt,
+            volume,
+            industry,
+          };
+        });
+
+      setStocks(records);
+    } catch (err) {
+      console.error('Failed to load stock data:', err);
+      message.error('加载自选股数据失败，请稍后重试');
+      setStocks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStockData();
+  }, [loadStockData]);
+
+  /* --- AI Analysis ------------------------------------------------- */
   const handleAiAnalysis = async () => {
     setAiAnalysisLoading(true);
     try {
@@ -321,14 +252,16 @@ const ReviewPage: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          trades: MOCK_TRADES.slice(0, 10),
+          stocks: stocks.slice(0, 20),
           stats: {
-            totalTrades: stats.totalTrades,
-            winRate: stats.winRate,
-            avgReturn: stats.avgReturn,
-            totalReturn: stats.totalReturn,
-            maxDrawdown: stats.maxDrawdown,
+            totalStocks: stats.totalStocks,
+            avgChangePct: stats.avgChangePct,
+            upCount: stats.upCount,
+            downCount: stats.downCount,
+            bestPerformer: stats.bestPerformer,
+            worstPerformer: stats.worstPerformer,
           },
+          analysisType: 'watchlist_review',
         }),
       });
       const data = await resp.json();
@@ -342,15 +275,6 @@ const ReviewPage: React.FC = () => {
 
   /* --- Table columns ---------------------------------------------- */
   const columns = [
-    {
-      title: '日期',
-      dataIndex: 'date',
-      key: 'date',
-      width: 120,
-      render: (v: string) => (
-        <Text style={{ color: THEME.textSecondary, fontSize: 13 }}>{v}</Text>
-      ),
-    },
     {
       title: '代码',
       dataIndex: 'symbol',
@@ -370,73 +294,60 @@ const ReviewPage: React.FC = () => {
       ),
     },
     {
-      title: '方向',
-      dataIndex: 'direction',
-      key: 'direction',
-      width: 80,
-      render: (v: string) => (
-        <Tag
-          color={v === 'buy' ? THEME.up : THEME.down}
-          style={{
-            borderRadius: 4,
-            border: 'none',
-            color: '#fff',
-            fontWeight: 500,
-          }}
-        >
-          {v === 'buy' ? '买入' : '卖出'}
-        </Tag>
-      ),
-    },
-    {
-      title: '买入价',
-      dataIndex: 'buyPrice',
-      key: 'buyPrice',
+      title: '最新价',
+      dataIndex: 'price',
+      key: 'price',
       width: 100,
       render: (v: number) => (
-        <Text style={{ color: THEME.text, fontSize: 13 }}>¥{v.toFixed(2)}</Text>
+        <Text style={{ color: THEME.text, fontSize: 13, fontWeight: 600 }}>
+          ¥{v.toFixed(2)}
+        </Text>
       ),
     },
     {
-      title: '卖出价',
-      dataIndex: 'sellPrice',
-      key: 'sellPrice',
+      title: '涨跌幅',
+      dataIndex: 'changePct',
+      key: 'changePct',
       width: 100,
-      render: (v: number | null) =>
-        v !== null ? (
-          <Text style={{ color: THEME.text, fontSize: 13 }}>¥{v.toFixed(2)}</Text>
-        ) : (
-          <Text style={{ color: THEME.textSecondary, fontSize: 13 }}>-</Text>
-        ),
-    },
-    {
-      title: '收益率',
-      dataIndex: 'returnPct',
-      key: 'returnPct',
-      width: 100,
-      render: (v: number | null) => {
-        if (v === null)
-          return <Text style={{ color: THEME.textSecondary, fontSize: 13 }}>-</Text>;
+      render: (v: number) => {
         const color = v > 0 ? THEME.up : v < 0 ? THEME.down : THEME.text;
         return (
-          <Text
-            style={{
-              color,
-              fontSize: 13,
-              fontWeight: 600,
-            }}
-          >
-            {v > 0 ? '+' : ''}
-            {v.toFixed(2)}%
+          <Text style={{ color, fontSize: 13, fontWeight: 600 }}>
+            {v > 0 ? '+' : ''}{v.toFixed(2)}%
           </Text>
         );
       },
     },
     {
-      title: '策略来源',
-      dataIndex: 'strategy',
-      key: 'strategy',
+      title: '涨跌额',
+      dataIndex: 'changeAmt',
+      key: 'changeAmt',
+      width: 100,
+      render: (v: number) => {
+        const color = v > 0 ? THEME.up : v < 0 ? THEME.down : THEME.textSecondary;
+        return (
+          <Text style={{ color, fontSize: 13 }}>
+            {v > 0 ? '+' : ''}{v.toFixed(2)}
+          </Text>
+        );
+      },
+    },
+    {
+      title: '成交量',
+      dataIndex: 'volume',
+      key: 'volume',
       width: 120,
+      render: (v: number) => (
+        <Text style={{ color: THEME.textSecondary, fontSize: 13 }}>
+          {v >= 10000 ? `${(v / 10000).toFixed(1)}万` : v.toLocaleString()}
+        </Text>
+      ),
+    },
+    {
+      title: '行业',
+      dataIndex: 'industry',
+      key: 'industry',
+      width: 100,
       render: (v: string) => (
         <Tag
           style={{
@@ -451,24 +362,9 @@ const ReviewPage: React.FC = () => {
         </Tag>
       ),
     },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 90,
-      render: (v: string) => (
-        <Tag
-          color={v === 'holding' ? 'orange' : 'default'}
-          style={{ borderRadius: 4, border: 'none', fontSize: 12 }}
-        >
-          {v === 'holding' ? '持有' : '已平仓'}
-        </Tag>
-      ),
-    },
   ];
 
-  const handleRowClick = (record: TradeRecord) => {
-    // Navigate to stock detail page
+  const handleRowClick = (record: StockRecord) => {
     navigate(`/stocks/${record.symbol}`);
   };
 
@@ -477,6 +373,47 @@ const ReviewPage: React.FC = () => {
     border: `1px solid ${THEME.cardBorder}`,
     borderRadius: 12,
   };
+
+  /* --- Empty state ------------------------------------------------- */
+  if (!loading && hasWatchlist === false) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: THEME.bg,
+          padding: '24px 32px',
+          color: THEME.text,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Empty
+          description={
+            <span style={{ color: THEME.textSecondary, fontSize: 16 }}>
+              暂无自选股 — 请先在自选页添加股票
+            </span>
+          }
+          style={{ margin: '48px 0' }}
+        >
+          <Button
+            type="primary"
+            onClick={() => navigate('/watchlist')}
+            style={{
+              background: THEME.accent,
+              borderColor: THEME.accent,
+              borderRadius: 8,
+              height: 42,
+              fontWeight: 600,
+            }}
+          >
+            前往自选股
+          </Button>
+        </Empty>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -505,7 +442,7 @@ const ReviewPage: React.FC = () => {
             📋 复盘中心
           </Title>
           <Text style={{ color: THEME.textSecondary, fontSize: 14, marginTop: 4, display: 'block' }}>
-            回顾历史决策，优化未来策略
+            实时自选股行情概览与分析
           </Text>
         </div>
         <Space size={8} wrap>
@@ -530,6 +467,21 @@ const ReviewPage: React.FC = () => {
               </Button>
             );
           })}
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={loadStockData}
+            loading={loading}
+            style={{
+              background: 'transparent',
+              color: THEME.textSecondary,
+              border: `1px solid ${THEME.cardBorder}`,
+              borderRadius: 6,
+              fontSize: 13,
+            }}
+          >
+            刷新
+          </Button>
         </Space>
       </div>
 
@@ -537,74 +489,80 @@ const ReviewPage: React.FC = () => {
       {/*  Summary Stats Row                                            */}
       {/* ============================================================ */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {/* Total Trades */}
+        {/* Total Stocks */}
         <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle} bodyStyle={{ padding: 20 }}>
             <Statistic
-              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>总交易次数</span>}
-              value={stats.totalTrades}
+              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>自选股票数</span>}
+              value={stats.totalStocks}
               prefix={<ThunderboltOutlined style={{ color: THEME.accent }} />}
               valueStyle={{ color: THEME.text, fontSize: 28, fontWeight: 700 }}
             />
           </Card>
         </Col>
-        {/* Win Rate */}
+        {/* Average Change */}
         <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle} bodyStyle={{ padding: 20 }}>
             <Statistic
-              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>胜率</span>}
-              value={stats.winRate}
-              precision={1}
-              suffix="%"
-              prefix={<TrophyOutlined style={{ color: stats.winRate >= 50 ? THEME.down : THEME.up }} />}
-              valueStyle={{
-                color: stats.winRate >= 50 ? THEME.down : THEME.up,
-                fontSize: 28,
-                fontWeight: 700,
-              }}
-            />
-          </Card>
-        </Col>
-        {/* Avg Return */}
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle} bodyStyle={{ padding: 20 }}>
-            <Statistic
-              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>平均收益率</span>}
-              value={stats.avgReturn}
+              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>平均涨跌幅</span>}
+              value={stats.avgChangePct}
               precision={2}
               suffix="%"
               prefix={
-                stats.avgReturn >= 0 ? (
-                  <RiseOutlined style={{ color: THEME.down }} />
+                stats.avgChangePct >= 0 ? (
+                  <RiseOutlined style={{ color: THEME.up }} />
                 ) : (
-                  <FallOutlined style={{ color: THEME.up }} />
+                  <FallOutlined style={{ color: THEME.down }} />
                 )
               }
               valueStyle={{
-                color: stats.avgReturn >= 0 ? THEME.down : THEME.up,
+                color: stats.avgChangePct >= 0 ? THEME.up : THEME.down,
                 fontSize: 28,
                 fontWeight: 700,
               }}
             />
           </Card>
         </Col>
-        {/* Max Drawdown */}
+        {/* Best Performer */}
         <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle} bodyStyle={{ padding: 20 }}>
             <Statistic
-              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>最大回撤</span>}
-              value={stats.maxDrawdown}
+              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>最佳表现</span>}
+              value={stats.bestPerformer?.changePct ?? 0}
               precision={2}
               suffix="%"
-              prefix={<ArrowDownOutlined style={{ color: THEME.up }} />}
+              prefix={<TrophyOutlined style={{ color: THEME.up }} />}
               valueStyle={{ color: THEME.up, fontSize: 28, fontWeight: 700 }}
             />
+            {stats.bestPerformer && (
+              <Text style={{ color: THEME.textSecondary, fontSize: 12, marginTop: 4, display: 'block' }}>
+                {stats.bestPerformer.name} ({stats.bestPerformer.symbol})
+              </Text>
+            )}
+          </Card>
+        </Col>
+        {/* Worst Performer */}
+        <Col xs={24} sm={12} lg={6}>
+          <Card style={cardStyle} bodyStyle={{ padding: 20 }}>
+            <Statistic
+              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>最差表现</span>}
+              value={stats.worstPerformer?.changePct ?? 0}
+              precision={2}
+              suffix="%"
+              prefix={<ArrowDownOutlined style={{ color: THEME.down }} />}
+              valueStyle={{ color: THEME.down, fontSize: 28, fontWeight: 700 }}
+            />
+            {stats.worstPerformer && (
+              <Text style={{ color: THEME.textSecondary, fontSize: 12, marginTop: 4, display: 'block' }}>
+                {stats.worstPerformer.name} ({stats.worstPerformer.symbol})
+              </Text>
+            )}
           </Card>
         </Col>
       </Row>
 
       {/* ============================================================ */}
-      {/*  Trading Record Table                                         */}
+      {/*  Stock Data Table                                             */}
       {/* ============================================================ */}
       <Card
         style={{ ...cardStyle, marginBottom: 24 }}
@@ -613,7 +571,7 @@ const ReviewPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <LineChartOutlined style={{ color: THEME.accent }} />
             <Text style={{ color: THEME.text, fontSize: 16, fontWeight: 600 }}>
-              交易记录
+              自选股行情
             </Text>
             <Tag
               style={{
@@ -624,58 +582,106 @@ const ReviewPage: React.FC = () => {
                 borderRadius: 4,
               }}
             >
-              共 {MOCK_TRADES.length} 笔
+              共 {stocks.length} 只
             </Tag>
           </div>
         }
       >
-        <Table<TradeRecord>
-          columns={columns}
-          dataSource={MOCK_TRADES}
-          pagination={false}
-          onRow={(record) => ({
-            onClick: () => handleRowClick(record),
-            style: { cursor: 'pointer' },
-            onMouseEnter: (e) => {
-              (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)';
-            },
-            onMouseLeave: (e) => {
-              (e.currentTarget as HTMLElement).style.background = 'transparent';
-            },
-          })}
-          size="middle"
-          scroll={{ x: 930 }}
-          style={{ background: 'transparent' }}
-        />
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '48px 0' }}>
+            <Spin tip="加载行情数据中..." />
+          </div>
+        ) : (
+          <Table<StockRecord>
+            columns={columns}
+            dataSource={stocks}
+            pagination={false}
+            onRow={(record) => ({
+              onClick: () => handleRowClick(record),
+              style: { cursor: 'pointer' },
+              onMouseEnter: (e) => {
+                (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)';
+              },
+              onMouseLeave: (e) => {
+                (e.currentTarget as HTMLElement).style.background = 'transparent';
+              },
+            })}
+            size="middle"
+            scroll={{ x: 760 }}
+            style={{ background: 'transparent' }}
+          />
+        )}
       </Card>
 
       {/* ============================================================ */}
-      {/*  Strategy Performance + AI Analysis  (two-col on desktop)     */}
+      {/*  Market Overview + AI Analysis  (two-col on desktop)          */}
       {/* ============================================================ */}
       <Row gutter={[16, 16]}>
-        {/* Strategy Performance */}
+        {/* Market Overview / Strategy Panel */}
         <Col xs={24} lg={14}>
           <Card style={{ ...cardStyle, height: '100%' }} bodyStyle={{ padding: 24 }}>
             <SectionTitle icon={<LineChartOutlined style={{ color: THEME.accent }} />}>
-              策略回测 vs 买入持有
+              自选股涨跌分布
             </SectionTitle>
 
-            {/* Bar chart */}
+            {/* Visual bar for up/down/flat distribution */}
             <div style={{ marginBottom: 24 }}>
-              {STRATEGY_PERFORMANCE.map((s) => (
-                <div key={s.strategyName} style={{ marginBottom: 12 }}>
-                  <StrategyBar
-                    label={s.strategyName}
-                    value={s.strategyReturn}
-                    color={s.strategyReturn >= 0 ? THEME.accent : THEME.up}
-                  />
-                  <StrategyBar
-                    label=""
-                    value={s.buyHoldReturn}
-                    color="rgba(224,224,224,0.15)"
-                  />
-                </div>
-              ))}
+              {stocks
+                .slice()
+                .sort((a, b) => b.changePct - a.changePct)
+                .map((s) => {
+                  const maxAbs = Math.max(
+                    ...stocks.map((st) => Math.abs(st.changePct)),
+                    1
+                  );
+                  const barWidth = (Math.abs(s.changePct) / maxAbs) * 280;
+                  const color =
+                    s.changePct > 0 ? THEME.up : s.changePct < 0 ? THEME.down : THEME.textSecondary;
+                  return (
+                    <div
+                      key={s.symbol}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}
+                    >
+                      <div
+                        style={{
+                          width: 90,
+                          textAlign: 'right',
+                          color: THEME.textSecondary,
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {s.name}
+                      </div>
+                      <div
+                        style={{
+                          height: 18,
+                          width: barWidth || 2,
+                          borderRadius: 4,
+                          background: color,
+                          transition: 'width 0.3s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'flex-end',
+                          paddingRight: 6,
+                          minWidth: 2,
+                        }}
+                      >
+                        {barWidth > 40 && (
+                          <span style={{ color: '#fff', fontSize: 10, fontWeight: 600 }}>
+                            {s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+                      {barWidth <= 40 && (
+                        <span style={{ color, fontSize: 10, fontWeight: 600 }}>
+                          {s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
 
             {/* Legend */}
@@ -686,10 +692,10 @@ const ReviewPage: React.FC = () => {
                     width: 12,
                     height: 12,
                     borderRadius: 3,
-                    background: THEME.accent,
+                    background: THEME.up,
                   }}
                 />
-                <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>策略收益</Text>
+                <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>上涨 ({stats.upCount})</Text>
               </Space>
               <Space size={6}>
                 <div
@@ -697,10 +703,21 @@ const ReviewPage: React.FC = () => {
                     width: 12,
                     height: 12,
                     borderRadius: 3,
-                    background: 'rgba(224,224,224,0.15)',
+                    background: THEME.down,
                   }}
                 />
-                <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>买入持有基准</Text>
+                <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>下跌 ({stats.downCount})</Text>
+              </Space>
+              <Space size={6}>
+                <div
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 3,
+                    background: THEME.textSecondary,
+                  }}
+                />
+                <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>平盘 ({stats.flatCount})</Text>
               </Space>
             </div>
 
@@ -713,9 +730,23 @@ const ReviewPage: React.FC = () => {
               }}
             >
               {[
-                { label: 'Alpha', value: '+3.8%', desc: '超额收益' },
-                { label: 'Sharpe', value: '1.25', desc: '夏普比率' },
-                { label: '盈亏比', value: '2.1:1', desc: '胜率×赔率' },
+                {
+                  label: '上涨占比',
+                  value: stats.totalStocks > 0
+                    ? `${((stats.upCount / stats.totalStocks) * 100).toFixed(1)}%`
+                    : '-',
+                  desc: '当前涨跌比',
+                },
+                {
+                  label: '平均涨幅',
+                  value: `${stats.avgChangePct >= 0 ? '+' : ''}${stats.avgChangePct.toFixed(2)}%`,
+                  desc: '自选股均值',
+                },
+                {
+                  label: '涨跌家数',
+                  value: `${stats.upCount}:${stats.downCount}`,
+                  desc: '多空对比',
+                },
               ].map((m) => (
                 <div
                   key={m.label}
@@ -749,7 +780,7 @@ const ReviewPage: React.FC = () => {
             bodyStyle={{ padding: 24 }}
           >
             <SectionTitle icon={<RobotOutlined style={{ color: THEME.accent }} />}>
-              AI 交易行为分析
+              AI 自选股分析
             </SectionTitle>
             <div
               style={{
@@ -761,7 +792,7 @@ const ReviewPage: React.FC = () => {
               }}
             >
               <Paragraph style={{ color: THEME.textSecondary, fontSize: 13, margin: 0, lineHeight: 1.8 }}>
-                基于您的交易记录，AI 将分析您的交易习惯、偏好和改进空间。包括：
+                基于您的自选股实时行情数据，AI 将分析您的持仓结构和市场表现。包括：
               </Paragraph>
               <ul
                 style={{
@@ -771,11 +802,11 @@ const ReviewPage: React.FC = () => {
                   lineHeight: 2,
                 }}
               >
-                <li>交易频率与时机偏好</li>
-                <li>止损/止盈行为模式</li>
-                <li>持仓周期分布</li>
-                <li>策略使用偏好分析</li>
-                <li>风险暴露评估</li>
+                <li>自选股整体涨跌分布</li>
+                <li>行业集中度分析</li>
+                <li>最佳/最差表现个股解读</li>
+                <li>持仓风险暴露评估</li>
+                <li>调仓建议</li>
               </ul>
             </div>
             <Button
@@ -791,6 +822,7 @@ const ReviewPage: React.FC = () => {
               }}
               onClick={handleAiAnalysis}
               loading={aiAnalysisLoading}
+              disabled={stocks.length === 0}
             >
               {aiAnalysisLoading ? '分析中...' : '开始分析'}
             </Button>
