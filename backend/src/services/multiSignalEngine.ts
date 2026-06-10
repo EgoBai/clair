@@ -27,6 +27,14 @@ function normalizeSymbol(symbol: string): string {
     const suffix = match[1].toUpperCase();
     return `${match[2]}.${suffix}`;
   }
+  // 纯6位数字 → 根据规则推断交易所
+  if (/^\d{6}$/.test(symbol)) {
+    const code = symbol;
+    if (code.startsWith('6')) return `${code}.SH`;    // 600xxx/601xxx/603xxx → 上海
+    if (code.startsWith('0') || code.startsWith('3')) return `${code}.SZ`; // 000xxx/300xxx → 深圳
+    if (code.startsWith('8') || code.startsWith('4')) return `${code}.BJ`; // 830xxx/430xxx → 北交所
+    return `${code}.SZ`; // 默认深圳
+  }
   return symbol;
 }
 
@@ -325,7 +333,7 @@ async function fetchSectorSignals(symbol: string): Promise<Signal[]> {
       for (const s of sectorStocks) {
         const q = await db.getLatestDailyQuote(s.id);
         if (q) {
-          totalChange += q.changePercent || 0;
+          totalChange += parseFloat(String(q.changePercent)) || 0;
           count++;
         }
       }

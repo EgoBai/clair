@@ -11,7 +11,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || '';
 // ============================================================
 
 export interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 

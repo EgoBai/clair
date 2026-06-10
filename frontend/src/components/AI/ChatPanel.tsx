@@ -1,16 +1,16 @@
 /**
- * ChatPanel — AI对话界面组件
+ * ChatPanel — AI对话界面组件（上下文感知版）
  * 
  * 澄观的核心交互：对话式投资研究
  * 
  * 功能：
  * 1. 实时对话（Streaming打字机效果）
- * 2. 上下文记忆
- * 3. 快捷指令
+ * 2. 上下文记忆 + 页面感知
+ * 3. 动态快捷指令（根据页面变化）
  * 4. 数据卡片嵌入
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { chatStream } from '../../services/aiClient';
 
 // ============================================================
@@ -25,36 +25,71 @@ interface Message {
   isStreaming?: boolean;
 }
 
+interface PageContext {
+  page: string;
+  pageName: string;
+  symbol?: string;
+  stockName?: string;
+  systemHint: string;
+}
+
 interface QuickCommand {
   label: string;
   icon: string;
   prompt: string;
+  pages?: string[]; // 限定在哪些页面显示，不设则全部显示
 }
 
 // ============================================================
-// 快捷指令
+// 快捷指令（页面感知）
 // ============================================================
 
 const QUICK_COMMANDS: QuickCommand[] = [
   {
     label: '今日大盘',
     icon: '📊',
-    prompt: '请分析今天A股大盘的整体表现，包括主要指数、市场情绪、资金流向。',
+    prompt: '请分析今天A股大盘的整体表现，包括主要指数涨跌、市场情绪、资金流向、涨跌家数。',
+    pages: ['discover', 'other'],
   },
   {
-    label: '板块分析',
+    label: '板块轮动',
     icon: '🔥',
-    prompt: '今天哪些板块表现最好？为什么？有什么轮动信号？',
+    prompt: '今天哪些板块表现最好？有什么轮动信号？哪些板块值得关注？',
+    pages: ['discover', 'screener'],
   },
   {
     label: '个股诊断',
     icon: '🔍',
-    prompt: '帮我诊断一只股票，我会告诉你股票代码。',
+    prompt: '帮我诊断当前查看的这只股票，从技术面、基本面、估值三个维度分析。',
+    pages: ['stock-detail'],
+  },
+  {
+    label: '选股建议',
+    icon: '🎯',
+    prompt: '根据当前市场状况，推荐几个选股方向和筛选条件。',
+    pages: ['screener'],
+  },
+  {
+    label: '组合分析',
+    icon: '📋',
+    prompt: '分析我的自选股组合，看看整体风险和收益特征，有什么调仓建议？',
+    pages: ['watchlist'],
+  },
+  {
+    label: '交易复盘',
+    icon: '📝',
+    prompt: '帮我复盘最近的交易记录，分析盈亏原因和改进空间。',
+    pages: ['review'],
   },
   {
     label: '策略建议',
     icon: '💡',
-    prompt: '根据当前市场状况，有什么操作建议？',
+    prompt: '根据当前市场状况，有什么操作建议？仓位如何调整？',
+  },
+  {
+    label: '风险提示',
+    icon: '⚠️',
+    prompt: '当前市场有哪些风险信号需要注意？',
   },
 ];
 
@@ -62,12 +97,29 @@ const QUICK_COMMANDS: QuickCommand[] = [
 // 组件
 // ============================================================
 
-const ChatPanel: React.FC = () => {
+interface ChatPanelProps {
+  pageContext?: PageContext;
+}
+
+const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 根据页面过滤快捷指令
+  const filteredCommands = useMemo(() => {
+    if (!pageContext) return QUICK_COMMANDS.filter(c => !c.pages);
+    return QUICK_COMMANDS.filter(c => !c.pages || c.pages.includes(pageContext.page));
+  }, [pageContext?.page]);
+
+  // 构建系统提示
+  const systemHint = useMemo(() => {
+    const base = '你是澄观，一个专业的A股投资研究AI助手。你基于真实市场数据提供分析，不编造信息。回答要简洁专业，使用Markdown格式。';
+    if (!pageContext) return base;
+    return `${base}\n\n当前上下文：${pageContext.systemHint}`;
+  }, [pageContext]);
 
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -78,25 +130,31 @@ const ChatPanel: React.FC = () => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // 初始化欢迎消息
+  // 初始化欢迎消息（根据页面变化）
   useEffect(() => {
+    const pageName = pageContext?.pageName || '澄观';
+    const symbolHint = pageContext?.symbol ? `（正在查看 ${pageContext.symbol}）` : '';
+    
     setMessages([
       {
         id: 'welcome',
         role: 'assistant',
-        content: `你好！我是**澄观**，你的AI投资研究助手。
+        content: `你好！我是**澄观**，你的AI投资研究助手 ${symbolHint}。
+
+当前页面：**${pageName}**
 
 我可以帮你：
-- 📊 分析大盘走势和市场情绪
-- 🔥 解读板块轮动和资金流向
-- 🔍 诊断个股（技术面+基本面）
-- 💡 提供交易策略建议
+${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- 📊 技术面+基本面分析\n- 💡 买卖信号判断' :
+  pageContext?.page === 'screener' ? '- 🎯 选股策略建议\n- 📊 筛选条件优化\n- 🔥 热门板块解读' :
+  pageContext?.page === 'watchlist' ? '- 📋 组合分析\n- ⚠️ 风险评估\n- 📊 个股对比' :
+  pageContext?.page === 'review' ? '- 📝 交易复盘\n- 📊 盈亏归因\n- 💡 策略改进' :
+  '- 📊 分析大盘走势\n- 🔥 解读板块轮动\n- 🔍 诊断个股\n- 💡 策略建议'}
 
-有什么想问的？直接输入，或者点击下方快捷指令开始。`,
+直接输入问题，或点击下方快捷指令开始。`,
         timestamp: new Date(),
       },
     ]);
-  }, []);
+  }, [pageContext?.page, pageContext?.symbol]);
 
   // 发送消息
   const handleSend = useCallback(async () => {
@@ -128,11 +186,14 @@ const ChatPanel: React.FC = () => {
     setMessages(prev => [...prev, aiMessage]);
 
     try {
-      // 构建上下文（最近5条消息）
-      const context = messages.slice(-5).map(m => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // 构建上下文：系统提示 + 最近5条消息
+      const context = [
+        { role: 'system' as const, content: systemHint },
+        ...messages.slice(-5).map(m => ({
+          role: m.role,
+          content: m.content,
+        })),
+      ];
 
       // 调用AI（流式）
       const stream = chatStream(content, context);
@@ -174,13 +235,18 @@ const ChatPanel: React.FC = () => {
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [inputValue, isLoading, messages]);
+  }, [inputValue, isLoading, messages, systemHint]);
 
   // 快捷指令点击
   const handleQuickCommand = useCallback((command: QuickCommand) => {
-    setInputValue(command.prompt);
+    // 如果是个股页面且指令需要股票代码，注入当前股票
+    let prompt = command.prompt;
+    if (pageContext?.symbol && command.pages?.includes('stock-detail')) {
+      prompt = prompt.replace('当前查看的这只股票', `${pageContext.symbol}`);
+    }
+    setInputValue(prompt);
     inputRef.current?.focus();
-  }, []);
+  }, [pageContext?.symbol]);
 
   // 键盘事件
   const handleKeyDown = useCallback(
@@ -195,15 +261,10 @@ const ChatPanel: React.FC = () => {
 
   // 渲染Markdown（简单版本）
   const renderContent = (content: string) => {
-    // 简单的Markdown渲染
     let html = content
-      // 加粗
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      // 换行
       .replace(/\n/g, '<br/>')
-      // 列表项
       .replace(/^- (.*)/gm, '<li>$1</li>')
-      // 标题
       .replace(/^### (.*)/gm, '<h4>$1</h4>')
       .replace(/^## (.*)/gm, '<h3>$1</h3>');
 
@@ -212,11 +273,14 @@ const ChatPanel: React.FC = () => {
 
   return (
     <div className="chat-panel">
-      {/* 头部 */}
+      {/* 头部 — 显示当前页面上下文 */}
       <div className="chat-header">
         <div className="chat-title">
           <span className="ai-icon">🤖</span>
-          <span>澄观 AI 助手</span>
+          <span>澄观 AI</span>
+          {pageContext && (
+            <span className="page-badge">{pageContext.pageName}</span>
+          )}
         </div>
         <div className="chat-status">
           {isLoading ? '思考中...' : '在线'}
@@ -249,10 +313,10 @@ const ChatPanel: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 快捷指令 */}
-      {messages.length <= 1 && (
+      {/* 快捷指令 — 页面感知 */}
+      {messages.length <= 1 && filteredCommands.length > 0 && (
         <div className="quick-commands">
-          {QUICK_COMMANDS.map((cmd, index) => (
+          {filteredCommands.map((cmd, index) => (
             <button
               key={index}
               className="quick-command-btn"
@@ -273,7 +337,7 @@ const ChatPanel: React.FC = () => {
           value={inputValue}
           onChange={e => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入你的问题..."
+          placeholder={pageContext?.symbol ? `问关于 ${pageContext.symbol} 的问题...` : '输入你的问题...'}
           disabled={isLoading}
         />
         <button
@@ -314,6 +378,15 @@ const ChatPanel: React.FC = () => {
 
         .ai-icon {
           font-size: 20px;
+        }
+
+        .page-badge {
+          font-size: 11px;
+          padding: 2px 8px;
+          border-radius: 10px;
+          background: rgba(96, 165, 250, 0.2);
+          color: #60a5fa;
+          font-weight: 500;
         }
 
         .chat-status {

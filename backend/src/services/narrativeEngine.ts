@@ -118,7 +118,7 @@ export async function generateNarrative(result: MultiSignalResult): Promise<stri
 /**
  * 模板叙事（无LLM时的降级方案）
  */
-function generateTemplateNarrative(result: MultiSignalResult): string {
+export function generateTemplateNarrative(result: MultiSignalResult): string {
   const { signals, summary } = result;
   
   const bullishSignals = signals.filter(s => s.direction === 'bullish');
