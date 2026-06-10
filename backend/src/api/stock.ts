@@ -14,6 +14,19 @@ import { queryCache } from '../utils/queryCache';
 
 const router = Router();
 
+/** 标准化股票代码: 000001 → 000001.SZ, 600519 → 600519.SH */
+function normalizeSymbol(symbol: string): string {
+  if (!symbol) return symbol;
+  if (/^\d{6}\.(SH|SZ|BJ)$/i.test(symbol)) return symbol.toUpperCase();
+  if (/^\d{6}$/.test(symbol)) {
+    if (symbol.startsWith('6')) return `${symbol}.SH`;
+    if (symbol.startsWith('0') || symbol.startsWith('3')) return `${symbol}.SZ`;
+    if (symbol.startsWith('8') || symbol.startsWith('4')) return `${symbol}.BJ`;
+    return `${symbol}.SZ`;
+  }
+  return symbol;
+}
+
 // ==================== 股票查询 ====================
 
 router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (req, res) => {
@@ -52,8 +65,10 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
 
 // 注意：特定路径必须在通配符路径之前定义，否则 /stocks/:symbol 会匹配 /stocks/xxx/quotes
 router.get('/stocks/:symbol/quotes', validateParams(schemas.stockSymbol), validateQuery(schemas.quoteQuery), asyncHandler(async (req, res) => {
-  const { symbol } = req.params;
-  const stock = await db.getStockBySymbol(symbol);
+  const rawSymbol = req.params.symbol;
+  const symbol = normalizeSymbol(rawSymbol);
+  let stock = await db.getStockBySymbol(symbol);
+  if (!stock && symbol !== rawSymbol) stock = await db.getStockBySymbol(rawSymbol);
   if (!stock) return sendNotFound(res, '股票');
   const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
   const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
@@ -63,15 +78,21 @@ router.get('/stocks/:symbol/quotes', validateParams(schemas.stockSymbol), valida
 }));
 
 router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
-  const { symbol } = req.params;
-  const stockWithQuote = await db.getStockWithLatestQuote(symbol);
+  const rawSymbol = req.params.symbol;
+  const symbol = normalizeSymbol(rawSymbol);
+  const stockWithQuote = await db.getStockWithLatestQuote(symbol) || await db.getStockWithLatestQuote(rawSymbol);
   if (!stockWithQuote) return sendNotFound(res, '股票');
   sendSuccess(res, stockWithQuote);
 }));
 
 router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
-  const { symbol } = req.params;
-  const stock = await db.getStockBySymbol(symbol);
+  const rawSymbol = req.params.symbol;
+  const symbol = normalizeSymbol(rawSymbol);
+  // 尝试标准化格式，如果找不到则尝试原始格式
+  let stock = await db.getStockBySymbol(symbol);
+  if (!stock && symbol !== rawSymbol) {
+    stock = await db.getStockBySymbol(rawSymbol);
+  }
   if (!stock) return sendNotFound(res, '股票');
   const latestQuote = await db.getLatestDailyQuote(stock.id);
   sendSuccess(res, { ...stock, latestQuote });
