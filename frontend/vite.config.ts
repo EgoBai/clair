@@ -9,10 +9,9 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'https://clair-api.pages.dev',
+        target: 'http://127.0.0.1:3001',
         changeOrigin: true,
         timeout: 15000,
-        secure: false,
       },
       '/ws': {
         target: 'ws://127.0.0.1:3001',

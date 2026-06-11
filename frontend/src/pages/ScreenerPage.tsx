@@ -218,17 +218,22 @@ const ScreenerPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [listResp, quotesResp] = await Promise.all([
-        apiFetch('/api/stocks?limit=200').then(r => r.json()),
-        apiFetch('/api/stocks/batch/quotes', {
+      // 先获取股票列表
+      const listResp = await apiFetch('/api/stocks?limit=200').then(r => r.json());
+      const apiStocks = listResp?.data?.stocks || [];
+
+      // 用实际symbols获取行情
+      const symbols = apiStocks.map((s: any) => s.symbol);
+      let quotesData: any[] = [];
+      if (symbols.length > 0) {
+        const quotesResp = await apiFetch('/api/stocks/batch/quotes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbols: [] }),
-        }).then(r => r.json()),
-      ]);
+          body: JSON.stringify({ symbols }),
+        }).then(r => r.json());
+        quotesData = quotesResp?.data?.stocks || [];
+      }
 
-      const apiStocks = listResp?.data?.stocks || [];
-      const quotesData = quotesResp?.data?.stocks || [];
       const quoteMap: Record<string, any> = {};
       for (const q of quotesData) quoteMap[q.symbol] = q;
 

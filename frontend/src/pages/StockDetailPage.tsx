@@ -121,8 +121,8 @@ const StockDetailPage: React.FC = () => {
           market: d.market || '',
           industry: d.industry || '',
         });
-        if (d.quote && d.quote.closePrice > 0) {
-          setLatestQuote(d.quote);
+        if (d.latestQuote && d.latestQuote.closePrice > 0) {
+          setLatestQuote(d.latestQuote);
         }
       }
     } finally {
