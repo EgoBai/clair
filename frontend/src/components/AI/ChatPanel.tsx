@@ -11,7 +11,8 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { chatStream } from '../../services/aiClient';
+import { chat } from '../../services/aiClient';
+import { renderMarkdown } from '../../utils/markdown';
 
 // ============================================================
 // 类型定义
@@ -195,27 +196,13 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
         })),
       ];
 
-      // 调用AI（流式）
-      const stream = chatStream(content, context);
+      // 调用AI（非流式，更可靠）
+      const aiContent = await chat(content, context);
 
-      let fullContent = '';
-      for await (const chunk of stream) {
-        fullContent += chunk.content;
-        
-        setMessages(prev =>
-          prev.map(m =>
-            m.id === aiMessageId
-              ? { ...m, content: fullContent }
-              : m
-          )
-        );
-      }
-
-      // 标记流式结束
       setMessages(prev =>
         prev.map(m =>
           m.id === aiMessageId
-            ? { ...m, isStreaming: false }
+            ? { ...m, content: aiContent, isStreaming: false }
             : m
         )
       );
@@ -261,14 +248,7 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
 
   // 渲染Markdown（简单版本）
   const renderContent = (content: string) => {
-    let html = content
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br/>')
-      .replace(/^- (.*)/gm, '<li>$1</li>')
-      .replace(/^### (.*)/gm, '<h4>$1</h4>')
-      .replace(/^## (.*)/gm, '<h3>$1</h3>');
-
-    return html;
+    return renderMarkdown(content);
   };
 
   return (

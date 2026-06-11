@@ -11,6 +11,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
+import { renderMarkdown } from '../utils/markdown';
 import { Card, Button, Tag, Table, Spin, Empty, Typography, message, Space, Tooltip } from 'antd';
 import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
@@ -586,10 +587,9 @@ const ScreenerPage: React.FC = () => {
               color: TEXT,
               fontSize: 13,
               lineHeight: 1.8,
-              whiteSpace: 'pre-wrap',
-            }}>
-              {aiInsight}
-            </div>
+            }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(aiInsight) }}
+            />
           ) : (
             <div style={{ color: TEXT_SEC, textAlign: 'center', padding: '12px 0' }}>
               <BulbOutlined style={{ fontSize: 24, marginBottom: 8, display: 'block' }} />

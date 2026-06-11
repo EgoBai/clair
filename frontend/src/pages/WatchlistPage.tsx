@@ -17,6 +17,7 @@ import {
   InfoCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';
+import { renderMarkdown } from '../utils/markdown';
 import type { ColumnsType } from 'antd/es/table';
 
 /* ─── Theme Constants ─── */
@@ -1101,7 +1102,20 @@ const WatchlistPage: React.FC = () => {
                       {...props}
                       style={{
                         ...props.style,
+                        background: CARD_BG,
+                        color: TEXT,
+                      }}
+                    />
+                  ),
+                  cell: (props: any) => (
+                    <td
+                      {...props}
+                      style={{
+                        ...props.style,
                         background: 'transparent',
+                        color: TEXT,
+                        borderBottom: `1px solid ${CARD_BORDER}`,
+                        padding: '10px 8px',
                       }}
                     />
                   ),
@@ -1137,9 +1151,10 @@ const WatchlistPage: React.FC = () => {
                   AI 正在分析您的自选股组合...
                 </div>
               ) : aiSummary ? (
-                <div style={{ color: TEXT, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                  {aiSummary}
-                </div>
+                <div
+                  style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(aiSummary) }}
+                />
               ) : (
                 <div style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}>
                   <Paragraph style={{ color: TEXT, marginBottom: 8 }}>
