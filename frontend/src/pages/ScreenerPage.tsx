@@ -155,7 +155,7 @@ const ScreenerPage: React.FC = () => {
   const [activeStrategy, setActiveStrategy] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 50;
 
   // 自选列表状态
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -220,7 +220,7 @@ const ScreenerPage: React.FC = () => {
     setLoading(true);
     try {
       // 先获取股票列表
-      const listResp = await apiFetch('/api/stocks?limit=200').then(r => r.json());
+      const listResp = await apiFetch('/api/stocks?limit=500').then(r => r.json());
       const apiStocks = listResp?.data?.stocks || [];
 
       // 用实际symbols获取行情
