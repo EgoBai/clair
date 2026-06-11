@@ -158,26 +158,33 @@ app.get('/api/search', asyncHandler(async (req, res) => {
   let results: Array<{ id: number; symbol: string; name: string; market: string; industry?: string }> = [];
 
   if (isMemoryMode()) {
-    // 内存模式：直接用 InMemoryDatabase 的智能搜索
     const inMemDb = getDb() as unknown as InMemoryDatabase;
     results = inMemDb.searchStocks(q, limit);
   } else {
-    // PostgreSQL 模式：走原有 Knex 查询 + searchAndSort
     try {
-      const stocks = await queryCache.query(
-        `search:${q}:${limit}`,
-        async () => {
-          const allStocks = await getDb().connection('stocks')
-            .where('is_active', true)
-            .select('id', 'symbol', 'name', 'market', 'industry')
-            .limit(500);
-          return allStocks;
-        },
-        60000
-      );
-      results = searchAndSort(stocks, q).slice(0, limit);
+      const qLower = q.toLowerCase();
+      const qUpper = q.toUpperCase();
+      // 直接在数据库做模糊搜索，覆盖全部5544只股票
+      results = await getDb().connection('stocks')
+        .where('is_active', true)
+        .andWhere(function() {
+          this.whereILike('symbol', `%${q}%`)
+            .orWhereILike('code', `%${q}%`)
+            .orWhereILike('name', `%${q}%`)
+            .orWhereILike('industry', `%${q}%`);
+        })
+        .select('id', 'symbol', 'name', 'market', 'industry')
+        .orderByRaw(`
+          CASE
+            WHEN LOWER(symbol) = ? THEN 0
+            WHEN LOWER(symbol) LIKE ? THEN 1
+            WHEN LOWER(name) = ? THEN 2
+            WHEN LOWER(name) LIKE ? THEN 3
+            ELSE 4
+          END
+        `, [qLower, `${qLower}%`, qLower, `${qLower}%`])
+        .limit(limit);
     } catch (e) {
-      // PG 查询失败时降级到内存搜索
       log.warn('PG 搜索失败，降级 InMemoryDB:', { error: (e as Error).message });
       const inMemDb = getDb() as unknown as InMemoryDatabase;
       results = inMemDb.searchStocks(q, limit);
