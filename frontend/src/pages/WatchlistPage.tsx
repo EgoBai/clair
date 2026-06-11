@@ -345,7 +345,7 @@ const WatchlistPage: React.FC = () => {
     try {
       const resp = await apiFetch(`/api/alerts?symbols=${symbols.join(',')}`);
       const data = await resp.json();
-      setAlerts(data.data || []);
+      setAlerts(data.data?.alerts || []);
     } catch {
       setAlerts([]);
     } finally {
