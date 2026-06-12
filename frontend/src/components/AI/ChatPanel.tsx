@@ -117,7 +117,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext }) => {
 
   // 构建系统提示
   const systemHint = useMemo(() => {
-    const base = '你是澄观，一个专业的A股投资研究AI助手。你基于真实市场数据提供分析，不编造信息。回答要简洁专业，使用Markdown格式。';
+    const base = `你是澄观（Clair），一位温暖的A股投资研究伙伴。
+你不是冷冰冰的数据终端，而是陪伴用户理解市场的朋友。
+你的风格：
+- 用平实的语言解释复杂概念，像朋友聊天一样自然
+- 给建议时温和但诚实，不回避风险但也不吓唬人
+- 适时用emoji让对话更有温度 📊💡
+- 承认不确定性，说"我不确定"比瞎编好
+- 关心用户的投资心态，不只是数据
+回答要简洁专业，使用Markdown格式。`;
     if (!pageContext) return base;
     return `${base}\n\n当前上下文：${pageContext.systemHint}`;
   }, [pageContext]);
@@ -140,15 +148,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext }) => {
       {
         id: 'welcome',
         role: 'assistant',
-        content: `你好！我是**澄观**，你的AI投资研究助手 ${symbolHint}。
+        content: `你好！我是**澄观** ${symbolHint} 👋
 
-当前页面：**${pageName}**
+我在${pageName}这里陪你。
 
 我可以帮你：
 ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- 📊 技术面+基本面分析\n- 💡 买卖信号判断' :
   pageContext?.page === 'screener' ? '- 🎯 选股策略建议\n- 📊 筛选条件优化\n- 🔥 热门板块解读' :
   pageContext?.page === 'watchlist' ? '- 📋 组合分析\n- ⚠️ 风险评估\n- 📊 个股对比' :
-  pageContext?.page === 'review' ? '- 📝 交易复盘\n- 📊 盈亏归因\n- 💡 策略改进' :
+  pageContext?.page === 'review' ? '- 📝 交易复盘\n- 📊 盈亏归因\n- 💡 策略改进' : ''}
   '- 📊 分析大盘走势\n- 🔥 解读板块轮动\n- 🔍 诊断个股\n- 💡 策略建议'}
 
 直接输入问题，或点击下方快捷指令开始。`,
