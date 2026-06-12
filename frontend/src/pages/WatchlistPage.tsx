@@ -537,6 +537,7 @@ const WatchlistPage: React.FC = () => {
     },
     {
       title: '行业',
+      className: 'hide-mobile',
       width: 100,
       render: (_: unknown, r: WatchlistStock) => {
         const q = quotes[r.symbol];
@@ -602,6 +603,7 @@ const WatchlistPage: React.FC = () => {
     },
     {
       title: '换手率',
+      className: 'hide-mobile',
       width: 80,
       align: 'right' as const,
       render: (_: unknown, r: WatchlistStock) => {

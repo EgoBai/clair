@@ -107,11 +107,53 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
         @media (max-width: 768px) {
           .app-content {
             margin-left: 0;
-            padding-top: 60px; /* 为移动端菜单按钮留出空间 */
+            padding-top: 60px;
           }
 
           .content-wrapper {
-            padding: 16px;
+            padding: 12px;
+          }
+
+          /* 表格横向滚动 */
+          .ant-table-wrapper {
+            overflow-x: auto;
+          }
+
+          /* 卡片全宽 */
+          .ant-card {
+            margin-bottom: 12px;
+          }
+
+          /* 统计数字紧凑 */
+          .ant-statistic-title {
+            font-size: 11px;
+          }
+
+          .ant-statistic-content {
+            font-size: 18px;
+          }
+
+          /* 隐藏次要列 */
+          .hide-mobile {
+            display: none !important;
+          }
+
+          /* 按钮紧凑 */
+          .ant-btn {
+            padding: 4px 8px;
+            font-size: 12px;
+          }
+
+          /* 标签紧凑 */
+          .ant-tag {
+            font-size: 11px;
+            padding: 2px 6px;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .content-wrapper {
+            padding: 8px;
           }
         }
 
