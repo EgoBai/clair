@@ -34,6 +34,7 @@ import LazyPage from './components/Common/LazyPage';
 import I18nProvider from './i18n';
 import { analytics } from './utils/analytics';
 import './App.css';
+import './styles/global-dark.css';
 
 // 初始化 Web Vitals 监控
 initWebVitals();

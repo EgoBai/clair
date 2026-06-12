@@ -1,0 +1,225 @@
+/**
+ * 全局暗色主题CSS
+ * 所有页面自动继承，无需手动设置深色背景
+ */
+
+:root {
+  --bg-page: #f5f5f7;
+  --bg-card: #ffffff;
+  --bg-surface: #f0f0f0;
+  --border: #e5e7eb;
+  --text: #111827;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  --accent: #3b82f6;
+  --up: #ef4444;
+  --down: #22c55e;
+  --flat: #6b7280;
+}
+
+[data-theme="dark"] {
+  --bg-page: #0a0e1a;
+  --bg-card: #111827;
+  --bg-surface: #1e293b;
+  --border: #2d3748;
+  --text: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #3b82f6;
+  --up: #ef4444;
+  --down: #22c55e;
+  --flat: #6b7280;
+}
+
+/* 全局重置 */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-page);
+  color: var(--text);
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* antd组件全局暗色覆盖 */
+[data-theme="dark"] .ant-table-wrapper {
+  background: transparent;
+}
+
+[data-theme="dark"] .ant-table {
+  background: var(--bg-card) !important;
+  color: var(--text) !important;
+}
+
+[data-theme="dark"] .ant-table-thead > tr > th,
+[data-theme="dark"] .ant-table-thead > tr > td {
+  background: #0f172a !important;
+  color: var(--text-secondary) !important;
+  border-bottom: 1px solid var(--border) !important;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .ant-table-tbody > tr > td {
+  background: transparent !important;
+  color: var(--text) !important;
+  border-bottom: 1px solid rgba(45, 55, 72, 0.5) !important;
+}
+
+[data-theme="dark"] .ant-table-tbody > tr:hover > td {
+  background: var(--bg-surface) !important;
+}
+
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row:hover > td {
+  background: var(--bg-surface) !important;
+}
+
+[data-theme="dark"] .ant-card {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .ant-card-head {
+  color: var(--text) !important;
+  border-bottom-color: var(--border) !important;
+}
+
+[data-theme="dark"] .ant-card-body {
+  color: var(--text) !important;
+}
+
+[data-theme="dark"] .ant-empty-description {
+  color: var(--text-muted) !important;
+}
+
+[data-theme="dark"] .ant-pagination-item {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .ant-pagination-item a {
+  color: var(--text) !important;
+}
+
+[data-theme="dark"] .ant-pagination-item-active {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+[data-theme="dark"] .ant-pagination-item-active a {
+  color: #fff !important;
+}
+
+[data-theme="dark"] .ant-spin {
+  color: var(--accent) !important;
+}
+
+[data-theme="dark"] .ant-spin-dot-item {
+  background: var(--accent) !important;
+}
+
+[data-theme="dark"] .ant-tag {
+  background: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .ant-btn-default {
+  background: var(--bg-surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+[data-theme="dark"] .ant-btn-default:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+/* 滚动条 */
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--bg-page);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* 响应式断点 */
+@media (max-width: 768px) {
+  .app-content {
+    margin-left: 0 !important;
+    padding-top: 60px !important;
+  }
+
+  .content-wrapper {
+    padding: 12px !important;
+  }
+
+  /* 表格横向滚动 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 卡片间距 */
+  .ant-card {
+    margin-bottom: 12px !important;
+  }
+
+  /* 按钮紧凑 */
+  .ant-btn {
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+  }
+
+  /* 标签紧凑 */
+  .ant-tag {
+    font-size: 11px !important;
+    padding: 2px 6px !important;
+  }
+
+  /* 统计数字紧凑 */
+  .ant-statistic-title {
+    font-size: 11px !important;
+  }
+
+  .ant-statistic-content {
+    font-size: 18px !important;
+  }
+
+  /* 隐藏次要列 */
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .content-wrapper {
+    padding: 8px !important;
+  }
+
+  .ant-card-body {
+    padding: 12px !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  .content-wrapper {
+    max-width: 1400px !important;
+  }
+}
