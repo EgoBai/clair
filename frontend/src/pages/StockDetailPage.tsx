@@ -71,7 +71,7 @@ const StockDetailPage: React.FC = () => {
   const [klinePeriod, setKlinePeriod] = useState<string>('daily');
   const [subIndicator, setSubIndicator] = useState<'volume'|'macd'|'rsi'>('volume');
   const [aiStrategy, setAiStrategy] = useState<any>(null);
-  const [aiDiagnosis, setAiDiagnosis] = useState<string>('');
+  const [aiDiagnosis, setAiDiagnosis] = useState<any>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
 
   const changeColor = useMemo(() => {
@@ -173,13 +173,15 @@ const StockDetailPage: React.FC = () => {
       try {
         const resp = await fetch(`/api/ai/diagnose/${symbol}`);
         const data = await resp.json();
-        setAiDiagnosis(data.diagnosis || '');
+        if (data.success && data.data) {
+          setAiDiagnosis(data.data);
+        }
       } catch {
         // silent
       } finally {
         setDiagnosisLoading(false);
       }
-    }, 2000); // 延迟2秒，让页面先渲染完
+    }, 2000);
     return () => clearTimeout(timer);
   }, [symbol]);
 
@@ -462,9 +464,11 @@ const StockDetailPage: React.FC = () => {
                   try {
                     const resp = await fetch(`/api/ai/diagnose/${symbol}`);
                     const data = await resp.json();
-                    setAiDiagnosis(data.diagnosis || '诊断失败，请稍后重试');
+                    if (data.success && data.data) {
+                      setAiDiagnosis(data.data);
+                    }
                   } catch {
-                    setAiDiagnosis('网络错误，请稍后重试');
+                    // silent
                   } finally {
                     setDiagnosisLoading(false);
                   }
@@ -477,18 +481,68 @@ const StockDetailPage: React.FC = () => {
           style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
         >
           {aiDiagnosis ? (
-            <div
-              style={{
-                fontSize: 13,
-                color: TEXT_PRIMARY,
-                lineHeight: 1.8,
-                background: 'rgba(15,23,42,0.5)',
-                padding: '12px 16px',
-                borderRadius: 8,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {aiDiagnosis}
+            <div style={{ padding: '8px 0' }}>
+              {/* 总分 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+                <div style={{
+                  width: 64, height: 64, borderRadius: 32,
+                  background: aiDiagnosis.totalScore >= 70 ? '#22c55e20' : aiDiagnosis.totalScore >= 50 ? '#f59e0b20' : '#ef444420',
+                  border: `2px solid ${aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444'}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'column',
+                }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444', fontFamily: 'monospace' }}>
+                    {aiDiagnosis.totalScore}
+                  </div>
+                  <div style={{ fontSize: 9, color: TEXT_SECONDARY }}>分</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: TEXT_PRIMARY }}>{aiDiagnosis.rating}</div>
+                  <div style={{ fontSize: 12, color: TEXT_SECONDARY }}>综合评级</div>
+                </div>
+              </div>
+
+              {/* 维度分数 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8, marginBottom: 16 }}>
+                {aiDiagnosis.dimensions?.map((d: any, i: number) => (
+                  <div key={i} style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>{d.name}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: d.score >= 70 ? '#22c55e' : d.score >= 50 ? '#f59e0b' : '#ef4444', fontFamily: 'monospace' }}>
+                      {d.score}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 优势 */}
+              {aiDiagnosis.strengths?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#22c55e', marginBottom: 6 }}>✅ 优势</div>
+                  {aiDiagnosis.strengths.map((s: string, i: number) => (
+                    <div key={i} style={{ fontSize: 12, color: TEXT_PRIMARY, padding: '3px 0', paddingLeft: 12 }}>• {s}</div>
+                  ))}
+                </div>
+              )}
+
+              {/* 风险 */}
+              {aiDiagnosis.risks?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#ef4444', marginBottom: 6 }}>⚠️ 风险</div>
+                  {aiDiagnosis.risks.map((r: string, i: number) => (
+                    <div key={i} style={{ fontSize: 12, color: TEXT_PRIMARY, padding: '3px 0', paddingLeft: 12 }}>• {r}</div>
+                  ))}
+                </div>
+              )}
+
+              {/* 建议 */}
+              {aiDiagnosis.suggestions?.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#3b82f6', marginBottom: 6 }}>💡 建议</div>
+                  {aiDiagnosis.suggestions.map((s: string, i: number) => (
+                    <div key={i} style={{ fontSize: 12, color: TEXT_PRIMARY, padding: '3px 0', paddingLeft: 12 }}>• {s}</div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: 20, color: TEXT_SECONDARY }}>
