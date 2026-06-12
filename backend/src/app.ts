@@ -165,8 +165,7 @@ app.get('/api/search', asyncHandler(async (req, res) => {
   } else {
     try {
       const qLower = q.toLowerCase();
-      const qUpper = q.toUpperCase();
-      // 直接在数据库做模糊搜索，覆盖全部5544只股票
+      // 先尝试精确匹配
       results = await getDb().connection('stocks')
         .where('is_active', true)
         .andWhere(function() {
@@ -186,6 +185,23 @@ app.get('/api/search', asyncHandler(async (req, res) => {
           END
         `, [qLower, `${qLower}%`, qLower, `${qLower}%`])
         .limit(limit);
+
+      // 如果精确匹配无结果，尝试逐字模糊匹配
+      if (results.length === 0 && q.length >= 2) {
+        const chars = q.split('');
+        const likeConditions = chars.map(c => `name ILIKE '%${c}%'`).join(' AND ');
+        results = await getDb().connection('stocks')
+          .where('is_active', true)
+          .andWhereRaw(likeConditions)
+          .select('id', 'symbol', 'name', 'market', 'industry')
+          .orderByRaw(`
+            CASE
+              WHEN LOWER(name) LIKE ? THEN 0
+              ELSE 1
+            END
+          `, [`${qLower}%`])
+          .limit(limit);
+      }
     } catch (e) {
       log.warn('PG 搜索失败，降级 InMemoryDB:', { error: (e as Error).message });
       const inMemDb = getDb() as unknown as InMemoryDatabase;
