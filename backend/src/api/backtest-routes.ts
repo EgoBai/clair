@@ -2,10 +2,11 @@
  * 回测系统 API 路由
  */
 
-import { Router } from 'express';
+import { Request, Response, Router } from 'express';
 import { db } from '../db/dbFactory';
-import { validateBody, validateParams, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess, sendValidationError } from '../utils/apiResponse';
+import { validateBody, schemas } from '../middleware/validation';
+import { asyncHandler } from '../utils/apiResponse';
+import { normalizeSymbol } from '../utils/symbolUtils';
 import { runBacktest, STRATEGY_PRESETS, type StrategyType } from '../utils/backtestEngine';
 import type { KLineData } from '@shared/types';
 
@@ -15,7 +16,8 @@ const router = Router();
 
 router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res) => {
   try {
-    const { symbol, strategy, params = {} } = req.body;
+    const { symbol: rawSymbol, strategy, params = {} } = req.body;
+    const symbol = normalizeSymbol(rawSymbol);
 
     if (!symbol) {
       return res.status(400).json({ success: false, error: '缺少股票代码' });
@@ -29,15 +31,15 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
       .join('stocks', 'stocks.id', 'daily_quotes.stock_id')
       .where('stocks.symbol', symbol)
       .select(
-        'trade_date as tradeDate',
-        'open_price as open',
-        'close_price as close',
-        'high_price as high',
-        'low_price as low',
-        'volume',
-        'turnover'
+        'daily_quotes.trade_date as tradeDate',
+        'daily_quotes.open_price as open',
+        'daily_quotes.close_price as close',
+        'daily_quotes.high_price as high',
+        'daily_quotes.low_price as low',
+        'daily_quotes.volume',
+        'daily_quotes.turnover'
       )
-      .orderBy('trade_date', 'asc')
+      .orderBy('daily_quotes.trade_date', 'asc')
       .limit(params.limit || 500);
 
     if (klineRows.length < 20) {
@@ -92,7 +94,8 @@ router.get('/backtest/presets', (_req, res) => {
 
 router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (req, res) => {
   try {
-    const { symbol, strategies } = req.body;
+    const { symbol: rawSymbol, strategies } = req.body;
+    const symbol = normalizeSymbol(rawSymbol);
 
     if (!symbol || !Array.isArray(strategies) || strategies.length === 0) {
       return res.status(400).json({
@@ -113,15 +116,15 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
       .join('stocks', 'stocks.id', 'daily_quotes.stock_id')
       .where('stocks.symbol', symbol)
       .select(
-        'trade_date as tradeDate',
-        'open_price as open',
-        'close_price as close',
-        'high_price as high',
-        'low_price as low',
-        'volume',
-        'turnover'
+        'daily_quotes.trade_date as tradeDate',
+        'daily_quotes.open_price as open',
+        'daily_quotes.close_price as close',
+        'daily_quotes.high_price as high',
+        'daily_quotes.low_price as low',
+        'daily_quotes.volume',
+        'daily_quotes.turnover'
       )
-      .orderBy('trade_date', 'asc')
+      .orderBy('daily_quotes.trade_date', 'asc')
       .limit(500);
 
     if (klineRows.length < 20) {
