@@ -37,22 +37,26 @@ const DiscoverPage: React.FC = () => {
   const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
   const [news, setNews] = useState<any[]>([]);
 
-  // Load market overview + scores + AI insight
+  // Load market overview + scores (fast, show immediately)
   useEffect(() => {
     (async () => {
       setLoading(true);
       const apiPath = sectorType === 'industry' ? '/api/sectors/momentum' : '/api/sectors/concept';
-      const [iRes, sRes, aiRes] = await Promise.all([
+      const [iRes, sRes] = await Promise.all([
         fetch('/api/market/indices').then(r => r.json()).catch(() => ({ data: { indices: [] } })),
         fetch(apiPath).then(r => r.json()).catch(() => ({ data: { sectors: [] } })),
-        fetch('/api/ai/market-insight').then(r => r.json()).catch(() => null),
       ]);
       setIndices(iRes.data?.indices || []);
       setScores(sRes.data?.sectors || []);
-      if (aiRes?.data) setInsight(aiRes.data);
-      // Load news
-      fetch('/api/news?limit=6').then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
       setLoading(false);
+
+      // AI insight loads in background (slow, don't block page)
+      fetch('/api/ai/market-insight').then(r => r.json()).then(d => {
+        if (d?.data) setInsight(d.data);
+      }).catch(() => {});
+
+      // News loads in background
+      fetch('/api/news?limit=6').then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
     })();
   }, [sectorType]);
 
