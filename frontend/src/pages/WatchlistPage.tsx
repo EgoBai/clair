@@ -276,6 +276,8 @@ const WatchlistPage: React.FC = () => {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [aiSummary, setAiSummary] = useState<string>('');
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [aiRecommendations, setAiRecommendations] = useState<string>('');
+  const [aiRecommendationsLoading, setAiRecommendationsLoading] = useState(false);
 
   const fetchTimerRef = useRef<ReturnType<typeof setInterval>>();
   const refreshIconRef = useRef<HTMLDivElement>(null);
@@ -401,6 +403,42 @@ const WatchlistPage: React.FC = () => {
       // silent fail
     } finally {
       setAiSummaryLoading(false);
+    }
+  }, [symbols.join(','), JSON.stringify(quotes)]);
+
+  /* ─── Fetch AI recommendations ─── */
+  const fetchAiRecommendations = useCallback(async () => {
+    if (symbols.length === 0) { setAiRecommendations(''); return; }
+    setAiRecommendationsLoading(true);
+    try {
+      const stockList = symbols.map(sym => {
+        const q = quotes[sym];
+        return `${sym}(${q?.name || ''}, ${q?.industry || ''})`;
+      }).join('、');
+
+      const resp = await apiFetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `用户正在关注这些股票：${stockList}。
+
+请基于用户的关注偏好，推荐3-5只相似的、值得关注的A股。推荐理由要具体，说明为什么这些股票值得加入自选。
+
+格式要求：
+1. 先分析用户的偏好特征（行业/风格）
+2. 推荐股票（代码、名称、理由）
+3. 风险提示`,
+          stream: false,
+        }),
+      });
+      const data = await resp.json();
+      if (data?.content) {
+        setAiRecommendations(data.content);
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setAiRecommendationsLoading(false);
     }
   }, [symbols.join(','), JSON.stringify(quotes)]);
 
@@ -1189,6 +1227,55 @@ const WatchlistPage: React.FC = () => {
             <Tooltip title="AI 功能开发中，更多分析即将上线">
               <InfoCircleOutlined style={{ color: TEXT_SEC, fontSize: 14 }} />
             </Tooltip>
+          </div>
+        </Card>
+
+        {/* ── AI Recommendations Card ── */}
+        <Card
+          style={{
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(139,92,246,0.02))',
+            border: '1px solid rgba(139,92,246,0.2)',
+            borderRadius: 10,
+            marginBottom: 20,
+          }}
+          styles={{ body: { padding: '20px 24px' } }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <RobotOutlined style={{ color: '#8b5cf6', fontSize: 20, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text strong style={{ color: '#8b5cf6', fontSize: 15 }}>
+                  🎯 AI 推荐发现
+                </Text>
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={aiRecommendationsLoading}
+                  onClick={fetchAiRecommendations}
+                  disabled={symbols.length === 0}
+                  style={{ background: '#8b5cf6', borderColor: '#8b5cf6' }}
+                >
+                  {aiRecommendations ? '重新推荐' : '获取推荐'}
+                </Button>
+              </div>
+              {aiRecommendationsLoading ? (
+                <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.6 }}>
+                  <Spin size="small" style={{ marginRight: 8 }} />
+                  AI 正在分析您的关注偏好...
+                </div>
+              ) : aiRecommendations ? (
+                <div
+                  style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(aiRecommendations) }}
+                />
+              ) : (
+                <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.8 }}>
+                  基于您关注的 {symbols.length} 只股票，AI 将推荐相似的、值得关注的标的。
+                  <br />
+                  <span style={{ fontSize: 12 }}>💡 推荐基于行业关联、风格匹配、估值对比等维度。</span>
+                </div>
+              )}
+            </div>
           </div>
         </Card>
       </div>
