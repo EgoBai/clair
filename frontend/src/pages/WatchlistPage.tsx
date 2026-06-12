@@ -323,11 +323,11 @@ const WatchlistPage: React.FC = () => {
           map[s.symbol] = {
             symbol: s.symbol,
             name: s.name,
-            price: q.closePrice ?? q.price ?? 0,
-            changePercent: q.changePercent ?? 0,
-            change: q.change ?? 0,
+            price: q.closePrice ?? q.close_price ?? q.price ?? 0,
+            changePercent: q.changePercent ?? q.change_percent ?? 0,
+            change: q.change ?? q.change_amount ?? 0,
             volume: q.volume,
-            turnoverRate: q.turnoverRate,
+            turnoverRate: q.turnoverRate ?? q.turnover_rate,
             industry: q.industry || s.industry,
           };
         }

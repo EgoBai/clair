@@ -243,16 +243,16 @@ const ScreenerPage: React.FC = () => {
         return {
           symbol: s.symbol,
           name: s.name,
-          price: q.closePrice ?? q.price ?? s.price ?? 0,
-          change: q.change ?? 0,
-          changePercent: q.changePercent ?? 0,
+          price: q.closePrice ?? q.close_price ?? q.price ?? s.price ?? 0,
+          change: q.change ?? q.change_amount ?? 0,
+          changePercent: q.changePercent ?? q.change_percent ?? 0,
           volume: q.volume ? (q.volume / 1e8).toFixed(1) + '亿' : (s.volume || '—'),
-          marketCap: q.marketCap ? (q.marketCap / 1e8).toFixed(0) + '亿' : (s.marketCap || '—'),
+          marketCap: q.marketCap ?? q.market_cap ? ((q.marketCap ?? q.market_cap) / 1e8).toFixed(0) + '亿' : (s.marketCap || '—'),
           industry: s.industry || '—',
           pe: s.pe || q.pe,
           pb: s.pb || q.pb,
           roe: s.roe || q.roe,
-          turnoverRate: q.turnoverRate,
+          turnoverRate: q.turnoverRate ?? q.turnover_rate,
         };
       });
       setStocks(merged);

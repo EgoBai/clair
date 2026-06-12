@@ -84,10 +84,13 @@ const readWatchlistSymbols = (): { symbol: string }[] => {
   try {
     const raw = localStorage.getItem('astock_watchlist_v2');
     if (!raw) return [];
-    const data: WatchlistData = JSON.parse(raw);
-    if (!data.groups || !Array.isArray(data.groups)) return [];
+    const data = JSON.parse(raw);
+    
+    // 兼容两种格式：直接数组 或 {groups: [...]}
+    const groups = Array.isArray(data) ? data : (data.groups || []);
+    
     const symbols: { symbol: string }[] = [];
-    for (const group of data.groups) {
+    for (const group of groups) {
       if (Array.isArray(group.stocks)) {
         for (const stock of group.stocks) {
           if (stock.symbol) symbols.push({ symbol: stock.symbol });
@@ -208,15 +211,17 @@ const ReviewPage: React.FC = () => {
       const data = await resp.json();
 
       // Normalize the response into StockRecord[]
-      const records: StockRecord[] = (data.quotes || data.stocks || data || [])
+      const stocksData = data.data?.stocks || data.stocks || data.quotes || data || [];
+      const records: StockRecord[] = stocksData
         .filter((q: Record<string, unknown>) => q && (q.symbol || q.code))
         .map((q: Record<string, unknown>, idx: number) => {
+          const latestQuote = q.latestQuote as Record<string, unknown> | undefined;
           const symbol = (q.symbol || q.code || '') as string;
           const name = (q.name || q.stockName || symbol) as string;
-          const price = Number(q.price || q.currentPrice || q.latestPrice || q.close || 0);
-          const changePct = Number(q.changePct || q.pctChange || q.changePercent || q.changeRate || 0);
-          const changeAmt = Number(q.changeAmt || q.change || q.changeAmount || 0);
-          const volume = Number(q.volume || q.totalVolume || 0);
+          const price = Number(latestQuote?.close_price || latestQuote?.closePrice || q.price || q.currentPrice || 0);
+          const changePct = Number(latestQuote?.change_percent || latestQuote?.changePercent || q.changePct || q.changePercent || 0);
+          const changeAmt = Number(latestQuote?.change_amount || latestQuote?.changeAmount || q.changeAmt || q.change || 0);
+          const volume = Number(latestQuote?.volume || q.volume || 0);
           const industry = (q.industry || q.sector || '-') as string;
 
           return {

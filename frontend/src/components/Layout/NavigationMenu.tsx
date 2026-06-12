@@ -16,31 +16,31 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   {
     id: 'discover',
-    label: '发掘',
+    label: '市场洞察',
     path: '/',
     icon: '🔭',
-    description: 'AI 驱动：大盘→板块→个股三级穿透'
+    description: '大盘趋势 · 板块轮动 · 资金流向 · AI解读'
   },
   {
     id: 'market',
-    label: '筛选',
+    label: '策略选股',
     path: ROUTE_PATHS.SCREENER,
-    icon: '🔍',
-    description: '核心指标筛选 + 策略模板'
+    icon: '🎯',
+    description: 'AI策略推荐 · 核心指标组合 · 智能筛选'
   },
   {
     id: 'watchlist',
-    label: '自选',
+    label: '自选追踪',
     path: ROUTE_PATHS.WATCHLIST,
     icon: '⭐',
-    description: '追踪关注的标的'
+    description: '实时行情 · 异动提醒 · AI总结 · 推荐发现'
   },
   {
     id: 'review',
-    label: '复盘',
+    label: '复盘研究',
     path: '/review',
-    icon: '📋',
-    description: '交易复盘与策略回顾'
+    icon: '📊',
+    description: '组合分析 · 策略回测 · AI复盘 · 交易诊断'
   }
 ];
 
