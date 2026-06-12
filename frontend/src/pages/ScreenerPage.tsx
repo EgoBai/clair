@@ -246,8 +246,8 @@ const ScreenerPage: React.FC = () => {
           price: q.closePrice ?? q.close_price ?? q.price ?? s.price ?? 0,
           change: q.change ?? q.change_amount ?? 0,
           changePercent: q.changePercent ?? q.change_percent ?? 0,
-          volume: q.volume ? (q.volume / 1e8).toFixed(1) + '亿' : (s.volume || '—'),
-          marketCap: q.marketCap ?? q.market_cap ? ((q.marketCap ?? q.market_cap) / 1e8).toFixed(0) + '亿' : (s.marketCap || '—'),
+          volume: q.volume ? (Number(q.volume) / 1e8).toFixed(1) + '亿' : (s.volume || '—'),
+          marketCap: q.marketCap ?? q.market_cap ? (Number(q.marketCap ?? q.market_cap) / 1e8).toFixed(0) + '亿' : (s.marketCap || '—'),
           industry: s.industry || '—',
           pe: s.pe || q.pe,
           pb: s.pb || q.pb,
@@ -391,7 +391,7 @@ const ScreenerPage: React.FC = () => {
       width: 85,
       align: 'right' as const,
       render: (v: number) => (
-        <span style={{ fontFamily: 'monospace', color: TEXT }}>{v.toFixed(2)}</span>
+        <span style={{ fontFamily: 'monospace', color: TEXT }}>{Number(v).toFixed(2)}</span>
       ),
     },
     {
@@ -406,7 +406,7 @@ const ScreenerPage: React.FC = () => {
           fontWeight: 600,
           color: v >= 0 ? COLOR_UP : COLOR_DOWN 
         }}>
-          {v >= 0 ? '+' : ''}{v.toFixed(2)}%
+          {Number(v) >= 0 ? '+' : ''}{Number(v).toFixed(2)}%
         </span>
       ),
     },
@@ -417,7 +417,7 @@ const ScreenerPage: React.FC = () => {
       align: 'right' as const,
       render: (v?: number) => (
         <span style={{ fontFamily: 'monospace', color: TEXT_SEC }}>
-          {v ? v.toFixed(1) + '%' : '—'}
+          {v ? Number(v).toFixed(1) + '%' : '—'}
         </span>
       ),
     },
@@ -428,7 +428,7 @@ const ScreenerPage: React.FC = () => {
       align: 'right' as const,
       render: (v?: number) => (
         <span style={{ fontFamily: 'monospace', color: TEXT_SEC }}>
-          {v ? v.toFixed(1) : '—'}
+          {v ? Number(v).toFixed(1) : '—'}
         </span>
       ),
     },

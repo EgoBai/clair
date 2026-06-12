@@ -294,9 +294,9 @@ const WatchlistPage: React.FC = () => {
   const stats = useMemo(() => {
     const qValues = Object.values(quotes);
     const avgChange = qValues.length > 0
-      ? qValues.reduce((s, q) => s + q.changePercent, 0) / qValues.length
+      ? qValues.reduce((s, q) => s + Number(q.changePercent || 0), 0) / qValues.length
       : 0;
-    const alertCount = alerts.reduce((s, a) => s + a.alerts.length, 0);
+    const alertCount = alerts.reduce((s, a) => s + (a.alerts?.length || 0), 0);
     return { total: symbols.length, avgChange, alertCount };
   }, [quotes, alerts, symbols.length]);
 
@@ -607,10 +607,10 @@ const WatchlistPage: React.FC = () => {
           <span style={{
             fontFamily: 'monospace',
             fontWeight: 600,
-            color: q.changePercent >= 0 ? COLOR_UP : COLOR_DOWN,
+            color: Number(q.changePercent) >= 0 ? COLOR_UP : COLOR_DOWN,
             fontSize: 13,
           }}>
-            ¥{q.price.toFixed(2)}
+            ¥{Number(q.price).toFixed(2)}
           </span>
         );
       },
@@ -622,7 +622,7 @@ const WatchlistPage: React.FC = () => {
       render: (_: unknown, r: WatchlistStock) => {
         const q = quotes[r.symbol];
         if (!q) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
-        const color = q.changePercent >= 0 ? COLOR_UP : COLOR_DOWN;
+        const color = Number(q.changePercent) >= 0 ? COLOR_UP : COLOR_DOWN;
         return (
           <span style={{
             fontFamily: 'monospace',
@@ -633,8 +633,8 @@ const WatchlistPage: React.FC = () => {
             alignItems: 'center',
             gap: 3,
           }}>
-            {q.changePercent > 0 ? <ArrowUpOutlined style={{ fontSize: 10 }} /> : q.changePercent < 0 ? <ArrowDownOutlined style={{ fontSize: 10 }} /> : <MinusOutlined style={{ fontSize: 10 }} />}
-            {q.changePercent >= 0 ? '+' : ''}{q.changePercent.toFixed(2)}%
+            {Number(q.changePercent) > 0 ? <ArrowUpOutlined style={{ fontSize: 10 }} /> : Number(q.changePercent) < 0 ? <ArrowDownOutlined style={{ fontSize: 10 }} /> : <MinusOutlined style={{ fontSize: 10 }} />}
+            {Number(q.changePercent) >= 0 ? '+' : ''}{Number(q.changePercent).toFixed(2)}%
           </span>
         );
       },
@@ -649,7 +649,7 @@ const WatchlistPage: React.FC = () => {
         if (!q?.turnoverRate) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
         return (
           <span style={{ fontFamily: 'monospace', fontSize: 12, color: TEXT_SEC }}>
-            {q.turnoverRate.toFixed(2)}%
+            {Number(q.turnoverRate).toFixed(2)}%
           </span>
         );
       },
