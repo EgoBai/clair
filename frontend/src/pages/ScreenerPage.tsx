@@ -703,6 +703,48 @@ const ScreenerPage: React.FC = () => {
             }}
             size="small"
             style={{ background: 'transparent' }}
+            components={{
+              header: {
+                cell: (props: any) => (
+                  <th
+                    {...props}
+                    style={{
+                      ...props.style,
+                      background: '#0f1a2a',
+                      color: TEXT_SEC,
+                      borderBottom: `1px solid ${BORDER}`,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '10px 8px',
+                    }}
+                  />
+                ),
+              },
+              body: {
+                row: (props: any) => (
+                  <tr
+                    {...props}
+                    style={{
+                      ...props.style,
+                      background: CARD_BG,
+                      color: TEXT,
+                    }}
+                  />
+                ),
+                cell: (props: any) => (
+                  <td
+                    {...props}
+                    style={{
+                      ...props.style,
+                      background: 'transparent',
+                      color: TEXT,
+                      borderBottom: `1px solid ${BORDER}`,
+                      padding: '10px 8px',
+                    }}
+                  />
+                ),
+              },
+            }}
           />
         </Card>
       </div>

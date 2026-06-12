@@ -496,6 +496,71 @@ export class Database {
     return result.rows;
   }
 
+  /** 板块增强数据：含涨停家数、总成交额 */
+  async getSectorPerformanceEnhanced(): Promise<Array<{
+    industry: string;
+    stock_count: number;
+    avg_change_percent: number;
+    total_turnover: number;
+    total_market_cap: number;
+    limit_up_count: number;
+  }>> {
+    const result = await this.knexInstance.raw(`
+      SELECT 
+        s.industry,
+        COUNT(*) as stock_count,
+        ROUND(AVG(dq.change_percent)::numeric, 2) as avg_change_percent,
+        SUM(dq.turnover) as total_turnover,
+        SUM(dq.market_cap) as total_market_cap,
+        SUM(CASE WHEN dq.change_percent >= 9.9 THEN 1 ELSE 0 END) as limit_up_count
+      FROM daily_quotes dq
+      JOIN stocks s ON dq.stock_id = s.id
+      WHERE dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)
+        AND s.industry IS NOT NULL
+        AND s.is_active = true
+      GROUP BY s.industry
+      ORDER BY avg_change_percent DESC
+    `);
+    return result.rows;
+  }
+
+  /** 板块景气度综合评分 (0-100) */
+  async getSectorMomentumScore(): Promise<Array<{
+    industry: string;
+    score: number;
+    changeScore: number;
+    volumeScore: number;
+    breadthScore: number;
+    stock_count: number;
+    avg_change_percent: number;
+    total_turnover: number;
+    limit_up_count: number;
+  }>> {
+    const enhanced = await this.getSectorPerformanceEnhanced();
+    if (enhanced.length === 0) return [];
+
+    const maxChange = Math.max(...enhanced.map(s => Math.abs(Number(s.avg_change_percent))), 1);
+    const maxTurnover = Math.max(...enhanced.map(s => Number(s.total_turnover)), 1);
+    const maxLimitUp = Math.max(...enhanced.map(s => Number(s.limit_up_count)), 1);
+
+    return enhanced.map(s => {
+      const changeScore = Math.min(100, (Math.abs(Number(s.avg_change_percent)) / maxChange) * 50);
+      const volumeScore = Math.min(100, (Number(s.total_turnover) / maxTurnover) * 30);
+      const breadthScore = Math.min(100, (Number(s.limit_up_count) / maxLimitUp) * 20);
+      return {
+        industry: s.industry,
+        score: Math.round(changeScore + volumeScore + breadthScore),
+        changeScore: Math.round(changeScore),
+        volumeScore: Math.round(volumeScore),
+        breadthScore: Math.round(breadthScore),
+        stock_count: Number(s.stock_count),
+        avg_change_percent: Number(s.avg_change_percent),
+        total_turnover: Number(s.total_turnover),
+        limit_up_count: Number(s.limit_up_count),
+      };
+    }).sort((a, b) => b.score - a.score);
+  }
+
   /**
    * 获取涨幅榜
    */
