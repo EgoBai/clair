@@ -25,6 +25,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { renderMarkdown } from '../utils/markdown';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -837,11 +838,9 @@ const ReviewPage: React.FC = () => {
                   color: THEME.text,
                   fontSize: 13,
                   lineHeight: 1.8,
-                  whiteSpace: 'pre-wrap',
                 }}
-              >
-                {aiAnalysis}
-              </div>
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(aiAnalysis) }}
+              />
             )}
           </Card>
 
