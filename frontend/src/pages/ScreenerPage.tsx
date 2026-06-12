@@ -220,7 +220,7 @@ const ScreenerPage: React.FC = () => {
     setLoading(true);
     try {
       // 先获取股票列表
-      const listResp = await apiFetch('/api/stocks?limit=500').then(r => r.json());
+      const listResp = await apiFetch('/api/stocks?pageSize=6000').then(r => r.json());
       const apiStocks = listResp?.data?.stocks || [];
 
       // 用实际symbols获取行情
@@ -703,48 +703,6 @@ const ScreenerPage: React.FC = () => {
             }}
             size="small"
             style={{ background: 'transparent' }}
-            components={{
-              header: {
-                cell: (props: any) => (
-                  <th
-                    {...props}
-                    style={{
-                      ...props.style,
-                      background: '#0f1a2a',
-                      color: TEXT_SEC,
-                      borderBottom: `1px solid ${BORDER}`,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      padding: '10px 8px',
-                    }}
-                  />
-                ),
-              },
-              body: {
-                row: (props: any) => (
-                  <tr
-                    {...props}
-                    style={{
-                      ...props.style,
-                      background: CARD_BG,
-                      color: TEXT,
-                    }}
-                  />
-                ),
-                cell: (props: any) => (
-                  <td
-                    {...props}
-                    style={{
-                      ...props.style,
-                      background: 'transparent',
-                      color: TEXT,
-                      borderBottom: `1px solid ${BORDER}`,
-                      padding: '10px 8px',
-                    }}
-                  />
-                ),
-              },
-            }}
           />
         </Card>
       </div>

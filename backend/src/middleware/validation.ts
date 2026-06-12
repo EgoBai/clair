@@ -16,7 +16,7 @@ const stockSearchSchema = Joi.object({
   industry: Joi.string().max(100).optional(),
   isActive: Joi.string().valid('true', 'false').optional(),
   page: Joi.number().integer().min(1).max(10000).default(1),
-  pageSize: Joi.number().integer().min(1).max(100).default(20),
+  pageSize: Joi.number().integer().min(1).max(6000).default(20),
   sortBy: Joi.string().valid('symbol', 'name', 'market', 'industry', 'created_at').default('symbol'),
   sortOrder: Joi.string().valid('asc', 'desc').default('asc'),
 });
