@@ -219,46 +219,29 @@ const ScreenerPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // 先获取股票列表
+      // 获取股票列表（不获取行情，避免6000个symbols的batch请求超时）
       const listResp = await apiFetch('/api/stocks?pageSize=6000').then(r => r.json());
       const apiStocks = listResp?.data?.stocks || [];
 
-      // 用实际symbols获取行情
-      const symbols = apiStocks.map((s: any) => s.symbol);
-      let quotesData: any[] = [];
-      if (symbols.length > 0) {
-        const quotesResp = await apiFetch('/api/stocks/batch/quotes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbols }),
-        }).then(r => r.json());
-        quotesData = quotesResp?.data?.stocks || [];
-      }
-
-      const quoteMap: Record<string, any> = {};
-      for (const q of quotesData) quoteMap[q.symbol] = q;
-
-      const merged: StockData[] = apiStocks.map((s: any) => {
-        const q = quoteMap[s.symbol]?.latestQuote || {};
-        return {
-          symbol: s.symbol,
-          name: s.name,
-          price: q.closePrice ?? q.close_price ?? q.price ?? s.price ?? 0,
-          change: q.change ?? q.change_amount ?? 0,
-          changePercent: q.changePercent ?? q.change_percent ?? 0,
-          volume: q.volume ? (Number(q.volume) / 1e8).toFixed(1) + '亿' : (s.volume || '—'),
-          marketCap: q.marketCap ?? q.market_cap ? (Number(q.marketCap ?? q.market_cap) / 1e8).toFixed(0) + '亿' : (s.marketCap || '—'),
-          industry: s.industry || '—',
-          pe: s.pe || q.pe,
-          pb: s.pb || q.pb,
-          roe: s.roe || q.roe,
-          turnoverRate: q.turnoverRate ?? q.turnover_rate,
-        };
-      });
+      // 直接用stocks表的数据（不含实时行情，但有行业/代码等基础信息）
+      const merged: StockData[] = apiStocks.map((s: any) => ({
+        symbol: s.symbol,
+        name: s.name,
+        price: Number(s.current_price || 0),
+        change: Number(s.change_amount || 0),
+        changePercent: Number(s.change_percent || 0),
+        volume: s.volume || '—',
+        marketCap: s.market_cap || '—',
+        industry: s.industry || '—',
+        pe: s.pe_ratio || s.pe,
+        pb: s.pb_ratio || s.pb,
+        roe: s.roe,
+        turnoverRate: s.turnover_rate,
+      }));
       setStocks(merged);
     } catch (e) {
-      console.warn('筛选器数据加载失败:', e);
-      message.warning('数据加载失败，请稍后重试');
+      console.error('加载数据失败:', e);
+      message.error('数据加载失败，请稍后重试');
     } finally {
       setLoading(false);
     }
