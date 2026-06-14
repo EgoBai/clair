@@ -76,7 +76,7 @@ const StockDetailPage: React.FC = () => {
 
   const changeColor = useMemo(() => {
     if (!latestQuote) return COLOR_FLAT;
-    return latestQuote.changePercent >= 0 ? COLOR_UP : COLOR_DOWN;
+    return Number(latestQuote.changePercent) >= 0 ? COLOR_UP : COLOR_DOWN;
   }, [latestQuote]);
 
   const isInWatchlist = symbol ? watchlist.includes(symbol) : false;
@@ -247,15 +247,15 @@ const StockDetailPage: React.FC = () => {
               {latestQuote ? (
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 38, fontWeight: 800, color: changeColor, lineHeight: 1, fontFamily: '\'DIN Alternate\', monospace' }}>
-                    {latestQuote.closePrice.toFixed(2)}
+                    {Number(latestQuote.closePrice).toFixed(2)}
                   </span>
                   <Space size={8}>
                     <span style={{ fontSize: 18, fontWeight: 700, color: changeColor, fontFamily: '\'DIN Alternate\', monospace' }}>
                       {latestQuote.change >= 0 ? '+' : ''}{latestQuote.change.toFixed(2)}
                     </span>
-                    <Tag color={latestQuote.changePercent >= 0 ? 'red' : 'green'}
+                    <Tag color={Number(latestQuote.changePercent) >= 0 ? 'red' : 'green'}
                       style={{ fontSize: 15, padding: '2px 10px', fontWeight: 700, borderRadius: 4 }}>
-                      {latestQuote.changePercent >= 0 ? '+' : ''}{latestQuote.changePercent.toFixed(2)}%
+                      {Number(latestQuote.changePercent) >= 0 ? '+' : ''}{latestQuote.changePercent.toFixed(2)}%
                     </Tag>
                   </Space>
                 </div>
@@ -282,16 +282,16 @@ const StockDetailPage: React.FC = () => {
             style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
           >
             <Row gutter={[0, 8]}>
-              <Col xs={12} sm={8} md={4}><StatItem label="现价" value={latestQuote.closePrice.toFixed(2)} color={changeColor} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="今开" value={latestQuote.openPrice.toFixed(2)} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="最高" value={latestQuote.highPrice.toFixed(2)} color={COLOR_UP} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="最低" value={latestQuote.lowPrice.toFixed(2)} color={COLOR_DOWN} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="现价" value={Number(latestQuote.closePrice).toFixed(2)} color={changeColor} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="今开" value={Number(latestQuote.openPrice).toFixed(2)} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="最高" value={Number(latestQuote.highPrice).toFixed(2)} color={COLOR_UP} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="最低" value={Number(latestQuote.lowPrice).toFixed(2)} color={COLOR_DOWN} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="成交量" value={formatVolume(latestQuote.volume)} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="成交额" value={formatTurnover(latestQuote.turnover)} /></Col>
             </Row>
             <Divider style={{ margin: '8px 0', borderColor: BORDER }} />
             <Row gutter={[0, 8]}>
-              <Col xs={12} sm={8} md={4}><StatItem label="涨跌幅" value={`${latestQuote.changePercent >= 0 ? '+' : ''}${latestQuote.changePercent.toFixed(2)}%`} color={changeColor} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="涨跌幅" value={`${Number(latestQuote.changePercent) >= 0 ? '+' : ''}${latestQuote.changePercent.toFixed(2)}%`} color={changeColor} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="振幅" value={`${(latestQuote.amplitude || 0).toFixed(2)}%`} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PE(动)" value={latestQuote.peRatio?.toFixed(2) || '-'} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PB" value={latestQuote.pbRatio?.toFixed(2) || '-'} /></Col>
