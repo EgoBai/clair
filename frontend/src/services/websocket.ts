@@ -1,20 +1,23 @@
 /**
- * WebSocket 实时数据服务
- * 连接后端WebSocket服务获取实时行情推送
+ * WebSocket 实时数据服务 (Socket.IO)
+ * 连接后端Socket.IO服务获取实时行情推送
  */
 
+import { io, Socket } from 'socket.io-client';
 import logger from '../utils/logger';
+
 export type WSMessageType =
-  | 'quote_update'       // 行情更新
-  | 'market_summary'     // 市场概况更新
-  | 'index_update'       // 指数更新
-  | 'heartbeat'          // 心跳
-  | 'error';             // 错误
+  | 'quote_update'
+  | 'market_summary'
+  | 'index_update'
+  | 'heartbeat'
+  | 'error';
 
 export interface WSMessage<T = any> {
   type: WSMessageType;
   data: T;
   timestamp: number;
+  seq?: number;
 }
 
 export interface QuoteUpdateData {
@@ -39,21 +42,17 @@ interface WebSocketConfig {
 }
 
 const DEFAULT_CONFIG: WebSocketConfig = {
-  url: (import.meta.env.VITE_WS_URL as string) || 'ws://localhost:3001/ws',
+  url: import.meta.env.VITE_WS_URL || 'http://127.0.0.1:3001',
   reconnectInterval: 3000,
   maxReconnectAttempts: 10,
   heartbeatInterval: 30000,
 };
 
 class WebSocketService {
-  private ws: WebSocket | null = null;
+  private socket: Socket | null = null;
   private config: WebSocketConfig;
   private handlers: Map<WSMessageType, Set<WSMessageHandler>> = new Map();
   private generalHandlers: Set<WSMessageHandler> = new Set();
-  private reconnectAttempts: number = 0;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private isManualClose: boolean = false;
   private subscribedSymbols: Set<string> = new Set();
   private isConnected: boolean = false;
 
@@ -61,122 +60,82 @@ class WebSocketService {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
-  /**
-   * 连接WebSocket
-   */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (this.socket?.connected) {
         resolve();
         return;
       }
 
-      this.isManualClose = false;
+      const url = this.config.url;
+      this.socket = io(url, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: this.config.maxReconnectAttempts,
+        reconnectionDelay: this.config.reconnectInterval,
+        reconnectionDelayMax: 30000,
+        timeout: 10000,
+      });
 
-      try {
-        this.ws = new WebSocket(this.config.url);
-      } catch (error) {
-        reject(error);
-        return;
-      }
-
-      this.ws.onopen = () => {
-        // removed: console.log
+      this.socket.on('connect', () => {
         this.isConnected = true;
-        this.reconnectAttempts = 0;
-        this.startHeartbeat();
-
         // 重新订阅之前的股票
         if (this.subscribedSymbols.size > 0) {
           this.sendSubscribe(Array.from(this.subscribedSymbols));
         }
-
         resolve();
-      };
+      });
 
-      this.ws.onmessage = (event: MessageEvent) => {
-        try {
-          const message: WSMessage = JSON.parse(event.data);
-          this.dispatchMessage(message);
-        } catch (error) {
-          logger.error('[WS] 消息解析失败:', error);
-        }
-      };
-
-      this.ws.onerror = (event) => {
-        logger.error('[WS] 连接错误:', event);
-      };
-
-      this.ws.onclose = () => {
-        // removed: console.log
+      this.socket.on('disconnect', () => {
         this.isConnected = false;
-        this.stopHeartbeat();
+      });
 
-        if (!this.isManualClose) {
-          this.scheduleReconnect();
+      this.socket.on('connect_error', (error) => {
+        logger.error('[WS] 连接错误:', error.message);
+        if (!this.isConnected) {
+          reject(error);
         }
-      };
+      });
+
+      // 监听后端通过 'message' 事件推送的数据
+      this.socket.on('message', (message: WSMessage) => {
+        this.dispatchMessage(message);
+      });
     });
   }
 
-  /**
-   * 断开连接
-   */
   disconnect(): void {
-    this.isManualClose = true;
-    this.stopHeartbeat();
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
     }
     this.isConnected = false;
   }
 
-  /**
-   * 订阅股票行情
-   */
   subscribe(symbols: string[]): void {
     symbols.forEach((s) => this.subscribedSymbols.add(s));
-    if (this.isConnected) {
+    if (this.isConnected && this.socket) {
       this.sendSubscribe(symbols);
     }
   }
 
-  /**
-   * 取消订阅
-   */
   unsubscribe(symbols: string[]): void {
     symbols.forEach((s) => this.subscribedSymbols.delete(s));
-    if (this.isConnected) {
-      this.send({
-        type: 'unsubscribe',
-        symbols,
-      });
+    if (this.isConnected && this.socket) {
+      this.socket.emit('unsubscribe', { symbols });
     }
   }
 
-  /**
-   * 注册消息处理器
-   */
   on(type: WSMessageType, handler: WSMessageHandler): () => void {
     if (!this.handlers.has(type)) {
       this.handlers.set(type, new Set());
     }
     this.handlers.get(type)!.add(handler);
-
-    // 返回取消订阅函数
     return () => {
       this.handlers.get(type)?.delete(handler);
     };
   }
 
-  /**
-   * 注册通用消息处理器
-   */
   onMessage(handler: WSMessageHandler): () => void {
     this.generalHandlers.add(handler);
     return () => {
@@ -184,37 +143,23 @@ class WebSocketService {
     };
   }
 
-  /**
-   * 获取连接状态
-   */
   getConnectionState(): boolean {
     return this.isConnected;
   }
 
-  /**
-   * 获取已订阅的股票
-   */
   getSubscriptions(): string[] {
     return Array.from(this.subscribedSymbols);
   }
 
   // === 私有方法 ===
 
-  private send(message: unknown): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
+  private sendSubscribe(symbols: string[]): void {
+    if (this.socket) {
+      this.socket.emit('subscribe', { symbols });
     }
   }
 
-  private sendSubscribe(symbols: string[]): void {
-    this.send({
-      type: 'subscribe',
-      symbols,
-    });
-  }
-
   private dispatchMessage(message: WSMessage): void {
-    // 分发到特定类型处理器
     const handlers = this.handlers.get(message.type);
     if (handlers) {
       handlers.forEach((handler) => {
@@ -226,7 +171,6 @@ class WebSocketService {
       });
     }
 
-    // 分发到通用处理器
     this.generalHandlers.forEach((handler) => {
       try {
         handler(message);
@@ -235,40 +179,8 @@ class WebSocketService {
       }
     });
   }
-
-  private startHeartbeat(): void {
-    this.heartbeatTimer = setInterval(() => {
-      this.send({ type: 'ping', timestamp: Date.now() });
-    }, this.config.heartbeatInterval);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
-  private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
-      logger.error('[WS] 达到最大重连次数');
-      return;
-    }
-
-    this.reconnectAttempts++;
-    const delay = this.config.reconnectInterval * Math.min(this.reconnectAttempts, 5);
-
-    // removed: console.log
-
-    this.reconnectTimer = setTimeout(() => {
-      this.connect().catch((error) => {
-        logger.error('[WS] 重连失败:', error);
-      });
-    }, delay);
-  }
 }
 
-// 单例导出
 export const wsService = new WebSocketService();
 
 export default WebSocketService;

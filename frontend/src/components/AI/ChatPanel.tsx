@@ -215,12 +215,13 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
         )
       );
     } catch (error) {
+      console.error('AI chat error:', error);
       setMessages(prev =>
         prev.map(m =>
           m.id === aiMessageId
             ? {
                 ...m,
-                content: '⚠️ AI服务暂时不可用，请稍后重试。',
+                content: `⚠️ AI服务暂时不可用: ${(error as Error).message || '未知错误'}`,
                 isStreaming: false,
               }
             : m
