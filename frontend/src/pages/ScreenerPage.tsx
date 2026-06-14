@@ -81,16 +81,7 @@ const FILTER_METRICS: FilterMetric[] = [
     color: '#f59e0b',
     category: 'technical',
     description: '涨幅超过3%的强势股',
-    filter: (s) => s.changePercent > 3,
-  },
-  {
-    id: 'low_pe',
-    name: '低估值',
-    icon: <FundOutlined />,
-    color: '#22c55e',
-    category: 'fundamental',
-    description: 'PE低于20倍的价值股',
-    filter: (s) => s.pe ? s.pe > 0 && s.pe < 20 : false,
+    filter: (s) => Number(s.changePercent) > 3,
   },
   {
     id: 'high_turnover',
@@ -99,7 +90,16 @@ const FILTER_METRICS: FilterMetric[] = [
     color: '#ef4444',
     category: 'capital',
     description: '换手率超过5%的活跃股',
-    filter: (s) => s.turnoverRate ? s.turnoverRate > 5 : false,
+    filter: (s) => Number(s.turnoverRate) > 5,
+  },
+  {
+    id: 'large_cap',
+    name: '大盘蓝筹',
+    icon: <FundOutlined />,
+    color: '#22c55e',
+    category: 'fundamental',
+    description: '市值超过100亿的大盘股',
+    filter: (s) => Number(s.marketCap) > 1e10,
   },
   {
     id: 'hot_industry',
@@ -109,7 +109,7 @@ const FILTER_METRICS: FilterMetric[] = [
     category: 'industry',
     description: '当前热门行业的股票',
     filter: (s) => {
-      const hotIndustries = ['新能源', '半导体', '人工智能', '光模块', '存储'];
+      const hotIndustries = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车'];
       return hotIndustries.some(ind => s.industry?.includes(ind));
     },
   },
