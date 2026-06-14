@@ -1,0 +1,596 @@
+/**
+ * 澄观 Clair — 多端响应式设计系统
+ * 
+ * 设计理念：
+ * - Mobile-First：从小屏向上适配
+ * - 底部 Tab Bar：移动端核心导航（类 iOS/Android 原生体验）
+ * - 卡片化布局：表格在小屏自动转为卡片
+ * - 安全区适配：iPhone 刘海/底部安全区
+ * - 触摸友好：所有交互目标 ≥ 44px
+ * 
+ * 断点系统：
+ * - xs: 0-480px   (小屏手机)
+ * - sm: 481-768px  (大屏手机/小平板)
+ * - md: 769-1024px (平板竖屏)
+ * - lg: 1025-1440px (桌面)
+ * - xl: 1441px+    (大屏)
+ */
+
+/* ==================== 设计令牌 ==================== */
+:root {
+  /* 响应式间距 */
+  --r-spacing-xs: 4px;
+  --r-spacing-sm: 8px;
+  --r-spacing-md: 16px;
+  --r-spacing-lg: 24px;
+  --r-spacing-xl: 32px;
+
+  /* 底部 Tab Bar 高度 */
+  --tab-bar-height: 64px;
+  --tab-bar-icon-size: 24px;
+  --tab-bar-label-size: 10px;
+
+  /* 安全区 */
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+
+  /* 页面标题栏高度 */
+  --page-header-height: 56px;
+
+  /* 卡片化表格 */
+  --card-gap: 12px;
+}
+
+/* ==================== 底部 Tab Bar（移动端核心导航）==================== */
+.tab-bar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* 隐藏桌面侧边栏 */
+  .navigation-menu .nav-container {
+    display: none !important;
+  }
+  .navigation-menu .mobile-menu-button {
+    display: none !important;
+  }
+  .navigation-menu .mobile-menu-overlay {
+    display: none !important;
+  }
+
+  /* 显示底部 Tab Bar */
+  .tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(var(--tab-bar-height) + var(--safe-area-bottom));
+    padding-bottom: var(--safe-area-bottom);
+    background: var(--color-surface, #fff);
+    border-top: 1px solid var(--color-border, #e5e7eb);
+    z-index: 1000;
+    justify-content: space-around;
+    align-items: center;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+  }
+
+  [data-theme="dark"] .tab-bar {
+    background: rgba(22, 33, 62, 0.95);
+    border-top-color: #2a2a4a;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  .tab-bar-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 0;
+    min-width: 64px;
+    min-height: 48px;
+    text-decoration: none;
+    color: var(--color-text-muted, #9ca3af);
+    transition: color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .tab-bar-item.active {
+    color: var(--color-primary, #3b82f6);
+  }
+
+  .tab-bar-item.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 2px;
+    background: var(--color-primary, #3b82f6);
+    border-radius: 0 0 2px 2px;
+  }
+
+  .tab-bar-icon {
+    font-size: 22px;
+    line-height: 1;
+    transition: transform 0.2s ease;
+  }
+
+  .tab-bar-item.active .tab-bar-icon {
+    transform: scale(1.1);
+  }
+
+  .tab-bar-label {
+    font-size: var(--tab-bar-label-size);
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* 主内容区底部留白 */
+  .app-content {
+    padding-bottom: calc(var(--tab-bar-height) + var(--safe-area-bottom) + 8px) !important;
+  }
+
+  .content-wrapper {
+    padding: var(--r-spacing-md) !important;
+  }
+}
+
+/* ==================== 页面顶部标题栏（移动端）==================== */
+@media (max-width: 768px) {
+  .page-mobile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    padding-top: calc(12px + var(--safe-area-top));
+    background: var(--color-surface, #fff);
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    min-height: var(--page-header-height);
+  }
+
+  [data-theme="dark"] .page-mobile-header {
+    background: #16213e;
+    border-bottom-color: #2a2a4a;
+  }
+
+  .page-mobile-header-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--color-text, #111827);
+    flex: 1;
+    text-align: center;
+  }
+
+  [data-theme="dark"] .page-mobile-header-title {
+    color: #e0e0e0;
+  }
+
+  .page-mobile-header-action {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    color: var(--color-primary, #3b82f6);
+    font-size: 18px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* 桌面隐藏移动端头部 */
+@media (min-width: 769px) {
+  .page-mobile-header {
+    display: none !important;
+  }
+}
+
+/* ==================== 卡片化表格（移动端）==================== */
+@media (max-width: 768px) {
+  /* 隐藏表格，显示卡片 */
+  .responsive-table-wrapper .ant-table-wrapper {
+    display: none !important;
+  }
+
+  .responsive-card-list {
+    display: flex !important;
+    flex-direction: column;
+    gap: var(--card-gap);
+  }
+
+  .responsive-card {
+    background: var(--color-surface, #fff);
+    border-radius: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--color-border, #e5e7eb);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  [data-theme="dark"] .responsive-card {
+    background: #16213e;
+    border-color: #2a2a4a;
+  }
+
+  .responsive-card:active {
+    transform: scale(0.98);
+  }
+
+  .responsive-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  .responsive-card-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text, #111827);
+    line-height: 1.3;
+  }
+
+  [data-theme="dark"] .responsive-card-name {
+    color: #e0e0e0;
+  }
+
+  .responsive-card-code {
+    font-size: 12px;
+    color: var(--color-text-muted, #9ca3af);
+    font-family: var(--font-mono, monospace);
+    margin-top: 2px;
+  }
+
+  .responsive-card-price {
+    text-align: right;
+  }
+
+  .responsive-card-price-value {
+    font-size: 17px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .responsive-card-price-change {
+    font-size: 13px;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .responsive-card-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-border, #e5e7eb);
+  }
+
+  [data-theme="dark"] .responsive-card-meta {
+    border-top-color: #2a2a4a;
+  }
+
+  .responsive-card-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .responsive-card-meta-label {
+    font-size: 11px;
+    color: var(--color-text-muted, #9ca3af);
+  }
+
+  .responsive-card-meta-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-secondary, #6b7280);
+    font-variant-numeric: tabular-nums;
+  }
+
+  [data-theme="dark"] .responsive-card-meta-value {
+    color: #a0a0b0;
+  }
+}
+
+/* 桌面端隐藏卡片列表 */
+@media (min-width: 769px) {
+  .responsive-card-list {
+    display: none !important;
+  }
+}
+
+/* ==================== 响应式网格系统 ==================== */
+.responsive-grid {
+  display: grid;
+  gap: var(--r-spacing-md);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 769px) {
+  .responsive-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1025px) {
+  .responsive-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1441px) {
+  .responsive-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ==================== 响应式统计卡片 ==================== */
+.stats-row {
+  display: grid;
+  gap: var(--r-spacing-sm);
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (min-width: 769px) {
+  .stats-row {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.stat-card {
+  background: var(--color-surface, #fff);
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  transition: transform 0.15s ease;
+}
+
+[data-theme="dark"] .stat-card {
+  background: #16213e;
+  border-color: #2a2a4a;
+}
+
+.stat-card-label {
+  font-size: 12px;
+  color: var(--color-text-muted, #9ca3af);
+  margin-bottom: 4px;
+}
+
+.stat-card-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text, #111827);
+}
+
+@media (max-width: 768px) {
+  .stat-card-value {
+    font-size: 17px;
+  }
+}
+
+[data-theme="dark"] .stat-card-value {
+  color: #e0e0e0;
+}
+
+.stat-card-change {
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* ==================== 响应式图表容器 ==================== */
+.chart-responsive {
+  width: 100%;
+  min-height: 200px;
+}
+
+@media (max-width: 768px) {
+  .chart-responsive {
+    min-height: 180px;
+  }
+
+  .chart-responsive .echarts-for-react {
+    height: 180px !important;
+  }
+}
+
+/* ==================== 响应式搜索栏 ==================== */
+@media (max-width: 768px) {
+  .search-bar-mobile {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 8px 16px;
+    padding-top: calc(8px + var(--safe-area-top));
+    background: var(--color-surface, #fff);
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+  }
+
+  [data-theme="dark"] .search-bar-mobile {
+    background: #16213e;
+    border-bottom-color: #2a2a4a;
+  }
+
+  .search-bar-mobile .ant-input,
+  .search-bar-mobile .ant-input-affix-wrapper {
+    border-radius: 10px !important;
+    height: 40px !important;
+    font-size: 15px !important;
+  }
+}
+
+/* ==================== 响应式弹窗/抽屉 ==================== */
+@media (max-width: 768px) {
+  .ant-modal-wrap {
+    align-items: flex-end !important;
+  }
+
+  .ant-modal {
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 90vh;
+  }
+
+  .ant-modal-content {
+    border-radius: 16px 16px 0 0 !important;
+    padding-bottom: calc(16px + var(--safe-area-bottom));
+  }
+
+  .ant-drawer-content-wrapper {
+    border-radius: 16px 16px 0 0 !important;
+  }
+}
+
+/* ==================== 响应式表格 ==================== */
+@media (max-width: 768px) {
+  .ant-table {
+    font-size: 13px !important;
+  }
+
+  .ant-table-thead > tr > th {
+    padding: 8px 8px !important;
+    font-size: 11px !important;
+    white-space: nowrap;
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 10px 8px !important;
+    font-size: 13px !important;
+  }
+
+  .ant-table-cell-row-hover {
+    background: transparent !important;
+  }
+
+  /* 横向滚动提示 */
+  .ant-table-wrapper {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+}
+
+/* ==================== 响应式按钮和触摸目标 ==================== */
+@media (max-width: 768px) {
+  .ant-btn {
+    min-height: 40px !important;
+    min-width: 40px !important;
+    border-radius: 10px !important;
+  }
+
+  .ant-btn-sm {
+    min-height: 36px !important;
+    min-width: 36px !important;
+  }
+
+  .ant-tabs-tab {
+    min-height: 44px !important;
+    padding: 12px 0 !important;
+    font-size: 14px !important;
+  }
+
+  .ant-segmented-item {
+    min-height: 36px !important;
+    padding: 0 12px !important;
+  }
+}
+
+/* ==================== AI 浮动按钮（移动端适配）==================== */
+@media (max-width: 768px) {
+  .floating-chat-trigger {
+    bottom: calc(var(--tab-bar-height) + var(--safe-area-bottom) + 16px) !important;
+    right: 16px !important;
+    width: 52px !important;
+    height: 52px !important;
+    border-radius: 26px !important;
+  }
+
+  .floating-chat-panel {
+    bottom: calc(var(--tab-bar-height) + var(--safe-area-bottom) + 16px) !important;
+    right: 8px !important;
+    left: 8px !important;
+    width: auto !important;
+    max-height: calc(100vh - var(--tab-bar-height) - var(--safe-area-bottom) - 80px) !important;
+    border-radius: 16px !important;
+  }
+}
+
+/* ==================== 关于按钮（移动端适配）==================== */
+@media (max-width: 768px) {
+  .app-layout > .ant-tooltip-trigger > div {
+    bottom: calc(var(--tab-bar-height) + var(--safe-area-bottom) + 80px) !important;
+  }
+}
+
+/* ==================== 横屏适配 ==================== */
+@media (max-width: 768px) and (orientation: landscape) {
+  .stats-row {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .stat-card {
+    padding: 10px 12px;
+  }
+
+  .stat-card-value {
+    font-size: 15px;
+  }
+
+  .chart-responsive {
+    min-height: 150px;
+  }
+}
+
+/* ==================== 折叠屏适配 ==================== */
+@media (min-width: 769px) and (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  /* 平板触摸设备 */
+  .ant-btn {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  .ant-tabs-tab {
+    min-height: 48px !important;
+  }
+}
+
+/* ==================== 高刷新率屏幕优化 ==================== */
+@media (hover: none) and (pointer: coarse) {
+  /* 触摸设备禁用 hover 效果 */
+  .ant-card-hoverable:hover {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* ==================== 打印适配 ==================== */
+@media print {
+  .tab-bar,
+  .floating-chat-trigger,
+  .page-mobile-header,
+  .mobile-menu-button {
+    display: none !important;
+  }
+
+  .app-content {
+    margin-left: 0 !important;
+    padding-bottom: 0 !important;
+  }
+}
