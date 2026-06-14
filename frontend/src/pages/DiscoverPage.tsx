@@ -293,7 +293,12 @@ const DiscoverPage: React.FC = () => {
 
             {/* 板块景气度评分 */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Text strong style={{ color: TEXT, fontSize: 15 }}>🏢 板块景气度评分</Text>
+              <div>
+                <Text strong style={{ color: TEXT, fontSize: 15 }}>🏢 板块景气度评分</Text>
+                <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
+                  综合评分0-100 | 涨跌强度50% + 资金活跃度30% + 涨停广度20%
+                </div>
+              </div>
               <div style={{ display: 'flex', gap: 4, background: '#1e293b', borderRadius: 8, padding: 2 }}>
                 {(['industry', 'concept'] as const).map(t => (
                   <div key={t} onClick={() => setSectorType(t)} style={{
@@ -333,19 +338,19 @@ const DiscoverPage: React.FC = () => {
                       {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
                     </div>
                     <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
-                      <Tooltip title="动量得分 (权重35%)">
-                        <span>🚀 {s.momentumScore}</span>
-                      </Tooltip>
-                      <Tooltip title="趋势得分 (权重25%)">
+                      <Tooltip title="涨跌强度 (权重50%): 行业平均涨跌幅绝对值，越高说明板块波动越大">
                         <span>📈 {s.changeScore}</span>
                       </Tooltip>
-                      <Tooltip title="广度得分 (权重25%)">
-                        <span>📊 {s.breadthScore}</span>
+                      <Tooltip title="资金活跃度 (权重30%): 行业总成交额，越高说明资金关注度越高">
+                        <span>💰 {s.volumeScore}</span>
                       </Tooltip>
-                      <span style={{ color: s.avg_change_percent >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
-                        {s.avg_change_percent >= 0 ? '+' : ''}{s.avg_change_percent.toFixed(2)}%
+                      <Tooltip title="涨停广度 (权重20%): 涨停家数，越多说明板块赚钱效应越强">
+                        <span>🔥 {s.breadthScore}</span>
+                      </Tooltip>
+                      <span style={{ color: Number(s.avg_change_percent) >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
+                        {Number(s.avg_change_percent) >= 0 ? '+' : ''}{Number(s.avg_change_percent).toFixed(2)}%
                       </span>
-                      <span>额{formatBig(s.total_turnover)}</span>
+                      <span>额{formatBig(Number(s.total_turnover))}</span>
                     </div>
                   </div>
 
