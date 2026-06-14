@@ -157,6 +157,12 @@ const ScreenerPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
+  // 对话式筛选状态
+  const [aiFilterQuery, setAiFilterQuery] = useState('');
+  const [aiFilterLoading, setAiFilterLoading] = useState(false);
+  const [aiFilterResult, setAiFilterResult] = useState<string>('');
+  const [aiFilterSymbols, setAiFilterSymbols] = useState<string[]>([]);
+
   // 自选列表状态
   const [watchlist, setWatchlist] = useState<string[]>([]);
   
@@ -253,6 +259,12 @@ const ScreenerPage: React.FC = () => {
   const filtered = useMemo(() => {
     let result = [...stocks];
 
+    // AI对话式筛选（优先级最高）
+    if (aiFilterSymbols.length > 0) {
+      result = result.filter(s => aiFilterSymbols.includes(s.symbol));
+      return result; // AI筛选结果直接返回，不叠加其他筛选
+    }
+
     // 应用策略筛选
     if (activeStrategy) {
       const strategy = STRATEGY_TEMPLATES.find(s => s.id === activeStrategy);
@@ -318,6 +330,33 @@ const ScreenerPage: React.FC = () => {
       setAiLoading(false);
     }
   }, [activeStrategy, activeMetrics, filtered.length]);
+
+  // 对话式筛选
+  const handleAiFilter = useCallback(async () => {
+    if (!aiFilterQuery.trim()) return;
+    setAiFilterLoading(true);
+    setAiFilterResult('');
+    setAiFilterSymbols([]);
+    try {
+      const resp = await apiFetch('/api/ai/filter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: aiFilterQuery }),
+      });
+      const data = await resp.json();
+      if (data?.success && data.data) {
+        const resultStocks = data.data.results || [];
+        setAiFilterSymbols(resultStocks.map((s: any) => s.symbol));
+        setAiFilterResult(`找到 ${resultStocks.length} 只符合条件的股票`);
+      } else {
+        setAiFilterResult('未找到符合条件的股票');
+      }
+    } catch {
+      setAiFilterResult('筛选失败，请换个说法试试');
+    } finally {
+      setAiFilterLoading(false);
+    }
+  }, [aiFilterQuery]);
 
   // 分页
   const paged = useMemo(() => {
@@ -619,6 +658,41 @@ const ScreenerPage: React.FC = () => {
               </Tooltip>
             ))}
           </div>
+        </Card>
+
+        {/* 对话式筛选 */}
+        <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(139,92,246,0.02))', border: '1px solid rgba(139,92,246,0.2)' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 20 }}>🎯</span>
+            <input
+              type="text"
+              placeholder="用自然语言描述筛选条件，如：涨幅超3%的科技股"
+              value={aiFilterQuery}
+              onChange={(e) => setAiFilterQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAiFilter(); }}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                color: TEXT,
+                fontSize: 14,
+                outline: 'none',
+              }}
+            />
+            <Button
+              type="primary"
+              loading={aiFilterLoading}
+              onClick={handleAiFilter}
+              style={{ background: '#8b5cf6', borderColor: '#8b5cf6' }}
+            >
+              AI筛选
+            </Button>
+          </div>
+          {aiFilterResult && (
+            <div style={{ marginTop: 8, fontSize: 12, color: TEXT_SEC }}>
+              {aiFilterResult}
+            </div>
+          )}
         </Card>
 
         {/* 搜索和统计 */}
