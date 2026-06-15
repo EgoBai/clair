@@ -19,6 +19,7 @@ import {
   FundOutlined, LineChartOutlined,
   StarOutlined, StarFilled, PlusOutlined, SettingOutlined,
   RobotOutlined, BulbOutlined,
+  FallOutlined, RocketOutlined, SafetyOutlined,
 } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
@@ -113,9 +114,39 @@ const FILTER_METRICS: FilterMetric[] = [
       return hotIndustries.some(ind => s.industry?.includes(ind));
     },
   },
+  {
+    id: 'oversold',
+    name: '超跌反弹',
+    icon: <FallOutlined />,
+    color: '#8b5cf6',
+    category: 'technical',
+    description: '跌幅超过3%可能反弹的股票',
+    filter: (s) => Number(s.changePercent) < -3,
+  },
+  {
+    id: 'small_cap',
+    name: '小盘成长',
+    icon: <RocketOutlined />,
+    color: '#ec4899',
+    category: 'fundamental',
+    description: '市值小于50亿的小盘股',
+    filter: (s) => Number(s.marketCap) > 0 && Number(s.marketCap) < 5e9,
+  },
+  {
+    id: 'defensive',
+    name: '防御型',
+    icon: <SafetyOutlined />,
+    color: '#14b8a6',
+    category: 'industry',
+    description: '防御型行业（公用事业/银行/食品饮料）',
+    filter: (s) => {
+      const defensive = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输'];
+      return defensive.some(ind => s.industry?.includes(ind));
+    },
+  },
 ];
 
-// 策略模板 — 精简为2个核心策略
+// 策略模板 — 4个核心策略
 const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
     id: 'value_investing',
@@ -134,6 +165,33 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     color: '#f59e0b',
     metrics: ['strong_momentum', 'high_turnover'],
     filter: (s) => Number(s.changePercent) > 3 && Number(s.turnoverRate) > 3,
+  },
+  {
+    id: 'small_growth',
+    name: '小而美',
+    description: '小盘 + 高换手 + 热门行业',
+    icon: <RocketOutlined />,
+    color: '#ec4899',
+    metrics: ['small_cap', 'high_turnover', 'hot_industry'],
+    filter: (s) => {
+      const hotIndustries = ['电子', '计算机', '电力设备', '医药生物'];
+      return Number(s.marketCap) > 0 && Number(s.marketCap) < 5e9 
+        && Number(s.turnoverRate) > 3
+        && hotIndustries.some(ind => s.industry?.includes(ind));
+    },
+  },
+  {
+    id: 'defensive_yield',
+    name: '防御收益',
+    description: '防御型行业 + 大盘股',
+    icon: <SafetyOutlined />,
+    color: '#14b8a6',
+    metrics: ['defensive', 'large_cap'],
+    filter: (s) => {
+      const defensive = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输'];
+      return defensive.some(ind => s.industry?.includes(ind))
+        && Number(s.marketCap) > 5e9;
+    },
   },
 ];
 
