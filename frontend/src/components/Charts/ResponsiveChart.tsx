@@ -88,7 +88,7 @@ export const ResponsiveChart: React.FC<ResponsiveChartProps> = ({
     ? React.cloneElement(children as React.ReactElement<any>, {
         height: currentHeight,
         style: {
-          ...(children.props.style || {}),
+          ...((children as React.ReactElement<any>).props.style || {}),
           width: '100%',
         },
       })

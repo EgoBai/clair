@@ -332,15 +332,17 @@ const StockDetailPage: React.FC = () => {
                   </Button>
                 ))}
               </div>
-              <KLineChart
-                data={klineData}
-                title={`${stockInfo?.name || symbol} - ${klinePeriod === 'daily' ? '日K' : klinePeriod === 'weekly' ? '周K' : '月K'}`}
-                height={520}
-                loading={klineLoading}
-                showMA={true}
-                maLines={[5, 10, 20, 60]}
-                subIndicator={subIndicator}
-              />
+              <div className="kline-chart-responsive">
+                <KLineChart
+                  data={klineData}
+                  title={`${stockInfo?.name || symbol} - ${klinePeriod === 'daily' ? '日K' : klinePeriod === 'weekly' ? '周K' : '月K'}`}
+                  height={520}
+                  loading={klineLoading}
+                  showMA={true}
+                  maLines={[5, 10, 20, 60]}
+                  subIndicator={subIndicator}
+                />
+              </div>
             </>
           ) : (
             <div style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -349,6 +349,21 @@
   .stock-detail-page .ant-segmented-item {
     flex: 1;
   }
+
+  /* K线图手机端高度缩小 */
+  .stock-detail-page .kline-chart-responsive {
+    height: 280px !important;
+    overflow: hidden;
+  }
+
+  .stock-detail-page .kline-chart-responsive .echarts-for-react {
+    height: 280px !important;
+  }
+
+  /* AI策略建议卡片紧凑 */
+  .stock-detail-page .ant-card-body {
+    padding: 10px 12px !important;
+  }
 }
 
 /* ==================== 通用：卡片式表格（移动端）==================== */

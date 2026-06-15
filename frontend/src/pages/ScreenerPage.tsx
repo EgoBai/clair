@@ -120,27 +120,20 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
     id: 'value_investing',
     name: '价值投资',
-    description: '低估值 + 稳定盈利',
+    description: '大盘蓝筹 + 稳定盈利',
     icon: <FundOutlined />,
     color: '#22c55e',
-    metrics: ['low_pe'],
-    filter: (s) => {
-      const peOk = s.pe ? s.pe > 0 && s.pe < 20 : false;
-      return peOk;
-    },
+    metrics: ['large_cap'],
+    filter: (s) => Number(s.marketCap) > 1e10,
   },
   {
     id: 'momentum_strategy',
     name: '动量策略',
-    description: '强势上涨 + 高成交',
+    description: '涨幅>3% + 换手>3%',
     icon: <LineChartOutlined />,
     color: '#f59e0b',
     metrics: ['strong_momentum', 'high_turnover'],
-    filter: (s) => {
-      const momentumOk = s.changePercent > 3;
-      const turnoverOk = s.turnoverRate ? s.turnoverRate > 3 : false;
-      return momentumOk && turnoverOk;
-    },
+    filter: (s) => Number(s.changePercent) > 3 && Number(s.turnoverRate) > 3,
   },
 ];
 
@@ -225,14 +218,22 @@ const ScreenerPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // 获取股票列表（不获取行情，避免6000个symbols的batch请求超时）
       const listResp = await apiFetch('/api/stocks?pageSize=6000').then(r => r.json());
       const apiStocks = listResp?.data?.stocks || [];
 
-      // 直接用stocks表的数据（不含实时行情，但有行业/代码等基础信息）
-      const merged: StockData[] = apiStocks.map((s: any) => ({
+      // 用symbol去重（防止同名不同代码的重复）
+      const seen = new Set<string>();
+      const deduped: any[] = [];
+      for (const s of apiStocks) {
+        if (!seen.has(s.symbol)) {
+          seen.add(s.symbol);
+          deduped.push(s);
+        }
+      }
+
+      const merged: StockData[] = deduped.map((s: any) => ({
         symbol: s.symbol,
-        name: s.name,
+        name: (s.name || '').trim(),
         price: Number(s.current_price || 0),
         change: Number(s.change_amount || 0),
         changePercent: Number(s.change_percent || 0),
