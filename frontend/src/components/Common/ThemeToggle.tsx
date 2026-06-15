@@ -24,7 +24,7 @@ export const ThemeToggle: React.FC = () => {
       style={{
         position: 'fixed',
         bottom: 24,
-        left: 24,
+        left: 252,
         zIndex: 1000,
         width: 36,
         height: 36,

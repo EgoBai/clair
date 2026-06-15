@@ -445,10 +445,12 @@ body {
     display: none !important;
   }
 
-  /* 移动端主题切换按钮位置调整 */
+  /* 移动端：无侧边栏，按钮移到右上角 */
   .theme-toggle-button {
+    left: auto !important;
+    right: 16px !important;
+    bottom: auto !important;
     top: 12px !important;
-    right: 12px !important;
     width: 32px !important;
     height: 32px !important;
     font-size: 14px !important;
