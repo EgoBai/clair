@@ -21,14 +21,10 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     document.documentElement.setAttribute('data-theme', resolvedTheme);
     document.documentElement.style.setProperty('color-scheme', resolvedTheme);
     document.body.classList.toggle('dark', isDark);
-
-    // 全局背景色
-    document.body.style.background = isDark ? '#0a0e1a' : '#f5f5f7';
-    document.body.style.color = isDark ? '#f1f5f9' : '#111827';
     document.body.style.margin = '0';
 
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', isDark ? '#0a0e1a' : '#ffffff');
+    if (meta) meta.setAttribute('content', isDark ? '#080b14' : '#f8f9fc');
   }, [resolvedTheme, isDark]);
 
   return (

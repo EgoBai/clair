@@ -259,6 +259,7 @@ const ScreenerPage: React.FC = () => {
   const [aiFilterLoading, setAiFilterLoading] = useState(false);
   const [aiFilterResult, setAiFilterResult] = useState<string>('');
   const [aiFilterSymbols, setAiFilterSymbols] = useState<string[]>([]);
+  const [aiFilterStocks, setAiFilterStocks] = useState<StockData[]>([]);
 
   // 自选列表状态
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -360,10 +361,13 @@ const ScreenerPage: React.FC = () => {
   const filtered = useMemo(() => {
     let result = [...stocks];
 
-    // AI对话式筛选（优先级最高）
+    // AI对话式筛选（优先级最高）— 使用AI返回的真实数据
+    if (aiFilterStocks.length > 0) {
+      return aiFilterStocks;
+    }
     if (aiFilterSymbols.length > 0) {
       result = result.filter(s => aiFilterSymbols.includes(s.symbol));
-      return result; // AI筛选结果直接返回，不叠加其他筛选
+      return result;
     }
 
     // 应用策略筛选
@@ -402,6 +406,7 @@ const ScreenerPage: React.FC = () => {
     setAiFilterLoading(true);
     setAiFilterResult('');
     setAiFilterSymbols([]);
+    setAiFilterStocks([]);
     try {
       const resp = await apiFetch('/api/ai/filter', {
         method: 'POST',
@@ -410,11 +415,27 @@ const ScreenerPage: React.FC = () => {
       });
       const data = await resp.json();
       if (data?.success && data.data) {
-        const resultStocks = data.data.results || [];
-        setAiFilterSymbols(resultStocks.map((s: any) => s.symbol));
-        setAiFilterResult(`找到 ${resultStocks.length} 只符合条件的股票`);
-      } else {
-        setAiFilterResult('未找到符合条件的股票');
+        const results = (data.data.results || []) as any[];
+        // 用AI返回的真实数据，不是本地stocks的过期数据
+        const stocks: StockData[] = results.map((s: any) => ({
+          symbol: s.symbol || '',
+          name: s.name || '',
+          price: Number(s.price || s.close_price || 0),
+          change: Number(s.change_amount || 0),
+          changePercent: Number(s.changePercent || s.change_percent || 0),
+          volume: s.volume || '—',
+          marketCap: s.marketCap || s.market_cap || '—',
+          industry: s.industry || '—',
+          pe: s.pe_ratio || s.pe,
+          turnoverRate: s.turnoverRate || s.turnover_rate || 0,
+        }));
+        if (stocks.length > 0) {
+          setAiFilterStocks(stocks);
+          setAiFilterSymbols([]);
+          setAiFilterResult(`找到 ${results.length} 只符合条件的股票`);
+        } else {
+          setAiFilterResult('未找到符合条件的股票');
+        }
       }
     } catch {
       setAiFilterResult('筛选失败，请换个说法试试');
