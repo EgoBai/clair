@@ -8,6 +8,7 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../utils/apiResponse';
 import aiService from '../services/aiService';
 import { logger } from '../services/logger';
+import { getDb } from '../db/dbFactory';
 
 const router = Router();
 
@@ -33,7 +34,7 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
 
   // 自动注入实时市场数据作为上下文
   try {
-    const db = getDb?.() || dbInstance;
+    const db = getDb();
     const topSectors = await db.getSectorMomentumScore();
     const top5 = topSectors.slice(0, 5);
     const marketContext = `

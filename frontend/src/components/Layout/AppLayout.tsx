@@ -93,7 +93,7 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
         .app-layout {
           display: flex;
           min-height: 100vh;
-          background: var(--color-bg, #f5f5f7);
+          background: var(--bg-base);
         }
 
         .app-content {
@@ -106,26 +106,25 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
 
         .content-wrapper {
           flex: 1;
-          padding: 24px;
+          padding: var(--space-6);
           max-width: 1400px;
           margin: 0 auto;
           width: 100%;
         }
 
-        /* 移动端：无侧边栏，内容全宽 */
         @media (max-width: 768px) {
           .app-content {
             margin-left: 0;
           }
 
           .content-wrapper {
-            padding: 16px;
+            padding: var(--space-4);
           }
         }
 
         @media (max-width: 480px) {
           .content-wrapper {
-            padding: 12px;
+            padding: var(--space-3);
           }
         }
 
