@@ -56,6 +56,7 @@ const StockDetailPage = lazy(() => import('./pages/StockDetailPage'));
 const IndexDetailPage = lazy(() => import('./pages/IndexDetailPage'));
 const SectorDetailPage = lazy(() => import('./pages/SectorDetailPage'));
 const BacktestPage = lazy(() => import('./pages/BacktestPage'));
+const IndustryMapPage = lazy(() => import('./pages/IndustryMapPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 // ==================== 全局快捷键包装器 ====================
@@ -159,6 +160,7 @@ function App() {
               <Route path="index/:symbol" element={<LazyPage component={IndexDetailPage} name="指数详情" />} />
               <Route path="sectors/:code" element={<LazyPage component={SectorDetailPage} name="板块详情" />} />
               <Route path="backtest" element={<LazyPage component={BacktestPage} name="回测" />} />
+              <Route path="industry-map" element={<LazyPage component={IndustryMapPage} name="产业地图" />} />
 
               {/* 404 */}
               <Route path="*" element={<LazyPage component={NotFoundPage} name="404" />} />

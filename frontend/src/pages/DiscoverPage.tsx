@@ -252,7 +252,7 @@ const DiscoverPage: React.FC = () => {
                 <div className="news-grid" style={{ gap: 8 }}>
                   {news.slice(0, 6).map((item, i) => (
                     <div key={i} className="news-item" style={{
-                      background: 'rgba(15,23,42,0.5)', border: `1px solid ${BORDER}`,
+                      background: 'var(--bg-surface)', border: `1px solid ${BORDER}`,
                       borderRadius: 6, padding: '8px 10px', cursor: 'pointer',
                     }} onClick={() => item.url && window.open(item.url, '_blank')}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
