@@ -68,8 +68,10 @@ interface StrategyTemplate {
   description: string;
   icon: React.ReactNode;
   color: string;
-  metrics: string[]; // 使用的指标ID
+  metrics: string[];
   filter: (s: StockData) => boolean;
+  fetchFromApi?: boolean;
+  apiEndpoint?: string;
 }
 
 // 核心筛选指标 — 精简为4个最实用的
@@ -225,6 +227,17 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
         && Number(s.changePercent) > 2
         && Number(s.marketCap) > 500_000;
     },
+  },
+  {
+    id: 'ai_gems',
+    name: '潜力股发现',
+    description: 'AI多因子评分：动量+成交+规模+行业',
+    icon: <RocketOutlined />,
+    color: '#ec4899',
+    metrics: ['ai_gems'],
+    filter: (s) => true, // 前端不做过滤，由API处理
+    fetchFromApi: true, // 标记为API获取
+    apiEndpoint: '/api/ai/gems',
   },
 ];
 
@@ -431,7 +444,34 @@ const ScreenerPage: React.FC = () => {
     setActiveMetrics([]); // 清除指标
     setActiveStrategy(prev => prev === strategyId ? null : strategyId);
     setPage(1);
+
+    // 潜力股发现 → 调用API
+    if (strategyId === 'ai_gems') {
+      fetchAiGems();
+    }
   };
+
+  // AI潜力股发现
+  const [aiGems, setAiGems] = useState<any[]>([]);
+  const [aiGemsLoading, setAiGemsLoading] = useState(false);
+  const fetchAiGems = useCallback(async () => {
+    setAiGemsLoading(true);
+    try {
+      const resp = await apiFetch('/api/ai/gems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topN: 20, minScore: 50 }),
+      });
+      const data = await resp.json();
+      if (data?.success && data.data?.gems) {
+        setAiGems(data.data.gems);
+      }
+    } catch (e) {
+      message.error('潜力股数据加载失败');
+    } finally {
+      setAiGemsLoading(false);
+    }
+  }, []);
 
   // 表格列定义
   const columns = [
@@ -623,6 +663,54 @@ const ScreenerPage: React.FC = () => {
             ))}
           </div>
         </Card>
+
+        {/* AI潜力股发现结果 */}
+        {activeStrategy === 'ai_gems' && (
+          <Card
+            title={<span style={{ color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}><RocketOutlined style={{ color: '#ec4899' }} /> 🔮 AI潜力股发现 — Top 20</span>}
+            loading={aiGemsLoading}
+            style={{ background: 'linear-gradient(135deg, rgba(236,72,153,0.06), rgba(139,92,246,0.03))', border: '1px solid rgba(236,72,153,0.2)', marginBottom: 16 }}
+          >
+            {aiGems.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>排名</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>代码</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>名称</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>总分</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>动量</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>成交</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>规模</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>行业</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aiGems.map((gem, i) => (
+                      <tr key={gem.symbol} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
+                        onClick={() => navigate(`/stocks/${gem.symbol.replace(/\.(SH|SZ)$/, '')}`)}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>#{i + 1}</td>
+                        <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: 'var(--accent)' }}>{gem.symbol.replace(/\.(SH|SZ)$/, '')}</td>
+                        <td style={{ padding: '8px 12px', color: 'var(--text)', fontWeight: 600 }}>{gem.name}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ec4899', fontWeight: 800, fontSize: 16 }}>{gem.score}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{gem.momentumScore}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{gem.volumeScore}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{gem.sizeScore}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                          <Tag style={{ fontSize: 11 }}>{gem.industry}</Tag>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* 对话式AI筛选 — 核心差异化功能 */}
         <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(139,92,246,0.03))', border: '1px solid rgba(139,92,246,0.25)' }}>
