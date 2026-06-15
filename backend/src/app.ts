@@ -49,6 +49,7 @@ import historyRouter from './api/history';
 import strategyTemplatesRouter from './api/strategy-templates';
 import analyticsRouter from './api/analytics';
 import aiFilterRouter from './api/ai-filter';
+import aiGemsRouter from './api/ai-gems';
 import industryChainRouter from './api/industryChain';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
@@ -129,6 +130,7 @@ app.use('/api', historyRouter);
 app.use('/api', strategyTemplatesRouter);
 app.use('/api', analyticsRouter);
 app.use('/api', aiFilterRouter);
+app.use('/api', aiGemsRouter);
 app.use('/api/industry-chains', industryChainRouter);
 
 // ==================== API 文档 ====================

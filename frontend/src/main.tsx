@@ -34,6 +34,7 @@ import LazyPage from './components/Common/LazyPage';
 import I18nProvider from './i18n';
 import { analytics } from './utils/analytics';
 import './App.css';
+import './styles/design-system.css';
 import './styles/global-dark.css';
 import './styles/responsive.css';
 import './styles/pages-responsive.css';

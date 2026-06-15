@@ -118,82 +118,81 @@ const DiscoverPage: React.FC = () => {
           <>
             {/* AI 解读 */}
             {insight?.sections ? (
-              <div style={{ background: 'var(--bg-card)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+              <div className="card-modern animate-fade-in" style={{ padding: 'var(--space-5)', marginBottom: 20 }}>
                 {/* 顶部情绪栏 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${BORDER}` }}>
-                  <span style={{ fontSize: 28 }}>{insight.moodEmoji}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: 36, lineHeight: 1 }}>{insight.moodEmoji}</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Text strong style={{ color: TEXT, fontSize: 16 }}>{insight.mood}</Text>
-                      <Tag color={insight.mood === '强势上攻' ? 'red' : insight.mood === '温和上行' ? 'orange' : insight.mood === '震荡整理' ? 'default' : 'blue'} style={{ margin: 0 }}>
-                        AI 解读
-                      </Tag>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{insight.mood}</span>
+                      <span className="badge-modern badge-accent">AI 解读</span>
                     </div>
                   </div>
-                  <div className="insight-header-stats" style={{ gap: 16, fontSize: 12, color: TEXT_SEC, alignItems: 'center' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ opacity: 0.7 }}>涨跌</span>
-                      <span style={{ 
-                        display: 'inline-flex', 
-                        width: 80, 
-                        height: 8, 
-                        background: COLOR_DOWN, 
-                        borderRadius: 4, 
-                        overflow: 'hidden' 
-                      }}>
-                        <span style={{ 
-                          width: `${(insight.marketBreadth.up / (insight.marketBreadth.up + insight.marketBreadth.down)) * 100}%`, 
-                          background: COLOR_UP, 
-                          borderRadius: 4 
-                        }} />
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>涨跌比</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="mono" style={{ color: 'var(--color-up)', fontWeight: 600 }}>{insight.marketBreadth.up}</span>
+                        <div style={{ width: 60, height: 4, borderRadius: 2, background: 'var(--color-down-bg)', overflow: 'hidden' }}>
+                          <div style={{ width: `${(insight.marketBreadth.up / (insight.marketBreadth.up + insight.marketBreadth.down)) * 100}%`, height: '100%', background: 'var(--color-up)', borderRadius: 2 }} />
+                        </div>
+                        <span className="mono" style={{ color: 'var(--color-down)', fontWeight: 600 }}>{insight.marketBreadth.down}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>均幅</span>
+                      <span className="mono" style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: insight.avgIndexChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                        {insight.avgIndexChange > 0 ? '+' : ''}{Number(insight.avgIndexChange).toFixed(2)}%
                       </span>
-                      <b style={{color:COLOR_UP}}>{insight.marketBreadth.up}</b>
-                      <span style={{color:TEXT_SEC, opacity: 0.5}}>/</span>
-                      <b style={{color:COLOR_DOWN}}>{insight.marketBreadth.down}</b>
-                    </span>
-                    <span>
-                      <span style={{ opacity: 0.7 }}>均幅</span>{' '}
-                      <b style={{color:insight.avgIndexChange>=0?COLOR_UP:COLOR_DOWN}}>
-                        {insight.avgIndexChange>0?'+':''}{Number(insight.avgIndexChange).toFixed(2)}%
-                      </b>
-                    </span>
-                    {insight.limitUpCount > 0 && <span><b style={{color:COLOR_UP}}>{insight.limitUpCount}</b><span style={{opacity:0.7}}>涨停</span></span>}
-                    {insight.limitDownCount > 0 && <span><b style={{color:COLOR_DOWN}}>{insight.limitDownCount}</b><span style={{opacity:0.7}}>跌停</span></span>}
+                    </div>
+                    {insight.limitUpCount > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>涨停</span>
+                        <span className="mono" style={{ color: 'var(--color-up)', fontWeight: 700 }}>{insight.limitUpCount}</span>
+                      </div>
+                    )}
+                    {insight.limitDownCount > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>跌停</span>
+                        <span className="mono" style={{ color: 'var(--color-down)', fontWeight: 700 }}>{insight.limitDownCount}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 {/* 三栏内容 */}
-                <div className="insight-sections" style={{ gap: 12 }}>
+                <div className="insight-sections" style={{ gap: 16 }}>
                   {insight.sections.map((sec: any, i: number) => (
                     <div key={i} style={{
-                      background: 'var(--bg-surface)', border: `1px solid ${BORDER}`,
-                      borderRadius: 8, padding: '14px 16px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: 'var(--space-4)',
                     }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: ACCENT, marginBottom: 10 }}>
-                        {sec.icon} {sec.title}
+                      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--accent-solid)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{sec.icon}</span>
+                        <span>{sec.title}</span>
                       </div>
-                      <div style={{ fontSize: 13, color: TEXT, lineHeight: 1.8 }}>
+                      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', lineHeight: 1.7 }}>
                         {sec.text.split('\n').filter((l: string) => l.trim()).map((line: string, j: number) => {
                           const trimmed = line.trim();
                           const isBullet = trimmed.startsWith('·') || trimmed.startsWith('-') || trimmed.startsWith('•');
                           const isArrow = trimmed.startsWith('→') || trimmed.startsWith('▸');
-                          // 解析行内 markdown 加粗 **text**
-                          const parts = trimmed.split(/(\*\*[^*]+\*\*)/g).map((part, i) => {
+                          const parts = trimmed.split(/(\*\*[^*]+\*\*)/g).map((part, idx) => {
                             if (part.startsWith('**') && part.endsWith('**')) {
-                              return <b key={i} style={{ color: TEXT, fontWeight: 700 }}>{part.slice(2, -2)}</b>;
+                              return <b key={idx} style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{part.slice(2, -2)}</b>;
                             }
-                            return <span key={i}>{part}</span>;
+                            return <span key={idx}>{part}</span>;
                           });
                           return (
                             <div key={j} style={{
-                              marginBottom: 5,
-                              paddingLeft: isBullet ? 12 : 0,
-                              color: isArrow ? ACCENT : TEXT,
+                              marginBottom: 6,
+                              paddingLeft: isBullet ? 14 : 0,
+                              color: isArrow ? 'var(--accent-solid)' : 'var(--text-primary)',
                               display: 'flex',
-                              alignItems: 'baseline',
-                              gap: 4,
+                              alignItems: 'flex-start',
+                              gap: 6,
                             }}>
-                              {isBullet && <span style={{ color: ACCENT, flexShrink: 0 }}>›</span>}
-                              {parts}
+                              {isBullet && <span style={{ color: 'var(--accent-solid)', flexShrink: 0, marginTop: 2 }}>›</span>}
+                              <span>{parts}</span>
                             </div>
                           );
                         })}
@@ -203,8 +202,8 @@ const DiscoverPage: React.FC = () => {
                 </div>
                 {/* 领涨板块 */}
                 {insight.topSectors?.length > 0 && (
-                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 14, alignItems: 'center', fontSize: 11 }}>
-                    <span style={{ color: ACCENT }}>🏆 领涨</span>
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="badge-modern badge-accent">🏆 领涨</span>
                     {insight.topSectors.slice(0, 5).map((s: any) => (
                       <span 
                         key={s.industry} 
