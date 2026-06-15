@@ -253,11 +253,7 @@ const ScreenerPage: React.FC = () => {
   // API策略模板状态
   const [apiTemplates, setApiTemplates] = useState<any[]>([]);
 
-  // AI 推荐状态
-  const [aiInsight, setAiInsight] = useState<string>('');
-  const [aiLoading, setAiLoading] = useState(false);
-
-  // 加载自选列表
+  // 对话式筛选状态
   useEffect(() => {
     const saved = localStorage.getItem('watchlist');
     if (saved) {
@@ -386,42 +382,6 @@ const ScreenerPage: React.FC = () => {
 
     return result;
   }, [stocks, activeMetrics, activeStrategy, searchText]);
-
-  // AI 智能推荐（依赖 filtered）
-  const fetchAiRecommendation = useCallback(async () => {
-    setAiLoading(true);
-    try {
-      const context = activeStrategy
-        ? `当前策略: ${STRATEGY_TEMPLATES.find(s => s.id === activeStrategy)?.name || activeStrategy}`
-        : activeMetrics.length > 0
-        ? `当前指标: ${activeMetrics.map(m => FILTER_METRICS.find(fm => fm.id === m)?.name).join(', ')}`
-        : '无特定筛选条件';
-
-      const resp = await apiFetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `作为投资研究助手，请基于以下筛选条件给出选股建议：${context}。
-当前筛选结果共${filtered.length}只股票。
-请推荐3-5只值得关注的A股，包含股票代码、名称和推荐理由。
-最后给出整体市场分析。
-
-格式要求：
-1. 先列出推荐股票（代码、名称、理由）
-2. 再给出整体分析`,
-          stream: false,
-        }),
-      });
-      const data = await resp.json();
-      if (data?.content) {
-        setAiInsight(data.content);
-      }
-    } catch {
-      // silent fail
-    } finally {
-      setAiLoading(false);
-    }
-  }, [activeStrategy, activeMetrics, filtered.length]);
 
   // 对话式筛选
   const handleAiFilter = useCallback(async () => {
@@ -664,53 +624,39 @@ const ScreenerPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* AI 智能推荐 */}
-        <Card
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: TEXT }}>
-                <RobotOutlined style={{ marginRight: 8, color: '#8b5cf6' }} />
-                AI 选股助手
-              </span>
-              <Button
-                type="primary"
-                size="small"
-                icon={<BulbOutlined />}
-                loading={aiLoading}
-                onClick={fetchAiRecommendation}
-                style={{ background: '#8b5cf6', borderColor: '#8b5cf6' }}
-              >
-                {aiInsight ? '重新分析' : 'AI 推荐'}
-              </Button>
-            </div>
-          }
-          style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
-          bodyStyle={{ padding: '16px' }}
-        >
-          {aiLoading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: TEXT_SEC }}>
-              <Spin size="small" />
-              <span>AI 正在分析市场数据，为您推荐...</span>
-            </div>
-          ) : aiInsight ? (
-            <div style={{
-              background: '#8b5cf610',
-              border: '1px solid #8b5cf640',
-              borderRadius: 8,
-              padding: '16px',
-              color: TEXT,
-              fontSize: 13,
-              lineHeight: 1.8,
-            }}
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(aiInsight) }}
+        {/* 对话式AI筛选 — 核心差异化功能 */}
+        <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(139,92,246,0.03))', border: '1px solid rgba(139,92,246,0.25)' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 18 }}>🤖</span>
+            <input
+              type="text"
+              placeholder="用自然语言描述：如 涨幅超3%的科技股 或 市盈率低于20的银行股"
+              value={aiFilterQuery}
+              onChange={(e) => setAiFilterQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAiFilter(); }}
+              style={{
+                flex: 1,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(139,92,246,0.3)',
+                borderRadius: 8,
+                color: 'var(--text)',
+                fontSize: 14,
+                outline: 'none',
+                padding: '8px 12px',
+              }}
             />
-          ) : (
-            <div style={{ color: TEXT_SEC, textAlign: 'center', padding: '12px 0' }}>
-              <BulbOutlined style={{ fontSize: 24, marginBottom: 8, display: 'block' }} />
-              <div>点击「AI 推荐」获取智能选股建议</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>
-                AI 将根据当前筛选条件，推荐值得关注的标的
-              </div>
+            <Button
+              type="primary"
+              loading={aiFilterLoading}
+              onClick={handleAiFilter}
+              style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 8 }}
+            >
+              🤖 AI筛选
+            </Button>
+          </div>
+          {aiFilterResult && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+              {aiFilterResult}
             </div>
           )}
         </Card>
