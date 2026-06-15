@@ -85,10 +85,10 @@ export const ResponsiveChart: React.FC<ResponsiveChartProps> = ({
 
   // 克隆子组件并注入响应式高度
   const childWithHeight = React.isValidElement(children)
-    ? React.cloneElement(children as React.ReactElement<any>, {
+    ? React.cloneElement(children as React.ReactElement<Record<string, unknown>>, {
         height: currentHeight,
         style: {
-          ...((children as React.ReactElement<any>).props.style || {}),
+          ...((children.props as Record<string, unknown>)?.style || {}),
           width: '100%',
         },
       })

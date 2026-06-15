@@ -226,6 +226,48 @@
   }
 }
 
+/* ==================== 回测页 ==================== */
+.backtest-page .backtest-strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.backtest-page .backtest-result-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .backtest-page .backtest-strategy-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .backtest-page .backtest-result-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .backtest-page {
+    padding: 12px !important;
+  }
+
+  .backtest-page .backtest-strategy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .backtest-page .backtest-result-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* 策略参数紧凑 */
+  .backtest-page .ant-select {
+    width: 100% !important;
+  }
+}
+
 /* ==================== 图表响应式 ==================== */
 .responsive-chart {
   width: 100%;

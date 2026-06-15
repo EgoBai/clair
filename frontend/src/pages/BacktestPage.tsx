@@ -132,7 +132,7 @@ const BacktestPage: React.FC = () => {
   const currentStrategy = STRATEGIES.find(s => s.id === strategy);
 
   return (
-    <div style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
+    <div className="backtest-page" style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         
         {/* 页面标题 */}
