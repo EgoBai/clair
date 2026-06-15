@@ -204,8 +204,8 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
         })),
       ];
 
-      // 调用AI（非流式，更可靠）
-      const aiContent = await chat(content, context);
+      // 调用AI（非流式，更可靠，附带当前页面symbol）
+      const aiContent = await chat(content, context, pageContext?.symbol);
 
       setMessages(prev =>
         prev.map(m =>

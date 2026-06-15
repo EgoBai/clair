@@ -86,7 +86,7 @@ export async function* chatStream(
 // 非流式对话
 // ============================================================
 
-export async function chat(message: string, context?: ChatMessage[]): Promise<string> {
+export async function chat(message: string, context?: ChatMessage[], symbol?: string): Promise<string> {
   const response = await fetch(`${API_BASE}/api/ai/chat`, {
     method: 'POST',
     headers: {
@@ -95,6 +95,7 @@ export async function chat(message: string, context?: ChatMessage[]): Promise<st
     body: JSON.stringify({
       message,
       context,
+      symbol,
       stream: false,
     }),
   });

@@ -144,7 +144,7 @@ const AddStockModal: React.FC<{
         autoFocus
         style={{
           marginBottom: 12,
-          background: '#0f1419',
+          background: 'var(--bg-page)',
           border: `1px solid ${CARD_BORDER}`,
           color: TEXT,
         }}
@@ -244,7 +244,7 @@ const CreateGroupModal: React.FC<{
         autoFocus
         style={{
           marginTop: 12,
-          background: '#0f1419',
+          background: 'var(--bg-page)',
           border: `1px solid ${CARD_BORDER}`,
           color: TEXT,
         }}
@@ -863,7 +863,7 @@ const WatchlistPage: React.FC = () => {
                     onClick={() => navigate(`/stocks/${sym}`)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '8px 12px', background: 'rgba(15,23,42,0.5)',
+                      padding: '8px 12px', background: 'var(--bg-surface)',
                       border: `1px solid ${CARD_BORDER}`, borderRadius: 6,
                       cursor: 'pointer', transition: 'border-color .15s',
                     }}
@@ -978,7 +978,7 @@ const WatchlistPage: React.FC = () => {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 5,
-                  background: activeGroup === g.id ? ACCENT : '#0f1a2a',
+                  background: activeGroup === g.id ? ACCENT : 'var(--bg-surface)',
                   color: activeGroup === g.id ? '#fff' : TEXT_SEC,
                   padding: '5px 6px 5px 12px',
                   borderRadius: 8,

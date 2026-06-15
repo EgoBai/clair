@@ -29,8 +29,39 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
       role: msg.role,
       content: msg.content,
     })),
-    { role: 'user' as const, content: message },
   ];
+
+  // 自动注入实时市场数据作为上下文
+  try {
+    const db = getDb?.() || dbInstance;
+    const topSectors = await db.getSectorMomentumScore();
+    const top5 = topSectors.slice(0, 5);
+    const marketContext = `
+【当前市场数据】
+- 时间: ${new Date().toLocaleString('zh-CN')}
+- 板块景气度Top5: ${top5.map(s => `${s.industry}(${s.score}分, 涨${s.avg_change_percent}%)`).join(', ')}
+- 涨停热点: ${top5.filter(s => s.limit_up_count > 0).map(s => `${s.industry}(${s.limit_up_count}家涨停)`).join(', ') || '无'}
+- 市场情绪: ${(top5.reduce((a, b) => a + Number(b.avg_change_percent), 0) / top5.length).toFixed(2)}%平均涨幅`;
+
+    // 如果有symbol参数，注入个股数据
+    let stockContext = '';
+    const symbol = req.body.symbol;
+    if (symbol) {
+      const stock = await db.connection('stocks').where('symbol', symbol).first();
+      if (stock) {
+        stockContext = `\n\n【当前股票】${stock.name}(${stock.symbol}) — 价格${stock.current_price}, 涨幅${stock.change_percent}%, 行业${stock.industry}, 市值${(Number(stock.market_cap)/1e4).toFixed(0)}亿`;
+      }
+    }
+
+    messages.unshift({
+      role: 'system',
+      content: `${marketContext}${stockContext}\n\n请基于以上实时市场数据回答用户问题。`,
+    });
+  } catch (e) {
+    // 数据注入失败不阻塞对话
+  }
+
+  messages.push({ role: 'user' as const, content: message });
 
   if (stream) {
     // 流式响应
