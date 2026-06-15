@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import NavigationMenu from './NavigationMenu';
 import TabBar from './TabBar';
+import ThemeToggle from '../Common/ThemeToggle';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
 import { SettingOutlined, InfoCircleOutlined, GithubOutlined } from '@ant-design/icons';
 import { Tooltip, Modal, Typography } from 'antd';
@@ -30,6 +31,9 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
 
         {/* 移动端底部导航栏 */}
         <TabBar />
+
+        {/* 主题切换按钮 */}
+        <ThemeToggle />
 
         {/* 设置按钮 — 右下角小图标，点击弹出信息面板 */}
         <Tooltip title="关于澄观">

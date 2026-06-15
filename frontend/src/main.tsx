@@ -42,6 +42,12 @@ import './styles/touch-interactions.css';
 // 初始化 Web Vitals 监控
 initWebVitals();
 
+// 初始化主题：默认深色
+if (typeof window !== 'undefined') {
+  const savedTheme = localStorage.getItem('clair-theme');
+  document.documentElement.setAttribute('data-theme', savedTheme || 'dark');
+}
+
 const { Text } = Typography;
 
 // ===== 核心循环页面 =====

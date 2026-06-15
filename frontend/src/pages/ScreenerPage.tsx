@@ -100,7 +100,7 @@ const FILTER_METRICS: FilterMetric[] = [
     color: '#22c55e',
     category: 'fundamental',
     description: '市值超过100亿的大盘股',
-    filter: (s) => Number(s.marketCap) > 1e10,
+    filter: (s) => Number(s.marketCap) > 1_000_000,
   },
   {
     id: 'hot_industry',
@@ -124,13 +124,22 @@ const FILTER_METRICS: FilterMetric[] = [
     filter: (s) => Number(s.changePercent) < -3,
   },
   {
+    id: 'large_cap',
+    name: '大盘蓝筹',
+    icon: <FundOutlined />,
+    color: '#22c55e',
+    category: 'fundamental',
+    description: '市值超过100亿的大盘股',
+    filter: (s) => Number(s.marketCap) > 1_000_000,
+  },
+  {
     id: 'small_cap',
     name: '小盘成长',
     icon: <RocketOutlined />,
     color: '#ec4899',
     category: 'fundamental',
     description: '市值小于50亿的小盘股',
-    filter: (s) => Number(s.marketCap) > 0 && Number(s.marketCap) < 5e9,
+    filter: (s) => Number(s.marketCap) > 0 && Number(s.marketCap) < 500_000,
   },
   {
     id: 'defensive',
@@ -155,7 +164,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     icon: <FundOutlined />,
     color: '#22c55e',
     metrics: ['large_cap'],
-    filter: (s) => Number(s.marketCap) > 1e10,
+    filter: (s) => Number(s.marketCap) > 1_000_000,
   },
   {
     id: 'momentum_strategy',
@@ -175,7 +184,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     metrics: ['small_cap', 'high_turnover', 'hot_industry'],
     filter: (s) => {
       const hotIndustries = ['电子', '计算机', '电力设备', '医药生物'];
-      return Number(s.marketCap) > 0 && Number(s.marketCap) < 5e9 
+      return Number(s.marketCap) > 0 && Number(s.marketCap) < 500_000 
         && Number(s.turnoverRate) > 3
         && hotIndustries.some(ind => s.industry?.includes(ind));
     },
@@ -183,14 +192,39 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
     id: 'defensive_yield',
     name: '防御收益',
-    description: '防御型行业 + 大盘股',
+    description: '防御型行业 + 市值>50亿',
     icon: <SafetyOutlined />,
     color: '#14b8a6',
     metrics: ['defensive', 'large_cap'],
     filter: (s) => {
       const defensive = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输'];
       return defensive.some(ind => s.industry?.includes(ind))
-        && Number(s.marketCap) > 5e9;
+        && Number(s.marketCap) > 500_000;
+    },
+  },
+  {
+    id: 'oversold_bounce',
+    name: '超跌反弹',
+    description: '跌幅>3% + 高换手 + 非ST',
+    icon: <FallOutlined />,
+    color: '#8b5cf6',
+    metrics: ['oversold', 'high_turnover'],
+    filter: (s) => Number(s.changePercent) < -3 
+      && Number(s.turnoverRate) > 3
+      && !s.name?.includes('ST'),
+  },
+  {
+    id: 'hot_chase',
+    name: '热门追击',
+    description: '热门行业 + 涨>2% + 市值>50亿',
+    icon: <ThunderboltOutlined />,
+    color: '#f97316',
+    metrics: ['hot_industry', 'strong_momentum', 'large_cap'],
+    filter: (s) => {
+      const hot = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车'];
+      return hot.some(ind => s.industry?.includes(ind))
+        && Number(s.changePercent) > 2
+        && Number(s.marketCap) > 500_000;
     },
   },
 ];
