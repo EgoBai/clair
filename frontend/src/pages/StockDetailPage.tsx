@@ -252,11 +252,11 @@ const StockDetailPage: React.FC = () => {
                   </span>
                   <Space size={8}>
                     <span style={{ fontSize: 18, fontWeight: 700, color: changeColor, fontFamily: '\'DIN Alternate\', monospace' }}>
-                      {latestQuote.change >= 0 ? '+' : ''}{latestQuote.change.toFixed(2)}
+                      {Number(latestQuote.change) >= 0 ? '+' : ''}{Number(latestQuote.change).toFixed(2)}
                     </span>
                     <Tag color={Number(latestQuote.changePercent) >= 0 ? 'red' : 'green'}
                       style={{ fontSize: 15, padding: '2px 10px', fontWeight: 700, borderRadius: 4 }}>
-                      {Number(latestQuote.changePercent) >= 0 ? '+' : ''}{latestQuote.changePercent.toFixed(2)}%
+                      {Number(latestQuote.changePercent) >= 0 ? '+' : ''}{Number(latestQuote.changePercent).toFixed(2)}%
                     </Tag>
                   </Space>
                 </div>
@@ -292,8 +292,8 @@ const StockDetailPage: React.FC = () => {
             </Row>
             <Divider style={{ margin: '8px 0', borderColor: BORDER }} />
             <Row gutter={[0, 8]}>
-              <Col xs={12} sm={8} md={4}><StatItem label="涨跌幅" value={`${Number(latestQuote.changePercent) >= 0 ? '+' : ''}${latestQuote.changePercent.toFixed(2)}%`} color={changeColor} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="振幅" value={`${(latestQuote.amplitude || 0).toFixed(2)}%`} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="涨跌幅" value={`${Number(latestQuote.changePercent) >= 0 ? '+' : ''}${Number(latestQuote.changePercent).toFixed(2)}%`} color={changeColor} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="振幅" value={`${Number(latestQuote.amplitude || 0).toFixed(2)}%`} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PE(动)" value={latestQuote.peRatio?.toFixed(2) || '-'} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PB" value={latestQuote.pbRatio?.toFixed(2) || '-'} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="换手率" value={`${(latestQuote.turnoverRate || 0).toFixed(2)}%`} /></Col>
