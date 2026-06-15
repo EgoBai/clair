@@ -752,36 +752,38 @@ const ScreenerPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* 对话式筛选 */}
-        <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(139,92,246,0.02))', border: '1px solid rgba(139,92,246,0.2)' }}>
+        {/* 对话式AI筛选 */}
+        <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(139,92,246,0.03))', border: '1px solid rgba(139,92,246,0.25)' }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ fontSize: 20 }}>🎯</span>
+            <span style={{ fontSize: 18 }}>🤖</span>
             <input
               type="text"
-              placeholder="用自然语言描述筛选条件，如：涨幅超3%的科技股"
+              placeholder="用自然语言描述：如 涨幅超3%的科技股 或 市盈率低于20的银行股"
               value={aiFilterQuery}
               onChange={(e) => setAiFilterQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleAiFilter(); }}
               style={{
                 flex: 1,
-                background: 'transparent',
-                border: 'none',
-                color: TEXT,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(139,92,246,0.3)',
+                borderRadius: 8,
+                color: 'var(--text)',
                 fontSize: 14,
                 outline: 'none',
+                padding: '8px 12px',
               }}
             />
             <Button
               type="primary"
               loading={aiFilterLoading}
               onClick={handleAiFilter}
-              style={{ background: '#8b5cf6', borderColor: '#8b5cf6' }}
+              style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 8 }}
             >
-              AI筛选
+              🤖 AI筛选
             </Button>
           </div>
           {aiFilterResult && (
-            <div style={{ marginTop: 8, fontSize: 12, color: TEXT_SEC }}>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
               {aiFilterResult}
             </div>
           )}

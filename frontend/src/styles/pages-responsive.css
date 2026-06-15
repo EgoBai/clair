@@ -200,6 +200,11 @@
 }
 
 /* ==================== 自选页 ==================== */
+.watchlist-page .industry-tag.ant-tag {
+  background: var(--bg-surface) !important;
+  color: var(--accent) !important;
+  border: 1px solid var(--border) !important;
+}
 .watchlist-page .watchlist-summary {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

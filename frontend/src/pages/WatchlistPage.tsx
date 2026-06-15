@@ -582,12 +582,10 @@ const WatchlistPage: React.FC = () => {
         if (!q?.industry) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
         return (
           <Tag
+            className="industry-tag"
             style={{
               fontSize: 11,
               margin: 0,
-              background: 'var(--bg-surface)',
-              color: ACCENT,
-              border: '1px solid var(--border)',
               borderRadius: 4,
             }}
           >

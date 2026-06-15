@@ -295,16 +295,16 @@ const DiscoverPage: React.FC = () => {
               <div>
                 <Text strong style={{ color: TEXT, fontSize: 15 }}>🏢 板块景气度评分</Text>
                 <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-                  综合评分0-100 | 涨跌强度50% + 资金活跃度30% + 涨停广度20%
+                  综合评分 = 板块热度×50% + 成交活跃×30% + 赚钱效应×20%
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 4, background: '#1e293b', borderRadius: 8, padding: 2 }}>
+              <div style={{ display: 'flex', gap: 4, background: 'var(--bg-surface)', borderRadius: 8, padding: 2 }}>
                 {(['industry', 'concept'] as const).map(t => (
                   <div key={t} onClick={() => setSectorType(t)} style={{
                     padding: '3px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
                     fontWeight: sectorType === t ? 700 : 400,
                     color: sectorType === t ? TEXT : TEXT_SEC,
-                    background: sectorType === t ? '#334155' : 'transparent',
+                    background: sectorType === t ? 'var(--border)' : 'transparent',
                     transition: 'all .15s',
                   }}>
                     {t === 'industry' ? '行业板块' : '概念板块'}
@@ -336,15 +336,15 @@ const DiscoverPage: React.FC = () => {
                       <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>{s.stock_count}只</Tag>
                       {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
                     </div>
-                    <div className="sector-metrics" style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
-                      <Tooltip title="涨跌强度 (权重50%): 行业平均涨跌幅绝对值，越高说明板块波动越大">
-                        <span>📈 {s.changeScore}</span>
+                    <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
+                      <Tooltip title="板块热度 (50%)：平均涨跌幅的绝对值，涨得越猛得分越高，反映资金对该板块的关注程度">
+                        <span>🔥 {s.changeScore}</span>
                       </Tooltip>
-                      <Tooltip title="资金活跃度 (权重30%): 行业总成交额，越高说明资金关注度越高">
+                      <Tooltip title="成交活跃 (30%)：总成交金额，成交越大说明市场越关注，流动性越好">
                         <span>💰 {s.volumeScore}</span>
                       </Tooltip>
-                      <Tooltip title="涨停广度 (权重20%): 涨停家数，越多说明板块赚钱效应越强">
-                        <span>🔥 {s.breadthScore}</span>
+                      <Tooltip title="赚钱效应 (20%)：涨停家数，涨停越多说明板块内更容易赚钱">
+                        <span>🎯 {s.breadthScore}</span>
                       </Tooltip>
                       <span style={{ color: Number(s.avg_change_percent) >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
                         {Number(s.avg_change_percent) >= 0 ? '+' : ''}{Number(s.avg_change_percent).toFixed(2)}%
