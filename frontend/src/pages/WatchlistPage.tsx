@@ -20,16 +20,16 @@ import { apiFetch } from '../utils/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ColumnsType } from 'antd/es/table';
 
+import { THEME, GOLD } from '../styles/theme-constants';
 /* ─── Theme Constants ─── */
-const BG = '#0f1419';
-const CARD_BG = '#1a2332';
-const CARD_BORDER = '#2a3a4a';
-const TEXT = '#e0e0e0';
-const TEXT_SEC = '#8899aa';
-const COLOR_UP = '#cf2a2a';
-const COLOR_DOWN = '#1db468';
-const ACCENT = '#3b82f6';
-const GOLD = '#f59e0b';
+const BG = THEME.bg;
+const CARD_BG = THEME.cardBg;
+const CARD_BORDER = THEME.border;
+const TEXT = THEME.text;
+const TEXT_SEC = THEME.textSec;
+const COLOR_UP = THEME.up;
+const COLOR_DOWN = THEME.down;
+const ACCENT = THEME.accent;
 const STORAGE_KEY = 'astock_watchlist_v2';
 
 const { Text, Title, Paragraph } = Typography;
@@ -585,9 +585,9 @@ const WatchlistPage: React.FC = () => {
             style={{
               fontSize: 11,
               margin: 0,
-              background: '#1e3a5f',
+              background: 'var(--bg-surface)',
               color: ACCENT,
-              border: 'none',
+              border: '1px solid var(--border)',
               borderRadius: 4,
             }}
           >

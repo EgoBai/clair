@@ -336,6 +336,74 @@ body {
   background: #a8a8a8;
 }
 
+/* ==================== 修复白色边框/背景问题 ==================== */
+
+/* 确保所有卡片在深色模式下无白色边框 */
+[data-theme="dark"] .ant-card-bordered {
+  border: 1px solid #1e293b !important;
+}
+
+[data-theme="dark"] .ant-card {
+  box-shadow: none !important;
+}
+
+/* 表格容器 */
+[data-theme="dark"] .ant-table-container {
+  border: 1px solid #1e293b !important;
+}
+
+/* 穿透页面的白色背景修复 */
+[data-theme="dark"] .stock-detail-page .ant-card {
+  background: #111827 !important;
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .screener-page .ant-card {
+  background: #111827 !important;
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .watchlist-page .ant-card {
+  background: #111827 !important;
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .review-page .ant-card {
+  background: #111827 !important;
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .backtest-page .ant-card {
+  background: #111827 !important;
+  border-color: #1e293b !important;
+}
+
+/* Tab 内容区域 */
+[data-theme="dark"] .ant-tabs-content-holder {
+  background: transparent !important;
+}
+
+/* 搜索框 */
+[data-theme="dark"] .ant-input-search .ant-input {
+  background: #1e293b !important;
+}
+
+/* 弹窗遮罩 */
+[data-theme="dark"] .ant-modal-mask {
+  background: rgba(0, 0, 0, 0.65) !important;
+}
+
+/* Popconfirm */
+[data-theme="dark"] .ant-popover-inner {
+  background: #111827 !important;
+}
+
+/* Message */
+[data-theme="dark"] .ant-message-notice-content {
+  background: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+
 /* ==================== 响应式断点 ==================== */
 @media (max-width: 768px) {
   .app-content {
@@ -379,7 +447,11 @@ body {
 
   /* 移动端主题切换按钮位置调整 */
   .theme-toggle-button {
-    bottom: calc(64px + 16px + env(safe-area-inset-bottom, 0px)) !important;
+    top: 12px !important;
+    right: 12px !important;
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 14px !important;
   }
 }
 

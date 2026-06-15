@@ -154,7 +154,7 @@ export const useAppStore = create<AppStore>()(
     (set, get) => ({
       // === UI偏好 ===
       preferences: {
-        theme: 'light',
+        theme: 'dark',
         klinePeriod: 'day',
         showVolume: true,
         sidebarCollapsed: false,

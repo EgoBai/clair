@@ -11,15 +11,15 @@ import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassO
 
 const { Title, Text, Paragraph } = Typography;
 
-const BG = '#0f172a';
-const CARD_BG = '#1e293b';
-const BORDER = '#334155';
-const TEXT = '#f1f5f9';
-const TEXT_SEC = '#94a3b8';
-const COLOR_UP = '#cf2a2a';
-const COLOR_DOWN = '#1db468';
-const ACCENT = '#3b82f6';
-const GOLD = '#f59e0b';
+import { THEME, GOLD } from '../styles/theme-constants';
+const BG = THEME.bg;
+const CARD_BG = THEME.cardBg;
+const BORDER = THEME.border;
+const TEXT = THEME.text;
+const TEXT_SEC = THEME.textSec;
+const COLOR_UP = THEME.up;
+const COLOR_DOWN = THEME.down;
+const ACCENT = THEME.accent;
 
 interface IndexData { name: string; symbol: string; closePrice: number; changePercent: number; volume: number; category?: string; }
 interface SectorScore { industry: string; score: number; changeScore: number; volumeScore: number; breadthScore: number; momentumScore?: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number; }
@@ -118,7 +118,7 @@ const DiscoverPage: React.FC = () => {
           <>
             {/* AI 解读 */}
             {insight?.sections ? (
-              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+              <div style={{ background: 'var(--bg-card)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
                 {/* 顶部情绪栏 */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${BORDER}` }}>
                   <span style={{ fontSize: 28 }}>{insight.moodEmoji}</span>
@@ -160,7 +160,7 @@ const DiscoverPage: React.FC = () => {
                 <div className="insight-sections" style={{ gap: 12 }}>
                   {insight.sections.map((sec: any, i: number) => (
                     <div key={i} style={{
-                      background: 'rgba(15,23,42,0.7)', border: `1px solid ${BORDER}`,
+                      background: 'var(--bg-surface)', border: `1px solid ${BORDER}`,
                       borderRadius: 8, padding: '14px 16px',
                     }}>
                       <div style={{ fontSize: 14, fontWeight: 700, color: ACCENT, marginBottom: 10 }}>
@@ -313,7 +313,7 @@ const DiscoverPage: React.FC = () => {
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {scores.map(s => (
+              {scores.slice(0, 15).map(s => (
                 <div key={s.industry} onClick={() => openSector(s)}
                   style={{
                     background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '12px 16px',

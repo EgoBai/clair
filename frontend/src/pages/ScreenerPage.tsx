@@ -24,16 +24,15 @@ import {
 
 const { Title, Text } = Typography;
 
-// 颜色常量
-const BG = '#0f172a';
-const CARD_BG = '#1e293b';
-const BORDER = '#334155';
-const TEXT = '#f1f5f9';
-const TEXT_SEC = '#94a3b8';
-const COLOR_UP = '#cf2a2a';
-const COLOR_DOWN = '#1db468';
-const ACCENT = '#3b82f6';
-const GOLD = '#f59e0b';
+import { THEME, GOLD } from '../styles/theme-constants';
+const BG = THEME.bg;
+const CARD_BG = THEME.cardBg;
+const BORDER = THEME.border;
+const TEXT = THEME.text;
+const TEXT_SEC = THEME.textSec;
+const COLOR_UP = THEME.up;
+const COLOR_DOWN = THEME.down;
+const ACCENT = THEME.accent;
 
 // 股票数据接口
 interface StockData {

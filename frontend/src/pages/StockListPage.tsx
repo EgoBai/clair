@@ -13,12 +13,13 @@ import {
   Stock,
 } from '../store/useStockStore';
 
-const BG = '#f5f6f8';
-const BORDER = '#e8e8e8';
-const TEXT = '#1a1a1a';
-const TEXT_SEC = '#71717a';
-const COLOR_UP = '#cf2a2a';
-const COLOR_DOWN = '#1db468';
+import { THEME } from '../styles/theme-constants';
+const BG = THEME.bg;
+const BORDER = THEME.border;
+const TEXT = THEME.text;
+const TEXT_SEC = THEME.textSec;
+const COLOR_UP = THEME.up;
+const COLOR_DOWN = THEME.down;
 
 const StockListPage: React.FC = () => {
   const stocks = useStocks();

@@ -10,13 +10,14 @@ import ReactECharts from 'echarts-for-react';
 
 const { Title, Text } = Typography;
 
-const BG = '#f5f5f5';
-const CARD_BG = '#ffffff';
-const TEXT = '#1e293b';
-const TEXT_SEC = '#64748b';
-const COLOR_UP = '#cf2a2a';
-const COLOR_DOWN = '#1db468';
-const ACCENT = '#3b82f6';
+import { THEME } from '../styles/theme-constants';
+const BG = THEME.bg;
+const CARD_BG = THEME.cardBg;
+const TEXT = THEME.text;
+const TEXT_SEC = THEME.textSec;
+const COLOR_UP = THEME.up;
+const COLOR_DOWN = THEME.down;
+const ACCENT = THEME.accent;
 
 interface IndexDetail {
   symbol: string; name: string; displaySymbol: string;

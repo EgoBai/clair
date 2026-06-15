@@ -74,8 +74,8 @@ export const MobileStockCard: React.FC<MobileStockCardProps> = ({
         }
       }}
       style={{
-        background: '#1e293b',
-        border: '1px solid #334155',
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
         borderRadius: 10,
         padding: '12px 14px',
         display: 'flex',
@@ -87,10 +87,10 @@ export const MobileStockCard: React.FC<MobileStockCardProps> = ({
         WebkitTapHighlightColor: 'transparent',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = '#3b82f6';
+        e.currentTarget.style.borderColor = 'var(--accent)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = '#334155';
+        e.currentTarget.style.borderColor = 'var(--border)';
       }}
       onTouchStart={(e) => {
         e.currentTarget.style.transform = 'scale(0.98)';
@@ -117,7 +117,7 @@ export const MobileStockCard: React.FC<MobileStockCardProps> = ({
           <div style={{
             fontSize: 14,
             fontWeight: 600,
-            color: '#f1f5f9',
+            color: 'var(--text)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -126,7 +126,7 @@ export const MobileStockCard: React.FC<MobileStockCardProps> = ({
           </div>
           <div style={{
             fontSize: 11,
-            color: '#64748b',
+            color: 'var(--text-muted)',
             fontFamily: 'monospace',
             marginTop: 1,
           }}>
@@ -148,7 +148,7 @@ export const MobileStockCard: React.FC<MobileStockCardProps> = ({
             fontWeight: 700,
             fontFamily: 'monospace',
             fontVariantNumeric: 'tabular-nums',
-            color: '#f1f5f9',
+            color: 'var(--text)',
           }}>
             {stock.price?.toFixed(2) ?? '—'}
           </div>
@@ -169,7 +169,7 @@ export const MobileStockCard: React.FC<MobileStockCardProps> = ({
           flexDirection: 'column',
           gap: 2,
           fontSize: 10,
-          color: '#64748b',
+          color: 'var(--text-muted)',
           minWidth: 50,
         }}>
           {stock.turnover !== undefined && (

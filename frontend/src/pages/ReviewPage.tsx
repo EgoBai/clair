@@ -30,18 +30,19 @@ import { renderMarkdown } from '../utils/markdown';
 const { Title, Text, Paragraph } = Typography;
 
 /* ------------------------------------------------------------------ */
-/*  Theme tokens (matches DiscoverPage dark palette)                   */
+/*  Theme tokens — 使用共享 CSS 变量                                    */
 /* ------------------------------------------------------------------ */
+import { THEME as SharedTheme } from '../styles/theme-constants';
 const THEME = {
-  bg: '#0f1419',
-  cardBg: '#1a2332',
-  cardBorder: '#243447',
-  text: '#e0e0e0',
-  textSecondary: '#8899aa',
-  up: '#cf2a2a',
-  down: '#1db468',
-  accent: '#3b82f6',
-  accentHover: '#2563eb',
+  bg: SharedTheme.bg,
+  cardBg: SharedTheme.cardBg,
+  cardBorder: SharedTheme.border,
+  text: SharedTheme.text,
+  textSecondary: SharedTheme.textSec,
+  up: SharedTheme.up,
+  down: SharedTheme.down,
+  accent: SharedTheme.accent,
+  accentHover: SharedTheme.accent,
 };
 
 /* ------------------------------------------------------------------ */

@@ -22,15 +22,16 @@ import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 
 const { Title, Text } = Typography;
 
-// 芝士财富配色方案: 白底 + 红涨绿跌
-const COLOR_UP = '#cf2a2a';      // 大红
-const COLOR_DOWN = '#1db468';    // 深绿
-const COLOR_FLAT = '#666666';
-const BG_CARD = '#1e293b';
-const BG_PAGE = '#0f172a';
-const TEXT_PRIMARY = '#f1f5f9';
-const TEXT_SECONDARY = '#94a3b8';
-const BORDER = '#334155';
+import { THEME } from '../styles/theme-constants';
+// 配色方案
+const COLOR_UP = THEME.up;
+const COLOR_DOWN = THEME.down;
+const COLOR_FLAT = THEME.flat;
+const BG_CARD = THEME.cardBg;
+const BG_PAGE = THEME.bg;
+const TEXT_PRIMARY = THEME.text;
+const TEXT_SECONDARY = THEME.textSec;
+const BORDER = THEME.border;
 
 interface StockInfo {
   symbol: string;
