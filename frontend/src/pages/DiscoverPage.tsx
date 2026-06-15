@@ -132,7 +132,7 @@ const DiscoverPage: React.FC = () => {
                   </div>
                   <div className="insight-header-stats" style={{ gap: 16, fontSize: 12, color: TEXT_SEC, alignItems: 'center' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      📊 市场宽度
+                      <span style={{ opacity: 0.7 }}>涨跌</span>
                       <span style={{ 
                         display: 'inline-flex', 
                         width: 80, 
@@ -148,12 +148,17 @@ const DiscoverPage: React.FC = () => {
                         }} />
                       </span>
                       <b style={{color:COLOR_UP}}>{insight.marketBreadth.up}</b>
-                      <span style={{color:TEXT_SEC}}>/</span>
+                      <span style={{color:TEXT_SEC, opacity: 0.5}}>/</span>
                       <b style={{color:COLOR_DOWN}}>{insight.marketBreadth.down}</b>
                     </span>
-                    <span>📈 均涨跌 <b style={{color:insight.avgIndexChange>=0?COLOR_UP:COLOR_DOWN}}>{insight.avgIndexChange>0?'+':''}{insight.avgIndexChange}%</b></span>
-                    {insight.limitUpCount > 0 && <span>🔥 <b style={{color:COLOR_UP}}>{insight.limitUpCount}</b>涨停</span>}
-                    {insight.limitDownCount > 0 && <span>❄️ <b style={{color:COLOR_DOWN}}>{insight.limitDownCount}</b>跌停</span>}
+                    <span>
+                      <span style={{ opacity: 0.7 }}>均幅</span>{' '}
+                      <b style={{color:insight.avgIndexChange>=0?COLOR_UP:COLOR_DOWN}}>
+                        {insight.avgIndexChange>0?'+':''}{Number(insight.avgIndexChange).toFixed(2)}%
+                      </b>
+                    </span>
+                    {insight.limitUpCount > 0 && <span><b style={{color:COLOR_UP}}>{insight.limitUpCount}</b><span style={{opacity:0.7}}>涨停</span></span>}
+                    {insight.limitDownCount > 0 && <span><b style={{color:COLOR_DOWN}}>{insight.limitDownCount}</b><span style={{opacity:0.7}}>跌停</span></span>}
                   </div>
                 </div>
                 {/* 三栏内容 */}
@@ -166,20 +171,29 @@ const DiscoverPage: React.FC = () => {
                       <div style={{ fontSize: 14, fontWeight: 700, color: ACCENT, marginBottom: 10 }}>
                         {sec.icon} {sec.title}
                       </div>
-                      <div style={{ fontSize: 13, color: TEXT, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
+                      <div style={{ fontSize: 13, color: TEXT, lineHeight: 1.8 }}>
                         {sec.text.split('\n').filter((l: string) => l.trim()).map((line: string, j: number) => {
                           const trimmed = line.trim();
-                          const isBold = trimmed.startsWith('**') && trimmed.endsWith('**');
                           const isBullet = trimmed.startsWith('·') || trimmed.startsWith('-') || trimmed.startsWith('•');
                           const isArrow = trimmed.startsWith('→') || trimmed.startsWith('▸');
+                          // 解析行内 markdown 加粗 **text**
+                          const parts = trimmed.split(/(\*\*[^*]+\*\*)/g).map((part, i) => {
+                            if (part.startsWith('**') && part.endsWith('**')) {
+                              return <b key={i} style={{ color: TEXT, fontWeight: 700 }}>{part.slice(2, -2)}</b>;
+                            }
+                            return <span key={i}>{part}</span>;
+                          });
                           return (
                             <div key={j} style={{
-                              marginBottom: 4,
-                              paddingLeft: isBullet ? 10 : 0,
+                              marginBottom: 5,
+                              paddingLeft: isBullet ? 12 : 0,
                               color: isArrow ? ACCENT : TEXT,
-                              fontWeight: isBold ? 700 : 400,
+                              display: 'flex',
+                              alignItems: 'baseline',
+                              gap: 4,
                             }}>
-                              {isBold ? trimmed.replace(/\*\*/g, '') : trimmed}
+                              {isBullet && <span style={{ color: ACCENT, flexShrink: 0 }}>›</span>}
+                              {parts}
                             </div>
                           );
                         })}
@@ -204,7 +218,7 @@ const DiscoverPage: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12 }}>
+              <div style={{ background: 'var(--bg-card)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12 }}>
                 <BulbOutlined style={{ fontSize: 20, color: GOLD, marginTop: 2 }} />
                 <div style={{ flex: 1 }}>
                   <Text strong style={{ color: TEXT, fontSize: 14 }}>AI 市场解读</Text>

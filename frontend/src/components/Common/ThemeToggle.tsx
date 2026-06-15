@@ -23,8 +23,8 @@ export const ThemeToggle: React.FC = () => {
       title={isDark ? '切换到浅色模式' : '切换到深色模式'}
       style={{
         position: 'fixed',
-        top: 16,
-        right: 16,
+        bottom: 24,
+        left: 24,
         zIndex: 1000,
         width: 36,
         height: 36,
