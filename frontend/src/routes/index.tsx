@@ -16,6 +16,7 @@ const IndexDetailPage = lazy(() => import('../pages/IndexDetailPage'));
 const SectorDetailPage = lazy(() => import('../pages/SectorDetailPage'));
 const BacktestPage = lazy(() => import('../pages/BacktestPage'));
 const StrategyTemplatesPage = lazy(() => import('../pages/StrategyTemplatesPage'));
+const IndustryMapPage = lazy(() => import('../pages/IndustryMapPage'));
 
 // 404
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
@@ -52,6 +53,7 @@ export const AppRoutes = () => {
         <Route path="/sectors/:symbol" element={<SectorDetailPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
         <Route path="/strategies" element={<StrategyTemplatesPage />} />
+        <Route path="/industry-map" element={<IndustryMapPage />} />
 
         {/* 重定向 */}
         <Route path="/home" element={<Navigate to="/" replace />} />
@@ -76,6 +78,7 @@ export const ROUTE_PATHS = {
   STOCK_DETAIL: '/stocks/:symbol',
   BACKTEST: '/backtest',
   STRATEGIES: '/strategies',
+  INDUSTRY_MAP: '/industry-map',
 } as const;
 
 // 路由配置类型

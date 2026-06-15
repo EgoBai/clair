@@ -1,0 +1,424 @@
+/**
+ * 发掘页响应式样式
+ * 替代 window.innerWidth 的 JS 判断，使用纯 CSS 媒体查询
+ */
+
+/* ==================== 发掘页 ==================== */
+.discover-page {
+  background: #0f172a;
+  min-height: 100vh;
+  color: #f1f5f9;
+}
+
+.discover-page .discover-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px 24px 40px;
+}
+
+/* 指数 + 宽度 两栏布局 */
+.discover-page .index-breadth-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.discover-page .index-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+/* AI 解读三栏 */
+.discover-page .insight-sections {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+/* 资讯网格 */
+.discover-page .news-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.discover-page .news-item {
+  flex: 1 1 calc(33% - 8px);
+  min-width: 180px;
+}
+
+/* AI 情绪栏 */
+.discover-page .insight-header-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #94a3b8;
+  align-items: center;
+}
+
+/* ==================== 平板适配 ==================== */
+@media (max-width: 1024px) {
+  .discover-page .discover-container {
+    padding: 16px 16px 32px;
+  }
+
+  .discover-page .insight-sections {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==================== 手机适配 ==================== */
+@media (max-width: 768px) {
+  .discover-page .discover-container {
+    padding: 12px 12px 24px;
+  }
+
+  /* 指数+宽度改为单列 */
+  .discover-page .index-breadth-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* 指数网格：小屏2列，大屏3列 */
+  .discover-page .index-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* AI 情绪栏统计改为换行 */
+  .discover-page .insight-header-stats {
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  /* 资讯卡片改为单列 */
+  .discover-page .news-item {
+    flex: 1 1 100%;
+    min-width: auto;
+  }
+
+  /* AI 解读三栏改为单列 */
+  .discover-page .insight-sections {
+    grid-template-columns: 1fr;
+  }
+
+  /* 板块评分卡片内联指标换行 */
+  .discover-page .sector-metrics {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* 板块详情统计换行 */
+  .discover-page .sector-detail-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* 板块详情按钮全宽 */
+  .discover-page .sector-detail-actions {
+    width: 100%;
+  }
+
+  .discover-page .sector-detail-actions .ant-btn {
+    width: 100%;
+  }
+}
+
+/* ==================== 小屏手机 ==================== */
+@media (max-width: 480px) {
+  .discover-page .index-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .discover-page .insight-header-stats {
+    font-size: 10px;
+  }
+}
+
+/* ==================== 筛选页 ==================== */
+.screener-page .screener-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.screener-page .strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.screener-page .metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 1024px) {
+  .screener-page .strategy-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .screener-page .metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .screener-page {
+    padding: 12px !important;
+  }
+
+  .screener-page .screener-filters {
+    flex-direction: column;
+  }
+
+  .screener-page .screener-filter-item {
+    width: 100%;
+  }
+
+  .screener-page .strategy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .screener-page .metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* 隐藏桌面表格，显示卡片 */
+  .screener-page .mobile-card-view .ant-table-wrapper {
+    display: none !important;
+  }
+
+  .screener-page .mobile-card-view .card-list {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+/* ==================== 自选页 ==================== */
+.watchlist-page .watchlist-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .watchlist-page .watchlist-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ==================== 复盘页 ==================== */
+.review-page .review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .review-page .review-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==================== 图表响应式 ==================== */
+.responsive-chart {
+  width: 100%;
+  overflow: hidden;
+}
+
+.responsive-chart canvas {
+  max-width: 100% !important;
+}
+
+/* ECharts 工具栏响应式 */
+@media (max-width: 768px) {
+  .responsive-chart .echarts-for-react {
+    height: auto !important;
+  }
+
+  /* 隐藏桌面端工具栏，简化手机端 */
+  .responsive-chart .echarts-for-react > div:first-child > div {
+    display: none !important;
+  }
+
+  /* 图表容器 */
+  .chart-container-responsive {
+    margin: 0 -8px;
+    padding: 0 8px;
+  }
+
+  /* K线图在手机端隐藏次要信息 */
+  .kline-mobile-hide {
+    display: none !important;
+  }
+
+  /* 分时图手机端简化 */
+  .timeline-mobile-simplified .echarts-for-react {
+    height: 200px !important;
+  }
+
+  /* 成交量图手机端缩小 */
+  .volume-chart-mobile .echarts-for-react {
+    height: 80px !important;
+  }
+}
+
+/* 图表标题响应式 */
+@media (max-width: 768px) {
+  .chart-title-responsive {
+    font-size: 13px !important;
+    padding: 8px 0 !important;
+  }
+
+  .chart-legend-responsive {
+    font-size: 10px !important;
+    gap: 8px !important;
+  }
+}
+
+/* ==================== 行业产业链地图页 ==================== */
+.industry-map-page .react-flow__node {
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .industry-map-page {
+    padding: 12px !important;
+  }
+
+  .industry-map-page .react-flow {
+    height: 300px !important;
+  }
+
+  .industry-map-page .ant-tabs-tab {
+    font-size: 13px !important;
+    padding: 8px 12px !important;
+  }
+
+  .industry-map-page .ant-list-item {
+    padding: 10px 0 !important;
+  }
+}
+
+/* ==================== 详情页 ==================== */
+.stock-detail-page .stock-price-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stock-detail-page .stock-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .stock-detail-page {
+    padding: 12px 12px 24px !important;
+  }
+
+  .stock-detail-page .stock-price-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .stock-detail-page .stock-meta-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stock-detail-page .ant-tabs-nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #0f172a;
+  }
+
+  .stock-detail-page .ant-segmented {
+    width: 100%;
+  }
+
+  .stock-detail-page .ant-segmented-item {
+    flex: 1;
+  }
+}
+
+/* ==================== 通用：卡片式表格（移动端）==================== */
+@media (max-width: 768px) {
+  /* 隐藏桌面表格 */
+  .mobile-card-view .ant-table-wrapper {
+    display: none !important;
+  }
+
+  /* 显示卡片列表 */
+  .mobile-card-view .card-list {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .mobile-card-view .stock-card-mobile {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+
+  .mobile-card-view .stock-card-mobile:active {
+    border-color: #3b82f6;
+  }
+
+  .mobile-card-view .stock-card-info {
+    flex: 1;
+  }
+
+  .mobile-card-view .stock-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f1f5f9;
+  }
+
+  .mobile-card-view .stock-card-code {
+    font-size: 11px;
+    color: #64748b;
+    font-family: monospace;
+    margin-top: 2px;
+  }
+
+  .mobile-card-view .stock-card-price {
+    text-align: right;
+  }
+
+  .mobile-card-view .stock-card-value {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mobile-card-view .stock-card-change {
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+}
+
+/* 桌面端隐藏卡片列表 */
+@media (min-width: 769px) {
+  .mobile-card-view .card-list {
+    display: none !important;
+  }
+}

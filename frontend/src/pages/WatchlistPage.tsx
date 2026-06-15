@@ -731,7 +731,7 @@ const WatchlistPage: React.FC = () => {
 
   /* ─── Render ─── */
   return (
-    <div style={{ minHeight: '100vh', background: BG, padding: '24px 32px' }}>
+    <div className="watchlist-page" style={{ minHeight: '100vh', background: BG, padding: '24px 32px' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto' }}>
 
         {/* ── Header ── */}

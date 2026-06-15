@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import NavigationMenu from './NavigationMenu';
+import TabBar from './TabBar';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
 import { SettingOutlined, InfoCircleOutlined, GithubOutlined } from '@ant-design/icons';
 import { Tooltip, Modal, Typography } from 'antd';
 import FloatingChat from '../AI/FloatingChat';
+import '../../styles/responsive.css';
 
 const { Text, Link } = Typography;
 
@@ -25,6 +27,9 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
 
         {/* AI 浮动对话入口 */}
         <FloatingChat />
+
+        {/* 移动端底部导航栏 */}
+        <TabBar />
 
         {/* 设置按钮 — 右下角小图标，点击弹出信息面板 */}
         <Tooltip title="关于澄观">
@@ -84,7 +89,7 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
         .app-layout {
           display: flex;
           min-height: 100vh;
-          background: #f5f5f7;
+          background: var(--color-bg, #f5f5f7);
         }
 
         .app-content {
@@ -103,57 +108,20 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
           width: 100%;
         }
 
-        /* 响应式设计 */
+        /* 移动端：无侧边栏，内容全宽 */
         @media (max-width: 768px) {
           .app-content {
             margin-left: 0;
-            padding-top: 60px;
           }
 
           .content-wrapper {
-            padding: 12px;
-          }
-
-          /* 表格横向滚动 */
-          .ant-table-wrapper {
-            overflow-x: auto;
-          }
-
-          /* 卡片全宽 */
-          .ant-card {
-            margin-bottom: 12px;
-          }
-
-          /* 统计数字紧凑 */
-          .ant-statistic-title {
-            font-size: 11px;
-          }
-
-          .ant-statistic-content {
-            font-size: 18px;
-          }
-
-          /* 隐藏次要列 */
-          .hide-mobile {
-            display: none !important;
-          }
-
-          /* 按钮紧凑 */
-          .ant-btn {
-            padding: 4px 8px;
-            font-size: 12px;
-          }
-
-          /* 标签紧凑 */
-          .ant-tag {
-            font-size: 11px;
-            padding: 2px 6px;
+            padding: 16px;
           }
         }
 
         @media (max-width: 480px) {
           .content-wrapper {
-            padding: 8px;
+            padding: 12px;
           }
         }
 

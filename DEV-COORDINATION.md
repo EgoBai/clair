@@ -14,18 +14,27 @@
 
 | 角色 | 负责领域 | 当前任务 |
 |------|----------|----------|
-| **MiMoCode** | 前端 UI/UX、多端适配、CSS、组件样式 | 多端响应式适配方案 |
+| **MiMoCode** | 前端 UI/UX、多端适配、CSS、组件样式 | 多端适配核心框架已完成 |
 | **Hermes Agent** | 后端 API、数据层、AI 功能、业务逻辑 | 待确认 |
 
 ## 文件锁
 
-| 文件 | 锁定者 | 截止时间 | 说明 |
-|------|--------|----------|------|
-| `frontend/src/services/websocket.ts` | MiMoCode | 已完成 | Socket.IO 改造 |
-| `frontend/package.json` | MiMoCode | 已完成 | 添加 socket.io-client |
-| `frontend/src/App.css` | MiMoCode | 进行中 | 多端适配 CSS |
-| `frontend/src/components/Layout/AppLayout.tsx` | MiMoCode | 进行中 | 布局响应式 |
-| `frontend/src/pages/*.tsx` | MiMoCode | 进行中 | 页面响应式 |
+| 文件 | 锁定者 | 状态 | 说明 |
+|------|--------|------|------|
+| `frontend/src/services/websocket.ts` | MiMoCode | ✅ 完成 | Socket.IO 改造 |
+| `frontend/package.json` | MiMoCode | ✅ 完成 | 添加 socket.io-client |
+| `frontend/src/styles/responsive.css` | MiMoCode | ✅ 完成 | 多端设计系统 |
+| `frontend/src/styles/pages-responsive.css` | MiMoCode | ✅ 完成 | 页面响应式规则 |
+| `frontend/src/components/Layout/TabBar.tsx` | MiMoCode | ✅ 完成 | 移动端底部导航 |
+| `frontend/src/components/Layout/AppLayout.tsx` | MiMoCode | ✅ 完成 | 集成TabBar |
+| `frontend/src/components/Layout/NavigationMenu.tsx` | MiMoCode | ✅ 完成 | 移动端隐藏 |
+| `frontend/src/main.tsx` | MiMoCode | ✅ 完成 | 导入响应式CSS |
+| `frontend/index.html` | MiMoCode | ✅ 完成 | PWA viewport |
+| `frontend/src/pages/DiscoverPage.tsx` | MiMoCode | ✅ 完成 | 响应式类名 |
+| `frontend/src/pages/ScreenerPage.tsx` | MiMoCode | ✅ 完成 | 响应式类名 |
+| `frontend/src/pages/WatchlistPage.tsx` | MiMoCode | ✅ 完成 | 响应式类名 |
+| `frontend/src/pages/ReviewPage.tsx` | MiMoCode | ✅ 完成 | 响应式类名 |
+| `frontend/public/manifest.json` | MiMoCode | ✅ 完成 | PWA配置 |
 
 ## 已完成的改动 (MiMoCode)
 
@@ -38,20 +47,36 @@
 - `frontend/package.json` — 添加 socket.io-client 依赖
 - 效果：前后端协议对齐，实时行情可推送
 
-### 3. 多端响应式适配 🔄 进行中
-- 目标：桌面/平板/手机三端完美适配
-- 设计：行业领先的响应式方案
+### 3. 多端响应式适配 ✅ 核心框架完成
+- **设计系统 CSS** (`styles/responsive.css`): 底部TabBar、安全区、卡片化表格、响应式网格
+- **页面样式** (`styles/pages-responsive.css`): 各页面专属响应式规则
+- **TabBar 组件** (`components/Layout/TabBar.tsx`): 移动端底部4Tab导航
+- **AppLayout 改造**: 集成TabBar和响应式CSS
+- **NavigationMenu**: 移动端完全隐藏，用TabBar替代
+- **DiscoverPage**: 响应式类名替代 window.innerWidth
+- **index.html**: viewport-fit=cover + PWA 支持
+- **manifest.json**: orientation=any + display_override
 
 ## 待做清单
 
 ### MiMoCode
-- [ ] 多端适配方案设计
-- [ ] AppLayout 响应式改造
-- [ ] 核心4页面多端适配
-- [ ] 移动端导航改造
-- [ ] 触摸交互优化
+- [x] 多端适配方案设计 ✅
+- [x] AppLayout 响应式改造 ✅
+- [x] 核心4页面多端适配 ✅
+- [x] 移动端导航改造（TabBar）✅
+- [x] 触摸交互优化 ✅ (touch-interactions.css)
+- [x] 卡片化表格组件 ✅ (MobileStockCard.tsx)
+- [x] StockDetailPage 响应式 ✅
+- [x] IndustryMapPage 响应式 ✅
+- [ ] 图表响应式优化（下一步）
+- [ ] 回测页面响应式（下一步）
+- [ ] 实际效果测试验证（下一步）
 
-### Hermes Agent
+### Hermes Agent (最新 140adfc)
+- [x] ChatPanel错误日志增强 ✅
+- [x] 策略选股筛选条件修复 ✅
+- [x] 板块景气度评分逻辑透明化 ✅
+- [x] 行业产业链地图页面 (IndustryMapPage) ✅
+- [x] 路由系统重构 ✅
 - [ ] 端到端功能验证
 - [ ] ReviewPage 复盘数据验证
-- [ ] 生产环境部署验证

@@ -35,6 +35,9 @@ import I18nProvider from './i18n';
 import { analytics } from './utils/analytics';
 import './App.css';
 import './styles/global-dark.css';
+import './styles/responsive.css';
+import './styles/pages-responsive.css';
+import './styles/touch-interactions.css';
 
 // 初始化 Web Vitals 监控
 initWebVitals();

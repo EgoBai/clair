@@ -423,6 +423,7 @@ const ReviewPage: React.FC = () => {
 
   return (
     <div
+      className="review-page"
       style={{
         minHeight: '100vh',
         background: THEME.bg,

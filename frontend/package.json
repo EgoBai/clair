@@ -31,6 +31,7 @@
     "react-query": "^3.39.3",
     "react-router-dom": "^6.20.0",
     "react-window": "^2.2.7",
+    "reactflow": "^11.11.4",
     "recharts": "^3.8.1",
     "socket.io-client": "^4.8.3",
     "xlsx": "^0.18.5",

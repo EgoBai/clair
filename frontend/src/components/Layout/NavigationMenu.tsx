@@ -41,6 +41,13 @@ const NAV_ITEMS: NavItem[] = [
     path: '/review',
     icon: '📊',
     description: '组合分析 · 策略回测 · AI复盘 · 交易诊断'
+  },
+  {
+    id: 'industry-map',
+    label: '产业地图',
+    path: '/industry-map',
+    icon: '🗺️',
+    description: '产业链图谱 · 投资逻辑 · AI解读 · 核心标的'
   }
 ];
 
@@ -341,31 +348,9 @@ export const NavigationMenu: React.FC = () => {
           text-align: center;
         }
 
-        /* 移动端样式 */
+        /* 移动端：完全隐藏侧边栏，用底部TabBar替代 */
         @media (max-width: 768px) {
-          .mobile-menu-button {
-            display: block;
-          }
-
-          .nav-container {
-            transform: translateX(-100%);
-          }
-
-          .nav-container.mobile-open {
-            transform: translateX(0);
-          }
-
-          .mobile-menu-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 999;
-          }
-
-          .nav-tooltip {
+          .navigation-menu {
             display: none;
           }
         }

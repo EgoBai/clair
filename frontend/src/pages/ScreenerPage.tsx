@@ -480,7 +480,7 @@ const ScreenerPage: React.FC = () => {
   ];
 
   return (
-    <div style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
+    <div className="screener-page" style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         
         {/* 页面标题 */}

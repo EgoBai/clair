@@ -202,7 +202,7 @@ const StockDetailPage: React.FC = () => {
   );
 
   return (
-    <div style={{ padding: '16px 24px', maxWidth: 1400, margin: '0 auto', background: BG_PAGE, minHeight: '100vh' }}>
+    <div className="stock-detail-page" style={{ padding: '16px 24px', maxWidth: 1400, margin: '0 auto', background: BG_PAGE, minHeight: '100vh' }}>
       <Breadcrumb
         style={{ marginBottom: 12 }}
         items={[

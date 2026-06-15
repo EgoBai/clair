@@ -1,0 +1,238 @@
+/**
+ * 澄观 Clair — 触摸交互优化
+ * 
+ * 移动端专属交互增强：
+ * - 触摸反馈（按压缩放、涟漪效果）
+ * - 滑动手势支持
+ * - 长按菜单
+ * - 下拉刷新指示器
+ * - 安全区处理
+ */
+
+/* ==================== 触摸反馈 ==================== */
+@media (hover: none) and (pointer: coarse) {
+  /* 按压缩放效果 */
+  .touchable {
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.1s ease;
+  }
+
+  .touchable:active {
+    transform: scale(0.97);
+  }
+
+  /* 卡片按压效果 */
+  .ant-card-hoverable:active {
+    transform: scale(0.98) !important;
+  }
+
+  /* 按钮按压效果 */
+  .ant-btn:active:not(:disabled) {
+    transform: scale(0.95) !important;
+  }
+
+  /* 列表项按压 */
+  .ant-list-item:active {
+    background: rgba(59, 130, 246, 0.05) !important;
+  }
+
+  /* 表格行按压 */
+  .ant-table-tbody > tr:active > td {
+    background: rgba(59, 130, 246, 0.08) !important;
+  }
+}
+
+/* ==================== 涟漪效果 ==================== */
+.ripple-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple-effect::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.3);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+}
+
+.ripple-effect:active::after {
+  width: 200px;
+  height: 200px;
+  opacity: 0;
+  transition: width 0.3s ease, height 0.3s ease, opacity 0.3s ease;
+}
+
+/* ==================== 安全区处理 ==================== */
+@supports (padding: env(safe-area-inset-top)) {
+  /* iPhone 刘海安全区 */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* iPhone 底部安全区 */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* 左右安全区 */
+  .safe-area-horizontal {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* 全安全区 */
+  .safe-area-all {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ==================== 下拉刷新指示器 ==================== */
+.pull-to-refresh-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(-60px);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: transform 0.3s ease;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.pull-to-refresh-indicator.visible {
+  transform: translateX(-50%) translateY(20px);
+}
+
+.pull-to-refresh-indicator.loading {
+  animation: spin 1s linear infinite;
+}
+
+/* ==================== 滑动操作 ==================== */
+@supports (-webkit-overflow-scrolling: touch) {
+  /* iOS 惯性滚动 */
+  .smooth-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+}
+
+/* ==================== 禁止选中文本（移动端）==================== */
+@media (max-width: 768px) {
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* 允许输入框选中 */
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
+}
+
+/* ==================== 触摸目标增强 ==================== */
+@media (max-width: 768px) {
+  /* 确保所有可点击元素足够大 */
+  a, button, [role="button"], [onclick], .clickable {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* 导航项触摸目标 */
+  .ant-tabs-tab {
+    min-height: 48px !important;
+    padding: 12px 16px !important;
+  }
+
+  /* Segmented 控件触摸目标 */
+  .ant-segmented-item {
+    min-height: 36px !important;
+    padding: 0 16px !important;
+  }
+
+  /* Tag 触摸目标 */
+  .ant-tag {
+    padding: 4px 10px !important;
+    font-size: 13px !important;
+  }
+}
+
+/* ==================== 手势辅助 ==================== */
+/* 左滑显示操作 */
+.swipe-action-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.swipe-action-content {
+  transition: transform 0.3s ease;
+}
+
+.swipe-action-content.swiped {
+  transform: translateX(-80px);
+}
+
+.swipe-action-buttons {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.swipe-action-btn {
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 14px;
+}
+
+/* ==================== 键盘适配 ==================== */
+@media (max-width: 768px) {
+  /* 虚拟键盘弹出时的布局调整 */
+  body.keyboard-open {
+    position: fixed;
+    width: 100%;
+  }
+
+  /* 输入框聚焦时滚动到可见区域 */
+  input:focus, textarea:focus {
+    scroll-margin-top: 100px;
+  }
+}
+
+/* ==================== 深色模式触摸优化 ==================== */
+[data-theme="dark"] .touchable:active {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+[data-theme="dark"] .ripple-effect:active::after {
+  background: rgba(59, 130, 246, 0.4) !important;
+}
+
+/* ==================== 打印触摸优化 ==================== */
+@media print {
+  .touchable, .ripple-effect, .swipe-action-container {
+    -webkit-tap-highlight-color: transparent;
+  }
+}

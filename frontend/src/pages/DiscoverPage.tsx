@@ -92,8 +92,8 @@ const DiscoverPage: React.FC = () => {
   if (loading) return <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
 
   return (
-    <div style={{ background: BG, minHeight: '100vh', color: TEXT }}>
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 40px' }}>
+    <div className="discover-page" style={{ background: BG, minHeight: '100vh', color: TEXT }}>
+      <div className="discover-container" style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 40px' }}>
 
         {/* Header */}
         <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -130,7 +130,7 @@ const DiscoverPage: React.FC = () => {
                       </Tag>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: TEXT_SEC, alignItems: 'center' }}>
+                  <div className="insight-header-stats" style={{ gap: 16, fontSize: 12, color: TEXT_SEC, alignItems: 'center' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       📊 市场宽度
                       <span style={{ 
@@ -157,7 +157,7 @@ const DiscoverPage: React.FC = () => {
                   </div>
                 </div>
                 {/* 三栏内容 */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div className="insight-sections" style={{ gap: 12 }}>
                   {insight.sections.map((sec: any, i: number) => (
                     <div key={i} style={{
                       background: 'rgba(15,23,42,0.7)', border: `1px solid ${BORDER}`,
@@ -235,10 +235,9 @@ const DiscoverPage: React.FC = () => {
                   <span style={{ fontSize: 13, fontWeight: 700, color: TEXT }}>实时资讯</span>
                   <span style={{ fontSize: 10, color: TEXT_SEC, marginLeft: 'auto' }}>东方财富</span>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <div className="news-grid" style={{ gap: 8 }}>
                   {news.slice(0, 6).map((item, i) => (
-                    <div key={i} style={{
-                      flex: '1 1 calc(33% - 8px)', minWidth: 180,
+                    <div key={i} className="news-item" style={{
                       background: 'rgba(15,23,42,0.5)', border: `1px solid ${BORDER}`,
                       borderRadius: 6, padding: '8px 10px', cursor: 'pointer',
                     }} onClick={() => item.url && window.open(item.url, '_blank')}>
@@ -259,8 +258,8 @@ const DiscoverPage: React.FC = () => {
             )}
 
             {/* 指数 + 宽度 */}
-            <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '2fr 1fr', gap: 12, marginBottom: 20 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 480 ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: 8 }}>
+            <div className="index-breadth-grid" style={{ gap: 12, marginBottom: 20 }}>
+              <div className="index-grid" style={{ gap: 8 }}>
                 {indices.map(idx => {
                   const up = idx.changePercent >= 0;
                   return (
@@ -337,7 +336,7 @@ const DiscoverPage: React.FC = () => {
                       <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>{s.stock_count}只</Tag>
                       {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
                     </div>
-                    <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
+                    <div className="sector-metrics" style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
                       <Tooltip title="涨跌强度 (权重50%): 行业平均涨跌幅绝对值，越高说明板块波动越大">
                         <span>📈 {s.changeScore}</span>
                       </Tooltip>
@@ -364,7 +363,7 @@ const DiscoverPage: React.FC = () => {
           <div>
             {selectedSector && (
               <div style={{ marginBottom: 20, background: CARD_BG, borderRadius: 12, border: `1px solid ${BORDER}`, padding: '16px 20px' }}>
-                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                <div className="sector-detail-stats" style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
                   <div style={{ textAlign: 'center', minWidth: 80 }}>
                     <div style={{ fontSize: 28, fontWeight: 800, color: scoreColor(selectedSector.score), fontFamily: 'monospace' }}>{selectedSector.score}</div>
                     <div style={{ fontSize: 11, color: TEXT_SEC }}>景气度评分</div>
@@ -384,14 +383,16 @@ const DiscoverPage: React.FC = () => {
                       <Progress percent={selectedSector.breadthScore} showInfo={false} size="small" strokeColor={GOLD} style={{ width: 60 }} />
                     </div>
                   </div>
-                  <Button 
-                    type="primary" 
-                    icon={<FilterOutlined />}
-                    onClick={() => navigate(`/screener?industry=${encodeURIComponent(selectedSector.industry)}`)}
-                    style={{ background: ACCENT, borderColor: ACCENT }}
-                  >
-                    筛选该板块
-                  </Button>
+                  <div className="sector-detail-actions">
+                    <Button 
+                      type="primary" 
+                      icon={<FilterOutlined />}
+                      onClick={() => navigate(`/screener?industry=${encodeURIComponent(selectedSector.industry)}`)}
+                      style={{ background: ACCENT, borderColor: ACCENT }}
+                    >
+                      筛选该板块
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
