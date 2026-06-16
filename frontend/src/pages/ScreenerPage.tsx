@@ -398,7 +398,7 @@ const ScreenerPage: React.FC = () => {
     }
 
     return result;
-  }, [stocks, activeMetrics, activeStrategy, searchText]);
+  }, [stocks, activeMetrics, activeStrategy, searchText, aiFilterStocks, aiFilterSymbols]);
 
   // 对话式筛选
   const handleAiFilter = useCallback(async () => {
