@@ -733,43 +733,6 @@ const ScreenerPage: React.FC = () => {
           </Card>
         )}
 
-        {/* 对话式AI筛选 — 核心差异化功能 */}
-        <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(139,92,246,0.03))', border: '1px solid rgba(139,92,246,0.25)' }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ fontSize: 18 }}>🤖</span>
-            <input
-              type="text"
-              placeholder="用自然语言描述：如 涨幅超3%的科技股 或 市盈率低于20的银行股"
-              value={aiFilterQuery}
-              onChange={(e) => setAiFilterQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleAiFilter(); }}
-              style={{
-                flex: 1,
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(139,92,246,0.3)',
-                borderRadius: 8,
-                color: 'var(--text)',
-                fontSize: 14,
-                outline: 'none',
-                padding: '8px 12px',
-              }}
-            />
-            <Button
-              type="primary"
-              loading={aiFilterLoading}
-              onClick={handleAiFilter}
-              style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 8 }}
-            >
-              🤖 AI筛选
-            </Button>
-          </div>
-          {aiFilterResult && (
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-              {aiFilterResult}
-            </div>
-          )}
-        </Card>
-
         {/* 核心筛选指标 */}
         <Card 
           title={<span style={{ color: TEXT }}>🔍 核心指标</span>}
@@ -807,11 +770,39 @@ const ScreenerPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* 搜索和统计 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ color: TEXT_SEC }}>
-              筛选结果: <b style={{ color: ACCENT }}>{filtered.length}</b> 只股票
+        {/* AI 筛选 + 搜索 + 刷新 */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 300 }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>🤖</span>
+            <input
+              type="text"
+              placeholder="自然语言筛选：如 涨幅超3%的科技股 或 市盈率低于20的银行股"
+              value={aiFilterQuery}
+              onChange={(e) => setAiFilterQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAiFilter(); }}
+              style={{
+                flex: 1,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-default)',
+                borderRadius: 8,
+                color: 'var(--text-primary)',
+                fontSize: 13,
+                outline: 'none',
+                padding: '8px 12px',
+              }}
+            />
+            <Button
+              type="primary"
+              loading={aiFilterLoading}
+              onClick={handleAiFilter}
+              style={{ borderRadius: 8 }}
+            >
+              AI筛选
+            </Button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+              共 <b style={{ color: 'var(--accent-solid)' }}>{filtered.length}</b> 只
             </span>
             {activeStrategy && (
               <Tag color={STRATEGY_TEMPLATES.find(s => s.id === activeStrategy)?.color}>
@@ -823,31 +814,33 @@ const ScreenerPage: React.FC = () => {
               return m ? <Tag key={mId} color={m.color}>{m.name}</Tag> : null;
             })}
           </div>
-          <Space>
-            <input
-              type="text"
-              placeholder="搜索代码/名称/行业"
-              value={searchText}
-              onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
-              style={{
-                background: BG,
-                border: `1px solid ${BORDER}`,
-                borderRadius: 6,
-                padding: '6px 12px',
-                color: TEXT,
-                fontSize: 13,
-                width: 200,
-              }}
-            />
-            <Button 
-              icon={<ReloadOutlined />} 
-              onClick={fetchData}
-              loading={loading}
-            >
-              刷新
-            </Button>
-          </Space>
+          <input
+            type="text"
+            placeholder="搜索"
+            value={searchText}
+            onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
+            style={{
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-default)',
+              borderRadius: 8,
+              padding: '8px 12px',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              width: 150,
+              outline: 'none',
+            }}
+          />
+          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} style={{ borderRadius: 8 }}>
+            刷新
+          </Button>
         </div>
+
+        {/* AI 筛选结果提示 */}
+        {aiFilterResult && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--accent-light)', borderRadius: 8, fontSize: 13, color: 'var(--accent-solid)' }}>
+            🤖 {aiFilterResult}
+          </div>
+        )}
 
         {/* 股票列表 */}
         <Card 
