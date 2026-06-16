@@ -71,6 +71,7 @@ import {
   ChainNodeData,
   IndustryChainSummary,
 } from '../types/industryChain';
+import { renderMarkdown } from '../utils/markdown';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -96,12 +97,12 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
       style={{
         padding: '12px 16px',
         borderRadius: 8,
-        border: `2px solid ${selected ? '#1890ff' : color}`,
-        background: selected ? '#177ddc' : '#1f1f1f',
+        border: `2px solid ${selected ? 'var(--accent-solid)' : color}`,
+        background: selected ? 'var(--accent-light)' : 'var(--bg-card)',
         minWidth: 180,
         cursor: 'pointer',
         transition: 'all 0.3s',
-        boxShadow: selected ? '0 4px 12px rgba(24,144,255,0.3)' : '0 2px 8px rgba(0,0,0,0.1)',
+        boxShadow: selected ? 'var(--glow-accent)' : 'var(--shadow-sm)',
       }}
     >
       <Handle type="target" position={Position.Left} style={{ background: color }} />
@@ -117,11 +118,11 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
         )}
       </div>
       
-      <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4, color: '#fff' }}>
+      <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4, color: 'var(--text-primary)' }}>
         {segment.name}
       </div>
       
-      <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>
+      <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginBottom: 8 }}>
         {segment.description.slice(0, 30)}...
       </div>
       
@@ -131,7 +132,7 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
         </Text>
         <Text
           style={{
-            color: topChange >= 0 ? '#ff4d4f' : '#52c41a',
+            color: topChange >= 0 ? 'var(--color-up)' : 'var(--color-down)',
             fontWeight: 600,
             fontSize: 14,
           }}
@@ -291,27 +292,62 @@ const IndustryMapPage: React.FC = () => {
     return { totalCompanies, leaders, avgChange, totalMarketCap };
   }, [selectedChain]);
   
-  // AI 问答
+  // AI 问答 — 调用真实后端 API
   const handleAsk = async () => {
-    if (!question.trim()) return;
+    if (!question.trim() || !selectedChain) return;
     
     setAsking(true);
     setAiAnswer('');
     
-    // 模拟 AI 回答（实际应调用后端 API）
-    setTimeout(() => {
-      const answers: Record<string, string> = {
-        '壁垒': `${selectedChain.name}的核心壁垒主要包括：\n\n1. **技术壁垒**：核心技术需要长期积累，新进入者难以短期突破\n2. **资金壁垒**：研发投入大，需要持续的资金支持\n3. **客户壁垒**：下游客户认证周期长，一旦进入不易替换\n4. **规模壁垒**：规模效应明显，龙头企业成本优势显著`,
-        '龙头': `${selectedChain.name}的龙头企业包括：\n\n${selectedChain.layers.flatMap(l => l.segments.flatMap(s => s.companies.filter(c => c.position === 'leader'))).map(c => `- **${c.name}**（${c.symbol}）：${c.competitiveAdvantage}`).join('\n')}`,
-        '投资': `${selectedChain.name}的投资逻辑：\n\n${selectedChain.aiAnalysis?.investmentLogic || '暂无分析'}`,
-      };
+    // 构建产业链上下文
+    const chainContext = {
+      name: selectedChain.name,
+      description: selectedChain.description,
+      layers: selectedChain.layers.map(l => ({
+        name: l.name,
+        segments: l.segments.map(s => ({
+          name: s.name,
+          companies: s.companies.slice(0, 5).map(c => ({
+            name: c.name,
+            symbol: c.symbol,
+            position: c.position,
+          })),
+        })),
+      })),
+      aiAnalysis: selectedChain.aiAnalysis,
+    };
+    
+    try {
+      const response = await fetch(`${API_BASE}/api/ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `你是专业的产业链研究分析师。请基于以下产业链信息回答用户问题。
+
+产业链信息：
+${JSON.stringify(chainContext, null, 2)}
+
+用户问题：${question}
+
+请用专业但易懂的语言回答，包含具体数据和公司名称。如果涉及投资建议，请注明风险提示。`,
+          context: [
+            { role: 'system', content: '你是澄观AI产业链研究助手，专注于A股产业链分析。请基于真实数据回答，不要编造信息。' },
+          ],
+          stream: false,
+        }),
+      });
       
-      const answer = Object.entries(answers).find(([key]) => question.includes(key))?.[1] 
-        || `关于"${question}"，这是${selectedChain.name}的一个重要方面。该产业链${selectedChain.description}。\n\n建议关注产业链中的龙头企业，它们通常具有更强的竞争力和抗风险能力。`;
-      
-      setAiAnswer(answer);
+      const data = await response.json();
+      if (data?.content) {
+        setAiAnswer(data.content);
+      } else {
+        setAiAnswer('抱歉，暂时无法回答该问题。请稍后重试。');
+      }
+    } catch (error) {
+      setAiAnswer('网络错误，请检查后重试。');
+    } finally {
       setAsking(false);
-    }, 1500);
+    }
   };
   
   // 渲染公司列表
@@ -351,7 +387,7 @@ const IndustryMapPage: React.FC = () => {
                   )}
                   <Text
                     style={{
-                      color: (company.changePercent || 0) >= 0 ? '#ff4d4f' : '#52c41a',
+                      color: (company.changePercent || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)',
                       fontWeight: 600,
                     }}
                   >
@@ -368,10 +404,10 @@ const IndustryMapPage: React.FC = () => {
   );
   
   return (
-    <div className="industry-map-page" style={{ padding: 24, background: '#141414', minHeight: '100vh' }}>
+    <div className="industry-map-page" style={{ padding: 24, background: 'var(--bg-base)', minHeight: '100vh' }}>
       {/* 页面标题 */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={2} style={{ color: '#fff', marginBottom: 8 }}>
+        <Title level={2} style={{ color: 'var(--text-primary)', marginBottom: 8 }}>
           <ApartmentOutlined style={{ marginRight: 8 }} />
           AI 产业地图
         </Title>
@@ -381,10 +417,10 @@ const IndustryMapPage: React.FC = () => {
       </div>
       
       {/* 热门产业链选择 */}
-      <Card style={{ marginBottom: 24, background: '#1f1f1f' }}>
+      <Card style={{ marginBottom: 24, background: 'var(--card-bg)' }}>
         <div style={{ marginBottom: 16 }}>
-          <Text strong style={{ color: '#fff', marginRight: 16 }}>
-            <ThunderboltOutlined style={{ color: '#faad14' }} /> 热门产业链
+          <Text strong style={{ color: 'var(--text-primary)', marginRight: 16 }}>
+            <ThunderboltOutlined style={{ color: 'var(--color-warning)' }} /> 热门产业链
           </Text>
           <Select
             value={selectedChain.id}
@@ -420,44 +456,44 @@ const IndustryMapPage: React.FC = () => {
       {/* 统计概览 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={6}>
-          <Card style={{ background: '#1f1f1f', textAlign: 'center' }}>
+          <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">涉及公司</Text>}
               value={stats.totalCompanies}
               suffix="家"
-              valueStyle={{ color: '#1890ff' }}
+              valueStyle={{ color: 'var(--accent-solid)' }}
             />
           </Card>
         </Col>
         <Col span={6}>
-          <Card style={{ background: '#1f1f1f', textAlign: 'center' }}>
+          <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">龙头企业</Text>}
               value={stats.leaders}
               suffix="家"
-              valueStyle={{ color: '#ff4d4f' }}
+              valueStyle={{ color: 'var(--color-up)' }}
             />
           </Card>
         </Col>
         <Col span={6}>
-          <Card style={{ background: '#1f1f1f', textAlign: 'center' }}>
+          <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">平均涨幅</Text>}
               value={stats.avgChange}
               precision={2}
               suffix="%"
-              valueStyle={{ color: stats.avgChange >= 0 ? '#ff4d4f' : '#52c41a' }}
+              valueStyle={{ color: stats.avgChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}
               prefix={stats.avgChange >= 0 ? <RiseOutlined /> : <FallOutlined />}
             />
           </Card>
         </Col>
         <Col span={6}>
-          <Card style={{ background: '#1f1f1f', textAlign: 'center' }}>
+          <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">总市值</Text>}
               value={stats.totalMarketCap}
               suffix="亿"
-              valueStyle={{ color: '#faad14' }}
+              valueStyle={{ color: 'var(--color-warning)' }}
             />
           </Card>
         </Col>
@@ -473,11 +509,11 @@ const IndustryMapPage: React.FC = () => {
                 <ApartmentOutlined />
                 产业链图谱
                 <Tooltip title="点击节点查看详情，拖拽平移，滚轮缩放">
-                  <InfoCircleOutlined style={{ color: '#666' }} />
+                  <InfoCircleOutlined style={{ color: 'var(--text-tertiary)' }} />
                 </Tooltip>
               </Space>
             }
-            style={{ background: '#1f1f1f' }}
+            style={{ background: 'var(--card-bg)' }}
             bodyStyle={{ padding: 0, height: 600 }}
           >
             <ReactFlow
@@ -492,7 +528,7 @@ const IndustryMapPage: React.FC = () => {
               attributionPosition="bottom-left"
             >
               <Controls />
-              <Background color="#333" gap={16} />
+              <Background color="var(--border-subtle)" gap={16} />
             </ReactFlow>
           </Card>
         </Col>
@@ -509,7 +545,7 @@ const IndustryMapPage: React.FC = () => {
                   </Tag>
                 </Space>
               }
-              style={{ background: '#1f1f1f', marginBottom: 16 }}
+              style={{ background: 'var(--card-bg)', marginBottom: 16 }}
               extra={
                 <Button
                   type="link"
@@ -520,7 +556,7 @@ const IndustryMapPage: React.FC = () => {
                 </Button>
               }
             >
-              <Paragraph style={{ color: '#d9d9d9', marginBottom: 16 }}>
+              <Paragraph style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
                 {selectedSegment.description}
               </Paragraph>
               
@@ -530,13 +566,13 @@ const IndustryMapPage: React.FC = () => {
                   type="inner"
                   title="环节特征"
                   size="small"
-                  style={{ marginBottom: 16, background: '#2a2a2a' }}
+                  style={{ marginBottom: 16, background: 'var(--bg-secondary)' }}
                 >
                   <Space direction="vertical" style={{ width: '100%' }}>
                     {selectedSegment.characteristics.marketSize && (
                       <div>
                         <Text type="secondary">市场规模: </Text>
-                        <Text style={{ color: '#fff' }}>
+                        <Text style={{ color: 'var(--text-primary)' }}>
                           {selectedSegment.characteristics.marketSize}
                         </Text>
                       </div>
@@ -544,7 +580,7 @@ const IndustryMapPage: React.FC = () => {
                     {selectedSegment.characteristics.growthRate && (
                       <div>
                         <Text type="secondary">增速: </Text>
-                        <Text style={{ color: '#52c41a' }}>
+                        <Text style={{ color: 'var(--color-down)' }}>
                           {selectedSegment.characteristics.growthRate}
                         </Text>
                       </div>
@@ -552,7 +588,7 @@ const IndustryMapPage: React.FC = () => {
                     {selectedSegment.characteristics.competitiveLandscape && (
                       <div>
                         <Text type="secondary">竞争格局: </Text>
-                        <Text style={{ color: '#fff' }}>
+                        <Text style={{ color: 'var(--text-primary)' }}>
                           {selectedSegment.characteristics.competitiveLandscape}
                         </Text>
                       </div>
@@ -582,35 +618,35 @@ const IndustryMapPage: React.FC = () => {
                   AI 产业链解读
                 </Space>
               }
-              style={{ background: '#1f1f1f', marginBottom: 16 }}
+              style={{ background: 'var(--card-bg)', marginBottom: 16 }}
             >
               {selectedChain.aiAnalysis ? (
                 <Tabs defaultActiveKey="overview" size="small">
                   <TabPane tab="概述" key="overview">
-                    <Paragraph style={{ color: '#d9d9d9' }}>
+                    <Paragraph style={{ color: 'var(--text-secondary)' }}>
                       {selectedChain.aiAnalysis.overview}
                     </Paragraph>
                   </TabPane>
                   <TabPane tab="投资逻辑" key="logic">
-                    <Paragraph style={{ color: '#d9d9d9' }}>
+                    <Paragraph style={{ color: 'var(--text-secondary)' }}>
                       {selectedChain.aiAnalysis.investmentLogic}
                     </Paragraph>
                     <Divider />
                     <div style={{ marginBottom: 8 }}>
                       <Text type="secondary">受益顺序: </Text>
-                      <Text style={{ color: '#faad14' }}>
+                      <Text style={{ color: 'var(--color-warning)' }}>
                         {selectedChain.aiAnalysis.benefitOrder}
                       </Text>
                     </div>
                     <div>
                       <Text type="secondary">弹性排序: </Text>
-                      <Text style={{ color: '#ff4d4f' }}>
+                      <Text style={{ color: 'var(--color-up)' }}>
                         {selectedChain.aiAnalysis.elasticityRank}
                       </Text>
                     </div>
                   </TabPane>
                   <TabPane tab="风险提示" key="risk">
-                    <ul style={{ color: '#d9d9d9', paddingLeft: 20 }}>
+                    <ul style={{ color: 'var(--text-secondary)', paddingLeft: 20 }}>
                       {selectedChain.aiAnalysis.riskFactors.map((risk, index) => (
                         <li key={index} style={{ marginBottom: 8 }}>
                           {risk}
@@ -619,7 +655,7 @@ const IndustryMapPage: React.FC = () => {
                     </ul>
                   </TabPane>
                   <TabPane tab="核心洞察" key="insights">
-                    <ul style={{ color: '#d9d9d9', paddingLeft: 20 }}>
+                    <ul style={{ color: 'var(--text-secondary)', paddingLeft: 20 }}>
                       {selectedChain.aiAnalysis.keyInsights.map((insight, index) => (
                         <li key={index} style={{ marginBottom: 8 }}>
                           {insight}
@@ -642,7 +678,7 @@ const IndustryMapPage: React.FC = () => {
                 AI 问答
               </Space>
             }
-            style={{ background: '#1f1f1f' }}
+            style={{ background: 'var(--card-bg)' }}
           >
             <div style={{ marginBottom: 16 }}>
               <Input.Group compact>
@@ -690,11 +726,12 @@ const IndustryMapPage: React.FC = () => {
             {aiAnswer && (
               <Card
                 type="inner"
-                style={{ background: '#2a2a2a' }}
+                style={{ background: 'var(--bg-secondary)' }}
               >
-                <Paragraph style={{ color: '#d9d9d9', whiteSpace: 'pre-wrap' }}>
-                  {aiAnswer}
-                </Paragraph>
+                <div
+                  style={{ color: 'var(--text-primary)', lineHeight: 1.8, fontSize: 14 }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(aiAnswer) }}
+                />
               </Card>
             )}
           </Card>

@@ -54,6 +54,20 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
       }
     }
 
+    // 注入用户自选股作为个性化上下文
+    const symbols: string[] = req.body.symbols || [];
+    if (symbols.length > 0) {
+      const watchlistStocks = await db.connection('stocks')
+        .whereIn('symbol', symbols)
+        .select('symbol', 'name', 'current_price', 'change_percent', 'industry');
+      if (watchlistStocks.length > 0) {
+        const info = watchlistStocks.map(s => 
+          `${s.name}(${Number(s.change_percent)>0?'+':''}${s.change_percent}%)`
+        ).join('、');
+        stockContext += `\n\n【用户自选股】${info}（共${watchlistStocks.length}只）`;
+      }
+    }
+
     messages.unshift({
       role: 'system',
       content: `${marketContext}${stockContext}\n\n请基于以上实时市场数据回答用户问题。`,

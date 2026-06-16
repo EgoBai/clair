@@ -84,8 +84,8 @@ router.post('/ai/filter', asyncHandler(async (req: Request, res: Response) => {
 
     const aiResponse = await aiService.chat({
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      maxTokens: 500,
+      temperature: 0,
+      maxTokens: 200,
     });
 
     // 解析AI返回的JSON
