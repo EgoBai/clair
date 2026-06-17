@@ -159,7 +159,7 @@ router.delete('/watchlist/:symbol', validateParams(schemas.stockSymbol), async (
       return res.status(404).json({ success: false, error: '股票不存在' });
     }
 
-    const deleted = await db.connection('user_watchlist')
+    const deleted = await db.connection('watchlist')
       .where('user_id', userId)
       .where('stock_id', stock.id)
       .delete();
@@ -196,14 +196,12 @@ router.patch('/watchlist/:symbol', validateParams(schemas.stockSymbol), validate
 
     const updateData: Record<string, string | number> = {};
     if (notes !== undefined) updateData.notes = notes;
-    if (groupId !== undefined) updateData.group_id = groupId;
-    if (sortIndex !== undefined) updateData.sort_index = sortIndex;
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ success: false, error: '没有需要更新的字段' });
     }
 
-    const updated = await db.connection('user_watchlist')
+    const updated = await db.connection('watchlist')
       .where('user_id', userId)
       .where('stock_id', stock.id)
       .update(updateData);
@@ -235,12 +233,11 @@ router.put('/watchlist/reorder', validateBody(schemas.watchlistReorder), async (
     for (const item of items) {
       const stock = await db.getStockBySymbol(item.symbol);
       if (stock) {
-        await db.connection('user_watchlist')
+        await db.connection('watchlist')
           .where('user_id', userId)
           .where('stock_id', stock.id)
           .update({
-            sort_index: item.sortIndex,
-            ...(item.groupId && { group_id: item.groupId }),
+            notes: item.notes || null,
           });
       }
     }
