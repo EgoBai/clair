@@ -25,6 +25,7 @@ import {
 const { Title, Text } = Typography;
 
 import { THEME, GOLD } from '../styles/theme-constants';
+import { useWatchlistStore } from '../hooks/useWatchlistStore';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
 const BORDER = THEME.border;
@@ -261,19 +262,11 @@ const ScreenerPage: React.FC = () => {
   const [aiFilterSymbols, setAiFilterSymbols] = useState<string[]>([]);
   const [aiFilterStocks, setAiFilterStocks] = useState<StockData[]>([]);
 
-  // 自选列表状态
-  const [watchlist, setWatchlist] = useState<string[]>([]);
+  // 自选股 — 使用统一的 store
+  const watchlistStore = useWatchlistStore();
   
   // API策略模板状态
   const [apiTemplates, setApiTemplates] = useState<any[]>([]);
-
-  // 对话式筛选状态
-  useEffect(() => {
-    const saved = localStorage.getItem('watchlist');
-    if (saved) {
-      try { setWatchlist(JSON.parse(saved)); } catch {}
-    }
-  }, []);
 
   // 加载API策略模板
   useEffect(() => {
@@ -287,16 +280,11 @@ const ScreenerPage: React.FC = () => {
       .catch(e => console.warn('加载策略模板失败:', e));
   }, []);
 
-  // 切换自选
-  const toggleWatchlist = (symbol: string) => {
-    setWatchlist(prev => {
-      const next = prev.includes(symbol) 
-        ? prev.filter(s => s !== symbol)
-        : [...prev, symbol];
-      localStorage.setItem('watchlist', JSON.stringify(next));
-      message.success(prev.includes(symbol) ? '已取消自选' : '已加入自选');
-      return next;
-    });
+  // 切换自选 — 使用统一 store
+  const toggleWatchlist = (symbol: string, name?: string) => {
+    const item = { symbol, name: name || symbol };
+    const added = watchlistStore.toggle(item);
+    message.success(added ? '已加入自选' : '已取消自选');
   };
 
   // 从URL参数读取初始筛选条件
@@ -572,12 +560,12 @@ const ScreenerPage: React.FC = () => {
       width: 80,
       render: (_: any, r: StockData) => (
         <Space>
-          <Tooltip title={watchlist.includes(r.symbol) ? '取消自选' : '加入自选'}>
+          <Tooltip title={watchlistStore.has(r.symbol) ? '取消自选' : '加入自选'}>
             <Button
               type="text"
               size="small"
-              icon={watchlist.includes(r.symbol) ? <StarFilled style={{ color: GOLD }} /> : <StarOutlined />}
-              onClick={() => toggleWatchlist(r.symbol)}
+              icon={watchlistStore.has(r.symbol) ? <StarFilled style={{ color: GOLD }} /> : <StarOutlined />}
+              onClick={() => toggleWatchlist(r.symbol, r.name)}
             />
           </Tooltip>
           <Button 

@@ -79,7 +79,7 @@ export class Database {
   /**
    * 获取股票列表
    */
-  async getStocks(params: StockSearchParams): Promise<Stock[]> {
+  async getStocks(params: StockSearchParams): Promise<any[]> {
     const {
       symbol,
       name,
@@ -92,25 +92,71 @@ export class Database {
       sortOrder = 'asc'
     } = params;
 
-    const query = this.knexInstance<Stock>('stocks')
-      .where('is_active', isActive);
+    // 使用子查询获取每只股票的最新行情日期
+    const latestQuoteSubquery = this.knexInstance('daily_quotes')
+      .select('stock_id')
+      .max('trade_date as latest_date')
+      .groupBy('stock_id');
+
+    const query = this.knexInstance('stocks as s')
+      .leftJoin(latestQuoteSubquery.as('lq'), 's.id', 'lq.stock_id')
+      .leftJoin('daily_quotes as dq', function(this: any) {
+        this.on('s.id', '=', 'dq.stock_id')
+          .andOn('dq.trade_date', '=', 'lq.latest_date');
+      })
+      .where('s.is_active', isActive)
+      .select(
+        's.id', 's.symbol', 's.code', 's.name', 's.market', 's.industry',
+        's.is_active', 's.created_at', 's.updated_at',
+        // 优先用 daily_quotes 的最新数据，回退到 stocks 表的冗余列
+        this.knexInstance.raw('COALESCE(dq.close_price, s.current_price) as current_price'),
+        this.knexInstance.raw('COALESCE(dq.open_price, s.open_price) as open_price'),
+        this.knexInstance.raw('COALESCE(dq.high_price, s.high_price) as high_price'),
+        this.knexInstance.raw('COALESCE(dq.low_price, s.low_price) as low_price'),
+        this.knexInstance.raw('COALESCE(dq.change_amount, s.change_amount) as change_amount'),
+        this.knexInstance.raw('COALESCE(dq.change_percent, s.change_percent) as change_percent'),
+        this.knexInstance.raw('COALESCE(dq.volume, s.volume) as volume'),
+        this.knexInstance.raw('COALESCE(dq.turnover, s.turnover) as turnover'),
+        this.knexInstance.raw('COALESCE(dq.amplitude, s.amplitude) as amplitude'),
+        this.knexInstance.raw('COALESCE(dq.turnover_rate, s.turnover_rate) as turnover_rate'),
+        this.knexInstance.raw('COALESCE(dq.market_cap, s.market_cap) as market_cap'),
+        this.knexInstance.raw('COALESCE(dq.circulating_market_cap, s.circulating_market_cap) as circulating_market_cap'),
+        // PE/PB 取 daily_quotes 的（stocks 表可能有旧值）
+        this.knexInstance.raw('COALESCE(dq.pe_ratio, s.pe_ratio) as pe_ratio'),
+        this.knexInstance.raw('COALESCE(dq.pb_ratio, s.pb_ratio) as pb_ratio'),
+      );
 
     // 应用过滤条件
     if (symbol) {
-      query.where('symbol', 'like', `%${symbol}%`);
+      query.where('s.symbol', 'like', `%${symbol}%`);
     }
     if (name) {
-      query.where('name', 'like', `%${name}%`);
+      query.where('s.name', 'like', `%${name}%`);
     }
     if (market) {
-      query.where('market', market);
+      query.where('s.market', market);
     }
     if (industry) {
-      query.where('industry', industry);
+      query.where('s.industry', industry);
     }
 
+    // 排序映射（前端字段名 → 数据库列名）
+    const sortColumnMap: Record<string, string> = {
+      symbol: 's.symbol',
+      name: 's.name',
+      market: 's.market',
+      industry: 's.industry',
+      current_price: 'dq.close_price',
+      change_percent: 'dq.change_percent',
+      turnover_rate: 'dq.turnover_rate',
+      market_cap: 'dq.market_cap',
+      pe_ratio: 'dq.pe_ratio',
+      volume: 'dq.volume',
+    };
+    const sortCol = sortColumnMap[sortBy] || 's.symbol';
+
     // 应用排序
-    query.orderBy(sortBy, sortOrder);
+    query.orderByRaw(`${sortCol} ${sortOrder === 'asc' ? 'ASC NULLS LAST' : 'DESC NULLS LAST'}`);
 
     // 应用分页
     const offset = (page - 1) * pageSize;
