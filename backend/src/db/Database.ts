@@ -120,10 +120,10 @@ export class Database {
         this.knexInstance.raw('COALESCE(dq.amplitude, s.amplitude) as amplitude'),
         this.knexInstance.raw('COALESCE(dq.turnover_rate, s.turnover_rate) as turnover_rate'),
         this.knexInstance.raw('COALESCE(dq.market_cap, s.market_cap) as market_cap'),
-        this.knexInstance.raw('COALESCE(dq.circulating_market_cap, s.circulating_market_cap) as circulating_market_cap'),
-        // PE/PB 取 daily_quotes 的（stocks 表可能有旧值）
-        this.knexInstance.raw('COALESCE(dq.pe_ratio, s.pe_ratio) as pe_ratio'),
-        this.knexInstance.raw('COALESCE(dq.pb_ratio, s.pb_ratio) as pb_ratio'),
+        this.knexInstance.raw('s.circulating_market_cap'),
+        // PE/PB 只在 stocks 表中
+        this.knexInstance.raw('s.pe_ratio'),
+        this.knexInstance.raw('s.pb_ratio'),
       );
 
     // 应用过滤条件

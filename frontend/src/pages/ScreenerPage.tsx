@@ -396,10 +396,42 @@ const ScreenerPage: React.FC = () => {
     setAiFilterSymbols([]);
     setAiFilterStocks([]);
     try {
+      // 检测是否涉及"自选股"
+      const isWatchlistQuery = /自选|我的股票|我的持仓|重点关注/.test(aiFilterQuery);
+      
+      // 获取自选股列表 — 兼容两种存储方式
+      let watchlistSymbols: string[] | undefined;
+      if (isWatchlistQuery) {
+        // 优先从 WatchlistPage 的存储读取
+        try {
+          const saved = localStorage.getItem('astock_watchlist_v2');
+          if (saved) {
+            const groups = JSON.parse(saved);
+            const allStocks = groups.flatMap((g: any) => g.stocks || []);
+            watchlistSymbols = allStocks.map((s: any) => s.symbol);
+          }
+        } catch {}
+        
+        // 如果为空，从 useWatchlistStore 读取
+        if (!watchlistSymbols || watchlistSymbols.length === 0) {
+          watchlistSymbols = watchlistStore.items.map(i => i.symbol);
+        }
+      }
+
+      // 如果是自选股查询但没有自选股，直接返回
+      if (isWatchlistQuery && (!watchlistSymbols || watchlistSymbols.length === 0)) {
+        setAiFilterResult('您的自选股列表为空，请先添加自选股');
+        setAiFilterLoading(false);
+        return;
+      }
+
       const resp = await apiFetch('/api/ai/filter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: aiFilterQuery }),
+        body: JSON.stringify({
+          query: aiFilterQuery,
+          watchlistSymbols,  // 传递自选股列表
+        }),
       });
       const data = await resp.json();
       if (data?.success && data.data) {
@@ -420,9 +452,15 @@ const ScreenerPage: React.FC = () => {
         if (stocks.length > 0) {
           setAiFilterStocks(stocks);
           setAiFilterSymbols([]);
-          setAiFilterResult(`找到 ${results.length} 只符合条件的股票`);
+          const watchlistMsg = data.data.isWatchlistQuery
+            ? `从您的${data.data.watchlistCount}只自选股中`
+            : '';
+          setAiFilterResult(`${watchlistMsg}找到 ${results.length} 只符合条件的股票`);
         } else {
-          setAiFilterResult('未找到符合条件的股票');
+          const emptyMsg = data.data.isWatchlistQuery
+            ? '您的自选股中没有符合条件的股票'
+            : '未找到符合条件的股票';
+          setAiFilterResult(emptyMsg);
         }
       }
     } catch {
@@ -430,7 +468,7 @@ const ScreenerPage: React.FC = () => {
     } finally {
       setAiFilterLoading(false);
     }
-  }, [aiFilterQuery]);
+  }, [aiFilterQuery, watchlistStore.items]);
 
   // 分页
   const paged = useMemo(() => {

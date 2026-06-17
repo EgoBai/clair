@@ -29,7 +29,7 @@ interface ParsedFilter {
  * 自然语言筛选
  */
 router.post('/ai/filter', asyncHandler(async (req: Request, res: Response) => {
-  const { query } = req.body;
+  const { query, watchlistSymbols } = req.body;
 
   if (!query || typeof query !== 'string') {
     res.status(400).json({ success: false, error: '请提供筛选条件描述' });
@@ -40,9 +40,26 @@ router.post('/ai/filter', asyncHandler(async (req: Request, res: Response) => {
     // 用AI解析自然语言为筛选条件
     const industries = ['交通运输','传媒','公用事业','农林牧渔','化工','医药生物','商贸零售','国防军工','基础化工','家用电器','建筑材料','建筑装饰','房地产','有色金属','机械设备','汽车','煤炭','环保','电力设备','电子','石油石化','社会服务','纺织服饰','综合','美容护理','计算机','轻工制造','通信','钢铁','银行','非银金融','食品饮料'];
 
+    // 判断是否为自选股查询
+    const isWatchlistQuery = Array.isArray(watchlistSymbols) && watchlistSymbols.length > 0;
+    
+    // 空自选股直接返回
+    if (Array.isArray(watchlistSymbols) && watchlistSymbols.length === 0 && /自选|我的股票|我的持仓/.test(query)) {
+      res.json({
+        success: true,
+        data: { query, filter: { conditions: [], explanation: '自选股列表为空' }, results: [], total: 0, isWatchlistQuery: true, watchlistCount: 0 }
+      });
+      return;
+    }
+    
+    const watchlistContext = isWatchlistQuery
+      ? `\n重要：用户查询的是自己的自选股（共${watchlistSymbols.length}只）。请返回的conditions中不要包含通用筛选条件，只需返回空conditions数组，系统会自动限定在用户自选股范围内。explanation中说明这是自选股分析。`
+      : '';
+
     const prompt = `你是A股筛选助手。用户用自然语言描述筛选需求，你需要将其准确转换为JSON筛选条件。
 
 用户描述: "${query}"
+${watchlistContext}
 
 可筛选的字段和单位:
 - changePercent: 涨跌幅(%) 
@@ -133,6 +150,11 @@ router.post('/ai/filter', asyncHandler(async (req: Request, res: Response) => {
         'dq.market_cap as marketCap'
       );
 
+    // 如果是自选股查询，限定范围
+    if (isWatchlistQuery) {
+      queryBuilder = queryBuilder.whereIn('s.symbol', watchlistSymbols);
+    }
+
     // 应用筛选条件
     for (const cond of parsed.conditions || []) {
       const field = cond.field === 'industry' ? 's.industry' :
@@ -193,6 +215,8 @@ router.post('/ai/filter', asyncHandler(async (req: Request, res: Response) => {
         filter: parsed,
         results,
         total: results.length,
+        isWatchlistQuery,
+        watchlistCount: isWatchlistQuery ? watchlistSymbols.length : undefined,
       },
     });
   } catch (error) {
