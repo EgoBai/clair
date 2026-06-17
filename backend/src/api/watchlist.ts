@@ -28,7 +28,7 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
         .max('dq.trade_date as max_date')
         .groupBy('dq.stock_id');
 
-      let query = db.connection('user_watchlist as w')
+      let query = db.connection('watchlist as w')
         .join('stocks as s', 'w.stock_id', 's.id')
         .leftJoin('daily_quotes as dq', function() {
           this.on('s.id', '=', 'dq.stock_id')
@@ -44,8 +44,6 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
           's.industry',
           'w.added_at as addedAt',
           'w.notes',
-          'w.group_id as groupId',
-          'w.sort_index as sortIndex',
           'dq.close_price as closePrice',
           'dq.change_percent as changePercent',
           'dq.volume',
@@ -106,7 +104,7 @@ router.post('/watchlist', validateBody(schemas.watchlistAdd), async (req: Reques
     }
 
     // 检查是否已添加
-    const existing = await db.connection('user_watchlist')
+    const existing = await db.connection('watchlist')
       .where('user_id', userId)
       .where('stock_id', stock.id)
       .first();
@@ -116,17 +114,14 @@ router.post('/watchlist', validateBody(schemas.watchlistAdd), async (req: Reques
     }
 
     // 获取当前最大排序索引
-    const maxSort = await db.connection('user_watchlist')
+    const maxSort = await db.connection('watchlist')
       .where('user_id', userId)
-      .where('group_id', groupId)
-      .max('sort_index as maxSort')
+      .max('id as maxSort')
       .first();
 
-    await db.connection('user_watchlist').insert({
+    await db.connection('watchlist').insert({
       user_id: userId,
       stock_id: stock.id,
-      group_id: groupId,
-      sort_index: (maxSort?.maxSort || 0) + 1,
       notes: notes || null,
       added_at: new Date(),
     });
