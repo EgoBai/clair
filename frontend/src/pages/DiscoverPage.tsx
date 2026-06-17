@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button } from 'antd';
-import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassOutlined, RightOutlined, BulbOutlined, StarOutlined, BarChartOutlined, ArrowLeftOutlined, FilterOutlined } from '@ant-design/icons';
+import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassOutlined, RightOutlined, BulbOutlined, StarOutlined, BarChartOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -348,6 +348,18 @@ const DiscoverPage: React.FC = () => {
                       <Text strong style={{ color: TEXT, fontSize: 13 }}>{s.industry}</Text>
                       <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>{s.stock_count}只</Tag>
                       {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<ApartmentOutlined />}
+                        style={{ fontSize: 10, padding: 0, color: '#1890ff' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/industry-map?industry=${encodeURIComponent(s.industry)}`);
+                        }}
+                      >
+                        产业链
+                      </Button>
                     </div>
                     <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
                       <Tooltip title="板块热度 (50%)：平均涨跌幅的绝对值，涨得越猛得分越高，反映资金对该板块的关注程度">

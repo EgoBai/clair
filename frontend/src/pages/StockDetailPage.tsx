@@ -239,7 +239,18 @@ const StockDetailPage: React.FC = () => {
                   </Tooltip>
                 </Space>
                 {stockInfo?.industry && (
-                  <Text style={{ fontSize: 12, color: TEXT_SECONDARY }}>{stockInfo.industry}</Text>
+                  <Space size={4}>
+                    <Text style={{ fontSize: 12, color: TEXT_SECONDARY }}>{stockInfo.industry}</Text>
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<CompassOutlined />}
+                      style={{ fontSize: 12, padding: 0, color: '#1890ff' }}
+                      onClick={() => navigate(`/industry-map?industry=${encodeURIComponent(stockInfo.industry || '')}`)}
+                    >
+                      查看产业链
+                    </Button>
+                  </Space>
                 )}
               </Space>
             </Col>

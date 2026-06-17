@@ -22,19 +22,9 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
     const cacheKey = `watchlist:${userId}:${groupId || 'all'}`;
 
     const result = await queryCache.query(cacheKey, async () => {
-      // 优化：使用子查询获取最新行情，避免在JOIN条件中使用子查询
-      const latestQuotes = db.connection('daily_quotes as dq')
-        .select('dq.stock_id')
-        .max('dq.trade_date as max_date')
-        .groupBy('dq.stock_id');
-
-      let query = db.connection('watchlist as w')
+      // 简单查询：先获取自选股列表，再逐个获取最新行情
+      const watchlistRows = await db.connection('watchlist as w')
         .join('stocks as s', 'w.stock_id', 's.id')
-        .leftJoin('daily_quotes as dq', function() {
-          this.on('s.id', '=', 'dq.stock_id')
-            .andOn('dq.trade_date', '=', db.connection.raw('latest_quotes.max_date'));
-        })
-        .leftJoin(latestQuotes.as('latest_quotes'), 's.id', '=', 'latest_quotes.stock_id')
         .where('w.user_id', userId)
         .select(
           's.id',
@@ -43,19 +33,26 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
           's.market',
           's.industry',
           'w.added_at as addedAt',
-          'w.notes',
-          'dq.close_price as closePrice',
-          'dq.change_percent as changePercent',
-          'dq.volume',
-          'dq.turnover',
-          'dq.market_cap as marketCap'
-        );
+          'w.notes'
+        )
+        .orderBy('w.id', 'asc');
 
-      if (groupId) {
-        query = query.where('w.group_id', groupId);
-      }
-
-      const watchlist = await query.orderBy('w.sort_index', 'asc').orderBy('w.added_at', 'desc');
+      // 逐个获取最新行情
+      const enriched = await Promise.all(watchlistRows.map(async (row: any) => {
+        const quote = await db.connection('daily_quotes')
+          .where('stock_id', row.id)
+          .orderBy('trade_date', 'desc')
+          .first()
+          .catch(() => null);
+        return {
+          ...row,
+          closePrice: quote?.close_price,
+          changePercent: quote?.change_percent,
+          volume: quote?.volume,
+          turnover: quote?.turnover,
+          marketCap: quote?.market_cap,
+        };
+      }));
 
       // 获取分组信息
       const groups = await db.connection('watchlist_groups')
@@ -65,7 +62,7 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
         .catch(() => []);
 
       return {
-        watchlist,
+        watchlist: enriched,
         groups: groups.length > 0 ? groups : [{ id: 'default', name: '默认分组', sortIndex: 0 }],
       };
     }, 10000); // 10秒缓存

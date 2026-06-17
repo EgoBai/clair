@@ -55,7 +55,7 @@ import ReactFlow, {
   ConnectionLineType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   IndustryChain,
   ChainSegment,
@@ -158,6 +158,11 @@ const chainToGraph = (chain: IndustryChain) => {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   
+  // 如果没有 layers 数据，返回空图
+  if (!chain.layers || !Array.isArray(chain.layers)) {
+    return { nodes, edges };
+  }
+  
   // 层级位置计算
   const layerPositions: Record<LayerType, number> = {
     upstream: 0,
@@ -167,7 +172,7 @@ const chainToGraph = (chain: IndustryChain) => {
   };
   
   // 按层级分组
-  const layers = chain.layers.sort((a, b) => a.order - b.order);
+  const layers = chain.layers.sort((a, b) => (a.order || 0) - (b.order || 0));
   
   layers.forEach((layer) => {
     const x = layerPositions[layer.type as LayerType] || 0;
@@ -213,9 +218,12 @@ const chainToGraph = (chain: IndustryChain) => {
 };
 
 // ============= 主页面组件 =============
-
 const IndustryMapPage: React.FC = () => {
-  const [selectedChain, setSelectedChain] = useState<IndustryChain>(AI_COMPUTING_CHAIN);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const industryParam = searchParams.get('industry');
+  
+  const [selectedChain, setSelectedChain] = useState<IndustryChain | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<ChainSegment | null>(null);
   const [chains, setChains] = useState<IndustryChainSummary[]>(HOT_CHAINS);
   const [loading, setLoading] = useState(true);
@@ -239,12 +247,32 @@ const IndustryMapPage: React.FC = () => {
     fetchChains();
   }, []);
   
-  // 获取产业链详情
+  // 获取产业链详情 - 根据 industry 参数自动选择
   useEffect(() => {
     const fetchChainDetail = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`${API_BASE}/api/industry-chains/ai-computing`);
+        // 如果有 industry 参数，尝试找到对应的产业链
+        let chainId = 'ai-computing'; // 默认
+        if (industryParam) {
+          // 根据行业名称映射到产业链 ID
+          const industryChainMap: Record<string, string> = {
+            '电子': 'semiconductor',
+            '计算机': 'ai-computing',
+            '通信': 'ai-computing',
+            '半导体': 'semiconductor',
+            '芯片': 'semiconductor',
+            '电力设备': 'photovoltaic',
+            '光伏': 'photovoltaic',
+            '新能源': 'new-energy-vehicle',
+            '汽车': 'new-energy-vehicle',
+            '机器人': 'ai-robot',
+            '自动化': 'ai-robot',
+          };
+          chainId = industryChainMap[industryParam] || 'ai-computing';
+        }
+        
+        const response = await fetch(`${API_BASE}/api/industry-chains/${chainId}`);
         const data = await response.json();
         if (data.success) {
           setSelectedChain(data.data.chain);
@@ -258,11 +286,11 @@ const IndustryMapPage: React.FC = () => {
       }
     };
     fetchChainDetail();
-  }, []);
+  }, [industryParam]);
   
   // React Flow 状态
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => chainToGraph(selectedChain),
+    () => selectedChain ? chainToGraph(selectedChain as IndustryChain) : { nodes: [], edges: [] },
     [selectedChain]
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -270,7 +298,8 @@ const IndustryMapPage: React.FC = () => {
   
   // 更新图谱
   useEffect(() => {
-    const { nodes: newNodes, edges: newEdges } = chainToGraph(selectedChain);
+    if (!selectedChain) return;
+    const { nodes: newNodes, edges: newEdges } = chainToGraph(selectedChain as IndustryChain);
     setNodes(newNodes);
     setEdges(newEdges);
   }, [selectedChain, setNodes, setEdges]);
@@ -283,10 +312,11 @@ const IndustryMapPage: React.FC = () => {
   
   // 计算统计信息
   const stats = useMemo(() => {
-    const allCompanies = selectedChain.layers.flatMap(l => l.segments.flatMap(s => s.companies));
+    if (!selectedChain || !selectedChain.layers) return { totalCompanies: 0, leaders: 0, avgChange: 0, totalMarketCap: 0 };
+    const allCompanies = selectedChain.layers.flatMap(l => l.segments?.flatMap(s => s.companies || []) || []);
     const totalCompanies = allCompanies.length;
     const leaders = allCompanies.filter(c => c.position === 'leader').length;
-    const avgChange = allCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / totalCompanies;
+    const avgChange = allCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / (totalCompanies || 1);
     const totalMarketCap = allCompanies.reduce((sum, c) => sum + (c.marketCap || 0), 0);
     
     return { totalCompanies, leaders, avgChange, totalMarketCap };
@@ -301,20 +331,20 @@ const IndustryMapPage: React.FC = () => {
     
     // 构建产业链上下文
     const chainContext = {
-      name: selectedChain.name,
-      description: selectedChain.description,
-      layers: selectedChain.layers.map(l => ({
+      name: selectedChain?.name,
+      description: selectedChain?.description,
+      layers: selectedChain?.layers?.map(l => ({
         name: l.name,
-        segments: l.segments.map(s => ({
+        segments: l.segments?.map(s => ({
           name: s.name,
-          companies: s.companies.slice(0, 5).map(c => ({
+          companies: s.companies?.slice(0, 5).map(c => ({
             name: c.name,
             symbol: c.symbol,
             position: c.position,
           })),
         })),
       })),
-      aiAnalysis: selectedChain.aiAnalysis,
+      aiAnalysis: selectedChain?.aiAnalysis,
     };
     
     try {
@@ -403,6 +433,18 @@ ${JSON.stringify(chainContext, null, 2)}
     </Card>
   );
   
+  if (loading || !selectedChain) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: 'var(--bg-base)' }}>
+        <Spin size="large">
+          <div style={{ marginTop: 16, color: 'var(--text-secondary)' }}>加载产业链数据中...</div>
+        </Spin>
+      </div>
+    );
+  }
+  
+  const chain = selectedChain as IndustryChain; // 类型断言，确保非 null
+  
   return (
     <div className="industry-map-page" style={{ padding: 24, background: 'var(--bg-base)', minHeight: '100vh' }}>
       {/* 页面标题 */}
@@ -423,7 +465,7 @@ ${JSON.stringify(chainContext, null, 2)}
             <ThunderboltOutlined style={{ color: 'var(--color-warning)' }} /> 热门产业链
           </Text>
           <Select
-            value={selectedChain.id}
+            value={selectedChain?.id || 'ai-computing'}
             onChange={(value) => {
               // 实际应从 API 获取
               if (value === 'ai-computing') {
@@ -433,10 +475,10 @@ ${JSON.stringify(chainContext, null, 2)}
             style={{ width: 200 }}
           >
             {HOT_CHAINS.map((chain) => (
-              <Option key={chain.id} value={chain.id}>
+              <Option key={selectedChain?.id} value={selectedChain?.id}>
                 <Space>
-                  {chain.name}
-                  <Badge count={chain.hotLevel} style={{ backgroundColor: '#ff4d4f' }} />
+                  {selectedChain?.name}
+                  <Badge count={selectedChain?.hotLevel} style={{ backgroundColor: '#ff4d4f' }} />
                 </Space>
               </Option>
             ))}
@@ -445,7 +487,7 @@ ${JSON.stringify(chainContext, null, 2)}
         
         {/* 产业链标签 */}
         <Space wrap>
-          {selectedChain.relatedConcepts.map((concept) => (
+          {selectedChain?.relatedConcepts?.map((concept) => (
             <Tag key={concept} color="blue">
               {concept}
             </Tag>
@@ -620,34 +662,34 @@ ${JSON.stringify(chainContext, null, 2)}
               }
               style={{ background: 'var(--card-bg)', marginBottom: 16 }}
             >
-              {selectedChain.aiAnalysis ? (
+              {selectedChain?.aiAnalysis ? (
                 <Tabs defaultActiveKey="overview" size="small">
                   <TabPane tab="概述" key="overview">
                     <Paragraph style={{ color: 'var(--text-secondary)' }}>
-                      {selectedChain.aiAnalysis.overview}
+                      {selectedChain?.aiAnalysis.overview}
                     </Paragraph>
                   </TabPane>
                   <TabPane tab="投资逻辑" key="logic">
                     <Paragraph style={{ color: 'var(--text-secondary)' }}>
-                      {selectedChain.aiAnalysis.investmentLogic}
+                      {selectedChain?.aiAnalysis.investmentLogic}
                     </Paragraph>
                     <Divider />
                     <div style={{ marginBottom: 8 }}>
                       <Text type="secondary">受益顺序: </Text>
                       <Text style={{ color: 'var(--color-warning)' }}>
-                        {selectedChain.aiAnalysis.benefitOrder}
+                        {selectedChain?.aiAnalysis.benefitOrder}
                       </Text>
                     </div>
                     <div>
                       <Text type="secondary">弹性排序: </Text>
                       <Text style={{ color: 'var(--color-up)' }}>
-                        {selectedChain.aiAnalysis.elasticityRank}
+                        {selectedChain?.aiAnalysis.elasticityRank}
                       </Text>
                     </div>
                   </TabPane>
                   <TabPane tab="风险提示" key="risk">
                     <ul style={{ color: 'var(--text-secondary)', paddingLeft: 20 }}>
-                      {selectedChain.aiAnalysis.riskFactors.map((risk, index) => (
+                      {selectedChain?.aiAnalysis.riskFactors.map((risk, index) => (
                         <li key={index} style={{ marginBottom: 8 }}>
                           {risk}
                         </li>
@@ -656,7 +698,7 @@ ${JSON.stringify(chainContext, null, 2)}
                   </TabPane>
                   <TabPane tab="核心洞察" key="insights">
                     <ul style={{ color: 'var(--text-secondary)', paddingLeft: 20 }}>
-                      {selectedChain.aiAnalysis.keyInsights.map((insight, index) => (
+                      {selectedChain?.aiAnalysis.keyInsights.map((insight, index) => (
                         <li key={index} style={{ marginBottom: 8 }}>
                           {insight}
                         </li>
