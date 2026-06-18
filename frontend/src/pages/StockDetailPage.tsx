@@ -307,7 +307,7 @@ const StockDetailPage: React.FC = () => {
               <Col xs={12} sm={8} md={4}><StatItem label="振幅" value={`${Number(latestQuote.amplitude || 0).toFixed(2)}%`} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PE(动)" value={latestQuote.peRatio?.toFixed(2) || '-'} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PB" value={latestQuote.pbRatio?.toFixed(2) || '-'} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="换手率" value={`${(latestQuote.turnoverRate || 0).toFixed(2)}%`} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="换手率" value={`${Number(latestQuote.turnoverRate || 0).toFixed(2)}%`} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="总市值" value={formatLargeNumber(latestQuote.marketCap)} /></Col>
             </Row>
           </Card>

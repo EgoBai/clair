@@ -264,6 +264,190 @@ const aiComputingChainDetail = {
   },
 };
 
+// 半导体产业链详细数据
+const semiconductorChainDetail = {
+  id: 'semiconductor',
+  name: '半导体产业链',
+  description: '从设计到封测的半导体全链条，涵盖IC设计、EDA/IP、晶圆制造、封装测试、设备、材料等核心环节',
+  theme: '芯片',
+  hotLevel: 90,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '设计工具、核心设备和基础材料',
+      order: 1,
+      segments: [
+        {
+          id: 'ic-design',
+          name: 'IC设计',
+          description: '芯片设计环节，定义芯片功能和性能，是半导体产业链附加值最高的环节之一',
+          layerId: 'upstream',
+          companies: [
+            { symbol: '603501', name: '韦尔股份', marketCap: 1500, changePercent: 3.21, currentPrice: 105.8, position: 'leader', competitiveAdvantage: '全球CIS芯片龙头，收购豪威科技后产品线全覆盖' },
+            { symbol: '603986', name: '兆易创新', marketCap: 800, changePercent: 2.85, currentPrice: 120.5, position: 'leader', competitiveAdvantage: '存储+MCU双轮驱动，NOR Flash国内龙头' },
+            { symbol: '300223', name: '北京君正', marketCap: 350, changePercent: 4.12, currentPrice: 72.3, position: 'challenger', competitiveAdvantage: '收购ISSI后成为存储+处理器平台型公司' },
+          ],
+          characteristics: {
+            marketSize: '2025年预计6000亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '分散竞争，细分领域各有龙头',
+            barriers: ['技术门槛高', '人才稀缺', 'IP积累', '客户认证周期长'],
+            keyDrivers: ['国产替代', 'AI芯片需求', '汽车电子', '物联网'],
+          },
+          upstreamTo: ['eda-ip'],
+          downstreamTo: ['wafer-fabrication'],
+        },
+        {
+          id: 'eda-ip',
+          name: 'EDA/IP',
+          description: '电子设计自动化工具和半导体IP核，是芯片设计的基础工具和核心资产',
+          layerId: 'upstream',
+          companies: [
+            { symbol: '301269', name: '华大九天', marketCap: 500, changePercent: 5.67, currentPrice: 92.4, position: 'leader', competitiveAdvantage: '国内EDA龙头，全流程覆盖能力最强' },
+            { symbol: '688206', name: '概伦电子', marketCap: 120, changePercent: 3.45, currentPrice: 28.6, position: 'challenger', competitiveAdvantage: '器件建模和电路仿真领域国际领先' },
+          ],
+          characteristics: {
+            marketSize: '2025年预计200亿元',
+            growthRate: 'CAGR 20%',
+            competitiveLandscape: '海外三巨头垄断，国产替代起步',
+            barriers: ['技术壁垒极高', '生态壁垒', '研发投入巨大', '客户粘性强'],
+            keyDrivers: ['国产替代政策', '芯片设计需求增长', '先进制程演进'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['ic-design'],
+        },
+        {
+          id: 'semiconductor-equipment',
+          name: '半导体设备',
+          description: '晶圆制造的核心支撑，包括光刻机、刻蚀机、薄膜沉积等关键设备',
+          layerId: 'upstream',
+          companies: [
+            { symbol: '002371', name: '北方华创', marketCap: 2000, changePercent: 4.56, currentPrice: 380.2, position: 'leader', competitiveAdvantage: '国内半导体设备龙头，产品线最全' },
+            { symbol: '688012', name: '中微公司', marketCap: 1000, changePercent: 3.78, currentPrice: 162.5, position: 'leader', competitiveAdvantage: '刻蚀设备国际领先，MOCVD设备龙头' },
+          ],
+          characteristics: {
+            marketSize: '2025年预计1500亿元',
+            growthRate: 'CAGR 25%',
+            competitiveLandscape: '海外垄断，国产加速突破',
+            barriers: ['技术壁垒极高', '研发投入大', '客户验证周期长', '供应链复杂'],
+            keyDrivers: ['晶圆厂扩产', '国产替代', '先进制程需求', '政策支持'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['wafer-fabrication'],
+        },
+        {
+          id: 'semiconductor-material',
+          name: '半导体材料',
+          description: '半导体制造的基础材料，包括硅片、光刻胶、电子气体、CMP抛光液等',
+          layerId: 'upstream',
+          companies: [
+            { symbol: '688126', name: '沪硅产业', marketCap: 600, changePercent: 2.34, currentPrice: 22.8, position: 'leader', competitiveAdvantage: '国内大硅片龙头，300mm硅片产能领先' },
+            { symbol: '605358', name: '立昂微', marketCap: 200, changePercent: 1.89, currentPrice: 45.6, position: 'challenger', competitiveAdvantage: '半导体硅片+功率器件双主业' },
+          ],
+          characteristics: {
+            marketSize: '2025年预计800亿元',
+            growthRate: 'CAGR 12%',
+            competitiveLandscape: '日本企业主导，国产化率提升中',
+            barriers: ['纯度要求极高', '工艺控制严格', '客户认证周期长'],
+            keyDrivers: ['晶圆厂扩产', '国产替代', '先进制程材料需求'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['wafer-fabrication'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '晶圆制造和封装测试',
+      order: 2,
+      segments: [
+        {
+          id: 'wafer-fabrication',
+          name: '晶圆制造',
+          description: '将设计好的芯片图案转移到硅片上，是半导体产业链资本和技术密集度最高的环节',
+          layerId: 'midstream',
+          companies: [
+            { symbol: '688981', name: '中芯国际', marketCap: 4000, changePercent: 2.15, currentPrice: 50.8, position: 'leader', competitiveAdvantage: '国内晶圆代工龙头，14nm量产' },
+            { symbol: '688347', name: '华虹半导体', marketCap: 800, changePercent: 1.56, currentPrice: 48.2, position: 'challenger', competitiveAdvantage: '特色工艺平台，功率器件代工领先' },
+          ],
+          characteristics: {
+            marketSize: '2025年预计5000亿元',
+            growthRate: 'CAGR 18%',
+            competitiveLandscape: '台积电寡头，国内追赶',
+            barriers: ['资本壁垒极高', '技术壁垒', '人才密集', '设备依赖'],
+            keyDrivers: ['国产替代', 'AI芯片需求', '汽车电子', '物联网'],
+          },
+          upstreamTo: ['ic-design', 'semiconductor-equipment', 'semiconductor-material'],
+          downstreamTo: ['packaging-testing'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '封装测试和终端应用',
+      order: 3,
+      segments: [
+        {
+          id: 'packaging-testing',
+          name: '封装测试',
+          description: '将制造好的晶圆切割、封装成可用芯片并进行测试，是半导体产业链的重要环节',
+          layerId: 'downstream',
+          companies: [
+            { symbol: '600584', name: '长电科技', marketCap: 600, changePercent: 3.45, currentPrice: 33.8, position: 'leader', competitiveAdvantage: '全球封测龙头，先进封装技术领先' },
+            { symbol: '002156', name: '通富微电', marketCap: 350, changePercent: 2.78, currentPrice: 23.5, position: 'challenger', competitiveAdvantage: 'AMD核心封测伙伴，高端封装能力突出' },
+            { symbol: '002185', name: '华天科技', marketCap: 280, changePercent: 2.12, currentPrice: 10.2, position: 'challenger', competitiveAdvantage: '国内封测第三，SiP封装布局领先' },
+          ],
+          characteristics: {
+            marketSize: '2025年预计3000亿元',
+            growthRate: 'CAGR 10%',
+            competitiveLandscape: '三龙头格局，集中度提升',
+            barriers: ['资金密集', '客户认证', '技术迭代', '规模效应'],
+            keyDrivers: ['先进封装需求', 'AI芯片封装', '汽车电子', '国产替代'],
+          },
+          upstreamTo: ['wafer-fabrication'],
+          downstreamTo: ['chip-application'],
+        },
+        {
+          id: 'chip-application',
+          name: '芯片应用',
+          description: '半导体芯片的终端应用场景，涵盖消费电子、汽车电子、工业控制、通信等领域',
+          layerId: 'downstream',
+          companies: [
+            { symbol: '002230', name: '科大讯飞', marketCap: 1000, changePercent: 1.89, currentPrice: 43.5, position: 'leader', competitiveAdvantage: 'AI语音芯片+应用生态' },
+          ],
+          characteristics: {
+            marketSize: '2025年预计30000亿元',
+            growthRate: 'CAGR 8%',
+            competitiveLandscape: '应用场景广泛，细分龙头众多',
+            barriers: ['生态壁垒', '客户粘性', '品牌认知'],
+            keyDrivers: ['AI应用落地', '智能汽车', '物联网', '消费电子创新'],
+          },
+          upstreamTo: ['packaging-testing'],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['芯片', '光刻机', '国产替代', 'EDA', '晶圆', '先进封装'],
+  relatedPolicies: ['国家大基金', '芯片法案', '自主可控', '十四五规划'],
+  marketDrivers: ['国产替代需求', 'AI芯片需求', '汽车电子增长', '物联网爆发'],
+  aiAnalysis: {
+    overview: '半导体产业链是国家战略重点支持方向，受地缘政治和国产替代双重驱动。从设计、制造到封测，国内企业正在加速追赶，但在先进制程和核心设备领域仍存在较大差距。',
+    investmentLogic: '投资逻辑遵循"卡脖子"原则：优先关注国产替代空间大、技术突破可能性高的环节。上游设备和材料受益于晶圆厂扩产，中游制造是国产替代核心，下游封测技术差距最小。',
+    benefitOrder: '上游设备/材料 → 中游制造 → 下游封测',
+    elasticityRank: '半导体设备 > IC设计 > 晶圆制造 > 封装测试 > 半导体材料',
+    riskFactors: ['地缘政治风险', '技术突破不及预期', '产能过剩', '需求周期性波动', '美国制裁升级'],
+    keyInsights: ['半导体设备是最确定的国产替代方向', '先进封装成为后摩尔时代重要增长点', 'AI芯片带动先进制程需求', '大基金持续加码，政策支持力度大'],
+    generatedAt: '2026-06-18T10:00:00Z',
+  },
+};
+
 // ============= API 路由 =============
 
 /**
@@ -339,6 +523,10 @@ router.get('/:id', (req: Request, res: Response) => {
     return sendSuccess(res, { chain: aiComputingChainDetail });
   }
   
+  if (id === 'semiconductor') {
+    return sendSuccess(res, { chain: semiconductorChainDetail });
+  }
+  
   // 其他产业链返回摘要
   const chain = industryChains.find(c => c.id === id);
   if (!chain) {
@@ -366,6 +554,17 @@ router.get('/:id/segments', (req: Request, res: Response) => {
     return sendSuccess(res, { segments, total: segments.length });
   }
   
+  if (id === 'semiconductor') {
+    const segments = semiconductorChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
+  
   sendSuccess(res, { segments: [], total: 0 });
 });
 
@@ -379,6 +578,41 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
   
   if (id === 'ai-computing') {
     let stocks = aiComputingChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        segment.companies.map(company => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    
+    // 按环节筛选
+    if (segmentId) {
+      stocks = stocks.filter(s => s.segmentId === segmentId);
+    }
+    
+    // 按地位筛选
+    if (position) {
+      stocks = stocks.filter(s => s.position === position);
+    }
+    
+    // 去重（同一公司可能出现在多个环节）
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    
+    // 排序
+    uniqueStocks.sort((a, b) => {
+      const aVal = (a as any)[sortBy as string] || 0;
+      const bVal = (b as any)[sortBy as string] || 0;
+      return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
+    });
+    
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
+  
+  if (id === 'semiconductor') {
+    let stocks = semiconductorChainDetail.layers.flatMap(layer => 
       layer.segments.flatMap(segment => 
         segment.companies.map(company => ({
           ...company,
@@ -441,6 +675,24 @@ router.get('/:id/hot-stocks', (req: Request, res: Response) => {
     return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
   }
   
+  if (id === 'semiconductor') {
+    const stocks = semiconductorChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => segment.companies)
+    );
+    
+    // 去重
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    
+    // 排序
+    uniqueStocks.sort((a, b) => {
+      const aVal = (a as any)[metric as string] || 0;
+      const bVal = (b as any)[metric as string] || 0;
+      return bVal - aVal;
+    });
+    
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
+  
   sendSuccess(res, { stocks: [] });
 });
 
@@ -453,6 +705,10 @@ router.get('/:id/analysis', (req: Request, res: Response) => {
   
   if (id === 'ai-computing') {
     return sendSuccess(res, { analysis: aiComputingChainDetail.aiAnalysis });
+  }
+  
+  if (id === 'semiconductor') {
+    return sendSuccess(res, { analysis: semiconductorChainDetail.aiAnalysis });
   }
   
   sendSuccess(res, { analysis: null });

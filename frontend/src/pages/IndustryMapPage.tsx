@@ -558,20 +558,66 @@ ${JSON.stringify(chainContext, null, 2)}
             style={{ background: 'var(--card-bg)' }}
             bodyStyle={{ padding: 0, height: 600 }}
           >
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeClick={onNodeClick}
-              nodeTypes={nodeTypes}
-              connectionLineType={ConnectionLineType.SmoothStep}
-              fitView
-              attributionPosition="bottom-left"
-            >
-              <Controls />
-              <Background color="var(--border-subtle)" gap={16} />
-            </ReactFlow>
+            {nodes.length > 0 ? (
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={onNodeClick}
+                nodeTypes={nodeTypes}
+                connectionLineType={ConnectionLineType.SmoothStep}
+                fitView
+                attributionPosition="bottom-left"
+              >
+                <Controls />
+                <Background color="var(--border-subtle)" gap={16} />
+              </ReactFlow>
+            ) : (
+              <div style={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                  <ApartmentOutlined style={{ fontSize: 48, color: 'var(--text-tertiary)', marginBottom: 16 }} />
+                  <div style={{ fontSize: 16, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                    暂无详细产业链图谱数据
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+                    以下为该产业链的摘要信息
+                  </div>
+                </div>
+                
+                {/* 摘要信息 */}
+                <Card size="small" style={{ background: 'var(--bg-elevated)', marginBottom: 16 }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong style={{ color: 'var(--text-primary)' }}>产业描述</Text>
+                    <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
+                      {chain.description}
+                    </div>
+                  </div>
+                  
+                  {chain.marketDrivers && chain.marketDrivers.length > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                      <Text strong style={{ color: 'var(--text-primary)' }}>市场驱动</Text>
+                      <div style={{ marginTop: 4 }}>
+                        {chain.marketDrivers.map((driver, i) => (
+                          <Tag key={i} color="blue" style={{ marginBottom: 4 }}>{driver}</Tag>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {chain.relatedPolicies && chain.relatedPolicies.length > 0 && (
+                    <div>
+                      <Text strong style={{ color: 'var(--text-primary)' }}>相关政策</Text>
+                      <div style={{ marginTop: 4 }}>
+                        {chain.relatedPolicies.map((policy, i) => (
+                          <Tag key={i} color="green" style={{ marginBottom: 4 }}>{policy}</Tag>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              </div>
+            )}
           </Card>
         </Col>
         
