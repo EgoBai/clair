@@ -29,18 +29,18 @@ describe('NavigationMenu', () => {
 
   it('should display all navigation items', () => {
     renderWithRouter(<NavigationMenu />);
-    expect(screen.getByText('发掘')).toBeDefined();
-    expect(screen.getByText('筛选')).toBeDefined();
-    expect(screen.getByText('自选')).toBeDefined();
-    expect(screen.getByText('复盘')).toBeDefined();
+    expect(screen.getByText('市场洞察')).toBeDefined();
+    expect(screen.getByText('策略选股')).toBeDefined();
+    expect(screen.getByText('自选追踪')).toBeDefined();
+    expect(screen.getByText('复盘研究')).toBeDefined();
   });
 
   it('should display navigation icons', () => {
     renderWithRouter(<NavigationMenu />);
     expect(screen.getByText('🔭')).toBeDefined();
-    expect(screen.getByText('🔍')).toBeDefined();
+    expect(screen.getByText('🎯')).toBeDefined();
     expect(screen.getByText('⭐')).toBeDefined();
-    expect(screen.getByText('📋')).toBeDefined();
+    expect(screen.getByText('📊')).toBeDefined();
   });
 
   it('should display service status', () => {
@@ -88,7 +88,7 @@ describe('NavigationMenu', () => {
     expect(screen.getByText('✕')).toBeDefined();
     
     // Click a nav item
-    fireEvent.click(screen.getByText('发掘'));
+    fireEvent.click(screen.getByText('市场洞察'));
     
     // Menu should close
     expect(screen.getByText('☰')).toBeDefined();
@@ -122,7 +122,7 @@ describe('NavigationMenu', () => {
     const { container } = renderWithRouter(<NavigationMenu />, ['/']);
     const activeLink = container.querySelector('.nav-link.active');
     expect(activeLink).toBeDefined();
-    expect(activeLink?.textContent).toContain('发掘');
+    expect(activeLink?.textContent).toContain('市场洞察');
   });
 
   it('should highlight active path for stocks', () => {

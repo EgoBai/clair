@@ -37,7 +37,6 @@ export const FundFlowPieChart = React.memo<FundFlowPieChartProps>(({
   const renderLabel = ({ name, percent }: { name?: string; percent?: number }) =>
     `${name} ${((percent ?? 0) * 100).toFixed(1)}%`;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const customTooltip = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
     const d = payload[0].payload;

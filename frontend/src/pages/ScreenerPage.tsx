@@ -126,15 +126,6 @@ const FILTER_METRICS: FilterMetric[] = [
     filter: (s) => Number(s.changePercent) < -3,
   },
   {
-    id: 'large_cap',
-    name: '大盘蓝筹',
-    icon: <FundOutlined />,
-    color: '#22c55e',
-    category: 'fundamental',
-    description: '市值超过100亿的大盘股',
-    filter: (s) => Number(s.marketCap) > 1_000_000,
-  },
-  {
     id: 'small_cap',
     name: '小盘成长',
     icon: <RocketOutlined />,
@@ -410,7 +401,9 @@ const ScreenerPage: React.FC = () => {
             const allStocks = groups.flatMap((g: any) => g.stocks || []);
             watchlistSymbols = allStocks.map((s: any) => s.symbol);
           }
-        } catch {}
+        } catch (e) {
+          // ignore parse error
+        }
         
         // 如果为空，从 useWatchlistStore 读取
         if (!watchlistSymbols || watchlistSymbols.length === 0) {

@@ -165,7 +165,9 @@ const StrategyTemplatesPage: React.FC = () => {
             try {
               const data = JSON.parse(line.slice(6));
               fullContent += data.content;
-            } catch {}
+            } catch (e) {
+              // ignore parse error
+            }
           }
         }
         

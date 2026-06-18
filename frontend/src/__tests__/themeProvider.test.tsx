@@ -178,7 +178,7 @@ describe('meta theme-color management', () => {
       </ThemeProvider>
     );
     const meta = document.querySelector('meta[name="theme-color"]');
-    expect(meta?.getAttribute('content')).toBe('#ffffff');
+    expect(meta?.getAttribute('content')).toBe('#f8f9fc');
   });
 
   it('sets dark color for dark mode', () => {
@@ -189,7 +189,7 @@ describe('meta theme-color management', () => {
       </ThemeProvider>
     );
     const meta = document.querySelector('meta[name="theme-color"]');
-    expect(meta?.getAttribute('content')).toBe('#1a1a2e');
+    expect(meta?.getAttribute('content')).toBe('#080b14');
   });
 
   it('is a no-op when meta tag does not exist', () => {

@@ -24,7 +24,7 @@ describe('useAppStore', () => {
   it('初始偏好设置应该有默认值', async () => {
     const { useAppStore } = await import('../store/useAppStore');
     const state = useAppStore.getState();
-    expect(state.preferences.theme).toBe('light');
+    expect(state.preferences.theme).toBe('dark');
     expect(state.preferences.klinePeriod).toBe('day');
     expect(state.preferences.showVolume).toBe(true);
     expect(state.preferences.sidebarCollapsed).toBe(false);

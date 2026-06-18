@@ -47,12 +47,13 @@ const segmentFilters: SegmentFilter[] = [
   { chainId: 'new-energy-vehicle', segmentId: 'charging-pile', segmentName: '充电桩', industries: ['电力设备', '汽车'], nameKeywords: ['充电', '充电桩', '充换电'], marketCapMin: 30, leaderCount: 3 },
 
   // ==================== 光伏产业链 ====================
-  { chainId: 'photovoltaic', segmentId: 'silicon-material', segmentName: '硅料', industries: ['电力设备', '有色金属'], nameKeywords: ['硅料', '多晶硅', '颗粒硅'], marketCapMin: 50, leaderCount: 3 },
-  { chainId: 'photovoltaic', segmentId: 'silicon-wafer', segmentName: '硅片', industries: ['电力设备'], nameKeywords: ['硅片', '切片', '单晶硅'], marketCapMin: 50, leaderCount: 3 },
-  { chainId: 'photovoltaic', segmentId: 'solar-cell', segmentName: '电池片', industries: ['电力设备'], nameKeywords: ['电池', '光伏', '太阳能', '异质结', 'TOPCon'], excludeKeywords: ['玻璃', '组件', '电站', '动力'], marketCapMin: 50, leaderCount: 3 },
-  { chainId: 'photovoltaic', segmentId: 'pv-module', segmentName: '光伏组件', industries: ['电力设备'], nameKeywords: ['组件', '光伏', '太阳能'], excludeKeywords: ['电池', '玻璃', '电站'], marketCapMin: 50, leaderCount: 3 },
-  { chainId: 'photovoltaic', segmentId: 'inverter', segmentName: '逆变器', industries: ['电力设备'], nameKeywords: ['逆变器', '变流器', '储能'], marketCapMin: 50, leaderCount: 3 },
-  { chainId: 'photovoltaic', segmentId: 'pv-station', segmentName: '光伏电站', industries: ['电力设备', '公用事业'], nameKeywords: ['光伏电站', '太阳能', '新能源发电', '运营'], marketCapMin: 30, leaderCount: 3 },
+  // 光伏公司大多归类在"电力设备"行业，需要更宽泛的匹配
+  { chainId: 'photovoltaic', segmentId: 'silicon-material', segmentName: '硅料', industries: ['电力设备', '有色金属', '基础化工'], nameKeywords: ['硅', '多晶', '单晶', '颗粒硅', '料'], excludeKeywords: ['汽车', '锂', '电池'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'photovoltaic', segmentId: 'silicon-wafer', segmentName: '硅片', industries: ['电力设备'], nameKeywords: ['硅片', '切片', '光伏', '太阳能', '单晶', '晶硅'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'photovoltaic', segmentId: 'solar-cell', segmentName: '电池片', industries: ['电力设备'], nameKeywords: ['光伏', '太阳能', '电池', '组件', 'TOPCon', '异质结', '钙钛矿'], excludeKeywords: ['动力', '锂', '汽车'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'photovoltaic', segmentId: 'pv-module', segmentName: '光伏组件', industries: ['电力设备'], nameKeywords: ['光伏', '太阳能', '组件', '晶科', '晶澳', '天合', '隆基', '东方日升', '阿特斯'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'photovoltaic', segmentId: 'inverter', segmentName: '逆变器', industries: ['电力设备'], nameKeywords: ['逆变', '变流', '储能', '阳光', '固德威', '锦浪', '上能', '禾迈'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'photovoltaic', segmentId: 'pv-station', segmentName: '光伏电站', industries: ['电力设备', '公用事业', '建筑装饰'], nameKeywords: ['光伏', '太阳能', '电站', '新能源', '发电', '运营', '节能'], excludeKeywords: ['组件', '电池', '逆变'], marketCapMin: 30, leaderCount: 3 },
 
   // ==================== AI机器人产业链 ====================
   { chainId: 'ai-robot', segmentId: 'reducer', segmentName: '减速器', industries: ['机械设备', '汽车'], nameKeywords: ['减速器', '谐波', 'RV', '精密传动'], marketCapMin: 30, leaderCount: 3 },

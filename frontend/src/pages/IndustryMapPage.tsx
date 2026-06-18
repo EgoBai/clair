@@ -326,46 +326,63 @@ const IndustryMapPage: React.FC = () => {
     return { totalCompanies, leaders, avgChange, totalMarketCap };
   }, [selectedChain]);
   
-  // AI 问答 — 调用真实后端 API
-  const handleAsk = async () => {
-    if (!question.trim() || !selectedChain) return;
+  // AI 问答 — 增强版
+  const handleAsk = async (presetQuestion?: string) => {
+    const q = presetQuestion || question;
+    if (!q.trim() || !chain) return;
     
+    if (!presetQuestion) setQuestion('');
     setAsking(true);
     setAiAnswer('');
     
-    // 构建产业链上下文
-    const chainContext = {
-      name: selectedChain?.name,
-      description: selectedChain?.description,
-      layers: selectedChain?.layers?.map(l => ({
-        name: l.name,
-        segments: l.segments?.map(s => ({
-          name: s.name,
-          companies: s.companies?.slice(0, 5).map(c => ({
-            name: c.name,
-            symbol: c.symbol,
-            position: c.position,
-          })),
-        })),
-      })),
-      aiAnalysis: selectedChain?.aiAnalysis,
-    };
+    // 构建完整的产业链实时上下文
+    const allCompanies = chain.layers?.flatMap(l => 
+      l.segments?.flatMap(s => s.companies || []) || []
+    ) || [];
+    
+    const leaders = allCompanies.filter(c => c.position === 'leader');
+    const upCount = allCompanies.filter(c => (c.changePercent || 0) > 0).length;
+    const downCount = allCompanies.filter(c => (c.changePercent || 0) < 0).length;
+    const avgChange = allCompanies.length > 0 
+      ? (allCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / allCompanies.length).toFixed(2)
+      : '0';
+    const totalMc = allCompanies.reduce((sum, c) => sum + (c.marketCap || 0), 0);
+    
+    const marketContext = `
+【实时市场数据】
+- 总计 ${allCompanies.length} 家公司，其中龙头 ${leaders.length} 家
+- 今日上涨 ${upCount} 家，下跌 ${downCount} 家
+- 平均涨跌幅: ${avgChange}%
+- 总市值: ${(totalMc / 10000).toFixed(0)}万亿元
+- 龙头公司: ${leaders.map(c => `${c.name}(${c.symbol}) 涨${c.changePercent}%`).join('、')}
+
+【产业链环节分布】
+${chain.layers?.map(l => 
+  `\n${l.name}(${l.type}): ${l.segments?.map(s => 
+    `${s.name}[${s.companies?.length || 0}家, 龙头:${s.companies?.filter(c => c.position === 'leader').map(c => c.name).join(',') || '无'}]`
+  ).join(', ')}`
+).join('') || ''}`;
     
     try {
       const response = await fetch(`${API_BASE}/api/ai/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `你是专业的产业链研究分析师。请基于以下产业链信息回答用户问题。
+          message: `你是澄观AI产业链研究助手。请基于以下产业链实时数据回答用户问题，给出专业、有数据支撑的分析。
 
-产业链信息：
-${JSON.stringify(chainContext, null, 2)}
+产业链: ${chain.name}
+描述: ${chain.description}
+${marketContext}
 
-用户问题：${question}
+用户问题: ${q}
 
-请用专业但易懂的语言回答，包含具体数据和公司名称。如果涉及投资建议，请注明风险提示。`,
+要求:
+1. 引用具体公司名称和实时涨跌数据
+2. 分析产业链各环节的强弱分布
+3. 如果涉及投资，必须加风险提示
+4. 回答简洁专业，300字以内`,
           context: [
-            { role: 'system', content: '你是澄观AI产业链研究助手，专注于A股产业链分析。请基于真实数据回答，不要编造信息。' },
+            { role: 'system', content: '你是澄观AI产业链研究助手，专注于A股产业链实时分析。请基于提供的实时市场数据回答，不要编造信息。回答风格：专业、数据驱动、简洁。' },
           ],
           stream: false,
         }),
@@ -808,12 +825,12 @@ ${JSON.stringify(chainContext, null, 2)}
                   placeholder="询问产业链相关问题..."
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
-                  onPressEnter={handleAsk}
+                  onPressEnter={() => handleAsk()}
                 />
                 <Button
                   type="primary"
                   icon={<SendOutlined />}
-                  onClick={handleAsk}
+                  onClick={() => handleAsk()}
                   loading={asking}
                 >
                   提问
@@ -825,19 +842,19 @@ ${JSON.stringify(chainContext, null, 2)}
             <Space wrap style={{ marginBottom: 16 }}>
               <Tag
                 style={{ cursor: 'pointer' }}
-                onClick={() => { setQuestion('产业链的核心壁垒是什么？'); handleAsk(); }}
+                onClick={() => handleAsk('这个产业链的核心壁垒是什么？')}
               >
                 核心壁垒
               </Tag>
               <Tag
                 style={{ cursor: 'pointer' }}
-                onClick={() => { setQuestion('龙头企业有哪些？'); handleAsk(); }}
+                onClick={() => handleAsk('龙头企业有哪些？各自优势是什么？')}
               >
                 龙头企业
               </Tag>
               <Tag
                 style={{ cursor: 'pointer' }}
-                onClick={() => { setQuestion('投资逻辑是什么？'); handleAsk(); }}
+                onClick={() => handleAsk('这个产业链的投资逻辑和风险是什么？')}
               >
                 投资逻辑
               </Tag>

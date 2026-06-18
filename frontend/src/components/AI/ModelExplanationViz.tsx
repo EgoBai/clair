@@ -144,7 +144,6 @@ export const FeatureTreemap: React.FC<{ features: FeatureImportance[] }> = ({ fe
         }) as any}
       >
         <RTooltip
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           content={({ payload }: any) => {
             if (!payload?.length) return null;
             const d = payload[0].payload;

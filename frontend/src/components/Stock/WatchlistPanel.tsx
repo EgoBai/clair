@@ -28,7 +28,9 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch (e) {
+      // ignore parse error
+    }
     return [{ id: 'default', name: '默认分组', stocks: [], isDefault: true }];
   });
   const [activeGroup, setActiveGroup] = useState('default');
@@ -69,7 +71,9 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
         }
       }
       setQuotes(map);
-    } catch {} finally { setQuotesLoading(false); }
+    } catch (e) {
+      // ignore fetch error
+    } finally { setQuotesLoading(false); }
   }, [symbols.join(',')]);
 
   useEffect(() => { fetchQuotes(); }, [fetchQuotes]);

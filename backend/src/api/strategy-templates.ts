@@ -40,30 +40,30 @@ interface StrategyTemplate {
 router.get('/strategy-templates', asyncHandler(async (req: Request, res: Response) => {
   const { category, include_system = 'true', user_id } = req.query;
   
-  let query = db.connection('strategy_templates');
-  
-  // 分类过滤
-  if (category && category !== 'all') {
-    query = query.where('category', category);
+  let templates: any[] = [];
+  try {
+    let query = db.connection('strategy_templates');
+    
+    if (category && category !== 'all') {
+      query = query.where('category', category);
+    }
+    if (include_system === 'false') {
+      query = query.where('is_system', false);
+    }
+    if (user_id) {
+      query = query.where(function() {
+        this.where('is_system', true).orWhere('user_id', user_id);
+      });
+    }
+    
+    templates = await query.orderBy([
+      { column: 'is_system', order: 'desc' },
+      { column: 'usage_count', order: 'desc' },
+      { column: 'created_at', order: 'desc' }
+    ]);
+  } catch {
+    // 表不存在时返回空数组，避免阻塞前端
   }
-  
-  // 是否包含系统模板
-  if (include_system === 'false') {
-    query = query.where('is_system', false);
-  }
-  
-  // 用户自定义模板
-  if (user_id) {
-    query = query.where(function() {
-      this.where('is_system', true).orWhere('user_id', user_id);
-    });
-  }
-  
-  const templates = await query.orderBy([
-    { column: 'is_system', order: 'desc' },
-    { column: 'usage_count', order: 'desc' },
-    { column: 'created_at', order: 'desc' }
-  ]);
   
   sendSuccess(res, { templates });
 }));

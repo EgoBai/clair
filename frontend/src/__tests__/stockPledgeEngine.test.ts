@@ -157,7 +157,7 @@ describe('Stock Pledge Engine', () => {
   describe('analyzeExpiryRisk', () => {
     it('should separate soon and expired records', () => {
       const pastDate = '2025-01-01';
-      const futureDate = '2026-06-01';
+      const futureDate = '2026-12-01'; // 未来6个月
       const records = [
         makePledgeRecord({ endDate: pastDate, status: 'active' }),
         makePledgeRecord({ endDate: futureDate, status: 'active' }),
