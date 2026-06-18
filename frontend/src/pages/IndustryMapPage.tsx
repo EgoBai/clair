@@ -35,11 +35,13 @@ import {
   FundOutlined,
   QuestionCircleOutlined,
   StarOutlined,
+  StarFilled,
   RiseOutlined,
   FallOutlined,
   SwapOutlined,
   InfoCircleOutlined,
   SendOutlined,
+  FilterOutlined,
 } from '@ant-design/icons';
 import ReactFlow, {
   Node,
@@ -72,6 +74,7 @@ import {
   IndustryChainSummary,
 } from '../types/industryChain';
 import { renderMarkdown } from '../utils/markdown';
+import { useWatchlistStore } from '../hooks/useWatchlistStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -230,6 +233,7 @@ const IndustryMapPage: React.FC = () => {
   const [question, setQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
   const [asking, setAsking] = useState(false);
+  const watchlistStore = useWatchlistStore();
   
   // 获取产业链列表
   useEffect(() => {
@@ -381,7 +385,13 @@ ${JSON.stringify(chainContext, null, 2)}
   };
   
   // 渲染公司列表
-  const renderCompanyList = (companies: ChainCompany[], title: string) => (
+  const renderCompanyList = (companies: ChainCompany[], title: string) => {
+    const handleToggleWatchlist = (symbol: string, name: string) => {
+      watchlistStore.toggle({ symbol, name });
+      message.success(watchlistStore.has(symbol) ? '已加入自选' : '已取消自选');
+    };
+    
+    return (
     <Card
       title={
         <Space>
@@ -398,7 +408,7 @@ ${JSON.stringify(chainContext, null, 2)}
         renderItem={(company) => (
           <List.Item
             style={{ cursor: 'pointer', padding: '8px 0' }}
-            onClick={() => window.open(`/stock/${company.symbol}`, '_blank')}
+            onClick={() => navigate(`/stocks/${company.symbol}.${company.symbol.startsWith('6') ? 'SH' : 'SZ'}`)}
           >
             <List.Item.Meta
               title={
@@ -427,11 +437,34 @@ ${JSON.stringify(chainContext, null, 2)}
                 </Space>
               }
             />
+            <Space>
+              <Button
+                type="text"
+                size="small"
+                icon={watchlistStore.has(company.symbol) ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleWatchlist(company.symbol, company.name);
+                }}
+                title="加入自选"
+              />
+              <Button
+                type="text"
+                size="small"
+                icon={<FilterOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/screener?metric=hot_industry&search=${encodeURIComponent(company.symbol)}`);
+                }}
+                title="加入筛选"
+              />
+            </Space>
           </List.Item>
         )}
       />
     </Card>
   );
+};
   
   if (loading || !selectedChain) {
     return (

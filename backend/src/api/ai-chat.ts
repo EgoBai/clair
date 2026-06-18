@@ -430,4 +430,235 @@ router.get('/ai/health', asyncHandler(async (_req: Request, res: Response) => {
   res.json(health);
 }));
 
+// ============================================================
+// AI市场解读（LLM生成）
+// ============================================================
+
+router.get('/ai/market-insight-llm', asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    
+    // 获取板块数据
+    const sectors = await db.getSectorMomentumScore();
+    const topSectors = sectors.slice(0, 10);
+    const bottomSectors = sectors.slice(-5).reverse();
+    
+    // 计算市场宽度
+    const upSectors = sectors.filter(s => s.avg_change_percent > 0).length;
+    const downSectors = sectors.filter(s => s.avg_change_percent < 0).length;
+    const upRatio = Math.round((upSectors / (sectors.length || 1)) * 100);
+    
+    // 计算涨停跌停
+    const limitUpSectors = sectors.filter(s => s.limit_up_count > 0);
+    const totalLimitUp = limitUpSectors.reduce((sum, s) => sum + s.limit_up_count, 0);
+    
+    // 计算平均涨幅
+    const avgChange = sectors.reduce((sum, s) => sum + s.avg_change_percent, 0) / (sectors.length || 1);
+    
+    // 构建市场数据
+    const marketData = {
+      sectors: topSectors.map(s => ({
+        industry: s.industry,
+        score: s.score,
+        avgChange: s.avg_change_percent,
+        limitUp: s.limit_up_count,
+        stockCount: s.stock_count,
+      })),
+      bottomSectors: bottomSectors.map(s => ({
+        industry: s.industry,
+        score: s.score,
+        avgChange: s.avg_change_percent,
+      })),
+      marketBreadth: {
+        up: upSectors,
+        down: downSectors,
+        neutral: sectors.length - upSectors - downSectors,
+        upRatio,
+      },
+      limitUp: totalLimitUp,
+      avgChange: Math.round(avgChange * 100) / 100,
+      timestamp: new Date().toISOString(),
+    };
+    
+    // 使用LLM生成市场解读
+    const prompt = `基于以下A股市场数据，生成今日市场解读：
+
+## 板块数据（Top 10）
+${topSectors.map(s => `- ${s.industry}: 景气度${s.score}分, 涨幅${s.avg_change_percent > 0 ? '+' : ''}${s.avg_change_percent}%, 涨停${s.limit_up_count}只, ${s.stock_count}只股票`).join('\n')}
+
+## 市场宽度
+- 上涨板块: ${upSectors}个
+- 下跌板块: ${downSectors}个
+- 平盘板块: ${sectors.length - upSectors - downSectors}个
+- 上涨比例: ${upRatio}%
+
+## 涨停统计
+- 总涨停: ${totalLimitUp}只
+
+## 平均涨幅
+- 板块平均涨幅: ${avgChange > 0 ? '+' : ''}${avgChange}%
+
+请从以下角度生成市场解读：
+
+### 一、市场基本面
+（指数表现、涨跌分布、涨停跌停、市场情绪判断）
+
+### 二、资金面分析
+（资金流入板块、资金流出板块、资金特征）
+
+### 三、政策/消息面
+（市场动态、政策观察、操作建议）
+
+### 四、风险提示
+（需要关注的风险因素）
+
+输出格式要求：
+1. 每个部分用**加粗标题**
+2. 关键数据用**加粗**标注
+3. 操作建议要具体可执行
+4. 语言简洁专业，控制在500字以内
+5. 不确定的信息明确标注"不确定"`;
+
+    const aiResponse = await aiService.chat({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5,
+      maxTokens: 1000,
+    });
+    
+    // 解析LLM输出，生成结构化数据
+    const insight = parseMarketInsight(aiResponse.content, marketData);
+    
+    res.json({ data: insight, success: true });
+  } catch (error) {
+    logger.error('Market insight error:', error as Error);
+    res.status(500).json({ error: '市场解读生成失败' });
+  }
+}));
+
+/**
+ * 解析LLM输出，生成结构化市场解读
+ */
+function parseMarketInsight(llmOutput: string, marketData: any) {
+  // 提取各部分
+  const sections = [];
+  
+  // 解析市场基本面
+  const fundamentalMatch = llmOutput.match(/### 一、市场基本面([\s\S]*?)(?=### 二、|$)/);
+  if (fundamentalMatch) {
+    sections.push({
+      title: '一、市场基本面',
+      icon: '📊',
+      text: formatInsightSection(fundamentalMatch[1]),
+    });
+  }
+  
+  // 解析资金面分析
+  const capitalMatch = llmOutput.match(/### 二、资金面分析([\s\S]*?)(?=### 三、|$)/);
+  if (capitalMatch) {
+    sections.push({
+      title: '二、资金面分析',
+      icon: '💰',
+      text: formatInsightSection(capitalMatch[1]),
+    });
+  }
+  
+  // 解析政策/消息面
+  const policyMatch = llmOutput.match(/### 三、政策\/消息面([\s\S]*?)(?=### 四、|$)/);
+  if (policyMatch) {
+    sections.push({
+      title: '三、政策/消息面',
+      icon: '📰',
+      text: formatInsightSection(policyMatch[1]),
+    });
+  }
+  
+  // 解析风险提示
+  const riskMatch = llmOutput.match(/### 四、风险提示([\s\S]*?)$/);
+  if (riskMatch) {
+    sections.push({
+      title: '四、风险提示',
+      icon: '⚠️',
+      text: formatInsightSection(riskMatch[1]),
+    });
+  }
+  
+  // 如果解析失败，使用整个输出
+  if (sections.length === 0) {
+    sections.push({
+      title: '市场解读',
+      icon: '📊',
+      text: llmOutput,
+    });
+  }
+  
+  // 判断市场情绪
+  const avgChange = marketData.avgChange;
+  let mood, moodEmoji;
+  if (avgChange > 1.5 && marketData.marketBreadth.upRatio > 70) {
+    mood = '强势上攻';
+    moodEmoji = '🔥';
+  } else if (avgChange > 0.5) {
+    mood = '温和上行';
+    moodEmoji = '📈';
+  } else if (avgChange > -0.3) {
+    mood = '震荡整理';
+    moodEmoji = '⚖️';
+  } else if (avgChange > -1) {
+    mood = '弱势调整';
+    moodEmoji = '📉';
+  } else {
+    mood = '大幅下挫';
+    moodEmoji = '🌧️';
+  }
+  
+  return {
+    mood,
+    moodEmoji,
+    sections,
+    marketBreadth: {
+      up: marketData.marketBreadth.up,
+      down: marketData.marketBreadth.down,
+      neutral: marketData.marketBreadth.neutral,
+      breadthRatio: marketData.marketBreadth.upRatio / 100,
+      stockUpRatio: marketData.marketBreadth.upRatio,
+    },
+    avgIndexChange: marketData.avgChange,
+    topSectors: marketData.sectors.map((s: any) => ({
+      industry: s.industry,
+      score: s.score,
+      avgChange: s.avgChange,
+    })),
+    weakSectors: marketData.bottomSectors.map((s: any) => ({
+      industry: s.industry,
+      score: s.score,
+      avgChange: s.avgChange,
+    })),
+    limitUpCount: marketData.limitUp,
+    limitDownCount: 0,
+    timestamp: Date.now(),
+  };
+}
+
+/**
+ * 格式化洞察部分
+ */
+function formatInsightSection(text: string): string {
+  return text
+    .split('\n')
+    .map(line => {
+      // 处理标题
+      if (line.startsWith('**') && line.endsWith('**')) {
+        return line;
+      }
+      // 处理列表项
+      if (line.startsWith('-') || line.startsWith('·') || line.startsWith('•')) {
+        return line;
+      }
+      // 处理普通段落
+      return line;
+    })
+    .filter(line => line.trim())
+    .join('\n');
+}
+
 export default router;

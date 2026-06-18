@@ -3,12 +3,130 @@
  * 
  * 提供产业链列表、详情、环节、公司等数据
  * 参考同花顺产业地图设计
+ * 
+ * v2: DB驱动的数据引擎 — segment通过stockFilter从数据库实时获取公司数据
  */
 
 import { Router, Request, Response } from 'express';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
+import { getDb } from '../db/dbFactory';
+import segmentFilters from './industryChainFilters';
 
 const router = Router();
+
+// ============= 产业链数据查询引擎 =============
+
+interface StockFilter {
+  industries: string[];       // Shenwan行业
+  nameKeywords?: string[];    // 名称关键词
+  excludeKeywords?: string[]; // 排除关键词
+  marketCapMin?: number;      // 最小市值(亿元)
+  leaderCount?: number;       // 龙头数量(按市值排序)
+}
+
+interface DbStock {
+  symbol: string;
+  name: string;
+  industry: string;
+  marketCap: number;
+  changePercent: number;
+  currentPrice: number;
+  turnoverRate: number;
+  peRatio: number;
+}
+
+/**
+ * 从数据库查询符合条件的股票
+ */
+async function queryStocksByFilter(filter: StockFilter): Promise<DbStock[]> {
+  const dbInstance = getDb();
+  const knex = dbInstance.connection;
+  
+  let query = knex('stocks as s')
+    .leftJoin('daily_quotes as dq', function(this: any) {
+      this.on('s.id', '=', 'dq.stock_id')
+        .andOn('dq.trade_date', '=', knex.raw(
+          '(SELECT MAX(trade_date) FROM daily_quotes WHERE stock_id = s.id)'
+        ));
+    })
+    .where('s.is_active', true)
+    .whereNotNull('dq.close_price')
+    .select(
+      's.symbol',
+      's.name',
+      's.industry',
+      knex.raw('COALESCE(dq.market_cap, s.market_cap) as market_cap'),
+      knex.raw('COALESCE(dq.change_percent, 0) as change_percent'),
+      knex.raw('COALESCE(dq.close_price, s.current_price) as current_price'),
+      knex.raw('COALESCE(dq.turnover_rate, 0) as turnover_rate'),
+      knex.raw('s.pe_ratio')
+    );
+  
+  // 行业过滤
+  if (filter.industries?.length > 0) {
+    query = query.whereIn('s.industry', filter.industries);
+  }
+  
+  // 关键词过滤
+  if (filter.nameKeywords?.length > 0) {
+    query = query.where(function(builder: any) {
+      filter.nameKeywords!.forEach(kw => {
+        builder.orWhere('s.name', 'like', `%${kw}%`);
+      });
+    });
+  }
+  
+  // 排除关键词
+  if (filter.excludeKeywords?.length > 0) {
+    filter.excludeKeywords.forEach(kw => {
+      query = query.whereNot('s.name', 'like', `%${kw}%`);
+    });
+  }
+  
+  // 市值过滤 (marketCapMin单位:亿, DB存万元)
+  if (filter.marketCapMin) {
+    query = query.where(knex.raw('COALESCE(dq.market_cap, s.market_cap)'), '>=', filter.marketCapMin * 1e4);
+  }
+  
+  // 按市值排序
+  query = query.orderBy(knex.raw('COALESCE(dq.market_cap, s.market_cap)'), 'desc');
+  
+  // 限制数量(龙头数*2，确保前端有足够数据)
+  const limit = (filter.leaderCount || 3) * 6;
+  query = query.limit(limit);
+  
+  const rows = await query;
+  
+  return rows.map((r: any) => ({
+    symbol: r.symbol.replace(/\.(SH|SZ|BJ)$/, ''),
+    name: (r.name || '').trim(),
+    industry: r.industry || '',
+    marketCap: parseFloat(r.market_cap) || 0,
+    changePercent: parseFloat(r.change_percent) || 0,
+    currentPrice: parseFloat(r.current_price) || 0,
+    turnoverRate: parseFloat(r.turnover_rate) || 0,
+    peRatio: parseFloat(r.pe_ratio) || 0,
+  }));
+}
+
+/**
+ * 将DB查询结果转换为segment所需的公司数据
+ * 按市值排序，前N个标记为leader
+ */
+function dbStocksToCompanies(stocks: DbStock[], leaderCount: number = 3) {
+  // 过滤掉ST、退市等
+  const valid = stocks.filter(s => !s.name.includes('ST') && !s.name.includes('退') && s.marketCap > 0);
+  
+  return valid.map((s, i) => ({
+    symbol: s.symbol,
+    name: s.name,
+    marketCap: Math.round(s.marketCap / 1e8), // 转为亿
+    changePercent: Math.round(s.changePercent * 100) / 100,
+    currentPrice: Math.round(s.currentPrice * 100) / 100,
+    position: i < leaderCount ? 'leader' : 'other',
+    competitiveAdvantage: i < leaderCount ? `市值${s.industry}第${i+1}` : undefined,
+  }));
+}
 
 // ============= 模拟数据（生产环境应从数据库读取）=============
 
@@ -105,10 +223,8 @@ const aiComputingChainDetail = {
           name: '光芯片',
           description: '光通信核心器件，决定传输速率和距离',
           layerId: 'upstream',
-          companies: [
-            { symbol: '300308', name: '中际旭创', marketCap: 1200, changePercent: 5.23, currentPrice: 120.5, position: 'leader', competitiveAdvantage: '全球光模块龙头，800G产品领先' },
-            { symbol: '002281', name: '光迅科技', marketCap: 350, changePercent: 3.45, currentPrice: 45.2, position: 'challenger', competitiveAdvantage: '国产光芯片突破' },
-          ],
+          stockFilter: { industries: ['电子', '通信'], nameKeywords: ['光', '光电', '激光', '光模块', '光器件'], excludeKeywords: ['光伏', '光电股份'], marketCapMin: 30, leaderCount: 3 },
+          companies: [],
           characteristics: {
             marketSize: '2025年预计500亿元',
             growthRate: 'CAGR 25%',
@@ -512,29 +628,67 @@ router.get('/search', (req: Request, res: Response) => {
 });
 
 /**
- * 获取产业链详情
+ * 获取产业链详情 (DB驱动版)
  * GET /api/industry-chains/:id
+ * 
+ * 自动从数据库填充公司数据，保持行情实时同步
  */
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   
-  // 返回详细数据（目前只有AI算力产业链有完整数据）
-  if (id === 'ai-computing') {
-    return sendSuccess(res, { chain: aiComputingChainDetail });
+  // 获取产业链详细数据
+  let chainDetail: any = null;
+  if (id === 'ai-computing') chainDetail = aiComputingChainDetail;
+  else if (id === 'semiconductor') chainDetail = semiconductorChainDetail;
+  else {
+    const chain = industryChains.find(c => c.id === id);
+    if (!chain) return sendNotFound(res, '产业链未找到');
+    // 无详细数据的产业链直接返回摘要
+    const enriched = { ...chain };
+    // 尝试从DB查询，如果有filter定义
+    const filters = segmentFilters.filter((f: any) => f.chainId === id);
+    if (filters.length > 0) {
+      enriched.layers = [{
+        id: 'main', name: '产业链', type: 'midstream', description: chain.description, order: 1,
+        segments: await Promise.all(filters.map(async (f: any) => {
+          let companies: any[] = [];
+          try {
+            companies = dbStocksToCompanies(await queryStocksByFilter(f), f.leaderCount || 3);
+          } catch {}
+          return {
+            id: f.segmentId, name: f.segmentName, description: f.description || '', layerId: 'main',
+            companies, characteristics: {}, upstreamTo: [], downstreamTo: [],
+          };
+        })),
+      }];
+    }
+    return sendSuccess(res, { chain: enriched });
   }
   
-  if (id === 'semiconductor') {
-    return sendSuccess(res, { chain: semiconductorChainDetail });
+  // DB数据注入: 为每个segment填充公司数据
+  const enriched = { ...chainDetail };
+  if (enriched.layers) {
+    for (const layer of enriched.layers) {
+      for (const segment of layer.segments) {
+        // 从segmentFilters查找匹配规则
+        const filter = segmentFilters.find(f => f.chainId === id && f.segmentId === segment.id);
+        if (filter) {
+          try {
+            segment.companies = dbStocksToCompanies(
+              await queryStocksByFilter(filter),
+              filter.leaderCount || 3
+            );
+          } catch (err) {
+            console.error(`[产业链] 查询 ${id}/${segment.id} 失败:`, err);
+            segment.companies = []; // fallback
+          }
+        }
+      }
+    }
   }
   
-  // 其他产业链返回摘要
-  const chain = industryChains.find(c => c.id === id);
-  if (!chain) {
-    return sendNotFound(res, '产业链未找到');
-  }
-  
-  sendSuccess(res, { chain });
-});
+  sendSuccess(res, { chain: enriched });
+}));
 
 /**
  * 获取产业链环节列表

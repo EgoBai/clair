@@ -354,19 +354,37 @@ const ReviewPage: React.FC = () => {
       title: '行业',
       dataIndex: 'industry',
       key: 'industry',
-      width: 100,
+      width: 120,
       render: (v: string) => (
-        <Tag
-          style={{
-            background: 'rgba(59,130,246,0.15)',
-            color: THEME.accent,
-            border: '1px solid rgba(59,130,246,0.3)',
-            borderRadius: 4,
-            fontSize: 12,
-          }}
-        >
-          {v}
-        </Tag>
+        <Space size={4}>
+          <Tag
+            style={{
+              background: 'rgba(59,130,246,0.15)',
+              color: THEME.accent,
+              border: '1px solid rgba(59,130,246,0.3)',
+              borderRadius: 4,
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/industry-map?industry=${encodeURIComponent(v)}`);
+            }}
+          >
+            {v}
+          </Tag>
+          <Button
+            type="link"
+            size="small"
+            style={{ fontSize: 10, padding: 0 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/industry-map?industry=${encodeURIComponent(v)}`);
+            }}
+          >
+            产业链
+          </Button>
+        </Space>
       ),
     },
   ];
