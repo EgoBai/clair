@@ -95,7 +95,7 @@
     min-width: 64px;
     min-height: 48px;
     text-decoration: none;
-    color: var(--color-text-muted, #9ca3af);
+    color: var(--text-secondary, #8b949e);
     transition: color 0.2s ease;
     -webkit-tap-highlight-color: transparent;
     cursor: pointer;
@@ -251,7 +251,7 @@
 
   .responsive-card-code {
     font-size: 12px;
-    color: var(--color-text-muted, #9ca3af);
+    color: var(--text-secondary, #8b949e);
     font-family: var(--font-mono, monospace);
     margin-top: 2px;
   }
@@ -293,7 +293,7 @@
 
   .responsive-card-meta-label {
     font-size: 11px;
-    color: var(--color-text-muted, #9ca3af);
+    color: var(--text-secondary, #8b949e);
   }
 
   .responsive-card-meta-value {
@@ -368,7 +368,7 @@
 
 .stat-card-label {
   font-size: 12px;
-  color: var(--color-text-muted, #9ca3af);
+  color: var(--text-secondary, #8b949e);
   margin-bottom: 4px;
 }
 

@@ -258,7 +258,7 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
 
         /* 卡片样式 */
         .card {
-          background: white;
+          background: var(--card-bg, #fff);
           border-radius: 12px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
           padding: 24px;

@@ -210,7 +210,7 @@ export const StockTable: React.FC<StockTableProps> = React.memo(({
 
       <style>{`
         .stock-table-container {
-          background: white;
+          background: var(--card-bg, #fff);
           border-radius: 12px;
           overflow: hidden;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
