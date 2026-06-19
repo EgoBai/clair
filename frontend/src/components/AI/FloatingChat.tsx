@@ -21,6 +21,7 @@ interface PageContext {
   symbol?: string;
   stockName?: string;
   systemHint: string;
+  symbols?: string[]; // 自选股列表
 }
 
 const PAGE_CONTEXT_MAP: Record<string, Omit<PageContext, 'symbol' | 'stockName'>> = {
@@ -43,6 +44,11 @@ const PAGE_CONTEXT_MAP: Record<string, Omit<PageContext, 'symbol' | 'stockName'>
     page: 'review',
     pageName: '复盘',
     systemHint: '用户正在复盘交易记录。你可以提供：交易行为分析、盈亏归因、策略改进建议、风控优化。',
+  },
+  '/industry-map': {
+    page: 'industry-map',
+    pageName: '产业地图',
+    systemHint: '用户正在查看产业链图谱。你可以提供：产业链上下游分析、环节景气度判断、龙头公司对比、产业趋势解读。',
   },
 };
 
@@ -80,6 +86,24 @@ const FloatingChat: React.FC = () => {
       systemHint: '用户正在浏览澄观。根据用户问题提供专业的A股投资研究分析。',
     };
   }, [location.pathname]);
+
+  // 注入自选股上下文
+  const enrichedContext = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('astock_watchlist_v2');
+      if (!raw) return pageContext;
+      const groups = JSON.parse(raw);
+      const allStocks = groups.flatMap((g: any) => g.stocks || []);
+      if (allStocks.length === 0) return pageContext;
+      const symbols = allStocks.map((s: any) => s.symbol);
+      const names = allStocks.map((s: any) => s.name).join('、');
+      return {
+        ...pageContext,
+        systemHint: pageContext.systemHint + `\n\n用户的关注的自选股: ${names}。回答时可主动关联自选股。`,
+        symbols,
+      };
+    } catch { return pageContext; }
+  }, [pageContext]);
 
   return (
     <>
@@ -155,7 +179,7 @@ const FloatingChat: React.FC = () => {
 
           {/* ChatPanel 嵌入 — 传入页面上下文 */}
           <div style={{ flex: 1, overflow: 'hidden' }}>
-            <ChatPanel pageContext={pageContext} />
+            <ChatPanel pageContext={enrichedContext} />
           </div>
         </div>
       )}

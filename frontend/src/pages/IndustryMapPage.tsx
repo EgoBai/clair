@@ -233,6 +233,7 @@ const IndustryMapPage: React.FC = () => {
   const [selectedSegment, setSelectedSegment] = useState<ChainSegment | null>(null);
   const [chains, setChains] = useState<IndustryChainSummary[]>(HOT_CHAINS);
   const [loading, setLoading] = useState(true);
+  const [hotSectors, setHotSectors] = useState<any[]>([]); // 实时热门板块
   const [question, setQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
   const [asking, setAsking] = useState(false);
@@ -244,14 +245,26 @@ const IndustryMapPage: React.FC = () => {
       try {
         const response = await fetch(`${API_BASE}/api/industry-chains`);
         const data = await response.json();
-        if (data.success) {
-          setChains(data.data.chains);
-        }
-      } catch (error) {
-        console.error('获取产业链列表失败:', error);
-      }
+        if (data.success) setChains(data.data.chains);
+      } catch { /* fallback to HOT_CHAINS */ }
     };
     fetchChains();
+  }, []);
+
+  // 获取实时板块景气度 → 动态热门产业链
+  useEffect(() => {
+    const fetchHotSectors = async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/api/sectors/momentum`);
+        const data = await resp.json();
+        if (data.success) {
+          // 按score排序取Top5
+          const sorted = (data.data || []).sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+          setHotSectors(sorted.slice(0, 5));
+        }
+      } catch { /* fallback to empty */ }
+    };
+    fetchHotSectors();
   }, []);
   
   // 获取产业链详情 - 根据 industry 参数自动选择
@@ -533,40 +546,57 @@ ${marketContext}
         <Text type="secondary">
           快速了解产业链结构、投资逻辑，发现核心标的
         </Text>
+        <div style={{ marginTop: 8 }}>
+          <Space>
+            <Button size="small" icon={<FilterOutlined />} onClick={() => navigate('/screener')}>
+              策略选股
+            </Button>
+            <Button size="small" icon={<StarOutlined />} onClick={() => navigate('/watchlist')}>
+              自选追踪
+            </Button>
+            <Button size="small" icon={<RiseOutlined />} onClick={() => navigate('/')}>
+              市场洞察
+            </Button>
+          </Space>
+        </div>
       </div>
       
-      {/* 热门产业链选择 */}
+      {/* 热门产业链 — 实时板块景气度Top5 */}
       <Card style={{ marginBottom: 24, background: 'var(--card-bg)' }}>
-        <div style={{ marginBottom: 16 }}>
-          <Text strong style={{ color: 'var(--text-primary)', marginRight: 16 }}>
-            <ThunderboltOutlined style={{ color: 'var(--color-warning)' }} /> 热门产业链
+        <div style={{ marginBottom: 12 }}>
+          <Text strong style={{ color: 'var(--text-primary)' }}>
+            <ThunderboltOutlined style={{ color: 'var(--color-warning)' }} /> 实时热门板块
           </Text>
-          <Select
-            value={selectedChain?.id || 'ai-computing'}
-            onChange={(value) => {
-              // 实际应从 API 获取
-              if (value === 'ai-computing') {
-                setSelectedChain(AI_COMPUTING_CHAIN);
-              }
-            }}
-            style={{ width: 200 }}
-          >
-            {HOT_CHAINS.map((chain) => (
-              <Option key={selectedChain?.id} value={selectedChain?.id}>
-                <Space>
-                  {selectedChain?.name}
-                  <Badge count={selectedChain?.hotLevel} style={{ backgroundColor: '#ff4d4f' }} />
-                </Space>
-              </Option>
-            ))}
-          </Select>
+          <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+            景气度 × 资金流向 Top5
+          </Text>
         </div>
-        
-        {/* 产业链标签 */}
-        <Space wrap>
-          {selectedChain?.relatedConcepts?.map((concept) => (
-            <Tag key={concept} color="blue">
-              {concept}
+        <Space wrap size={[8, 8]}>
+          {hotSectors.length > 0 ? hotSectors.map((sector: any) => (
+            <Tag
+              key={sector.industry}
+              color="blue"
+              style={{ cursor: 'pointer', padding: '4px 12px', fontSize: 13 }}
+              onClick={() => navigate(`/industry-map?industry=${encodeURIComponent(sector.industry)}`)}
+            >
+              {sector.industry}
+              <span style={{ marginLeft: 6, fontWeight: 600, color: Number(sector.avg_change_percent) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                {Number(sector.avg_change_percent) >= 0 ? '+' : ''}{Number(sector.avg_change_percent).toFixed(1)}%
+              </span>
+              <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>景气{sector.score}分</span>
+            </Tag>
+          )) : chains.slice(0, 5).map((chain: any) => (
+            <Tag
+              key={chain.id}
+              color="blue"
+              style={{ cursor: 'pointer', padding: '4px 12px', fontSize: 13 }}
+              onClick={() => {
+                setSelectedChain(null);
+                navigate(`/industry-map?industry=${encodeURIComponent(chain.name)}`);
+              }}
+            >
+              {chain.name}
+              <Badge count={chain.hotLevel} style={{ marginLeft: 4, backgroundColor: '#ff4d4f' }} />
             </Tag>
           ))}
         </Space>
