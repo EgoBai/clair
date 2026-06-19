@@ -29,7 +29,7 @@
       "@shared/*": ["../shared/*"]
     }
   },
-  "include": ["src", "../shared"],
-  "exclude": ["src/sw.ts", "src/__tests__", "src/pages/_archived"],
+  "include": ["src"],
+  "exclude": ["src/sw.ts", "src/__tests__", "src/pages/_archived", "../shared/schemas.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

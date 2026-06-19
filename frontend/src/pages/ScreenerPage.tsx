@@ -26,6 +26,7 @@ const { Title, Text } = Typography;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';
+import { parseStockList } from '@shared/types';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
 const BORDER = THEME.border;
@@ -311,19 +312,20 @@ const ScreenerPage: React.FC = () => {
         }
       }
 
-      const merged: StockData[] = deduped.map((s: any) => ({
+      // 使用共享类型解析函数，替代手动 Number(s.close_price) 转换
+      const parsed = parseStockList(deduped);
+      const merged: StockData[] = parsed.map(s => ({
         symbol: s.symbol,
-        name: (s.name || '').trim(),
-        price: Number(s.current_price || 0),
-        change: Number(s.change_amount || 0),
-        changePercent: Number(s.change_percent || 0),
-        volume: s.volume || '—',
-        marketCap: s.market_cap || '—',
+        name: s.name,
+        price: s.price,
+        changePercent: s.changePercent,
+        change: s.price * s.changePercent / 100, // approximate change amount
+        volume: String(s.volume || '—'),
+        marketCap: String(s.marketCap || '—'),
         industry: s.industry || '—',
-        pe: s.pe_ratio || s.pe,
-        pb: s.pb_ratio || s.pb,
-        roe: s.roe,
-        turnoverRate: s.turnover_rate,
+        pe: s.peRatio ?? undefined,
+        pb: s.pbRatio ?? undefined,
+        turnoverRate: s.turnoverRate,
       }));
       setStocks(merged);
     } catch (e) {

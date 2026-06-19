@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>澄观 Clair — 离线模式</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f1117; color: #e1e4e8;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px;
+    }
+    .container { text-align: center; max-width: 400px; }
+    .icon { font-size: 64px; margin-bottom: 24px; opacity: 0.6; }
+    h1 { font-size: 22px; margin-bottom: 12px; color: #58a6ff; }
+    p { font-size: 14px; color: #8b949e; line-height: 1.6; margin-bottom: 8px; }
+    .tip { 
+      margin-top: 32px; padding: 16px; background: #161b22; 
+      border-radius: 8px; border: 1px solid #30363d; 
+      font-size: 13px; color: #8b949e;
+    }
+    button {
+      margin-top: 24px; padding: 10px 24px;
+      background: #238636; color: #fff; border: none;
+      border-radius: 6px; font-size: 14px; cursor: pointer;
+    }
+    button:hover { background: #2ea043; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📡</div>
+    <h1>当前处于离线模式</h1>
+    <p>请检查网络连接后重试</p>
+    <div class="tip">
+      💡 澄观支持离线查看已缓存的页面数据<br>
+      重新联网后将自动同步最新行情
+    </div>
+    <button onclick="location.reload()">🔄 重新连接</button>
+  </div>
+</body>
+</html>

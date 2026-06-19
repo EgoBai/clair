@@ -734,3 +734,33 @@ export interface AlertSuggestion {
   stocks: string[];
   condition: string;
 }
+
+// ==================== API 数据解析工具 ====================
+
+/**
+ * 将API返回的snake_case数据转为camelCase
+ * 兼容两种格式：{ close_price: "77.50" } 和 { closePrice: 77.50 }
+ */
+export function parseStockData(raw: any): ScreenerStock {
+  return {
+    id: raw.id,
+    symbol: raw.symbol || '',
+    name: (raw.name || '').trim(),
+    market: raw.market || '',
+    industry: raw.industry || '',
+    price: Number(raw.close_price ?? raw.closePrice ?? raw.price ?? raw.current_price ?? 0),
+    changePercent: Number(raw.change_percent ?? raw.changePercent ?? 0),
+    volume: Number(raw.volume ?? 0),
+    turnover: Number(raw.turnover ?? 0),
+    turnoverRate: Number(raw.turnover_rate ?? raw.turnoverRate ?? 0),
+    peRatio: Number(raw.pe_ratio ?? raw.pe ?? raw.peRatio ?? 0) || null,
+    pbRatio: Number(raw.pb_ratio ?? raw.pb ?? raw.pbRatio ?? 0) || null,
+    marketCap: Number(raw.market_cap ?? raw.marketCap ?? 0) || null,
+    circulatingMarketCap: Number(raw.circulating_market_cap ?? raw.circulatingMarketCap ?? 0) || null,
+  };
+}
+
+export function parseStockList(rawList: any[]): ScreenerStock[] {
+  return rawList.map(parseStockData);
+}
+

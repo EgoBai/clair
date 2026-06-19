@@ -11,6 +11,7 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import segmentFilters from './industryChainFilters';
+import conceptMappings from './industryChainConcepts';
 
 const router = Router();
 
@@ -126,6 +127,55 @@ function dbStocksToCompanies(stocks: DbStock[], leaderCount: number = 3) {
     position: i < leaderCount ? 'leader' : 'other',
     competitiveAdvantage: i < leaderCount ? `市值${s.industry}第${i+1}` : undefined,
   }));
+}
+
+/**
+ * 概念优先查询: 先用概念标签精确查询，再用关键词兜底
+ */
+async function queryStocksByConcept(chainId: string, segmentId: string): Promise<DbStock[]> {
+  // 1. 优先使用概念精确映射
+  const conceptMap = conceptMappings.find(c => c.conceptId === segmentId);
+  if (conceptMap && conceptMap.symbols.length > 0) {
+    const symbols = conceptMap.symbols.map(s => `${s}.SZ`).concat(conceptMap.symbols.map(s => `${s}.SH`));
+    // 也加上 BJ 后缀的尝试
+    const allSymbols = conceptMap.symbols.flatMap(s => [`${s}.SH`, `${s}.SZ`, `${s}.BJ`]);
+    
+    const dbInstance = getDb();
+    const knex = dbInstance.connection;
+    const rows = await knex('stocks as s')
+      .leftJoin('daily_quotes as dq', function(this: any) {
+        this.on('s.id', '=', 'dq.stock_id')
+          .andOn('dq.trade_date', '=', knex.raw('(SELECT MAX(trade_date) FROM daily_quotes WHERE stock_id = s.id)'));
+      })
+      .whereIn('s.symbol', allSymbols)
+      .where('s.is_active', true)
+      .select(
+        's.symbol', 's.name', 's.industry',
+        knex.raw('COALESCE(dq.market_cap, s.market_cap) as market_cap'),
+        knex.raw('COALESCE(dq.change_percent, 0) as change_percent'),
+        knex.raw('COALESCE(dq.close_price, s.current_price) as current_price'),
+        knex.raw('COALESCE(dq.turnover_rate, 0) as turnover_rate'),
+        knex.raw('s.pe_ratio')
+      )
+      .orderBy(knex.raw('COALESCE(dq.market_cap, s.market_cap)'), 'desc');
+    
+    return rows.map((r: any) => ({
+      symbol: r.symbol.replace(/\.(SH|SZ|BJ)$/, ''),
+      name: (r.name || '').trim(),
+      industry: r.industry || '',
+      marketCap: parseFloat(r.market_cap) || 0,
+      changePercent: parseFloat(r.change_percent) || 0,
+      currentPrice: parseFloat(r.current_price) || 0,
+      turnoverRate: parseFloat(r.turnover_rate) || 0,
+      peRatio: parseFloat(r.pe_ratio) || 0,
+    }));
+  }
+  
+  // 2. 兜底: 关键词查询
+  const filter = segmentFilters.find(f => f.chainId === chainId && f.segmentId === segmentId);
+  if (filter) return queryStocksByFilter(filter);
+  
+  return [];
 }
 
 // ============= 模拟数据（生产环境应从数据库读取）=============
@@ -665,23 +715,19 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
     return sendSuccess(res, { chain: enriched });
   }
   
-  // DB数据注入: 为每个segment填充公司数据
+  // DB数据注入: 为每个segment填充公司数据 (概念优先 + 关键词兜底)
   const enriched = { ...chainDetail };
   if (enriched.layers) {
     for (const layer of enriched.layers) {
       for (const segment of layer.segments) {
-        // 从segmentFilters查找匹配规则
-        const filter = segmentFilters.find(f => f.chainId === id && f.segmentId === segment.id);
-        if (filter) {
-          try {
-            segment.companies = dbStocksToCompanies(
-              await queryStocksByFilter(filter),
-              filter.leaderCount || 3
-            );
-          } catch (err) {
-            console.error(`[产业链] 查询 ${id}/${segment.id} 失败:`, err);
-            segment.companies = []; // fallback
-          }
+        try {
+          segment.companies = dbStocksToCompanies(
+            await queryStocksByConcept(id, segment.id),
+            (segment.stockFilter as any)?.leaderCount || 3
+          );
+        } catch (err) {
+          console.error(`[产业链] 查询 ${id}/${segment.id} 失败:`, err);
+          segment.companies = [];
         }
       }
     }

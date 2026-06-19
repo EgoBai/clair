@@ -29,6 +29,7 @@ const CACHE_LIMITS = {
 const STATIC_ASSETS = [
   '/',
   '/index.html',
+  '/offline.html',
   '/manifest.json',
 ];
 

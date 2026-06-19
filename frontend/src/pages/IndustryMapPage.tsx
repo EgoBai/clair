@@ -384,15 +384,39 @@ ${marketContext}
           context: [
             { role: 'system', content: '你是澄观AI产业链研究助手，专注于A股产业链实时分析。请基于提供的实时市场数据回答，不要编造信息。回答风格：专业、数据驱动、简洁。' },
           ],
-          stream: false,
+          stream: true,  // SSE流式响应
         }),
       });
       
-      const data = await response.json();
-      if (data?.content) {
-        setAiAnswer(data.content);
-      } else {
-        setAiAnswer('抱歉，暂时无法回答该问题。请稍后重试。');
+      // 流式读取SSE响应
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          
+          // 解析SSE data行
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const payload = line.slice(6);
+              if (payload === '[DONE]') continue;
+              try {
+                const chunk = JSON.parse(payload);
+                if (chunk.content) {
+                  setAiAnswer(prev => prev + chunk.content);
+                }
+              } catch {}
+            }
+          }
+        }
       }
     } catch (error) {
       setAiAnswer('网络错误，请检查后重试。');
