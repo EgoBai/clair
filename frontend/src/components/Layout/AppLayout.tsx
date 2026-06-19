@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
+import { useWatchlistSync } from '../../hooks/useWatchlistSync';
 import NavigationMenu from './NavigationMenu';
 import TabBar from './TabBar';
 import ThemeToggle from '../Common/ThemeToggle';
@@ -14,6 +15,7 @@ const { Text, Link } = Typography;
 export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useWatchlistSync(); // 自动同步localStorage→后端
 
   return (
     <SimpleErrorBoundary name="AppLayout">

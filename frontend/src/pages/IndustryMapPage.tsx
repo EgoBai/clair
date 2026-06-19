@@ -169,9 +169,9 @@ const chainToGraph = (chain: IndustryChain) => {
   // 层级位置计算
   const layerPositions: Record<LayerType, number> = {
     upstream: 0,
-    midstream: 400,
-    downstream: 800,
-    support: 600,
+    midstream: 450,
+    downstream: 900,
+    support: 650,
   };
   
   // 按层级分组
@@ -180,9 +180,12 @@ const chainToGraph = (chain: IndustryChain) => {
   layers.forEach((layer) => {
     const x = layerPositions[layer.type as LayerType] || 0;
     const segments = layer.segments;
+    const totalSegments = segments.length;
+    // 动态间距：段数多时缩小间距，避免超出画布
+    const spacing = Math.min(180, Math.max(100, 700 / Math.max(totalSegments, 1)));
     
     segments.forEach((segment, index) => {
-      const y = index * 180 + 50;
+      const y = index * spacing + 50;
       
       nodes.push({
         id: segment.id,
@@ -441,7 +444,7 @@ ${marketContext}
         </Space>
       }
       size="small"
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 16, maxHeight: 400, overflow: 'auto' }}
     >
       <List
         size="small"
@@ -618,7 +621,7 @@ ${marketContext}
       {/* 主体内容 */}
       <Row gutter={24}>
         {/* 左侧：产业链图谱 */}
-        <Col span={16}>
+        <Col xs={24} md={16}>
           <Card
             title={
               <Space>
@@ -696,7 +699,7 @@ ${marketContext}
         </Col>
         
         {/* 右侧：详情面板 */}
-        <Col span={8}>
+        <Col xs={24} md={8}>
           {/* 环节详情 */}
           {selectedSegment ? (
             <Card

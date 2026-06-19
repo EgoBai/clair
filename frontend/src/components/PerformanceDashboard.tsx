@@ -343,7 +343,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({
         }
 
         .metric-card {
-          background: white;
+          background: 'var(--bg-base, #fff)';
           padding: 20px;
           border-radius: 10px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -369,7 +369,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({
         }
 
         .recommendations {
-          background: white;
+          background: 'var(--bg-base, #fff)';
           padding: 20px;
           border-radius: 10px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -396,7 +396,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({
         }
 
         .components-table {
-          background: white;
+          background: 'var(--bg-base, #fff)';
           border-radius: 10px;
           overflow: hidden;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -437,13 +437,13 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({
         }
 
         .status-badge.warning {
-          background: #fff3cd;
+          background: var(--color-warning-bg, #fff3cd);
           color: #856404;
         }
 
         .network-stats,
         .memory-stats {
-          background: white;
+          background: 'var(--bg-base, #fff)';
           padding: 20px;
           border-radius: 10px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);

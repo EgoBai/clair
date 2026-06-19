@@ -321,4 +321,50 @@ router.delete('/watchlist/groups/:id', validateParams(schemas.watchlistGroupDele
   }
 });
 
+/**
+ * 批量同步自选股（前端localStorage → 后端DB）
+ * POST /api/watchlist/sync
+ */
+router.post('/watchlist/sync', async (req: Request, res: Response) => {
+  try {
+    const { groups } = req.body; // [{id, name, stocks: [{symbol, name, market}]}]
+    const userId = 1; // 单用户模式
+
+    if (!groups || !Array.isArray(groups)) {
+      res.json({ success: true, message: '无需同步', synced: 0 });
+      return;
+    }
+
+    let synced = 0;
+    
+    // 先清除旧数据再批量插入（简化版，生产环境应用upsert）
+    await db.connection('watchlist').where('user_id', userId).del().catch(() => {});
+    
+    for (const group of groups) {
+      for (const stock of (group.stocks || [])) {
+        // 查找stock_id
+        const row = await db.connection('stocks')
+          .where('symbol', stock.symbol)
+          .first()
+          .catch(() => null);
+        
+        if (row) {
+          await db.connection('watchlist').insert({
+            user_id: userId,
+            stock_id: row.id,
+            group_name: group.name || '默认分组',
+            added_at: new Date(),
+          }).catch(() => {});
+          synced++;
+        }
+      }
+    }
+
+    res.json({ success: true, synced, message: `已同步 ${synced} 只自选股` });
+  } catch (error) {
+    console.error('同步自选股失败:', error);
+    res.status(500).json({ success: false, error: '同步失败' });
+  }
+});
+
 export default router;

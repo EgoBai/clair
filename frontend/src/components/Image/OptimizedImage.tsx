@@ -260,7 +260,7 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
           right: 0;
           font-size: 10px;
           color: #666;
-          background: white;
+          background: 'var(--bg-base, #fff)';
           padding: 2px 4px;
           border-radius: 2px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.1);

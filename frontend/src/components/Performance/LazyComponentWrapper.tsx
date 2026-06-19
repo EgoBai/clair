@@ -157,7 +157,7 @@ const DefaultErrorFallback: React.FC = () => {
           min-height: 200px;
           padding: 20px;
           text-align: center;
-          background: #fff5f5;
+          background: var(--color-error-bg, #fff5f5);
           border-radius: 8px;
           border: 1px solid #fed7d7;
         }

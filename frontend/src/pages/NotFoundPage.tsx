@@ -106,7 +106,7 @@ const NotFoundPage: React.FC = () => {
         }
 
         .error-container {
-          background: white;
+          background: 'var(--bg-base, #fff)';
           border-radius: 20px;
           padding: 40px;
           max-width: 800px;
