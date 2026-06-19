@@ -121,7 +121,7 @@ function dbStocksToCompanies(stocks: DbStock[], leaderCount: number = 3) {
   return valid.map((s, i) => ({
     symbol: s.symbol,
     name: s.name,
-    marketCap: Math.round(s.marketCap / 1e8), // 转为亿
+    marketCap: Math.round(s.marketCap / 1e4), // 万元→亿
     changePercent: Math.round(s.changePercent * 100) / 100,
     currentPrice: Math.round(s.currentPrice * 100) / 100,
     position: i < leaderCount ? 'leader' : 'other',
@@ -703,7 +703,7 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
         segments: await Promise.all(filters.map(async (f: any) => {
           let companies: any[] = [];
           try {
-            companies = dbStocksToCompanies(await queryStocksByFilter(f), f.leaderCount || 3);
+            companies = dbStocksToCompanies(await queryStocksByConcept(id, f.segmentId), f.leaderCount || 3);
           } catch {}
           return {
             id: f.segmentId, name: f.segmentName, description: f.description || '', layerId: 'main',

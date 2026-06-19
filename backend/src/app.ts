@@ -51,6 +51,8 @@ import analyticsRouter from './api/analytics';
 import aiFilterRouter from './api/ai-filter';
 import aiGemsRouter from './api/ai-gems';
 import industryChainRouter from './api/industryChain';
+import industryAlertsRouter from './api/industry-alerts';
+import aiInvestmentNoteRouter from './api/ai-investment-note';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
@@ -132,6 +134,8 @@ app.use('/api', analyticsRouter);
 app.use('/api', aiFilterRouter);
 app.use('/api', aiGemsRouter);
 app.use('/api/industry-chains', industryChainRouter);
+app.use('/api', industryAlertsRouter);
+app.use('/api', aiInvestmentNoteRouter);
 
 // ==================== API 文档 ====================
 app.use(apiDocsRouter);
