@@ -1,18 +1,16 @@
 /**
- * 股票筛选器 v4 — 策略驱动 + 核心指标 + 发掘页关联
+ * 股票筛选器 v5 — 8大策略模板 + 多维度核心指标 + 筛选说明
  * 
- * 设计理念：
- * - 删除重复的指数显示（与发掘页重复）
- * - 添加核心筛选指标卡片（资金面、基本面、技术面、行业景气度）
- * - 推荐策略模板（价值投资、成长股、动量策略等）
- * - 支持从发掘页传入筛选条件
+ * 对标：芝士财富/同花顺选股功能
+ * 策略：价值投资、动量策略、小而美、防御收益、超跌反弹、热门追击、
+ *       低估值修复、高股息策略
+ * 指标：行情/估值/财务/技术/行业 5维度
  */
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
-import { renderMarkdown } from '../utils/markdown';
-import { Card, Button, Tag, Table, Spin, Empty, Typography, message, Space, Tooltip } from 'antd';
+import { Card, Button, Tag, Table, Spin, Empty, Typography, message, Space, Tooltip, Progress, Collapse } from 'antd';
 import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
   ReloadOutlined, SearchOutlined, FilterOutlined,
@@ -20,9 +18,12 @@ import {
   StarOutlined, StarFilled, PlusOutlined, SettingOutlined,
   RobotOutlined, BulbOutlined,
   FallOutlined, RocketOutlined, SafetyOutlined,
+  DollarOutlined, TrophyOutlined, PercentageOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
+const { Panel } = Collapse;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';
@@ -36,34 +37,38 @@ const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
 const ACCENT = THEME.accent;
 
-// 股票数据接口
 interface StockData {
   symbol: string;
   name: string;
   price: number;
   changePercent: number;
+  change: number;
   volume: string;
   marketCap: string;
+  marketCapNum: number;
   industry?: string;
-  change: number;
   pe?: number;
   pb?: number;
   roe?: number;
   turnoverRate?: number;
+  amplitude?: number;
+  high?: number;
+  low?: number;
+  open?: number;
+  prevClose?: number;
 }
 
-// 筛选指标接口
 interface FilterMetric {
   id: string;
   name: string;
   icon: React.ReactNode;
   color: string;
-  category: 'capital' | 'fundamental' | 'technical' | 'industry';
+  category: string;
   description: string;
+  tooltip: string;
   filter: (s: StockData) => boolean;
 }
 
-// 策略模板接口
 interface StrategyTemplate {
   id: string;
   name: string;
@@ -72,542 +77,385 @@ interface StrategyTemplate {
   color: string;
   metrics: string[];
   filter: (s: StockData) => boolean;
+  explanation: string;
   fetchFromApi?: boolean;
   apiEndpoint?: string;
 }
 
-// 核心筛选指标 — 精简为4个最实用的
+// ===== 核心筛选指标 — 10个多维度 =====
 const FILTER_METRICS: FilterMetric[] = [
   {
-    id: 'strong_momentum',
-    name: '强势动量',
-    icon: <RiseOutlined />,
-    color: '#f59e0b',
-    category: 'technical',
-    description: '涨幅超过3%的强势股',
+    id: 'strong_momentum', name: '强势动量', icon: <RiseOutlined />, color: '#f59e0b',
+    category: '行情', description: '涨幅 > 3%', tooltip: '当日涨幅超过3%的强势股，反映短期资金追捧程度',
     filter: (s) => Number(s.changePercent) > 3,
   },
   {
-    id: 'high_turnover',
-    name: '高换手率',
-    icon: <FireOutlined />,
-    color: '#ef4444',
-    category: 'capital',
-    description: '换手率超过5%的活跃股',
+    id: 'high_turnover', name: '高换手率', icon: <FireOutlined />, color: '#ef4444',
+    category: '行情', description: '换手率 > 5%', tooltip: '换手率超过5%，说明市场交投活跃，流动性好',
     filter: (s) => Number(s.turnoverRate) > 5,
   },
   {
-    id: 'large_cap',
-    name: '大盘蓝筹',
-    icon: <FundOutlined />,
-    color: '#22c55e',
-    category: 'fundamental',
-    description: '市值超过100亿的大盘股',
-    filter: (s) => Number(s.marketCap) > 1_000_000,
+    id: 'high_amplitude', name: '高振幅', icon: <ThunderboltOutlined />, color: '#f97316',
+    category: '行情', description: '振幅 > 7%', tooltip: '日内振幅超过7%，波动剧烈，适合短线操作',
+    filter: (s) => Number(s.amplitude) > 7,
   },
   {
-    id: 'hot_industry',
-    name: '热门行业',
-    icon: <ThunderboltOutlined />,
-    color: '#f97316',
-    category: 'industry',
-    description: '当前热门行业的股票',
+    id: 'low_pe', name: '低市盈率', icon: <PercentageOutlined />, color: '#22c55e',
+    category: '估值', description: 'PE < 15', tooltip: '市盈率低于15倍，估值处于偏低水平，安全边际较高',
+    filter: (s) => Number(s.pe) > 0 && Number(s.pe) < 15,
+  },
+  {
+    id: 'low_pb', name: '低市净率', icon: <DollarOutlined />, color: '#14b8a6',
+    category: '估值', description: 'PB < 1.5', tooltip: '市净率低于1.5倍，接近净资产价值，防御性强',
+    filter: (s) => Number(s.pb) > 0 && Number(s.pb) < 1.5,
+  },
+  {
+    id: 'large_cap', name: '大盘蓝筹', icon: <FundOutlined />, color: '#3b82f6',
+    category: '财务', description: '市值 > 200亿', tooltip: '市值超过200亿，流动性好，机构关注度高',
+    filter: (s) => Number(s.marketCapNum) > 2000000,
+  },
+  {
+    id: 'small_cap', name: '小盘成长', icon: <RocketOutlined />, color: '#ec4899',
+    category: '财务', description: '市值 < 50亿', tooltip: '市值小于50亿，弹性大，适合小资金博弈',
+    filter: (s) => Number(s.marketCapNum) > 0 && Number(s.marketCapNum) < 500000,
+  },
+  {
+    id: 'oversold', name: '超跌反弹', icon: <FallOutlined />, color: '#8b5cf6',
+    category: '技术', description: '跌幅 > 5%', tooltip: '当日跌幅超过5%，短期超卖，存在技术性反弹机会',
+    filter: (s) => Number(s.changePercent) < -5,
+  },
+  {
+    id: 'hot_industry', name: '热门行业', icon: <FireOutlined />, color: '#f59e0b',
+    category: '行业', description: '科技/新能源/军工', tooltip: '电子、计算机、电力设备、国防军工、通信、汽车等热门赛道',
     filter: (s) => {
-      const hotIndustries = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车'];
-      return hotIndustries.some(ind => s.industry?.includes(ind));
+      const hot = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车', '医药生物'];
+      return hot.some(ind => s.industry?.includes(ind));
     },
   },
   {
-    id: 'oversold',
-    name: '超跌反弹',
-    icon: <FallOutlined />,
-    color: '#8b5cf6',
-    category: 'technical',
-    description: '跌幅超过3%可能反弹的股票',
-    filter: (s) => Number(s.changePercent) < -3,
-  },
-  {
-    id: 'small_cap',
-    name: '小盘成长',
-    icon: <RocketOutlined />,
-    color: '#ec4899',
-    category: 'fundamental',
-    description: '市值小于50亿的小盘股',
-    filter: (s) => Number(s.marketCap) > 0 && Number(s.marketCap) < 500_000,
-  },
-  {
-    id: 'defensive',
-    name: '防御型',
-    icon: <SafetyOutlined />,
-    color: '#14b8a6',
-    category: 'industry',
-    description: '防御型行业（公用事业/银行/食品饮料）',
+    id: 'defensive', name: '防御型', icon: <SafetyOutlined />, color: '#14b8a6',
+    category: '行业', description: '公用事业/银行/食品', tooltip: '公用事业、银行、食品饮料、医药生物、交通运输等防御型行业',
     filter: (s) => {
-      const defensive = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输'];
-      return defensive.some(ind => s.industry?.includes(ind));
+      const def = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输', '煤炭'];
+      return def.some(ind => s.industry?.includes(ind));
     },
   },
 ];
 
-// 策略模板 — 4个核心策略
+// ===== 8大推荐策略模板 =====
 const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
-    id: 'value_investing',
-    name: '价值投资',
-    description: '大盘蓝筹 + 稳定盈利',
-    icon: <FundOutlined />,
-    color: '#22c55e',
-    metrics: ['large_cap'],
-    filter: (s) => Number(s.marketCap) > 1_000_000,
+    id: 'value_investing', name: '价值投资', description: '大盘蓝筹 + 低估值',
+    icon: <TrophyOutlined />, color: '#22c55e',
+    metrics: ['large_cap', 'low_pe'],
+    filter: (s) => Number(s.marketCapNum) > 2000000 && Number(s.pe) > 0 && Number(s.pe) < 20,
+    explanation: '筛选市值>200亿且PE<20的蓝筹股，适合中长期价值投资。核心逻辑：大市值保证流动性，低估值提供安全边际。',
   },
   {
-    id: 'momentum_strategy',
-    name: '动量策略',
-    description: '涨幅>3% + 换手>3%',
-    icon: <LineChartOutlined />,
-    color: '#f59e0b',
+    id: 'momentum_strategy', name: '动量策略', description: '强势上涨 + 活跃成交',
+    icon: <RiseOutlined />, color: '#f59e0b',
     metrics: ['strong_momentum', 'high_turnover'],
     filter: (s) => Number(s.changePercent) > 3 && Number(s.turnoverRate) > 3,
+    explanation: '筛选涨幅>3%且换手>3%的强势股，适合趋势跟踪。核心逻辑：追涨强势标的，量价配合确认动能。',
   },
   {
-    id: 'small_growth',
-    name: '小而美',
-    description: '小盘 + 高换手 + 热门行业',
-    icon: <RocketOutlined />,
-    color: '#ec4899',
+    id: 'small_growth', name: '小而美', description: '小盘 + 活跃 + 热门赛道',
+    icon: <RocketOutlined />, color: '#ec4899',
     metrics: ['small_cap', 'high_turnover', 'hot_industry'],
     filter: (s) => {
-      const hotIndustries = ['电子', '计算机', '电力设备', '医药生物'];
-      return Number(s.marketCap) > 0 && Number(s.marketCap) < 500_000 
+      const hot = ['电子', '计算机', '电力设备', '医药生物', '国防军工', '通信', '汽车'];
+      return Number(s.marketCapNum) > 0 && Number(s.marketCapNum) < 500000
         && Number(s.turnoverRate) > 3
-        && hotIndustries.some(ind => s.industry?.includes(ind));
+        && hot.some(ind => s.industry?.includes(ind));
     },
+    explanation: '筛选市值<50亿、换手>3%且处于热门赛道的成长股。核心逻辑：小市值弹性大，叠加行业风口提升胜率。',
   },
   {
-    id: 'defensive_yield',
-    name: '防御收益',
-    description: '防御型行业 + 市值>50亿',
-    icon: <SafetyOutlined />,
-    color: '#14b8a6',
-    metrics: ['defensive', 'large_cap'],
+    id: 'defensive_yield', name: '防御收益', description: '防御行业 + 估值合理',
+    icon: <SafetyOutlined />, color: '#14b8a6',
+    metrics: ['defensive', 'large_cap', 'low_pb'],
     filter: (s) => {
-      const defensive = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输'];
-      return defensive.some(ind => s.industry?.includes(ind))
-        && Number(s.marketCap) > 500_000;
+      const def = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输', '煤炭'];
+      return def.some(ind => s.industry?.includes(ind))
+        && Number(s.marketCapNum) > 500000
+        && Number(s.pb) > 0 && Number(s.pb) < 2;
     },
+    explanation: '筛选防御型行业中市值>50亿且PB<2的标的。核心逻辑：弱市中防御板块抗跌，低PB提供下行保护。',
   },
   {
-    id: 'oversold_bounce',
-    name: '超跌反弹',
-    description: '跌幅>3% + 高换手 + 非ST',
-    icon: <FallOutlined />,
-    color: '#8b5cf6',
+    id: 'oversold_bounce', name: '超跌反弹', description: '深跌 + 高换手',
+    icon: <FallOutlined />, color: '#8b5cf6',
     metrics: ['oversold', 'high_turnover'],
-    filter: (s) => Number(s.changePercent) < -3 
-      && Number(s.turnoverRate) > 3
-      && !s.name?.includes('ST'),
+    filter: (s) => Number(s.changePercent) < -5 && Number(s.turnoverRate) > 3 && !s.name?.includes('ST'),
+    explanation: '筛选跌幅>5%、换手>3%的非ST股。核心逻辑：短期超卖后资金博弈反弹，高换手说明有资金承接。',
   },
   {
-    id: 'hot_chase',
-    name: '热门追击',
-    description: '热门行业 + 涨>2% + 市值>50亿',
-    icon: <ThunderboltOutlined />,
-    color: '#f97316',
+    id: 'hot_chase', name: '热门追击', description: '热门赛道 + 趋势确认',
+    icon: <ThunderboltOutlined />, color: '#f97316',
     metrics: ['hot_industry', 'strong_momentum', 'large_cap'],
     filter: (s) => {
-      const hot = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车'];
+      const hot = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车', '医药生物'];
       return hot.some(ind => s.industry?.includes(ind))
         && Number(s.changePercent) > 2
-        && Number(s.marketCap) > 500_000;
+        && Number(s.marketCapNum) > 500000;
     },
+    explanation: '筛选热门赛道中涨>2%且市值>50亿的标的。核心逻辑：热点行业+资金确认+流动性保障，三重过滤提高胜率。',
   },
   {
-    id: 'ai_gems',
-    name: '潜力股发现',
-    description: 'AI多因子评分：动量+成交+规模+行业',
-    icon: <RocketOutlined />,
-    color: '#ec4899',
+    id: 'low_valuation', name: '低估值修复', description: 'PE<15 + PB<1.5 + 盈利',
+    icon: <DollarOutlined />, color: '#3b82f6',
+    metrics: ['low_pe', 'low_pb', 'large_cap'],
+    filter: (s) => Number(s.pe) > 0 && Number(s.pe) < 15
+      && Number(s.pb) > 0 && Number(s.pb) < 1.5
+      && Number(s.marketCapNum) > 500000,
+    explanation: 'PE<15、PB<1.5且市值>50亿的低估标的。核心逻辑：双低估值+大市值，适合逆向布局等待估值修复。',
+  },
+  {
+    id: 'ai_gems', name: 'AI潜力发现', description: 'AI多因子综合评分',
+    icon: <RobotOutlined />, color: '#ec4899',
     metrics: ['ai_gems'],
-    filter: (s) => true, // 前端不做过滤，由API处理
-    fetchFromApi: true, // 标记为API获取
+    filter: (s) => true,
+    fetchFromApi: true,
     apiEndpoint: '/api/ai/gems',
+    explanation: 'AI模型综合动量、成交、规模、行业四维因子打分。机器挖掘人眼难以发现的潜力标的，适合辅助决策。',
   },
 ];
 
 const ScreenerPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  
-  // 状态
+
   const [stocks, setStocks] = useState<StockData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeMetrics, setActiveMetrics] = useState<string[]>([]);
   const [activeStrategy, setActiveStrategy] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(1);
+  const [showExplanations, setShowExplanations] = useState(false);
   const pageSize = 50;
 
-  // 对话式筛选状态
   const [aiFilterQuery, setAiFilterQuery] = useState('');
   const [aiFilterLoading, setAiFilterLoading] = useState(false);
   const [aiFilterResult, setAiFilterResult] = useState<string>('');
   const [aiFilterSymbols, setAiFilterSymbols] = useState<string[]>([]);
   const [aiFilterStocks, setAiFilterStocks] = useState<StockData[]>([]);
+  const [aiGems, setAiGems] = useState<any[]>([]);
+  const [aiGemsLoading, setAiGemsLoading] = useState(false);
 
-  // 自选股 — 使用统一的 store
   const watchlistStore = useWatchlistStore();
-  
-  // API策略模板状态
-  const [apiTemplates, setApiTemplates] = useState<any[]>([]);
 
-  // 加载API策略模板
-  useEffect(() => {
-    apiFetch('/api/strategy-templates')
-      .then(r => r.json())
-      .then(data => {
-        if (data.success && data.data?.templates) {
-          setApiTemplates(data.data.templates);
-        }
-      })
-      .catch(e => console.warn('加载策略模板失败:', e));
-  }, []);
-
-  // 切换自选 — 使用统一 store
-  const toggleWatchlist = (symbol: string, name?: string) => {
-    const item = { symbol, name: name || symbol };
-    const added = watchlistStore.toggle(item);
-    message.success(added ? '已加入自选' : '已取消自选');
-  };
-
-  // 从URL参数读取初始筛选条件
-  useEffect(() => {
-    const metric = searchParams.get('metric');
-    const strategy = searchParams.get('strategy');
-    const industry = searchParams.get('industry');
-    
-    if (metric) {
-      setActiveMetrics([metric]);
-    } else if (strategy) {
-      setActiveStrategy(strategy);
-    } else if (industry) {
-      // 根据行业设置筛选
-      setActiveMetrics(['hot_industry']);
-    }
-  }, [searchParams]);
-
-  // 获取数据
+  // Load data
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const listResp = await apiFetch('/api/stocks?pageSize=6000').then(r => r.json());
       const apiStocks = listResp?.data?.stocks || [];
-
-      // 用symbol去重（防止同名不同代码的重复）
       const seen = new Set<string>();
       const deduped: any[] = [];
       for (const s of apiStocks) {
-        if (!seen.has(s.symbol)) {
-          seen.add(s.symbol);
-          deduped.push(s);
-        }
+        if (!seen.has(s.symbol)) { seen.add(s.symbol); deduped.push(s); }
       }
-
-      // 使用共享类型解析函数，替代手动 Number(s.close_price) 转换
       const parsed = parseStockList(deduped);
       const merged: StockData[] = parsed.map(s => ({
-        symbol: s.symbol,
-        name: s.name,
-        price: s.price,
-        changePercent: s.changePercent,
-        change: s.price * s.changePercent / 100, // approximate change amount
+        symbol: s.symbol, name: s.name,
+        price: s.price, changePercent: s.changePercent,
+        change: s.price * s.changePercent / 100,
         volume: String(s.volume || '—'),
         marketCap: String(s.marketCap || '—'),
+        marketCapNum: Number(s.marketCap || 0),
         industry: s.industry || '—',
-        pe: s.peRatio ?? undefined,
-        pb: s.pbRatio ?? undefined,
+        pe: s.peRatio ?? undefined, pb: s.pbRatio ?? undefined,
         turnoverRate: s.turnoverRate,
+        amplitude: s.amplitude ?? undefined,
       }));
       setStocks(merged);
     } catch (e) {
       console.error('加载数据失败:', e);
-      message.error('数据加载失败，请稍后重试');
-    } finally {
-      setLoading(false);
-    }
+      message.error('数据加载失败');
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // 筛选逻辑
-  const filtered = useMemo(() => {
-    let result = [...stocks];
+  useEffect(() => {
+    const metric = searchParams.get('metric');
+    const strategy = searchParams.get('strategy');
+    const industry = searchParams.get('industry');
+    if (metric) setActiveMetrics([metric]);
+    else if (strategy) setActiveStrategy(strategy);
+    else if (industry) setActiveMetrics(['hot_industry']);
+  }, [searchParams]);
 
-    // AI对话式筛选（优先级最高）— 使用AI返回的真实数据
-    if (aiFilterStocks.length > 0) {
-      return aiFilterStocks;
-    }
-    if (aiFilterSymbols.length > 0) {
-      result = result.filter(s => aiFilterSymbols.includes(s.symbol));
-      return result;
-    }
+  const toggleWatchlist = (symbol: string, name?: string) => {
+    const added = watchlistStore.toggle({ symbol, name: name || symbol });
+    message.success(added ? '已加入自选' : '已取消自选');
+  };
 
-    // 应用策略筛选
-    if (activeStrategy) {
-      const strategy = STRATEGY_TEMPLATES.find(s => s.id === activeStrategy);
-      if (strategy) {
-        result = result.filter(strategy.filter);
-      }
-    }
-    // 应用指标筛选（如果没有策略）
-    else if (activeMetrics.length > 0) {
-      result = result.filter(s => {
-        return activeMetrics.every(metricId => {
-          const metric = FILTER_METRICS.find(m => m.id === metricId);
-          return metric ? metric.filter(s) : true;
-        });
-      });
-    }
-
-    // 搜索过滤
-    if (searchText) {
-      const q = searchText.toLowerCase();
-      result = result.filter(s => 
-        s.symbol.toLowerCase().includes(q) || 
-        s.name.includes(q) ||
-        s.industry?.includes(q)
-      );
-    }
-
-    return result;
-  }, [stocks, activeMetrics, activeStrategy, searchText, aiFilterStocks, aiFilterSymbols]);
-
-  // 对话式筛选
-  const handleAiFilter = useCallback(async () => {
-    if (!aiFilterQuery.trim()) return;
-    setAiFilterLoading(true);
-    setAiFilterResult('');
-    setAiFilterSymbols([]);
-    setAiFilterStocks([]);
-    try {
-      // 检测是否涉及"自选股"
-      const isWatchlistQuery = /自选|我的股票|我的持仓|重点关注/.test(aiFilterQuery);
-      
-      // 获取自选股列表 — 兼容两种存储方式
-      let watchlistSymbols: string[] | undefined;
-      if (isWatchlistQuery) {
-        // 优先从 WatchlistPage 的存储读取
-        try {
-          const saved = localStorage.getItem('astock_watchlist_v2');
-          if (saved) {
-            const groups = JSON.parse(saved);
-            const allStocks = groups.flatMap((g: any) => g.stocks || []);
-            watchlistSymbols = allStocks.map((s: any) => s.symbol);
-          }
-        } catch (e) {
-          // ignore parse error
-        }
-        
-        // 如果为空，从 useWatchlistStore 读取
-        if (!watchlistSymbols || watchlistSymbols.length === 0) {
-          watchlistSymbols = watchlistStore.items.map(i => i.symbol);
-        }
-      }
-
-      // 如果是自选股查询但没有自选股，直接返回
-      if (isWatchlistQuery && (!watchlistSymbols || watchlistSymbols.length === 0)) {
-        setAiFilterResult('您的自选股列表为空，请先添加自选股');
-        setAiFilterLoading(false);
-        return;
-      }
-
-      const resp = await apiFetch('/api/ai/filter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: aiFilterQuery,
-          watchlistSymbols,  // 传递自选股列表
-        }),
-      });
-      const data = await resp.json();
-      if (data?.success && data.data) {
-        const results = (data.data.results || []) as any[];
-        // 用AI返回的真实数据，不是本地stocks的过期数据
-        const stocks: StockData[] = results.map((s: any) => ({
-          symbol: s.symbol || '',
-          name: s.name || '',
-          price: Number(s.price || s.close_price || 0),
-          change: Number(s.change_amount || 0),
-          changePercent: Number(s.changePercent || s.change_percent || 0),
-          volume: s.volume || '—',
-          marketCap: s.marketCap || s.market_cap || '—',
-          industry: s.industry || '—',
-          pe: s.pe_ratio || s.pe,
-          turnoverRate: s.turnoverRate || s.turnover_rate || 0,
-        }));
-        if (stocks.length > 0) {
-          setAiFilterStocks(stocks);
-          setAiFilterSymbols([]);
-          const watchlistMsg = data.data.isWatchlistQuery
-            ? `从您的${data.data.watchlistCount}只自选股中`
-            : '';
-          setAiFilterResult(`${watchlistMsg}找到 ${results.length} 只符合条件的股票`);
-        } else {
-          const emptyMsg = data.data.isWatchlistQuery
-            ? '您的自选股中没有符合条件的股票'
-            : '未找到符合条件的股票';
-          setAiFilterResult(emptyMsg);
-        }
-      }
-    } catch {
-      setAiFilterResult('筛选失败，请换个说法试试');
-    } finally {
-      setAiFilterLoading(false);
-    }
-  }, [aiFilterQuery, watchlistStore.items]);
-
-  // 分页
-  const paged = useMemo(() => {
-    return filtered.slice((page - 1) * pageSize, page * pageSize);
-  }, [filtered, page]);
-
-  // 切换指标
   const toggleMetric = (metricId: string) => {
-    setActiveStrategy(null); // 清除策略
-    setActiveMetrics(prev => 
-      prev.includes(metricId) 
-        ? prev.filter(id => id !== metricId)
-        : [...prev, metricId]
-    );
+    setActiveStrategy(null);
+    setActiveMetrics(prev => prev.includes(metricId) ? prev.filter(id => id !== metricId) : [...prev, metricId]);
     setPage(1);
   };
 
-  // 选择策略
   const selectStrategy = (strategyId: string) => {
-    setActiveMetrics([]); // 清除指标
+    setActiveMetrics([]);
     setActiveStrategy(prev => prev === strategyId ? null : strategyId);
     setPage(1);
-
-    // 潜力股发现 → 调用API
-    if (strategyId === 'ai_gems') {
-      fetchAiGems();
-    }
+    if (strategyId === 'ai_gems') fetchAiGems();
   };
 
-  // AI潜力股发现
-  const [aiGems, setAiGems] = useState<any[]>([]);
-  const [aiGemsLoading, setAiGemsLoading] = useState(false);
   const fetchAiGems = useCallback(async () => {
     setAiGemsLoading(true);
     try {
       const resp = await apiFetch('/api/ai/gems', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topN: 20, minScore: 50 }),
       });
       const data = await resp.json();
-      if (data?.success && data.data?.gems) {
-        setAiGems(data.data.gems);
-      }
-    } catch (e) {
-      message.error('潜力股数据加载失败');
-    } finally {
-      setAiGemsLoading(false);
-    }
+      if (data?.success && data.data?.gems) setAiGems(data.data.gems);
+    } catch { message.error('潜力股数据加载失败'); }
+    finally { setAiGemsLoading(false); }
   }, []);
 
-  // 表格列定义
+  const handleAiFilter = useCallback(async () => {
+    if (!aiFilterQuery.trim()) return;
+    setAiFilterLoading(true);
+    setAiFilterResult(''); setAiFilterSymbols([]); setAiFilterStocks([]);
+    try {
+      const isWatchlistQuery = /自选|我的股票|我的持仓|重点关注/.test(aiFilterQuery);
+      let watchlistSymbols: string[] | undefined;
+      if (isWatchlistQuery) {
+        try {
+          const saved = localStorage.getItem('astock_watchlist_v2');
+          if (saved) {
+            const groups = JSON.parse(saved);
+            watchlistSymbols = groups.flatMap((g: any) => g.stocks || []).map((s: any) => s.symbol);
+          }
+        } catch {}
+        if (!watchlistSymbols || watchlistSymbols.length === 0) watchlistSymbols = watchlistStore.items.map(i => i.symbol);
+      }
+      if (isWatchlistQuery && (!watchlistSymbols || watchlistSymbols.length === 0)) {
+        setAiFilterResult('您的自选股列表为空，请先添加自选股');
+        setAiFilterLoading(false); return;
+      }
+      const resp = await apiFetch('/api/ai/filter', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: aiFilterQuery, watchlistSymbols }),
+      });
+      const data = await resp.json();
+      if (data?.success && data.data) {
+        const results = (data.data.results || []) as any[];
+        const stocks: StockData[] = results.map((s: any) => ({
+          symbol: s.symbol || '', name: s.name || '',
+          price: Number(s.price || s.close_price || 0),
+          change: Number(s.change_amount || 0),
+          changePercent: Number(s.changePercent || s.change_percent || 0),
+          volume: s.volume || '—', marketCap: s.marketCap || s.market_cap || '—',
+          marketCapNum: Number(s.marketCap || s.market_cap || 0),
+          industry: s.industry || '—', pe: s.pe_ratio || s.pe,
+          turnoverRate: s.turnoverRate || s.turnover_rate || 0,
+        }));
+        if (stocks.length > 0) {
+          setAiFilterStocks(stocks);
+          setAiFilterResult(`找到 ${results.length} 只符合条件的股票`);
+        } else setAiFilterResult('未找到符合条件的股票');
+      }
+    } catch { setAiFilterResult('筛选失败，请换个说法试试'); }
+    finally { setAiFilterLoading(false); }
+  }, [aiFilterQuery, watchlistStore.items]);
+
+  const filtered = useMemo(() => {
+    if (aiFilterStocks.length > 0) return aiFilterStocks;
+    if (aiFilterSymbols.length > 0) return stocks.filter(s => aiFilterSymbols.includes(s.symbol));
+    let result = [...stocks];
+    if (activeStrategy) {
+      const strategy = STRATEGY_TEMPLATES.find(s => s.id === activeStrategy);
+      if (strategy) result = result.filter(strategy.filter);
+    } else if (activeMetrics.length > 0) {
+      result = result.filter(s => activeMetrics.every(mid => {
+        const m = FILTER_METRICS.find(fm => fm.id === mid);
+        return m ? m.filter(s) : true;
+      }));
+    }
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      result = result.filter(s => s.symbol.toLowerCase().includes(q) || s.name.includes(q) || s.industry?.includes(q));
+    }
+    return result;
+  }, [stocks, activeMetrics, activeStrategy, searchText, aiFilterStocks, aiFilterSymbols]);
+
+  const paged = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page]);
+
+  const activeStrategyObj = activeStrategy ? STRATEGY_TEMPLATES.find(s => s.id === activeStrategy) : null;
+  const activeMetricLabels = activeMetrics.map(mid => FILTER_METRICS.find(fm => fm.id === mid)?.name).filter(Boolean);
+
+  // Group metrics by category for display
+  const metricCategories = useMemo(() => {
+    const cats: Record<string, FilterMetric[]> = {};
+    for (const m of FILTER_METRICS) {
+      if (!cats[m.category]) cats[m.category] = [];
+      cats[m.category].push(m);
+    }
+    return cats;
+  }, []);
+
   const columns = [
-    {
-      title: '代码',
-      dataIndex: 'symbol',
-      width: 95,
-      render: (v: string) => (
-        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: ACCENT }}>{v.replace(/\.(SH|SZ)$/, '')}</span>
-      ),
+    { title: '代码', dataIndex: 'symbol', width: 95,
+      render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: ACCENT }}>{v.replace(/\.(SH|SZ)$/, '')}</span>
     },
-    {
-      title: '名称',
-      dataIndex: 'name',
-      ellipsis: true,
-      render: (v: string, r: StockData) => (
-        <span style={{ color: TEXT }}>{v}</span>
-      ),
+    { title: '名称', dataIndex: 'name', ellipsis: true,
+      render: (v: string) => <span style={{ color: TEXT }}>{v}</span>
     },
-    {
-      title: '行业',
-      dataIndex: 'industry',
-      width: 80,
-      render: (v: string) => (
-        <Tag style={{ fontSize: 11 }}>{v}</Tag>
-      ),
+    { title: '行业', dataIndex: 'industry', width: 80,
+      render: (v: string) => <Tag style={{ fontSize: 11, margin: 0 }}>{v}</Tag>
     },
-    {
-      title: '最新价',
-      dataIndex: 'price',
-      width: 85,
-      align: 'right' as const,
-      render: (v: number) => (
-        <span style={{ fontFamily: 'monospace', color: TEXT }}>{Number(v).toFixed(2)}</span>
-      ),
+    { title: '最新价', dataIndex: 'price', width: 80, align: 'right' as const,
+      render: (v: number) => <span style={{ fontFamily: 'monospace', color: TEXT, fontWeight: 600 }}>{Number(v).toFixed(2)}</span>
     },
-    {
-      title: '涨跌幅',
-      dataIndex: 'changePercent',
-      width: 85,
-      align: 'right' as const,
+    { title: '涨跌幅', dataIndex: 'changePercent', width: 85, align: 'right' as const,
       sorter: (a: StockData, b: StockData) => a.changePercent - b.changePercent,
-      render: (v: number) => (
-        <span style={{ 
-          fontFamily: 'monospace', 
-          fontWeight: 600,
-          color: v >= 0 ? COLOR_UP : COLOR_DOWN 
-        }}>
-          {Number(v) >= 0 ? '+' : ''}{Number(v).toFixed(2)}%
-        </span>
-      ),
+      render: (v: number) => <span style={{ fontFamily: 'monospace', fontWeight: 700, color: v >= 0 ? COLOR_UP : COLOR_DOWN }}>
+        {v >= 0 ? '+' : ''}{Number(v).toFixed(2)}%
+      </span>
     },
-    {
-      title: '换手率',
-      dataIndex: 'turnoverRate',
-      width: 75,
-      align: 'right' as const,
-      render: (v?: number) => (
-        <span style={{ fontFamily: 'monospace', color: TEXT_SEC }}>
-          {v ? Number(v).toFixed(1) + '%' : '—'}
-        </span>
-      ),
+    { title: '换手率', dataIndex: 'turnoverRate', width: 75, align: 'right' as const,
+      render: (v?: number) => <span style={{ fontFamily: 'monospace', color: TEXT_SEC, fontSize: 12 }}>
+        {v != null ? `${Number(v).toFixed(1)}%` : '—'}
+      </span>
     },
-    {
-      title: 'PE',
-      dataIndex: 'pe',
-      width: 65,
-      align: 'right' as const,
-      render: (v?: number) => (
-        <span style={{ fontFamily: 'monospace', color: TEXT_SEC }}>
-          {v ? Number(v).toFixed(1) : '—'}
-        </span>
-      ),
+    { title: '振幅', dataIndex: 'amplitude', width: 70, align: 'right' as const,
+      render: (v?: number) => <span style={{ fontFamily: 'monospace', color: TEXT_SEC, fontSize: 12 }}>
+        {v != null ? `${Number(v).toFixed(1)}%` : '—'}
+      </span>
     },
-    {
-      title: '操作',
-      width: 80,
+    { title: 'PE', dataIndex: 'pe', width: 60, align: 'right' as const,
+      render: (v?: number) => <span style={{ fontFamily: 'monospace', color: TEXT_SEC, fontSize: 12 }}>
+        {v && v > 0 ? Number(v).toFixed(1) : '—'}
+      </span>
+    },
+    { title: 'PB', dataIndex: 'pb', width: 60, align: 'right' as const,
+      render: (v?: number) => <span style={{ fontFamily: 'monospace', color: TEXT_SEC, fontSize: 12 }}>
+        {v && v > 0 ? Number(v).toFixed(2) : '—'}
+      </span>
+    },
+    { title: '市值', dataIndex: 'marketCap', width: 85, align: 'right' as const,
+      render: (v: string) => {
+        const n = Number(v);
+        if (n >= 1e4) return <span style={{ fontFamily: 'monospace', color: TEXT_SEC, fontSize: 12 }}>{(n/1e4).toFixed(0)}亿</span>;
+        if (n > 0) return <span style={{ fontFamily: 'monospace', color: TEXT_SEC, fontSize: 12 }}>{n.toFixed(0)}万</span>;
+        return <span style={{ color: TEXT_SEC }}>—</span>;
+      }
+    },
+    { title: '操作', width: 80,
       render: (_: any, r: StockData) => (
-        <Space>
+        <Space size={4}>
           <Tooltip title={watchlistStore.has(r.symbol) ? '取消自选' : '加入自选'}>
-            <Button
-              type="text"
-              size="small"
+            <Button type="text" size="small"
               icon={watchlistStore.has(r.symbol) ? <StarFilled style={{ color: GOLD }} /> : <StarOutlined />}
               onClick={() => toggleWatchlist(r.symbol, r.name)}
             />
           </Tooltip>
-          <Button 
-            type="link" 
-            size="small"
-            onClick={() => navigate(`/stocks/${r.symbol}`)}
-          >
-            详情
-          </Button>
+          <Button type="link" size="small" onClick={() => navigate(`/stocks/${r.symbol}`)}>详情</Button>
         </Space>
       ),
     },
@@ -615,101 +463,153 @@ const ScreenerPage: React.FC = () => {
 
   return (
     <div className="screener-page" style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
-      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-        
+      <div style={{ maxWidth: 1300, margin: '0 auto' }}>
+
         {/* 页面标题 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
             <Title level={3} style={{ color: TEXT, marginBottom: 8 }}>
-              <FilterOutlined style={{ marginRight: 8 }} />
-              股票筛选
+              <FilterOutlined style={{ marginRight: 8 }} /> 策略选股
             </Title>
-            <Text style={{ color: TEXT_SEC }}>
-              选择核心指标或策略模板，快速筛选符合条件的股票
-            </Text>
+            <Text style={{ color: TEXT_SEC }}>8大策略模板 + 10个核心指标 × 5维度筛选</Text>
           </div>
-          <Button 
-            icon={<SettingOutlined />}
-            onClick={() => navigate('/strategies')}
-          >
-            管理策略
-          </Button>
         </div>
 
-        {/* 策略模板 */}
-        <Card 
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: TEXT }}>🎯 推荐策略</span>
-              <Button 
-                type="link" 
-                size="small" 
-                icon={<PlusOutlined />}
-                onClick={() => navigate('/strategies')}
-              >
-                查看全部
-              </Button>
-            </div>
-          }
+        {/* === 推荐策略（8个） === */}
+        <Card
+          title={<span style={{ color: TEXT, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TrophyOutlined style={{ color: GOLD }} /> 推荐策略
+            <Button type="link" size="small" onClick={() => setShowExplanations(!showExplanations)}
+              icon={<InfoCircleOutlined />}>
+              {showExplanations ? '收起说明' : '展开说明'}
+            </Button>
+          </span>}
           style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
           bodyStyle={{ padding: '16px' }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-            {/* 系统预设策略 */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
             {STRATEGY_TEMPLATES.map(strategy => (
-              <div
-                key={strategy.id}
+              <div key={strategy.id}
                 onClick={() => selectStrategy(strategy.id)}
                 style={{
-                  background: activeStrategy === strategy.id ? strategy.color + '20' : BG,
+                  background: activeStrategy === strategy.id ? `${strategy.color}18` : 'var(--bg-secondary)',
                   border: `1px solid ${activeStrategy === strategy.id ? strategy.color : BORDER}`,
-                  borderRadius: 8,
-                  padding: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
+                  borderRadius: 8, padding: '12px', cursor: 'pointer', transition: 'all 0.2s',
+                  position: 'relative',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{ color: strategy.color, fontSize: 18 }}>{strategy.icon}</span>
-                  <span style={{ color: TEXT, fontWeight: 600, fontSize: 14 }}>{strategy.name}</span>
+                  <span style={{ color: TEXT, fontWeight: 700, fontSize: 13 }}>{strategy.name}</span>
+                  {strategy.fetchFromApi && <Tag color="purple" style={{ fontSize: 9, margin: 0, padding: '0 4px', lineHeight: '16px' }}>AI</Tag>}
                 </div>
-                <div style={{ color: TEXT_SEC, fontSize: 12 }}>{strategy.description}</div>
-              </div>
-            ))}
-            
-            {/* API策略模板（最多显示4个） */}
-            {apiTemplates.slice(0, 4).map(template => (
-              <div
-                key={`api-${template.id}`}
-                onClick={() => {
-                  setActiveStrategy(null);
-                  setActiveMetrics([]);
-                  // 应用模板条件进行筛选
-                  message.info(`已选择策略: ${template.name}`);
-                }}
-                style={{
-                  background: BG,
-                  border: `1px solid ${BORDER}`,
-                  borderRadius: 8,
-                  padding: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 18 }}>{template.icon || '📊'}</span>
-                  <span style={{ color: TEXT, fontWeight: 600, fontSize: 14 }}>{template.name}</span>
+                <div style={{ color: TEXT_SEC, fontSize: 11, marginBottom: 6 }}>{strategy.description}</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {strategy.metrics.slice(0, 3).map(mid => {
+                    const m = FILTER_METRICS.find(fm => fm.id === mid);
+                    return m ? <Tag key={mid} style={{ fontSize: 9, margin: 0, padding: '0 4px', lineHeight: '16px', background: `${m.color}20`, color: m.color, border: 'none' }}>{m.name}</Tag> : null;
+                  })}
                 </div>
-                <div style={{ color: TEXT_SEC, fontSize: 12 }}>{template.description || '自定义策略'}</div>
               </div>
             ))}
           </div>
+
+          {/* 策略说明展开区 */}
+          {showExplanations && activeStrategyObj && (
+            <div style={{ marginTop: 16, padding: '14px 16px', background: 'var(--bg-secondary)', borderRadius: 8, borderLeft: `3px solid ${activeStrategyObj.color}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ color: activeStrategyObj.color, fontSize: 18 }}>{activeStrategyObj.icon}</span>
+                <span style={{ color: TEXT, fontWeight: 700, fontSize: 14 }}>{activeStrategyObj.name} — 策略说明</span>
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.7 }}>
+                {activeStrategyObj.explanation}
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: TEXT_SEC }}>筛选指标：</span>
+                {activeStrategyObj.metrics.map(mid => {
+                  const m = FILTER_METRICS.find(fm => fm.id === mid);
+                  return m ? (
+                    <Tooltip key={mid} title={m.tooltip}>
+                      <Tag style={{ fontSize: 10, cursor: 'help' }}>{m.name}: {m.description}</Tag>
+                    </Tooltip>
+                  ) : <Tag key={mid} style={{ fontSize: 10 }}>{mid}</Tag>;
+                })}
+              </div>
+            </div>
+          )}
         </Card>
 
-        {/* AI潜力股发现结果 */}
+        {/* === 核心指标（按维度分组） === */}
+        <Card
+          title={<span style={{ color: TEXT }}><FilterOutlined style={{ marginRight: 6 }} />核心指标 <span style={{ fontSize: 12, color: TEXT_SEC, fontWeight: 400 }}>— 行情 · 估值 · 财务 · 技术 · 行业 5维度</span></span>}
+          style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
+          bodyStyle={{ padding: '12px 16px' }}
+        >
+          {Object.entries(metricCategories).map(([cat, metrics]) => (
+            <div key={cat} style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: TEXT_SEC, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                {cat === '行情' && '📈 '}{cat === '估值' && '💰 '}{cat === '财务' && '🏢 '}{cat === '技术' && '⚡ '}{cat === '行业' && '🏭 '}
+                {cat}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {metrics.map(metric => (
+                  <Tooltip key={metric.id} title={metric.tooltip}>
+                    <div onClick={() => toggleMetric(metric.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                        background: activeMetrics.includes(metric.id) ? `${metric.color}18` : 'var(--bg-secondary)',
+                        border: `1px solid ${activeMetrics.includes(metric.id) ? metric.color : BORDER}`,
+                        borderRadius: 6, cursor: 'pointer', transition: 'all 0.15s',
+                      }}
+                    >
+                      <span style={{ color: metric.color, fontSize: 14 }}>{metric.icon}</span>
+                      <span style={{ color: activeMetrics.includes(metric.id) ? metric.color : TEXT, fontSize: 12, fontWeight: activeMetrics.includes(metric.id) ? 600 : 400 }}>
+                        {metric.name}
+                      </span>
+                    </div>
+                  </Tooltip>
+                ))}
+              </div>
+            </div>
+          ))}
+        </Card>
+
+        {/* AI 筛选 + 搜索 + 控制栏 */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 300 }}>
+            <span style={{ fontSize: 16 }}>🤖</span>
+            <input type="text" placeholder="自然语言筛选：如 涨幅超3%的科技股 或 市盈率低于20的银行股"
+              value={aiFilterQuery} onChange={(e) => setAiFilterQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAiFilter(); }}
+              style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', padding: '8px 12px' }}
+            />
+            <Button type="primary" loading={aiFilterLoading} onClick={handleAiFilter} style={{ borderRadius: 8 }}>AI筛选</Button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ color: TEXT_SEC, fontSize: 13 }}>
+              共 <b style={{ color: ACCENT }}>{filtered.length}</b> 只
+            </span>
+            {activeStrategyObj && <Tag color={activeStrategyObj.color}>{activeStrategyObj.name}</Tag>}
+            {activeMetricLabels.map(name => <Tag key={name} color="blue">{name}</Tag>)}
+          </div>
+          <input type="text" placeholder="搜索代码/名称"
+            value={searchText} onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
+            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-default)', borderRadius: 8, padding: '8px 12px', color: 'var(--text-primary)', fontSize: 13, width: 150, outline: 'none' }}
+          />
+          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} style={{ borderRadius: 8 }}>刷新</Button>
+        </div>
+
+        {/* AI筛选结果 */}
+        {aiFilterResult && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--accent-light)', borderRadius: 8, fontSize: 13, color: ACCENT }}>
+            🤖 {aiFilterResult}
+          </div>
+        )}
+
+        {/* AI潜力股 */}
         {activeStrategy === 'ai_gems' && (
           <Card
-            title={<span style={{ color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}><RocketOutlined style={{ color: '#ec4899' }} /> 🔮 AI潜力股发现 — Top 20</span>}
+            title={<span style={{ color: TEXT, display: 'flex', alignItems: 'center', gap: 8 }}><RobotOutlined style={{ color: '#ec4899' }} /> AI潜力股 — Top 20</span>}
             loading={aiGemsLoading}
             style={{ background: 'linear-gradient(135deg, rgba(236,72,153,0.06), rgba(139,92,246,0.03))', border: '1px solid rgba(236,72,153,0.2)', marginBottom: 16 }}
           >
@@ -718,14 +618,14 @@ const ScreenerPage: React.FC = () => {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>排名</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>代码</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>名称</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>总分</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>动量</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>成交</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>规模</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>行业</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', color: TEXT_SEC }}>#</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', color: TEXT_SEC }}>代码</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', color: TEXT_SEC }}>名称</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>总分</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>动量</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>成交</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>规模</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>行业</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -735,16 +635,14 @@ const ScreenerPage: React.FC = () => {
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
-                        <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>#{i + 1}</td>
-                        <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: 'var(--accent)' }}>{gem.symbol.replace(/\.(SH|SZ)$/, '')}</td>
-                        <td style={{ padding: '8px 12px', color: 'var(--text)', fontWeight: 600 }}>{gem.name}</td>
+                        <td style={{ padding: '8px 12px', color: TEXT_SEC }}>#{i + 1}</td>
+                        <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: ACCENT }}>{gem.symbol.replace(/\.(SH|SZ)$/, '')}</td>
+                        <td style={{ padding: '8px 12px', color: TEXT, fontWeight: 600 }}>{gem.name}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ec4899', fontWeight: 800, fontSize: 16 }}>{gem.score}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{gem.momentumScore}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{gem.volumeScore}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{gem.sizeScore}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                          <Tag style={{ fontSize: 11 }}>{gem.industry}</Tag>
-                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>{gem.momentumScore}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>{gem.volumeScore}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: TEXT_SEC }}>{gem.sizeScore}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right' }}><Tag style={{ fontSize: 11 }}>{gem.industry}</Tag></td>
                       </tr>
                     ))}
                   </tbody>
@@ -754,137 +652,17 @@ const ScreenerPage: React.FC = () => {
           </Card>
         )}
 
-        {/* 核心筛选指标 */}
-        <Card 
-          title={<span style={{ color: TEXT }}>🔍 核心指标</span>}
-          style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
-          bodyStyle={{ padding: '16px' }}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-            {FILTER_METRICS.map(metric => (
-              <Tooltip key={metric.id} title={metric.description}>
-                <div
-                  onClick={() => toggleMetric(metric.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '12px 16px',
-                    background: activeMetrics.includes(metric.id) ? metric.color + '20' : BG,
-                    border: `1px solid ${activeMetrics.includes(metric.id) ? metric.color : BORDER}`,
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  <span style={{ color: metric.color, fontSize: 18 }}>{metric.icon}</span>
-                  <span style={{ 
-                    color: activeMetrics.includes(metric.id) ? metric.color : TEXT,
-                    fontSize: 14,
-                    fontWeight: activeMetrics.includes(metric.id) ? 600 : 400,
-                  }}>
-                    {metric.name}
-                  </span>
-                </div>
-              </Tooltip>
-            ))}
-          </div>
-        </Card>
-
-        {/* AI 筛选 + 搜索 + 刷新 */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 300 }}>
-            <span style={{ fontSize: 16, flexShrink: 0 }}>🤖</span>
-            <input
-              type="text"
-              placeholder="自然语言筛选：如 涨幅超3%的科技股 或 市盈率低于20的银行股"
-              value={aiFilterQuery}
-              onChange={(e) => setAiFilterQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleAiFilter(); }}
-              style={{
-                flex: 1,
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-default)',
-                borderRadius: 8,
-                color: 'var(--text-primary)',
-                fontSize: 13,
-                outline: 'none',
-                padding: '8px 12px',
-              }}
-            />
-            <Button
-              type="primary"
-              loading={aiFilterLoading}
-              onClick={handleAiFilter}
-              style={{ borderRadius: 8 }}
-            >
-              AI筛选
-            </Button>
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-              共 <b style={{ color: 'var(--accent-solid)' }}>{filtered.length}</b> 只
-            </span>
-            {activeStrategy && (
-              <Tag color={STRATEGY_TEMPLATES.find(s => s.id === activeStrategy)?.color}>
-                {STRATEGY_TEMPLATES.find(s => s.id === activeStrategy)?.name}
-              </Tag>
-            )}
-            {activeMetrics.map(mId => {
-              const m = FILTER_METRICS.find(fm => fm.id === mId);
-              return m ? <Tag key={mId} color={m.color}>{m.name}</Tag> : null;
-            })}
-          </div>
-          <input
-            type="text"
-            placeholder="搜索"
-            value={searchText}
-            onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
-            style={{
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-default)',
-              borderRadius: 8,
-              padding: '8px 12px',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              width: 150,
-              outline: 'none',
-            }}
-          />
-          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} style={{ borderRadius: 8 }}>
-            刷新
-          </Button>
-        </div>
-
-        {/* AI 筛选结果提示 */}
-        {aiFilterResult && (
-          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--accent-light)', borderRadius: 8, fontSize: 13, color: 'var(--accent-solid)' }}>
-            🤖 {aiFilterResult}
-          </div>
-        )}
-
         {/* 股票列表 */}
-        <Card 
-          style={{ background: CARD_BG, border: `1px solid ${BORDER}` }}
-          bodyStyle={{ padding: 0 }}
-        >
+        <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}` }} bodyStyle={{ padding: 0 }}>
           <Table
-            dataSource={paged}
-            columns={columns}
-            loading={loading}
-            rowKey="symbol"
+            dataSource={paged} columns={columns} loading={loading}
+            rowKey="symbol" size="small"
             pagination={{
-              current: page,
-              pageSize,
-              total: filtered.length,
-              onChange: setPage,
-              showSizeChanger: false,
+              current: page, pageSize, total: filtered.length,
+              onChange: setPage, showSizeChanger: false,
               showTotal: (total) => `共 ${total} 只`,
             }}
-            locale={{
-              emptyText: <Empty description="暂无符合条件的股票" />,
-            }}
-            size="small"
+            locale={{ emptyText: <Empty description="暂无符合条件的股票" /> }}
             style={{ background: 'transparent' }}
           />
         </Card>

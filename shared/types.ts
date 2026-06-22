@@ -275,6 +275,7 @@ export interface ScreenerStock {
   pbRatio?: number | null;
   marketCap?: number | null;
   circulatingMarketCap?: number | null;
+  amplitude?: number | null;     // 振幅
 }
 
 // ==================== 市场情绪 ====================

@@ -7,7 +7,7 @@ import { getDb } from '../db/dbFactory';
 import {
   SW_INDUSTRY_MAP, getAllSubIndustries,
   classifySubIndustry, getSubIndustries,
-} from '../../../shared/industryClassification';
+} from '../../../shared/industryClassification.ts';
 
 const router = Router();
 

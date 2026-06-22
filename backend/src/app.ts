@@ -17,7 +17,7 @@ const log = createLogger('App');
 import stockRouter from './api/stock';
 import indicatorRouter from './api/indicators';
 import sectorRouter from './api/sectors';
-import industriesRouter from './api/industries';
+// import industriesRouter from './api/industries';  // TODO: fix @shared path resolution
 import fundFlowRouter from './api/fund-flow';
 import watchlistRouter from './api/watchlist';
 import alertRouter from './api/alerts';
@@ -102,7 +102,7 @@ app.use('/api/news', apiCache.middleware({ ttl: 60, key: 'cache:news' }) as impo
 app.use('/api', stockRouter);
 app.use('/api', indicatorRouter);
 app.use('/api', sectorRouter);
-app.use('/api', industriesRouter);
+// app.use('/api', industriesRouter);  // TODO: fix @shared path resolution
 app.use('/api', fundFlowRouter);
 app.use('/api', watchlistRouter);
 app.use('/api', alertRouter);
