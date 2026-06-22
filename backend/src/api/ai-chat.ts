@@ -240,97 +240,60 @@ router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Respons
 
 router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Response) => {
   try {
-    // 从数据库获取真实市场数据
     const { getDb } = await import('../db/dbFactory');
     const db = getDb();
+    const sectorScores = await db.getSectorMomentumScore();
     
-    // 获取市场摘要
-    const today = new Date();
-    const marketSummary = await db.getMarketSummary(today);
-    
-    // 提取数据
-    const risingStocks = marketSummary?.risingStocks || 0;
-    const fallingStocks = marketSummary?.fallingStocks || 0;
-    const avgChange = marketSummary?.totalStocks > 0 
-      ? (risingStocks - fallingStocks) / marketSummary.totalStocks * 100 
-      : 0;
-    
-    // 获取领涨板块（前5）
-    const topSectors = (marketSummary?.industryPerformance || [])
-      .slice(0, 5)
-      .map((s: any) => ({ 
-        industry: s.industry, 
-        avgChange: parseFloat(s.avg_change_percent || 0).toFixed(2) 
-      }));
+    const scores = sectorScores || [];
+    const upCount = scores.filter((s: any) => Number(s.avg_change_percent) > 0).length;
+    const downCount = scores.filter((s: any) => Number(s.avg_change_percent) < 0).length;
+    const upPct = scores.length > 0 ? Math.round((upCount / scores.length) * 100) : 0;
+    const top3 = scores.slice(0, 3);
+    const topNames = top3.map((s: any) => `${s.industry}(${s.score}分${Number(s.avg_change_percent) >= 0 ? '+' : ''}${Number(s.avg_change_percent).toFixed(1)}%)`).join('、');
+    const hotSectors = scores.filter((s: any) => (s.limit_up_count || 0) >= 2);
+    const hotNames = hotSectors.map((s: any) => `${s.industry}${s.limit_up_count}只涨停`).join('、');
 
-    // 使用 LLM 生成市场解读
-    const prompt = `请根据以下A股市场数据，生成结构化的市场解读报告。
-
-## 市场数据
-- 涨跌比: ${risingStocks}:${fallingStocks}
-- 总股票数: ${marketSummary?.totalStocks || 0}
-- 平均涨跌幅: ${avgChange.toFixed(2)}%
-- 领涨板块: ${topSectors.map((s: any) => `${s.industry}(+${s.avgChange}%)`).join(', ')}
-
-## 输出格式要求
-请严格按照以下JSON格式输出，不要添加任何其他内容：
-
-{
-  "mood": "市场情绪（强势上攻/温和上行/震荡整理/弱势调整/恐慌下跌）",
-  "moodEmoji": "对应emoji（🔥/📈/📊/📉/❄️）",
-  "sections": [
-    {"icon": "📊", "title": "基本面", "text": "2-3行分析"},
-    {"icon": "💰", "title": "资金面", "text": "2-3行分析"},
-    {"icon": "📰", "title": "政策面", "text": "2-3行分析"}
-  ]
-}
-
-注意：text中可以用**加粗**标记重点，用·或-标记列表项。`;
-
-    const aiResponse = await aiService.chat({
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.5,
-      maxTokens: 1000,
-    });
-
-    // 解析 AI 响应
-    let aiData: any;
-    try {
-      // 提取 JSON 部分
-      const jsonMatch = aiResponse.content.match(/\{[\s\S]*\}/);
-      aiData = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-    } catch {
-      aiData = null;
+    // 规则引擎即时生成（0延迟）
+    let mood: string, moodEmoji: string, overview: string;
+    if (upPct >= 60) {
+      mood = '强势上攻'; moodEmoji = '🔥';
+      overview = `市场做多情绪高涨，${upCount}/${scores.length}板块上涨。`;
+    } else if (upPct >= 40) {
+      mood = '温和上行'; moodEmoji = '📈';
+      overview = `市场结构性行情，${upCount}涨${downCount}跌，资金聚焦热点板块。`;
+    } else if (upPct >= 20) {
+      mood = '震荡整理'; moodEmoji = '📊';
+      overview = `市场分化明显，仅${upPct}%板块上涨，存量博弈特征突出。`;
+    } else {
+      mood = '弱势调整'; moodEmoji = '📉';
+      overview = `市场情绪偏谨慎，多数板块承压，防御策略为主。`;
     }
 
-    // 如果 AI 解析失败，使用默认值
-    if (!aiData) {
-      const mood = avgChange > 1 ? '强势上攻' : avgChange > 0 ? '温和上行' : avgChange > -1 ? '震荡整理' : '弱势调整';
-      const moodEmoji = avgChange > 1 ? '🔥' : avgChange > 0 ? '📈' : avgChange > -1 ? '📊' : '📉';
-      aiData = {
-        mood,
-        moodEmoji,
-        sections: [
-          { icon: '📊', title: '基本面', text: `市场${mood}，涨跌比${risingStocks}:${fallingStocks}` },
-          { icon: '💰', title: '资金面', text: `总股票数${marketSummary?.totalStocks || 0}只` },
-          { icon: '📰', title: '政策面', text: '暂无重大政策消息' },
-        ],
-      };
-    }
+    const insight = {
+      mood, moodEmoji,
+      overview,
+      topSectors: topNames,
+      hotSectors: hotNames || '无',
+      upCount, downCount, upPct,
+      sections: [
+        {
+          icon: '📊', title: '市场情绪',
+          text: `**${mood}** · ${overview}\n\n**领涨板块**：${topNames}\n涨停集中：${hotNames || '今日无集中涨停板块'}`
+        },
+        {
+          icon: '💰', title: '资金流向',
+          text: `上涨板块**${upCount}**个，下跌**${downCount}**个\n\n**资金聚焦方向**：${topNames.split('、').slice(0, 2).join('、')}\n操作建议：${upPct >= 40 ? '可适度参与强势板块，设好止损' : '控制仓位，等待右侧信号'}`
+        },
+        {
+          icon: '📰', title: '策略参考',
+          text: `${upPct >= 40 ? '· 关注景气度>70的高景气板块\n· 注意板块轮动节奏\n· 强势板块回调可关注' : '· 防御型配置为主\n· 关注低估值高股息品种\n· 等待市场企稳信号'}\n\n⚠️ 以上为规则引擎分析，不构成投资建议`
+        },
+      ],
+    };
 
-    res.json({
-      data: {
-        ...aiData,
-        marketBreadth: { up: risingStocks, down: fallingStocks },
-        avgIndexChange: avgChange,
-        limitUpCount: 0, // 涨停数据需要额外计算
-        limitDownCount: 0, // 跌停数据需要额外计算
-        topSectors,
-      },
-    });
+    res.json({ success: true, data: insight });
   } catch (error) {
-    logger.error('Market insight error:', error as Error);
-    res.status(500).json({ error: '市场洞察生成失败' });
+    res.status(500).json({ success: false, error: '获取市场洞察失败' });
   }
 }));
 

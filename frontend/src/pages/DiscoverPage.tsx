@@ -50,16 +50,15 @@ const DiscoverPage: React.FC = () => {
       setScores(sRes.data?.sectors || []);
       setLoading(false);
 
-      // AI insight loads in background (slow, don't block page)
-      // 使用LLM生成的市场解读（优先），如果失败则使用规则引擎
+      // AI insight: instant rule-based (0 delay)
+      fetch('/api/ai/market-insight').then(r => r.json()).then(d => {
+        if (d?.data) setInsight(d.data);
+      }).catch(() => {});
+
+      // LLM enhanced insight loads in background
       fetch('/api/ai/market-insight-llm').then(r => r.json()).then(d => {
         if (d?.data) setInsight(d.data);
-      }).catch(() => {
-        // 如果LLM端点失败，回退到规则引擎
-        fetch('/api/ai/market-insight').then(r => r.json()).then(d => {
-          if (d?.data) setInsight(d.data);
-        }).catch(() => {});
-      });
+      }).catch(() => {});
 
       // News loads in background
       fetch('/api/news?limit=6').then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
