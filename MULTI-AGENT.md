@@ -58,3 +58,9 @@ BG=`#0f172a` CARD=`#1e293b` UP=`#cf2a2a`(红涨) DOWN=`#1db468`(绿跌) ACCENT=`
 2. 交付时报告：改了哪些文件、验证命令+结果、可验证的句柄（路径/URL/commit）
 3. 遇到本简报未覆盖的坑，在总结里明确说明
 4. 中文交流，简洁直接
+
+## 多Agent方案边界（2026-06-22实战总结）
+- **不适合委派给同步leaf子Agent的任务**：网络IO密集的数据探索/全量拉取。原因：①leaf子Agent无execute_code ②同步600s硬超时 ③接口探索的不确定性易卡死。实测2次数据拉取子Agent均600s超时。
+- **正确分工**：这类任务由主Agent用execute_code解阻塞（探索接口+拉数据+生成文件），再把确定性的代码集成（改worker.js/DB/前端）委派给子Agent。已验证此分工高效。
+- **数据源现实(本地环境)**：腾讯qt.gtimg.cn行情✅可达；腾讯proxy.finance.qq.com行业列表✅(31申万)；新浪行业成分✅但仅覆盖3007只；EastMoney push2❌服务端拒连(RemoteDisconnected)；AkShare网络接口❌同EastMoney。curl对部分域名被Hermes安全扫描拦(空响应)→用python urllib绕过。
+- **auto-sync陷阱**：本仓库有launchd每30min自动commit+push。子Agent推送前工作树可能已被auto-sync抢先提交，git status干净≠没改动，用 git log 查最近commit确认。
