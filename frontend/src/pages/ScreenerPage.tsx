@@ -241,6 +241,11 @@ const ScreenerPage: React.FC = () => {
   const [aiGems, setAiGems] = useState<any[]>([]);
   const [aiGemsLoading, setAiGemsLoading] = useState(false);
 
+  // 技术指标缓存
+  interface TechData { change5d?: number | null; change20d?: number | null; ma20?: number; maDeviation?: number | null; rsi14?: number | null; volatility20d?: number | null; }
+  const [techData, setTechData] = useState<Record<string, TechData>>({});
+  const [techLoading, setTechLoading] = useState(false);
+
   const watchlistStore = useWatchlistStore();
 
   // Load data
@@ -275,6 +280,29 @@ const ScreenerPage: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // 为当前页股票加载技术指标
+  const fetchTechBatch = useCallback(async (symbols: string[]) => {
+    if (!symbols.length) return;
+    // Skip already-loaded symbols
+    const toLoad = symbols.filter(s => !techData[s]);
+    if (!toLoad.length) return;
+    
+    setTechLoading(true);
+    try {
+      const resp = await apiFetch('/api/tech/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: toLoad }),
+      });
+      const data = await resp.json();
+      if (data?.success && data.data) {
+        setTechData(prev => ({ ...prev, ...data.data }));
+      }
+    } catch (e) {
+      // Silent fail — tech indicators are supplementary
+    } finally { setTechLoading(false); }
+  }, [techData]);
 
   useEffect(() => {
     const metric = searchParams.get('metric');
@@ -398,6 +426,12 @@ const ScreenerPage: React.FC = () => {
     return cats;
   }, []);
 
+  // 页面切换时加载当前页的技术指标
+  useEffect(() => {
+    const symbols = paged.map(s => s.symbol);
+    fetchTechBatch(symbols);
+  }, [paged, fetchTechBatch]);
+
   const columns = [
     { title: '代码', dataIndex: 'symbol', width: 95,
       render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: ACCENT }}>{v.replace(/\.(SH|SZ)$/, '')}</span>
@@ -436,6 +470,38 @@ const ScreenerPage: React.FC = () => {
       render: (v?: number) => <span style={{ fontFamily: 'monospace', color: TEXT_SEC, fontSize: 12 }}>
         {v && v > 0 ? Number(v).toFixed(2) : '—'}
       </span>
+    },
+    { title: '5日', width: 65, align: 'right' as const,
+      render: (_: any, r: StockData) => {
+        const t = techData[r.symbol];
+        if (!t?.change5d && t?.change5d !== 0) return <span style={{ color: TEXT_SEC, fontSize: 11 }}>—</span>;
+        const v = t.change5d!;
+        return <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: v >= 0 ? COLOR_UP : COLOR_DOWN }}>{v >= 0 ? '+' : ''}{v.toFixed(1)}%</span>;
+      }
+    },
+    { title: '20日', width: 65, align: 'right' as const,
+      render: (_: any, r: StockData) => {
+        const t = techData[r.symbol];
+        if (!t?.change20d && t?.change20d !== 0) return <span style={{ color: TEXT_SEC, fontSize: 11 }}>—</span>;
+        const v = t.change20d!;
+        return <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: v >= 0 ? COLOR_UP : COLOR_DOWN }}>{v >= 0 ? '+' : ''}{v.toFixed(1)}%</span>;
+      }
+    },
+    { title: 'MA偏离', width: 70, align: 'right' as const,
+      render: (_: any, r: StockData) => {
+        const t = techData[r.symbol];
+        if (!t?.maDeviation && t?.maDeviation !== 0) return <span style={{ color: TEXT_SEC, fontSize: 11 }}>—</span>;
+        const v = t.maDeviation!;
+        return <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: v >= 0 ? COLOR_UP : COLOR_DOWN }}>{v >= 0 ? '+' : ''}{v.toFixed(1)}%</span>;
+      }
+    },
+    { title: 'RSI', width: 50, align: 'right' as const,
+      render: (_: any, r: StockData) => {
+        const t = techData[r.symbol];
+        if (t?.rsi14 == null) return <span style={{ color: TEXT_SEC, fontSize: 11 }}>—</span>;
+        const v = t.rsi14;
+        return <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 11, color: v >= 70 ? COLOR_DOWN : v <= 30 ? COLOR_UP : TEXT_SEC }}>{v}</span>;
+      }
     },
     { title: '市值', dataIndex: 'marketCap', width: 85, align: 'right' as const,
       render: (v: string) => {
