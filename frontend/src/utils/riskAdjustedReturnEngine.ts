@@ -71,7 +71,7 @@ export class RiskAdjustedReturnEngine {
   }
 
   private maxDrawdown(returns: number[]): { maxDD: number; maxDDD: number } {
-    let peak = 0, cum = 0, maxDD = 0, ddStart = 0, maxDDD = 0, currentDDD = 0;
+    let peak = 0, cum = 0, maxDD = 0, maxDDD = 0, currentDDD = 0;
     for (let i = 0; i < returns.length; i++) {
       cum += returns[i];
       if (cum > peak) { peak = cum; currentDDD = 0; }

@@ -182,7 +182,7 @@ export class NotificationRouter {
 
   /** 应用规则 */
   private applyRule(notification: NotificationPayload, rule: RoutingRule): RoutingResult {
-    let channels = [...rule.channels];
+    const channels = [...rule.channels];
     let delayed = false;
     let delayUntil: number | undefined;
     let escalated = false;

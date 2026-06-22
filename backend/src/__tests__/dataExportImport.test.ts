@@ -36,7 +36,7 @@ function toCSV(data: Record<string, any>[], options: ExportOptions = { format: '
 
   for (const row of data) {
     const values = fields.map(f => {
-      let val = row[f];
+      const val = row[f];
       if (val === null || val === undefined) return '';
       if (typeof val === 'string' && (val.includes(delimiter) || val.includes('"') || val.includes('\n'))) {
         return `"${val.replace(/"/g, '""')}"`;

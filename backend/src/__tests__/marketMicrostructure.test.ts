@@ -6,8 +6,8 @@ describe('市场微观结构', () => {
     type Order = { price: number; quantity: number; side: 'buy' | 'sell' };
 
     const createOrderBook = () => {
-      let bids: Order[] = [];
-      let asks: Order[] = [];
+      const bids: Order[] = [];
+      const asks: Order[] = [];
 
       const sortBids = () => bids.sort((a, b) => b.price - a.price);
       const sortAsks = () => asks.sort((a, b) => a.price - b.price);

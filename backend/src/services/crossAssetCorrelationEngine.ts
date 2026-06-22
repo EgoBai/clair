@@ -458,7 +458,7 @@ export class CrossAssetCorrelationEngine {
   }
 
   private betaContinued(a: number, b: number, x: number): number {
-    let qab = a + b, qap = a + 1, qam = a - 1;
+    const qab = a + b, qap = a + 1, qam = a - 1;
     let c = 1, d = 1 - qab * x / qap;
     if (Math.abs(d) < 1e-30) d = 1e-30;
     d = 1 / d;

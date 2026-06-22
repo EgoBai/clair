@@ -234,7 +234,7 @@ describe('安全响应头', () => {
       const { requestIdMiddleware } = await import('../middleware/securityHeaders');
       const req = { headers: { 'x-request-id': 'existing-id-123' } } as any;
       const res = { setHeader: () => {}, headers: {} } as any;
-      let resHeaders: Record<string, string> = {};
+      const resHeaders: Record<string, string> = {};
       res.setHeader = (k: string, v: string) => { resHeaders[k] = v; };
       let nextCalled = false;
       requestIdMiddleware(req, res, () => { nextCalled = true; });
@@ -247,7 +247,7 @@ describe('安全响应头', () => {
     it('无现有ID时应生成新ID', async () => {
       const { requestIdMiddleware } = await import('../middleware/securityHeaders');
       const req = { headers: {} } as any;
-      let resHeaders: Record<string, string> = {};
+      const resHeaders: Record<string, string> = {};
       const res = { setHeader: (k: string, v: string) => { resHeaders[k] = v; } } as any;
       let nextCalled = false;
       requestIdMiddleware(req, res, () => { nextCalled = true; });

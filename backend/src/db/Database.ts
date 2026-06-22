@@ -313,7 +313,7 @@ export class Database {
     if (!quote) return null;
     
     // PostgreSQL 返回 snake_case，DailyQuote 类型为 camelCase，需安全转换
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const q = quote as any;
     return {
       id: q.id,
@@ -646,7 +646,7 @@ export class Database {
 
     // 3. snake_case → camelCase 映射（与 getLatestDailyQuote 字段集一致）
     const quoteMap = new Map<number, DailyQuote>();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     latestQuotes.rows.forEach((q: any) => {
       const stockId: number = q.stock_id ?? q.stockId;
       quoteMap.set(stockId, {

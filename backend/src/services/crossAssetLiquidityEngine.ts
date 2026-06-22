@@ -49,7 +49,7 @@ export function assessCrossAssetLiquidity(
   if (snapshots.length < 2) return null;
 
   const details: Record<string, number> = {};
-  let stockScores: number[] = [], bondScores: number[] = [], commodityScores: number[] = [];
+  const stockScores: number[] = [], bondScores: number[] = [], commodityScores: number[] = [];
 
   for (const snap of snapshots) {
     const volNorm = avgVolumes[snap.asset] ?? snap.volume;

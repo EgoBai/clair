@@ -52,10 +52,9 @@ function reportError(report: ErrorReport): void {
 
   // 开发环境下打印详细错误
   if (import.meta.env.DEV) {
-    console.group(`[ErrorBoundary] ${report.timestamp}`);
+    logger.debug(`[ErrorBoundary] ${report.timestamp}`);
     logger.error('Error:', report.error);
     logger.error('Component Stack:', report.componentStack);
-    console.groupEnd();
   }
 
   // 生产环境可对接 Sentry 等

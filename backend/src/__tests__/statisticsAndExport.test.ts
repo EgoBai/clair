@@ -175,7 +175,7 @@ describe('Async Data Processing', () => {
 
   const rateLimit = <T>(fn: () => Promise<T>, interval: number): () => Promise<T> => {
     let lastCall = 0;
-    let queue: (() => void)[] = [];
+    const queue: (() => void)[] = [];
     let processing = false;
 
     const processQueue = async () => {

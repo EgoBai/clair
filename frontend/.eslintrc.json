@@ -37,6 +37,7 @@
     "@typescript-eslint/no-explicit-any": "off",
     "react/prop-types": "off",
     "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "no-constant-condition": ["error", { "checkLoops": false }],
     "prefer-const": "warn",
     "no-var": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],

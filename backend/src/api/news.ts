@@ -279,7 +279,7 @@ const MOCK_NEWS: NewsItem[] = [
   },
 ];
 
-let nextNewsId = MOCK_NEWS.length + 1;
+const nextNewsId = MOCK_NEWS.length + 1;
 
 // ==================== 获取新闻列表 ====================
 
@@ -291,7 +291,7 @@ router.get('/news', validateQuery(schemas.newsQuery), asyncHandler(async (req: R
   const sentiment = req.query.sentiment as string;
   const search = (req.query.q as string || '').trim();
 
-  let realNews = await fetchEastMoneyNews(pageSize);
+  const realNews = await fetchEastMoneyNews(pageSize);
   let filtered = realNews.length > 0 ? realNews : deduplicateNews([...MOCK_NEWS]);
   const sortBy = (req.query.sortBy as string) || 'relevance';
 

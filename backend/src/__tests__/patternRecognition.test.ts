@@ -38,7 +38,7 @@ const isEveningStar = (c1: Candlestick, c2: Candlestick, c3: Candlestick): boole
 
 const detectDoubleTop = (highs: number[], threshold: number = 0.02): boolean => {
   if (highs.length < 5) return false;
-  let peaks: number[] = [];
+  const peaks: number[] = [];
   for (let i = 1; i < highs.length - 1; i++) {
     if (highs[i] > highs[i - 1] && highs[i] > highs[i + 1]) peaks.push(highs[i]);
   }
@@ -49,7 +49,7 @@ const detectDoubleTop = (highs: number[], threshold: number = 0.02): boolean => 
 
 const detectDoubleBottom = (lows: number[], threshold: number = 0.02): boolean => {
   if (lows.length < 5) return false;
-  let valleys: number[] = [];
+  const valleys: number[] = [];
   for (let i = 1; i < lows.length - 1; i++) {
     if (lows[i] < lows[i - 1] && lows[i] < lows[i + 1]) valleys.push(lows[i]);
   }

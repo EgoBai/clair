@@ -83,7 +83,7 @@ class QuantStrategyEngine {
     const change = (current - past) / past;
 
     let action: TradeSignal['action'] = 'hold';
-    let strength = Math.abs(change) * 100;
+    const strength = Math.abs(change) * 100;
 
     if (change > threshold) action = 'buy';
     else if (change < -threshold) action = 'sell';

@@ -34,7 +34,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb();
   
   // 获取板块景气度（动态）
-  let sectorScores: Map<string, number> = new Map();
+  const sectorScores: Map<string, number> = new Map();
   try {
     const sectors = await db.getSectorMomentumScore();
     sectors.forEach((s: any) => {

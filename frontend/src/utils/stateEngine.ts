@@ -9,6 +9,9 @@ export type Listener<T> = (state: T, prevState: T) => void;
 export type Middleware<T> = (state: T, action: string, payload?: unknown) => T;
 export type Selector<T, R> = (state: T) => R;
 
+// 统一日志出口
+import { logger } from './logger';
+
 export interface StoreConfig<T> {
   initialState: T;
   middleware?: Middleware<T>[];
@@ -186,7 +189,7 @@ export function createComputed<T, R>(
  */
 export function loggingMiddleware<T>(name: string = 'Store'): Middleware<T> {
   return (state, action, payload) => {
-    console.log(`[${name}] Action: ${action}`, payload ?? '');
+    logger.debug(`[${name}] Action: ${action}`, payload ?? '');
     return state;
   };
 }

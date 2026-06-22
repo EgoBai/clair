@@ -247,7 +247,7 @@ class TestNotificationService {
   getUserNotifications(userId: string, options: any = {}): NotificationPayload[] {
     const ids = this.userNotifications.get(userId);
     if (!ids) return [];
-    let notifications = Array.from(ids).map(id => this.notifications.get(id)).filter((n): n is NotificationPayload => {
+    const notifications = Array.from(ids).map(id => this.notifications.get(id)).filter((n): n is NotificationPayload => {
       if (!n) return false;
       if (n.expiresAt && Date.now() > n.expiresAt) return false;
       if (options.unreadOnly && n.read) return false;

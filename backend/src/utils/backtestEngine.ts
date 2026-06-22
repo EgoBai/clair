@@ -555,7 +555,7 @@ function calculateTradeStats(trades: Trade[]) {
   let maxConsecutiveLosses = 0;
 
   // 按买卖配对计算盈亏
-  let buyStack: Trade[] = [];
+  const buyStack: Trade[] = [];
   const tradePairs: { buy: Trade; sell: Trade; profit: number }[] = [];
 
   for (const trade of trades) {

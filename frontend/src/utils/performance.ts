@@ -3,6 +3,7 @@
  */
 
 import { useCallback, useRef, useEffect, useState } from 'react';
+import { logger } from './logger';
 
 // ==================== 防抖和节流 ====================
 
@@ -229,7 +230,7 @@ export function usePerformanceMonitor(name: string) {
   const end = useCallback(() => {
     if (startTimeRef.current) {
       const duration = performance.now() - startTimeRef.current;
-      console.log(`[Performance] ${name}: ${duration.toFixed(2)}ms`);
+      logger.debug(`[Performance] ${name}: ${duration.toFixed(2)}ms`);
       
       // 可以发送到分析服务
       if (duration > 100) {
@@ -254,7 +255,7 @@ export function useRenderCount(componentName: string) {
   useEffect(() => {
     countRef.current++;
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[Render] ${componentName}: ${countRef.current} renders`);
+      logger.debug(`[Render] ${componentName}: ${countRef.current} renders`);
     }
   });
 

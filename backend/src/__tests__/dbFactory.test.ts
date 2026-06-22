@@ -25,7 +25,7 @@ const mockInMemoryDb = {
   healthCheck: vi.fn().mockResolvedValue({ healthy: true, latency: 0 }),
 };
 
-let currentInMemoryInstance: any = mockInMemoryDb;
+const currentInMemoryInstance: any = mockInMemoryDb;
 
 vi.mock('../db/InMemoryDatabase', () => ({
   InMemoryDatabase: class {

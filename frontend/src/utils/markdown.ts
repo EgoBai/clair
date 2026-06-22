@@ -6,7 +6,7 @@
 export function renderMarkdown(content: string): string {
   if (!content) return '';
 
-  let html = content
+  const html = content
     // 代码块
     .replace(/```([\s\S]*?)```/g, '<pre style="background:#0f172a;padding:12px;border-radius:6px;overflow-x:auto;font-size:12px;margin:8px 0"><code>$1</code></pre>')
     // 行内代码

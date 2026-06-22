@@ -87,10 +87,9 @@ class ErrorReporter {
 
     // 开发环境：控制台输出
     if (process.env.NODE_ENV === 'development') {
-      console.group(`[ErrorBoundary] ${report.componentName || 'Unknown Component'}`);
+      logger.debug(`[ErrorBoundary] ${report.componentName || 'Unknown Component'}`);
       logger.error('Error:', report.error);
       logger.error('Component Stack:', report.errorInfo.componentStack);
-      console.groupEnd();
     }
 
     // TODO: 生产环境可集成Sentry等错误监控服务

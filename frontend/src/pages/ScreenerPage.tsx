@@ -358,7 +358,7 @@ const ScreenerPage: React.FC = () => {
             const groups = JSON.parse(saved);
             watchlistSymbols = groups.flatMap((g: any) => g.stocks || []).map((s: any) => s.symbol);
           }
-        } catch {}
+        } catch { /* localStorage 读取/解析失败时回退到 watchlistStore */ }
         if (!watchlistSymbols || watchlistSymbols.length === 0) watchlistSymbols = watchlistStore.items.map(i => i.symbol);
       }
       if (isWatchlistQuery && (!watchlistSymbols || watchlistSymbols.length === 0)) {

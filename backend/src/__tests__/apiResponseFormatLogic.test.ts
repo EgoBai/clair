@@ -56,7 +56,7 @@ function paginate<T>(
   params: PaginationParams
 ): { data: T[]; meta: APIResponse['meta'] } {
   const { page, pageSize, sortBy, sortOrder } = params;
-  let sorted = [...items];
+  const sorted = [...items];
 
   if (sortBy) {
     sorted.sort((a: any, b: any) => {

@@ -51,7 +51,7 @@ export const PerformanceProfiler: React.FC<PerformanceProfilerProps> = ({
     window.dispatchEvent(new CustomEvent('profiler-data', { detail: metrics }));
 
     if (logToConsole) {
-      const logMethod = metrics.isSlow ? console.warn : console.log;
+      const logMethod = metrics.isSlow ? logger.warn : logger.debug;
       logMethod(`[PerformanceProfiler] ${id} - ${phase}:`, {
         actualDuration: `${actualDuration.toFixed(2)}ms`,
         baseDuration: `${baseDuration.toFixed(2)}ms`,

@@ -61,7 +61,7 @@ function arrayToCSV(data: Record<string, any>[], config: ExportConfig): string {
   // Data rows
   for (const row of data) {
     const values = config.fields.map(f => {
-      let val = row[f];
+      const val = row[f];
       if (val === null || val === undefined) return '';
       if (typeof val === 'number') return formatNumber(val, config.numberFormat.decimal, config.numberFormat.thousandSeparator);
       if (typeof val === 'string' && /\d{4}-\d{2}-\d{2}/.test(val)) return formatDate(val, config.dateFormat);

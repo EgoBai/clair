@@ -429,7 +429,7 @@ ${marketContext}
                 if (chunk.content) {
                   setAiAnswer(prev => prev + chunk.content);
                 }
-              } catch {}
+              } catch { /* 忽略无法解析的 SSE 数据块 */ }
             }
           }
         }

@@ -982,7 +982,7 @@ describe('RBAC权限系统', () => {
           conditions: [{ field: 'resource.attributes.status', operator: 'ne', value: 'archived' }],
         }],
       });
-      let context: RBACContext = { userId: 'ne1', roles: ['ne-tester'] };
+      const context: RBACContext = { userId: 'ne1', roles: ['ne-tester'] };
       const archivedRes: Resource = { type: 'stock', attributes: { status: 'archived' } };
       expect(engine.checkPermission(context, 'read', archivedRes).allowed).toBe(false);
 
@@ -1002,7 +1002,7 @@ describe('RBAC权限系统', () => {
           conditions: [{ field: 'resource.attributes.sector', operator: 'nin', value: ['finance', 'energy'] }],
         }],
       });
-      let context: RBACContext = { userId: 'nin1', roles: ['nin-tester'] };
+      const context: RBACContext = { userId: 'nin1', roles: ['nin-tester'] };
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { sector: 'finance' } }).allowed).toBe(false);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { sector: 'energy' } }).allowed).toBe(false);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { sector: 'tech' } }).allowed).toBe(true);
@@ -1020,7 +1020,7 @@ describe('RBAC权限系统', () => {
           conditions: [{ field: 'resource.attributes.price', operator: 'lte', value: 100 }],
         }],
       });
-      let context: RBACContext = { userId: 'lte1', roles: ['lte-tester'] };
+      const context: RBACContext = { userId: 'lte1', roles: ['lte-tester'] };
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 50 } }).allowed).toBe(true);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 100 } }).allowed).toBe(true);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 150 } }).allowed).toBe(false);
@@ -1038,7 +1038,7 @@ describe('RBAC权限系统', () => {
           conditions: [{ field: 'resource.attributes.price', operator: 'gte', value: 50 }],
         }],
       });
-      let context: RBACContext = { userId: 'gte1', roles: ['gte-tester'] };
+      const context: RBACContext = { userId: 'gte1', roles: ['gte-tester'] };
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 25 } }).allowed).toBe(false);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 50 } }).allowed).toBe(true);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { price: 75 } }).allowed).toBe(true);
@@ -1056,7 +1056,7 @@ describe('RBAC权限系统', () => {
           conditions: [{ field: 'resource.attributes.code', operator: 'regex', value: '^6\\d{5}$' }],
         }],
       });
-      let context: RBACContext = { userId: 're1', roles: ['regex-tester'] };
+      const context: RBACContext = { userId: 're1', roles: ['regex-tester'] };
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '600519' } }).allowed).toBe(true);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '000001' } }).allowed).toBe(false);
     });
@@ -1077,7 +1077,7 @@ describe('RBAC权限系统', () => {
           conditions: [{ field: 'context.attributes.scope', operator: 'in', value: ['reports:read', 'reports:*'] }],
         }],
       });
-      let context: RBACContext = { userId: 'sc1', roles: ['scope-tester'], attributes: { scope: 'reports:read' } };
+      const context: RBACContext = { userId: 'sc1', roles: ['scope-tester'], attributes: { scope: 'reports:read' } };
       expect(engine.checkPermission(context, 'read', { type: 'report' }).allowed).toBe(true);
 
       const noScopeCtx: RBACContext = { userId: 'sc2', roles: ['scope-tester'], attributes: { scope: 'stocks:read' } };
@@ -1245,7 +1245,7 @@ describe('RBAC权限系统', () => {
           ],
         }],
       });
-      let context: RBACContext = { userId: 'nr1', roles: ['nested-regex'] };
+      const context: RBACContext = { userId: 'nr1', roles: ['nested-regex'] };
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '600519', volume: 2000000 } }).allowed).toBe(true);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '600519', volume: 500000 } }).allowed).toBe(false);
       expect(engine.checkPermission(context, 'read', { type: 'stock', attributes: { code: '300001', volume: 2000000 } }).allowed).toBe(false);

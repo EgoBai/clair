@@ -115,7 +115,7 @@ ${watchlistContext}
         throw new Error('AI返回格式错误: ' + content.substring(0, 100));
       }
       // 清理JSON字符串
-      let jsonStr = jsonMatch[0]
+      const jsonStr = jsonMatch[0]
         .replace(/,\s*}/g, '}')  // 移除尾逗号
         .replace(/,\s*]/g, ']'); // 移除数组尾逗号
       parsed = JSON.parse(jsonStr);
