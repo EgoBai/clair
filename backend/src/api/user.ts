@@ -4,7 +4,7 @@
  * 对标Linear用户体系 + Notion权限管理
  */
 
-import { Request, Response, Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import { createHash, randomBytes } from 'crypto';
 import { signAccessToken, generateRefreshToken, consumeRefreshToken } from '../middleware/auth';
 import { validateBody, validateQuery, schemas } from '../middleware/validation';
@@ -146,7 +146,7 @@ interface AuthenticatedRequest extends Request {
   userId: string;
 }
 
-function authMiddleware(req: Request, res: Response, next: Function) {
+function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   const userId = token ? tokens.get(token) : undefined;
   if (!token || !userId) {

@@ -366,7 +366,7 @@ function applyCondition(query: Knex.QueryBuilder, cond: ScreenerCondition): Knex
 }
 
 function applyConditionToBuilder(builder: Knex.QueryBuilder, cond: ScreenerCondition, dbField: string, method: string): void {
-  const fn = (builder as unknown as Record<string, Function>)[method];
+  const fn = (builder as unknown as Record<string, (...args: unknown[]) => unknown>)[method];
   switch (cond.operator) {
     case 'gt': fn.call(builder, dbField, '>', cond.value); break;
     case 'gte': fn.call(builder, dbField, '>=', cond.value); break;
@@ -382,13 +382,13 @@ function applyConditionToBuilder(builder: Knex.QueryBuilder, cond: ScreenerCondi
       break;
     case 'in':
       if (Array.isArray(cond.value)) {
-        const fnIn = (builder as unknown as Record<string, Function>)[method + 'In'];
+        const fnIn = (builder as unknown as Record<string, (...args: unknown[]) => unknown>)[method + 'In'];
         fnIn.call(builder, dbField, cond.value);
       }
       break;
     case 'not_in':
       if (Array.isArray(cond.value)) {
-        const fnNotIn = (builder as unknown as Record<string, Function>)[method === 'where' ? 'whereNotIn' : 'orWhereNotIn'];
+        const fnNotIn = (builder as unknown as Record<string, (...args: unknown[]) => unknown>)[method === 'where' ? 'whereNotIn' : 'orWhereNotIn'];
         fnNotIn.call(builder, dbField, cond.value);
       }
       break;
@@ -430,11 +430,10 @@ function applyGroups(query: Knex.QueryBuilder, groups: ConditionGroup[]): Knex.Q
           const dbField = FIELD_MAP[cond.field];
           if (!dbField) continue;
 
-          const builder = this;
           if (i === 0) {
-            applyConditionToBuilder(builder, cond, dbField, 'where');
+            applyConditionToBuilder(this, cond, dbField, 'where');
           } else {
-            applyConditionToBuilder(builder, cond, dbField, 'orWhere');
+            applyConditionToBuilder(this, cond, dbField, 'orWhere');
           }
         }
       });
@@ -469,7 +468,7 @@ const SELECT_COLUMNS = [
 function mapStockRow(s: Record<string, string | null>): MappedStock {
   const pf = (v: string | null) => { const x = parseFloat(String(v)); return Number.isFinite(x) ? x : 0; };
   const pi = (v: string | null) => { const x = parseFloat(String(v)); return Number.isFinite(x) ? Math.floor(x) : 0; };
-  const pn = (v: string | null) => { if (v == null) return null; const x = parseFloat(String(v)); return Number.isFinite(x) ? x : null; };
+  const pn = (v: string | null) => { if (v === null || v === undefined) return null; const x = parseFloat(String(v)); return Number.isFinite(x) ? x : null; };
   return {
     id: pi(s.id),
     symbol: String(s.symbol || ''),

@@ -417,29 +417,28 @@ function applyConditions(query: any, conditions: ScreenerCondition[], logic: 'an
         const dbField = FIELD_MAP[cond.field];
         if (!dbField) continue;
 
-        const builder = this;
         const method = i === 0 ? 'where' : 'orWhere';
         switch (cond.operator) {
-          case 'gt': builder[method](dbField, '>', cond.value); break;
-          case 'gte': builder[method](dbField, '>=', cond.value); break;
-          case 'lt': builder[method](dbField, '<', cond.value); break;
-          case 'lte': builder[method](dbField, '<=', cond.value); break;
-          case 'eq': builder[method](dbField, '=', cond.value); break;
-          case 'neq': builder[method](dbField, '!=', cond.value); break;
+          case 'gt': this[method](dbField, '>', cond.value); break;
+          case 'gte': this[method](dbField, '>=', cond.value); break;
+          case 'lt': this[method](dbField, '<', cond.value); break;
+          case 'lte': this[method](dbField, '<=', cond.value); break;
+          case 'eq': this[method](dbField, '=', cond.value); break;
+          case 'neq': this[method](dbField, '!=', cond.value); break;
           case 'between':
             if (Array.isArray(cond.value) && cond.value.length === 2) {
-              builder[method](dbField, '>=', cond.value[0]);
-              builder[method](dbField, '<=', cond.value[1]);
+              this[method](dbField, '>=', cond.value[0]);
+              this[method](dbField, '<=', cond.value[1]);
             }
             break;
           case 'in':
             if (Array.isArray(cond.value)) {
-              builder[method + 'In'](dbField, cond.value);
+              this[method + 'In'](dbField, cond.value);
             }
             break;
           case 'not_in':
             if (Array.isArray(cond.value)) {
-              builder[method === 'where' ? 'whereNotIn' : 'orWhereNotIn'](dbField, cond.value);
+              this[method === 'where' ? 'whereNotIn' : 'orWhereNotIn'](dbField, cond.value);
             }
             break;
         }
@@ -474,17 +473,17 @@ const STOCK_COLUMNS = [
 
 function mapStockRow(s: Record<string, string | null>) {
   const pf = (x: string | null | undefined): number => {
-    if (x == null) return 0;
+    if (x === null || x === undefined) return 0;
     const v = parseFloat(String(x));
     return Number.isFinite(v) ? v : 0;
   };
   const pn = (x: string | null | undefined): number | null => {
-    if (x == null) return null;
+    if (x === null || x === undefined) return null;
     const v = parseFloat(String(x));
     return Number.isFinite(v) ? v : null;
   };
   const pi = (x: string | null | undefined): number => {
-    if (x == null) return 0;
+    if (x === null || x === undefined) return 0;
     const v = parseInt(String(x), 10);
     return Number.isFinite(v) ? v : 0;
   };
@@ -584,7 +583,7 @@ router.post('/screener/filter', validateBody(schemas.screenerFilter), async (req
     console.error('选股筛选失败:', error);
     const msg = (error as Error).message || '';
     // InMemoryDatabase doesn't support complex knex joins — return empty gracefully
-    if (msg.includes('not a function') || process.env.DATABASE_URL == null) {
+    if (msg.includes('not a function') || process.env.DATABASE_URL === undefined) {
       return res.json({
         success: true,
         data: {

@@ -4,6 +4,7 @@
  */
 
 import { Request, Response } from 'express';
+import * as os from 'os';
 import { db } from '../db/dbFactory';
 import { createLogger } from './logger';
 
@@ -101,8 +102,7 @@ async function checkAI(): Promise<ServiceHealth> {
 
 function getMemoryInfo(): MemoryInfo {
   const memUsage = process.memoryUsage();
-  const totalMemory = require('os').totalmem();
-  
+
   return {
     heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
     heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
@@ -114,7 +114,7 @@ function getMemoryInfo(): MemoryInfo {
 
 function getCPUInfo(): CPUInfo {
   const cpuUsage = process.cpuUsage();
-  const totalCPU = require('os').cpus().length * 1000000;
+  const totalCPU = os.cpus().length * 1000000;
   
   return {
     user: Math.round(cpuUsage.user / 1000),

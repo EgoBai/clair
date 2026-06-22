@@ -642,7 +642,7 @@ export class Database {
     `);
 
     // PostgreSQL numeric → 字符串，安全转数字
-    const toNum = (v: unknown): number => (v == null ? 0 : parseFloat(String(v)));
+    const toNum = (v: unknown): number => (v === null || v === undefined ? 0 : parseFloat(String(v)));
 
     // 3. snake_case → camelCase 映射（与 getLatestDailyQuote 字段集一致）
     const quoteMap = new Map<number, DailyQuote>();
@@ -663,7 +663,7 @@ export class Database {
         changePercent: toNum(q.change_percent ?? q.changePercent),
         amplitude: toNum(q.amplitude),
         turnoverRate: toNum(q.turnover_rate ?? q.turnoverRate),
-        marketCap: q.market_cap != null ? toNum(q.market_cap) : undefined,
+        marketCap: q.market_cap !== null && q.market_cap !== undefined ? toNum(q.market_cap) : undefined,
         createdAt: q.created_at ?? q.createdAt,
         updatedAt: q.updated_at ?? q.updatedAt,
       });

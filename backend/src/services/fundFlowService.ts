@@ -260,7 +260,7 @@ export class FundFlowService {
         case 'main_outflow_surge':
           triggered = flow.mainNetFlow <= -alert.threshold;
           break;
-        case 'consecutive_inflow':
+        case 'consecutive_inflow': {
           // 检查连续流入天数
           const flows = this.stockFlows.get(flow.stockSymbol) || [];
           let consecutiveDays = 0;
@@ -270,6 +270,7 @@ export class FundFlowService {
           }
           triggered = consecutiveDays >= alert.threshold;
           break;
+        }
       }
 
       if (triggered) {

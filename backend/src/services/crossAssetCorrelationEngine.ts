@@ -477,12 +477,14 @@ export class CrossAssetCorrelationEngine {
   }
 
   private logGamma(x: number): number {
+    // eslint-disable-next-line no-loss-of-precision -- Numerical Recipes gammln 系数,JS double精度足够
     const cof = [76.18009172947146, -86.50532032941677, 24.01409824083091,
       -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
     let y = x, tmp = x + 5.5;
     tmp -= (x + 0.5) * Math.log(tmp);
     let ser = 1.000000000190015;
     for (let j = 0; j < 6; j++) ser += cof[j] / ++y;
+    // eslint-disable-next-line no-loss-of-precision -- sqrt(2*pi)常数
     return -tmp + Math.log(2.5066282746310005 * ser / x);
   }
 }

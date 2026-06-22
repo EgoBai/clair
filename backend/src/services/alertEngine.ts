@@ -195,10 +195,11 @@ class AlertEngine {
   private notify(alert: AlertEvent): void {
     for (const channel of alert.channels) {
       switch (channel) {
-        case 'console':
+        case 'console': {
           const prefix = alert.severity === 'critical' ? '🚨' : alert.severity === 'warning' ? '⚠️' : 'ℹ️';
           console.log(`${prefix} [ALERT] ${alert.message}`);
           break;
+        }
         case 'webhook':
           // POST to webhook URL - 实际集成时实现
           break;

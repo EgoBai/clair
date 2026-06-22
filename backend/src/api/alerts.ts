@@ -10,6 +10,8 @@ import { validateQuery, validateBody, validateParams, schemas } from '../middlew
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 import type { NotificationPayload, NotificationPriority, NotificationChannel, NotificationStatus } from '../services/notification/types';
 import type { DailyQuote } from '../models/Stock';
+import { wsPushEngine } from '../services/notification/wsPushEngine';
+import { notificationRouter } from '../services/notification/priorityRouter';
 
 const router = Router();
 
@@ -632,9 +634,6 @@ async function getAverageVolume(stockId: number, days: number = 20): Promise<num
  */
 function pushAlertNotification(alert: AlertRule, actualValue: number): void {
   try {
-    const { wsPushEngine } = require('../services/notification/wsPushEngine');
-    const { notificationRouter } = require('../services/notification/priorityRouter');
-    
     const priority = alert.alertType === 'composite' ? 'urgent' : 
       (Math.abs(actualValue - alert.threshold) / Math.max(Math.abs(alert.threshold), 1) > 0.1 ? 'high' : 'medium');
     

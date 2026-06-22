@@ -40,7 +40,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
     sectors.forEach((s: any) => {
       sectorScores.set(s.industry, Number(s.score) || 0);
     });
-  } catch {}
+  } catch { /* 行业动量评分获取失败时降级: sectorScores 保持为空, 不影响主流程 */ }
 
   // JOIN stocks + latest daily_quotes
   const stocks = await db.connection('stocks as s')
@@ -66,17 +66,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
 
   const gems: GemScore[] = [];
 
-  // 标准化参数
-  let maxChange = 1, maxTurnover = 1, maxCap = 1;
-  for (const s of stocks) {
-    const change = Math.abs(Number(s.change_percent) || 0);
-    const turnover = Number(s.turnover_rate) || 0;
-    const cap = Number(s.market_cap) || 0;
-    if (change > maxChange) maxChange = change;
-    if (turnover > maxTurnover) maxTurnover = turnover;
-    if (cap > maxCap) maxCap = cap;
-  }
-  maxTurnover = Math.max(maxTurnover, 15); // 15%为高换手基准
+  // 注: 评分采用绝对阈值, 无需归一化最大值
 
   for (const s of stocks) {
     const name = String(s.name || '').trim();
@@ -92,7 +82,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
     // ====== 六因子评分 (总分100) ======
 
     // 1. 动量因子 (0-20): 涨幅适中最佳（3-8%），避免追高
-    let momentumScore = 0;
+    let momentumScore: number;
     const absChange = Math.abs(changePercent);
     if (absChange >= 3 && absChange <= 8) {
       momentumScore = 20;
@@ -107,7 +97,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
     }
 
     // 2. 成交活跃因子 (0-20): 换手率3-15%最佳
-    let volumeScore = 0;
+    let volumeScore: number;
     if (turnoverRate >= 3 && turnoverRate <= 15) {
       volumeScore = 20;
     } else if (turnoverRate >= 1 && turnoverRate < 3) {
@@ -119,7 +109,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
     }
 
     // 3. 估值因子 (0-15): PE在10-40区间，PB合理
-    let valuationScore = 0;
+    let valuationScore: number;
     if (peRatio && peRatio > 0) {
       if (peRatio >= 10 && peRatio <= 30) {
         valuationScore = 15; // 合理估值
@@ -137,7 +127,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
     }
 
     // 4. 规模因子 (0-15): 50-500亿最佳成长空间
-    let sizeScore = 0;
+    let sizeScore: number;
     if (capYi >= 50 && capYi <= 500) {
       sizeScore = 15;
     } else if (capYi >= 20 && capYi < 50) {

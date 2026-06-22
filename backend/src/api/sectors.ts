@@ -72,7 +72,7 @@ router.get('/sectors/performance/enhanced', asyncHandler(async (_req, res) => {
 // 板块景气度综合评分
 router.get('/sectors/momentum', asyncHandler(async (_req, res) => {
   // 首次访问时重分类所有股票
-  try { await db.reclassifyAll(); } catch {}
+  try { await db.reclassifyAll(); } catch { /* ignore: reclassify is best-effort */ }
   const scores = await db.getSectorMomentumScore();
   sendSuccess(res, { sectors: scores });
 }));

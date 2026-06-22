@@ -146,9 +146,9 @@ class MockQueryBuilder {
       const sd = this._sortDir;
       result = [...result].sort((a, b) => {
         const av = a[sf], bv = b[sf];
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
+        if ((av === null || av === undefined) && (bv === null || bv === undefined)) return 0;
+        if (av === null || av === undefined) return 1;
+        if (bv === null || bv === undefined) return -1;
         return sd === 'asc' ? ((av as number) > (bv as number) ? 1 : (av as number) < (bv as number) ? -1 : 0) : ((av as number) < (bv as number) ? 1 : (av as number) > (bv as number) ? -1 : 0);
       });
     }
@@ -337,19 +337,18 @@ class InMemoryDatabase {
 
   // 模拟Knex接口 — connection is a callable function like Knex
   get connection(): MockKnexConnection {
-    const self = this;
-    const conn: MockKnexConnection = function(tableName: string) {
+    const conn: MockKnexConnection = ((tableName: string) => {
       return conn._table(tableName);
-    } as MockKnexConnection;
-    conn._table = function(tableName: string) {
+    }) as MockKnexConnection;
+    conn._table = (tableName: string) => {
       // Return data based on table name
       let data: QueryRow[];
       if (tableName === 'stocks') {
-        data = self.stocks as unknown as QueryRow[];
+        data = this.stocks as unknown as QueryRow[];
       } else if (tableName.startsWith('daily_quotes')) {
         // Flatten all quotes
         data = [];
-        self.quotes.forEach((quotes) => { data.push(...(quotes as unknown as QueryRow[])); });
+        this.quotes.forEach((quotes) => { data.push(...(quotes as unknown as QueryRow[])); });
       } else if (tableName === 'user_watchlist' || tableName === 'watchlist_groups') {
         data = [];
       } else {
@@ -357,8 +356,8 @@ class InMemoryDatabase {
       }
       return new MockQueryBuilder(data, tableName);
     };
-    conn.raw = function(_sql: string) { return Promise.resolve({ rows: [] }); };
-    conn.destroy = function() { return Promise.resolve(); };
+    conn.raw = (_sql: string) => { return Promise.resolve({ rows: [] }); };
+    conn.destroy = () => { return Promise.resolve(); };
     return conn;
   }
 
@@ -415,9 +414,9 @@ class InMemoryDatabase {
     result.sort((a, b) => {
       const aVal = a[sortBy as keyof Stock];
       const bVal = b[sortBy as keyof Stock];
-      if (aVal == null && bVal == null) return 0;
-      if (aVal == null) return 1;
-      if (bVal == null) return -1;
+      if ((aVal === null || aVal === undefined) && (bVal === null || bVal === undefined)) return 0;
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         const cmp = aVal.localeCompare(bVal, 'zh-CN');
         return sortOrder === 'asc' ? cmp : -cmp;
@@ -489,7 +488,7 @@ class InMemoryDatabase {
     const results: Array<{ item: Stock; score: number }> = [];
     for (const s of this.stocks) {
       if (!s.isActive) continue;
-      let score = 0;
+      let score: number;
       const symLower = s.symbol.toLowerCase();
       const nameLower = s.name.toLowerCase();
       // 精确匹配符号

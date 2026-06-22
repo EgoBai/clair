@@ -704,7 +704,7 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
           let companies: any[] = [];
           try {
             companies = dbStocksToCompanies(await queryStocksByConcept(id, f.segmentId), f.leaderCount || 3);
-          } catch {}
+          } catch { /* ignore: best-effort concept query */ }
           return {
             id: f.segmentId, name: f.segmentName, description: f.description || '', layerId: 'main',
             companies, characteristics: {}, upstreamTo: [], downstreamTo: [],
