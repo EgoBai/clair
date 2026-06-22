@@ -10,7 +10,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
-import { Card, Button, Tag, Table, Spin, Empty, Typography, message, Space, Tooltip, Progress, Collapse } from 'antd';
+import { Card, Button, Tag, Table, Spin, Empty, Typography, message, Space, Tooltip } from 'antd';
 import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
   ReloadOutlined, SearchOutlined, FilterOutlined,
@@ -22,8 +22,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 
-const { Title, Text, Paragraph } = Typography;
-const { Panel } = Collapse;
+const { Title, Text } = Typography;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';

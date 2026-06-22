@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button } from 'antd';
-import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassOutlined, RightOutlined, BulbOutlined, StarOutlined, BarChartOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
+import { RiseOutlined, FallOutlined, FireOutlined, ThunderboltOutlined, CompassOutlined, RightOutlined, BulbOutlined, StarOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 

@@ -2,12 +2,15 @@
  * 行业分类API — 申万2021二级行业（134类）
  */
 import { Router, Request, Response } from 'express';
-import asyncHandler from '../utils/asyncHandler';
+import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
-import {
+import { createRequire } from 'module';
+
+const require_shared = createRequire(import.meta.url);
+const {
   SW_INDUSTRY_MAP, getAllSubIndustries,
   classifySubIndustry, getSubIndustries,
-} from '../../../shared/industryClassification.ts';
+} = require_shared('../../../shared/industryClassification');
 
 const router = Router();
 
