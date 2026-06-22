@@ -1643,6 +1643,78 @@ async function handleDebug() {
 // ==================== 主入口 ====================
 
 export default {
+  // ==================== 批量技术指标 ====================
+
+  async handleTechBatch(request) {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const symbols = (body.symbols || []).slice(0, 40);
+      const days = Math.min(body.days || 30, 60);
+      if (!symbols.length) return json({ data: {}, success: true });
+
+      const stocks = await getStockList();
+      const results = {};
+
+      const batchSize = 8;
+      for (let i = 0; i < symbols.length; i += batchSize) {
+        const batch = symbols.slice(i, i + batchSize);
+        const promises = batch.map(async (symbol) => {
+          try {
+            const stock = stocks.find(s => s.symbol === symbol);
+            if (!stock) return { symbol };
+            const ts = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+            const resp = await fetch(
+              `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${ts},day,,,${days + 5},qfq`,
+              { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' } }
+            );
+            const data = await resp.json();
+            const dd = data?.data?.[ts]?.day || data?.data?.[ts]?.qfqday;
+            if (!dd || !Array.isArray(dd) || dd.length < 5) return { symbol };
+
+            const closes = dd.map(d => parseFloat(d[2]) || 0).filter(c => c > 0);
+            if (closes.length < 5) return { symbol };
+            const latest = closes[closes.length - 1];
+            
+            const change5d = closes.length >= 5 ? Math.round(((latest - closes[closes.length - 5]) / closes[closes.length - 5] * 100) * 100) / 100 : null;
+            const change20d = closes.length >= 20 ? Math.round(((latest - closes[closes.length - 20]) / closes[closes.length - 20] * 100) * 100) / 100 : null;
+            const lookback20 = closes.slice(-20);
+            const ma20 = Math.round((lookback20.reduce((a, b) => a + b, 0) / lookback20.length) * 100) / 100;
+            const maDeviation = Math.round(((latest - ma20) / ma20 * 100) * 100) / 100;
+            
+            let rsi14 = null;
+            if (closes.length >= 15) {
+              const rsiCloses = closes.slice(-15);
+              let gains = 0, losses = 0;
+              for (let j = 1; j < rsiCloses.length; j++) {
+                const diff = rsiCloses[j] - rsiCloses[j - 1];
+                if (diff > 0) gains += diff; else losses += Math.abs(diff);
+              }
+              rsi14 = losses === 0 ? 100 : Math.round(100 - (100 / (1 + (gains / 14) / (losses / 14))));
+            }
+            
+            const rets = [];
+            for (let j = 1; j < lookback20.length; j++) rets.push(Math.log(lookback20[j] / lookback20[j - 1]));
+            const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+            const v = rets.reduce((a, b) => a + (b - m) ** 2, 0) / rets.length;
+            const vol20d = Math.round(Math.sqrt(v) * Math.sqrt(250) * 100 * 100) / 100;
+
+            return { symbol, change5d, change20d, ma20, maDeviation, rsi14, volatility20d: vol20d };
+          } catch (e) {
+            return { symbol };
+          }
+        });
+        const batchResults = await Promise.all(promises);
+        for (const r of batchResults) {
+          if (r.change5d != null) results[r.symbol] = r;
+        }
+      }
+      return json({ data: results, success: true });
+    } catch (e) {
+      return error(e.message);
+    }
+  },
+
+
   async fetch(request, env, ctx) {
     // Make env available to all handler functions
     globalThis.__env = env;
@@ -1764,6 +1836,12 @@ export default {
     const backtestMatch = path.match(/^\/api\/backtest\/(\d+)$/);
     if (backtestMatch) {
       return handleBacktest(backtestMatch[1]);
+    }
+
+
+    // Batch technical indicators: POST /api/tech/batch
+    if (path === '/api/tech/batch' && request.method === 'POST') {
+      return this.handleTechBatch(request);
     }
 
     return error('Not found', 404);
