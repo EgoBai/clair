@@ -1,6 +1,6 @@
 # Clair (AStock) 研发计划
 
-> 更新于 2026-06-10 | 状态：Phase 13 — AI融合深化 + 数据层修复
+> 更新于 2026-06-22 | 状态：Phase 13 — AI融合深化 + 技术指标 + 多Agent化改造
 
 ## 核心原则
 
@@ -100,12 +100,24 @@
 - [x] **行业分类重分类** (2026-06-22) — 关键词匹配修正334只股票，综合从2151→1823
 - [x] **industries路由修复** (2026-06-22) — createRequire + asyncHandler路径修正
 - [x] **PostgreSQL行业数据同步** — 本地DB已更新为v2分类
+- [x] **Worker POST /api/tech/batch 批量技术指标API** (2026-06-22) — change5d/change20d/ma20/maDeviation/rsi14/volatility20d，并行K线拉取
+- [x] **ScreenerPage v5.1 技术指标列** (2026-06-22) — 5日/20日涨跌、MA偏离、RSI14，按页懒加载
+- [x] **多Agent协作模式落地** (2026-06-22) — MULTI-AGENT.md 共享简报 + 主编排/子执行/验收闭环
 
 ### 待完成
 - [ ] Worker部署到Cloudflare Pages（需网络代理）
 - [ ] ReviewPage复盘数据真实性验证
 - [ ] WebSocket实时行情推送
 - [ ] 行业分类完善：需网络访问EastMoney API获取完整源数据（当前1823综合仍偏高，675只待修正）
+
+## 多Agent协作模式
+
+2026-06-22 起采用多Agent协作开发模式：
+
+- **主Agent**负责任务编排与交付验收（拆分模块、下发任务、统一自查/curl/端到端验证）。
+- **子Agent**并行执行各模块开发（前端、Worker API、数据修复等），无对话记忆，执行前必读共享简报。
+- **文件按归属分区**，每个子Agent只改分配给自己的文件，避免并行写冲突。
+- **共享简报**见 `MULTI-AGENT.md`（项目坐标、启动命令、验证标准、架构陷阱、交付规范），弥补子Agent无上下文的缺陷。
 
 ## 相关文件
 

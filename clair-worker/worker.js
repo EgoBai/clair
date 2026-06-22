@@ -1660,9 +1660,10 @@ export default {
         const batch = symbols.slice(i, i + batchSize);
         const promises = batch.map(async (symbol) => {
           try {
-            const stock = stocks.find(s => s.symbol === symbol);
+            const pureSymbol = symbol.replace(/\.(SH|SZ|BJ)$/i, '');
+            const stock = stocks.find(s => s.symbol === pureSymbol || s.symbol === symbol);
             if (!stock) return { symbol };
-            const ts = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+            const ts = `${stock.market === 'SH' ? 'sh' : 'sz'}${pureSymbol}`;
             const resp = await fetch(
               `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${ts},day,,,${days + 5},qfq`,
               { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' } }

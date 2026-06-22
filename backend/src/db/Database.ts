@@ -608,6 +608,75 @@ export class Database {
   }
 
   /**
+   * 板块内个股列表（含最新行情，按涨跌幅降序）
+   * 语义与 InMemoryDatabase.getSectorStocks 对齐：
+   *   - 按 industry 筛选活跃股票；industry==='其他' 时归集无行业归类的股票
+   *   - 仅保留有最新行情的个股
+   *   - 按 changePercent 降序排序
+   * 陷阱(MULTI-AGENT.md): PostgreSQL numeric 列返回字符串，算术/排序前需 parseFloat。
+   */
+  async getSectorStocks(industry: string): Promise<StockWithQuotes[]> {
+    // 1. 按行业筛选活跃股票
+    const stockQuery = this.knexInstance<Stock>('stocks')
+      .where('is_active', true);
+    if (industry === '其他') {
+      // '其他' 归集 industry 为空/NULL 的股票
+      stockQuery.where((qb) => {
+        qb.whereNull('industry').orWhere('industry', '');
+      });
+    } else {
+      stockQuery.where('industry', industry);
+    }
+    const stocks = await stockQuery;
+    if (stocks.length === 0) {
+      return [];
+    }
+
+    // 2. 批量取每只股票的最新行情（单次查询，避免 N+1）
+    const stockIds = stocks.map((s) => s.id);
+    const latestQuotes = await this.knexInstance.raw(`
+      SELECT DISTINCT ON (stock_id) *
+      FROM daily_quotes
+      WHERE stock_id IN (${stockIds.join(',')})
+      ORDER BY stock_id, trade_date DESC
+    `);
+
+    // PostgreSQL numeric → 字符串，安全转数字
+    const toNum = (v: unknown): number => (v == null ? 0 : parseFloat(String(v)));
+
+    // 3. snake_case → camelCase 映射（与 getLatestDailyQuote 字段集一致）
+    const quoteMap = new Map<number, DailyQuote>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    latestQuotes.rows.forEach((q: any) => {
+      const stockId: number = q.stock_id ?? q.stockId;
+      quoteMap.set(stockId, {
+        id: q.id,
+        stockId,
+        tradeDate: q.trade_date ?? q.tradeDate,
+        openPrice: toNum(q.open_price ?? q.openPrice),
+        closePrice: toNum(q.close_price ?? q.closePrice),
+        highPrice: toNum(q.high_price ?? q.highPrice),
+        lowPrice: toNum(q.low_price ?? q.lowPrice),
+        volume: toNum(q.volume),
+        turnover: toNum(q.turnover),
+        change: toNum(q.change_amount ?? q.change),
+        changePercent: toNum(q.change_percent ?? q.changePercent),
+        amplitude: toNum(q.amplitude),
+        turnoverRate: toNum(q.turnover_rate ?? q.turnoverRate),
+        marketCap: q.market_cap != null ? toNum(q.market_cap) : undefined,
+        createdAt: q.created_at ?? q.createdAt,
+        updatedAt: q.updated_at ?? q.updatedAt,
+      });
+    });
+
+    // 4. 组装 → 仅保留有行情者 → 按涨跌幅降序
+    return stocks
+      .map((s): StockWithQuotes => ({ ...s, latestQuote: quoteMap.get(s.id) }))
+      .filter((s) => s.latestQuote !== undefined)
+      .sort((a, b) => (b.latestQuote?.changePercent || 0) - (a.latestQuote?.changePercent || 0));
+  }
+
+  /**
    * 获取涨幅榜
    */
   async getTopGainers(date: Date, limit: number = 10): Promise<any[]> {

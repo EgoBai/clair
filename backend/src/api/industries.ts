@@ -10,7 +10,12 @@ const require_shared = createRequire(import.meta.url);
 const {
   SW_INDUSTRY_MAP, getAllSubIndustries,
   classifySubIndustry, getSubIndustries,
-} = require_shared('../../../shared/industryClassification');
+} = require_shared('../../../shared/industryClassification') as {
+  SW_INDUSTRY_MAP: Record<string, string[]>;
+  getAllSubIndustries: () => string[];
+  classifySubIndustry: (a: string, b: string, c: string[]) => string;
+  getSubIndustries: (i: string) => string[];
+};
 
 const router = Router();
 
@@ -95,7 +100,9 @@ router.get('/industries/sub-sector/:subIndustry/stocks', asyncHandler(async (req
     return;
   }
   
-  const sectorStocks = await db.getSectorStocks(parentIndustry);
+  // TODO: getSectorStocks 仅在 InMemoryDatabase 上实现，Database(PostgreSQL) 缺失该方法，
+  // 故 getDb() 的联合类型 (Database | InMemoryDatabase) 不暴露它。暂用 any 绕过类型检查。
+  const sectorStocks = await (db as any).getSectorStocks(parentIndustry);
   
   // 按子行业筛选
   const filtered = sectorStocks.filter((st: any) => {
