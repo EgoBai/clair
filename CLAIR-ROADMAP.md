@@ -89,18 +89,23 @@
 ## Phase 13: AI融合深化 🔄 进行中
 
 ### 已完成
-- [x] FloatingChat上下文感知 — 根据页面(发掘/筛选/个股/自选/复盘)动态调整AI上下文和快捷指令
-- [x] ChatPanel系统提示注入 — 页面上下文自动传入AI对话，实现"AI陪伴"而非"AI工具"
-- [x] multi-signal端点优化 — 默认模板叙事(毫秒级)，LLM叙事可选+15s超时保护
-- [x] normalizeSymbol修复 — 纯6位代码自动推断交易所(6→SH, 0/3→SZ, 8/4→BJ)
-- [x] stock API symbol修复 — /api/stocks/000001 自动解析为 000001.SZ
-- [x] 板块表现NaN修复 — PostgreSQL numeric类型parseFloat处理
+- [x] FloatingChat上下文感知
+- [x] ChatPanel系统提示注入
+- [x] multi-signal端点优化
+- [x] normalizeSymbol修复
+- [x] stock API symbol修复
+- [x] 板块表现NaN修复
+- [x] **DiscoverPage v3 重设计** (2026-06-22) — 全宽双栏AI市场解读 + 关键数据高亮 + 数字彩色渲染 + 领涨/领跌速览
+- [x] **ScreenerPage v5 增强** (2026-06-22) — 8策略模板 + 10核心指标×5维度 + 策略说明面板 + 振幅/PB/市值列
+- [x] **行业分类重分类** (2026-06-22) — 关键词匹配修正334只股票，综合从2151→1823
+- [x] **industries路由修复** (2026-06-22) — createRequire + asyncHandler路径修正
+- [x] **PostgreSQL行业数据同步** — 本地DB已更新为v2分类
 
 ### 待完成
+- [ ] Worker部署到Cloudflare Pages（需网络代理）
 - [ ] ReviewPage复盘数据真实性验证
 - [ ] WebSocket实时行情推送
-- [ ] 全链路端到端测试(发掘→筛选→自选→复盘)
-- [ ] 生产环境部署验证
+- [ ] 行业分类完善：需网络访问EastMoney API获取完整源数据（当前1823综合仍偏高，675只待修正）
 
 ## 相关文件
 
