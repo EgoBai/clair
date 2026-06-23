@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import logger from '../utils/logger';
 import {
   Card, Table, Tag, Calendar, Space, Typography, Row, Col, Statistic,
-  Button, Badge, Tooltip, Modal,
+  Button, Badge, Modal,
 } from 'antd';
 import {
   LockOutlined, CalendarOutlined, DollarOutlined, ReloadOutlined,

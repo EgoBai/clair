@@ -7,7 +7,7 @@ import React from 'react';
 import { Button, Typography, Space } from 'antd';
 import {
   SearchOutlined, BellOutlined, StockOutlined, FilterOutlined,
-  BarChartOutlined, FileSearchOutlined, InboxOutlined,
+  BarChartOutlined, FileSearchOutlined,
   WarningOutlined, DisconnectOutlined, WalletOutlined,
   ReadOutlined, TeamOutlined, LockOutlined, SyncOutlined,
 } from '@ant-design/icons';

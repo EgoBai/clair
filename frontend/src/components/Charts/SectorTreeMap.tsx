@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Typography, Space, Tag, Tooltip } from 'antd';
+import { Card, Typography, Space, Tag } from 'antd';
 import { Treemap, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
 const { Text } = Typography;

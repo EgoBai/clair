@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Typography, Space, Tag, Tooltip } from 'antd';
+import { Card, Typography, Space, Tag } from 'antd';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, Tooltip as RechartsTooltip, Legend,

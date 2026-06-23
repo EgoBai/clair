@@ -2,7 +2,7 @@
  * 快捷键帮助面板 - Linear/Notion 风格
  * 按 ? 或 Cmd+/ 打开, 展示所有可用快捷键
  */
-import React, { useEffect, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { CloseOutlined } from '@ant-design/icons';
 
 interface ShortcutEntry {

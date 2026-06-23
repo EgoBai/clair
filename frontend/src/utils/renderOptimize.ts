@@ -93,7 +93,7 @@ export function useStableObject<T extends Record<string, unknown>>(obj: T): T {
     const parsed = JSON.parse(stringified) as T;
     ref.current = parsed;
     return parsed;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [stringified]);
 
   return stable;

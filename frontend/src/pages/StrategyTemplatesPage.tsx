@@ -12,16 +12,15 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined,
-  PlayCircleOutlined, FilterOutlined, StarOutlined, StarFilled,
-  RocketOutlined, FundOutlined, LineChartOutlined, ThunderboltOutlined,
-  FireOutlined, RiseOutlined, RobotOutlined, BulbOutlined
+  PlayCircleOutlined, FilterOutlined, StarOutlined,
+  RocketOutlined, FundOutlined, LineChartOutlined, ThunderboltOutlined, RiseOutlined, RobotOutlined, BulbOutlined
 } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
-import { THEME, GOLD } from '../styles/theme-constants';
+import { THEME } from '../styles/theme-constants';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
 const BORDER = THEME.border;

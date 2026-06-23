@@ -3,7 +3,7 @@
  * 提供股票的快速操作按钮组
  */
 import React, { useState } from 'react';
-import { Button, Tooltip, Popconfirm, message } from 'antd';
+import { Button, Tooltip, message } from 'antd';
 import {
   StarOutlined,
   StarFilled,

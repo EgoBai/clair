@@ -3,7 +3,7 @@
  * 展示单只股票的详细信息、K线图、技术指标
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Card,
   Row,
@@ -15,7 +15,6 @@ import {
   Tabs,
   Button,
   Spin,
-  message,
 } from 'antd';
 import {
   ArrowUpOutlined,

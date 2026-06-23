@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Spin, Empty, Button, Result } from 'antd';
+import { Spin, Button, Result } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 
 interface LoadingStateProps {

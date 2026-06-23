@@ -6,11 +6,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Row, Col, Statistic, Tag, Space, Spin, Button, List, Empty, Tooltip, Badge, message,
+  Card, Row, Col, Tag, Space, Spin, Button, Empty, Tooltip,
 } from 'antd';
-import {
-  RiseOutlined, FallOutlined, StockOutlined, StarOutlined,
-  StarFilled, ReloadOutlined, DragOutlined, ThunderboltOutlined,
+import { FallOutlined, StarOutlined,
+  StarFilled, ReloadOutlined, DragOutlined,
   FileTextOutlined, TrophyOutlined, DashboardOutlined,
 } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';

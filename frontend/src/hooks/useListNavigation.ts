@@ -3,7 +3,7 @@
  * 支持 J/K 上下导航、Enter 选中、Home/End 跳转
  */
 
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 
 interface UseListNavigationOptions<T> {
   items: T[];

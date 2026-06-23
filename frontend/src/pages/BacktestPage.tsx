@@ -5,12 +5,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Input, Button, Card, Spin, Empty, Tag, Typography, Divider, Table, 
-  Select, Space, Tooltip, message, Row, Col, Statistic 
+  Input, Button, Card, Spin, Empty, Tag, Typography, Table, 
+  Select, Tooltip, message, Row, Col, Statistic 
 } from 'antd';
 import { 
-  SearchOutlined, RiseOutlined, FallOutlined, TrophyOutlined,
-  LineChartOutlined, SettingOutlined, ThunderboltOutlined,
+  SearchOutlined, TrophyOutlined,
+  LineChartOutlined, ThunderboltOutlined,
   FundOutlined, BarChartOutlined
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';

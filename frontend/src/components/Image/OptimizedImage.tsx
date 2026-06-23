@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LazyImage, LazyImageProps } from './LazyImage';
+import { LazyImageProps } from './LazyImage';
 import { ResponsiveImage, ResponsiveImageProps, ImageOptimizationConfig } from './ResponsiveImage';
 
 interface OptimizedImageProps extends Omit<LazyImageProps, 'src' | 'alt'>, Omit<ResponsiveImageProps, 'src' | 'alt'> {

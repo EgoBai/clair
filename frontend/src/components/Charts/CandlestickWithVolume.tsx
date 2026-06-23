@@ -7,7 +7,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { Card, Typography, Space, Tag, Row, Col, Statistic } from 'antd';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  ResponsiveContainer, Tooltip as RechartsTooltip, ReferenceLine,
+  ResponsiveContainer, Tooltip as RechartsTooltip,
   Brush,
 } from 'recharts';
 

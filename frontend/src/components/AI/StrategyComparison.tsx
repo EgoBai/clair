@@ -4,11 +4,10 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Row, Col, Table, Tag, Space, Typography, Tooltip, Radio } from 'antd';
+import { Card, Row, Col, Table, Tag, Typography, Radio } from 'antd';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid,
-  BarChart, Bar, Cell, Legend, Tooltip as RechartsTooltip,
+  ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Cell, Legend, Tooltip as RechartsTooltip,
 } from 'recharts';
 import { generateStrategyInsight, type StrategyInsight } from '../../utils/aiModelExplainer';
 

@@ -5,8 +5,7 @@
  */
 
 import React, { useRef, useEffect, useMemo } from 'react';
-import { Typography, Tag, Space, Empty, Select, Skeleton } from 'antd';
-import { StockOutlined } from '@ant-design/icons';
+import { Typography, Empty, Skeleton } from 'antd';
 
 const { Text } = Typography;
 

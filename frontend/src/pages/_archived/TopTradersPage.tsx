@@ -7,15 +7,13 @@
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import {
-  Card, Row, Col, Statistic, Table, Tabs, Tag, Typography, Spin, Space, DatePicker,
+  Card, Row, Col, Statistic, Table, Tag, Typography, Spin, Space,
 } from 'antd';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+import { Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell,
 } from 'recharts';
 import {
   TrophyOutlined, ArrowUpOutlined, ArrowDownOutlined, BankOutlined,
-  TeamOutlined,
 } from '@ant-design/icons';
 import { fetchTopTraderOverviewTyped, fetchTopTraderSeatRank } from '../services/api';
 import type { TopTraderOverview, SeatRankEntry } from '../../../shared/types';

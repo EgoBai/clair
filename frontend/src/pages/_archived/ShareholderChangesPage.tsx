@@ -8,7 +8,7 @@ import logger from '../utils/logger';
 import { apiService } from '../services/api';
 import {
   Card, Table, Tag, Space, Typography, Row, Col, Statistic,
-  Button, Segmented, Select, Tooltip,
+  Button, Select, Tooltip,
 } from 'antd';
 import {
   TeamOutlined, RiseOutlined, FallOutlined, UserAddOutlined,

@@ -4,14 +4,14 @@
  * 参考雪球投资组合功能
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Card, Row, Col, Table, Tag, Button, Statistic, Space, Typography,
   Modal, Form, Input, InputNumber, Select, Popconfirm, Tooltip,
-  Empty, Spin, Alert, Divider, Badge,
+  Empty, Spin, Alert, Divider,
 } from 'antd';
 import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, Legend,
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
 } from 'recharts';
 import {
   PlusOutlined, DeleteOutlined, EditOutlined, WalletOutlined,

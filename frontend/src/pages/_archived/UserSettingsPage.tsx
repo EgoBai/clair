@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Input, Switch, Select, Button, Tabs, List, Tag, Divider, Row, Col, message, Avatar, Statistic } from 'antd';
-import { UserOutlined, BellOutlined, EyeOutlined, HistoryOutlined, LogoutOutlined } from '@ant-design/icons';
+import { Card, Form, Input, Switch, Select, Button, Tabs, List, Tag, Divider, Row, Col, message, Avatar } from 'antd';
+import { UserOutlined, LogoutOutlined } from '@ant-design/icons';
 
 interface UserSettings {
   theme: 'light' | 'dark' | 'system';

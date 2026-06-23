@@ -3,15 +3,14 @@
  * 多指标雷达图 + 横向对比表格 + 柱状图
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import logger from '../utils/logger';
 import { apiService } from '../services/api';
 import { Card, Select, Table, Tag, Row, Col, Spin, Button, Empty, Tabs, Statistic } from 'antd';
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { DeleteOutlined } from '@ant-design/icons';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line,
 } from 'recharts';
 
 interface CompareStock {

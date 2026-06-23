@@ -9,7 +9,7 @@
  * 同时处理 ECharts 的 resize 事件
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface ResponsiveChartProps {
   children: React.ReactElement;

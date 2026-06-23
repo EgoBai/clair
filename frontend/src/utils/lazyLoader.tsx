@@ -3,7 +3,7 @@
  * 支持：图片懒加载 / 组件懒加载 / 预加载控制
  */
 
-import React, { useEffect, useRef, useState, useCallback, useMemo, RefObject } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 // ==================== Observer 单例管理 ====================
 

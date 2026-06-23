@@ -3,12 +3,11 @@
  * 展示涨跌家数、市场情绪、McClellan指标
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Statistic, Progress, Tag, Select, Spin, Tooltip } from 'antd';
+import React from 'react';
+import { Card, Row, Col, Statistic, Progress, Tag, Spin, Tooltip } from 'antd';
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
-  MinusOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
 

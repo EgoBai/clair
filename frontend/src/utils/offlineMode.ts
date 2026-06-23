@@ -10,7 +10,7 @@ import logger from './logger';
  * - 离线状态 UI 提示
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ==================== 类型定义 ====================
 

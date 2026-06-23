@@ -3,7 +3,6 @@
  * 所有页面通过此hook获取颜色，不再各自定义常量
  */
 
-import { theme as antdTheme } from 'antd';
 import { useResolvedTheme } from '../store/useAppStore';
 
 export function useThemeTokens() {

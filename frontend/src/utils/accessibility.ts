@@ -4,7 +4,7 @@
  * 新增: 颜色对比度检测、表格可访问性、表单验证播报、增强键盘导航
  */
 
-import React, { useEffect, useRef, useCallback, createContext, useContext, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useCallback, createContext, useContext, useState } from 'react';
 
 // ==================== ARIA 工具 ====================
 

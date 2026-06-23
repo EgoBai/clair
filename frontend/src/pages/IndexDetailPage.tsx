@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Spin, Tag, Typography, Empty, Card, Statistic, Segmented } from 'antd';
+import { Spin, Tag, Typography, Empty, Card, Statistic } from 'antd';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 

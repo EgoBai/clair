@@ -7,17 +7,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Typography, Breadcrumb, Card, Row, Col, Space, Tag,
-  Spin, Button, Segmented, Empty, message, Divider, Tooltip,
+  Spin, Button, Segmented, Empty, Divider, Tooltip,
 } from 'antd';
-import {
-  HomeOutlined, StockOutlined, CompassOutlined,
+import { StockOutlined, CompassOutlined,
   ReloadOutlined, StarOutlined, StarFilled, LineChartOutlined,
-  RiseOutlined, FallOutlined,
   FundProjectionScreenOutlined,
 } from '@ant-design/icons';
 import KLineChart, { KLineData } from '../components/Charts/KLineChart';
 import { useStockActions, useWatchlist } from '../store/useStockStore';
-import { analyze, StrategyResult } from '../utils/strategy';
+import { analyze } from '../utils/strategy';
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 
 const { Title, Text } = Typography;

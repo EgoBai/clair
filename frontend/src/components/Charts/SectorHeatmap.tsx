@@ -4,7 +4,7 @@
  */
 import React, { useMemo } from 'react';
 import { Card, Typography, Tooltip, Space, Tag, Skeleton } from 'antd';
-import { FireOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { FireOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 

@@ -4,16 +4,16 @@
  * 参考东方财富资讯功能
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import logger from '../utils/logger';
 import {
   Card, List, Tag, Space, Typography, Select, Input, Row, Col,
-  Statistic, Spin, Empty, Badge, Tooltip, Divider, Tabs, Pagination,
+  Statistic, Spin, Empty, Tooltip, Pagination,
 } from 'antd';
 import {
   ReadOutlined, SearchOutlined, FireOutlined, SmileOutlined,
   FrownOutlined, MinusCircleOutlined, BarChartOutlined,
-  GlobalOutlined, BankOutlined, LineChartOutlined, ExperimentOutlined,
+  GlobalOutlined, BankOutlined, ExperimentOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
 

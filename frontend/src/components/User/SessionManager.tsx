@@ -2,7 +2,7 @@
  * Session 管理组件
  * 显示活跃设备、支持远程登出
  */
-import { useState, useEffect, memo } from 'react';
+import { useState, memo } from 'react';
 
 interface SessionInfo {
   id: string;

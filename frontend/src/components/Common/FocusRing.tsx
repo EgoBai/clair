@@ -2,7 +2,7 @@
  * FocusRing 焦点环组件 v2
  * 提供统一的键盘焦点指示、快捷键提示、焦点管理
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 // 焦点环组件
 export const FocusRing: React.FC<{

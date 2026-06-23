@@ -7,7 +7,6 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { shortcutEngine, PRESET_SHORTCUTS } from '../utils/shortcutEngine';
 
 export interface ShortcutConfig {
   key: string;

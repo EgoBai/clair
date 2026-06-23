@@ -7,7 +7,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   enhancedWsService,
   WSMessage,
-  WSMessageType,
   QuoteUpdateData,
   ConnectionState,
 } from '../services/enhancedWebsocket';

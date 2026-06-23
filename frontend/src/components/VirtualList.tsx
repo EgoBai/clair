@@ -3,7 +3,7 @@
  * 用于大数据量列表的高性能渲染
  */
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 
 interface VirtualListProps<T> {
   items: T[];

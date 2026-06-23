@@ -3,7 +3,7 @@
  * 轻量级，针对 ECharts 渲染失败提供优雅降级
  */
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import logger from '../../utils/logger';
 
 interface ChartErrorBoundaryProps {

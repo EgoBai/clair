@@ -6,12 +6,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import logger from '../utils/logger';
 import {
-  Card, Table, Tag, DatePicker, Statistic, Row, Col, Space,
+  Card, Table, Tag, Statistic, Row, Col, Space,
   Typography, Button, Tooltip, Segmented, Progress,
 } from 'antd';
 import {
   SwapOutlined, RiseOutlined, FallOutlined, DollarOutlined,
-  ReloadOutlined, DownloadOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 

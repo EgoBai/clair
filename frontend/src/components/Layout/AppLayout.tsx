@@ -5,7 +5,7 @@ import NavigationMenu from './NavigationMenu';
 import TabBar from './TabBar';
 import ThemeToggle from '../Common/ThemeToggle';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
-import { SettingOutlined, InfoCircleOutlined, GithubOutlined } from '@ant-design/icons';
+import { SettingOutlined, GithubOutlined } from '@ant-design/icons';
 import { Tooltip, Modal, Typography } from 'antd';
 import FloatingChat from '../AI/FloatingChat';
 import '../../styles/responsive.css';

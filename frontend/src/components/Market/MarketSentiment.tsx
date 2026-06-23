@@ -5,9 +5,9 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Row, Col, Progress, Statistic, Typography, Tag, Tooltip } from 'antd';
+import { Card, Row, Col, Typography, Tag, Tooltip } from 'antd';
 import {
-  RiseOutlined, FallOutlined, SwapOutlined, FireOutlined,
+  RiseOutlined, FallOutlined, SwapOutlined,
   ThunderboltOutlined, SmileOutlined, FrownOutlined, MehOutlined,
 } from '@ant-design/icons';
 

@@ -3,7 +3,7 @@
  * 捕获子组件渲染错误，防止整个页面崩溃
  */
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import logger from '../../utils/logger';
 import { Button, Result } from 'antd';
 

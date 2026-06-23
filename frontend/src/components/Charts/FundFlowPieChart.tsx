@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Card, Tooltip as AntTooltip } from 'antd';
+import { Card } from 'antd';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip,
 } from 'recharts';

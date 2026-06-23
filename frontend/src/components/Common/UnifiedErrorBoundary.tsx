@@ -13,7 +13,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import logger from '../../utils/logger';
 import { Button, Result, Typography, Space, Alert } from 'antd';
-import { ReloadOutlined, BugOutlined, HomeOutlined, WarningOutlined } from '@ant-design/icons';
+import { ReloadOutlined, HomeOutlined, WarningOutlined } from '@ant-design/icons';
 
 const { Text, Paragraph } = Typography;
 

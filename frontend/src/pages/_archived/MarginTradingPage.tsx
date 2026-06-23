@@ -7,16 +7,13 @@
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import {
-  Card, Row, Col, Statistic, Table, Tabs, Radio, Space, Tag, Typography, Spin,
+  Card, Row, Col, Statistic, Table, Radio, Tag, Typography, Spin,
 } from 'antd';
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, Area, AreaChart,
-} from 'recharts';
+
 import {
   ArrowUpOutlined, ArrowDownOutlined, DollarOutlined, StockOutlined,
 } from '@ant-design/icons';
-import { fetchMarginOverviewTyped, fetchMarginData, fetchMarginRank } from '../services/api';
+import { fetchMarginOverviewTyped, fetchMarginRank } from '../services/api';
 import type { MarginOverview } from '../../../shared/types';
 
 const { Title, Text } = Typography;

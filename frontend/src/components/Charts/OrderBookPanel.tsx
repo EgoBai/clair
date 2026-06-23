@@ -4,9 +4,9 @@
  * 参考东方财富盘口样式
  */
 
-import React, { useMemo } from 'react';
-import { Table, Progress, Card, Statistic, Row, Col, Tag } from 'antd';
-import type { OrderBook, OrderBookLevel } from '../../../../shared/types';
+import React from 'react';
+import { Table, Progress, Card, Statistic, Row, Col } from 'antd';
+import type { OrderBook } from '../../../../shared/types';
 
 interface OrderBookPanelProps {
   data: OrderBook | null;

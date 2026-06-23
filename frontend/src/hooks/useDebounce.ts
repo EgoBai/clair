@@ -3,7 +3,7 @@
  * 支持即时取消、flush 立即执行
  */
 
-import React, { useRef, useCallback, useEffect, useState } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 
 export function useDebounce<T extends (...args: any[]) => any>(
   callback: T,

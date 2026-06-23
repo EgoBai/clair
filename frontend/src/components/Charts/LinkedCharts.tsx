@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useRef, useCallback, useEffect } from 'react';
-import { Card, Space, Tag, Switch, Typography, Radio } from 'antd';
+import { Card, Space, Tag, Typography } from 'antd';
 import { LinkOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';

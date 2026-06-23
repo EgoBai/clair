@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Row, Col, Typography, Progress, Tag, Space, Tooltip, Divider } from 'antd';
+import { Card, Row, Col, Typography, Progress, Tag, Space } from 'antd';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,

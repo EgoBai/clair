@@ -12,8 +12,7 @@ import {
 import {
   PlusOutlined, SearchOutlined, FolderOutlined, StarFilled,
   CloseOutlined, ReloadOutlined, LineChartOutlined, EyeOutlined,
-  DeleteOutlined, BellOutlined, AlertOutlined, RobotOutlined,
-  HomeOutlined, ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
+  DeleteOutlined, BellOutlined, AlertOutlined, RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
   InfoCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';

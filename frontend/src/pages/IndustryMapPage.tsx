@@ -8,7 +8,7 @@
  * 4. 智能问答
  */
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Card,
   Row,
@@ -38,7 +38,6 @@ import {
   StarFilled,
   RiseOutlined,
   FallOutlined,
-  SwapOutlined,
   InfoCircleOutlined,
   SendOutlined,
   FilterOutlined,
@@ -63,7 +62,6 @@ import {
   ChainSegment,
   ChainCompany,
   LayerType,
-  CompanyPosition,
   LAYER_COLORS,
   LAYER_NAMES,
   POSITION_COLORS,

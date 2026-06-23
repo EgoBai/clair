@@ -4,7 +4,7 @@ import logger from './logger';
  * memo、useMemo 优化组件，避免不必要的重渲染
  */
 
-import React, { memo, useMemo, useCallback, useRef, useEffect, useState } from 'react';
+import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
 
 // ==================== 稳定化 Hooks ====================
 

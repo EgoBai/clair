@@ -3,10 +3,10 @@
  * ETF 列表、净值走势、折溢价率、持仓明细
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
-import { Card, Table, Tag, Tabs, Space, Statistic, Row, Col, Progress, Typography, Select, Button, Tooltip } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Space, Statistic, Row, Col, Typography, Select, Button, Tooltip } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;

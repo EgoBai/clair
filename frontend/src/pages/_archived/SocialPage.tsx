@@ -9,12 +9,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import logger from '../utils/logger';
 import { apiService } from '../services/api';
 import {
-  Card, List, Avatar, Button, Input, Tag, Space, Divider,
-  Tabs, Badge, Empty, message, Popconfirm, Pagination,
+  Card, List, Avatar, Button, Input, Tag, Space,
+  Tabs, Empty, message, Pagination,
 } from 'antd';
 import {
-  LikeOutlined, LikeFilled, MessageOutlined, StarOutlined,
-  StarFilled, UserOutlined, PushpinOutlined, FireOutlined,
+  LikeOutlined, LikeFilled, MessageOutlined, StarOutlined, UserOutlined, FireOutlined,
 } from '@ant-design/icons';
 
 const { TextArea } = Input;

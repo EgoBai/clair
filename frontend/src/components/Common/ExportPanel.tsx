@@ -3,7 +3,7 @@
  * 支持多格式导出、模板选择、数据预览、定时导出
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import logger from '../../utils/logger';
 import {
   Button,
@@ -19,9 +19,7 @@ import {
   Divider,
   Typography,
   Tag,
-  Tooltip,
   DatePicker,
-  InputNumber,
   Radio, type MenuProps,
 } from 'antd';
 import {
@@ -29,7 +27,6 @@ import {
   FileExcelOutlined,
   FilePdfOutlined,
   FileTextOutlined,
-  FileImageOutlined,
   SettingOutlined,
   ClockCircleOutlined,
   EyeOutlined,
@@ -49,9 +46,6 @@ import {
   ReportTemplate,
   generateReport,
   STOCK_LIST_COLUMNS,
-  KLINE_COLUMNS,
-  BACKTEST_COLUMNS,
-  FINANCIAL_COLUMNS,
   addToHistory,
 } from '../../utils/bloombergExportEngine';
 

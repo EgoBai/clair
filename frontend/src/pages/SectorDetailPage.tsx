@@ -3,14 +3,14 @@
  * 成分股、权重、估值、PE分布、市值分布
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Row, Col, Statistic, Spin, Button, Select, Space, Progress } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Row, Col, Statistic, Spin, Select, Space, Progress } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, LineChart, Line,
+  ResponsiveContainer,
 } from 'recharts';
 
 interface SectorSummary {

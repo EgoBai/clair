@@ -4,11 +4,11 @@
  * 参考 Wind / Bloomberg 数据展示风格
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { apiService } from '../services/api';
 import { useParams } from 'react-router-dom';
-import { Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Select } from 'antd';
+import { Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,

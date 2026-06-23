@@ -4,7 +4,7 @@
  * 数字、日期格式本地化
  */
 
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 
 import zhCN from './locales/zh-CN';
 import enUS from './locales/en-US';

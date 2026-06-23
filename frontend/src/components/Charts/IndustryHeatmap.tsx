@@ -5,9 +5,8 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Typography, Tooltip, Skeleton, Space, Tag } from 'antd';
+import { Typography, Tooltip, Skeleton } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { AppstoreOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 

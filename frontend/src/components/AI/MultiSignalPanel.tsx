@@ -3,7 +3,7 @@
  * 显示股票的多维度信号分析结果 + AI叙事报告
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 interface Signal {
   name: string;

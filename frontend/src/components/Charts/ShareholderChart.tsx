@@ -7,7 +7,6 @@ import React from 'react';
 import { Card, Table, Tag, Progress, Typography } from 'antd';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend,
 } from 'recharts';
 import { ArrowUpOutlined, ArrowDownOutlined, BankOutlined, UserOutlined } from '@ant-design/icons';
 import type { ShareholderInfo, TopShareholders } from '../../../../shared/types';

@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Typography, Space, Tag } from 'antd';
+import { Card, Typography, Space } from 'antd';
 import { BranchesOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 

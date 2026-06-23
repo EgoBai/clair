@@ -6,7 +6,7 @@
  * S: 卖出（触发事件）
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 
 interface StockActions {
   onViewDetail?: (symbol: string) => void;

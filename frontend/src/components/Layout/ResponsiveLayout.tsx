@@ -2,7 +2,7 @@
  * ResponsiveLayout 响应式布局组件 v2
  * 提供Grid、断点判断、显示/隐藏、流体排版、自适应容器
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   getCurrentBreakpoint, BREAKPOINTS, GRID_PRESETS,
   fluidTypography, TYPOGRAPHY_SCALE, fluidSpacing,

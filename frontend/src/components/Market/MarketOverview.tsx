@@ -3,7 +3,7 @@
  * 展示A股市场整体情况：涨跌分布、主要指数、热门行业
  */
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, Row, Col, Statistic, Table, Tag, Space, Tabs, Spin } from 'antd';
 import {
   ArrowUpOutlined,

@@ -10,13 +10,13 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
-import { Card, Button, Tag, Table, Spin, Empty, Typography, message, Space, Tooltip } from 'antd';
+import { Card, Button, Tag, Table, Empty, Typography, message, Space, Tooltip } from 'antd';
 import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
-  ReloadOutlined, SearchOutlined, FilterOutlined,
-  FundOutlined, LineChartOutlined,
-  StarOutlined, StarFilled, PlusOutlined, SettingOutlined,
-  RobotOutlined, BulbOutlined,
+  ReloadOutlined, FilterOutlined,
+  FundOutlined,
+  StarOutlined, StarFilled,
+  RobotOutlined,
   FallOutlined, RocketOutlined, SafetyOutlined,
   DollarOutlined, TrophyOutlined, PercentageOutlined,
   InfoCircleOutlined,

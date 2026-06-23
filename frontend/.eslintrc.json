@@ -13,7 +13,7 @@
     "plugin:react/jsx-runtime",
     "prettier"
   ],
-  "ignorePatterns": ["dist", "node_modules", ".eslintrc.cjs", "__tests__", "scripts"],
+  "ignorePatterns": ["dist", "node_modules", ".eslintrc.cjs", "__tests__", "scripts", "e2e", "**/_archived/**", "src/test-compile.ts", "src/App.optimized.tsx", "src/PerformanceApp.tsx"],
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": "latest",
@@ -26,14 +26,14 @@
     "react",
     "react-hooks",
     "@typescript-eslint",
-    "react-refresh"
+    "react-refresh",
+    "unused-imports"
   ],
   "rules": {
-    "react-refresh/only-export-components": [
-      "warn",
-      { "allowConstantExport": true }
-    ],
-    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "react-refresh/only-export-components": "off",
+    "@typescript-eslint/no-unused-vars": "off",
+    "unused-imports/no-unused-imports": "error",
+    "unused-imports/no-unused-vars": ["warn", { "vars": "all", "varsIgnorePattern": "^_", "args": "after-used", "argsIgnorePattern": "^_" }],
     "@typescript-eslint/no-explicit-any": "off",
     "react/prop-types": "off",
     "no-console": ["warn", { "allow": ["warn", "error"] }],
