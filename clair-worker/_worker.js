@@ -1649,7 +1649,7 @@ export default {
     try {
       const body = await request.json().catch(() => ({}));
       const symbols = (body.symbols || []).slice(0, 40);
-      const days = Math.min(body.days || 30, 60);
+      const days = Math.min(body.days || 30, 120);
       if (!symbols.length) return json({ data: {}, success: true });
 
       const stocks = await getStockList();
@@ -1678,6 +1678,8 @@ export default {
             
             const change5d = closes.length >= 5 ? Math.round(((latest - closes[closes.length - 5]) / closes[closes.length - 5] * 100) * 100) / 100 : null;
             const change20d = closes.length >= 20 ? Math.round(((latest - closes[closes.length - 20]) / closes[closes.length - 20] * 100) * 100) / 100 : null;
+            // 区间涨跌幅：按传入 days 算 (latest 相对 days 个交易日前的收盘)；样本不足返回 null
+            const changeRange = closes.length >= days + 1 ? Math.round(((latest - closes[closes.length - 1 - days]) / closes[closes.length - 1 - days] * 100) * 100) / 100 : null;
             const lookback20 = closes.slice(-20);
             const ma20 = Math.round((lookback20.reduce((a, b) => a + b, 0) / lookback20.length) * 100) / 100;
             const maDeviation = Math.round(((latest - ma20) / ma20 * 100) * 100) / 100;
@@ -1699,7 +1701,7 @@ export default {
             const v = rets.reduce((a, b) => a + (b - m) ** 2, 0) / rets.length;
             const vol20d = Math.round(Math.sqrt(v) * Math.sqrt(250) * 100 * 100) / 100;
 
-            return { symbol, change5d, change20d, ma20, maDeviation, rsi14, volatility20d: vol20d };
+            return { symbol, change5d, change20d, changeRange, ma20, maDeviation, rsi14, volatility20d: vol20d };
           } catch (e) {
             return { symbol };
           }

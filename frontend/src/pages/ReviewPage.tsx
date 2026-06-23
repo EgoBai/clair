@@ -57,6 +57,9 @@ interface StockRecord {
   changeAmt: number;
   volume: number;
   industry: string;
+  // 区间涨跌幅（来自 /api/tech/batch 的 changeRange，按所选 dateRange 的交易日数计算）。
+  // null = 历史样本不足或接口未返回，此时回退到实时 changePct。
+  rangeChangePct: number | null;
 }
 
 interface WatchlistGroup {
@@ -105,6 +108,43 @@ const readWatchlistSymbols = (): { symbol: string }[] => {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Date-range helpers — 把按钮选项映射成交易日数 + 显示标签            */
+/* ------------------------------------------------------------------ */
+// 区间按钮 → tech/batch days 参数。custom 暂映射为 30 天。
+const dateRangeToDays = (range: string): number => {
+  switch (range) {
+    case '7days':
+      return 7;
+    case '90days':
+      return 90;
+    case 'custom':
+      return 30; // 自定义暂按 30 天处理
+    case '30days':
+    default:
+      return 30;
+  }
+};
+
+// 区间按钮 → 标题用的中文标签
+const dateRangeLabel = (range: string): string => {
+  switch (range) {
+    case '7days':
+      return '近7天';
+    case '90days':
+      return '近90天';
+    case 'custom':
+      return '近30天(自定义)';
+    case '30days':
+    default:
+      return '近30天';
+  }
+};
+
+// 有效涨跌：优先用区间涨跌(rangeChangePct)，历史样本不足时回退到实时 changePct
+const effChange = (s: StockRecord): number =>
+  s.rangeChangePct != null ? s.rangeChangePct : s.changePct;
+
+/* ------------------------------------------------------------------ */
 /*  Derived stats                                                      */
 /* ------------------------------------------------------------------ */
 const computeStats = (stocks: StockRecord[]): StatsResult => {
@@ -120,24 +160,24 @@ const computeStats = (stocks: StockRecord[]): StatsResult => {
     };
   }
 
-  const totalChangePct = stocks.reduce((acc, s) => acc + s.changePct, 0);
+  const totalChangePct = stocks.reduce((acc, s) => acc + effChange(s), 0);
   const avgChangePct = totalChangePct / stocks.length;
 
-  const sorted = [...stocks].sort((a, b) => b.changePct - a.changePct);
+  const sorted = [...stocks].sort((a, b) => effChange(b) - effChange(a));
   const bestPerformer = {
     symbol: sorted[0].symbol,
     name: sorted[0].name,
-    changePct: sorted[0].changePct,
+    changePct: effChange(sorted[0]),
   };
   const worstPerformer = {
     symbol: sorted[sorted.length - 1].symbol,
     name: sorted[sorted.length - 1].name,
-    changePct: sorted[sorted.length - 1].changePct,
+    changePct: effChange(sorted[sorted.length - 1]),
   };
 
-  const upCount = stocks.filter((s) => s.changePct > 0).length;
-  const downCount = stocks.filter((s) => s.changePct < 0).length;
-  const flatCount = stocks.filter((s) => s.changePct === 0).length;
+  const upCount = stocks.filter((s) => effChange(s) > 0).length;
+  const downCount = stocks.filter((s) => effChange(s) < 0).length;
+  const flatCount = stocks.filter((s) => effChange(s) === 0).length;
 
   return {
     totalStocks: stocks.length,
@@ -182,6 +222,7 @@ const ReviewPage: React.FC = () => {
   const [hasWatchlist, setHasWatchlist] = useState<boolean | null>(null); // null = not checked yet
 
   const stats = computeStats(stocks);
+  const rangeLabel = dateRangeLabel(dateRange);
 
   /* --- Load watchlist and fetch real quotes ------------------------- */
   const loadStockData = useCallback(async () => {
@@ -198,18 +239,58 @@ const ReviewPage: React.FC = () => {
 
       setHasWatchlist(true);
       const symbolList = watchlistSymbols.map((s) => s.symbol);
+      const days = dateRangeToDays(dateRange);
 
-      const resp = await fetch('/api/stocks/batch/quotes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols: symbolList }),
-      });
+      // 并行拉取：实时快照(价/名/行业) + 区间技术指标(区间涨跌幅)
+      const [quotesResp, techResp] = await Promise.allSettled([
+        fetch('/api/stocks/batch/quotes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols: symbolList }),
+        }),
+        fetch('/api/tech/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols: symbolList, days }),
+        }),
+      ]);
 
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}`);
+      if (quotesResp.status !== 'fulfilled' || !quotesResp.value.ok) {
+        const st =
+          quotesResp.status === 'fulfilled' ? quotesResp.value.status : 'network';
+        throw new Error(`HTTP ${st}`);
       }
 
-      const data = await resp.json();
+      const data = await quotesResp.value.json();
+
+      // 解析 tech/batch 区间涨跌幅，按 symbol 建索引（接口失败时为空 map → 回退实时）
+      const rangeMap: Record<string, number> = {};
+      if (techResp.status === 'fulfilled' && techResp.value.ok) {
+        try {
+          const techData = await techResp.value.json();
+          const techRecords = (techData.data || techData || {}) as Record<
+            string,
+            { changeRange?: number | null }
+          >;
+          for (const [sym, rec] of Object.entries(techRecords)) {
+            if (rec && rec.changeRange != null && Number.isFinite(rec.changeRange)) {
+              rangeMap[sym] = Number(rec.changeRange);
+            }
+          }
+        } catch {
+          // tech 解析失败：忽略，回退到实时 changePct
+        }
+      }
+
+      // 区间涨跌幅查找：兼容带/不带交易所后缀的 symbol
+      const lookupRange = (symbol: string): number | null => {
+        if (symbol in rangeMap) return rangeMap[symbol];
+        const pure = symbol.replace(/\.(SH|SZ|BJ)$/i, '');
+        for (const [k, v] of Object.entries(rangeMap)) {
+          if (k.replace(/\.(SH|SZ|BJ)$/i, '') === pure) return v;
+        }
+        return null;
+      };
 
       // Normalize the response into StockRecord[]
       const stocksData = data.data?.stocks || data.stocks || data.quotes || data || [];
@@ -234,6 +315,7 @@ const ReviewPage: React.FC = () => {
             changeAmt,
             volume,
             industry,
+            rangeChangePct: lookupRange(symbol),
           };
         });
 
@@ -245,7 +327,7 @@ const ReviewPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateRange]);
 
   useEffect(() => {
     loadStockData();
@@ -312,11 +394,12 @@ const ReviewPage: React.FC = () => {
       ),
     },
     {
-      title: '涨跌幅',
+      title: `${rangeLabel}涨跌幅`,
       dataIndex: 'changePct',
       key: 'changePct',
-      width: 100,
-      render: (v: number) => {
+      width: 110,
+      render: (_v: number, record: StockRecord) => {
+        const v = effChange(record);
         const color = v > 0 ? THEME.up : v < 0 ? THEME.down : THEME.text;
         return (
           <Text style={{ color, fontSize: 13, fontWeight: 600 }}>
