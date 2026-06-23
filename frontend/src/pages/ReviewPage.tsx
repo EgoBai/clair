@@ -551,7 +551,7 @@ const ReviewPage: React.FC = () => {
             📋 复盘中心
           </Title>
           <Text style={{ color: THEME.textSecondary, fontSize: 14, marginTop: 4, display: 'block' }}>
-            实时自选股行情概览与分析
+            自选股 {rangeLabel} 区间表现复盘与分析
           </Text>
         </div>
         <Space size={8} wrap>
@@ -613,7 +613,7 @@ const ReviewPage: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle} bodyStyle={{ padding: 20 }}>
             <Statistic
-              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>平均涨跌幅</span>}
+              title={<span style={{ color: THEME.textSecondary, fontSize: 13 }}>平均{rangeLabel}涨跌</span>}
               value={stats.avgChangePct}
               precision={2}
               suffix="%"
@@ -680,7 +680,7 @@ const ReviewPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <LineChartOutlined style={{ color: THEME.accent }} />
             <Text style={{ color: THEME.text, fontSize: 16, fontWeight: 600 }}>
-              自选股行情
+              自选股{rangeLabel}表现
             </Text>
             <Tag
               style={{
@@ -730,22 +730,23 @@ const ReviewPage: React.FC = () => {
         <Col xs={24} lg={14}>
           <Card style={{ ...cardStyle, height: '100%' }} bodyStyle={{ padding: 24 }}>
             <SectionTitle icon={<LineChartOutlined style={{ color: THEME.accent }} />}>
-              自选股涨跌分布
+              自选股{rangeLabel}涨跌分布
             </SectionTitle>
 
             {/* Visual bar for up/down/flat distribution */}
             <div style={{ marginBottom: 24 }}>
               {stocks
                 .slice()
-                .sort((a, b) => b.changePct - a.changePct)
+                .sort((a, b) => effChange(b) - effChange(a))
                 .map((s) => {
+                  const cv = effChange(s);
                   const maxAbs = Math.max(
-                    ...stocks.map((st) => Math.abs(st.changePct)),
+                    ...stocks.map((st) => Math.abs(effChange(st))),
                     1
                   );
-                  const barWidth = (Math.abs(s.changePct) / maxAbs) * 280;
+                  const barWidth = (Math.abs(cv) / maxAbs) * 280;
                   const color =
-                    s.changePct > 0 ? THEME.up : s.changePct < 0 ? THEME.down : THEME.textSecondary;
+                    cv > 0 ? THEME.up : cv < 0 ? THEME.down : THEME.textSecondary;
                   return (
                     <div
                       key={s.symbol}
@@ -779,13 +780,13 @@ const ReviewPage: React.FC = () => {
                       >
                         {barWidth > 40 && (
                           <span style={{ color: '#fff', fontSize: 10, fontWeight: 600 }}>
-                            {s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%
+                            {cv > 0 ? '+' : ''}{cv.toFixed(2)}%
                           </span>
                         )}
                       </div>
                       {barWidth <= 40 && (
                         <span style={{ color, fontSize: 10, fontWeight: 600 }}>
-                          {s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%
+                          {cv > 0 ? '+' : ''}{cv.toFixed(2)}%
                         </span>
                       )}
                     </div>
@@ -844,12 +845,12 @@ const ReviewPage: React.FC = () => {
                   value: stats.totalStocks > 0
                     ? `${((stats.upCount / stats.totalStocks) * 100).toFixed(1)}%`
                     : '-',
-                  desc: '当前涨跌比',
+                  desc: `${rangeLabel}上涨比`,
                 },
                 {
                   label: '平均涨幅',
                   value: `${stats.avgChangePct >= 0 ? '+' : ''}${stats.avgChangePct.toFixed(2)}%`,
-                  desc: '自选股均值',
+                  desc: `${rangeLabel}均值`,
                 },
                 {
                   label: '涨跌家数',
