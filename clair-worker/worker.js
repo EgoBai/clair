@@ -116,10 +116,12 @@ function generateConcepts(name, industry) {
 }
 
 function getFallbackStocks() {
-  return FULL_STOCK_LIST.map(([code, name, market, industry]) => ({
-    symbol: code, name, market,
-    industry: reclassify(name, industry),
-    concepts: generateConcepts(name, industry)
+  return FULL_STOCK_LIST.map((item) => ({
+    symbol: item[0], name: item[1], market: item[2],
+    industry: reclassify(item[1], item[3]),
+    // 优先用 FULL_STOCK_LIST 里的真实概念(第5元素), 无则正则兜底
+    concepts: (item.length >= 5 && Array.isArray(item[4]) && item[4].length)
+      ? item[4] : generateConcepts(item[1], item[3])
   }));
 }
 
