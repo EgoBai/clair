@@ -494,11 +494,64 @@ async function handleSectorStocks(industry, pageSize = 50) {
   }
 }
 
+// ── 全市场实时行情：分批 + 限并发拉取，规避 Worker 子请求/超时限制 ───────────────
+// 把 stockList 项转成腾讯带市场前缀 key（sh600519 / sz000001 / bj899050），缺市场信息返回 null。
+function stockTencentKey(s) {
+  if (!s || !s.market) return null;
+  const pre = s.market === 'SH' ? 'sh' : s.market === 'SZ' ? 'sz' : s.market === 'BJ' ? 'bj' : '';
+  return pre ? pre + s.symbol : null;
+}
+
+// 按腾讯 key 列表实时拉行情，返回 quoteMapByTencent（带前缀 key，消除纯代码 000001 撞号）。
+// 分批(每批 batchSize) + 限并发(每轮最多 concurrency 个请求)跑 Promise.all：
+//   实测腾讯 qt.gtimg.cn 单请求可吃 400~500 只无截断；5541 只 / 400 = 14 批，并发 5 = 3 轮，
+//   子请求数 14 远低于 Worker 免费档 ~50 上限，3~4 轮并发控制总耗时不触发超时。
+// 复用 fetchTencentQuotes 的 GBK 解码/字段解析，不重写腾讯请求。
+async function fetchQuotesByTencentKeys(tencentKeys, { batchSize = 400, concurrency = 5 } = {}) {
+  const map = {};
+  const keys = tencentKeys.filter(Boolean);
+  const batches = [];
+  for (let i = 0; i < keys.length; i += batchSize) batches.push(keys.slice(i, i + batchSize));
+  // 按 concurrency 分轮，每轮内并发，轮间串行——限制瞬时子请求数防超限/超时。
+  for (let i = 0; i < batches.length; i += concurrency) {
+    const round = batches.slice(i, i + concurrency);
+    const roundResults = await Promise.all(round.map(b => fetchTencentQuotes(b)));
+    for (const results of roundResults) {
+      for (const q of results) {
+        if (q.tencentSymbol) map[q.tencentSymbol] = q;
+      }
+    }
+  }
+  return map;
+}
+
+// 全市场行情独立 30s 缓存（不复用 getAllQuotes 的 800 只 QUOTE_LIMIT 缓存，
+// 也不拖慢只需前 800 只的其它端点）。
+let fullMarketQuoteCache = null;
+let fullMarketQuoteTime = 0;
+const FULL_MARKET_QUOTE_TTL = 30_000;
+
+async function getFullMarketQuoteMap(stocks) {
+  const now = Date.now();
+  if (fullMarketQuoteCache && (now - fullMarketQuoteTime) < FULL_MARKET_QUOTE_TTL) {
+    return fullMarketQuoteCache;
+  }
+  const keys = stocks.map(stockTencentKey).filter(Boolean);
+  const map = await fetchQuotesByTencentKeys(keys, { batchSize: 400, concurrency: 5 });
+  fullMarketQuoteCache = map;
+  fullMarketQuoteTime = now;
+  return map;
+}
+
 // 全量股票列表 + 实时行情 join: GET /api/stocks?page=&pageSize=
-// 默认返回全部 5541 只；指定 pageSize 时分页。结构对齐 handleSectorStocks 的 latestQuote。
+// 不传 pageSize -> 全市场 5541 只。【本任务核心修复】行情不再受 getAllQuotes 的 800 只
+// QUOTE_LIMIT 限制（此前仅前 800 只带 latestQuote，其余价格/涨跌/PE 全 null，筛选页按估值/
+// 涨跌筛选不准）：
+//   · 全量请求(pageSize>=总数，ScreenerPage 传 pageSize=6000)：分批+限并发拉【全市场】真实行情(缓存30s)
+//   · 分页请求(pageSize<总数)：只拉【当前页】股票行情(通常 1 个腾讯请求，懒加载更省子请求/CPU)
+// 结构对齐 handleSectorStocks 的 latestQuote（字段保持不变）。
 async function handleAllStocks(url) {
   try {
-    const { quoteMapByTencent } = await getAllQuotes();
     const stocks = await getStockList();
 
     const pageSizeParam = url.searchParams.get('pageSize');
@@ -508,12 +561,19 @@ async function handleAllStocks(url) {
       ? Math.max(parseInt(pageSizeParam, 10) || stocks.length, 1)
       : stocks.length;
 
-    const all = stocks.map(s => {
-      // 「市场+代码」联合 key 查带前缀的 quoteMapByTencent，消除纯代码撞号
-      // （000001.SZ 平安银行 vs sh000001 上证指数）。前 800 限制外查不到则置 null，绝不回退纯代码。
-      const tencentKey = s.market
-        ? (s.market === 'SH' ? 'sh' : s.market === 'SZ' ? 'sz' : 'bj') + s.symbol
-        : null;
+    const total = stocks.length;
+    const start = (page - 1) * pageSize;
+    const pageStocks = stocks.slice(start, start + pageSize);
+
+    // 行情来源：覆盖全市场则走全市场缓存(分批+限并发)；否则只拉当前页(省子请求/CPU)。
+    const quoteMapByTencent = pageSize >= total
+      ? await getFullMarketQuoteMap(stocks)
+      : await fetchQuotesByTencentKeys(pageStocks.map(stockTencentKey));
+
+    const items = pageStocks.map(s => {
+      // 「市场+代码」联合 key 查带前缀 map，消除纯代码撞号
+      // （000001.SZ 平安银行 vs sh000001 上证指数）。查不到则置 null，绝不回退纯代码。
+      const tencentKey = stockTencentKey(s);
       const q = (tencentKey && quoteMapByTencent[tencentKey]) || null;
       return {
         symbol: s.symbol,
@@ -531,10 +591,6 @@ async function handleAllStocks(url) {
         } : null,
       };
     });
-
-    const total = all.length;
-    const start = (page - 1) * pageSize;
-    const items = all.slice(start, start + pageSize);
 
     return json({ data: { items, total, page, pageSize }, success: true });
   } catch (e) {
