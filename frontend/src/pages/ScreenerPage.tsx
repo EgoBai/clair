@@ -248,36 +248,75 @@ const ScreenerPage: React.FC = () => {
 
   const watchlistStore = useWatchlistStore();
 
-  // Load data
+  // 将任意来源(全量列表/涨跌榜/板块)的原始股票数组统一转为 StockData[]
+  const toStockData = useCallback((rawList: any[]): StockData[] => {
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    for (const s of rawList) {
+      if (s && s.symbol && !seen.has(s.symbol)) { seen.add(s.symbol); deduped.push(s); }
+    }
+    const parsed = parseStockList(deduped);
+    return parsed.map(s => ({
+      symbol: s.symbol, name: s.name,
+      price: s.price, changePercent: s.changePercent,
+      change: s.price * s.changePercent / 100,
+      volume: String(s.volume || '—'),
+      marketCap: String(s.marketCap || '—'),
+      marketCapNum: Number(s.marketCap || 0),
+      industry: s.industry || '—',
+      pe: s.peRatio ?? undefined, pb: s.pbRatio ?? undefined,
+      turnoverRate: s.turnoverRate,
+      amplitude: s.amplitude ?? undefined,
+    }));
+  }, []);
+
+  // Load data — 打开即默认展示全市场(对标同花顺/富途)，多端点容错保证页面非空
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const listResp = await apiFetch('/api/stocks?pageSize=6000').then(r => r.json());
-      const apiStocks = listResp?.data?.stocks || [];
-      const seen = new Set<string>();
-      const deduped: any[] = [];
-      for (const s of apiStocks) {
-        if (!seen.has(s.symbol)) { seen.add(s.symbol); deduped.push(s); }
+      let merged: StockData[] = [];
+
+      // 1) 主数据源：全市场股票列表。用相对路径走全局 fetch 代理
+      //    (dev→Vite proxy→Express 返回 5541 只；prod→main.tsx→clair-api.pages.dev)
+      //    信封兼容多种返回结构，避免后端形态差异导致解析为空。
+      try {
+        const resp = await fetch('/api/stocks?pageSize=6000');
+        if (resp.ok) {
+          const listResp = await resp.json();
+          const apiStocks =
+            listResp?.data?.stocks ??
+            listResp?.data?.items ??
+            (Array.isArray(listResp?.data) ? listResp.data : null) ??
+            listResp?.stocks ??
+            listResp?.items ??
+            (Array.isArray(listResp) ? listResp : null) ??
+            [];
+          merged = toStockData(apiStocks);
+        }
+      } catch { /* 全量端点不可用 → 进入兜底 */ }
+
+      // 2) 兜底：生产 Worker 未暴露 /api/stocks 全量端点时，
+      //    用实时涨跌榜(gainers+losers)保证默认页有真实非空数据，而非空白。
+      if (merged.length === 0) {
+        try {
+          const resp = await fetch('/api/stocks/top');
+          if (resp.ok) {
+            const top = await resp.json();
+            const d = top?.data ?? {};
+            merged = toStockData([...(d.gainers ?? []), ...(d.losers ?? [])]);
+          }
+        } catch { /* ignore */ }
       }
-      const parsed = parseStockList(deduped);
-      const merged: StockData[] = parsed.map(s => ({
-        symbol: s.symbol, name: s.name,
-        price: s.price, changePercent: s.changePercent,
-        change: s.price * s.changePercent / 100,
-        volume: String(s.volume || '—'),
-        marketCap: String(s.marketCap || '—'),
-        marketCapNum: Number(s.marketCap || 0),
-        industry: s.industry || '—',
-        pe: s.peRatio ?? undefined, pb: s.pbRatio ?? undefined,
-        turnoverRate: s.turnoverRate,
-        amplitude: s.amplitude ?? undefined,
-      }));
+
+      // 默认按涨跌幅降序(对标同花顺/富途：打开即见涨幅榜)；搜索/策略在此基础上进一步过滤
+      merged.sort((a, b) => Number(b.changePercent) - Number(a.changePercent));
       setStocks(merged);
+      if (merged.length === 0) message.warning('暂时无法加载行情数据，请点击刷新重试');
     } catch (e) {
       console.error('加载数据失败:', e);
       message.error('数据加载失败');
     } finally { setLoading(false); }
-  }, []);
+  }, [toStockData]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

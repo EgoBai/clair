@@ -129,10 +129,20 @@ const DiscoverPage: React.FC = () => {
   const scoreColor = (s: number) => s >= 70 ? '#22c55e' : s >= 45 ? '#f59e0b' : s >= 25 ? '#f97316' : '#6b7280';
   const scoreLabel = (s: number) => s >= 70 ? '高景气' : s >= 45 ? '较活跃' : s >= 25 ? '一般' : '冷门';
 
+  // 板块涨跌口径（统一数据源：scores[].avg_change_percent）
   const upCount = scores.filter(s => Number(s.avg_change_percent) > 0).length;
   const downCount = scores.filter(s => Number(s.avg_change_percent) < 0).length;
   const upPct = scores.length > 0 ? Math.round((upCount / scores.length) * 100) : 0;
-  const topScores = scores.slice(0, 3);
+  const topScores = scores.slice(0, 3); // 按景气度评分排序（板块热度榜，非涨幅榜）
+
+  // 真·领涨/领跌：按真实涨跌幅排序，标签与内容一致（修复 P1-1）
+  const sortedByChange = [...scores].sort(
+    (a, b) => Number(b.avg_change_percent ?? b.avgChange ?? 0) - Number(a.avg_change_percent ?? a.avgChange ?? 0)
+  );
+  const topGainers = sortedByChange.slice(0, 5);
+  const topLosers = sortedByChange.slice(-3).reverse();
+  const hasGainers = topGainers.length > 0 && Number(topGainers[0].avg_change_percent ?? topGainers[0].avgChange ?? 0) > 0;
+  const leaderTitle = hasGainers ? '🏆 领涨板块' : '💪 相对抗跌'; // 普跌日不再把负涨幅称作"领涨"
 
   if (loading) return <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
 
@@ -182,7 +192,7 @@ const DiscoverPage: React.FC = () => {
                     </div>
                     <div style={{ fontSize: 12, color: TEXT_SEC, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span className="badge-modern badge-accent" style={{ fontSize: 10 }}>AI 实时解读</span>
-                      <span>综合{marketBreadth.up + marketBreadth.down}板块 · 多维度分析</span>
+                      <span>综合{scores.length}板块 · 多维度分析</span>
                     </div>
                   </div>
                 </div>
@@ -190,7 +200,7 @@ const DiscoverPage: React.FC = () => {
                 {/* 右侧：核心指标 */}
                 <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>涨跌比</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>指数涨跌</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 800, color: COLOR_UP }}>{marketBreadth.up}</span>
                       <div style={{ width: 64, height: 4, borderRadius: 2, background: 'var(--color-down-bg)', overflow: 'hidden' }}>
@@ -198,7 +208,7 @@ const DiscoverPage: React.FC = () => {
                       </div>
                       <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 800, color: COLOR_DOWN }}>{marketBreadth.down}</span>
                     </div>
-                    <div style={{ fontSize: 11, color: TEXT_SEC }}>{breadthPct}% 上涨</div>
+                    <div style={{ fontSize: 11, color: TEXT_SEC }}>指数 {marketBreadth.up}涨{marketBreadth.down}跌</div>
                   </div>
 
                   <div style={{ textAlign: 'center' }}>
@@ -278,11 +288,11 @@ const DiscoverPage: React.FC = () => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 12, color: TEXT_SEC }}>上涨板块</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_UP }}>{marketBreadth.up || upCount}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_UP }}>{upCount}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 12, color: TEXT_SEC }}>下跌板块</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_DOWN }}>{marketBreadth.down || downCount}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_DOWN }}>{downCount}</span>
                       </div>
                       <div style={{ height: 1, background: 'var(--border-subtle)' }} />
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -300,12 +310,12 @@ const DiscoverPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* 领涨板块 */}
-                  {(insight?.topSectors || scores).length > 0 && (
+                  {/* 领涨板块（按真实涨跌幅排序，标签与内容一致） */}
+                  {topGainers.length > 0 && (
                     <div style={{ background: 'var(--bg-surface)', borderRadius: 10, padding: '16px', border: '1px solid var(--border-subtle)' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: TEXT, marginBottom: 12 }}>🏆 领涨板块</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: TEXT, marginBottom: 12 }}>{leaderTitle}</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {(insight?.topSectors || scores).slice(0, 5).map((s: any) => (
+                        {topGainers.slice(0, 5).map((s: any) => (
                           <div key={s.industry}
                             onClick={() => navigate(`/screener?industry=${encodeURIComponent(s.industry)}`)}
                             style={{
@@ -330,12 +340,12 @@ const DiscoverPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* 领跌板块 */}
-                  {(insight?.bottomSectors || scores.slice(-3).reverse()).length > 0 && (
+                  {/* 弱势板块（按真实涨跌幅排序） */}
+                  {topLosers.length > 0 && (
                     <div style={{ background: 'var(--bg-surface)', borderRadius: 10, padding: '16px', border: '1px solid var(--border-subtle)' }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: TEXT, marginBottom: 12 }}>📉 弱势板块</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {(insight?.bottomSectors || scores.slice(-3).reverse()).slice(0, 3).map((s: any) => (
+                        {topLosers.slice(0, 3).map((s: any) => (
                           <div key={s.industry}
                             onClick={() => navigate(`/screener?industry=${encodeURIComponent(s.industry)}`)}
                             style={{

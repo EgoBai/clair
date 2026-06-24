@@ -1,15 +1,13 @@
 /**
- * API 基础配置
- * 开发: /api → Vite proxy → localhost:3001  
- * 生产: 直接指向 Railway 后端
+ * API 基础配置 — 统一数据层
+ * 所有请求一律走相对路径(/api/...)，由 main.tsx 的全局 fetch wrapper 统一路由：
+ *   开发: 相对路径 → Vite proxy → localhost:3001
+ *   生产: 相对路径 → main.tsx wrapper 加上 VITE_API_BASE(默认 clair-api.pages.dev)
+ * 此处不再拼接任何 base，未来切换后端只改 main.tsx 一处。
  */
-const API_BASE = import.meta.env.DEV 
-  ? '' 
-  : 'https://clair-production-1189.up.railway.app';
-
 export function apiUrl(path: string): string {
   if (path.startsWith('http')) return path;
-  return `${API_BASE}${path}`;
+  return path;
 }
 
 export async function apiFetch(path: string, options?: RequestInit): Promise<Response> {

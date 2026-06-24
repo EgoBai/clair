@@ -116,10 +116,12 @@ function generateConcepts(name, industry) {
 }
 
 function getFallbackStocks() {
-  return FULL_STOCK_LIST.map(([code, name, market, industry]) => ({
-    symbol: code, name, market,
-    industry: reclassify(name, industry),
-    concepts: generateConcepts(name, industry)
+  return FULL_STOCK_LIST.map((item) => ({
+    symbol: item[0], name: item[1], market: item[2],
+    industry: reclassify(item[1], item[3]),
+    // 优先用 FULL_STOCK_LIST 里的真实概念(第5元素), 无则正则兜底
+    concepts: (item.length >= 5 && Array.isArray(item[4]) && item[4].length)
+      ? item[4] : generateConcepts(item[1], item[3])
   }));
 }
 
@@ -474,6 +476,89 @@ async function handleSectorStocks(industry, pageSize = 50) {
       data: { items: paged, total, page, pageSize },
       success: true,
     });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+// 全量股票列表 + 实时行情 join: GET /api/stocks?page=&pageSize=
+// 默认返回全部 5541 只；指定 pageSize 时分页。结构对齐 handleSectorStocks 的 latestQuote。
+async function handleAllStocks(url) {
+  try {
+    const { quoteMap } = await getAllQuotes();
+    const stocks = await getStockList();
+
+    const pageSizeParam = url.searchParams.get('pageSize');
+    const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1);
+    // 不传 pageSize -> 返回全部；传了则用指定值分页
+    const pageSize = pageSizeParam
+      ? Math.max(parseInt(pageSizeParam, 10) || stocks.length, 1)
+      : stocks.length;
+
+    const all = stocks.map(s => {
+      const q = quoteMap[s.symbol];
+      return {
+        symbol: s.symbol,
+        name: s.name,
+        market: s.market,
+        industry: normalizeIndustry(s.industry),
+        concepts: s.concepts || [],
+        latestQuote: q ? {
+          closePrice: q.price,
+          changePercent: q.changePercent,
+          turnoverRate: q.turnoverRate,
+          peRatio: q.peRatio,
+          volume: q.volume,
+          turnover: q.turnover,
+        } : null,
+      };
+    });
+
+    const total = all.length;
+    const start = (page - 1) * pageSize;
+    const items = all.slice(start, start + pageSize);
+
+    return json({ data: { items, total, page, pageSize }, success: true });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+// 批量行情: POST /api/stocks/batch/quotes  body: { symbols: ['000001.SZ', ...] }
+// 用 getAllQuotes() 过滤请求的 symbols；normalize 去 .SH/.SZ/.BJ 后缀匹配。
+async function handleBatchQuotes(request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const symbols = Array.isArray(body.symbols) ? body.symbols : [];
+    if (!symbols.length) return json({ data: [], success: true });
+
+    const { quoteMap } = await getAllQuotes();
+    const stocks = await getStockList();
+    const stockMap = {};
+    for (const s of stocks) stockMap[s.symbol] = s;
+
+    const items = symbols.map(raw => {
+      const pure = String(raw).replace(/\.(SH|SZ|BJ)$/i, '');
+      const q = quoteMap[pure];
+      const stock = stockMap[pure];
+      return {
+        symbol: pure,
+        requested: raw,
+        name: (q && q.name) || (stock && stock.name) || pure,
+        market: stock ? stock.market : undefined,
+        industry: stock ? normalizeIndustry(stock.industry) : undefined,
+        latestQuote: q ? {
+          closePrice: q.price,
+          changePercent: q.changePercent,
+          turnoverRate: q.turnoverRate,
+          peRatio: q.peRatio,
+          volume: q.volume,
+          turnover: q.turnover,
+        } : null,
+      };
+    });
+
+    return json({ data: items, success: true });
   } catch (e) {
     return error(e.message);
   }
@@ -1776,6 +1861,16 @@ export default {
     // Top movers: /api/stocks/top
     if (path === '/api/stocks/top') {
       return handleTopMovers();
+    }
+
+    // 批量行情: POST /api/stocks/batch/quotes  body { symbols: [...] }
+    if (path === '/api/stocks/batch/quotes' && request.method === 'POST') {
+      return handleBatchQuotes(request);
+    }
+
+    // 全量股票列表 + 行情: GET /api/stocks?page=&pageSize=  (精确匹配, 不与 /top /search /:symbol 冲突)
+    if (path === '/api/stocks') {
+      return handleAllStocks(url);
     }
 
     // Phase 2: AI market insight
