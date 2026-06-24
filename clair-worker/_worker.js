@@ -233,8 +233,16 @@ async function fetchTencentQuotes(tencentSymbols) {
     const parts = m[2].split('~');
     if (parts.length < 40) continue;
     const v = (i) => { const n = parseFloat(parts[i]); return isFinite(n) ? n : 0; };
+    // m[1] 是腾讯返回变量名 = 带市场前缀的完整代码 (sh000001 / sz000001 / bj899050)
+    // parts[2] 是纯数字代码，跨市场会撞号(000001 同时是上证指数和平安银行)，故同时保留带前缀 key + market
+    const tencentSymbol = String(m[1]).toLowerCase();
+    const market = tencentSymbol.startsWith('sh') ? 'SH'
+      : tencentSymbol.startsWith('sz') ? 'SZ'
+      : tencentSymbol.startsWith('bj') ? 'BJ' : '';
     results.push({
       symbol: parts[2],
+      tencentSymbol,
+      market,
       name: parts[1],
       price: v(3),
       prevClose: v(4),
@@ -285,12 +293,17 @@ async function getAllQuotes() {
   }
 
   // 建立 symbol → quote 映射
+  // quoteMap: 纯数字代码 key（向后兼容旧调用点；注意跨市场撞号，仅用于已知唯一的场景）
+  // quoteMapByTencent: 带市场前缀 key（sh000001/sz000001/bj899050），消除 000001 撞号，
+  //   batch/quotes 与 tech/batch 用此 map 做「市场+代码」联合匹配。
   const quoteMap = {};
+  const quoteMapByTencent = {};
   for (const q of allResults) {
     quoteMap[q.symbol] = q;
+    if (q.tencentSymbol) quoteMapByTencent[q.tencentSymbol] = q;
   }
 
-  cacheData = { quotes: allResults, quoteMap, allSymbols };
+  cacheData = { quotes: allResults, quoteMap, quoteMapByTencent, allSymbols };
   cacheTime = now;
   return cacheData;
 }
@@ -485,7 +498,7 @@ async function handleSectorStocks(industry, pageSize = 50) {
 // 默认返回全部 5541 只；指定 pageSize 时分页。结构对齐 handleSectorStocks 的 latestQuote。
 async function handleAllStocks(url) {
   try {
-    const { quoteMap } = await getAllQuotes();
+    const { quoteMapByTencent } = await getAllQuotes();
     const stocks = await getStockList();
 
     const pageSizeParam = url.searchParams.get('pageSize');
@@ -496,7 +509,12 @@ async function handleAllStocks(url) {
       : stocks.length;
 
     const all = stocks.map(s => {
-      const q = quoteMap[s.symbol];
+      // 「市场+代码」联合 key 查带前缀的 quoteMapByTencent，消除纯代码撞号
+      // （000001.SZ 平安银行 vs sh000001 上证指数）。前 800 限制外查不到则置 null，绝不回退纯代码。
+      const tencentKey = s.market
+        ? (s.market === 'SH' ? 'sh' : s.market === 'SZ' ? 'sz' : 'bj') + s.symbol
+        : null;
+      const q = (tencentKey && quoteMapByTencent[tencentKey]) || null;
       return {
         symbol: s.symbol,
         name: s.name,
@@ -524,23 +542,38 @@ async function handleAllStocks(url) {
   }
 }
 
+// 把请求 symbol 解析成腾讯带市场前缀 key（sh600519 / sz000001 / bj899050）。
+// 支持两种输入：带后缀 '000001.SZ' / 带前缀 'sh000001'（指数）。纯代码无市场信息时返回 null。
+function toTencentKey(raw) {
+  const s = String(raw).trim();
+  const m1 = s.match(/^(\d+)\.(SH|SZ|BJ)$/i);   // 000001.SZ
+  if (m1) return m1[2].toLowerCase() + m1[1];
+  const m2 = s.match(/^(sh|sz|bj)(\d+)$/i);      // sh000001（指数风格，无小数点）
+  if (m2) return m2[1].toLowerCase() + m2[2];
+  return null;
+}
+
 // 批量行情: POST /api/stocks/batch/quotes  body: { symbols: ['000001.SZ', ...] }
-// 用 getAllQuotes() 过滤请求的 symbols；normalize 去 .SH/.SZ/.BJ 后缀匹配。
+// 用 getAllQuotes() 过滤请求的 symbols；用「市场+代码」联合 key 匹配，避免纯代码 000001 撞号。
 async function handleBatchQuotes(request) {
   try {
     const body = await request.json().catch(() => ({}));
     const symbols = Array.isArray(body.symbols) ? body.symbols : [];
     if (!symbols.length) return json({ data: [], success: true });
 
-    const { quoteMap } = await getAllQuotes();
+    const { quoteMapByTencent } = await getAllQuotes();
     const stocks = await getStockList();
     const stockMap = {};
     for (const s of stocks) stockMap[s.symbol] = s;
 
     const items = symbols.map(raw => {
       const pure = String(raw).replace(/\.(SH|SZ|BJ)$/i, '');
-      const q = quoteMap[pure];
       const stock = stockMap[pure];
+      // 优先用请求 symbol 自带的市场后缀拼前缀 key；缺市场信息时回退到 stockList 的 market。
+      // 绝不回退到纯代码 quoteMap，避免重新引入撞号（宁可 null 也不返回错股行情）。
+      const tencentKey = toTencentKey(raw)
+        || (stock && stock.market ? `${stock.market.toLowerCase()}${pure}` : null);
+      const q = (tencentKey && quoteMapByTencent[tencentKey]) || null;
       return {
         symbol: pure,
         requested: raw,
@@ -804,11 +837,12 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
 
 async function handleMarketInsight() {
   try {
-    const { quoteMap, quotes } = await getAllQuotes();
+    const { quoteMapByTencent, quotes } = await getAllQuotes();
     const stocks = await getStockList();
     const indices = INDEX_SYMBOLS.map(idx => {
-      const pureCode = idx.tencent.replace(/^[a-z]+/, '');
-      const q = quoteMap[pureCode] || quoteMap[idx.symbol] || quoteMap[idx.tencent];
+      // idx.tencent 即带市场前缀 key（sh000001/bj899050）；直接查 quoteMapByTencent，
+      // 消除纯代码撞号（quoteMap['000001'] 会被 sz000001 平安银行覆盖，导致上证指数读错行情）。
+      const q = quoteMapByTencent[idx.tencent] || null;
       return {
         name: idx.name,
         symbol: idx.symbol,
@@ -1746,9 +1780,15 @@ export default {
         const promises = batch.map(async (symbol) => {
           try {
             const pureSymbol = symbol.replace(/\.(SH|SZ|BJ)$/i, '');
-            const stock = stocks.find(s => s.symbol === pureSymbol || s.symbol === symbol);
+            // 「市场+代码」联合定位：用请求 symbol 自带市场后缀拼腾讯 key，避免纯代码 000001 撞号。
+            const tencentKey = toTencentKey(symbol); // sz000001 / sh600519 / null
+            const reqMarket = tencentKey ? tencentKey.slice(0, 2).toUpperCase() : null; // SZ/SH/BJ
+            const stock = reqMarket
+              ? stocks.find(s => s.symbol === pureSymbol && s.market === reqMarket)
+              : stocks.find(s => s.symbol === pureSymbol || s.symbol === symbol);
             if (!stock) return { symbol };
-            const ts = `${stock.market === 'SH' ? 'sh' : 'sz'}${pureSymbol}`;
+            // ts 优先用请求市场（权威）；缺失时回退 stockList 的 market。
+            const ts = tencentKey || `${stock.market === 'SH' ? 'sh' : 'sz'}${pureSymbol}`;
             const resp = await fetch(
               `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${ts},day,,,${days + 5},qfq`,
               { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' } }
