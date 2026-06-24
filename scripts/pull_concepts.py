@@ -4,6 +4,7 @@
 你本机在中国大陆，EastMoney 直连可达（Hermes沙箱环境被封锁，本机不受影响）。
 一键运行: cd ~/.openclaw/workspace/a-stock-website && python3 scripts/pull_concepts.py
 """
+from __future__ import annotations
 import urllib.request, ssl, json, time, os
 from collections import Counter
 
