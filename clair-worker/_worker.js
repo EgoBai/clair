@@ -554,26 +554,56 @@ function toTencentKey(raw) {
 }
 
 // 批量行情: POST /api/stocks/batch/quotes  body: { symbols: ['000001.SZ', ...] }
-// 用 getAllQuotes() 过滤请求的 symbols；用「市场+代码」联合 key 匹配，避免纯代码 000001 撞号。
+// 按请求的 symbols 直接实时拉腾讯行情（不经 getAllQuotes 的 800 只预拉缓存 QUOTE_LIMIT），
+// 解决排名 800 之后的热门股（如平安银行 000001.SZ）查不到行情、latestQuote 为 null 的问题。
+// 用「市场+代码」联合 key（tencentSymbol）匹配，避免纯代码 000001 撞号。
 async function handleBatchQuotes(request) {
   try {
     const body = await request.json().catch(() => ({}));
     const symbols = Array.isArray(body.symbols) ? body.symbols : [];
     if (!symbols.length) return json({ data: [], success: true });
 
-    const { quoteMapByTencent } = await getAllQuotes();
     const stocks = await getStockList();
     const stockMap = {};
     for (const s of stocks) stockMap[s.symbol] = s;
 
+    // 1) 把请求的每个 symbol 解析成腾讯前缀 key（sz000001 / sh600519）。
+    //    优先用请求 symbol 自带的市场后缀拼前缀 key；缺市场信息时回退到 stockList 的 market。
+    //    绝不回退到纯代码匹配，避免引入 000001 撞号（宁可 null 也不返回错股行情）。
+    const keyByRaw = {};        // raw -> tencentKey | null
+    const uniqueKeys = new Set();
+    for (const raw of symbols) {
+      const pure = String(raw).replace(/\.(SH|SZ|BJ)$/i, '');
+      const stock = stockMap[pure];
+      const tencentKey = toTencentKey(raw)
+        || (stock && stock.market ? `${stock.market.toLowerCase()}${pure}` : null);
+      keyByRaw[raw] = tencentKey;
+      if (tencentKey) uniqueKeys.add(tencentKey);
+    }
+
+    // 2) 按需直接实时拉腾讯行情（不受 QUOTE_LIMIT 800 限制），复用 fetchTencentQuotes 的
+    //    GBK 解码/字段解析。腾讯单请求支持逗号分隔多只，按每批 200 只分批防 URL 过长；
+    //    自选/复盘通常几十只，1~2 个请求即可全覆盖无遗漏。
+    const allKeys = [...uniqueKeys];
+    const BATCH = 200;
+    const batches = [];
+    for (let i = 0; i < allKeys.length; i += BATCH) {
+      batches.push(allKeys.slice(i, i + BATCH));
+    }
+    const quoteByTencent = {};
+    const batchResults = await Promise.all(batches.map(b => fetchTencentQuotes(b)));
+    for (const results of batchResults) {
+      for (const q of results) {
+        if (q.tencentSymbol) quoteByTencent[q.tencentSymbol] = q;
+      }
+    }
+
+    // 3) 组装返回（格式不变：保留 requested + latestQuote）。
     const items = symbols.map(raw => {
       const pure = String(raw).replace(/\.(SH|SZ|BJ)$/i, '');
       const stock = stockMap[pure];
-      // 优先用请求 symbol 自带的市场后缀拼前缀 key；缺市场信息时回退到 stockList 的 market。
-      // 绝不回退到纯代码 quoteMap，避免重新引入撞号（宁可 null 也不返回错股行情）。
-      const tencentKey = toTencentKey(raw)
-        || (stock && stock.market ? `${stock.market.toLowerCase()}${pure}` : null);
-      const q = (tencentKey && quoteMapByTencent[tencentKey]) || null;
+      const tencentKey = keyByRaw[raw];
+      const q = (tencentKey && quoteByTencent[tencentKey]) || null;
       return {
         symbol: pure,
         requested: raw,
