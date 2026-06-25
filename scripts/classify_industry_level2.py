@@ -84,28 +84,34 @@ def classify(symbol, name, l1):
     # 1) Delisted/ST -> 综合
     if any(k in name_clean for k in ('退', 'ST', 'PT')):
         return ('综合', 'delisted')
-    if l1 in ('综合', '指数', None):
-        return ('综合', 'l1_unknown')
     
-    # 2) Bank special handling
+    # L1 unknown: still try keyword match before giving up
+    l1_unknown = (l1 in ('综合', '指数', None))
+    
+    # 2) Bank special handling (only when L1 is actually 银行)
     if l1 == '银行':
         if '银行' not in name_clean:
             return ('股份制银行', 'l1_fallback')
         if name_clean in BIG_BANKS:
             return ('国有大型银行', 'bank_list')
-        # distinguish city/rural vs joint-stock by name pattern
-        if any(city in name_clean for city in ['北京','上海','南京','杭州','宁波','江苏','郑州','青岛','长沙','西安','成都','重庆','贵阳','厦门','齐鲁']):
-            return ('城商行', 'bank_name')
-        if '农商' in name_clean:
+        if '农商' in name_clean or any(a in name_clean for a in ['江阴','常熟','苏农','瑞丰','紫金','张家港','沪农商','渝农商','青农商','无锡']):
             return ('农商行', 'bank_name')
+        if any(city in name_clean for city in ['北京','上海','南京','杭州','宁波','江苏','郑州','青岛','长沙','西安','成都','重庆','贵阳','厦门','齐鲁','兰州','苏州']):
+            return ('城商行', 'bank_name')
         return ('股份制银行', 'bank_fallback')
     
-    # 3) Name keyword match
+    # 3) Name keyword match (with L1 constraint for ambiguous keywords)
     for kw, l2 in NAME_PATTERNS:
         if kw in name_clean:
+            if kw == '科技' and not l1_unknown and l1 not in ('计算机', '通信', '电子'):
+                continue
             return (l2, 'keyword:' + kw)
     
-    # 4) L1 fallback: default first L2 in that category
+    # 4) L1 unknown + no keyword hit -> 综合
+    if l1_unknown:
+        return ('综合', 'l1_unknown')
+    
+    # 5) L1 fallback
     candidates = L1_L2_MAP.get(l1, [])
     if candidates:
         return (candidates[0], 'l1_fallback')
