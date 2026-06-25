@@ -26,6 +26,7 @@ interface GemScore {
   sizeScore: number;
   industryScore: number;
   qualityScore: number;
+  reasons: string[];
 }
 
 router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
@@ -156,6 +157,15 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
 
     const totalScore = momentumScore + volumeScore + valuationScore + sizeScore + industryScore + Math.max(0, qualityScore);
 
+    // 上榜理由 (基于六因子分项的规则化解释，供雷达页展示"为什么有潜力"，不耗LLM/不依赖key)
+    const reasons: string[] = [];
+    if (momentumScore >= 15) reasons.push('涨势适中不追高');
+    if (volumeScore >= 15) reasons.push('成交活跃换手健康');
+    if (valuationScore >= 12) reasons.push('估值合理');
+    if (sizeScore >= 12) reasons.push('中盘成长空间');
+    if (industryScore >= 11) reasons.push('所属板块景气');
+    if (Math.max(0, qualityScore) >= 13) reasons.push('质量无瑕疵');
+
     if (totalScore >= minScore) {
       gems.push({
         symbol: String(s.symbol),
@@ -173,6 +183,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
         sizeScore,
         industryScore,
         qualityScore: Math.max(0, qualityScore),
+        reasons: reasons.slice(0, 3),
       });
     }
   }

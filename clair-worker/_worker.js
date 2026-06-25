@@ -1985,6 +1985,16 @@ async function handleAiGems(request, env) {
       qualityScore = Math.max(0, qualityScore);
 
       const totalScore = momentumScore + volumeScore + valuationScore + sizeScore + industryScore + qualityScore;
+
+      // 上榜理由 (规则化解释，供雷达页展示"为什么有潜力"，不耗LLM/不依赖key)
+      const reasons = [];
+      if (momentumScore >= 15) reasons.push('涨势适中不追高');
+      if (volumeScore >= 15) reasons.push('成交活跃换手健康');
+      if (valuationScore >= 12) reasons.push('估值合理');
+      if (sizeScore >= 12) reasons.push('中盘成长空间');
+      if (industryScore >= 11) reasons.push('所属板块景气');
+      if (qualityScore >= 13) reasons.push('质量无瑕疵');
+
       if (totalScore >= minScore) {
         gems.push({
           symbol: s.symbol, name, price,
@@ -1993,6 +2003,7 @@ async function handleAiGems(request, env) {
           marketCap: Math.round(capYi * 100) / 100,
           peRatio, industry, score: totalScore,
           momentumScore, volumeScore, valuationScore, sizeScore, industryScore, qualityScore,
+          reasons: reasons.slice(0, 3),
         });
       }
     }
