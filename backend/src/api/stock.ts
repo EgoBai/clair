@@ -98,6 +98,87 @@ router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(
   sendSuccess(res, { ...stock, latestQuote });
 }));
 
+// K线数据接口 - 支持日K/周K/月K
+router.get('/stocks/:symbol/kline', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
+  const rawSymbol = req.params.symbol;
+  const symbol = normalizeSymbol(rawSymbol);
+  const period = (req.query.period as string) || 'daily'; // daily/weekly/monthly
+  const limit = Math.min(parseInt(req.query.limit as string) || 250, 1000);
+
+  // 查找股票
+  let stock = await db.getStockBySymbol(symbol);
+  if (!stock && symbol !== rawSymbol) {
+    stock = await db.getStockBySymbol(rawSymbol);
+  }
+  if (!stock) return sendNotFound(res, '股票');
+
+  // 查询日K数据
+  const klineRows = await db.connection('daily_quotes')
+    .where('stock_id', stock.id)
+    .select(
+      'trade_date as tradeDate',
+      'open_price as open',
+      'close_price as close',
+      'high_price as high',
+      'low_price as low',
+      'volume',
+      'turnover'
+    )
+    .orderBy('trade_date', 'asc')
+    .limit(limit);
+
+  if (klineRows.length === 0) {
+    return sendSuccess(res, { data: [], symbol, period, count: 0 });
+  }
+
+  // 转换为数值类型 + 日期格式化
+  const fmtDate = (d: unknown): string => {
+    if (!d) return '';
+    if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
+    const dt = new Date(d as string | number | Date);
+    return isNaN(dt.getTime()) ? String(d) : dt.toISOString().slice(0, 10);
+  };
+  let data = klineRows.map((r: Record<string, string | number>) => ({
+    tradeDate: fmtDate(r.tradeDate),
+    open: Number(r.open),
+    close: Number(r.close),
+    high: Number(r.high),
+    low: Number(r.low),
+    volume: Number(r.volume),
+    turnover: Number(r.turnover),
+  }));
+
+  // 周K/月K聚合
+  if (period === 'weekly' || period === 'monthly') {
+    const grouped = new Map<string, typeof data>();
+    for (const bar of data) {
+      const d = new Date(bar.tradeDate);
+      let key: string;
+      if (period === 'weekly') {
+        // ISO周: YYYY-Www
+        const jan1 = new Date(d.getFullYear(), 0, 1);
+        const weekNum = Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7);
+        key = `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+      } else {
+        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      }
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(bar);
+    }
+    data = Array.from(grouped.entries()).map(([, bars]) => ({
+      tradeDate: bars[bars.length - 1].tradeDate,
+      open: bars[0].open,
+      close: bars[bars.length - 1].close,
+      high: Math.max(...bars.map(b => b.high)),
+      low: Math.min(...bars.map(b => b.low)),
+      volume: bars.reduce((s, b) => s + b.volume, 0),
+      turnover: bars.reduce((s, b) => s + b.turnover, 0),
+    }));
+  }
+
+  sendSuccess(res, { quotes: data, symbol, period, count: data.length });
+}));
+
 router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHandler(async (req, res) => {
   const { symbols } = req.body;
   const stocks = await db.getStocksWithLatestQuotes(symbols);
