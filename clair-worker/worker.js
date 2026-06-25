@@ -254,6 +254,7 @@ async function fetchTencentQuotes(tencentSymbols) {
       turnover: v(37) * 10000, // 腾讯返回万元 → 元
       turnoverRate: v(38),
       peRatio: (() => { const n = parseFloat(parts[39]); return isFinite(n) && n > 0 ? n : undefined; })(),
+      marketCap: (() => { const n = parseFloat(parts[45]); return isFinite(n) && n > 0 ? n : 0; })(), // 总市值(亿元) — 供 AI gems/filter 复用
     });
   }
   return results;
@@ -316,7 +317,7 @@ function json(data, status = 200) {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Cache-Control': 'public, max-age=15',
     },
@@ -1847,6 +1848,335 @@ async function handleDebug() {
 
 // ==================== 主入口 ====================
 
+// ==================== AI 路由 (真 LLM, 调 DeepSeek) ====================
+// 生产 Worker 无数据库，复用 getStockList()/getFullMarketQuoteMap() 提供的真实行情。
+// env.DEEPSEEK_API_KEY 来自 Cloudflare Pages 环境变量，经 fetch(request, env) 显式下传。
+
+// 通用 DeepSeek 调用 (OpenAI 兼容)。缺 key 抛错由各 handler 捕获并优雅降级。
+async function callDeepSeek(env, systemPrompt, userPrompt, opts = {}) {
+  if (!env || !env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY 未配置');
+  const resp = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: opts.model || 'deepseek-chat',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: opts.temperature ?? 0.7,
+      max_tokens: opts.maxTokens ?? 800,
+      stream: false,
+    }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`DeepSeek API ${resp.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error('DeepSeek 返回空内容');
+  return content;
+}
+
+// 从 LLM 文本中稳健抽取 JSON 对象 (容错 ```json 围栏 / 前后多余文字)
+function extractJsonObject(text) {
+  if (!text) return null;
+  let t = String(text).trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) return null;
+  try { return JSON.parse(t.slice(start, end + 1)); } catch { return null; }
+}
+
+// POST /api/ai/gems — AI 潜力发现 (移植 backend ai-gems v2.0 六因子模型 + DeepSeek 解读)
+// 返回 { success, data: { gems: [...], total, model, aiSummary, factors, scoring } } 对齐 ScreenerPage.fetchAiGems
+async function handleAiGems(request, env) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const topN = Math.min(Math.max(Number(body.topN) || 20, 1), 50);
+    const minScore = Number(body.minScore) || 40;
+
+    const stocks = await getStockList();
+    const quoteMap = await getFullMarketQuoteMap(stocks);
+
+    // 行业景气度: 基于真实行情的行业平均涨幅 → 0..100 (作为 backend db.getSectorMomentumScore 的自包含替代)
+    const indAgg = {};
+    for (const s of stocks) {
+      const q = quoteMap[stockTencentKey(s)];
+      if (!q || q.changePercent == null) continue;
+      const ind = normalizeIndustry(s.industry);
+      if (!indAgg[ind]) indAgg[ind] = { sum: 0, count: 0 };
+      indAgg[ind].sum += Number(q.changePercent) || 0;
+      indAgg[ind].count++;
+    }
+    const sectorScore = {};
+    for (const [ind, a] of Object.entries(indAgg)) {
+      const avg = a.count ? a.sum / a.count : 0;
+      sectorScore[ind] = Math.max(0, Math.min(100, 50 + avg * 10));
+    }
+
+    const gems = [];
+    for (const s of stocks) {
+      const name = String(s.name || '').trim();
+      if (!name || name.includes('ST') || name.includes('退') || name.includes('*')) continue;
+      const industry = normalizeIndustry(s.industry);
+      if (industry === '综合' || industry === '指数') continue;
+      const q = quoteMap[stockTencentKey(s)];
+      if (!q || q.changePercent == null) continue;
+
+      const price = Number(q.price) || 0;
+      if (price <= 0) continue;
+      const changePercent = Number(q.changePercent) || 0;
+      const turnoverRate = Number(q.turnoverRate) || 0;
+      const capYi = Number(q.marketCap) || 0; // 亿元
+      const peRatio = (q.peRatio && q.peRatio > 0) ? Number(q.peRatio) : null;
+
+      // 1) 动量 (0-20): 涨幅 3-8% 最佳，避免追高
+      let momentumScore;
+      const absChange = Math.abs(changePercent);
+      if (absChange >= 3 && absChange <= 8) momentumScore = 20;
+      else if (absChange >= 1.5 && absChange < 3) momentumScore = 15;
+      else if (absChange > 8 && absChange <= 10) momentumScore = 12;
+      else if (absChange > 10) momentumScore = 5;
+      else momentumScore = Math.round((absChange / 3) * 10);
+
+      // 2) 成交活跃 (0-20): 换手 3-15% 最佳
+      let volumeScore;
+      if (turnoverRate >= 3 && turnoverRate <= 15) volumeScore = 20;
+      else if (turnoverRate >= 1 && turnoverRate < 3) volumeScore = Math.round((turnoverRate / 3) * 15);
+      else if (turnoverRate > 15 && turnoverRate <= 25) volumeScore = Math.round((1 - (turnoverRate - 15) / 10) * 15 + 5);
+      else volumeScore = 5;
+
+      // 3) 估值 (0-15): PE 10-30 最佳
+      let valuationScore;
+      if (peRatio && peRatio > 0) {
+        if (peRatio >= 10 && peRatio <= 30) valuationScore = 15;
+        else if (peRatio >= 5 && peRatio < 10) valuationScore = 12;
+        else if (peRatio > 30 && peRatio <= 50) valuationScore = 10;
+        else if (peRatio > 50) valuationScore = 5;
+        else valuationScore = 8;
+      } else valuationScore = 7;
+
+      // 4) 规模 (0-15): 50-500 亿最佳成长空间
+      let sizeScore;
+      if (capYi >= 50 && capYi <= 500) sizeScore = 15;
+      else if (capYi >= 20 && capYi < 50) sizeScore = 12;
+      else if (capYi > 500 && capYi <= 1000) sizeScore = 10;
+      else if (capYi > 1000 && capYi <= 3000) sizeScore = 8;
+      else if (capYi > 3000) sizeScore = 5;
+      else sizeScore = 3;
+
+      // 5) 行业景气 (0-15)
+      const sectorHot = sectorScore[industry] != null ? sectorScore[industry] : 50;
+      const industryScore = Math.round((sectorHot / 100) * 15);
+
+      // 6) 质量 (0-15): 排除劣质/异常
+      let qualityScore = 15;
+      if (changePercent > 9.5) qualityScore -= 5;
+      if (turnoverRate > 25) qualityScore -= 3;
+      if (turnoverRate < 0.5) qualityScore -= 3;
+      if (capYi < 10) qualityScore -= 5;
+      qualityScore = Math.max(0, qualityScore);
+
+      const totalScore = momentumScore + volumeScore + valuationScore + sizeScore + industryScore + qualityScore;
+      if (totalScore >= minScore) {
+        gems.push({
+          symbol: s.symbol, name, price,
+          changePercent: Math.round(changePercent * 100) / 100,
+          turnoverRate: Math.round(turnoverRate * 100) / 100,
+          marketCap: Math.round(capYi * 100) / 100,
+          peRatio, industry, score: totalScore,
+          momentumScore, volumeScore, valuationScore, sizeScore, industryScore, qualityScore,
+        });
+      }
+    }
+
+    gems.sort((a, b) => b.score - a.score);
+    const topGems = gems.slice(0, topN);
+
+    // DeepSeek 解读 (可选，缺 key / 失败时优雅降级，不影响结构化结果)
+    let aiSummary = '';
+    if (env && env.DEEPSEEK_API_KEY && topGems.length > 0) {
+      try {
+        const candidateText = topGems.slice(0, 15).map(g =>
+          `${g.name}(${g.symbol}) 行业${g.industry} 涨${g.changePercent}% 换手${g.turnoverRate}% PE${g.peRatio ?? '—'} 市值${g.marketCap}亿 评分${g.score}`
+        ).join('\n');
+        const sys = '你是A股资深策略分析师，擅长从量化打分结果中提炼投资逻辑。语言简洁专业，红涨绿跌的A股语境。结尾不需要免责声明。';
+        const usr = `以下是六因子量化模型(动量/成交/估值/规模/行业景气/质量)从全市场真实行情中筛出的潜力股候选(已按综合评分降序)：\n${candidateText}\n\n请用80字以内给出整体解读：当前这批标的的共性特征、值得关注的方向。只输出解读正文，不要罗列个股。`;
+        aiSummary = await callDeepSeek(env, sys, usr, { temperature: 0.6, maxTokens: 300 });
+      } catch (e) {
+        aiSummary = '';
+      }
+    }
+
+    return json({
+      success: true,
+      data: {
+        gems: topGems,
+        total: gems.length,
+        model: 'v2.0',
+        aiSummary,
+        factors: {
+          momentum: '涨幅动量(0-20): 3-8%最佳',
+          volume: '成交活跃(0-20): 换手3-15%最佳',
+          valuation: '估值合理(0-15): PE 10-30最佳',
+          size: '成长空间(0-15): 市值50-500亿最佳',
+          industry: '行业景气(0-15): 基于行业实时平均涨幅',
+          quality: '质量过滤(0-15): 排除ST/异常波动',
+        },
+        scoring: '总分(0-100) = 动量 + 成交 + 估值 + 规模 + 行业 + 质量',
+      },
+    });
+  } catch (e) {
+    return error('潜力股发现失败: ' + (e && e.message ? e.message : String(e)));
+  }
+}
+
+// POST /api/ai/filter — 自然语言筛选 (DeepSeek 把 NL 转结构化条件 → 在真实行情上确定性筛选)
+// 返回 { success, data: { results: [...], total, criteria, query } } 对齐 ScreenerPage.handleAiFilter
+async function handleAiFilter(request, env) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const query = String(body.query || '').trim();
+    const watchlistSymbols = Array.isArray(body.watchlistSymbols) ? body.watchlistSymbols : null;
+    if (!query) return json({ success: false, error: '请输入筛选条件' }, 400);
+    if (!env || !env.DEEPSEEK_API_KEY) {
+      return json({ success: false, error: 'AI筛选服务未配置：请在 Cloudflare Pages 设置 DEEPSEEK_API_KEY 环境变量' }, 200);
+    }
+
+    const fullStocks = await getStockList();
+    const quoteMap = await getFullMarketQuoteMap(fullStocks);
+
+    // 范围: 命中"自选股"类问题时限定到 watchlistSymbols，否则全市场
+    let universe = fullStocks;
+    if (watchlistSymbols && watchlistSymbols.length) {
+      const set = new Set(watchlistSymbols.map(x => String(x).replace(/\.(SH|SZ|BJ)$/i, '')));
+      universe = fullStocks.filter(s => set.has(s.symbol));
+    }
+
+    const industries = [...new Set(fullStocks.map(s => normalizeIndustry(s.industry)))].filter(i => i && i !== '指数');
+
+    // DeepSeek: 自然语言 → 结构化筛选条件 (避免 LLM 编造行情，数据始终来自真实行情)
+    const sys = `你是A股选股条件解析器。把用户的自然语言需求转换成严格的 JSON 筛选条件。只输出 JSON，不要任何解释或代码围栏。
+可用字段(全部可选，不需要的就不要包含)：
+- changePercentMin / changePercentMax: 当日涨跌幅%区间(例:"涨幅超3%"→changePercentMin:3;"下跌"→changePercentMax:0)
+- peMin / peMax: 市盈率(PE)区间(例:"低估值"→peMax:20)
+- marketCapMin / marketCapMax: 总市值区间，单位亿元(例:"小盘股"→marketCapMax:100;"大盘股"→marketCapMin:1000)
+- turnoverRateMin / turnoverRateMax: 换手率%区间(例:"活跃"→turnoverRateMin:5)
+- priceMin / priceMax: 股价区间
+- industries: 行业名数组，必须从下面给定列表中精确选取(例:"科技股"→["电子","计算机","通信"];"医药"→["医药生物"];"新能源"→["电力设备","汽车"])
+- nameKeywords: 股票名称需包含的关键词数组
+- limit: 返回数量(默认50，最大100)
+可用行业列表(只能从中选)：${industries.join('、')}
+示例输入"涨幅超3%的科技股" → 示例输出 {"changePercentMin":3,"industries":["电子","计算机","通信"],"limit":50}`;
+    const raw = await callDeepSeek(env, sys, `用户需求：${query}`, { temperature: 0.2, maxTokens: 400 });
+    const spec = extractJsonObject(raw) || {};
+
+    const limit = Math.min(Math.max(Number(spec.limit) || 50, 1), 100);
+    const indSet = (Array.isArray(spec.industries) && spec.industries.length) ? new Set(spec.industries) : null;
+    const kw = Array.isArray(spec.nameKeywords) ? spec.nameKeywords.filter(Boolean).map(String) : [];
+
+    const results = [];
+    for (const s of universe) {
+      const q = quoteMap[stockTencentKey(s)];
+      if (!q || q.changePercent == null) continue;
+      const price = Number(q.price) || 0;
+      if (price <= 0) continue;
+      const cp = Number(q.changePercent) || 0;
+      const pe = (q.peRatio && q.peRatio > 0) ? Number(q.peRatio) : null;
+      const cap = Number(q.marketCap) || 0;
+      const tr = Number(q.turnoverRate) || 0;
+      const ind = normalizeIndustry(s.industry);
+
+      if (spec.changePercentMin != null && cp < Number(spec.changePercentMin)) continue;
+      if (spec.changePercentMax != null && cp > Number(spec.changePercentMax)) continue;
+      if (spec.peMin != null && (pe == null || pe < Number(spec.peMin))) continue;
+      if (spec.peMax != null && (pe == null || pe > Number(spec.peMax))) continue;
+      if (spec.marketCapMin != null && cap < Number(spec.marketCapMin)) continue;
+      if (spec.marketCapMax != null && cap > Number(spec.marketCapMax)) continue;
+      if (spec.turnoverRateMin != null && tr < Number(spec.turnoverRateMin)) continue;
+      if (spec.turnoverRateMax != null && tr > Number(spec.turnoverRateMax)) continue;
+      if (spec.priceMin != null && price < Number(spec.priceMin)) continue;
+      if (spec.priceMax != null && price > Number(spec.priceMax)) continue;
+      if (indSet && !indSet.has(ind)) continue;
+      if (kw.length && !kw.some(k => s.name.includes(k))) continue;
+
+      const capR = Math.round(cap * 100) / 100;
+      const trR = Math.round(tr * 100) / 100;
+      results.push({
+        symbol: s.symbol, name: s.name, price,
+        change_amount: Math.round((price - (Number(q.prevClose) || price)) * 100) / 100,
+        change_percent: Math.round(cp * 100) / 100, changePercent: Math.round(cp * 100) / 100,
+        volume: q.volume || 0, marketCap: capR, market_cap: capR,
+        industry: ind, pe_ratio: pe, pe,
+        turnover_rate: trR, turnoverRate: trR,
+      });
+    }
+
+    results.sort((a, b) => b.change_percent - a.change_percent);
+    const sliced = results.slice(0, limit);
+
+    return json({ success: true, data: { results: sliced, total: results.length, criteria: spec, query } });
+  } catch (e) {
+    return error('AI筛选失败: ' + (e && e.message ? e.message : String(e)));
+  }
+}
+
+// POST /api/ai/trade-analysis — 复盘 AI 分析 (移植 backend ai-chat trade-analysis prompt，适配 ReviewPage 自选股复盘字段)
+// 返回 { analysis } 对齐 ReviewPage.handleAiAnalysis (data.analysis)
+async function handleAiTradeAnalysis(request, env) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const stocks = Array.isArray(body.stocks) ? body.stocks : [];
+    const stats = body.stats || {};
+
+    if (!env || !env.DEEPSEEK_API_KEY) {
+      return json({ analysis: '⚠️ AI分析服务未配置：请在 Cloudflare Pages 环境变量中设置 DEEPSEEK_API_KEY 后重试。' });
+    }
+
+    const fmtPerf = (p) => p ? `${p.name || ''}(${p.symbol || ''}) ${Number(p.changePct) >= 0 ? '+' : ''}${Number(p.changePct || 0).toFixed(2)}%` : '—';
+    const best = fmtPerf(stats.bestPerformer);
+    const worst = fmtPerf(stats.worstPerformer);
+    const stockLines = stocks.slice(0, 20).map((s) => {
+      const cp = s.changePct != null ? s.changePct : (s.changePercent != null ? s.changePercent : 0);
+      const price = s.price != null ? Number(s.price).toFixed(2) : '—';
+      return `- ${s.name || ''}(${s.symbol || ''}) 现价${price} 涨跌${Number(cp) >= 0 ? '+' : ''}${Number(cp || 0).toFixed(2)}% 行业${s.industry || '—'}`;
+    }).join('\n') || '（无个股明细）';
+
+    const sys = '你是澄观智能投顾的资深A股分析师。基于用户自选股组合的真实行情数据做复盘，语言简洁专业，使用A股红涨绿跌语境。';
+    const usr = `请对以下自选股组合进行复盘分析。
+
+## 组合统计
+- 持仓数量: ${stats.totalStocks || 0}
+- 平均涨跌幅: ${Number(stats.avgChangePct || 0).toFixed(2)}%
+- 上涨家数: ${stats.upCount || 0}　下跌家数: ${stats.downCount || 0}
+- 表现最佳: ${best}
+- 表现最差: ${worst}
+
+## 个股明细
+${stockLines}
+
+## 输出要求
+请从以下维度分析（中文，300字以内，关键结论用 **加粗** 标注）：
+1. 组合整体表现与当前市场情绪
+2. 板块/行业集中度与分散度
+3. 强势股与弱势股的共性特征
+4. 风险提示与持仓优化建议
+结尾注明：以上为AI分析，不构成投资建议。`;
+
+    const analysis = await callDeepSeek(env, sys, usr, { temperature: 0.6, maxTokens: 900 });
+    return json({ analysis });
+  } catch (e) {
+    return json({ analysis: '⚠️ AI分析暂时不可用：' + (e && e.message ? e.message : String(e)) });
+  }
+}
+
 export default {
   // ==================== 批量技术指标 ====================
 
@@ -1940,7 +2270,7 @@ export default {
       return new Response(null, {
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
         },
       });
@@ -2066,6 +2396,17 @@ export default {
     // Batch technical indicators: POST /api/tech/batch
     if (path === '/api/tech/batch' && request.method === 'POST') {
       return this.handleTechBatch(request);
+    }
+
+    // ── AI 路由 (真 LLM, 调 DeepSeek)：显式下传 env 以读取 env.DEEPSEEK_API_KEY ──
+    if (path === '/api/ai/gems' && request.method === 'POST') {
+      return handleAiGems(request, env);
+    }
+    if (path === '/api/ai/filter' && request.method === 'POST') {
+      return handleAiFilter(request, env);
+    }
+    if (path === '/api/ai/trade-analysis' && request.method === 'POST') {
+      return handleAiTradeAnalysis(request, env);
     }
 
     return error('Not found', 404);
