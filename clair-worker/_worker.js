@@ -2177,6 +2177,48 @@ ${stockLines}
   }
 }
 
+// POST /api/ai/watchlist-summary — 自选股 AI 追踪总结 (移植 backend ai-chat watchlist-summary，适配 WatchlistPage 契约)
+// 前端契约: body { symbols: string[], quotes: [{price, changePercent, turnoverRate}] }（按索引对应）→ 返回 { summary }
+async function handleAiWatchlistSummary(request, env) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const symbols = Array.isArray(body.symbols) ? body.symbols : [];
+    const quotes = Array.isArray(body.quotes) ? body.quotes : [];
+
+    if (symbols.length === 0) {
+      return json({ summary: '请先添加自选股后再生成追踪总结。' });
+    }
+    if (!env || !env.DEEPSEEK_API_KEY) {
+      return json({ summary: '⚠️ AI总结服务未配置：请在 Cloudflare Pages 环境变量中设置 DEEPSEEK_API_KEY 后重试。' });
+    }
+
+    const stockSummary = symbols.map((sym, i) => {
+      const q = quotes[i] || {};
+      const cp = Number(q.changePercent || 0);
+      const price = q.price != null ? Number(q.price).toFixed(2) : 'N/A';
+      return `- ${sym}: 价格${price}, 涨跌幅${cp >= 0 ? '+' : ''}${cp.toFixed(2)}%, 换手率${Number(q.turnoverRate || 0).toFixed(2)}%`;
+    }).join('\n');
+
+    const sys = '你是澄观智能投顾的资深A股分析师。基于用户自选股组合的真实行情数据生成追踪总结，语言简洁专业，使用A股红涨绿跌语境。';
+    const usr = `请为以下自选股组合生成追踪总结报告。
+
+## 自选股数据
+${stockSummary}
+
+## 输出要求
+请从以下维度分析（中文，200字以内，关键结论用 **加粗** 标注）：
+1. 整体表现概述（1-2句话）
+2. 板块分布分析
+3. 值得关注的信号（异动、趋势变化）
+4. 操作建议（简短）`;
+
+    const summary = await callDeepSeek(env, sys, usr, { temperature: 0.5, maxTokens: 600 });
+    return json({ summary });
+  } catch (e) {
+    return json({ summary: '⚠️ AI总结暂时不可用：' + (e && e.message ? e.message : String(e)) });
+  }
+}
+
 export default {
   // ==================== 批量技术指标 ====================
 
@@ -2407,6 +2449,9 @@ export default {
     }
     if (path === '/api/ai/trade-analysis' && request.method === 'POST') {
       return handleAiTradeAnalysis(request, env);
+    }
+    if (path === '/api/ai/watchlist-summary' && request.method === 'POST') {
+      return handleAiWatchlistSummary(request, env);
     }
 
     return error('Not found', 404);
