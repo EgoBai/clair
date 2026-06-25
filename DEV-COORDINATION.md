@@ -14,8 +14,8 @@
 
 | 角色 | 负责领域 | 当前任务 |
 |------|----------|----------|
-| **MiMoCode** | 前端 UI/UX、多端适配、CSS、组件样式 | 4项任务全部完成 ✅ |
-| **Hermes Agent** | 后端 API、数据层、AI 功能、业务逻辑 | 待确认 |
+| **MiMoCode** | 前端 UI/UX、多端适配、CSS、组件样式 | **下一任务: 潜力股雷达页前端**（后端已就绪，契约见文末交接）|
+| **Hermes Agent** | 后端 API、数据层、AI 功能、业务逻辑 | 潜力股雷达后端已就绪+reasons增强(9974d63)；待 MiMoCode 接前端 |
 
 ## 文件锁
 
@@ -98,3 +98,53 @@
 - **Worker补 watchlist-summary 路由** (commit e30d4a1): 生产Worker原缺此端点（WatchlistPage已调用），移植 backend 实现 + 复用 callDeepSeek，契约对齐 `{symbols,quotes}→{summary}`，缺key优雅降级；node --check通过 + _worker.js同步
 - **唯一生产卡点**: Cloudflare Pages 配 `DEEPSEEK_API_KEY`（用户操作）→ 配后 4 个 Worker AI 路由(gems/filter/trade-analysis/watchlist-summary)全部真实可用
 - **文件**: backend/src/api/stock.ts (kline), clair-worker/worker.js + _worker.js (watchlist-summary)
+
+---
+
+## 🎯 潜力股雷达页 — 后端就绪交接（Hermes → MiMoCode）2026-06-25
+
+> 用户要求两 Agent 组有机协作、不重复造轮子。Hermes 已确认+增强后端，**前端雷达页归 MiMoCode**。本段是无缝接手所需的全部信息。
+
+### 分工边界（避免重复/冲突）
+- **后端=Hermes 已完成**：六因子评分 + reasons 已就绪且生产可用，**MiMoCode 不需要、也不要碰** backend/clair-worker。
+- **前端雷达页=MiMoCode 认领**：独立页面 + 多维可视化 + 多端适配（纯前端 UI，正是 MiMoCode 领域）。
+- Hermes 承诺：不创建/修改前端雷达页文件，留给 MiMoCode。
+
+### API 契约（已就绪，直接调用，无需新增后端）
+- 端点：`POST /api/ai/gems`（前端经 `apiFetch` 自动路由：本地→:3001，生产→clair-api.pages.dev）
+- 请求体：`{ "topN": 50, "minScore": 40 }`（topN 上限50；minScore 建议40）
+- 响应结构：
+```jsonc
+{ "success": true, "data": {
+  "gems": [{
+    "symbol":"603039.SH", "name":"泛微网络", "price":12.3, "changePercent":4.5,
+    "turnoverRate":6.2, "marketCap":120/*亿*/, "peRatio":35|null, "industry":"软件开发",
+    "score":86,                                   // 综合分 0-100
+    "momentumScore":20, "volumeScore":20, "valuationScore":10,
+    "sizeScore":15, "industryScore":11, "qualityScore":10,   // 六因子分项(雷达图六维)
+    "reasons":["涨势适中不追高","成交活跃换手健康","中盘成长空间"] // 新增:上榜理由(最多3,规则化非LLM)
+  }],
+  "total":4448, "model":"v2.0",
+  "aiSummary":"整体解读(配DEEPSEEK_API_KEY后生效,缺key为空字符串)",
+  "factors":{/*六因子说明*/}, "scoring":"总分=动量+成交+估值+规模+行业+质量"
+}}
+```
+- 生产实测已验证：total=4448 真实全市场，六因子分项齐全，Top50 支持。
+
+### 前端设计建议（区别于 ScreenerPage 现有 Top20 表格）
+- 独立路由（建议 `/radar` 或 `/potential`）+ 导航入口；ScreenerPage 的 ai_gems Top20 表格保留即可，雷达页是更深的专属页。
+- 核心可视化（已有 echarts 依赖可直接用）：
+  1. **六因子雷达图**（ECharts radar，六维=momentum/volume/valuation/size/industry/quality）
+  2. **评分榜 Top50**（卡片/表格，总分降序，#1-50）
+  3. **上榜理由标签**（用 `reasons` 渲染 Tag/Chip — 体现"为什么有潜力"，产品差异化亮点，呼应"AI陪伴式引导>冷冰冰数据"）
+  4. 点击行/卡 → 跳 `/stocks/:symbol`（已有路由）
+- 整体解读区：展示 `aiSummary`（配key后真实，缺key隐藏/占位）。
+- 暗色主题 + 红涨绿跌 + 移动端响应式（沿用 responsive.css / pages-responsive.css 体系）。
+
+### 文件锁预登记
+| 文件 | 归属 | 状态 |
+|------|------|------|
+| `frontend/src/pages/RadarPage.tsx`（或自定名）| MiMoCode | 待建 |
+| `frontend/src/main.tsx`（加雷达页路由）| MiMoCode | 待改(注意:真入口是main.tsx非App.tsx) |
+| `backend/src/api/ai-gems.ts` | Hermes | ✅ 已完成(reasons)，勿动 |
+| `clair-worker/worker.js`+`_worker.js` | Hermes | ✅ 已完成(reasons)，勿动 |
