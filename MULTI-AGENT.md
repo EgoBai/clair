@@ -47,11 +47,21 @@ BG=`#0f172a` CARD=`#1e293b` UP=`#cf2a2a`(红涨) DOWN=`#1db468`(绿跌) ACCENT=`
 - `frontend-development` — 前端工程规范
 - `systematic-debugging` — 调试方法论
 
-## 当前状态（2026-06-22）
-- DiscoverPage v3（全宽AI解读）、ScreenerPage v5.1（8策略+技术指标列）已完成
-- Worker新增 POST /api/tech/batch（5d/20d/MA偏离/RSI/波动率）
-- 行业分类: 综合从2151→1823（关键词修正334只），完整修复待EastMoney网络访问
-- 待推送commit: 见 `git log origin/main..HEAD`
+## 当前状态（2026-06-25）
+- 6 核心页面 QA 全过（发掘/筛选/自选/复盘/个股详情/产业地图），浏览器端到端验证渲染健康
+- K线图数据源接入: 后端 `GET /api/stocks/:symbol/kline`（日/周/月K，daily_quotes 取数）→ StockDetailPage ECharts 渲染成功
+- 三大 AI 功能本地端到端验证通过（真 DeepSeek）: `/ai/market-insight-llm`、`/ai/watchlist-summary`、`/ai/trade-analysis` 均返回高质量真实内容
+- 生产 Worker AI 路由已 4 个: gems / filter / trade-analysis / watchlist-summary（watchlist-summary 本轮补齐）
+- 深链路由修复: spa-github-pages 方案（public/404.html + index.html 还原脚本，pathSegmentsToKeep=1 对应 base /clair/）
+- PWA 资源路径修复: sw.js/apple-touch-icon 用 Vite `%BASE_URL%`，manifest icon 用相对路径，已生成 icon-192/512.png（深色圆角+澄字）
+- **唯一生产卡点**: Cloudflare Pages 配 `DEEPSEEK_API_KEY` → 配后生产 4 个 Worker AI 路由全部真实可用（代码已本地验证）
+- 下一大功能: 潜力股雷达页（评分模型/后端API/前端页，适合多Agent三路并行委派）
+
+## %BASE_URL% / SPA 部署陷阱（2026-06-25 实战）
+- **静态资源绝对路径在 base=/clair/ 下会 404**: index.html 里 `'/sw.js'`、`href="/icon.png"` 不被 Vite 重写 → 用 `%BASE_URL%sw.js`（Vite 构建时替换）。`<link rel="manifest">` 是例外（Vite 自动注入 base）。
+- **manifest.json 内部路径**: Vite 不处理 manifest 内容 → icon src / start_url / scope 用相对路径（去前导斜杠），相对 manifest 所在目录解析，本地(/)和生产(/clair/)都正确。
+- **GitHub Pages SPA 深链**: BrowserRouter 直接访问子路由会 404（无服务端 fallback）→ 必须 public/404.html 编码路径重定向 + index.html 头部还原脚本。验证: node 实跑 URL 变换闭环 + 构建确认产物。
+- **vite build 误判**: 主 terminal 前台拦截器会把 `vite build` 当长驻进程拦截 → 用 background=true + process wait，或确认它是一次性构建。
 
 ## 子Agent交付规范
 1. 只修改分配给你的文件，不碰其他文件（避免并行冲突）
