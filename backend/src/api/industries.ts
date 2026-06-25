@@ -19,8 +19,44 @@ const {
 
 const router = Router();
 
-// 完整行业树
-router.get('/industries', asyncHandler(async (_req: Request, res: Response) => {
+// 完整行业树（支持 ?level=2 返回真实 PostgreSQL L2 数据）
+router.get('/industries', asyncHandler(async (req: Request, res: Response) => {
+  const level = (req.query.level as string) || '1';
+
+  if (level === '2') {
+    const db = getDb();
+    const rows = await db.connection('stocks as s')
+      .join('daily_quotes as dq', function(this: any) {
+        this.on('s.id', '=', 'dq.stock_id')
+          .andOn('dq.trade_date', '=', db.connection.raw(
+            '(SELECT MAX(trade_date) FROM daily_quotes WHERE stock_id = s.id)'
+          ));
+      })
+      .where('s.is_active', true)
+      .whereNotNull('s.industry_level2')
+      .whereNot('s.industry_level2', '综合')
+      .groupBy('s.industry_level2')
+      .select(
+        's.industry_level2 as name',
+        db.connection.raw('COUNT(*)::int as stock_count'),
+        db.connection.raw('ROUND(AVG(dq.change_percent)::numeric, 2) as avg_change'),
+        db.connection.raw('ROUND(AVG(dq.turnover_rate)::numeric, 2) as avg_turnover'),
+        db.connection.raw('ROUND(SUM(dq.market_cap)::numeric / 10000, 2) as total_cap')
+      )
+      .orderBy('stock_count', 'desc');
+
+    return res.json({
+      success: true,
+      data: {
+        standard: '申万2021 二级(自研分类引擎 v3)',
+        level: 2,
+        count: rows.length,
+        industries: rows,
+      },
+    });
+  }
+
+  // Default: L1 theoretical tree (backward-compatible)
   res.json({
     success: true,
     data: {
