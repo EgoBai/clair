@@ -90,3 +90,11 @@
 - **策略模板修复**: 价值投资模板从PE(全NULL)改为市值>100亿；动量策略从changePercent>5改为>3
 - **版本同步**: 发现本地15个文件未推送，已全部同步到GitHub
 - **文件**: ScreenerPage.tsx (去重+策略修复)
+
+### 2026-06-25 (主Agent自主推进 — QA + 数据源 + 生产AI补齐)
+- **6核心页面QA全过**: 发掘/筛选/自选/复盘/个股详情/产业地图，浏览器端到端验证渲染健康
+- **K线图数据源接入** (commit e6eeb83): 新增 `GET /api/stocks/:symbol/kline`，从 daily_quotes 取数，支持日/周/月K聚合，日期归一 YYYY-MM-DD，返回格式对齐前端 `data.quotes` → StockDetailPage K线图 ECharts Canvas 渲染成功
+- **三大AI功能本地端到端验证** (真DeepSeek): market-insight-llm / watchlist-summary / trade-analysis 全部返回高质量真实内容（数据真实、加粗格式、板块识别准确）→ 证明AI代码层面100%可用，生产仅差配key
+- **Worker补 watchlist-summary 路由** (commit e30d4a1): 生产Worker原缺此端点（WatchlistPage已调用），移植 backend 实现 + 复用 callDeepSeek，契约对齐 `{symbols,quotes}→{summary}`，缺key优雅降级；node --check通过 + _worker.js同步
+- **唯一生产卡点**: Cloudflare Pages 配 `DEEPSEEK_API_KEY`（用户操作）→ 配后 4 个 Worker AI 路由(gems/filter/trade-analysis/watchlist-summary)全部真实可用
+- **文件**: backend/src/api/stock.ts (kline), clair-worker/worker.js + _worker.js (watchlist-summary)
