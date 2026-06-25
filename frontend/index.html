@@ -9,7 +9,7 @@
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="AI驱动的A股行情分析平台 — 板块景气度发掘 · 智能筛选 · 实时追踪" />
     <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icon-192.png" />
     <title>澄观 Clair · 水静则明</title>
     <script type="text/javascript">
       // SPA 深链还原 (配合 public/404.html)：把 /clair/?/stocks/000001.SZ 还原为
@@ -31,7 +31,7 @@
     <div id="root"></div>
     <script>
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
+        navigator.serviceWorker.register('%BASE_URL%sw.js').catch(() => {});
       }
     </script>
     <script type="module" src="/src/main.tsx"></script>
