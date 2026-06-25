@@ -42,11 +42,41 @@ export interface CapitalFlowData {
   totalMarketCap: number;
 }
 
+/** 行业前景原始数据 */
+export interface IndustryData {
+  industryGrowthRate: number;
+  marketSize: number;
+  policySupport: number;
+  competitionIntensity: number;
+  technologyTrend: number;
+}
+
+/** 公司竞争力原始数据 */
+export interface CompetitivenessData {
+  marketShare: number;
+  roe: number;
+  revenueGrowth: number;
+  brandValue: number;
+  innovationCapability: number;
+}
+
+/** 风险因素原始数据 */
+export interface RiskData {
+  debtRatio: number;
+  volatility: number;
+  regulatoryRisk: number;
+  industryRisk: number;
+  managementRisk: number;
+}
+
 /** AI分析数据 */
 export interface AIAnalysisData {
-  industryScore: number;
-  competitivenessScore: number;
-  riskScore: number;
+  industryScore?: number;
+  competitivenessScore?: number;
+  riskScore?: number;
+  industry?: IndustryData;
+  competitiveness?: CompetitivenessData;
+  risk?: RiskData;
 }
 
 /** 基本面评分结果 */
@@ -260,18 +290,67 @@ export function calculateCapitalFlowScore(data: CapitalFlowData): CapitalFlowSco
 // ==================== AI分析评分 ====================
 
 /**
+ * 计算行业前景评分 (0-100)
+ * 权重: 增长率 30%, 市场规模 20%, 政策支持 25%, 竞争强度 15% (反转), 技术趋势 10%
+ */
+function scoreIndustryFromRaw(data: IndustryData): number {
+  const growthScore = Math.max(0, Math.min(100, 50 + data.industryGrowthRate * 2));
+  const marketScore = Math.max(0, Math.min(100, data.marketSize > 10000 ? 90 : data.marketSize > 5000 ? 75 : data.marketSize > 1000 ? 60 : data.marketSize > 100 ? 45 : 30));
+  const policyScore = Math.max(0, Math.min(100, data.policySupport));
+  const competitionScore = Math.max(0, Math.min(100, 100 - data.competitionIntensity));
+  const techScore = Math.max(0, Math.min(100, data.technologyTrend));
+
+  return Math.round((growthScore * 0.30 + marketScore * 0.20 + policyScore * 0.25 + competitionScore * 0.15 + techScore * 0.10) * 100) / 100;
+}
+
+/**
+ * 计算公司竞争力评分 (0-100)
+ * 权重: 市场份额 25%, ROE 20%, 营收增长 20%, 品牌价值 15%, 创新能力 20%
+ */
+function scoreCompetitivenessFromRaw(data: CompetitivenessData): number {
+  const shareScore = Math.max(0, Math.min(100, data.marketShare > 30 ? 95 : data.marketShare > 15 ? 80 : data.marketShare > 5 ? 65 : data.marketShare > 1 ? 45 : 25));
+  const roeScore = Math.max(0, Math.min(100, data.roe > 30 ? 100 : data.roe > 20 ? 85 : data.roe > 10 ? 70 : data.roe > 5 ? 50 : data.roe > 0 ? 30 : 0));
+  const growthScore = Math.max(0, Math.min(100, 50 + data.revenueGrowth * 2));
+  const brandScore = Math.max(0, Math.min(100, data.brandValue));
+  const innovationScore = Math.max(0, Math.min(100, data.innovationCapability));
+
+  return Math.round((shareScore * 0.25 + roeScore * 0.20 + growthScore * 0.20 + brandScore * 0.15 + innovationScore * 0.20) * 100) / 100;
+}
+
+/**
+ * 计算风险评分 (0-100, 越低越好)
+ * 权重: 资产负债率 25%, 波动率 20%, 监管风险 20%, 行业风险 20%, 管理层风险 15%
+ */
+function scoreRiskFromRaw(data: RiskData): number {
+  const debtScore = Math.max(0, Math.min(100, data.debtRatio < 30 ? 90 : data.debtRatio < 50 ? 70 : data.debtRatio < 70 ? 50 : data.debtRatio < 85 ? 30 : 10));
+  const volatilityScore = Math.max(0, Math.min(100, data.volatility < 15 ? 90 : data.volatility < 25 ? 70 : data.volatility < 35 ? 50 : data.volatility < 50 ? 30 : 10));
+  const regulatoryScore = Math.max(0, Math.min(100, 100 - data.regulatoryRisk));
+  const industryRiskScore = Math.max(0, Math.min(100, 100 - data.industryRisk));
+  const managementScore = Math.max(0, Math.min(100, 100 - data.managementRisk));
+
+  return Math.round((debtScore * 0.25 + volatilityScore * 0.20 + regulatoryScore * 0.20 + industryRiskScore * 0.20 + managementScore * 0.15) * 100) / 100;
+}
+
+/**
  * 计算AI分析评分
  * 权重: 行业前景 35%, 公司竞争力 40%, 风险因素 25%
+ * 支持预评分数据或原始数据计算
  */
 export function calculateAIAnalysisScore(data: AIAnalysisData): AIAnalysisScore {
-  // 行业前景评分 (0-100)
-  const industryScore = Math.max(0, Math.min(100, data.industryScore));
+  // 行业前景评分
+  const industryScore = data.industry
+    ? Math.max(0, Math.min(100, scoreIndustryFromRaw(data.industry)))
+    : Math.max(0, Math.min(100, data.industryScore ?? 50));
 
-  // 公司竞争力评分 (0-100)
-  const competitivenessScore = Math.max(0, Math.min(100, data.competitivenessScore));
+  // 公司竞争力评分
+  const competitivenessScore = data.competitiveness
+    ? Math.max(0, Math.min(100, scoreCompetitivenessFromRaw(data.competitiveness)))
+    : Math.max(0, Math.min(100, data.competitivenessScore ?? 50));
 
-  // 风险评分 (0-100, 越低越好，需要反转)
-  const riskScore = Math.max(0, Math.min(100, 100 - data.riskScore));
+  // 风险评分 (反转: 低风险 = 高分)
+  const riskScore = data.risk
+    ? Math.max(0, Math.min(100, 100 - scoreRiskFromRaw(data.risk)))
+    : Math.max(0, Math.min(100, data.riskScore !== undefined ? 100 - data.riskScore : 50));
 
   const total =
     industryScore * 0.35 +

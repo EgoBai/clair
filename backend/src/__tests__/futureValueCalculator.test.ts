@@ -15,6 +15,9 @@ import {
   type TechnicalData,
   type CapitalFlowData,
   type AIAnalysisData,
+  type IndustryData,
+  type CompetitivenessData,
+  type RiskData,
 } from '../services/futureValueCalculator';
 
 // ==================== 基本面评分测试 ====================
@@ -641,6 +644,238 @@ describe('calculateAIAnalysisScore', () => {
       riskScore: 10,
     });
     expect(result.total).toBeGreaterThan(75);
+  });
+
+  describe('权重验证', () => {
+    it('总分应按权重: 行业前景35%, 公司竞争力40%, 风险因素25%', () => {
+      const result = calculateAIAnalysisScore(defaultData);
+      const expectedTotal =
+        result.industryScore * 0.35 +
+        result.competitivenessScore * 0.40 +
+        result.riskScore * 0.25;
+      expect(result.total).toBeCloseTo(expectedTotal, 2);
+    });
+
+    it('修改单个子项应按权重影响总分', () => {
+      const base = calculateAIAnalysisScore(defaultData);
+      const higherIndustry = calculateAIAnalysisScore({ ...defaultData, industryScore: 95 });
+      const diff = higherIndustry.total - base.total;
+      const industryDiff = higherIndustry.industryScore - base.industryScore;
+      expect(diff).toBeCloseTo(industryDiff * 0.35, 2);
+    });
+  });
+
+  describe('输入边界处理', () => {
+    it('负数输入应被截断为0 (风险分反转后为100)', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: -10,
+        competitivenessScore: -20,
+        riskScore: -5,
+      });
+      expect(result.industryScore).toBe(0);
+      expect(result.competitivenessScore).toBe(0);
+      expect(result.riskScore).toBe(100);
+      expect(result.total).toBeCloseTo(0 * 0.35 + 0 * 0.40 + 100 * 0.25, 2);
+    });
+
+    it('超过100的输入应被截断为100', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 120,
+        competitivenessScore: 150,
+        riskScore: 200,
+      });
+      expect(result.industryScore).toBe(100);
+      expect(result.competitivenessScore).toBe(100);
+      expect(result.riskScore).toBe(0);
+    });
+
+    it('极端风险分数反转: riskScore=0应得满分100', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 50,
+        competitivenessScore: 50,
+        riskScore: 0,
+      });
+      expect(result.riskScore).toBe(100);
+    });
+
+    it('极端风险分数反转: riskScore=100应得0分', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 50,
+        competitivenessScore: 50,
+        riskScore: 100,
+      });
+      expect(result.riskScore).toBe(0);
+    });
+  });
+
+  describe('原始数据评分', () => {
+    const goodIndustry: IndustryData = {
+      industryGrowthRate: 25,
+      marketSize: 15000,
+      policySupport: 85,
+      competitionIntensity: 30,
+      technologyTrend: 80,
+    };
+    const goodCompetitiveness: CompetitivenessData = {
+      marketShare: 20,
+      roe: 22,
+      revenueGrowth: 30,
+      brandValue: 80,
+      innovationCapability: 75,
+    };
+    const lowRisk: RiskData = {
+      debtRatio: 35,
+      volatility: 18,
+      regulatoryRisk: 20,
+      industryRisk: 25,
+      managementRisk: 15,
+    };
+
+    it('应从行业原始数据计算行业评分', () => {
+      const result = calculateAIAnalysisScore({
+        industry: goodIndustry,
+        competitivenessScore: 70,
+        riskScore: 30,
+      });
+      expect(result.industryScore).toBeGreaterThanOrEqual(60);
+      expect(result.industryScore).toBeLessThanOrEqual(100);
+    });
+
+    it('应从竞争力原始数据计算竞争力评分', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 70,
+        competitiveness: goodCompetitiveness,
+        riskScore: 30,
+      });
+      expect(result.competitivenessScore).toBeGreaterThanOrEqual(60);
+      expect(result.competitivenessScore).toBeLessThanOrEqual(100);
+    });
+
+    it('应从风险原始数据计算风险评分(反转后)', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 70,
+        competitivenessScore: 70,
+        risk: lowRisk,
+      });
+      expect(result.riskScore).toBeGreaterThanOrEqual(60);
+    });
+
+    it('应同时支持三种原始数据', () => {
+      const result = calculateAIAnalysisScore({
+        industry: goodIndustry,
+        competitiveness: goodCompetitiveness,
+        risk: lowRisk,
+      });
+      expect(result.total).toBeGreaterThanOrEqual(60);
+      expect(result.total).toBeLessThanOrEqual(100);
+    });
+
+    it('原始数据应优先于预评分', () => {
+      const withRaw = calculateAIAnalysisScore({
+        industryScore: 30,
+        competitivenessScore: 30,
+        riskScore: 70,
+        industry: goodIndustry,
+      });
+      const withoutRaw = calculateAIAnalysisScore({
+        industryScore: 30,
+        competitivenessScore: 30,
+        riskScore: 70,
+      });
+      expect(withRaw.industryScore).not.toBe(withoutRaw.industryScore);
+    });
+
+    it('无任何数据时应返回默认中性分', () => {
+      const result = calculateAIAnalysisScore({});
+      expect(result.industryScore).toBe(50);
+      expect(result.competitivenessScore).toBe(50);
+      expect(result.riskScore).toBe(50);
+      expect(result.total).toBe(50);
+    });
+
+    it('高增长行业应得高分', () => {
+      const highGrowth = calculateAIAnalysisScore({
+        industry: { ...goodIndustry, industryGrowthRate: 50 },
+        competitivenessScore: 50,
+        riskScore: 50,
+      });
+      const lowGrowth = calculateAIAnalysisScore({
+        industry: { ...goodIndustry, industryGrowthRate: 5 },
+        competitivenessScore: 50,
+        riskScore: 50,
+      });
+      expect(highGrowth.industryScore).toBeGreaterThan(lowGrowth.industryScore);
+    });
+
+    it('高市场份额应得高竞争力分', () => {
+      const highShare = calculateAIAnalysisScore({
+        industryScore: 50,
+        competitiveness: { ...goodCompetitiveness, marketShare: 35 },
+        riskScore: 50,
+      });
+      const lowShare = calculateAIAnalysisScore({
+        industryScore: 50,
+        competitiveness: { ...goodCompetitiveness, marketShare: 2 },
+        riskScore: 50,
+      });
+      expect(highShare.competitivenessScore).toBeGreaterThan(lowShare.competitivenessScore);
+    });
+
+    it('高负债率应提高风险评分(反转后更差)', () => {
+      const highDebt = calculateAIAnalysisScore({
+        industryScore: 50,
+        competitivenessScore: 50,
+        risk: { ...lowRisk, debtRatio: 80 },
+      });
+      const lowDebt = calculateAIAnalysisScore({
+        industryScore: 50,
+        competitivenessScore: 50,
+        risk: { ...lowRisk, debtRatio: 25 },
+      });
+      expect(highDebt.riskScore).toBeGreaterThan(lowDebt.riskScore);
+    });
+  });
+
+  describe('综合场景', () => {
+    it('优秀AI分析(高行业+高竞争力+低风险)应得高分(>75)', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 85,
+        competitivenessScore: 90,
+        riskScore: 15,
+      });
+      expect(result.total).toBeGreaterThan(75);
+    });
+
+    it('劣质AI分析(低行业+低竞争力+高风险)应得低分(<35)', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 20,
+        competitivenessScore: 15,
+        riskScore: 85,
+      });
+      expect(result.total).toBeLessThan(35);
+    });
+
+    it('中性AI分析应得中等分(35-65)', () => {
+      const result = calculateAIAnalysisScore({
+        industryScore: 50,
+        competitivenessScore: 50,
+        riskScore: 50,
+      });
+      expect(result.total).toBeGreaterThanOrEqual(35);
+      expect(result.total).toBeLessThanOrEqual(65);
+    });
+
+    it('极端数据不应导致评分溢出', () => {
+      const extremes: AIAnalysisData[] = [
+        { industryScore: 999, competitivenessScore: 999, riskScore: -100 },
+        { industryScore: -500, competitivenessScore: -500, riskScore: 500 },
+      ];
+      for (const data of extremes) {
+        const result = calculateAIAnalysisScore(data);
+        expect(result.total).toBeGreaterThanOrEqual(0);
+        expect(result.total).toBeLessThanOrEqual(100);
+      }
+    });
   });
 });
 
