@@ -232,32 +232,208 @@ describe('calculateTechnicalScore', () => {
     currentPrice: 105,
   };
 
-  it('应返回有效的技术面评分', () => {
-    const result = calculateTechnicalScore(defaultData);
-    expect(result.total).toBeGreaterThanOrEqual(0);
-    expect(result.total).toBeLessThanOrEqual(100);
-    expect(result.maScore).toBeGreaterThanOrEqual(0);
-    expect(result.rsiScore).toBeGreaterThanOrEqual(0);
-    expect(result.macdScore).toBeGreaterThanOrEqual(0);
-    expect(result.volumeScore).toBeGreaterThanOrEqual(0);
+  describe('基础验证', () => {
+    it('应返回所有子项评分', () => {
+      const result = calculateTechnicalScore(defaultData);
+      expect(result).toHaveProperty('maScore');
+      expect(result).toHaveProperty('rsiScore');
+      expect(result).toHaveProperty('macdScore');
+      expect(result).toHaveProperty('volumeScore');
+      expect(result).toHaveProperty('total');
+    });
+
+    it('所有子项评分应在0-100之间', () => {
+      const result = calculateTechnicalScore(defaultData);
+      expect(result.maScore).toBeGreaterThanOrEqual(0);
+      expect(result.maScore).toBeLessThanOrEqual(100);
+      expect(result.rsiScore).toBeGreaterThanOrEqual(0);
+      expect(result.rsiScore).toBeLessThanOrEqual(100);
+      expect(result.macdScore).toBeGreaterThanOrEqual(0);
+      expect(result.macdScore).toBeLessThanOrEqual(100);
+      expect(result.volumeScore).toBeGreaterThanOrEqual(0);
+      expect(result.volumeScore).toBeLessThanOrEqual(100);
+    });
+
+    it('总分应在0-100之间', () => {
+      const result = calculateTechnicalScore(defaultData);
+      expect(result.total).toBeGreaterThanOrEqual(0);
+      expect(result.total).toBeLessThanOrEqual(100);
+    });
   });
 
-  it('价格在均线之上应得较高MA分', () => {
-    const uptrend = calculateTechnicalScore({
-      closes: Array.from({ length: 100 }, (_, i) => 100 + i),
-      volumes: baseVolumes,
-      currentPrice: 200,
+  describe('权重验证', () => {
+    it('总分应按权重: MA 30%, RSI 25%, MACD 25%, 成交量 20%', () => {
+      const result = calculateTechnicalScore(defaultData);
+      const expectedTotal =
+        result.maScore * 0.30 +
+        result.rsiScore * 0.25 +
+        result.macdScore * 0.25 +
+        result.volumeScore * 0.20;
+      expect(result.total).toBeCloseTo(expectedTotal, 2);
     });
-    expect(uptrend.maScore).toBeGreaterThan(50);
   });
 
-  it('价格在均线之下应得较低MA分', () => {
-    const downtrend = calculateTechnicalScore({
-      closes: Array.from({ length: 100 }, (_, i) => 200 - i),
-      volumes: baseVolumes,
-      currentPrice: 100,
+  describe('MA趋势评分逻辑', () => {
+    it('多头排列(价格>MA5>MA20)应得高分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 100 + i * 2);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 300,
+      });
+      expect(result.maScore).toBeGreaterThanOrEqual(80);
     });
-    expect(downtrend.maScore).toBeLessThan(50);
+
+    it('价格在MA20之上但MA5之下应得中等分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 100 + i * 0.5);
+      const ma20Val = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: ma20Val + 5,
+      });
+      expect(result.maScore).toBeGreaterThanOrEqual(50);
+    });
+
+    it('空头排列(价格<MA5<MA20)应得低分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 300 - i * 2);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 100,
+      });
+      expect(result.maScore).toBeLessThanOrEqual(30);
+    });
+
+    it('价格在MA20之下应得较低分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 200 - i);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 100,
+      });
+      expect(result.maScore).toBeLessThan(50);
+    });
+
+    it('MA20>MA60长期趋势向上应加分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 100 + i);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 200,
+      });
+      expect(result.maScore).toBeGreaterThanOrEqual(80);
+    });
+  });
+
+  describe('RSI评分逻辑', () => {
+    it('RSI超卖(<30)应得高分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 200 - i * 1.5);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 50,
+      });
+      expect(result.rsiScore).toBeGreaterThan(50);
+    });
+
+    it('RSI超买(>70)应得低分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 50 + i * 1.5);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 200,
+      });
+      expect(result.rsiScore).toBeLessThan(50);
+    });
+  });
+
+  describe('MACD评分逻辑', () => {
+    it('红柱放大应得较高分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 100 + i);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 200,
+      });
+      expect(result.macdScore).toBeGreaterThanOrEqual(60);
+    });
+
+    it('绿柱放大应得较低分', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 200 - i);
+      const result = calculateTechnicalScore({
+        closes,
+        volumes: baseVolumes,
+        currentPrice: 100,
+      });
+      expect(result.macdScore).toBeLessThanOrEqual(40);
+    });
+  });
+
+  describe('成交量评分逻辑', () => {
+    it('适度放量应得高分', () => {
+      const volumes = Array.from({ length: 100 }, (_, i) =>
+        i === 99 ? 2000000 : 1000000
+      );
+      const result = calculateTechnicalScore({
+        closes: baseCloses,
+        volumes,
+        currentPrice: 105,
+      });
+      expect(result.volumeScore).toBeGreaterThanOrEqual(70);
+    });
+
+    it('极度缩量应得低分', () => {
+      const volumes = Array.from({ length: 100 }, (_, i) =>
+        i === 99 ? 100000 : 1000000
+      );
+      const result = calculateTechnicalScore({
+        closes: baseCloses,
+        volumes,
+        currentPrice: 105,
+      });
+      expect(result.volumeScore).toBeLessThanOrEqual(40);
+    });
+  });
+
+  describe('综合场景', () => {
+    it('强势上涨应得较高总分(>50)', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 100 + i * 2);
+      const volumes = Array.from({ length: 100 }, (_, i) =>
+        i === 99 ? 3000000 : 1000000
+      );
+      const result = calculateTechnicalScore({
+        closes,
+        volumes,
+        currentPrice: 300,
+      });
+      expect(result.total).toBeGreaterThan(50);
+    });
+
+    it('持续下跌应得较低总分(<55)', () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 300 - i * 2);
+      const volumes = Array.from({ length: 100 }, (_, i) =>
+        i === 99 ? 500000 : 1000000
+      );
+      const result = calculateTechnicalScore({
+        closes,
+        volumes,
+        currentPrice: 100,
+      });
+      expect(result.total).toBeLessThan(55);
+    });
+
+    it('极端数据不应导致评分溢出', () => {
+      const extremes: TechnicalData[] = [
+        { closes: Array.from({ length: 100 }, (_, i) => 1 + i * 10), volumes: Array.from({ length: 100 }, () => 1e9), currentPrice: 1000 },
+        { closes: Array.from({ length: 100 }, (_, i) => 1000 - i * 10), volumes: Array.from({ length: 100 }, () => 1), currentPrice: 1 },
+      ];
+      for (const data of extremes) {
+        const result = calculateTechnicalScore(data);
+        expect(result.total).toBeGreaterThanOrEqual(0);
+        expect(result.total).toBeLessThanOrEqual(100);
+      }
+    });
   });
 });
 
@@ -271,32 +447,175 @@ describe('calculateCapitalFlowScore', () => {
     totalMarketCap: 1e10,
   };
 
-  it('应返回有效的资金面评分', () => {
-    const result = calculateCapitalFlowScore(defaultData);
-    expect(result.total).toBeGreaterThanOrEqual(0);
-    expect(result.total).toBeLessThanOrEqual(100);
+  describe('基础验证', () => {
+    it('应返回所有子项评分', () => {
+      const result = calculateCapitalFlowScore(defaultData);
+      expect(result).toHaveProperty('mainInflowScore');
+      expect(result).toHaveProperty('northboundScore');
+      expect(result).toHaveProperty('marginScore');
+      expect(result).toHaveProperty('total');
+    });
+
+    it('所有子项评分应在0-100之间', () => {
+      const result = calculateCapitalFlowScore(defaultData);
+      expect(result.mainInflowScore).toBeGreaterThanOrEqual(0);
+      expect(result.mainInflowScore).toBeLessThanOrEqual(100);
+      expect(result.northboundScore).toBeGreaterThanOrEqual(0);
+      expect(result.northboundScore).toBeLessThanOrEqual(100);
+      expect(result.marginScore).toBeGreaterThanOrEqual(0);
+      expect(result.marginScore).toBeLessThanOrEqual(100);
+    });
+
+    it('总分应在0-100之间', () => {
+      const result = calculateCapitalFlowScore(defaultData);
+      expect(result.total).toBeGreaterThanOrEqual(0);
+      expect(result.total).toBeLessThanOrEqual(100);
+    });
   });
 
-  it('大量资金流入应得高分', () => {
-    const goodFlow: CapitalFlowData = {
-      mainNetInflow: 1e9,
-      northboundNetBuy: 1e9,
-      marginNetBuy: 5e8,
-      totalMarketCap: 1e10,
-    };
-    const result = calculateCapitalFlowScore(goodFlow);
-    expect(result.total).toBeGreaterThan(70);
+  describe('权重验证', () => {
+    it('总分应按权重: 主力资金40%, 北向资金35%, 融资融券25%', () => {
+      const result = calculateCapitalFlowScore(defaultData);
+      const expectedTotal =
+        result.mainInflowScore * 0.40 +
+        result.northboundScore * 0.35 +
+        result.marginScore * 0.25;
+      expect(result.total).toBeCloseTo(expectedTotal, 2);
+    });
   });
 
-  it('资金大幅流出应得低分', () => {
-    const badFlow: CapitalFlowData = {
-      mainNetInflow: -1e9,
-      northboundNetBuy: -1e9,
-      marginNetBuy: -5e8,
-      totalMarketCap: 1e10,
-    };
-    const result = calculateCapitalFlowScore(badFlow);
-    expect(result.total).toBeLessThan(30);
+  describe('主力资金评分逻辑', () => {
+    it('大幅净流入应得高分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        mainNetInflow: 1e9,
+      });
+      expect(result.mainInflowScore).toBeGreaterThanOrEqual(75);
+    });
+
+    it('小幅净流入应得中等分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        mainNetInflow: 1e8,
+      });
+      expect(result.mainInflowScore).toBeGreaterThanOrEqual(50);
+    });
+
+    it('净流出应得低分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        mainNetInflow: -5e8,
+      });
+      expect(result.mainInflowScore).toBeLessThanOrEqual(40);
+    });
+
+    it('大幅净流出应得极低分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        mainNetInflow: -1e9,
+      });
+      expect(result.mainInflowScore).toBeLessThanOrEqual(25);
+    });
+  });
+
+  describe('北向资金评分逻辑', () => {
+    it('大幅净买入应得高分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        northboundNetBuy: 1e9,
+      });
+      expect(result.northboundScore).toBeGreaterThanOrEqual(75);
+    });
+
+    it('小幅净买入应得中等分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        northboundNetBuy: 2e8,
+      });
+      expect(result.northboundScore).toBeGreaterThanOrEqual(50);
+    });
+
+    it('净卖出应得低分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        northboundNetBuy: -5e8,
+      });
+      expect(result.northboundScore).toBeLessThanOrEqual(40);
+    });
+
+    it('大幅净卖出应得极低分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        northboundNetBuy: -1e9,
+      });
+      expect(result.northboundScore).toBeLessThanOrEqual(25);
+    });
+  });
+
+  describe('融资融券评分逻辑', () => {
+    it('融资净买入应得高分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        marginNetBuy: 2e8,
+      });
+      expect(result.marginScore).toBeGreaterThanOrEqual(65);
+    });
+
+    it('融资净卖出应得低分', () => {
+      const result = calculateCapitalFlowScore({
+        ...defaultData,
+        marginNetBuy: -2e8,
+      });
+      expect(result.marginScore).toBeLessThanOrEqual(40);
+    });
+  });
+
+  describe('综合场景', () => {
+    it('大量资金流入应得高分(>70)', () => {
+      const goodFlow: CapitalFlowData = {
+        mainNetInflow: 1e9,
+        northboundNetBuy: 1e9,
+        marginNetBuy: 5e8,
+        totalMarketCap: 1e10,
+      };
+      const result = calculateCapitalFlowScore(goodFlow);
+      expect(result.total).toBeGreaterThan(70);
+    });
+
+    it('资金大幅流出应得低分(<30)', () => {
+      const badFlow: CapitalFlowData = {
+        mainNetInflow: -1e9,
+        northboundNetBuy: -1e9,
+        marginNetBuy: -5e8,
+        totalMarketCap: 1e10,
+      };
+      const result = calculateCapitalFlowScore(badFlow);
+      expect(result.total).toBeLessThan(30);
+    });
+
+    it('零资金流动应得中等分', () => {
+      const zeroFlow: CapitalFlowData = {
+        mainNetInflow: 0,
+        northboundNetBuy: 0,
+        marginNetBuy: 0,
+        totalMarketCap: 1e10,
+      };
+      const result = calculateCapitalFlowScore(zeroFlow);
+      expect(result.total).toBeGreaterThanOrEqual(30);
+      expect(result.total).toBeLessThanOrEqual(60);
+    });
+
+    it('极端数据不应导致评分溢出', () => {
+      const extremes: CapitalFlowData[] = [
+        { mainNetInflow: 1e12, northboundNetBuy: 1e12, marginNetBuy: 1e12, totalMarketCap: 1e10 },
+        { mainNetInflow: -1e12, northboundNetBuy: -1e12, marginNetBuy: -1e12, totalMarketCap: 1e10 },
+      ];
+      for (const data of extremes) {
+        const result = calculateCapitalFlowScore(data);
+        expect(result.total).toBeGreaterThanOrEqual(0);
+        expect(result.total).toBeLessThanOrEqual(100);
+      }
+    });
   });
 });
 
