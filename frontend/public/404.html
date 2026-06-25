@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>澄观 Clair · 水静则明</title>
+    <script type="text/javascript">
+      // SPA 深链 fallback (spa-github-pages 方案)
+      // GitHub Pages 找不到物理路径(如 /clair/stocks/000001.SZ)时返回本页；
+      // 这里把真实路径编码进 query 重定向回 SPA 入口，再由 index.html 的还原脚本解码，
+      // 交给 React Router (BrowserRouter) 接管。
+      // pathSegmentsToKeep=1 对应 vite base '/clair/'（保留仓库名段）。
+      var pathSegmentsToKeep = 1;
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
