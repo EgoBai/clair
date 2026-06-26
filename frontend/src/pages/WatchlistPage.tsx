@@ -286,7 +286,7 @@ const WatchlistPage: React.FC = () => {
     () => groups.find(g => g.id === activeGroup) || groups[0],
     [groups, activeGroup],
   );
-  const symbols = useMemo(() => currentGroup.stocks.map(s => s.symbol), [currentGroup]);
+  const symbols = useMemo(() => currentGroup?.stocks?.map(s => s.symbol) || [], [currentGroup]);
   const totalCount = useMemo(() => groups.reduce((s, g) => s + g.stocks.length, 0), [groups]);
 
   /* ─── Stats ─── */
@@ -1101,7 +1101,7 @@ const WatchlistPage: React.FC = () => {
             </Empty>
           ) : (
             <Table
-              dataSource={currentGroup.stocks}
+              dataSource={currentGroup?.stocks || []}
               columns={columns}
               rowKey="symbol"
               size="middle"

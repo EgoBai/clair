@@ -273,4 +273,111 @@ async function fetchMarketIndices() {
   return indices;
 }
 
+// ==================== 技术指标批量查询 ====================
+
+router.post('/tech/batch', asyncHandler(async (req, res) => {
+  const { symbols, days: rawDays } = req.body;
+  const days = Math.min(rawDays || 30, 120);
+  const symbolList = ((symbols as string[]) || []).slice(0, 40);
+  
+  if (!symbolList.length) {
+    return sendSuccess(res, { data: {} });
+  }
+
+  const results: Record<string, Record<string, number | null>> = {};
+
+  // Parallel: resolve all symbols to stock_ids
+  const stockInfos = await Promise.all(
+    symbolList.map(async (sym) => {
+      const stock = await db.getStockBySymbol(sym);
+      return { symbol: sym, stockId: stock?.id ?? null };
+    })
+  );
+
+  // Fetch quotes and compute in parallel batches of 10
+  const batchSize = 10;
+  for (let i = 0; i < stockInfos.length; i += batchSize) {
+    const batch = stockInfos.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map(async ({ symbol, stockId }) => {
+        if (!stockId) return { symbol };
+        try {
+          const quotes = await db.getDailyQuotes(stockId, undefined, undefined, days + 20);
+          if (!quotes || quotes.length < 5) return { symbol };
+
+          // Sort ascending by trade_date (oldest first)
+          quotes.sort((a, b) => new Date(a.trade_date).getTime() - new Date(b.trade_date).getTime());
+          const closes = quotes.map(q => Number(q.close_price)).filter(c => c > 0);
+          if (closes.length < 5) return { symbol };
+
+          const latest = closes[closes.length - 1];
+
+          const change5d = closes.length >= 6
+            ? Math.round(((latest - closes[closes.length - 6]) / closes[closes.length - 6] * 100) * 100) / 100
+            : null;
+          const change20d = closes.length >= 21
+            ? Math.round(((latest - closes[closes.length - 21]) / closes[closes.length - 21] * 100) * 100) / 100
+            : null;
+          const changeRange = closes.length >= days + 1
+            ? Math.round(((latest - closes[closes.length - 1 - days]) / closes[closes.length - 1 - days] * 100) * 100) / 100
+            : null;
+
+          const lookback20 = closes.slice(-20);
+          const ma20 = Math.round((lookback20.reduce((a, b) => a + b, 0) / lookback20.length) * 100) / 100;
+          const maDeviation = Math.round(((latest - ma20) / ma20 * 100) * 100) / 100;
+
+          let rsi14: number | null = null;
+          if (closes.length >= 15) {
+            const rsiCloses = closes.slice(-15);
+            let gains = 0, losses = 0;
+            for (let j = 1; j < rsiCloses.length; j++) {
+              const diff = rsiCloses[j] - rsiCloses[j - 1];
+              if (diff > 0) gains += diff;
+              else losses += Math.abs(diff);
+            }
+            if (gains + losses === 0) {
+              rsi14 = 50;
+            } else {
+              rsi14 = Math.round(100 - (100 / (1 + (gains / 14) / (losses / 14))));
+            }
+          }
+
+          // Volatility 20d
+          let vol20d: number | null = null;
+          if (lookback20.length >= 2) {
+            const rets: number[] = [];
+            for (let j = 1; j < lookback20.length; j++) {
+              rets.push(Math.log(lookback20[j] / lookback20[j - 1]));
+            }
+            const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+            const v = rets.reduce((a, b) => a + (b - m) ** 2, 0) / rets.length;
+            vol20d = Math.round(Math.sqrt(v) * Math.sqrt(250) * 100 * 100) / 100;
+          }
+
+          return {
+            symbol,
+            change5d,
+            change20d,
+            changeRange,
+            ma20,
+            maDeviation,
+            rsi14,
+            volatility20d: vol20d,
+          };
+        } catch {
+          return { symbol };
+        }
+      })
+    );
+
+    for (const r of batchResults) {
+      if (r.change5d != null) {
+        results[r.symbol] = r;
+      }
+    }
+  }
+
+  sendSuccess(res, { data: results });
+}));
+
 export default router;
