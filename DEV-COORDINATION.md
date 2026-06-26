@@ -148,3 +148,27 @@
 | `frontend/src/main.tsx`（加雷达页路由）| MiMoCode | 待改(注意:真入口是main.tsx非App.tsx) |
 | `backend/src/api/ai-gems.ts` | Hermes | ✅ 已完成(reasons)，勿动 |
 | `clair-worker/worker.js`+`_worker.js` | Hermes | ✅ 已完成(reasons)，勿动 |
+
+---
+
+## 📊 行业分类重制 & L2 API 就绪（Hermes → MiMoCode）2026-06-25
+
+Hermes 已完成申万2021二级行业分类重制。前端露出（DiscoverPage 板块分析切换一/二级、ScreenerPage 行业筛选下钻）可开始。
+
+### 后端新增 API（可直接调用）
+
+| 端点 | 说明 |
+|------|------|
+| `GET /api/industries?level=2` | 75个二级行业实时统计（stock_count / avg_change / avg_turnover / total_cap）|
+| `GET /api/industries/level2/stocks?name=半导体` | 某二级行业的股票列表+最新行情（按市值降序，上限200只）|
+
+### 数据状态
+- `stocks.industry_level2` 列已写入 — 4481/5544 只 (80.8%) 分配到75个二级类别
+- 申万2021分类引擎 + 映射表在 `data/` + `scripts/`
+- 原 `stocks.industry` (一级31类) 不变，完全向后兼容
+
+### 前端建议
+- DiscoverPage 板块分析加 `级别: 一级/二级` 切换：调用 `?level=2` 获取75类统计
+- ScreenerPage 行业筛选加二级下拉：先调 `?level=2` 获取列表名，再调 `level2/stocks?name=X` 查股
+- 文件：DiscoverPage.tsx / ScreenerPage.tsx ← **MiMoCode 认领**
+- Hermes 不碰这两个前端文件
