@@ -170,4 +170,47 @@ router.get('/industries/sub-sector/:subIndustry/stocks', asyncHandler(async (req
   });
 }));
 
+// 按二级行业查询股票（直接读 stocks.industry_level2）
+router.get('/industries/level2/stocks', asyncHandler(async (req: Request, res: Response) => {
+  const name = req.query.name as string;
+  if (!name) {
+    res.status(400).json({ success: false, error: '请提供 ?name=二级行业名称' });
+    return;
+  }
+
+  const db = getDb();
+  const stocks = await db.connection('stocks')
+    .where('is_active', true)
+    .where('industry_level2', name)
+    .select('symbol', 'name', 'industry', 'industry_level2', 'market_cap', 'pe_ratio', 'turnover_rate')
+    .orderBy('market_cap', 'desc')
+    .limit(200);
+
+  // 附加最新行情
+  const symbols = stocks.map((s: any) => s.symbol);
+  const quotes = symbols.length > 0 ? await db.getStocksWithLatestQuotes(symbols) : [];
+
+  res.json({
+    success: true,
+    data: {
+      industry: name,
+      count: stocks.length,
+      stocks: stocks.map((s: any, i: number) => {
+        const q = quotes[i] || {};
+        return {
+          symbol: s.symbol,
+          name: s.name,
+          l1: s.industry,
+          l2: s.industry_level2,
+          marketCap: Number(s.market_cap) || 0,
+          peRatio: s.pe_ratio ? Number(s.pe_ratio) : null,
+          price: q.latestQuote?.closePrice ?? null,
+          changePercent: q.latestQuote?.changePercent ?? null,
+          turnoverRate: s.turnover_rate ? Number(s.turnover_rate) : null,
+        };
+      }),
+    },
+  });
+}));
+
 export default router;
