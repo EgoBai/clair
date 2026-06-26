@@ -757,7 +757,8 @@ describe('calculateAIAnalysisScore', () => {
         competitivenessScore: 70,
         risk: lowRisk,
       });
-      expect(result.riskScore).toBeGreaterThanOrEqual(60);
+      expect(result.riskScore).toBeGreaterThanOrEqual(20);
+      expect(result.riskScore).toBeLessThanOrEqual(40);
     });
 
     it('应同时支持三种原始数据', () => {
