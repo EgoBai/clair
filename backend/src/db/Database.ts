@@ -481,15 +481,21 @@ export class Database {
       return null;
     }
 
-    // 计算市场概况
+    // 计算市场概况 (PostgreSQL numeric 列返回 string，必须用 Number() 转换)
     const totalStocks = dailyQuotes.length;
-    const totalMarketCap = dailyQuotes.reduce((sum, quote) => sum + (quote.market_cap || 0), 0);
-    const totalVolume = dailyQuotes.reduce((sum, quote) => sum + (quote.volume || 0), 0);
-    const totalTurnover = dailyQuotes.reduce((sum, quote) => sum + (quote.turnover || 0), 0);
+    const totalMarketCap = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.market_cap) || 0), 0);
+    const totalVolume = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.volume) || 0), 0);
+    // turnover 在 daily_quotes 中以万元存储，乘以10000转为元
+    const totalTurnover = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.turnover) || 0) * 10000, 0);
     
-    const risingStocks = dailyQuotes.filter(quote => quote.change_percent > 0).length;
-    const fallingStocks = dailyQuotes.filter(quote => quote.change_percent < 0).length;
-    const unchangedStocks = dailyQuotes.filter(quote => quote.change_percent === 0).length;
+    const risingStocks = dailyQuotes.filter(quote => Number(quote.change_percent) > 0).length;
+    const fallingStocks = dailyQuotes.filter(quote => Number(quote.change_percent) < 0).length;
+    const unchangedStocks = dailyQuotes.filter(quote => Number(quote.change_percent) === 0).length;
+
+    // 涨跌停统计 (A股 ±10% 为基准, 科创板/创业板 ±20%, ST ±5%)
+    // 简化: change_percent >= 9.5% 算涨停, <= -9.5% 算跌停
+    const limitUpCount = dailyQuotes.filter(quote => Number(quote.change_percent) >= 9.5).length;
+    const limitDownCount = dailyQuotes.filter(quote => Number(quote.change_percent) <= -9.5).length;
 
     // 按行业分组
     const industryStats = await this.knexInstance.raw(`
@@ -515,6 +521,8 @@ export class Database {
       risingStocks,
       fallingStocks,
       unchangedStocks,
+      limitUpCount,
+      limitDownCount,
       industryPerformance: industryStats.rows
     };
   }

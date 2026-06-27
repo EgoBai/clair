@@ -67,6 +67,7 @@ const DiscoverPage: React.FC = () => {
   const navigate = useNavigate();
   const [indices, setIndices] = useState<IndexData[]>([]);
   const [scores, setScores] = useState<SectorScore[]>([]);
+  const [marketSummary, setMarketSummary] = useState<any>(null);
   const [selectedSector, setSelectedSector] = useState<SectorScore | null>(null);
   const [sectorStocks, setSectorStocks] = useState<StockData[]>([]);
   const [view, setView] = useState<'market' | 'sector'>('market');
@@ -82,12 +83,14 @@ const DiscoverPage: React.FC = () => {
       setLoading(true);
       setInsightLoading(true);
       const apiPath = sectorType === 'industry' ? '/api/sectors/momentum' : '/api/sectors/concept';
-      const [iRes, sRes] = await Promise.all([
+      const [iRes, sRes, mRes] = await Promise.all([
         fetch('/api/market/indices').then(r => r.json()).catch(() => ({ data: { indices: [] } })),
         fetch(apiPath).then(r => r.json()).catch(() => ({ data: { sectors: [] } })),
+        fetch('/api/market/summary').then(r => r.json()).catch(() => null),
       ]);
       setIndices(iRes.data?.indices || []);
       setScores(sRes.data?.sectors || []);
+      if (mRes?.data) setMarketSummary(mRes.data);
       setLoading(false);
 
       // AI insight: instant rule-based (0 delay)
@@ -135,6 +138,16 @@ const DiscoverPage: React.FC = () => {
   const upPct = scores.length > 0 ? Math.round((upCount / scores.length) * 100) : 0;
   const topScores = scores.slice(0, 3); // 按景气度评分排序（板块热度榜，非涨幅榜）
 
+  // 真实市场涨跌家数（来自 /api/market/summary，5541只全量统计）
+  const realUpStocks = marketSummary?.risingStocks ?? 0;
+  const realDownStocks = marketSummary?.fallingStocks ?? 0;
+  const realFlatStocks = marketSummary?.unchangedStocks ?? 0;
+  const realLimitUp = marketSummary?.limitUpCount ?? 0;
+  const realLimitDown = marketSummary?.limitDownCount ?? 0;
+  const realTotalStocks = marketSummary?.totalStocks ?? 0;
+  const realTurnover = marketSummary?.totalTurnover ?? 0; // 元
+  const breadthPct = realTotalStocks > 0 ? Math.round((realUpStocks / realTotalStocks) * 100) : 0;
+
   // 真·领涨/领跌：按真实涨跌幅排序，标签与内容一致（修复 P1-1）
   const sortedByChange = [...scores].sort(
     (a, b) => Number(b.avg_change_percent ?? b.avgChange ?? 0) - Number(a.avg_change_percent ?? a.avgChange ?? 0)
@@ -147,8 +160,8 @@ const DiscoverPage: React.FC = () => {
   if (loading) return <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
 
   const moodEmoji = insight?.moodEmoji || '📊';
-  const marketBreadth = insight?.marketBreadth || { up: upCount, down: downCount };
-  const breadthPct = Math.round((marketBreadth.up / Math.max(1, marketBreadth.up + marketBreadth.down)) * 100);
+  // 使用真实市场数据替代旧的 AI insight 虚构数据
+  const marketBreadth = { up: realUpStocks, down: realDownStocks };
 
   return (
     <div className="discover-page" style={{ background: BG, minHeight: '100vh', color: TEXT }}>
@@ -200,7 +213,7 @@ const DiscoverPage: React.FC = () => {
                 {/* 右侧：核心指标 */}
                 <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>指数涨跌</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>个股涨跌</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 800, color: COLOR_UP }}>{marketBreadth.up}</span>
                       <div style={{ width: 64, height: 4, borderRadius: 2, background: 'var(--color-down-bg)', overflow: 'hidden' }}>
@@ -208,7 +221,7 @@ const DiscoverPage: React.FC = () => {
                       </div>
                       <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 800, color: COLOR_DOWN }}>{marketBreadth.down}</span>
                     </div>
-                    <div style={{ fontSize: 11, color: TEXT_SEC }}>指数 {marketBreadth.up}涨{marketBreadth.down}跌</div>
+                    <div style={{ fontSize: 11, color: TEXT_SEC }}>全市场 {marketBreadth.up}涨{marketBreadth.down}跌</div>
                   </div>
 
                   <div style={{ textAlign: 'center' }}>
@@ -218,16 +231,16 @@ const DiscoverPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {insight?.limitUpCount > 0 && (
+                  {realLimitUp > 0 && (
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>涨停</div>
-                      <div style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 800, color: COLOR_UP, lineHeight: 1 }}>{insight.limitUpCount}</div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 800, color: COLOR_UP, lineHeight: 1 }}>{realLimitUp}</div>
                     </div>
                   )}
-                  {insight?.limitDownCount > 0 && (
+                  {realLimitDown > 0 && (
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>跌停</div>
-                      <div style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 800, color: COLOR_DOWN, lineHeight: 1 }}>{insight.limitDownCount}</div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 800, color: COLOR_DOWN, lineHeight: 1 }}>{realLimitDown}</div>
                     </div>
                   )}
                 </div>
@@ -269,12 +282,13 @@ const DiscoverPage: React.FC = () => {
                         const topNames = top3.map(s => `${s.industry}(${s.score}分${Number(s.avg_change_percent) >= 0 ? '+' : ''}${Number(s.avg_change_percent).toFixed(1)}%)`).join('、');
                         const hotSectors = scores.filter(s => s.limit_up_count > 0).slice(0, 3);
                         const hotNames = hotSectors.map(s => `${s.industry}${s.limit_up_count}只涨停`).join('、');
-                        if (upPct >= 60) {
-                          return <div>市场情绪偏乐观，<b style={{ color: COLOR_UP }}>{upCount}/{scores.length}</b> 板块上涨（{upPct}%）。领涨：{topNames}。{hotSectors.length > 0 ? `涨停集中：${hotNames}。` : ''}资金活跃度高，建议聚焦景气评分 &gt; 50 的板块。</div>;
-                        } else if (upPct >= 35) {
-                          return <div>市场结构性分化，<b style={{ color: COLOR_UP }}>{upCount}</b> 涨 <b style={{ color: COLOR_DOWN }}>{downCount}</b> 跌。强势板块：{topNames}。{hotSectors.length > 0 ? `局部热点：${hotNames}。` : ''}结构性行情下，轻指数重板块。</div>;
+                        const stockUpPct = realTotalStocks > 0 ? Math.round((realUpStocks / realTotalStocks) * 100) : 0;
+                        if (stockUpPct >= 50) {
+                          return <div>市场情绪偏乐观，<b style={{ color: COLOR_UP }}>{realUpStocks}/{realTotalStocks}</b> 只个股上涨（{stockUpPct}%）。领涨板块：{topNames}。{hotSectors.length > 0 ? `涨停集中：${hotNames}。` : ''}资金活跃度高，建议聚焦景气评分 &gt; 50 的板块。</div>;
+                        } else if (stockUpPct >= 20) {
+                          return <div>市场结构性分化，<b style={{ color: COLOR_UP }}>{realUpStocks}</b> 涨 <b style={{ color: COLOR_DOWN }}>{realDownStocks}</b> 跌。强势板块：{topNames}。{hotSectors.length > 0 ? `局部热点：${hotNames}。` : ''}结构性行情下，轻指数重板块。</div>;
                         } else {
-                          return <div>市场情绪偏谨慎，仅 <b>{upPct}%</b> 板块上涨。抗跌板块：{topNames}。防御策略为主，关注低估值、高股息品种。</div>;
+                          return <div>市场情绪偏谨慎，仅 <b>{stockUpPct}%</b> 个股上涨。成交额 {formatBig(realTurnover)}。抗跌板块：{topNames}。防御策略为主，关注低估值、高股息品种。</div>;
                         }
                       })()}
                     </div>
@@ -287,14 +301,27 @@ const DiscoverPage: React.FC = () => {
                     <div style={{ fontSize: 13, fontWeight: 700, color: TEXT, marginBottom: 12 }}>📊 关键信号</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 12, color: TEXT_SEC }}>上涨板块</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_UP }}>{upCount}</span>
+                        <span style={{ fontSize: 12, color: TEXT_SEC }}>上涨家数</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_UP }}>{realUpStocks}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 12, color: TEXT_SEC }}>下跌板块</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_DOWN }}>{downCount}</span>
+                        <span style={{ fontSize: 12, color: TEXT_SEC }}>下跌家数</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_DOWN }}>{realDownStocks}</span>
                       </div>
                       <div style={{ height: 1, background: 'var(--border-subtle)' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: TEXT_SEC }}>涨停家数</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_UP }}>{realLimitUp} 只</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: TEXT_SEC }}>跌停家数</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_DOWN }}>{realLimitDown} 只</span>
+                      </div>
+                      <div style={{ height: 1, background: 'var(--border-subtle)' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: TEXT_SEC }}>市场总成交</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: TEXT }}>{formatBig(realTurnover)}</span>
+                      </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 12, color: TEXT_SEC }}>景气 &gt; 70</span>
                         <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: '#22c55e' }}>

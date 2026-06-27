@@ -192,12 +192,12 @@ export class DataSyncService {
                 highPrice: quote.highPrice,
                 lowPrice: quote.lowPrice,
                 volume: quote.volume,
-                turnover: quote.turnover,
                 change: quote.change,
                 changePercent: quote.changePercent,
                 amplitude: quote.amplitude,
                 turnoverRate: quote.turnoverRate,
                 marketCap: quote.marketCap,
+                turnover: quote.turnover * 10000, // 腾讯API返回万元，转为元存储
               });
 
               result.quotesSaved++;
