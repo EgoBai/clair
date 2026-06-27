@@ -54,6 +54,7 @@ import aiGemsRouter from './api/ai-gems';
 import industryChainRouter from './api/industryChain';
 import industryAlertsRouter from './api/industry-alerts';
 import aiInvestmentNoteRouter from './api/ai-investment-note';
+import futureValueRouter from './routes/futureValue';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
@@ -138,6 +139,7 @@ app.use('/api', aiGemsRouter);
 app.use('/api/industry-chains', industryChainRouter);
 app.use('/api', industryAlertsRouter);
 app.use('/api', aiInvestmentNoteRouter);
+app.use('/api', futureValueRouter);
 
 // ==================== API 文档 ====================
 app.use(apiDocsRouter);
