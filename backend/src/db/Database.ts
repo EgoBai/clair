@@ -121,9 +121,9 @@ export class Database {
         this.knexInstance.raw('COALESCE(dq.turnover_rate, s.turnover_rate) as turnover_rate'),
         this.knexInstance.raw('COALESCE(dq.market_cap, s.market_cap) as market_cap'),
         this.knexInstance.raw('s.circulating_market_cap'),
-        // PE/PB 只在 stocks 表中
-        this.knexInstance.raw('s.pe_ratio'),
-        this.knexInstance.raw('s.pb_ratio'),
+        // PE/PB 优先用 daily_quotes 实时数据，回退到 stocks 表
+        this.knexInstance.raw('COALESCE(dq.pe_ratio, s.pe_ratio) as pe_ratio'),
+        this.knexInstance.raw('COALESCE(dq.pb_ratio, s.pb_ratio) as pb_ratio'),
       );
 
     // 应用过滤条件
@@ -353,6 +353,8 @@ export class Database {
       amplitude: quote.amplitude || 0,
       turnover_rate: quote.turnoverRate || 0,
       market_cap: quote.marketCap,
+      pe_ratio: quote.peRatio ?? null,
+      pb_ratio: quote.pbRatio ?? null,
       created_at: new Date(),
     };
     const [created] = await this.knexInstance<DailyQuote>('daily_quotes')

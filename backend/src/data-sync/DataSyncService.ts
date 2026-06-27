@@ -198,6 +198,8 @@ export class DataSyncService {
                 turnoverRate: quote.turnoverRate,
                 marketCap: quote.marketCap,
                 turnover: quote.turnover * 10000, // 腾讯API返回万元，转为元存储
+                peRatio: quote.peRatio,
+                pbRatio: quote.pbRatio,
               });
 
               result.quotesSaved++;
