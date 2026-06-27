@@ -8,6 +8,7 @@ import axios from 'axios';
 import * as iconv from 'iconv-lite';
 import { db } from '../db/dbFactory';
 import { getInMemoryDb } from '../db/InMemoryDatabase';
+import { wsService } from '../websocket/server';
 
 export interface SyncResult {
   success: boolean;
@@ -200,6 +201,21 @@ export class DataSyncService {
               });
 
               result.quotesSaved++;
+
+              // 推送到 WebSocket 实时行情
+              try {
+                wsService.pushQuoteUpdate(quote.symbol, {
+                  symbol: quote.symbol,
+                  name: quote.name,
+                  currentPrice: quote.currentPrice,
+                  change: quote.change,
+                  changePercent: quote.changePercent,
+                  volume: quote.volume,
+                  turnover: quote.turnover,
+                  bidPrice1: quote.bidPrice1,
+                  askPrice1: quote.askPrice1,
+                });
+              } catch { /* WebSocket 推送失败不影响数据同步 */ }
             } catch (error) {
               result.errors.push(`保存失败 ${quote.symbol}: ${(error as Error).message}`);
             }
