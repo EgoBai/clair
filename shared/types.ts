@@ -743,21 +743,24 @@ export interface AlertSuggestion {
  * 兼容两种格式：{ close_price: "77.50" } 和 { closePrice: 77.50 }
  */
 export function parseStockData(raw: any): ScreenerStock {
+  // 兼容两种格式: 本地后端(flat snake_case) 和 Cloudflare Worker(latestQuote camelCase)
+  const q = raw.latestQuote || raw.latest_quote || {};
   return {
     id: raw.id,
     symbol: raw.symbol || '',
     name: (raw.name || '').trim(),
     market: raw.market || '',
     industry: raw.industry || '',
-    price: Number(raw.close_price ?? raw.closePrice ?? raw.price ?? raw.current_price ?? 0),
-    changePercent: Number(raw.change_percent ?? raw.changePercent ?? 0),
-    volume: Number(raw.volume ?? 0),
-    turnover: Number(raw.turnover ?? 0),
-    turnoverRate: Number(raw.turnover_rate ?? raw.turnoverRate ?? 0),
-    peRatio: Number(raw.pe_ratio ?? raw.pe ?? raw.peRatio ?? 0) || null,
-    pbRatio: Number(raw.pb_ratio ?? raw.pb ?? raw.pbRatio ?? 0) || null,
-    marketCap: Number(raw.market_cap ?? raw.marketCap ?? 0) || null,
-    circulatingMarketCap: Number(raw.circulating_market_cap ?? raw.circulatingMarketCap ?? 0) || null,
+    price: Number(raw.close_price ?? raw.closePrice ?? q.closePrice ?? q.close_price ?? raw.price ?? raw.current_price ?? 0),
+    changePercent: Number(raw.change_percent ?? raw.changePercent ?? q.changePercent ?? q.change_percent ?? 0),
+    volume: Number(raw.volume ?? q.volume ?? 0),
+    turnover: Number(raw.turnover ?? q.turnover ?? 0),
+    turnoverRate: Number(raw.turnover_rate ?? raw.turnoverRate ?? q.turnoverRate ?? q.turnover_rate ?? 0),
+    amplitude: Number(raw.amplitude ?? q.amplitude ?? 0),
+    peRatio: Number(raw.pe_ratio ?? raw.pe ?? raw.peRatio ?? q.peRatio ?? q.pe_ratio ?? 0) || null,
+    pbRatio: Number(raw.pb_ratio ?? raw.pb ?? raw.pbRatio ?? q.pbRatio ?? q.pb_ratio ?? 0) || null,
+    marketCap: Number(raw.market_cap ?? raw.marketCap ?? q.marketCap ?? q.market_cap ?? 0) || null,
+    circulatingMarketCap: Number(raw.circulating_market_cap ?? raw.circulatingMarketCap ?? q.circulatingMarketCap ?? q.circulating_market_cap ?? 0) || null,
   };
 }
 
