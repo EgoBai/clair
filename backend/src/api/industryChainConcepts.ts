@@ -7,6 +7,10 @@
  * 维护方式：添加/删除股票代码即可更新产业链数据
  */
 
+import { Router } from 'express';
+
+export const router = Router();
+
 export interface ConceptMapping {
   conceptId: string;          // 概念ID (对应segmentId)
   conceptName: string;        // 中文名称

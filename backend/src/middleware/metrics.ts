@@ -48,27 +48,57 @@ class MetricsCollector {
   // 记录请求（兼容旧API）
   record(entry: { method: string; path: string; statusCode: number; duration: number; timestamp: number }): void {
     this.incCounter('http_requests_total', { method: entry.method, path: entry.path, status: entry.statusCode.toString() });
-    this.observeHistogram('http_request_duration_seconds', entry.duration / 1000, { method: entry.method, path: entry.path });
+    this.observeHistogram('http_request_duration_ms', entry.duration, { method: entry.method, path: entry.path });
   }
 
   // 获取摘要（兼容旧API）
-  getSummary(): { totalRequests: number; avgDuration: number } {
+  getSummary() {
     let totalRequests = 0;
     let totalDuration = 0;
+    const durations: number[] = [];
+    const statusCounts: Record<string, number> = { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 };
     
     for (const [key, value] of this.counters.entries()) {
       if (key.startsWith('http_requests_total')) {
         totalRequests += value;
+        const { labels } = this.parseKey(key);
+        const status = labels.status || '';
+        if (status.startsWith('2')) statusCounts['2xx'] += value;
+        else if (status.startsWith('3')) statusCounts['3xx'] += value;
+        else if (status.startsWith('4')) statusCounts['4xx'] += value;
+        else if (status.startsWith('5')) statusCounts['5xx'] += value;
       }
     }
     
     for (const [, values] of this.histograms.entries()) {
       totalDuration += values.reduce((a, b) => a + b, 0);
+      durations.push(...values);
     }
+    
+    const sorted = durations.sort((a, b) => a - b);
+    const percentile = (p: number) => {
+      if (sorted.length === 0) return 0;
+      const idx = Math.ceil((p / 100) * sorted.length) - 1;
+      return sorted[Math.max(0, idx)];
+    };
+
+    const memUsage = process.memoryUsage();
     
     return {
       totalRequests,
-      avgDuration: totalRequests > 0 ? totalDuration / totalRequests : 0
+      avgDuration: totalRequests > 0 ? totalDuration / totalRequests : 0,
+      latency: {
+        p50: percentile(50),
+        p95: percentile(95),
+        p99: percentile(99),
+        avg: totalRequests > 0 ? totalDuration / totalRequests : 0,
+      },
+      statusCodes: statusCounts,
+      memory: {
+        rss: memUsage.rss,
+        heapUsed: memUsage.heapUsed,
+      },
+      uptime: process.uptime(),
     };
   }
 
@@ -87,6 +117,7 @@ class MetricsCollector {
 
   // 导出Prometheus格式
   export(): string {
+    collectSystemMetrics();
     const lines: string[] = [];
 
     // 导出计数器
@@ -195,12 +226,12 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
 export function collectSystemMetrics(): void {
   const memUsage = process.memoryUsage();
   
-  metrics.setGauge('nodejs_heap_used_bytes', memUsage.heapUsed);
+  metrics.setGauge('process_memory_bytes', memUsage.heapUsed);
   metrics.setGauge('nodejs_heap_total_bytes', memUsage.heapTotal);
   metrics.setGauge('nodejs_external_bytes', memUsage.external);
-  metrics.setGauge('nodejs_rss_bytes', memUsage.rss);
+  metrics.setGauge('process_rss_bytes', memUsage.rss);
   
-  metrics.setGauge('nodejs_uptime_seconds', process.uptime());
+  metrics.setGauge('process_uptime_seconds', process.uptime());
 }
 
 // 定期收集系统指标

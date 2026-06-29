@@ -4,18 +4,10 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
-import { createRequire } from 'module';
-
-const require_shared = createRequire(import.meta.url);
-const {
+import {
   SW_INDUSTRY_MAP, getAllSubIndustries,
   classifySubIndustry, getSubIndustries,
-} = require_shared('../../../shared/industryClassification') as {
-  SW_INDUSTRY_MAP: Record<string, string[]>;
-  getAllSubIndustries: () => string[];
-  classifySubIndustry: (a: string, b: string, c: string[]) => string;
-  getSubIndustries: (i: string) => string[];
-};
+} from '@shared/industryClassification';
 
 const router = Router();
 

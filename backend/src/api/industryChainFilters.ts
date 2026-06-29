@@ -5,6 +5,10 @@
  * 数据始终保持与数据库同步（最新行情、市值等）
  */
 
+import { Router } from 'express';
+
+export const router = Router();
+
 export interface SegmentFilter {
   chainId: string;
   segmentId: string;
