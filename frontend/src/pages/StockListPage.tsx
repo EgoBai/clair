@@ -34,7 +34,7 @@ const StockListPage: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const _searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setLoading(false);

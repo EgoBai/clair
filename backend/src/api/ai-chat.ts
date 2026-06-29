@@ -242,31 +242,52 @@ router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Respons
   try {
     const { getDb } = await import('../db/dbFactory');
     const db = getDb();
-    const sectorScores = await db.getSectorMomentumScore();
     
+    // 获取真实个股涨跌数据
+    const marketSummary: any = await db.getMarketSummary(new Date());
+    const risingStocks = marketSummary?.risingStocks ?? 0;
+    const fallingStocks = marketSummary?.fallingStocks ?? 0;
+    const unchangedStocks = marketSummary?.unchangedStocks ?? 0;
+    const totalStocks = marketSummary?.totalStocks ?? (risingStocks + fallingStocks + unchangedStocks);
+    const totalTurnover = Number(marketSummary?.totalTurnover) || 0;
+    console.log("[DEBUG market-insight] raw totalTurnover:", marketSummary?.totalTurnover, "type:", typeof marketSummary?.totalTurnover, "cast:", totalTurnover);
+    
+    // 获取板块数据（领涨板块、涨停分布）
+    const sectorScores = await db.getSectorMomentumScore();
     const scores = sectorScores || [];
-    const upCount = scores.filter((s: any) => Number(s.avg_change_percent) > 0).length;
-    const downCount = scores.filter((s: any) => Number(s.avg_change_percent) < 0).length;
-    const upPct = scores.length > 0 ? Math.round((upCount / scores.length) * 100) : 0;
     const top3 = scores.slice(0, 3);
     const topNames = top3.map((s: any) => `${s.industry}(${s.score}分${Number(s.avg_change_percent) >= 0 ? '+' : ''}${Number(s.avg_change_percent).toFixed(1)}%)`).join('、');
     const hotSectors = scores.filter((s: any) => (s.limit_up_count || 0) >= 2);
     const hotNames = hotSectors.map((s: any) => `${s.industry}${s.limit_up_count}只涨停`).join('、');
+    
+    // 涨停数（从板块增强数据汇总，MarketSummary不含limitUpCount）
+    const enhancedSectors = await db.getSectorPerformanceEnhanced();
+    const limitUpCount = (enhancedSectors || []).reduce((sum: number, s: any) => sum + (Number(s.limit_up_count) || 0), 0);
+    
+    // 基于个股数据的涨跌比例
+    const upPct = totalStocks > 0 ? Math.round((risingStocks / totalStocks) * 100) : 0;
+    
+    // 成交额格式化
+    const turnoverStr = totalTurnover > 1e12 
+      ? `${(totalTurnover / 1e12).toFixed(2)}万亿` 
+      : totalTurnover > 1e8 
+        ? `${(totalTurnover / 1e8).toFixed(0)}亿`
+        : totalTurnover > 0 ? `${(totalTurnover / 1e4).toFixed(0)}万` : '暂无数据';
 
-    // 规则引擎即时生成（0延迟）
+    // 规则引擎即时生成（基于个股真实数据）
     let mood: string, moodEmoji: string, overview: string;
-    if (upPct >= 60) {
+    if (upPct >= 65) {
       mood = '强势上攻'; moodEmoji = '🔥';
-      overview = `市场做多情绪高涨，${upCount}/${scores.length}板块上涨。`;
-    } else if (upPct >= 40) {
+      overview = `市场做多情绪高涨，${risingStocks}只上涨、${fallingStocks}只下跌。`;
+    } else if (upPct >= 45) {
       mood = '温和上行'; moodEmoji = '📈';
-      overview = `市场结构性行情，${upCount}涨${downCount}跌，资金聚焦热点板块。`;
-    } else if (upPct >= 20) {
+      overview = `市场结构性行情，${risingStocks}只上涨${fallingStocks}只下跌，资金聚焦热点。`;
+    } else if (upPct >= 30) {
       mood = '震荡整理'; moodEmoji = '📊';
-      overview = `市场分化明显，仅${upPct}%板块上涨，存量博弈特征突出。`;
+      overview = `市场分化明显，${risingStocks}只上涨${fallingStocks}只下跌，存量博弈特征突出。`;
     } else {
       mood = '弱势调整'; moodEmoji = '📉';
-      overview = `市场情绪偏谨慎，多数板块承压，防御策略为主。`;
+      overview = `市场情绪偏谨慎，${fallingStocks}只个股下跌，防御策略为主。`;
     }
 
     const insight = {
@@ -274,19 +295,22 @@ router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Respons
       overview,
       topSectors: topNames,
       hotSectors: hotNames || '无',
-      upCount, downCount, upPct,
+      risingStocks, fallingStocks, unchangedStocks, upPct,
+      limitUpCount,
+      totalTurnover: turnoverStr,
+      _rawTotalTurnover: totalTurnover,
       sections: [
         {
           icon: '📊', title: '市场情绪',
-          text: `**${mood}** · ${overview}\n\n**领涨板块**：${topNames}\n涨停集中：${hotNames || '今日无集中涨停板块'}`
+          text: `**${mood}** · ${overview}\n\n**领涨板块**：${topNames}\n涨停${limitUpCount}家，集中：${hotNames || '今日无集中涨停板块'}`
         },
         {
           icon: '💰', title: '资金流向',
-          text: `上涨板块**${upCount}**个，下跌**${downCount}**个\n\n**资金聚焦方向**：${topNames.split('、').slice(0, 2).join('、')}\n操作建议：${upPct >= 40 ? '可适度参与强势板块，设好止损' : '控制仓位，等待右侧信号'}`
+          text: `上涨**${risingStocks}**只，下跌**${fallingStocks}**只，平盘**${unchangedStocks}**只\n\n**成交额**：${turnoverStr}\n**涨停**：${limitUpCount}家\n**资金聚焦方向**：${topNames.split('、').slice(0, 2).join('、')}\n操作建议：${upPct >= 45 ? '可适度参与强势板块，设好止损' : '控制仓位，等待右侧信号'}`
         },
         {
           icon: '📰', title: '策略参考',
-          text: `${upPct >= 40 ? '· 关注景气度>70的高景气板块\n· 注意板块轮动节奏\n· 强势板块回调可关注' : '· 防御型配置为主\n· 关注低估值高股息品种\n· 等待市场企稳信号'}\n\n⚠️ 以上为规则引擎分析，不构成投资建议`
+          text: `${upPct >= 45 ? '· 关注景气度>70的高景气板块\n· 注意板块轮动节奏\n· 强势板块回调可关注' : '· 防御型配置为主\n· 关注低估值高股息品种\n· 等待市场企稳信号'}\n\n⚠️ 以上为规则引擎分析，不构成投资建议`
         },
       ],
     };

@@ -55,7 +55,7 @@ const NAV_ITEMS: NavItem[] = [
 export const NavigationMenu: React.FC = () => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeItem, setActiveItem] = useState<string>('');
+  const [_activeItem, setActiveItem] = useState<string>('');
 
   // 处理导航项点击
   const handleNavClick = (itemId: string) => {

@@ -57,7 +57,7 @@ export function analyzeEarningsQuality(data: EarningsQualityData): EarningsQuali
   let revenueQuality: EarningsQualityResult['revenueQuality'];
   const arGrowth = data.accountsReceivable / Math.max(data.revenue, 1);
   const revGrowth = (data.revenue - data.prevRevenue) / Math.max(data.prevRevenue, 1);
-  const cashFlowGrowth = (data.operatingCashFlow - data.prevOperatingCashFlow) / Math.max(data.prevOperatingCashFlow, 1);
+  const _cashFlowGrowth = (data.operatingCashFlow - data.prevOperatingCashFlow) / Math.max(data.prevOperatingCashFlow, 1);
 
   if (cashConversionRatio > 1.0 && arGrowth < 0.2) revenueQuality = 'excellent';
   else if (cashConversionRatio > 0.8 && arGrowth < 0.3) revenueQuality = 'good';

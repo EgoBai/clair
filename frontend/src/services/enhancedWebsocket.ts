@@ -186,7 +186,7 @@ class EnhancedWebSocketService {
         logger.error('[WS] 连接错误:', event);
       };
 
-      this.ws.onclose = (event) => {
+      this.ws.onclose = (_event) => {
         // removed: console.log
         this.stopHeartbeat();
 
@@ -497,7 +497,7 @@ class EnhancedWebSocketService {
 
   private setConnectionState(state: ConnectionState): void {
     if (this.connectionState === state) return;
-    const prev = this.connectionState;
+    const _prev = this.connectionState;
     this.connectionState = state;
     // removed: console.log
 

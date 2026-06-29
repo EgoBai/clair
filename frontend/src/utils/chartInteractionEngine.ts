@@ -198,7 +198,7 @@ export function calculateCrosshair(
 
   // 将鼠标坐标转换为数据坐标
   const dataX = viewport.xMin + (mouseX / chartWidth) * (viewport.xMax - viewport.xMin);
-  const dataY = viewport.yMax - (mouseY / chartHeight) * (viewport.yMax - viewport.yMin);
+  const _dataY = viewport.yMax - (mouseY / chartHeight) * (viewport.yMax - viewport.yMin);
 
   let dataPoint: ChartPoint | null = null;
 

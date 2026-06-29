@@ -34,7 +34,7 @@ export interface GeoRiskAnalysis {
 
 export function analyzeGeoRisk(
   events: GeoEvent[],
-  sectorExposure?: Record<string, number>
+  _sectorExposure?: Record<string, number>
 ): GeoRiskAnalysis {
   if (events.length === 0) {
     return {

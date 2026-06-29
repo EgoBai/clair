@@ -322,7 +322,7 @@ const StrategyTemplatesPage: React.FC = () => {
   };
 
   // 获取分类图标
-  const getCategoryIcon = (category: string) => {
+  const _getCategoryIcon = (category: string) => {
     const cat = CATEGORIES.find(c => c.id === category);
     return cat?.icon || <StarOutlined />;
   };

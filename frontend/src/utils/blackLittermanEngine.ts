@@ -46,7 +46,7 @@ export function blackLitterman(input: BlackLittermanInput): BlackLittermanResult
   // 风险厌恶系数
   const portVar = wMkt.reduce((s, wi, i) =>
     s + wi * wMkt.reduce((ss, wj, j) => ss + wj * covMatrix[i][j], 0), 0);
-  const mktReturn = wMkt.reduce((s, w, i) => s + w * (riskFreeRate + 1), 0); // 简化
+  const mktReturn = wMkt.reduce((s, w, _i) => s + w * (riskFreeRate + 1), 0); // 简化
   const riskAversion = (mktReturn - riskFreeRate) / Math.max(portVar, 1e-10);
 
   // 先验收益: Π = δ * Σ * w_mkt

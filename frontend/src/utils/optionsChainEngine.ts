@@ -66,10 +66,10 @@ export function calculateMaxPain(contracts: OptionChain[]): number {
     for (const contract of contracts) {
       const oi = contract.openInterest;
       if (contract.type === 'call') {
-        const intrinsic = Math.max(0, strike - contract.strike);
+        const _intrinsic = Math.max(0, strike - contract.strike);
         pain += Math.abs(contract.strike - strike) > 0 ? oi * Math.abs(contract.strike - strike) : 0;
       } else {
-        const intrinsic = Math.max(0, contract.strike - strike);
+        const _intrinsic = Math.max(0, contract.strike - strike);
         pain += Math.abs(contract.strike - strike) > 0 ? oi * Math.abs(contract.strike - strike) : 0;
       }
     }
@@ -248,7 +248,7 @@ export function analyzeOptionChain(
   spotPrice: number
 ): OptionChainAnalysis {
   const maxPain = calculateMaxPain(contracts);
-  const { volumeRatio, oiRatio } = calculatePutCallRatio(contracts);
+  const { volumeRatio, _oiRatio } = calculatePutCallRatio(contracts);
   const skew = calculateSkew(contracts, spotPrice);
   const termStructure = buildTermStructure(contracts);
   const { supportZone, resistanceZone } = findOptionsSupportResistance(

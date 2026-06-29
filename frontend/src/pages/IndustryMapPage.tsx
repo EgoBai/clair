@@ -76,8 +76,8 @@ import { useWatchlistStore } from '../hooks/useWatchlistStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
-const { Search } = Input;
-const { Option } = Select;
+const { _Search } = Input;
+const { _Option } = Select;
 
 // API 基础 URL
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
@@ -88,7 +88,7 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
   const segment = data.segment;
   const layerType = data.layerType;
   const color = LAYER_COLORS[layerType] || '#1890ff';
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   
   const leaderCount = segment.companies.filter(c => c.position === 'leader').length;
   const topChange = Math.max(...segment.companies.map(c => c.changePercent || 0));

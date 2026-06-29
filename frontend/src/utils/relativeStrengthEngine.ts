@@ -48,11 +48,11 @@ export function calculateRelativeStrength(input: RSInput): RSResult {
   // RS比率
   const rsRatio = sp[sp.length - 1] / Math.max(bp[bp.length - 1], 0.001);
   const rsStart = sp[Math.max(0, sp.length - period)] / Math.max(bp[Math.max(0, bp.length - period)], 0.001);
-  const rsChange = rsRatio / Math.max(rsStart, 0.001);
+  const _rsChange = rsRatio / Math.max(rsStart, 0.001);
 
   // RS评级 (0-100)
   // 使用滚动窗口计算百分位
-  const windowSize = Math.min(period, minLen);
+  const _windowSize = Math.min(period, minLen);
   const rsHistory: number[] = [];
   for (let i = period; i < minLen; i++) {
     const sR = (sp[i] - sp[i - period]) / Math.max(sp[i - period], 0.001);

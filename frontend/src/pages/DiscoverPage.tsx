@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button } from 'antd';
 import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text, _Paragraph } = Typography;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
@@ -141,7 +141,7 @@ const DiscoverPage: React.FC = () => {
   // 真实市场涨跌家数（来自 /api/market/summary，5541只全量统计）
   const realUpStocks = marketSummary?.risingStocks ?? 0;
   const realDownStocks = marketSummary?.fallingStocks ?? 0;
-  const realFlatStocks = marketSummary?.unchangedStocks ?? 0;
+  const _realFlatStocks = marketSummary?.unchangedStocks ?? 0;
   const realLimitUp = marketSummary?.limitUpCount ?? 0;
   const realLimitDown = marketSummary?.limitDownCount ?? 0;
   const realTotalStocks = marketSummary?.totalStocks ?? 0;
@@ -325,7 +325,7 @@ const DiscoverPage: React.FC = () => {
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 12, color: TEXT_SEC }}>景气 &gt; 70</span>
                         <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: '#22c55e' }}>
-                          {insight?.topSectors?.filter((s: any) => s.score >= 70).length ?? topScores.filter(s => s.score >= 70).length} 个
+                          {(Array.isArray(insight?.topSectors) ? insight.topSectors.filter((s: any) => s.score >= 70).length : topScores.filter(s => s.score >= 70).length)} 个
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>

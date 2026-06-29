@@ -12,7 +12,7 @@ interface UseSearchHistoryOptions {
 }
 
 export function useSearchHistory(options: UseSearchHistoryOptions = {}) {
-  const { key = 'search-history', maxItems = 20, onSearch } = options;
+  const { key = 'search-history', maxItems = 20, _onSearch } = options;
   const [history, setHistory] = useState<string[]>([]);
 
   // 从 localStorage 加载

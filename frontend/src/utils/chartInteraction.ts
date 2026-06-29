@@ -193,7 +193,7 @@ export class ChartLinkManager {
   private crosshairManagers: Map<string, CrosshairManager> = new Map();
   private isSyncing: boolean = false;
 
-  register(id: string, zoomManager: ZoomManager, crosshairManager: CrosshairManager, options?: Partial<LinkedChart>): void {
+  register(id: string, zoomManager: ZoomManager, crosshairManager: CrosshairManager, _options?: Partial<LinkedChart>): void {
     this.zoomManagers.set(id, zoomManager);
     this.crosshairManagers.set(id, crosshairManager);
 
@@ -330,7 +330,7 @@ export function createDragPanHandler(
     onMouseMove: (e: MouseEvent) => {
       if (!isDragging) return;
       const deltaX = (startX - e.clientX) * sensitivity;
-      const range = startState.end - startState.start;
+      const _range = startState.end - startState.start;
       zoomManager.setRange(
         startState.start + deltaX,
         startState.end + deltaX

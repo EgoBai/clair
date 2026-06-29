@@ -216,7 +216,7 @@ export function analyzeSectorHeatmap(
 export function calculateMarketSentiment(
   limitUpCount: number,
   limitDownCount: number,
-  totalStocks: number
+  _totalStocks: number
 ): MarketSentiment {
   const total = limitUpCount + limitDownCount;
   const limitUpRatio = total === 0 ? 0.5 : limitUpCount / total;

@@ -145,7 +145,7 @@ export function filterEvents(events: CalendarEvent[], filter: EventFilter): Cale
  */
 export function detectEventClusters(
   events: CalendarEvent[],
-  clusterWindow: number = 2 // days
+  _clusterWindow: number = 2 // days
 ): EventCluster[] {
   const dateMap = new Map<string, CalendarEvent[]>();
 
@@ -212,7 +212,7 @@ export function getUpcomingEvents(
 export function analyzeEventImpact(
   event: CalendarEvent,
   historicalEvents: CalendarEvent[],
-  priceData: Record<string, number[]>
+  _priceData: Record<string, number[]>
 ): EventImpactAnalysis {
   // Find similar events
   const similar = historicalEvents.filter(e =>

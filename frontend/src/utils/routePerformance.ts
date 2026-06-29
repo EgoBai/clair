@@ -57,7 +57,7 @@ export function endRouteTransition(to: string): void {
 
   // 开发环境输出
   if (import.meta.env.DEV) {
-    const emoji = duration < 200 ? '⚡' : duration < 500 ? '🚶' : '🐢';
+    const _emoji = duration < 200 ? '⚡' : duration < 500 ? '🚶' : '🐢';
     // removed: console.log
   }
 
@@ -102,7 +102,7 @@ export async function measureAsync<T>(
   const start = performance.now();
   try {
     const result = await fn();
-    const duration = performance.now() - start;
+    const _duration = performance.now() - start;
     if (import.meta.env.DEV) {
       // removed: console.log
     }

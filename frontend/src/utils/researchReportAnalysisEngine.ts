@@ -158,7 +158,7 @@ export class ResearchReportEngine {
    */
   calculateSentimentIndex(
     reports: ResearchReport[],
-    windowDays: number = 30
+    _windowDays: number = 30
   ): {
     date: string;
     sentimentScore: number; // -100到100

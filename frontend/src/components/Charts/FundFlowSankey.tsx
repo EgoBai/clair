@@ -89,7 +89,7 @@ const FundFlowSankey = React.memo<FundFlowSankeyProps>(({
         triggerOn: 'mousemove',
         formatter: (params: { dataIndex: number; value: number; name: string; seriesName?: string; dataType?: string; data: { source?: string; target?: string } }) => {
           if (params.dataType === 'edge') {
-            const absVal = Math.abs(params.value);
+            const _absVal = Math.abs(params.value);
             return `<div style="font-size:12px;line-height:1.8">
               <b>${params.data.source}</b> → <b>${params.data.target}</b><br/>
               净流入: <span style="color:${params.value >= 0 ? '#ef4444' : '#22c55e'}">

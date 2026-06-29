@@ -216,7 +216,7 @@ export function backtestPairs(
   // Compute Sharpe and max DD
   if (returns.length > 0) {
     const meanRet = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const stdRet = Math.sqrt(returns.reduce((s, r) => s + (r - meanRet) ** 2, 0) / returns.length);
+    const _stdRet = Math.sqrt(returns.reduce((s, r) => s + (r - meanRet) ** 2, 0) / returns.length);
     let cumRet = 0;
     for (const r of returns) {
       cumRet += r;

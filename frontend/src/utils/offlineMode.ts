@@ -73,7 +73,7 @@ class OfflineCache {
     if (this.db) return;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = new Promise((resolve, reject) => {
+    this.initPromise = new Promise((resolve, _reject) => {
       if (typeof indexedDB === 'undefined') {
         resolve();
         return;

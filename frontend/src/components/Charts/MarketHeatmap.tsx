@@ -59,7 +59,7 @@ function squarify(
 
   while (remaining.length > 0) {
     const isHorizontal = cw >= ch;
-    const side = isHorizontal ? ch : cw;
+    const _side = isHorizontal ? ch : cw;
     const totalRemaining = remaining.reduce((s, it) => s + it.value, 0);
 
     // Find the best row using worst aspect ratio
@@ -74,14 +74,14 @@ function squarify(
       const rowThickness = (candidateSum / totalRemaining) * (isHorizontal ? ch : cw);
 
       let worstRatio = 0;
-      let offset = 0;
+      let _offset = 0;
       for (const item of candidate) {
         const itemLength = (item.value / candidateSum) * rowLength;
         const ratio = rowThickness > itemLength
           ? rowThickness / itemLength
           : itemLength / rowThickness;
         worstRatio = Math.max(worstRatio, ratio);
-        offset += itemLength;
+        _offset += itemLength;
       }
 
       if (worstRatio <= bestWorstRatio) {

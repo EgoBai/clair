@@ -143,17 +143,17 @@ export class CreditSpreadEngine {
     transitions: { from: string; to: string }[]
   ): CreditMigration[] {
     const countMap = new Map<string, Map<string, number>>();
-    let total = 0;
+    let _total = 0;
 
     for (const t of transitions) {
       if (!countMap.has(t.from)) countMap.set(t.from, new Map());
       const toMap = countMap.get(t.from)!;
       toMap.set(t.to, (toMap.get(t.to) || 0) + 1);
-      total++;
+      _total++;
     }
 
     const migrations: CreditMigration[] = [];
-    const ratings = Object.keys(this.ratingScores);
+    const _ratings = Object.keys(this.ratingScores);
 
     for (const [from, toMap] of countMap) {
       const fromTotal = Array.from(toMap.values()).reduce((a, b) => a + b, 0);

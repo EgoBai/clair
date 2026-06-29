@@ -244,7 +244,7 @@ export function snipeExecution(
 }
 
 // Helper (unused in actual - midPrice would be computed inline)
-function midPrice(bid: number, ask: number): number {
+function _midPrice(bid: number, ask: number): number {
   return (bid + ask) / 2;
 }
 

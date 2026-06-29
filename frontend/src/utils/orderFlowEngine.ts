@@ -267,7 +267,7 @@ export function detectLargeOrders(
  */
 export function computePressureHeatmap(
   trades: TickTrade[],
-  timeWindowMs: number = 60000,
+  _timeWindowMs: number = 60000,
 ): Array<{ time: string; buyPressure: number; sellPressure: number; volume: number }> {
   if (trades.length === 0) return [];
 

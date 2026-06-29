@@ -74,10 +74,10 @@ export class FactorAttributionEngineV2 {
     let totalInteraction = 0;
 
     // 计算总收益
-    let portfolioTotalReturn = 0;
+    let _portfolioTotalReturn = 0;
     let benchmarkTotalReturn = 0;
     for (const [asset, weight] of portfolioWeights) {
-      portfolioTotalReturn += weight * (portfolioReturns.get(asset) || 0);
+      _portfolioTotalReturn += weight * (portfolioReturns.get(asset) || 0);
     }
     for (const [asset, weight] of benchmarkWeights) {
       benchmarkTotalReturn += weight * (benchmarkReturns.get(asset) || 0);
@@ -168,7 +168,7 @@ export class FactorAttributionEngineV2 {
         ssRes += (y[i] - predicted) ** 2;
         ssTot += (y[i] - meanY) ** 2;
       }
-      const rSquared = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+      const _rSquared = ssTot > 0 ? 1 - ssRes / ssTot : 0;
       const se = Math.sqrt(ssRes / Math.max(1, n - 2));
       const seBeta = den > 0 ? se / Math.sqrt(den) : 0;
       const tStat = seBeta > 0 ? beta / seBeta : 0;

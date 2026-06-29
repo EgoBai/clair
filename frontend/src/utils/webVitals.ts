@@ -24,7 +24,7 @@ interface WebVitalMetric {
   timestamp: number;
 }
 
-interface PerformanceBudget {
+interface _PerformanceBudget {
   lcp: number;
   fid: number;
   cls: number;

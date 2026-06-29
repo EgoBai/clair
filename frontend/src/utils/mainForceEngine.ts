@@ -366,7 +366,7 @@ export function analyzeChipDistribution(
     };
   }
 
-  const prices = trades.map(t => t.price);
+  const _prices = trades.map(t => t.price);
   const volumes = trades.map(t => t.volume);
   const totalVolume = volumes.reduce((a, b) => a + b, 0);
 

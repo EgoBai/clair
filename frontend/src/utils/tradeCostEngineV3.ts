@@ -226,7 +226,7 @@ export class TradeCostEngine {
   scoreExecutionQuality(
     executions: TradeExecution[],
     midPrices: Map<number, number>,
-    benchmark: 'vwap' | 'twap' = 'vwap'
+    _benchmark: 'vwap' | 'twap' = 'vwap'
   ): ExecutionQualityScore {
     if (executions.length === 0) {
       return {

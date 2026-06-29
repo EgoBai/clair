@@ -248,7 +248,7 @@ export class MarketMakerEngine {
     let adverseSelectionSum = 0;
     let wins = 0;
     let totalTrades = 0;
-    const dailyPnls: number[] = [];
+    const _dailyPnls: number[] = [];
     let runningPnl = 0;
     let peakPnl = 0;
     let maxDrawdown = 0;

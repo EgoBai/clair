@@ -141,7 +141,7 @@ export function scoreStocks(
   }
 
   const factorDefs = config.factors;
-  const factorIds = factorDefs.map(f => f.id);
+  const _factorIds = factorDefs.map(f => f.id);
 
   // Extract and normalize each factor
   const normalizedFactors: Map<string, number[]> = new Map();

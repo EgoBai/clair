@@ -54,12 +54,12 @@ export function calculateRelativeStrength(
   if (n < period) return [];
 
   const rs: number[] = [];
-  let cumSector = 1;
-  let cumBenchmark = 1;
+  let _cumSector = 1;
+  let _cumBenchmark = 1;
 
   for (let i = 0; i < n; i++) {
-    cumSector *= (1 + sectorReturns[i]);
-    cumBenchmark *= (1 + benchmarkReturns[i]);
+    _cumSector *= (1 + sectorReturns[i]);
+    _cumBenchmark *= (1 + benchmarkReturns[i]);
 
     if (i >= period - 1) {
       // 滚动窗口RS

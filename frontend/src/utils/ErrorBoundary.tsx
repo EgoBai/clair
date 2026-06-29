@@ -203,7 +203,7 @@ export function useErrorHandler(): {
     logger.error('Error caught by useErrorHandler:', error);
     
     // 这里可以添加自定义错误处理逻辑
-    const errorInfo: ErrorInfo = {
+    const _errorInfo: ErrorInfo = {
       componentStack: componentStack || ''
     };
     

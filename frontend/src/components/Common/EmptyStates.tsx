@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, _Text, Paragraph } = Typography;
 
 interface EmptyStateProps {
   icon?: React.ReactNode;
@@ -83,7 +83,7 @@ export function EmptySearch({ query }: { query?: string }) {
 }
 
 export function EmptyStocks() {
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   return (
     <EmptyState
       icon={<StockOutlined />}

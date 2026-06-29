@@ -57,7 +57,7 @@ const KLineChart = React.memo<KLineChartProps>(({
   const chartRef = useRef<ReactECharts>(null);
 
   // K线导出为图片
-  const exportImage = useCallback(() => {
+  const _exportImage = useCallback(() => {
     const instance = chartRef.current?.getEchartsInstance();
     if (instance) {
       const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' });

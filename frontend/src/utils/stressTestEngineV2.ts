@@ -200,7 +200,7 @@ export class StressTestEngineV2 {
   reverseStressTest(
     positions: Position[],
     targetLossPercent: number,
-    sectorMapping: Map<string, string>
+    _sectorMapping: Map<string, string>
   ): ReverseStressTest {
     const totalValue = positions.reduce((s, p) => s + p.quantity * p.currentPrice, 0);
     const targetLoss = totalValue * targetLossPercent / 100;

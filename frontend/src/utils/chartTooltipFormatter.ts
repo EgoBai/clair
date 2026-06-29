@@ -58,7 +58,7 @@ function formatDate(date: string, format: string): string {
   }
 }
 
-function getChangeColor(change: number): string {
+function _getChangeColor(change: number): string {
   if (change > 0) return '#ef4444'; // 红涨
   if (change < 0) return '#22c55e'; // 绿跌
   return '#6b7280';

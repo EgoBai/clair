@@ -385,7 +385,7 @@ export function calculateFactorExposures(
   stockReturns: number[],
   factors: Record<string, number[]>
 ): FactorExposure[] {
-  const result = customFactorAttribution(stockReturns, factors);
+  const _result = customFactorAttribution(stockReturns, factors);
   const factorNames = Object.keys(factors);
   const factorArrays = factorNames.map(f => factors[f]);
   const n = Math.min(stockReturns.length, ...factorArrays.map(f => f.length));

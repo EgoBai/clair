@@ -11,7 +11,7 @@ import { LinkOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 
-const { Text } = Typography;
+const { _Text } = Typography;
 
 export interface LinkedKLineData {
   tradeDate: string;

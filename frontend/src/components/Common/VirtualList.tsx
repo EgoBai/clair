@@ -38,7 +38,7 @@ export default function VirtualList<T>({
   const totalHeight = items.length * itemHeight;
 
   // 计算可见范围
-  const { startIndex, endIndex, visibleItems } = useMemo(() => {
+  const { startIndex, _endIndex, visibleItems } = useMemo(() => {
     const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
     const visibleCount = Math.ceil(height / itemHeight) + 2 * overscan;
     const end = Math.min(items.length - 1, start + visibleCount);

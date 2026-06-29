@@ -214,7 +214,7 @@ export function detectUnusualActivity(
  */
 export function analyzeIVSurface(
   surface: IVSurfacePoint[],
-  underlyingPrice: number
+  _underlyingPrice: number
 ): IVSurfaceAnalysis {
   if (surface.length < 3) {
     return {
@@ -456,7 +456,7 @@ export function recommendStrategies(
   skew: number,
   termStructure: number,
   directionalView: 'bullish' | 'bearish' | 'neutral',
-  ivView: 'expanding' | 'contracting' | 'neutral'
+  _ivView: 'expanding' | 'contracting' | 'neutral'
 ): { strategy: string; reason: string; confidence: number }[] {
   const recommendations: { strategy: string; reason: string; confidence: number }[] = [];
 

@@ -72,7 +72,7 @@ export class TechnicalPatternEngine {
       const prevBody = Math.abs(prev.close - prev.open);
       if (body > prevBody) {
         const engulfing = curr.open <= prev.close && curr.close >= prev.open && prev.close < prev.open;
-        const bullishEngulf = curr.open >= prev.close && curr.close <= prev.open && prev.close > prev.open;
+        const _bullishEngulf = curr.open >= prev.close && curr.close <= prev.open && prev.close > prev.open;
 
         if (engulfing) {
           patterns.push({
@@ -152,7 +152,7 @@ export class TechnicalPatternEngine {
 
       // 局部高点 = 阻力
       if (candles[i].high === maxHigh) {
-        const touchCount = candles.filter((c, j) => Math.abs(c.high - maxHigh) / maxHigh < 0.01).length;
+        const touchCount = candles.filter((c, _j) => Math.abs(c.high - maxHigh) / maxHigh < 0.01).length;
         levels.push({
           level: Math.round(maxHigh * 100) / 100,
           type: 'resistance',
@@ -164,7 +164,7 @@ export class TechnicalPatternEngine {
 
       // 局部低点 = 支撑
       if (candles[i].low === minLow) {
-        const touchCount = candles.filter((c, j) => Math.abs(c.low - minLow) / minLow < 0.01).length;
+        const touchCount = candles.filter((c, _j) => Math.abs(c.low - minLow) / minLow < 0.01).length;
         levels.push({
           level: Math.round(minLow * 100) / 100,
           type: 'support',

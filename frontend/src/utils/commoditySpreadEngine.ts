@@ -142,7 +142,7 @@ export class CommoditySpreadEngine {
     crudeOilPrice: number,
     gasolinePrice: number,
     dieselPrice: number,
-    ratio: number = 3 // 3:2:1 比例
+    _ratio: number = 3 // 3:2:1 比例
   ): {
     crackSpread: number;
     crackMargin: number;

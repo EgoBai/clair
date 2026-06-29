@@ -23,7 +23,7 @@ interface MobileStockCardProps {
 
 const MobileStockCard: React.FC<MobileStockCardProps> = ({
   symbol, name, price, change, changePercent,
-  volume, turnover, onClick, onSwipeLeft, onSwipeRight, showActions = true,
+  volume, _turnover, onClick, onSwipeLeft, onSwipeRight, _showActions = true,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const isRising = changePercent > 0;

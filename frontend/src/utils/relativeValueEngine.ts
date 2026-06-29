@@ -120,7 +120,7 @@ export function analyzeRelativeValue(companies: ComparableCompany[]): RelativeVa
 
   // 套利机会 (同行业内做多低估/做空高估)
   const arbitrageOpportunities: Array<{ long: string; short: string; spread: number; expectedReturn: number }> = [];
-  for (const [industry, comps] of industryMap) {
+  for (const [_industry, comps] of industryMap) {
     if (comps.length < 2) continue;
     const indResults = results.filter(r => comps.some(c => c.code === r.code));
     const sorted = [...indResults].sort((a, b) => b.compositeDiscount - a.compositeDiscount);

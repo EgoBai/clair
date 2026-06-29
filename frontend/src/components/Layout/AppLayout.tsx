@@ -13,7 +13,7 @@ import '../../styles/responsive.css';
 const { Text, Link } = Typography;
 
 export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   useWatchlistSync(); // 自动同步localStorage→后端
 

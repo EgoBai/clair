@@ -83,7 +83,7 @@ export function calculateTradeCost(
   price: number,
   quantity: number,
   side: TradeSide,
-  market: TradeMarket = 'sh',
+  _market: TradeMarket = 'sh',
   broker: BrokerFee = DEFAULT_BROKERS.standard
 ): TradeCostBreakdown {
   const tradeAmount = price * quantity;
@@ -185,7 +185,7 @@ export function compareBrokerCosts(
   side: TradeSide = 'buy',
   market: TradeMarket = 'sh'
 ): Array<{ broker: string; cost: TradeCostBreakdown }> {
-  return Object.entries(DEFAULT_BROKERS).map(([key, broker]) => ({
+  return Object.entries(DEFAULT_BROKERS).map(([_key, broker]) => ({
     broker: broker.name,
     cost: calculateTradeCost(price, quantity, side, market, broker),
   }));

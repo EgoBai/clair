@@ -85,7 +85,7 @@ function normalPDF(x: number): number {
  * Inverse normal CDF (Rational approximation, Beasley-Springer-Moro algorithm)
  * 用于精确的IV初始猜测
  */
-function inverseNormalCDF(p: number): number {
+function _inverseNormalCDF(p: number): number {
   if (p <= 0) return -Infinity;
   if (p >= 1) return Infinity;
   if (p === 0.5) return 0;
@@ -227,7 +227,7 @@ export class OptionsGreeksEngine {
   // -------------------------------------------------------------------------
   calculateHighOrderGreeks(params: OptionParams): HighOrderGreeks {
     this.validateParams(params);
-    const { spot: S, strike: K, timeToExpiry: T, riskFreeRate: r, volatility: sigma } = params;
+    const { spot: S, strike: _K, timeToExpiry: T, riskFreeRate: r, volatility: sigma } = params;
     const q = params.dividendYield ?? 0;
 
     if (T <= 0 || sigma <= 0) {
@@ -246,7 +246,7 @@ export class OptionsGreeksEngine {
     const vomma = S * expQT * nd1 * sqrtT * d1 * d2 / sigma / 100; // per 1% vol
 
     // Charm = -dΔ/dT (for call)
-    const charmCall = -expQT * (
+    const _charmCall = -expQT * (
       nd1 * (d2 / (2 * T)) +
       (r - q) * normalCDF(d1) +
       q * nd1 * (r - q + 0.5 * sigma * sigma) / (sigma * sqrtT)  // actually: -q*e^(-qT)*N(d1) simplification

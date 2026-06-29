@@ -57,7 +57,7 @@ const STOCK_DETAIL_PATTERN = /^\/stocks\/(\d{6})/;
 const FloatingChat: React.FC = () => {
   const [open, setOpen] = useState(false);
   const location = useLocation();
-  const params = useParams();
+  const _params = useParams();
 
   // 计算当前页面上下文
   const pageContext: PageContext = useMemo(() => {

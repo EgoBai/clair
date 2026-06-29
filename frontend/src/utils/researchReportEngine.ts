@@ -112,7 +112,7 @@ export function trackRatingChanges(reports: ResearchReport[]): RatingChange[] {
     );
 
     for (let i = 1; i < sorted.length; i++) {
-      const prev = sorted[i - 1];
+      const _prev = sorted[i - 1];
       const curr = sorted[i];
 
       if (curr.prevRating && curr.prevRating !== curr.rating) {

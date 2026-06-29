@@ -262,7 +262,7 @@ export function generateOptimizationSuggestions(
 
   // 基于问题生成建议
   const criticalIssues = issues.filter(i => i.type === 'critical');
-  const warningIssues = issues.filter(i => i.type === 'warning');
+  const _warningIssues = issues.filter(i => i.type === 'warning');
 
   if (criticalIssues.length > 0) {
     suggestions.push({

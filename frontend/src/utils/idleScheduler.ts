@@ -35,7 +35,7 @@ const ric = (cb: IdleRequestCallback, options?: IdleRequestOptions): number => {
   }, 1);
 };
 
-const cic = (id: number) => {
+const _cic = (id: number) => {
   if (typeof cancelIdleCallback === 'function') {
     cancelIdleCallback(id);
   } else {
@@ -198,7 +198,7 @@ export function getIdleScheduler(options?: SchedulerOptions): IdleScheduler {
 // ==================== 便捷方法 ====================
 
 /** 空闲时执行（不阻塞渲染） */
-export function whenIdle(fn: () => void | Promise<void>, timeout = 2000): Promise<void> {
+export function whenIdle(fn: () => void | Promise<void>, _timeout = 2000): Promise<void> {
   return getIdleScheduler().scheduleAsync(fn, 'normal');
 }
 

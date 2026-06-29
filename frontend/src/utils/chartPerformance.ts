@@ -109,7 +109,7 @@ export function sampleAdaptive(data: KLineData[], maxPoints: number): KLineData[
   const avgVol = volatilities.reduce((a, b) => a + b, 0) / volatilities.length;
 
   // 按波动率分配采样密度
-  const totalVol = volatilities.reduce((sum, v) => sum + Math.max(v / avgVol, 0.5), 0);
+  const _totalVol = volatilities.reduce((sum, v) => sum + Math.max(v / avgVol, 0.5), 0);
   const sampled: KLineData[] = [data[0]];
 
   let usedPoints = 1;
@@ -117,7 +117,7 @@ export function sampleAdaptive(data: KLineData[], maxPoints: number): KLineData[
 
   for (let i = 1; i < data.length && usedPoints < maxPoints; i++) {
     const localVol = volatilities[i] / avgVol;
-    const bucketPoints = Math.max(1, Math.floor(localVol * 2));
+    const _bucketPoints = Math.max(1, Math.floor(localVol * 2));
 
     if (i - bucketStart >= Math.max(1, (data.length - bucketStart) / (maxPoints - usedPoints))) {
       sampled.push(data[i]);

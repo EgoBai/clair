@@ -128,7 +128,7 @@ export function optimizeMeanVariance(
     const minR = Math.min(...returns);
     const maxR = Math.max(...returns);
     const targetR = minR + t * (maxR - minR);
-    const frontierWeights = new Array(n).fill(1 / n);
+    const _frontierWeights = new Array(n).fill(1 / n);
     efficientFrontier.push({ risk: portRisk * (0.5 + t), ret: targetR });
   }
 

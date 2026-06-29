@@ -181,7 +181,7 @@ export async function measureAsyncExecution<T>(
  */
 export function createFpsMonitor(
   onFps: (fps: number) => void,
-  sampleSize: number = 60
+  _sampleSize: number = 60
 ): { start: () => void; stop: () => void } {
   let frameCount = 0;
   let lastTime = performance.now();

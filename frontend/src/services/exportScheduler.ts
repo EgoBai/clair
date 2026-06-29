@@ -297,7 +297,7 @@ export class ExportScheduler {
       return this.getNextDailyRun('09:00');
     }
 
-    const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+    const [minute, hour, _dayOfMonth, _month, _dayOfWeek] = parts;
     const next = new Date();
     
     // 简单实现：只处理具体数值
@@ -314,7 +314,7 @@ export class ExportScheduler {
   /**
    * 发送通知
    */
-  private async sendNotification(task: ScheduledTask, execution: TaskExecution): Promise<void> {
+  private async sendNotification(_task: ScheduledTask, _execution: TaskExecution): Promise<void> {
     // 实际实现需要集成邮件服务
     // removed: console.log
     // removed: console.log

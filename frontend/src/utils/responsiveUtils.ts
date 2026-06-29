@@ -170,7 +170,7 @@ export function filterColumnsByBreakpoint<T>(
   columns: TableColumn<T>[],
   width: number
 ): TableColumn<T>[] {
-  const bp = getCurrentBreakpoint(width);
+  const _bp = getCurrentBreakpoint(width);
 
   return columns.filter((col) => {
     if (col.priority === 1) return true;

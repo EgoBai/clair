@@ -63,9 +63,9 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 // ==================== 全局快捷键包装器 ====================
 
 function GlobalShortcuts({ children }: { children: React.ReactNode }) {
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const [showHints, setShowHints] = useState(false);
-  const searchRef = useRef<HTMLInputElement | null>(null);
+  const _searchRef = useRef<HTMLInputElement | null>(null);
   const { setTheme, preferences } = useAppStore();
 
   const handleSearchFocus = useCallback(() => {

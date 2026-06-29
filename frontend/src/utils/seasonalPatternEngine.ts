@@ -146,7 +146,7 @@ export const SOLAR_TERMS = [
 
 export function analyzeMonthlyEffects(
   monthlyReturns: MonthlyReturn[],
-  config: SeasonalConfig = DEFAULT_CONFIG
+  _config: SeasonalConfig = DEFAULT_CONFIG
 ): MonthlyEffectAnalysis[] {
   const monthData: Map<number, number[]> = new Map();
   for (let m = 1; m <= 12; m++) monthData.set(m, []);
@@ -508,7 +508,7 @@ export function identifySeasonalPatterns(
   }
 
   // 6. 周一效应
-  const monReturns = monthlyReturns.filter(() => {
+  const _monReturns = monthlyReturns.filter(() => {
     // 简化处理
     return true;
   });

@@ -336,7 +336,7 @@ function quadraticRegression(series: number[]): { a: number; b: number; c: numbe
   if (n < 3) return { a: 0, b: 0, c: series[0] ?? 0 };
 
   // 简化: 使用普通最小二乘法
-  let sumX = 0, sumY = 0, sumX2 = 0, sumX3 = 0, sumX4 = 0, sumXY = 0, sumX2Y = 0;
+  let sumX = 0, sumY = 0, sumX2 = 0, _sumX3 = 0, sumX4 = 0, sumXY = 0, _sumX2Y = 0;
 
   for (let i = 0; i < n; i++) {
     const x = i;
@@ -344,10 +344,10 @@ function quadraticRegression(series: number[]): { a: number; b: number; c: numbe
     sumX += x;
     sumY += y;
     sumX2 += x * x;
-    sumX3 += x * x * x;
+    _sumX3 += x * x * x;
     sumX4 += x * x * x * x;
     sumXY += x * y;
-    sumX2Y += x * x * y;
+    _sumX2Y += x * x * y;
   }
 
   // 解正规方程 (简化)

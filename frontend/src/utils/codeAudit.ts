@@ -26,7 +26,7 @@ interface AuditReport {
 }
 
 // 已知的严格模式问题模式
-const KNOWN_ISSUES: Array<{
+const _KNOWN_ISSUES: Array<{
   pattern: RegExp;
   type: AuditIssue['type'];
   severity: AuditIssue['severity'];

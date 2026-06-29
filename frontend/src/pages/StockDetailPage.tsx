@@ -25,7 +25,7 @@ import { THEME } from '../styles/theme-constants';
 const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
 const COLOR_FLAT = THEME.flat;
-const BG_CARD = THEME.cardBg;
+const _BG_CARD = THEME.cardBg;
 const BG_PAGE = THEME.bg;
 const TEXT_PRIMARY = THEME.text;
 const TEXT_SECONDARY = THEME.textSec;

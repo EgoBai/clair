@@ -57,7 +57,7 @@ export interface AuctionAnalysis {
  */
 export function detectEndOfDayPattern(
   snapshots: IntradaySnapshot[],
-  prevDayClose: number
+  _prevDayClose: number
 ): EndOfDayPattern | null {
   if (snapshots.length < 10) return null;
 
@@ -245,7 +245,7 @@ export function batchEodScan(
   const patterns: EndOfDayPattern[] = [];
   const signals: EodSignal[] = [];
 
-  snapshotsByTicker.forEach((snapshots, ticker) => {
+  snapshotsByTicker.forEach((snapshots, _ticker) => {
     if (snapshots.length < 10) return;
 
     const prevClose = snapshots[0].prevClose;

@@ -158,7 +158,7 @@ export function detectFlowRotation(
 
 export function calculateSectorFlowMomentum(
   flows: SectorFundFlow[],
-  lookback: number = 5
+  _lookback: number = 5
 ): { sector: string; momentum: number; rank: number }[] {
   const momentum = flows.map(f => ({
     sector: f.sector,

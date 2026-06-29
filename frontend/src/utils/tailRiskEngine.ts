@@ -51,7 +51,7 @@ export interface TailRiskAnalysis {
 
 export function analyzeTailRisk(
   returns: ReturnSeries[],
-  confidence: number = 0.95
+  _confidence: number = 0.95
 ): TailRiskAnalysis {
   if (returns.length === 0) throw new Error('收益率数据不能为空');
 

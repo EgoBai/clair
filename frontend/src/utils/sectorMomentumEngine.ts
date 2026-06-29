@@ -75,7 +75,7 @@ export function analyzeSectorMomentum(sectors: SectorData[]): SectorMomentumResu
 
   // 轮动方向
   const topSectors = rankings.slice(0, Math.ceil(rankings.length / 3));
-  const avgPE = 0; // 简化
+  const _avgPE = 0; // 简化
   let rotationDirection: SectorMomentumResult['rotationDirection'];
   const topNames = topSectors.map(s => s.sector).join(',');
   if (topNames.includes('科技') || topNames.includes('半导体') || topNames.includes('新能源'))

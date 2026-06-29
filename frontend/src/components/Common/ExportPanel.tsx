@@ -49,8 +49,8 @@ import {
   addToHistory,
 } from '../../utils/bloombergExportEngine';
 
-const { Text, Title } = Typography;
-const { RangePicker } = DatePicker;
+const { Text, _Title } = Typography;
+const { _RangePicker } = DatePicker;
 
 // ==================== 类型定义 ====================
 

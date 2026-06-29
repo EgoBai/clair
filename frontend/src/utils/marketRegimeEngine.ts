@@ -188,7 +188,7 @@ export class MarketRegimeEngine {
   /**
    * 状态转换概率矩阵
    */
-  calcTransitionProbabilities(prices: number[], windowSize: number = 252): TransitionProbability[] {
+  calcTransitionProbabilities(prices: number[], _windowSize: number = 252): TransitionProbability[] {
     const regimes: string[] = [];
     for (let i = this.lookbackLong; i < prices.length; i++) {
       const r = this.detectRegime(prices, i);

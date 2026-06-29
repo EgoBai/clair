@@ -214,7 +214,7 @@ export function analyzeInventoryCycle(
   indicator: IndustryIndicator,
   historyMonths: number = 6
 ): InventoryCycleState {
-  const cycleNames: Record<string, string> = {
+  const _cycleNames: Record<string, string> = {
     active_restocking: '主动补库存',
     passive_destocking: '被动去库存',
     active_destocking: '主动去库存',

@@ -214,7 +214,7 @@ export function buildOverlayConfig(
   options: Partial<ChartOverlayConfig> = {}
 ): ChartOverlayConfig {
   const groups = groupIndicatorsByScale(series);
-  const conflicts = detectOverlayConflicts(series);
+  const _conflicts = detectOverlayConflicts(series);
 
   // Auto-resolve conflicts by adjusting colors
   const colorPalette = ['#2196F3', '#FF5722', '#4CAF50', '#FF9800', '#9C27B0', '#00BCD4', '#E91E63', '#795548'];

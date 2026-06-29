@@ -202,7 +202,7 @@ export class RiskParityEngine {
   }
 
   private buildResult(assets: AssetData[], weights: number[], cov: number[][]): RiskParityResult {
-    const n = assets.length;
+    const _n = assets.length;
     const weightMap: Record<string, number> = {};
     assets.forEach((a, i) => { weightMap[a.name] = Math.round(weights[i] * 10000) / 10000; });
 

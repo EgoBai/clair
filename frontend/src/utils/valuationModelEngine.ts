@@ -42,7 +42,7 @@ export interface ValuationResult {
  * 计算多维估值
  */
 export function multiDimensionalValuation(input: ValuationInput): ValuationResult {
-  const { currentPrice, eps, bookValue, revenue, sharesOutstanding, netIncome, growthRate, industryPE, industryPB, historicalPE, historicalPB } = input;
+  const { currentPrice, eps, bookValue, revenue, sharesOutstanding, _netIncome, growthRate, industryPE, industryPB, historicalPE, historicalPB } = input;
 
   // 基础比率
   const pe = eps > 0 ? currentPrice / eps : Infinity;

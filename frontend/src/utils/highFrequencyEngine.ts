@@ -295,7 +295,7 @@ export function estimatePriceImpact(
   const temporaryImpact = avgSpread / 2;
   const permanentImpact = avgVolume > 0 ? (orderSize / avgVolume) * avgPriceChange : 0;
   const totalImpact = temporaryImpact + permanentImpact;
-  const lastPrice = ticks[ticks.length - 1].price;
+  const _lastPrice = ticks[ticks.length - 1].price;
   const costEstimate = totalImpact * orderSize;
 
   return {

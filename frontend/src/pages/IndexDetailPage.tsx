@@ -12,12 +12,12 @@ const { Title, Text } = Typography;
 
 import { THEME } from '../styles/theme-constants';
 const BG = THEME.bg;
-const CARD_BG = THEME.cardBg;
+const _CARD_BG = THEME.cardBg;
 const TEXT = THEME.text;
 const TEXT_SEC = THEME.textSec;
 const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
-const ACCENT = THEME.accent;
+const _ACCENT = THEME.accent;
 
 interface IndexDetail {
   symbol: string; name: string; displaySymbol: string;
@@ -47,7 +47,7 @@ const IndexDetailPage: React.FC = () => {
   const [kline, setKline] = useState<KLineQuote[]>([]);
   const [strategy, setStrategy] = useState<StrategyData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [chartPeriod, setChartPeriod] = useState<string>('candlestick');
+  const [_chartPeriod, _setChartPeriod] = useState<string>('candlestick');
 
   useEffect(() => {
     if (!symbol) return;

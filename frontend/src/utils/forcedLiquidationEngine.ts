@@ -97,7 +97,7 @@ export function assessPledgeRisk(positions: PledgePosition[]): LiquidationRisk[]
 export function assessMarginRisk(positions: MarginPosition[]): LiquidationRisk[] {
   return positions.map(pos => {
     const distanceToAlert = (pos.currentRatio - pos.alertLine) / pos.alertLine;
-    const distanceToLiquidation = (pos.currentRatio - pos.liquidationLine) / pos.liquidationLine;
+    const _distanceToLiquidation = (pos.currentRatio - pos.liquidationLine) / pos.liquidationLine;
 
     let riskLevel: LiquidationRisk['riskLevel'];
     let score: number;

@@ -128,7 +128,7 @@ function d2(params: OptionParams): number {
 
 // Black-Scholes price
 export function blackScholesPrice(params: OptionParams): number {
-  const { spot, strike, timeToExpiry, riskFreeRate, volatility, dividendYield = 0, type } = params;
+  const { spot, strike, timeToExpiry, riskFreeRate, _volatility, dividendYield = 0, type } = params;
 
   if (timeToExpiry <= 0) {
     return type === 'call'

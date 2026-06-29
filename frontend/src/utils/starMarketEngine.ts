@@ -80,7 +80,7 @@ export function valueSTARStock(stock: STARStock): STARValuation {
     // 盈利公司: PEG
     valuationMethod = 'peg';
     const pe = stock.marketCap / stock.netProfit;
-    const peg = stock.revenueGrowth > 0 ? pe / stock.revenueGrowth : pe;
+    const _peg = stock.revenueGrowth > 0 ? pe / stock.revenueGrowth : pe;
     fairValue = stock.price; // 简化
   } else {
     // 未盈利: PS

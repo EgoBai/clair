@@ -202,7 +202,7 @@ export function calculatePositionSize(
 export function checkRiskLimits(
   risk: PortfolioRisk,
   limits: RiskLimit,
-  positions: Position[]
+  _positions: Position[]
 ): RiskAlert[] {
   const alerts: RiskAlert[] = [];
   const now = new Date();
@@ -229,7 +229,7 @@ export function checkRiskLimits(
     });
   }
 
-  for (const [sector, exposure] of risk.sectorExposure) {
+  for (const [_sector, exposure] of risk.sectorExposure) {
     if (exposure > limits.maxSectorExposure) {
       alerts.push({
         level: 'warning',
@@ -355,7 +355,7 @@ function calculateSectorExposure(positions: Position[]): Map<string, number> {
 
 function calculateCorrelationRisk(
   positions: Position[],
-  returns: number[]
+  _returns: number[]
 ): number {
   // 简化: 如果组合集中度高则相关性风险高
   if (positions.length <= 1) return 1;

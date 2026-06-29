@@ -145,13 +145,13 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
   }, [placeholderType, placeholderColor, placeholderBlur]);
 
   // 处理图片加载
-  const handleLoadStart = useCallback(() => {
+  const _handleLoadStart = useCallback(() => {
     setIsLoading(true);
     setLoadProgress(0);
     onLoadStart?.();
   }, [onLoadStart]);
 
-  const handleLoadProgress = useCallback((event: ProgressEvent) => {
+  const _handleLoadProgress = useCallback((event: ProgressEvent) => {
     if (event.lengthComputable) {
       const progress = Math.round((event.loaded / event.total) * 100);
       setLoadProgress(progress);

@@ -43,7 +43,7 @@ function mean(arr: number[]): number {
   return arr.length === 0 ? 0 : arr.reduce((s, v) => s + v, 0) / arr.length;
 }
 
-function std(arr: number[]): number {
+function _std(arr: number[]): number {
   if (arr.length < 2) return 0;
   const m = mean(arr);
   return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - 1));

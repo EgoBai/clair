@@ -44,7 +44,7 @@ export function analyzeIndustryRotation(
 
   const signals: RotationSignal[] = industries.map((ind, i) => {
     const rets = ind.returns;
-    const n = rets.length;
+    const _n = rets.length;
 
     // 动量(近20日累计)
     const recent20 = rets.slice(-20);
@@ -58,7 +58,7 @@ export function analyzeIndustryRotation(
     const relativeStrength = indReturn - benchReturn;
 
     // 估值分位(简化)
-    const avgPE = 20; // 假设行业平均PE
+    const _avgPE = 20; // 假设行业平均PE
     const valuation = Math.max(0, Math.min(1, 1 - (ind.peRatio - 10) / 40));
 
     // 周期阶段

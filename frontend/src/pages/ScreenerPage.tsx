@@ -213,7 +213,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     id: 'ai_gems', name: 'AI潜力发现', description: 'AI多因子综合评分',
     icon: <RobotOutlined />, color: '#ec4899',
     metrics: ['ai_gems'],
-    filter: (s) => true,
+    filter: (_s) => true,
     fetchFromApi: true,
     apiEndpoint: '/api/ai/gems',
     explanation: 'AI模型综合动量、成交、规模、行业四维因子打分。机器挖掘人眼难以发现的潜力标的，适合辅助决策。',
@@ -244,7 +244,7 @@ const ScreenerPage: React.FC = () => {
   // 技术指标缓存
   interface TechData { change5d?: number | null; change20d?: number | null; ma20?: number; maDeviation?: number | null; rsi14?: number | null; volatility20d?: number | null; }
   const [techData, setTechData] = useState<Record<string, TechData>>({});
-  const [techLoading, setTechLoading] = useState(false);
+  const [_techLoading, setTechLoading] = useState(false);
 
   const watchlistStore = useWatchlistStore();
 

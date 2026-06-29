@@ -60,7 +60,7 @@ export default function CommandPalette({
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
 
   // 匹配命令
   const filteredCommands = useMemo(() => {

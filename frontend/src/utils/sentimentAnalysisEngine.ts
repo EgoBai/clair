@@ -379,7 +379,7 @@ export function calculateDataQuality(
 
   // Consistency: check for type consistency
   let consistentRecords = 0;
-  for (const record of data) {
+  for (const _record of data) {
     let isConsistent = true;
     for (const field of requiredFields) {
       const values = data.map(r => typeof r[field]);

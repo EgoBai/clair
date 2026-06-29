@@ -50,7 +50,7 @@ export interface QuantamentalResult {
 }
 
 export function quantamentalScreen(stocks: QuantamentalInput[]): QuantamentalResult[] {
-  const insights_global: string[] = [];
+  const _insights_global: string[] = [];
 
   const results = stocks.map(stock => {
     const insights: string[] = [];

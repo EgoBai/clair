@@ -137,7 +137,7 @@ export function runStressTest(
   const portfolioImpact = (totalImpactAmount / totalValue) * 100;
 
   // VaR估算 (基于冲击分布)
-  const volMultiplier = scenario.volatilityMultiplier || 1;
+  const _volMultiplier = scenario.volatilityMultiplier || 1;
   const dailyVol = Math.abs(portfolioImpact) / 2.58; // 假设冲击为2.58个标准差事件
   const var95 = -(dailyVol * 1.645);
   const var99 = -(dailyVol * 2.326);

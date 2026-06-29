@@ -37,7 +37,7 @@ const formatBig = (n: number): string => {
   return String(n);
 };
 
-const formatVolume = (n: number): string => {
+const _formatVolume = (n: number): string => {
   if (n >= 1e8) return (n / 1e8).toFixed(1) + '亿';
   if (n >= 1e4) return (n / 1e4).toFixed(0) + '万';
   return String(n);

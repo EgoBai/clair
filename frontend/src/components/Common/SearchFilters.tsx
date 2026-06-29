@@ -19,7 +19,7 @@ interface SearchFiltersProps {
   onChange?: (filters: Record<string, string | string[]>) => void;
 }
 
-export const SearchFilters: React.FC<SearchFiltersProps> = ({ filterGroups, compact, className, onChange }) => {
+export const SearchFilters: React.FC<SearchFiltersProps> = ({ filterGroups, _compact, className, _onChange }) => {
   if (filterGroups.length === 0) return null;
 
   return (

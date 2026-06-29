@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, '../shared'),
+      '@': path.resolve(__dirname, 'src'),
     },
   },
   server: {
@@ -78,11 +79,6 @@ export default defineConfig(({ mode }) => ({
     },
     // 报告压缩详情
     reportCompressedSize: true,
-  },
-  resolve: {
-    alias: {
-      '@': '/src',
-    },
   },
   // 预构建优化
   optimizeDeps: {

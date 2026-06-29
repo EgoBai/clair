@@ -151,7 +151,7 @@ export class MultiTimeFrameEngine {
     else overallTrend = 'neutral';
 
     // 主导时间框架
-    const trendOrder: TimeFrame[] = ['1w', '1d', '4h', '1h', '30m', '15m', '5m', '1m', '1M'];
+    const _trendOrder: TimeFrame[] = ['1w', '1d', '4h', '1h', '30m', '15m', '5m', '1m', '1M'];
     const dominantTimeFrame = timeFrameTrends.find(t => t.direction !== 'neutral')?.timeframe || timeFrameTrends[0]?.timeframe || '1d';
 
     // 共振信号

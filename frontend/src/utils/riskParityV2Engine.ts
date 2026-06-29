@@ -71,7 +71,7 @@ export function computeRiskParity(
 
     // 风险贡献
     const riskContrib = weights.map((w, i) => w * marginalRisk[i]);
-    const totalRC = riskContrib.reduce((s, v) => s + v, 0);
+    const _totalRC = riskContrib.reduce((s, v) => s + v, 0);
 
     // 目标风险贡献
     const targetRC = budget.map(b => b * portfolioRisk);

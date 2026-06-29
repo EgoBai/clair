@@ -268,7 +268,7 @@ export function estimateAnnualCostImpact(
   market: 'main' | 'star' | 'gem' | 'hk' = 'main'
 ): { annualCost: number; costPerTrade: number; dragOnReturns: number } {
   const totalVolume = annualTurnover * avgPositionSize;
-  const roundTrips = tradesPerYear / 2;
+  const _roundTrips = tradesPerYear / 2;
   const avgTradeSize = totalVolume / tradesPerYear;
 
   const { totalCost } = calculateTotalTradingCost(

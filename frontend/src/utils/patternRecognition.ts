@@ -178,7 +178,7 @@ export function detectPatterns(ohlcv: OHLCV[]): PatternResult[] {
   return patterns;
 }
 
-function isDoubleBottom(lows: number[], closes: number[]): boolean {
+function isDoubleBottom(lows: number[], _closes: number[]): boolean {
   if (lows.length < 15) return false;
   const first = Math.min(...lows.slice(0, 7));
   const second = Math.min(...lows.slice(8, 15));
@@ -186,7 +186,7 @@ function isDoubleBottom(lows: number[], closes: number[]): boolean {
   return Math.abs(first - second) / first < 0.03 && between > first * 1.03;
 }
 
-function isDoubleTop(highs: number[], closes: number[]): boolean {
+function isDoubleTop(highs: number[], _closes: number[]): boolean {
   if (highs.length < 15) return false;
   const first = Math.max(...highs.slice(0, 7));
   const second = Math.max(...highs.slice(8, 15));

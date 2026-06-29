@@ -349,7 +349,7 @@ export function regimeDurationDistribution(
 export function regimeWarningSignals(
   returns: number[],
   analysis: RegimeAnalysis,
-  window: number = 20
+  _window: number = 20
 ): {
   currentRegime: number;
   regimeAge: number;

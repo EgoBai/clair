@@ -67,8 +67,8 @@ export function calcMA(kline: KLine[]): MA {
 /** 计算支撑压力位 */
 export function calcSupportResistance(kline: KLine[], lookback = 60): SupportResistance {
   const recent = kline.slice(-lookback);
-  const highs = recent.map(k => ({ price: k.high, date: k.tradeDate }));
-  const lows = recent.map(k => ({ price: k.low, date: k.tradeDate }));
+  const _highs = recent.map(k => ({ price: k.high, date: k.tradeDate }));
+  const _lows = recent.map(k => ({ price: k.low, date: k.tradeDate }));
 
   // 找局部极值点（左右3天内的最高/最低）
   const peaks: { price: number; strength: number; date: string }[] = [];

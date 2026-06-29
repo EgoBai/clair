@@ -131,7 +131,7 @@ export function detectFlowSignals(flows: FundFlowData[]): FlowSignal[] {
   const signals: FlowSignal[] = [];
 
   for (const flow of flows) {
-    const netInflow = calculateNetInflow(flow);
+    const _netInflow = calculateNetInflow(flow);
 
     // 主力资金流入信号
     if (flow.mainInflow > 5000 && flow.priceChange < 1) {

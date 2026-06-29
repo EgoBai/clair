@@ -61,7 +61,7 @@ export function getTransitionCSS(config: TransitionConfig): {
     };
   }
 
-  const transitionStr = `all ${duration}ms ${easing} ${delay}ms`;
+  const _transitionStr = `all ${duration}ms ${easing} ${delay}ms`;
 
   switch (type) {
     case 'fade':

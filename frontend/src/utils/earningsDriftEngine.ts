@@ -191,9 +191,9 @@ export class EarningsDriftEngine {
     actualEPS: number,
     expectedEPS: number,
     historicalDrifts: number[][],
-    sector: string = '',
-    sectorReturns: Record<string, number[]> = {},
-    sectorCorrelations: Record<string, number> = {},
+    _sector: string = '',
+    _sectorReturns: Record<string, number[]> = {},
+    _sectorCorrelations: Record<string, number> = {},
   ): PEADReport {
     const surprise = this.calcSurprise(ticker, actualEPS, expectedEPS);
     const signal = this.generateDriftSignal(surprise, historicalDrifts);

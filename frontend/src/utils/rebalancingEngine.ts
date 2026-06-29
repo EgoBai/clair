@@ -637,7 +637,7 @@ export function calculateTurnover(
 export function evaluateRebalanceMetrics(
   beforeHoldings: Holding[],
   afterHoldings: Holding[],
-  portfolioValue: number
+  _portfolioValue: number
 ): RebalanceMetrics {
   const beforeTE = calculateTrackingError(beforeHoldings);
   const afterTE = calculateTrackingError(afterHoldings);

@@ -400,7 +400,7 @@ function linearRegression(
   const sumY = y.slice(0, n).reduce((a, b) => a + b, 0);
   const sumXY = x.slice(0, n).reduce((acc, xi, i) => acc + xi * y[i], 0);
   const sumX2 = x.slice(0, n).reduce((acc, xi) => acc + xi * xi, 0);
-  const sumY2 = y.slice(0, n).reduce((acc, yi) => acc + yi * yi, 0);
+  const _sumY2 = y.slice(0, n).reduce((acc, yi) => acc + yi * yi, 0);
 
   const denom = n * sumX2 - sumX * sumX;
   if (Math.abs(denom) < 1e-10) return { slope: 0, intercept: sumY / n, rSquared: 0 };

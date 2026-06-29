@@ -38,7 +38,7 @@ export class CapitalFlowDepthEngine {
   /**
    * 分析资金流向
    */
-  analyzeFlow(trades: TradeData[], currentPrice: number): CapitalFlowResult {
+  analyzeFlow(trades: TradeData[], _currentPrice: number): CapitalFlowResult {
     let totalBuy = 0;
     let totalSell = 0;
     let largeBuy = 0;

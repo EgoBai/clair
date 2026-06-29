@@ -134,7 +134,7 @@ export function VirtualTable<T extends Record<string, any>>({
   const totalHeight = data.length * rowHeight;
   const offsetY = startIdx * rowHeight;
 
-  const totalWidth = columns.reduce((sum, col) => sum + (col.width || 150), 0);
+  const _totalWidth = columns.reduce((sum, col) => sum + (col.width || 150), 0);
 
   return (
     <div 

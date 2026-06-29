@@ -153,7 +153,7 @@ export function analyzeSentiment(news: NewsEvent): { sentiment: SentimentLevel; 
 export function assessEventImpact(
   news: NewsEvent,
   classification: NewsClassification,
-  currentPrice: number
+  _currentPrice: number
 ): EventImpactAssessment {
   const { sentiment, score } = analyzeSentiment(news);
 

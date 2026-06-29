@@ -26,7 +26,7 @@ interface QuickActionsProps {
 
 export const QuickActions: React.FC<QuickActionsProps> = React.memo(({
   symbol,
-  name,
+  _name,
   inWatchlist = false,
   onToggleWatchlist,
   onSetAlert,

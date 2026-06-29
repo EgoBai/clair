@@ -201,7 +201,7 @@ export function persistenceMiddleware<T>(
   key: string,
   storage: 'localStorage' | 'sessionStorage' = 'localStorage',
 ): Middleware<T> {
-  return (state, action) => {
+  return (state, _action) => {
     try {
       const store = storage === 'localStorage' ? localStorage : sessionStorage;
       store.setItem(key, JSON.stringify(state));
@@ -216,7 +216,7 @@ export function persistenceMiddleware<T>(
 export function validationMiddleware<T>(
   validate: (state: T) => boolean | string,
 ): Middleware<T> {
-  return (state, action, payload) => {
+  return (state, _action, _payload) => {
     const result = validate(state);
     if (result !== true) {
       console.warn(`Validation failed: ${result}`);

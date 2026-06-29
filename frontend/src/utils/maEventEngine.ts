@@ -224,7 +224,7 @@ export function analyzeSynergies(event: MAEvent): SynergyAnalysis {
 
 export function analyzeImpact(event: MAEvent, valuation: MAValuation): MAImpactAnalysis {
   // EPS影响
-  const acquirerEPS = 1; // 假设基准
+  const _acquirerEPS = 1; // 假设基准
   const targetContribution = event.targetNetProfit * (1 - valuation.overpayRisk * 0.3);
   const sharesIssued = event.paymentMethod !== 'cash'
     ? event.transactionValue / 10 : 0;

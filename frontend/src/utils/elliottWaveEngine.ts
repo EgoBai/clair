@@ -534,7 +534,7 @@ export function analyzeWaveChannel(
   const prices = waves.map((w) => w.price);
   const upper = Math.max(...prices);
   const lower = Math.min(...prices);
-  const mid = (upper + lower) / 2;
+  const _mid = (upper + lower) / 2;
   const range = upper - lower;
 
   const upperChannel = prices.map((_, i) => upper - (range * i) / (prices.length * 2));

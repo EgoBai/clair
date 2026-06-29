@@ -238,7 +238,7 @@ export class GreeksEngine {
     let netGamma = 0;
     let netVega = 0;
     let netTheta = 0;
-    let totalNotional = 0;
+    let _totalNotional = 0;
 
     for (const pos of positions) {
       const greeks = this.calculateGreeks(pos.params);
@@ -248,7 +248,7 @@ export class GreeksEngine {
       netGamma += greeks.gamma * multiplier;
       netVega += greeks.vega * multiplier;
       netTheta += greeks.theta * multiplier;
-      totalNotional += pos.params.spotPrice * Math.abs(multiplier);
+      _totalNotional += pos.params.spotPrice * Math.abs(multiplier);
     }
 
     // 对冲比率: 需要多少标的来对冲Delta

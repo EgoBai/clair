@@ -232,7 +232,7 @@ export class NorthboundFundEngine {
 
     for (let i = 20; i < sorted.length; i++) {
       const window = sorted.slice(i - 20, i);
-      const netFlow20D = window.reduce((s, f) => s + f.netBuy, 0);
+      const _netFlow20D = window.reduce((s, f) => s + f.netBuy, 0);
       const price = priceMap.get(sorted[i].date) || 0;
 
       if (price <= 0) continue;

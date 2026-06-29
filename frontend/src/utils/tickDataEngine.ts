@@ -238,8 +238,8 @@ export function buildVolumeProfile(
 ): VolumeProfile[] {
   if (ticks.length === 0) return [];
 
-  const minPrice = Math.min(...ticks.map(t => t.price));
-  const maxPrice = Math.max(...ticks.map(t => t.price));
+  const _minPrice = Math.min(...ticks.map(t => t.price));
+  const _maxPrice = Math.max(...ticks.map(t => t.price));
 
   // 按价格区间聚合
   const buckets = new Map<number, { volume: number; buyVolume: number; sellVolume: number }>();

@@ -404,7 +404,7 @@ export function getTimezoneOffset(market: MarketIndex): number {
 export function isOverlappingTradingHours(
   market1: MarketIndex,
   market2: MarketIndex,
-  hour: number = 10
+  _hour: number = 10
 ): boolean {
   const offset1 = getTimezoneOffset(market1);
   const offset2 = getTimezoneOffset(market2);

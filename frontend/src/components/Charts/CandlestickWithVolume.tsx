@@ -80,15 +80,15 @@ const CandlestickWithVolume = React.memo<CandlestickWithVolumeProps>(({
   }, []);
 
   // 自定义K线形状
-  const CandlestickShape = (props: any) => {
+  const _CandlestickShape = (props: any) => {
     const { x, y, width, height: h, payload } = props;
     if (!payload) return null;
 
-    const { open, close, high, low } = payload;
+    const { open, close, _high, _low } = payload;
     const isUp = close >= open;
     const color = isUp ? '#cf1322' : '#3f8600';
-    const bodyTop = Math.min(open, close);
-    const bodyBottom = Math.max(open, close);
+    const _bodyTop = Math.min(open, close);
+    const _bodyBottom = Math.max(open, close);
 
     // 这里简化为柱状图显示
     return (

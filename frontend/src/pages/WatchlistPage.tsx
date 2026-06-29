@@ -279,7 +279,7 @@ const WatchlistPage: React.FC = () => {
   const [aiRecommendationsLoading, setAiRecommendationsLoading] = useState(false);
 
   const fetchTimerRef = useRef<ReturnType<typeof setInterval>>();
-  const refreshIconRef = useRef<HTMLDivElement>(null);
+  const _refreshIconRef = useRef<HTMLDivElement>(null);
 
   /* Derived state */
   const currentGroup = useMemo(
@@ -855,7 +855,7 @@ const WatchlistPage: React.FC = () => {
               {Object.entries(signals).map(([sym, sig]) => {
                 const signalColor = sig.signal === 'buy' ? COLOR_UP : sig.signal === 'sell' ? COLOR_DOWN : TEXT_SEC;
                 const signalText = sig.signal === 'buy' ? '买入' : sig.signal === 'sell' ? '卖出' : '持有';
-                const q = quotes[sym];
+                const _q = quotes[sym];
                 return (
                   <div
                     key={sym}

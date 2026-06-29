@@ -309,7 +309,7 @@ self.addEventListener('periodicsync', (event: ExtendableEvent & { tag: string })
 });
 
 // ==================== 后台同步 ====================
-interface SyncQueueItem {
+interface _SyncQueueItem {
   id: string;
   url: string;
   method: string;

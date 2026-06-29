@@ -254,7 +254,7 @@ export function identifyTrendPhase(
   const volRatio = recentVolume / Math.max(avgVolume, 1);
 
   const latest = data[data.length - 1];
-  const priceRange = (Math.max(...recent20.map(d => d.close)) - Math.min(...recent20.map(d => d.close)))
+  const _priceRange = (Math.max(...recent20.map(d => d.close)) - Math.min(...recent20.map(d => d.close)))
     / Math.min(...recent20.map(d => d.close)) * 100;
 
   const trend = calculateTrendStrength(data);

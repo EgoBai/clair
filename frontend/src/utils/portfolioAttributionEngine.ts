@@ -302,7 +302,7 @@ export function multiFactorAttribution(
     }
 
     const portfolioExposure = corr * (activeStd / (factorStd || 1));
-    const benchmarkExposure = 0; // 基准暴露为0（active return框架）
+    const _benchmarkExposure = 0; // 基准暴露为0（active return框架）
     const contribution = portfolioExposure * avgFactorReturn;
     totalExplained += contribution;
 

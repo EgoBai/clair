@@ -131,7 +131,7 @@ export class ConvertibleBondEngine {
   findArbitragePairs(
     bonds: ConvertibleBond[],
     maxPremium: number = 20,
-    minYield: number = 0
+    _minYield: number = 0
   ): CBPairTrade[] {
     const pairs: CBPairTrade[] = [];
 

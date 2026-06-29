@@ -229,7 +229,7 @@ function evaluateIndicators(stock: STStockInfo): STRiskIndicator[] {
   return indicators;
 }
 
-function evaluateDelistingRisk(stock: STStockInfo, indicators: STRiskIndicator[]): DelistingRisk {
+function evaluateDelistingRisk(stock: STStockInfo, _indicators: STRiskIndicator[]): DelistingRisk {
   const f = stock.latestFinancials;
   const netAssets = f.totalAssets - f.totalLiabilities;
 

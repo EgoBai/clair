@@ -237,7 +237,7 @@ export function analyzeTurnOfMonthEffect(returns: DailyReturn[]): TurnOfMonthEff
 export function analyzeHolidayEffect(returns: DailyReturn[]): HolidayEffect[] {
   const effects: HolidayEffect[] = [];
 
-  for (const [key, holiday] of Object.entries(CN_HOLIDAYS)) {
+  for (const [_key, holiday] of Object.entries(CN_HOLIDAYS)) {
     const beforeReturns: number[] = [];
     const afterReturns: number[] = [];
 
@@ -338,7 +338,7 @@ export function generateCalendarAnomalyReport(returns: DailyReturn[]): CalendarA
   const currentMonth = now.getMonth() + 1;
   const currentMonthEffect = monthEffects.find(m => m.month === currentMonth);
   const currentDow = now.getDay();
-  const currentDowEffect = dayOfWeekEffects.find(d => d.dayOfWeek === (currentDow === 0 ? 4 : currentDow - 1));
+  const _currentDowEffect = dayOfWeekEffects.find(d => d.dayOfWeek === (currentDow === 0 ? 4 : currentDow - 1));
 
   let currentSignal = '中性';
   if (currentMonthEffect && currentMonthEffect.avgReturn > 1) {

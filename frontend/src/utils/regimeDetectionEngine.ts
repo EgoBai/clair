@@ -152,7 +152,7 @@ export function calculateVolatilityRegime(
 export function simpleHMM(
   observations: number[],
   nStates: number = 2,
-  maxIterations: number = 50
+  _maxIterations: number = 50
 ): HiddenMarkovState {
   const n = observations.length;
 

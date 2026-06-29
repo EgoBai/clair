@@ -71,7 +71,7 @@ export class FactorMiningEngine {
     const sortedByFactor = [...matched].sort((a, b) => a.factor - b.factor);
     const ranks = new Map(sortedByFactor.map((m, i) => [m.factor, i + 1]));
     const sortedByReturn = [...matched].sort((a, b) => a.ret - b.ret);
-    const retRanks = new Map(sortedByReturn.map((m, i) => [`${m.factor}_${m.ret}`, i + 1]));
+    const _retRanks = new Map(sortedByReturn.map((m, i) => [`${m.factor}_${m.ret}`, i + 1]));
 
     let rankCov = 0;
     const avgRank = (n + 1) / 2;

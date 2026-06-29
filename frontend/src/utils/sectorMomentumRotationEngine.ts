@@ -276,7 +276,7 @@ export function analyzeSectorRotation(sectors: SectorData[]): SectorRotationResu
   // 市场阶段
   const avgMomentum = ranks.reduce((s, r) => s + r.composite, 0) / ranks.length;
   const leadingCount = signals.filter(s => s.type === 'leading').length;
-  const reversingCount = signals.filter(s => s.type === 'reversing').length;
+  const _reversingCount = signals.filter(s => s.type === 'reversing').length;
 
   let marketPhase: 'risk_on' | 'risk_off' | 'transition';
   if (avgMomentum > 1 && leadingCount > 2) marketPhase = 'risk_on';

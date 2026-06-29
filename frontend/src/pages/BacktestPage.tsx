@@ -16,7 +16,7 @@ import {
 import { apiFetch } from '../utils/api';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
+const { _Option } = Select;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
@@ -26,7 +26,7 @@ const TEXT = THEME.text;
 const TEXT_SEC = THEME.textSec;
 const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
-const ACCENT = THEME.accent;
+const _ACCENT = THEME.accent;
 
 // 策略类型配置
 const STRATEGIES = [
@@ -72,7 +72,7 @@ const BacktestPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState('');
-  const [presets, setPresets] = useState<any[]>([]);
+  const [_presets, setPresets] = useState<any[]>([]);
 
   // 获取策略预设
   useEffect(() => {
@@ -118,7 +118,7 @@ const BacktestPage: React.FC = () => {
     }
   };
 
-  const formatPct = (v: number) => {
+  const _formatPct = (v: number) => {
     const sign = v >= 0 ? '+' : '';
     return { text: `${sign}${v.toFixed(2)}%`, color: v >= 0 ? COLOR_UP : COLOR_DOWN };
   };

@@ -132,7 +132,7 @@ export class TailRiskHedgingEngine {
   recommendHedging(
     tailMetrics: TailRiskMetrics,
     portfolioVol: number,
-    portfolioValue: number,
+    _portfolioValue: number,
   ): HedgingStrategy[] {
     const strategies: HedgingStrategy[] = [];
 

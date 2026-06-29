@@ -206,7 +206,7 @@ export function classifyEconomicCycle(
   events: EconomicEvent[]
 ): 'expansion' | 'peak' | 'contraction' | 'trough' {
   const pmiEvents = events.filter((e) => e.category === 'pmi' && e.actual !== undefined);
-  const gdpEvents = events.filter((e) => e.category === 'gdp' && e.actual !== undefined);
+  const _gdpEvents = events.filter((e) => e.category === 'gdp' && e.actual !== undefined);
 
   if (pmiEvents.length === 0) return 'expansion';
 

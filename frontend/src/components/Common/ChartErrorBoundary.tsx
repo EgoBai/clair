@@ -30,7 +30,7 @@ export default class ChartErrorBoundary extends Component<ChartErrorBoundaryProp
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  componentDidCatch(error: Error, _errorInfo: ErrorInfo) {
     logger.warn(`[ChartErrorBoundary] 图表渲染失败:`, error.message);
   }
 

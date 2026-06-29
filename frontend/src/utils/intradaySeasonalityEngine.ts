@@ -92,7 +92,7 @@ export class IntradaySeasonalityEngine {
     closePrices: number[],
     highPrices: number[],
     lowPrices: number[],
-    intradayPrices: number[][],
+    _intradayPrices: number[][],
   ): IntradayPattern {
     if (openPrices.length < 5) {
       return { openingPattern: 'flat', middayPattern: 'quiet', closingPattern: 'flat', intradayHighTime: '10:00', intradayLowTime: '14:00' };

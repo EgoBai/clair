@@ -67,7 +67,7 @@ interface WatchlistGroup {
   stocks: { symbol: string; name?: string }[];
 }
 
-interface WatchlistData {
+interface _WatchlistData {
   groups: WatchlistGroup[];
 }
 
