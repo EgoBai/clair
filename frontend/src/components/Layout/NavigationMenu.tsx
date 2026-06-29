@@ -48,6 +48,13 @@ const NAV_ITEMS: NavItem[] = [
     path: '/industry-map',
     icon: '🗺️',
     description: '产业链图谱 · 投资逻辑 · AI解读 · 核心标的'
+  },
+  {
+    id: 'radar',
+    label: '潜力雷达',
+    path: '/radar',
+    icon: '🏆',
+    description: 'AI多因子评分 · 潜力股排行 · 综合分析'
   }
 ];
 
