@@ -250,7 +250,6 @@ router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Respons
     const unchangedStocks = marketSummary?.unchangedStocks ?? 0;
     const totalStocks = marketSummary?.totalStocks ?? (risingStocks + fallingStocks + unchangedStocks);
     const totalTurnover = Number(marketSummary?.totalTurnover) || 0;
-    console.log("[DEBUG market-insight] raw totalTurnover:", marketSummary?.totalTurnover, "type:", typeof marketSummary?.totalTurnover, "cast:", totalTurnover);
     
     // 获取板块数据（领涨板块、涨停分布）
     const sectorScores = await db.getSectorMomentumScore();

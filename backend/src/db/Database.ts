@@ -487,8 +487,8 @@ export class Database {
     const totalStocks = dailyQuotes.length;
     const totalMarketCap = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.market_cap) || 0), 0);
     const totalVolume = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.volume) || 0), 0);
-    // turnover 在 daily_quotes 中以万元存储，乘以10000转为元
-    const totalTurnover = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.turnover) || 0) * 10000, 0);
+    // turnover 已由DataSyncService转为元存储，无需再乘10000
+    const totalTurnover = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.turnover) || 0), 0);
     
     const risingStocks = dailyQuotes.filter(quote => Number(quote.change_percent) > 0).length;
     const fallingStocks = dailyQuotes.filter(quote => Number(quote.change_percent) < 0).length;

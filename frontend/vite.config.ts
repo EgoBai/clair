@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => ({
       '@shared': path.resolve(__dirname, '../shared'),
       '@': path.resolve(__dirname, 'src'),
     },
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
   },
   server: {
     host: '127.0.0.1',

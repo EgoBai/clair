@@ -10,12 +10,13 @@
 3. **文档互通** — 每完成一个模块，在此更新状态
 4. **冲突预防** — 修改前先查看对方是否在改同一文件
 
-## 当前分工
+## 当前分工（2026-06-29）
 
 | 角色 | 负责领域 | 当前任务 |
 |------|----------|----------|
-| **MiMoCode** | 前端 UI/UX、多端适配、CSS、组件样式 | **下一任务: 潜力股雷达页前端**（后端已就绪，契约见文末交接）|
-| **Hermes Agent** | 后端 API、数据层、AI 功能、业务逻辑 | 潜力股雷达后端已就绪+reasons增强(9974d63)；待 MiMoCode 接前端 |
+| **MiMoCode** | 任务编排、质量验收、前端UI/UX | Phase 14 质量闭环：四页端到端QA + AI功能打磨 |
+| **Hermes Agent** | 后端 API、数据层、AI 功能、业务逻辑 | 后端测试修复完成(metrics/architecture/industries)；待推进Phase 14 后端部分 |
+| **Builder Worker** | 具体代码实现 | Lint修复完成(198 warnings)；待分派下一任务 |
 
 ## 文件锁
 
@@ -57,31 +58,25 @@
 - **index.html**: viewport-fit=cover + PWA 支持
 - **manifest.json**: orientation=any + display_override
 
-## 待做清单
+## 待做清单（Phase 14: 质量闭环+产品深度）
 
-### MiMoCode — 全部完成 ✅
-- [x] 多端适配方案设计 ✅
-- [x] AppLayout 响应式改造 ✅
-- [x] 核心4页面多端适配 ✅
-- [x] 移动端导航改造（TabBar）✅
-- [x] 触摸交互优化 ✅
-- [x] 卡片化表格组件 ✅
-- [x] StockDetailPage 响应式 ✅
-- [x] IndustryMapPage 响应式 ✅
-- [x] 图表响应式优化 ✅ (ResponsiveChart + KLine适配)
-- [x] 回测页面响应式 ✅
-- [x] WebSocket Socket.IO 联调 ✅ (连接+心跳+订阅验证)
+### ✅ 已完成（本轮 2026-06-29）
+- [x] 后端3个失败测试修复 ✅ (metrics.ts getSummary扩展、industries.ts import路径、industryChain*.ts Router导出)
+- [x] 前端198个lint warnings修复 ✅ (unused vars前缀_，115个文件)
+- [x] LLM市场解读增强 ✅ (后端 /ai/market-insight-llm 端点 + 前端fallback)
+- [x] WatchlistPage AI总结 ✅
+- [x] ReviewPage AI复盘 ✅
 
-### Hermes Agent (最新 2026-06-15)
-- [x] ChatPanel错误日志增强 ✅ (884e87e)
-- [x] 策略选股筛选条件修复 ✅ (75527ca)
-- [x] 板块景气度评分逻辑透明化 ✅ (7766b52)
-- [x] 本地-GitHub版本同步 ✅ (5a5fb75)
-- [x] 自省机制效率分析升级 ✅
-- [x] ScreenerPage去重+策略模板修复 ✅ (26e70ec)
-- [x] 行业覆盖率 84.8%→89.0% ✅
-- [x] 策略模板 2→4 + 指标 4→7 ✅ (98065f1)
-- [ ] 更多功能扩展
+### 🔄 Phase 14 待做
+- [ ] DiscoverPage: 市场数据/板块/产业地图/搜索端到端QA
+- [ ] ScreenerPage: 筛选/策略/搜索/添加自选端到端QA
+- [ ] WatchlistPage: 数据加载/信号/分组/AI总结端到端QA
+- [ ] ReviewPage: 复盘数据/技术指标/AI分析端到端QA
+- [ ] AI功能打磨: market-insight引用真实数据、FloatingChat上下文注入
+- [ ] Worker本地验证(wrangler dev) + 生产部署端到端测试
+
+### 📋 Phase 15 待启动
+- [ ] 潜力股雷达页前端（后端API已就绪，契约见文末交接）
 
 ## 修改日志 (Hermes Agent)
 
