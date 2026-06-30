@@ -50,11 +50,12 @@ export default defineConfig(({ mode }) => ({
             if (id.includes('antd/') || id.includes('@ant-design/')) {
               return 'vendor-antd';
             }
-            if (id.includes('echarts')) {
-              return 'vendor-echarts';
-            }
+            // recharts must come before echarts (recharts contains 'echarts' substring)
             if (id.includes('recharts')) {
               return 'vendor-recharts';
+            }
+            if (id.includes('echarts')) {
+              return 'vendor-echarts';
             }
             if (id.includes('axios') || id.includes('dayjs') || id.includes('zustand')) {
               return 'vendor-utils';
