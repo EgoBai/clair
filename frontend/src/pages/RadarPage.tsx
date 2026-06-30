@@ -309,7 +309,7 @@ const RadarPage: React.FC = () => {
         sorter: (a: GemStock, b: GemStock) => a.marketCap - b.marketCap,
         render: (val: number) => (
           <span style={{ color: TEXT_SEC, fontFamily: 'monospace', fontSize: 12 }}>
-            {val > 0 ? (val / 100000000).toFixed(1) : '—'}
+            {val > 0 ? val.toFixed(1) : '—'}
           </span>
         ),
       },
@@ -410,6 +410,30 @@ const RadarPage: React.FC = () => {
           </Col>
         </Row>
 
+        {aiSummary && (
+          <Card
+            title={
+              <span style={{ color: TEXT, fontSize: 14 }}>
+                <span style={{ marginRight: 6 }}>🤖</span>
+                AI 整体解读
+              </span>
+            }
+            style={{ marginBottom: 16 }}
+          >
+            <div
+              style={{
+                color: TEXT,
+                lineHeight: 1.8,
+                fontSize: 13,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {aiSummary}
+            </div>
+          </Card>
+        )}
+
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col lg={12} xs={24}>
             <Card
@@ -428,7 +452,7 @@ const RadarPage: React.FC = () => {
             >
               <ReactECharts
                 option={radarOption}
-                style={{ height: 340 }}
+                style={{ height: 340, minHeight: 280 }}
                 opts={{ renderer: 'svg' }}
               />
             </Card>
@@ -455,36 +479,14 @@ const RadarPage: React.FC = () => {
                     },
                   })}
                   locale={{ emptyText: <Empty description="暂无数据" /> }}
-                  scroll={{ x: 600 }}
+                  scroll={{ x: 'max-content' }}
                 />
               </div>
             </Card>
           </Col>
         </Row>
 
-        {aiSummary && (
-          <Card
-            title={
-              <span style={{ color: TEXT, fontSize: 14 }}>
-                <span style={{ marginRight: 6 }}>🤖</span>
-                AI 分析摘要
-              </span>
-            }
-            style={{ marginBottom: 16 }}
-          >
-            <div
-              style={{
-                color: TEXT,
-                lineHeight: 1.8,
-                fontSize: 13,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {aiSummary}
-            </div>
-          </Card>
-        )}
+
       </div>
     </div>
   );

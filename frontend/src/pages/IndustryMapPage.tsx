@@ -19,6 +19,7 @@ import {
   Button,
   Select,
   Spin,
+  Skeleton,
   Tabs,
   List,
   Badge,
@@ -81,6 +82,7 @@ const { _Option } = Select;
 
 // API 基础 URL
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
+
 // ============= 自定义节点组件 =============
 
 /** 产业链环节节点 */
@@ -91,7 +93,10 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
   const _navigate = useNavigate();
   
   const leaderCount = segment.companies.filter(c => c.position === 'leader').length;
-  const topChange = Math.max(...segment.companies.map(c => c.changePercent || 0));
+  const hasCompanies = segment.companies.length > 0;
+  const topChange = hasCompanies
+    ? Math.max(...segment.companies.map(c => c.changePercent || 0))
+    : 0;
   
   return (
     <div
@@ -129,17 +134,21 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
       
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {segment.companies.length}家公司
+          {hasCompanies ? `${segment.companies.length}家公司` : '暂无数据'}
         </Text>
-        <Text
-          style={{
-            color: topChange >= 0 ? 'var(--color-up)' : 'var(--color-down)',
-            fontWeight: 600,
-            fontSize: 14,
-          }}
-        >
-          {topChange >= 0 ? '+' : ''}{topChange.toFixed(2)}%
-        </Text>
+        {hasCompanies ? (
+          <Text
+            style={{
+              color: topChange >= 0 ? 'var(--color-up)' : 'var(--color-down)',
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            {topChange >= 0 ? '+' : ''}{topChange.toFixed(2)}%
+          </Text>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 12 }}>—</Text>
+        )}
       </div>
       
       <Handle type="source" position={Position.Right} style={{ background: color }} />
@@ -159,12 +168,10 @@ const chainToGraph = (chain: IndustryChain) => {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   
-  // 如果没有 layers 数据，返回空图
   if (!chain.layers || !Array.isArray(chain.layers)) {
     return { nodes, edges };
   }
   
-  // 层级位置计算
   const layerPositions: Record<LayerType, number> = {
     upstream: 0,
     midstream: 450,
@@ -172,14 +179,12 @@ const chainToGraph = (chain: IndustryChain) => {
     support: 650,
   };
   
-  // 按层级分组
   const layers = chain.layers.sort((a, b) => (a.order || 0) - (b.order || 0));
   
   layers.forEach((layer) => {
     const x = layerPositions[layer.type as LayerType] || 0;
     const segments = layer.segments;
     const totalSegments = segments.length;
-    // 动态间距：段数多时缩小间距，避免超出画布
     const spacing = Math.min(180, Math.max(100, 700 / Math.max(totalSegments, 1)));
     
     segments.forEach((segment, index) => {
@@ -197,7 +202,6 @@ const chainToGraph = (chain: IndustryChain) => {
         targetPosition: Position.Left,
       });
       
-      // 添加边
       segment.downstreamTo.forEach((targetId) => {
         edges.push({
           id: `${segment.id}-${targetId}`,
@@ -230,8 +234,9 @@ const IndustryMapPage: React.FC = () => {
   const [selectedChain, setSelectedChain] = useState<IndustryChain | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<ChainSegment | null>(null);
   const [chains, setChains] = useState<IndustryChainSummary[]>(HOT_CHAINS);
-  const [loading, setLoading] = useState(true);
-  const [hotSectors, setHotSectors] = useState<any[]>([]); // 实时热门板块
+  const [initialLoading, setInitialLoading] = useState(true);    // 首次加载
+  const [chainLoading, setChainLoading] = useState(false);       // 切换链加载（不遮挡整体）
+  const [hotSectors, setHotSectors] = useState<any[]>([]);
   const [question, setQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
   const [asking, setAsking] = useState(false);
@@ -249,14 +254,13 @@ const IndustryMapPage: React.FC = () => {
     fetchChains();
   }, []);
 
-  // 获取实时板块景气度 → 动态热门产业链
+  // 获取实时板块景气度
   useEffect(() => {
     const fetchHotSectors = async () => {
       try {
         const resp = await fetch(`${API_BASE}/api/sectors/momentum`);
         const data = await resp.json();
         if (data.success) {
-          // 按score排序取Top5
           const sorted = (data.data || []).sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
           setHotSectors(sorted.slice(0, 5));
         }
@@ -265,19 +269,13 @@ const IndustryMapPage: React.FC = () => {
     fetchHotSectors();
   }, []);
   
-  // 获取产业链详情 - 根据 industry 参数自动选择
-  useEffect(() => {
-
-  // 根据 industry 参数匹配产业链 ID（支持完整名称 + 关键词模糊匹配）
-  const matchChainId = (industryName: string): string => {
+  // 根据 industry 参数匹配产业链 ID
+  const matchChainId = useCallback((industryName: string): string => {
     const name = industryName.toLowerCase();
-    // 1) 完整名称匹配
     const exact = chains.find(c => c.name === industryName);
     if (exact) return exact.id;
-    // 2) 双向包含匹配
     const fuzzy = chains.find(c => c.name.includes(industryName) || industryName.includes(c.name));
     if (fuzzy) return fuzzy.id;
-    // 3) 关键词兜底（兼容旧逻辑：行业简称 → 产业链）
     const keywords: Record<string, string> = {
       "电子": "semiconductor", "计算机": "ai-computing", "通信": "ai-computing",
       "半导体": "semiconductor", "芯片": "semiconductor",
@@ -290,31 +288,30 @@ const IndustryMapPage: React.FC = () => {
       if (name.includes(kw)) return id;
     }
     return "ai-computing";
-  };
-    const fetchChainDetail = async () => {
-      setLoading(true);
-      try {
-        // 如果有 industry 参数，尝试找到对应的产业链
-        let chainId = 'ai-computing'; // 默认
-        if (industryParam) {
-          chainId = matchChainId(industryParam);
-        }
-        
-        const response = await fetch(`${API_BASE}/api/industry-chains/${chainId}`);
-        const data = await response.json();
-        if (data.success) {
-          setSelectedChain(data.data.chain);
-        }
-      } catch (error) {
-        console.error('获取产业链详情失败:', error);
-        // 使用默认数据
-        setSelectedChain(AI_COMPUTING_CHAIN);
-      } finally {
-        setLoading(false);
+  }, [chains]);
+  
+  // 获取产业链详情
+  const fetchChainDetail = useCallback(async (chainId: string) => {
+    setChainLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/industry-chains/${chainId}`);
+      const data = await response.json();
+      if (data.success) {
+        setSelectedChain(data.data.chain);
       }
-    };
-    fetchChainDetail();
-  }, [industryParam, chains]);
+    } catch (error) {
+      console.error('获取产业链详情失败:', error);
+      setSelectedChain(AI_COMPUTING_CHAIN);
+    } finally {
+      setChainLoading(false);
+    }
+  }, []);
+  
+  // 初始加载 + industry 参数变化时拉取
+  useEffect(() => {
+    const chainId = industryParam ? matchChainId(industryParam) : 'ai-computing';
+    fetchChainDetail(chainId).finally(() => setInitialLoading(false));
+  }, [industryParam, chains]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // React Flow 状态
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
@@ -324,7 +321,6 @@ const IndustryMapPage: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   
-  // 更新图谱
   useEffect(() => {
     if (!selectedChain) return;
     const { nodes: newNodes, edges: newEdges } = chainToGraph(selectedChain as IndustryChain);
@@ -332,7 +328,6 @@ const IndustryMapPage: React.FC = () => {
     setEdges(newEdges);
   }, [selectedChain, setNodes, setEdges]);
   
-  // 节点点击
   const onNodeClick = useCallback((_: any, node: Node) => {
     const segment = node.data.segment as ChainSegment;
     setSelectedSegment(segment);
@@ -344,13 +339,15 @@ const IndustryMapPage: React.FC = () => {
     const allCompanies = selectedChain.layers.flatMap(l => l.segments?.flatMap(s => s.companies || []) || []);
     const totalCompanies = allCompanies.length;
     const leaders = allCompanies.filter(c => c.position === 'leader').length;
-    const avgChange = allCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / (totalCompanies || 1);
+    const avgChange = totalCompanies > 0
+      ? allCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / totalCompanies
+      : 0;
     const totalMarketCap = allCompanies.reduce((sum, c) => sum + (c.marketCap || 0), 0);
     
     return { totalCompanies, leaders, avgChange, totalMarketCap };
   }, [selectedChain]);
   
-  // AI 问答 — 增强版
+  // AI 问答
   const handleAsk = async (presetQuestion?: string) => {
     const q = presetQuestion || question;
     if (!q.trim() || !chain) return;
@@ -359,7 +356,6 @@ const IndustryMapPage: React.FC = () => {
     setAsking(true);
     setAiAnswer('');
     
-    // 构建完整的产业链实时上下文
     const allCompanies = chain.layers?.flatMap(l => 
       l.segments?.flatMap(s => s.companies || []) || []
     ) || [];
@@ -367,7 +363,7 @@ const IndustryMapPage: React.FC = () => {
     const leaders = allCompanies.filter(c => c.position === 'leader');
     const upCount = allCompanies.filter(c => (c.changePercent || 0) > 0).length;
     const downCount = allCompanies.filter(c => (c.changePercent || 0) < 0).length;
-    const avgChange = allCompanies.length > 0 
+    const avgChangeVal = allCompanies.length > 0 
       ? (allCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / allCompanies.length).toFixed(2)
       : '0';
     const totalMc = allCompanies.reduce((sum, c) => sum + (c.marketCap || 0), 0);
@@ -376,7 +372,7 @@ const IndustryMapPage: React.FC = () => {
 【实时市场数据】
 - 总计 ${allCompanies.length} 家公司，其中龙头 ${leaders.length} 家
 - 今日上涨 ${upCount} 家，下跌 ${downCount} 家
-- 平均涨跌幅: ${avgChange}%
+- 平均涨跌幅: ${avgChangeVal}%
 - 总市值: ${(totalMc / 10000).toFixed(0)}万亿元
 - 龙头公司: ${leaders.map(c => `${c.name}(${c.symbol}) 涨${c.changePercent}%`).join('、')}
 
@@ -408,11 +404,10 @@ ${marketContext}
           context: [
             { role: 'system', content: '你是澄观AI产业链研究助手，专注于A股产业链实时分析。请基于提供的实时市场数据回答，不要编造信息。回答风格：专业、数据驱动、简洁。' },
           ],
-          stream: true,  // SSE流式响应
+          stream: true,
         }),
       });
       
-      // 流式读取SSE响应
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -423,8 +418,6 @@ ${marketContext}
           if (done) break;
           
           buffer += decoder.decode(value, { stream: true });
-          
-          // 解析SSE data行
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
           
@@ -467,71 +460,76 @@ ${marketContext}
       size="small"
       style={{ marginBottom: 16, maxHeight: 400, overflow: 'auto' }}
     >
-      <List
-        size="small"
-        dataSource={companies}
-        renderItem={(company) => (
-          <List.Item
-            style={{ cursor: 'pointer', padding: '8px 0' }}
-            onClick={() => navigate(`/stocks/${company.symbol}.${company.symbol.startsWith('6') ? 'SH' : 'SZ'}`)}
-          >
-            <List.Item.Meta
-              title={
-                <Space>
-                  <Text strong>{company.name}</Text>
-                  <Text type="secondary">{company.symbol}</Text>
-                  <Tag color={POSITION_COLORS[company.position]}>
-                    {POSITION_NAMES[company.position]}
-                  </Tag>
-                </Space>
-              }
-              description={
-                <Space>
-                  {company.marketCap && (
-                    <Text type="secondary">市值: {company.marketCap}亿</Text>
-                  )}
-                  <Text
-                    style={{
-                      color: (company.changePercent || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {(company.changePercent || 0) >= 0 ? '+' : ''}
-                    {(company.changePercent || 0).toFixed(2)}%
-                  </Text>
-                </Space>
-              }
-            />
-            <Space>
-              <Button
-                type="text"
-                size="small"
-                icon={watchlistStore.has(company.symbol) ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleToggleWatchlist(company.symbol, company.name);
-                }}
-                title="加入自选"
+      {companies.length === 0 ? (
+        <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <List
+          size="small"
+          dataSource={companies}
+          renderItem={(company) => (
+            <List.Item
+              style={{ cursor: 'pointer', padding: '8px 0' }}
+              onClick={() => navigate(`/stocks/${company.symbol}.${company.symbol.startsWith('6') ? 'SH' : 'SZ'}`)}
+            >
+              <List.Item.Meta
+                title={
+                  <Space>
+                    <Text strong>{company.name}</Text>
+                    <Text type="secondary">{company.symbol}</Text>
+                    <Tag color={POSITION_COLORS[company.position]}>
+                      {POSITION_NAMES[company.position]}
+                    </Tag>
+                  </Space>
+                }
+                description={
+                  <Space>
+                    {company.marketCap && (
+                      <Text type="secondary">市值: {company.marketCap}亿</Text>
+                    )}
+                    <Text
+                      style={{
+                        color: (company.changePercent || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {(company.changePercent || 0) >= 0 ? '+' : ''}
+                      {(company.changePercent || 0).toFixed(2)}%
+                    </Text>
+                  </Space>
+                }
               />
-              <Button
-                type="text"
-                size="small"
-                icon={<FilterOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/screener?metric=hot_industry&search=${encodeURIComponent(company.symbol)}`);
-                }}
-                title="加入筛选"
-              />
-            </Space>
-          </List.Item>
-        )}
-      />
+              <Space>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={watchlistStore.has(company.symbol) ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleWatchlist(company.symbol, company.name);
+                  }}
+                  title="加入自选"
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FilterOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/screener?metric=hot_industry&search=${encodeURIComponent(company.symbol)}`);
+                  }}
+                  title="加入筛选"
+                />
+              </Space>
+            </List.Item>
+          )}
+        />
+      )}
     </Card>
   );
 };
   
-  if (loading || !selectedChain) {
+  // 首次全页加载
+  if (initialLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: 'var(--bg-base)' }}>
         <Spin size="large">
@@ -541,13 +539,16 @@ ${marketContext}
     );
   }
   
-  const chain = selectedChain as IndustryChain; // 类型断言，确保非 null
+  const chain = selectedChain as IndustryChain;
+  
+  // 响应式图表高度
+  const graphHeight = typeof window !== 'undefined' && window.innerWidth < 768 ? 380 : 600;
   
   return (
-    <div className="industry-map-page" style={{ padding: 24, background: 'var(--bg-base)', minHeight: '100vh' }}>
+    <div className="industry-map-page" style={{ padding: 'clamp(12px, 2vw, 24px)', background: 'var(--bg-base)', minHeight: '100vh' }}>
       {/* 页面标题 */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={2} style={{ color: 'var(--text-primary)', marginBottom: 8 }}>
+        <Title level={2} style={{ color: 'var(--text-primary)', marginBottom: 8, fontSize: 'clamp(18px, 4vw, 30px)' }}>
           <ApartmentOutlined style={{ marginRight: 8 }} />
           AI 产业地图
         </Title>
@@ -555,7 +556,7 @@ ${marketContext}
           快速了解产业链结构、投资逻辑，发现核心标的
         </Text>
         <div style={{ marginTop: 8 }}>
-          <Space>
+          <Space wrap>
             <Button size="small" icon={<FilterOutlined />} onClick={() => navigate('/screener')}>
               策略选股
             </Button>
@@ -569,7 +570,7 @@ ${marketContext}
         </div>
       </div>
       
-      {/* 热门产业链 — 实时板块景气度Top5 */}
+      {/* 热门产业链 */}
       <Card style={{ marginBottom: 24, background: 'var(--card-bg)' }}>
         <div style={{ marginBottom: 12 }}>
           <Text strong style={{ color: 'var(--text-primary)' }}>
@@ -593,26 +594,23 @@ ${marketContext}
               </span>
               <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>景气{sector.score}分</span>
             </Tag>
-          )) : chains.slice(0, 5).map((chain: any) => (
+          )) : chains.slice(0, 5).map((chainItem: any) => (
             <Tag
-              key={chain.id}
+              key={chainItem.id}
               color="blue"
               style={{ cursor: 'pointer', padding: '4px 12px', fontSize: 13 }}
-              onClick={() => {
-                setSelectedChain(null);
-                navigate(`/industry-map?industry=${encodeURIComponent(chain.name)}`);
-              }}
+              onClick={() => navigate(`/industry-map?industry=${encodeURIComponent(chainItem.name)}`)}
             >
-              {chain.name}
-              <Badge count={chain.hotLevel} style={{ marginLeft: 4, backgroundColor: '#ff4d4f' }} />
+              {chainItem.name}
+              <Badge count={chainItem.hotLevel} style={{ marginLeft: 4, backgroundColor: '#ff4d4f' }} />
             </Tag>
           ))}
         </Space>
       </Card>
       
       {/* 统计概览 */}
-      <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={6}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Col xs={12} sm={6}>
           <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">涉及公司</Text>}
@@ -622,7 +620,7 @@ ${marketContext}
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={6}>
           <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">龙头企业</Text>}
@@ -632,7 +630,7 @@ ${marketContext}
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={6}>
           <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">平均涨幅</Text>}
@@ -644,7 +642,7 @@ ${marketContext}
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={6}>
           <Card style={{ background: 'var(--card-bg)', textAlign: 'center' }}>
             <Statistic
               title={<Text type="secondary">总市值</Text>}
@@ -657,24 +655,30 @@ ${marketContext}
       </Row>
       
       {/* 主体内容 */}
-      <Row gutter={24}>
+      <Row gutter={[24, 24]}>
         {/* 左侧：产业链图谱 */}
-        <Col xs={24} md={16}>
+        <Col xs={24} lg={16}>
           <Card
             title={
               <Space>
                 <ApartmentOutlined />
                 产业链图谱
+                {chainLoading && <Spin size="small" style={{ marginLeft: 8 }} />}
                 <Tooltip title="点击节点查看详情，拖拽平移，滚轮缩放">
                   <InfoCircleOutlined style={{ color: 'var(--text-tertiary)' }} />
                 </Tooltip>
               </Space>
             }
             style={{ background: 'var(--card-bg)' }}
-            bodyStyle={{ padding: 0, height: 600 }}
+            bodyStyle={{ padding: 0, height: graphHeight }}
           >
-            {nodes.length > 0 ? (
+            {chainLoading ? (
+              <div style={{ padding: 24, height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <Skeleton active paragraph={{ rows: 4 }} />
+              </div>
+            ) : nodes.length > 0 ? (
               <ReactFlow
+                key={chain.id}
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
@@ -700,7 +704,6 @@ ${marketContext}
                   </div>
                 </div>
                 
-                {/* 摘要信息 */}
                 <Card size="small" style={{ background: 'var(--bg-elevated)', marginBottom: 16 }}>
                   <div style={{ marginBottom: 12 }}>
                     <Text strong style={{ color: 'var(--text-primary)' }}>产业描述</Text>
@@ -737,8 +740,7 @@ ${marketContext}
         </Col>
         
         {/* 右侧：详情面板 */}
-        <Col xs={24} md={8}>
-          {/* 环节详情 */}
+        <Col xs={24} lg={8}>
           {selectedSegment ? (
             <Card
               title={
@@ -763,7 +765,6 @@ ${marketContext}
                 {selectedSegment.description}
               </Paragraph>
               
-              {/* 环节特征 */}
               {selectedSegment.characteristics && (
                 <Card
                   type="inner"
@@ -810,7 +811,6 @@ ${marketContext}
                 </Card>
               )}
               
-              {/* 公司列表 */}
               {renderCompanyList(selectedSegment.companies, `${selectedSegment.name}公司`)}
             </Card>
           ) : (
@@ -903,7 +903,6 @@ ${marketContext}
               </Input.Group>
             </div>
             
-            {/* 快捷问题 */}
             <Space wrap style={{ marginBottom: 16 }}>
               <Tag
                 style={{ cursor: 'pointer' }}
@@ -925,7 +924,6 @@ ${marketContext}
               </Tag>
             </Space>
             
-            {/* AI 回答 */}
             {aiAnswer && (
               <Card
                 type="inner"
@@ -955,10 +953,10 @@ const Statistic: React.FC<{
 }> = ({ title, value, suffix, prefix, precision = 0, valueStyle }) => (
   <div>
     <div style={{ marginBottom: 4 }}>{title}</div>
-    <div style={{ fontSize: 24, fontWeight: 600, ...valueStyle }}>
+    <div style={{ fontSize: 'clamp(16px, 4vw, 24px)', fontWeight: 600, ...valueStyle }}>
       {prefix}
       {value.toFixed(precision)}
-      {suffix && <span style={{ fontSize: 14, marginLeft: 4 }}>{suffix}</span>}
+      {suffix && <span style={{ fontSize: 'clamp(12px, 2vw, 14px)', marginLeft: 4 }}>{suffix}</span>}
     </div>
   </div>
 );

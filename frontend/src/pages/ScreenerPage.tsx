@@ -10,7 +10,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
-import { Card, Button, Tag, Table, Empty, Typography, message, Space, Tooltip } from 'antd';
+import { Card, Button, Tag, Table, Empty, Skeleton, Typography, message, Space, Tooltip } from 'antd';
 import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
   ReloadOutlined, FilterOutlined,
@@ -231,7 +231,7 @@ const ScreenerPage: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(1);
   const [showExplanations, setShowExplanations] = useState(false);
-  const pageSize = 50;
+  const pageSize = 100;
 
   const [aiFilterQuery, setAiFilterQuery] = useState('');
   const [aiFilterLoading, setAiFilterLoading] = useState(false);
@@ -471,7 +471,7 @@ const ScreenerPage: React.FC = () => {
     fetchTechBatch(symbols);
   }, [paged, fetchTechBatch]);
 
-  const columns = [
+  const columns = useMemo(() => [
     { title: '代码', dataIndex: 'symbol', width: 95,
       render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: ACCENT }}>{v.replace(/\.(SH|SZ)$/, '')}</span>
     },
@@ -563,7 +563,7 @@ const ScreenerPage: React.FC = () => {
         </Space>
       ),
     },
-  ];
+  ], [techData, watchlistStore, navigate, toggleWatchlist]);
 
   return (
     <div className="screener-page" style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
@@ -758,17 +758,26 @@ const ScreenerPage: React.FC = () => {
 
         {/* 股票列表 */}
         <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}` }} bodyStyle={{ padding: 0 }}>
-          <Table
-            dataSource={paged} columns={columns} loading={loading}
-            rowKey="symbol" size="small"
-            pagination={{
-              current: page, pageSize, total: filtered.length,
-              onChange: setPage, showSizeChanger: false,
-              showTotal: (total) => `共 ${total} 只`,
-            }}
-            locale={{ emptyText: <Empty description="暂无符合条件的股票" /> }}
-            style={{ background: 'transparent' }}
-          />
+          {loading && stocks.length === 0 ? (
+            <div style={{ padding: 16 }}>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <Skeleton key={i} active paragraph={{ rows: 1 }} style={{ marginBottom: 8 }} />
+              ))}
+            </div>
+          ) : (
+            <Table
+              dataSource={paged} columns={columns} loading={loading}
+              rowKey="symbol" size="small"
+              virtual
+              pagination={{
+                current: page, pageSize, total: filtered.length,
+                onChange: setPage, showSizeChanger: false,
+                showTotal: (total) => `共 ${total} 只`,
+              }}
+              locale={{ emptyText: <Empty description="暂无符合条件的股票" /> }}
+              style={{ background: 'transparent' }}
+            />
+          )}
         </Card>
       </div>
     </div>

@@ -68,7 +68,15 @@ const StockDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [klineLoading, setKlineLoading] = useState(true);
   const [klinePeriod, setKlinePeriod] = useState<string>('daily');
-  const [subIndicator, setSubIndicator] = useState<'volume'|'macd'|'rsi'>('volume');
+  const [subIndicator, setSubIndicator] = useState<'volume'|'macd'|'kdj'|'rsi'>('volume');
+  const [indicatorParams, setIndicatorParams] = useState({
+    maPeriod: 14,
+    macdFast: 12,
+    macdSlow: 26,
+    macdSignal: 9,
+    kdjPeriod: 9,
+    rsiPeriod: 14,
+  });
   const [aiStrategy, setAiStrategy] = useState<any>(null);
   const [aiDiagnosis, setAiDiagnosis] = useState<any>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
@@ -334,14 +342,59 @@ const StockDetailPage: React.FC = () => {
           {klineData.length > 0 ? (
             <>
               <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'flex-end' }}>
-                {(['volume','macd','rsi'] as const).map(ind => (
+                {(['volume','macd','kdj','rsi'] as const).map(ind => (
                   <Button key={ind} size="small" type={subIndicator === ind ? 'primary' : 'default'}
                     onClick={() => setSubIndicator(ind)}
-                    style={{ fontSize: 11, padding: '0 8px' }}>
+                    style={{
+                      fontSize: 11,
+                      padding: '0 8px',
+                      ...(subIndicator === ind && {
+                        background: ind === 'volume' ? '#3b82f6' : ind === 'macd' ? '#f59e0b' : ind === 'kdj' ? '#8b5cf6' : '#ec4899',
+                        borderColor: ind === 'volume' ? '#3b82f6' : ind === 'macd' ? '#f59e0b' : ind === 'kdj' ? '#8b5cf6' : '#ec4899',
+                      }),
+                    }}>
                     {ind === 'volume' ? '成交量' : ind.toUpperCase()}
                   </Button>
                 ))}
               </div>
+              {subIndicator !== 'volume' && (
+                <div style={{ display: 'flex', gap: 12, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ color: TEXT_SECONDARY, fontSize: 11 }}>参数:</span>
+                  {subIndicator === 'macd' && (
+                    <>
+                      <label style={{ color: TEXT_SECONDARY, fontSize: 11 }}>
+                        快线 <input type="number" value={indicatorParams.macdFast}
+                          onChange={e => setIndicatorParams(p => ({...p, macdFast: +e.target.value}))}
+                          style={{ width: 40, background: 'transparent', border: `1px solid ${BORDER}`, color: TEXT_PRIMARY, borderRadius: 4, padding: '2px 4px', fontSize: 11 }} />
+                      </label>
+                      <label style={{ color: TEXT_SECONDARY, fontSize: 11 }}>
+                        慢线 <input type="number" value={indicatorParams.macdSlow}
+                          onChange={e => setIndicatorParams(p => ({...p, macdSlow: +e.target.value}))}
+                          style={{ width: 40, background: 'transparent', border: `1px solid ${BORDER}`, color: TEXT_PRIMARY, borderRadius: 4, padding: '2px 4px', fontSize: 11 }} />
+                      </label>
+                      <label style={{ color: TEXT_SECONDARY, fontSize: 11 }}>
+                        信号 <input type="number" value={indicatorParams.macdSignal}
+                          onChange={e => setIndicatorParams(p => ({...p, macdSignal: +e.target.value}))}
+                          style={{ width: 40, background: 'transparent', border: `1px solid ${BORDER}`, color: TEXT_PRIMARY, borderRadius: 4, padding: '2px 4px', fontSize: 11 }} />
+                      </label>
+                    </>
+                  )}
+                  {subIndicator === 'kdj' && (
+                    <label style={{ color: TEXT_SECONDARY, fontSize: 11 }}>
+                      周期 <input type="number" value={indicatorParams.kdjPeriod}
+                        onChange={e => setIndicatorParams(p => ({...p, kdjPeriod: +e.target.value}))}
+                        style={{ width: 40, background: 'transparent', border: `1px solid ${BORDER}`, color: TEXT_PRIMARY, borderRadius: 4, padding: '2px 4px', fontSize: 11 }} />
+                    </label>
+                  )}
+                  {subIndicator === 'rsi' && (
+                    <label style={{ color: TEXT_SECONDARY, fontSize: 11 }}>
+                      周期 <input type="number" value={indicatorParams.rsiPeriod}
+                        onChange={e => setIndicatorParams(p => ({...p, rsiPeriod: +e.target.value}))}
+                        style={{ width: 40, background: 'transparent', border: `1px solid ${BORDER}`, color: TEXT_PRIMARY, borderRadius: 4, padding: '2px 4px', fontSize: 11 }} />
+                    </label>
+                  )}
+                </div>
+              )}
               <div className="kline-chart-responsive">
                 <KLineChart
                   data={klineData}

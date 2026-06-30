@@ -157,14 +157,30 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
 
     const totalScore = momentumScore + volumeScore + valuationScore + sizeScore + industryScore + Math.max(0, qualityScore);
 
-    // 上榜理由 (基于六因子分项的规则化解释，供雷达页展示"为什么有潜力"，不耗LLM/不依赖key)
+    // 上榜理由 (个性化: 基于六因子分项 + 实际数据，供雷达页展示"为什么有潜力")
     const reasons: string[] = [];
-    if (momentumScore >= 15) reasons.push('涨势适中不追高');
-    if (volumeScore >= 15) reasons.push('成交活跃换手健康');
-    if (valuationScore >= 12) reasons.push('估值合理');
-    if (sizeScore >= 12) reasons.push('中盘成长空间');
-    if (industryScore >= 11) reasons.push('所属板块景气');
-    if (Math.max(0, qualityScore) >= 13) reasons.push('质量无瑕疵');
+    if (momentumScore >= 19) reasons.push(`涨势强劲 +${changePercent.toFixed(1)}%`);
+    else if (momentumScore >= 15) reasons.push(`涨势适中 +${changePercent.toFixed(1)}%`);
+    else if (momentumScore >= 12) reasons.push(`动量尚可 +${changePercent.toFixed(1)}%`);
+    
+    if (volumeScore >= 19) reasons.push(`成交活跃 换手${turnoverRate.toFixed(1)}%`);
+    else if (volumeScore >= 15) reasons.push(`换手健康 ${turnoverRate.toFixed(1)}%`);
+    else if (volumeScore >= 10) reasons.push(`成交温和 ${turnoverRate.toFixed(1)}%`);
+    
+    if (valuationScore >= 14) reasons.push(peRatio ? `估值合理 PE${peRatio.toFixed(0)}` : '估值合理');
+    else if (valuationScore >= 12) reasons.push(peRatio ? `估值偏低 PE${peRatio.toFixed(0)}` : '估值偏低');
+    else if (valuationScore >= 10) reasons.push(peRatio ? `估值稍高 PE${peRatio.toFixed(0)}` : '估值适中');
+    
+    if (sizeScore >= 14) reasons.push(`中盘成长 ${capYi.toFixed(0)}亿`);
+    else if (sizeScore >= 10) reasons.push(`大盘蓝筹 ${capYi.toFixed(0)}亿`);
+    else if (sizeScore >= 8) reasons.push(`小盘弹性 ${capYi.toFixed(0)}亿`);
+    
+    if (industryScore >= 13) reasons.push(`行业景气 ${industry}`);
+    else if (industryScore >= 11) reasons.push(`板块偏热 ${industry}`);
+    else if (industryScore >= 9) reasons.push(`板块中性 ${industry}`);
+    
+    if (Math.max(0, qualityScore) >= 14) reasons.push('质量优良无瑕疵');
+    else if (Math.max(0, qualityScore) >= 12) reasons.push('基本面稳健');
 
     if (totalScore >= minScore) {
       gems.push({
@@ -191,12 +207,40 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
   gems.sort((a, b) => b.score - a.score);
   const topGems = gems.slice(0, Math.min(topN, 50));
 
+  // AI 整体解读摘要 (数据驱动，无需LLM调用)
+  const avgAllScore = gems.length > 0 ? (gems.reduce((sum, g) => sum + g.score, 0) / gems.length).toFixed(1) : '0';
+  const topIndustries = [...new Set(topGems.map(g => g.industry).filter(Boolean))].slice(0, 5);
+  const highMomentum = topGems.filter(g => g.momentumScore >= 15).length;
+  const highVolume = topGems.filter(g => g.volumeScore >= 15).length;
+  const smallCapCount = topGems.filter(g => g.sizeScore >= 12).length;
+  
+  const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+  const aiSummary = [
+    `📊 **${today} 潜力股雷达扫描报告**`,
+    ``,
+    `本次扫描覆盖全市场活跃个股，共筛选出 **${gems.length}** 只潜力标的（评分≥${minScore}），`,
+    `展示 Top${Math.min(topN, 50)} 平均综合得分 **${avgAllScore}** 分。`,
+    ``,
+    `**🔥 市场特征：**`,
+    `• 动量强势股占比 ${(highMomentum / Math.max(topGems.length, 1) * 100).toFixed(0)}%（${highMomentum}/${topGems.length}），涨势适中，非追高标的`,
+    `• 成交活跃标的 ${highVolume} 只，换手率健康，流动性充足`,
+    `• 中盘成长型标的 ${smallCapCount} 只，兼具成长空间与规模安全边际`,
+    ``,
+    `**🏭 热点行业：** ${topIndustries.join('、') || '分散'} 等板块景气度较高`,
+    ``,
+    `**💡 策略建议：** 优先关注综合得分≥80且动量/成交双高的标的，`,
+    `结合行业景气度轮动布局，控制单票仓位≤15%，避免集中度风险。`,
+    `**⚠️ 风险提示：** 以上为量化模型筛选结果，不构成投资建议，`,
+    `请结合基本面研究与个人风险偏好审慎决策。`,
+  ].join('\n');
+
   res.json({
     success: true,
     data: {
       gems: topGems,
       total: gems.length,
       model: 'v2.0',
+      aiSummary,
       factors: {
         momentum: '涨幅动量(0-20): 3-8%最佳',
         volume: '成交活跃(0-20): 换手3-15%最佳',

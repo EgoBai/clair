@@ -38,6 +38,7 @@ const segmentFilters: SegmentFilter[] = [
   { chainId: 'semiconductor', segmentId: 'semiconductor-material', segmentName: '半导体材料', industries: ['电子', '基础化工'], nameKeywords: ['硅', '光刻胶', '电子化学', '靶材', '抛光', '沪硅', '立昂', '雅克', '南大', '安集', '江丰'], excludeKeywords: ['太阳能', '光伏'], marketCapMin: 30, leaderCount: 3 },
   { chainId: 'semiconductor', segmentId: 'wafer-fabrication', segmentName: '晶圆制造', industries: ['电子'], nameKeywords: ['中芯', '华虹', '晶圆', '晶合', '制造'], marketCapMin: 50, leaderCount: 3 },
   { chainId: 'semiconductor', segmentId: 'packaging-testing', segmentName: '封装测试', industries: ['电子'], nameKeywords: ['封装', '封测', '测试', '长电', '通富', '华天', '晶方'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'semiconductor', segmentId: 'chip-application', segmentName: '芯片应用', industries: ['电子', '计算机', '通信'], nameKeywords: ['芯片', '集成电路', '半导体', 'IC'], marketCapMin: 50, leaderCount: 3 },
 
   // ==================== 新能源汽车产业链 ====================
   { chainId: 'new-energy-vehicle', segmentId: 'lithium-mining', segmentName: '锂矿/钴镍', industries: ['有色金属'], nameKeywords: ['锂', '钴', '镍', '矿', '盐湖'], marketCapMin: 30, leaderCount: 3 },

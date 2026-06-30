@@ -426,10 +426,10 @@ export const AI_COMPUTING_CHAIN: IndustryChain = {
             keyDrivers: ['AI算力需求', '云计算增长', '政策支持'],
           },
           upstreamTo: ['switch', 'server'],
-          downstreamTo: ['ai-application'],
+          downstreamTo: ['ai-app'],
         },
         {
-          id: 'ai-application',
+          id: 'ai-app',
           name: 'AI应用',
           description: 'AI技术落地，创造商业价值',
           layerId: 'downstream',

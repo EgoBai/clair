@@ -70,6 +70,7 @@ const conceptMappings: ConceptMapping[] = [
   { conceptId: 'wafer-fabrication', conceptName: '晶圆制造', symbols: ['688981','688347','688728','688396','688432'], leaders: ['688981','688347'] },
   
   { conceptId: 'packaging-testing', conceptName: '封装测试', symbols: ['600584','002156','002185','603005','688052','688362','688525'], leaders: ['600584','002156','002185'] },
+  { conceptId: 'chip-application', conceptName: '芯片应用', symbols: ['002230','300496','603501','300661','688256','688088','300458','300474','603986'], leaders: ['002230','300496','603501'] },
 
   // ==================== 新能源汽车产业链 ====================
   { conceptId: 'lithium-mining', conceptName: '锂矿/钴镍', symbols: ['002460','002466','603799','300618','002192','000762','000408','300390'], leaders: ['002460','002466','603799'] },
