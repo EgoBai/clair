@@ -375,7 +375,7 @@ const ScreenerPage: React.FC = () => {
     try {
       const resp = await apiFetch('/api/ai/gems', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topN: 20, minScore: 50 }),
+        body: JSON.stringify({ topN: 50, minScore: 40 }),
       });
       const data = await resp.json();
       if (data?.success && data.data?.gems) setAiGems(data.data.gems);

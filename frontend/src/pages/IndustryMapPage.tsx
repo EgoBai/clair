@@ -267,27 +267,37 @@ const IndustryMapPage: React.FC = () => {
   
   // 获取产业链详情 - 根据 industry 参数自动选择
   useEffect(() => {
+
+  // 根据 industry 参数匹配产业链 ID（支持完整名称 + 关键词模糊匹配）
+  const matchChainId = (industryName: string): string => {
+    const name = industryName.toLowerCase();
+    // 1) 完整名称匹配
+    const exact = chains.find(c => c.name === industryName);
+    if (exact) return exact.id;
+    // 2) 双向包含匹配
+    const fuzzy = chains.find(c => c.name.includes(industryName) || industryName.includes(c.name));
+    if (fuzzy) return fuzzy.id;
+    // 3) 关键词兜底（兼容旧逻辑：行业简称 → 产业链）
+    const keywords: Record<string, string> = {
+      "电子": "semiconductor", "计算机": "ai-computing", "通信": "ai-computing",
+      "半导体": "semiconductor", "芯片": "semiconductor",
+      "电力设备": "photovoltaic", "光伏": "photovoltaic",
+      "新能源": "new-energy-vehicle", "汽车": "new-energy-vehicle",
+      "机器人": "ai-robot", "自动化": "ai-robot",
+      "ai算力": "ai-computing", "新能源汽车": "new-energy-vehicle",
+    };
+    for (const [kw, id] of Object.entries(keywords)) {
+      if (name.includes(kw)) return id;
+    }
+    return "ai-computing";
+  };
     const fetchChainDetail = async () => {
       setLoading(true);
       try {
         // 如果有 industry 参数，尝试找到对应的产业链
         let chainId = 'ai-computing'; // 默认
         if (industryParam) {
-          // 根据行业名称映射到产业链 ID
-          const industryChainMap: Record<string, string> = {
-            '电子': 'semiconductor',
-            '计算机': 'ai-computing',
-            '通信': 'ai-computing',
-            '半导体': 'semiconductor',
-            '芯片': 'semiconductor',
-            '电力设备': 'photovoltaic',
-            '光伏': 'photovoltaic',
-            '新能源': 'new-energy-vehicle',
-            '汽车': 'new-energy-vehicle',
-            '机器人': 'ai-robot',
-            '自动化': 'ai-robot',
-          };
-          chainId = industryChainMap[industryParam] || 'ai-computing';
+          chainId = matchChainId(industryParam);
         }
         
         const response = await fetch(`${API_BASE}/api/industry-chains/${chainId}`);
@@ -304,7 +314,7 @@ const IndustryMapPage: React.FC = () => {
       }
     };
     fetchChainDetail();
-  }, [industryParam]);
+  }, [industryParam, chains]);
   
   // React Flow 状态
   const { nodes: initialNodes, edges: initialEdges } = useMemo(

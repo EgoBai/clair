@@ -1,22 +1,23 @@
 # 澄观 Clair — 开发协作看板
 
 > MiMoCode + Hermes Agent 并行开发协调
-> 最后更新: 2026-06-14
+> 最后更新: 2026-06-29
 
 ## 协作规则
 
 1. **文件锁机制** — 正在修改的文件记录在此，避免冲突
-2. **分工明确** — MiMoCode 负责 UI/UX/多端适配，Hermes 负责后端/API/数据
+2. **分工明确** — MiMoCode 负责 UI/UX/前端交互/图表/多端适配，Hermes 负责后端/API/数据/AI功能
 3. **文档互通** — 每完成一个模块，在此更新状态
 4. **冲突预防** — 修改前先查看对方是否在改同一文件
+5. **前端为主导** — 前端界面和交互设计由 MiMoCode 主导，Hermes 配合提供后端支持
 
-## 当前分工（2026-06-29）
+## 当前分工（2026-06-29 更新）
 
 | 角色 | 负责领域 | 当前任务 |
 |------|----------|----------|
-| **MiMoCode** | 任务编排、质量验收、前端UI/UX | Phase 14 质量闭环：四页端到端QA + AI功能打磨 |
-| **Hermes Agent** | 后端 API、数据层、AI 功能、业务逻辑 | 后端测试修复完成(metrics/architecture/industries)；待推进Phase 14 后端部分 |
-| **Builder Worker** | 具体代码实现 | Lint修复完成(198 warnings)；待分派下一任务 |
+| **MiMoCode** | 前端UI/UX/图表/交互/多端适配/任务编排 | **前端界面优化主导**: K线图修复✅ + RadarPage✅ + 图表暗色主题统一✅ |
+| **Hermes Agent** | 后端API/数据层/AI功能/业务逻辑 | 配合前端优化提供后端支持；待推进Phase 14后端部分 |
+| **Builder Worker** | 具体代码实现 | 前端bug修复+Lint修复完成；待分派下一任务 |
 
 ## 文件锁
 
@@ -66,17 +67,40 @@
 - [x] LLM市场解读增强 ✅ (后端 /ai/market-insight-llm 端点 + 前端fallback)
 - [x] WatchlistPage AI总结 ✅
 - [x] ReviewPage AI复盘 ✅
+- [x] **K线图period参数修复** ✅ (StockDetailPage.tsx: fetch URL添加?period=)
+- [x] **K线图/LinkedCharts暗色主题修复** ✅ (tooltip背景/文字/边框改为暗色)
+- [x] **导出图片暗色背景** ✅ (KLineChart export backgroundColor→#0f172a)
+- [x] **潜力股雷达页完成** ✅ (RadarPage.tsx: 六因子雷达图+Top50表格+理由标签+AI解读)
+- [x] **雷达页路由+导航** ✅ (main.tsx + NavigationMenu.tsx)
 
-### 🔄 Phase 14 待做
-- [ ] DiscoverPage: 市场数据/板块/产业地图/搜索端到端QA
-- [ ] ScreenerPage: 筛选/策略/搜索/添加自选端到端QA
-- [ ] WatchlistPage: 数据加载/信号/分组/AI总结端到端QA
-- [ ] ReviewPage: 复盘数据/技术指标/AI分析端到端QA
-- [ ] AI功能打磨: market-insight引用真实数据、FloatingChat上下文注入
-- [ ] Worker本地验证(wrangler dev) + 生产部署端到端测试
+### 🔄 前端界面优化计划（MiMoCode主导，Hermes配合）
+
+#### P0 — 已完成（本轮）
+- [x] K线图修复: period参数传递 + 暗色tooltip + 导出暗色背景
+- [x] RadarPage: 六因子雷达图 + Top50评分榜 + 上榜理由标签
+- [x] 图表暗色主题统一: KLineChart + LinkedCharts
+
+#### P1 — 前端交互优化（下一阶段）
+- [ ] K线图技术指标面板: MACD/KDJ/RSI副图切换优化
+- [ ] K线图响应式: 移动端K线图高度自适应 + 触摸缩放
+- [ ] ScreenerPage: 筛选结果表格性能优化（虚拟列表）
+- [ ] DiscoverPage: 板块热力图交互增强（点击下钻到二级行业）
+- [ ] WatchlistPage: 自选股拖拽排序 + 分组管理
+
+#### P2 — 前端视觉优化
+- [ ] 全局图表配色统一: 建立 chart-theme.ts 统一管理
+- [ ] 页面过渡动画: 路由切换fade/slide动画
+- [ ] 数据加载骨架屏: 替换纯spinner为骨架屏
+- [ ] 空状态统一: 使用StateComponents.tsx统一组件
+
+#### P3 — 多端体验提升
+- [ ] 移动端K线图: 横屏全屏模式
+- [ ] 移动端雷达图: 单列布局 + 滑动切换股票
+- [ ] PWA增强: 离线缓存策略 + 添加到主屏幕
 
 ### 📋 Phase 15 待启动
-- [ ] 潜力股雷达页前端（后端API已就绪，契约见文末交接）
+- [ ] 潜力股雷达页前端 ✅ 已完成（见上方）
+- [ ] 行业分类二级下钻: DiscoverPage + ScreenerPage 集成L2 API
 
 ## 修改日志 (Hermes Agent)
 
@@ -139,8 +163,12 @@
 ### 文件锁预登记
 | 文件 | 归属 | 状态 |
 |------|------|------|
-| `frontend/src/pages/RadarPage.tsx`（或自定名）| MiMoCode | 待建 |
-| `frontend/src/main.tsx`（加雷达页路由）| MiMoCode | 待改(注意:真入口是main.tsx非App.tsx) |
+| `frontend/src/pages/RadarPage.tsx` | MiMoCode | ✅ 已完成 |
+| `frontend/src/main.tsx`（雷达页路由）| MiMoCode | ✅ 已完成 |
+| `frontend/src/components/Layout/NavigationMenu.tsx` | MiMoCode | ✅ 已完成（+潜力雷达导航项）|
+| `frontend/src/pages/StockDetailPage.tsx` | MiMoCode | ✅ 已完成（K线period修复）|
+| `frontend/src/components/Charts/KLineChart.tsx` | MiMoCode | ✅ 已完成（暗色tooltip+导出）|
+| `frontend/src/components/Charts/LinkedCharts.tsx` | MiMoCode | ✅ 已完成（暗色tooltip）|
 | `backend/src/api/ai-gems.ts` | Hermes | ✅ 已完成(reasons)，勿动 |
 | `clair-worker/worker.js`+`_worker.js` | Hermes | ✅ 已完成(reasons)，勿动 |
 

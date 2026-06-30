@@ -60,7 +60,7 @@ const KLineChart = React.memo<KLineChartProps>(({
   const _exportImage = useCallback(() => {
     const instance = chartRef.current?.getEchartsInstance();
     if (instance) {
-      const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' });
+      const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0f172a' });
       const link = document.createElement('a');
       link.download = `${title || 'kline'}-${dayjs().format('YYYYMMDD')}.png`;
       link.href = url;
@@ -309,11 +309,11 @@ const KLineChart = React.memo<KLineChartProps>(({
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross', crossStyle: { color: '#999' } },
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        borderColor: '#e5e7eb',
+        backgroundColor: 'rgba(30,41,59,0.96)',
+        borderColor: 'rgba(148,163,184,0.2)',
         borderWidth: 1,
         padding: [8, 12],
-        textStyle: { fontSize: 12, color: '#1f2937' },
+        textStyle: { fontSize: 12, color: '#f8fafc' },
         formatter: (params: { seriesType: string; dataIndex: number; seriesName: string; value: number[]; color: string }[]) => {
           const kline = params.find((p) => p.seriesType === 'candlestick');
           if (!kline) return '';
@@ -345,18 +345,18 @@ const KLineChart = React.memo<KLineChartProps>(({
                 <div>低 <span style="color:#22c55e;font-weight:500">${d.low.toFixed(2)}</span></div>
                 <div>收 <span style="color:${color};font-weight:500">${d.close.toFixed(2)}</span></div>
               </div>
-              <div style="margin-top:4px;font-size:11px;color:#6b7280">
+              <div style="margin-top:4px;font-size:11px;color:#94a3b8">
                 额: ${formatTurnover(d.turnover)}
               </div>
               <div style="margin-top:2px;font-size:11px">
-                <span style="color:#6b7280">量: ${formatVolume(d.volume)}</span>
-                <span style="margin-left:8px;font-family:monospace;color:#9ca3af">${volBar}</span>
+                <span style="color:#94a3b8">量: ${formatVolume(d.volume)}</span>
+                <span style="margin-left:8px;font-family:monospace;color:#64748b">${volBar}</span>
               </div>
           `;
 
           // 附带MA值 - TradingView风格, 每个MA用对应颜色显示
           if (showMA && maSeries.length > 0) {
-            html += '<div style="display:flex;gap:10px;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid #f3f4f6">';
+            html += '<div style="display:flex;gap:10px;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(148,163,184,0.2)">';
             const maColors = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
             for (let si = 0; si < maSeries.length; si++) {
               const s = maSeries[si];

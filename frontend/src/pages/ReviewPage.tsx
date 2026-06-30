@@ -337,24 +337,22 @@ const ReviewPage: React.FC = () => {
   const handleAiAnalysis = async () => {
     setAiAnalysisLoading(true);
     try {
-      const resp = await fetch('/api/ai/trade-analysis', {
+      // 构建自选股复盘摘要数据 (对齐 watchlist-summary 端点)
+      const symbols = stocks.map(s => s.symbol);
+      const quotes = stocks.map(s => ({
+        symbol: s.symbol,
+        name: s.name,
+        price: s.price,
+        changePercent: s.rangeChangePct ?? s.changePct ?? 0,
+        turnoverRate: 0, // ReviewPage不展示换手率
+      }));
+      const resp = await fetch('/api/ai/watchlist-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stocks: stocks.slice(0, 20),
-          stats: {
-            totalStocks: stats.totalStocks,
-            avgChangePct: stats.avgChangePct,
-            upCount: stats.upCount,
-            downCount: stats.downCount,
-            bestPerformer: stats.bestPerformer,
-            worstPerformer: stats.worstPerformer,
-          },
-          analysisType: 'watchlist_review',
-        }),
+        body: JSON.stringify({ symbols, quotes }),
       });
       const data = await resp.json();
-      if (data.analysis) setAiAnalysis(data.analysis);
+      if (data.summary) setAiAnalysis(data.summary);
     } catch {
       // silent fail
     } finally {

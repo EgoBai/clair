@@ -1,9 +1,20 @@
 /**
- * 多信号融合面板
- * 显示股票的多维度信号分析结果 + AI叙事报告
+ * 多信号融合面板 — Ant Design 卡片布局
+ * 将每个信号封装为圆角卡片，清晰展示方向/置信度/时间周期
  */
 
 import { useState, useEffect } from 'react';
+import { Card, Row, Col, Tag, Progress, Spin, Typography, Empty, Collapse } from 'antd';
+import {
+  RiseOutlined,
+  FallOutlined,
+  MinusOutlined,
+  ClockCircleOutlined,
+  ThunderboltOutlined,
+  DashboardOutlined,
+} from '@ant-design/icons';
+
+const { Text, Title } = Typography;
 
 interface Signal {
   name: string;
@@ -33,41 +44,34 @@ interface MultiSignalPanelProps {
   symbol: string;
 }
 
-const DIRECTION_COLORS = {
-  bullish: 'text-green-500 bg-green-500/10',
-  bearish: 'text-red-500 bg-red-500/10',
-  neutral: 'text-yellow-500 bg-yellow-500/10',
-};
+const DIRECTION_CONFIG = {
+  bullish: { color: '#22c55e', bg: 'rgba(34,197,94,0.08)', icon: <RiseOutlined />, label: '看多' },
+  bearish: { color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: <FallOutlined />, label: '看空' },
+  neutral: { color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: <MinusOutlined />, label: '中性' },
+} as const;
 
-const DIRECTION_LABELS = {
-  bullish: '看多',
-  bearish: '看空',
-  neutral: '中性',
-};
-
-const TIMEFRAME_LABELS = {
-  short: '短期',
-  medium: '中期',
-  long: '长期',
-};
+const TIMEFRAME_CONFIG = {
+  short: { color: 'blue', label: '短期' },
+  medium: { color: 'purple', label: '中期' },
+  long: { color: 'cyan', label: '长期' },
+} as const;
 
 export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
   const [data, setData] = useState<MultiSignalData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showNarrative, setShowNarrative] = useState(true);
 
   useEffect(() => {
     if (!symbol) return;
-    
+
     const fetchSignals = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
         const res = await fetch(`/api/ai/multi-signal/${symbol}`);
         if (!res.ok) throw new Error('Failed to fetch signals');
-        
+
         const result = await res.json();
         if (result.success) {
           setData(result.data);
@@ -80,139 +84,209 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
         setLoading(false);
       }
     };
-    
+
     fetchSignals();
   }, [symbol]);
 
   if (loading) {
     return (
-      <div className="bg-gray-900 rounded-lg p-6 animate-pulse">
-        <div className="h-6 bg-gray-800 rounded w-1/3 mb-4"></div>
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-12 bg-gray-800 rounded"></div>
-          ))}
-        </div>
-      </div>
+      <Card style={{ marginBottom: 12, borderRadius: 8 }}>
+        <Spin tip="加载多信号数据...">
+          <div style={{ height: 120 }} />
+        </Spin>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-gray-900 rounded-lg p-6">
-        <div className="text-red-400">加载失败: {error}</div>
-      </div>
+      <Card style={{ marginBottom: 12, borderRadius: 8 }}>
+        <Text type="danger">信号加载失败: {error}</Text>
+      </Card>
     );
   }
 
   if (!data) return null;
 
   const { signals, summary, narrative } = data;
+  const totalSignals = summary.bullish + summary.bearish + summary.neutral;
+  const bullishPct = totalSignals > 0 ? (summary.bullish / totalSignals) * 100 : 0;
+  const bearishPct = totalSignals > 0 ? (summary.bearish / totalSignals) * 100 : 0;
+
+  const overallCfg = DIRECTION_CONFIG[summary.overall];
 
   return (
-    <div className="bg-gray-900 rounded-lg overflow-hidden">
-      {/* 头部: 整体方向 */}
-      <div className="p-4 border-b border-gray-800">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">多信号分析</h3>
-          <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-            summary.overall === 'bullish' ? 'bg-green-500/20 text-green-400' :
-            summary.overall === 'bearish' ? 'bg-red-500/20 text-red-400' :
-            'bg-yellow-500/20 text-yellow-400'
-          }`}>
-            {DIRECTION_LABELS[summary.overall]} · 置信度 {(summary.confidence * 100).toFixed(0)}%
+    <Card
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <DashboardOutlined style={{ color: overallCfg.color }} />
+            <span style={{ fontWeight: 700, fontSize: 14 }}>多信号融合分析</span>
           </div>
+          <Tag
+            color={summary.overall === 'bullish' ? 'green' : summary.overall === 'bearish' ? 'red' : 'gold'}
+            style={{ fontSize: 13, fontWeight: 600, padding: '2px 12px', borderRadius: 20 }}
+          >
+            {overallCfg.icon} {overallCfg.label} · 置信度 {(summary.confidence * 100).toFixed(0)}%
+          </Tag>
         </div>
-        
-        {/* 信号统计条 */}
-        <div className="mt-3 flex gap-2">
-          <div className="flex-1 bg-gray-800 rounded-full h-2 overflow-hidden">
-            <div 
-              className="h-full bg-green-500 transition-all duration-500"
-              style={{ width: `${(summary.bullish / (summary.bullish + summary.bearish + summary.neutral)) * 100}%` }}
-            />
+      }
+      size="small"
+      style={{ marginBottom: 12, borderRadius: 8 }}
+      styles={{ body: { padding: '12px 16px' } }}
+    >
+      {/* 信号分布统计条 */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <span style={{ fontSize: 12 }}>
+              <RiseOutlined style={{ color: '#22c55e', marginRight: 4 }} />
+              <Text style={{ color: '#22c55e', fontWeight: 600 }}>{summary.bullish} 看多</Text>
+            </span>
+            <span style={{ fontSize: 12 }}>
+              <FallOutlined style={{ color: '#ef4444', marginRight: 4 }} />
+              <Text style={{ color: '#ef4444', fontWeight: 600 }}>{summary.bearish} 看空</Text>
+            </span>
+            <span style={{ fontSize: 12 }}>
+              <MinusOutlined style={{ color: '#f59e0b', marginRight: 4 }} />
+              <Text style={{ color: '#f59e0b', fontWeight: 600 }}>{summary.neutral} 中性</Text>
+            </span>
           </div>
-          <span className="text-xs text-gray-400">
-            {signals.filter(s => s.direction === 'bullish').length} 看多 · {signals.filter(s => s.direction === 'bearish').length} 看空
-          </span>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            共 {totalSignals} 个信号
+          </Text>
+        </div>
+        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(255,255,255,0.06)' }}>
+          <div style={{ width: `${bullishPct}%`, background: '#22c55e', transition: 'width 0.5s' }} />
+          <div style={{ width: `${bearishPct}%`, background: '#ef4444', transition: 'width 0.5s' }} />
         </div>
       </div>
 
-      {/* 信号列表 */}
-      <div className="p-4 space-y-3">
-        {signals.map((signal, idx) => (
-          <div key={idx} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
-            {/* 方向指示器 */}
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${
-              DIRECTION_COLORS[signal.direction]
-            }`}>
-              {signal.direction === 'bullish' ? '↑' : signal.direction === 'bearish' ? '↓' : '→'}
-            </div>
-            
-            {/* 信号信息 */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-white">{signal.name}</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400">
-                  {TIMEFRAME_LABELS[signal.timeframe]}
-                </span>
-              </div>
-              <div className="text-sm text-gray-400 mt-1">
-                {signal.detail || signal.source}
-              </div>
-            </div>
-            
-            {/* 值和置信度 */}
-            <div className="text-right">
-              <div className="text-white font-mono">{signal.value}</div>
-              <div className="text-xs text-gray-500">{(signal.confidence * 100).toFixed(0)}%</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* 信号卡片网格 */}
+      <Row gutter={[12, 12]}>
+        {signals.map((signal, idx) => {
+          const cfg = DIRECTION_CONFIG[signal.direction];
+          const tfCfg = TIMEFRAME_CONFIG[signal.timeframe];
+          return (
+            <Col xs={24} sm={12} md={8} key={idx}>
+              <Card
+                size="small"
+                hoverable
+                style={{
+                  borderRadius: 8,
+                  borderLeft: `3px solid ${cfg.color}`,
+                  background: cfg.bg,
+                  height: '100%',
+                }}
+                styles={{ body: { padding: '12px 14px' } }}
+              >
+                {/* 头部: 图标 + 名称 + 时间周期 */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 18, color: cfg.color }}>{cfg.icon}</span>
+                    <Text strong style={{ fontSize: 13 }}>{signal.name}</Text>
+                  </div>
+                  <Tag color={tfCfg.color} style={{ fontSize: 10, borderRadius: 4, margin: 0, padding: '0 6px', lineHeight: '20px' }}>
+                    <ClockCircleOutlined style={{ marginRight: 2 }} />
+                    {tfCfg.label}
+                  </Tag>
+                </div>
 
-      {/* AI叙事报告 */}
-      <div className="border-t border-gray-800">
-        <button
-          onClick={() => setShowNarrative(!showNarrative)}
-          className="w-full px-4 py-3 flex items-center justify-between text-gray-400 hover:text-white transition-colors"
-        >
-          <span className="text-sm font-medium">AI 分析报告</span>
-          <span>{showNarrative ? '▼' : '▶'}</span>
-        </button>
-        
-        {showNarrative && (
-          <div className="px-4 pb-4">
-            <div className="prose prose-invert prose-sm max-w-none">
-              {narrative.split('\n').map((line, i) => {
-                if (line.startsWith('# ')) return <h2 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h2>;
-                if (line.startsWith('## ')) return <h3 key={i} className="text-base font-semibold text-gray-200 mt-3 mb-1">{line.slice(3)}</h3>;
-                if (line.startsWith('### ')) return <h4 key={i} className="text-sm font-medium text-gray-300 mt-2 mb-1">{line.slice(4)}</h4>;
-                if (line.startsWith('> ')) return <blockquote key={i} className="border-l-2 border-blue-500 pl-3 text-gray-300 italic my-2">{line.slice(2)}</blockquote>;
-                if (line.startsWith('| ')) {
-                  const cells = line.split('|').filter(Boolean).map(c => c.trim());
-                  return (
-                    <div key={i} className="flex gap-2 text-xs font-mono text-gray-400 my-1">
-                      {cells.map((cell, j) => (
-                        <span key={j} className="flex-1">{cell}</span>
-                      ))}
+                {/* 详情描述 */}
+                {signal.detail && (
+                  <div style={{ marginBottom: 10 }}>
+                    <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.6 }}>
+                      {signal.detail}
+                    </Text>
+                  </div>
+                )}
+
+                {/* 底部: 来源 + 数值 + 置信度 */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                  <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0, padding: '0 6px', lineHeight: '18px' }}>
+                    {signal.source}
+                  </Tag>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: cfg.color, fontFamily: 'monospace', lineHeight: 1.2 }}>
+                      {signal.value}
                     </div>
-                  );
-                }
-                if (line.startsWith('- ')) return <li key={i} className="text-gray-300 ml-4">{line.slice(2)}</li>;
-                if (line.trim() === '') return <br key={i} />;
-                return <p key={i} className="text-gray-300 text-sm leading-relaxed">{line}</p>;
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                      置信度 {(signal.confidence * 100).toFixed(0)}%
+                    </div>
+                  </div>
+                </div>
 
-      {/* 底部: 数据源和时间 */}
-      <div className="px-4 py-2 bg-gray-800/30 text-xs text-gray-500 flex justify-between">
-        <span>数据来源: {signals.map(s => s.source).join(', ')}</span>
+                {/* 置信度进度条 */}
+                <div style={{ marginTop: 8 }}>
+                  <Progress
+                    percent={signal.confidence * 100}
+                    size="small"
+                    showInfo={false}
+                    strokeColor={cfg.color}
+                    trailColor="rgba(255,255,255,0.06)"
+                    style={{ margin: 0, lineHeight: 0 }}
+                  />
+                </div>
+              </Card>
+            </Col>
+          );
+        })}
+      </Row>
+
+      {/* AI 叙事报告 — 可折叠 */}
+      {narrative && (
+        <Collapse
+          ghost
+          size="small"
+          style={{ marginTop: 16, background: 'transparent' }}
+          items={[
+            {
+              key: 'narrative',
+              label: (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ThunderboltOutlined style={{ color: '#3b82f6' }} />
+                  <Text strong style={{ fontSize: 13 }}>AI 分析报告</Text>
+                </div>
+              ),
+              children: (
+                <div
+                  style={{
+                    background: 'rgba(30,41,59,0.5)',
+                    borderRadius: 8,
+                    padding: '12px 16px',
+                    border: '1px solid rgba(59,130,246,0.2)',
+                  }}
+                >
+                  {narrative.split('\n').map((line, i) => {
+                    if (line.startsWith('# '))
+                      return <Title key={i} level={5} style={{ color: 'var(--text-primary)', margin: '12px 0 6px' }}>{line.slice(2)}</Title>;
+                    if (line.startsWith('## '))
+                      return <Text key={i} strong style={{ display: 'block', margin: '10px 0 4px', fontSize: 14, color: 'var(--text-primary)' }}>{line.slice(3)}</Text>;
+                    if (line.startsWith('### '))
+                      return <Text key={i} style={{ display: 'block', margin: '8px 0 2px', fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{line.slice(4)}</Text>;
+                    if (line.startsWith('> '))
+                      return (
+                        <blockquote key={i} style={{ borderLeft: '2px solid #3b82f6', paddingLeft: 12, margin: '8px 0', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                          {line.slice(2)}
+                        </blockquote>
+                      );
+                    if (line.startsWith('- '))
+                      return <li key={i} style={{ color: 'var(--text-secondary)', marginLeft: 16, fontSize: 13 }}>{line.slice(2)}</li>;
+                    if (line.trim() === '') return <br key={i} />;
+                    return <p key={i} style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.7, margin: '4px 0' }}>{line}</p>;
+                  })}
+                </div>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      {/* 底部信息 */}
+      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)' }}>
+        <span>数据来源: {[...new Set(signals.map(s => s.source))].join(', ')}</span>
         <span>{new Date(data.timestamp).toLocaleString('zh-CN')}</span>
       </div>
-    </div>
+    </Card>
   );
 }

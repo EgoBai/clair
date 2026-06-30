@@ -120,8 +120,8 @@ const LinkedCharts: React.FC<LinkedChartsProps> = React.memo(({
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross', crossStyle: { color: '#999' } },
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        borderColor: '#e5e7eb',
+        backgroundColor: 'rgba(30,41,59,0.96)',
+        borderColor: 'rgba(148,163,184,0.2)',
         formatter: (params: { seriesType: string; dataIndex: number; value: number[] }[]) => {
           const kline = params.find((p) => p.seriesType === 'candlestick');
           if (!kline) return '';

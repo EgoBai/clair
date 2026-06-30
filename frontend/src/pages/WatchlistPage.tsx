@@ -458,6 +458,13 @@ const WatchlistPage: React.FC = () => {
     };
   }, [fetchQuotes, fetchAlerts, fetchSignals]);
 
+  /* ─── Auto-fetch AI recommendations after quotes load ─── */
+  useEffect(() => {
+    if (symbols.length > 0 && Object.keys(quotes).length > 0) {
+      fetchAiRecommendations();
+    }
+  }, [quotes, fetchAiRecommendations]);
+
   /* ─── Fetch AI summary when quotes update ─── */
   useEffect(() => {
     if (symbols.length > 0 && Object.keys(quotes).length > 0) {

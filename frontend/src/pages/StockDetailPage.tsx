@@ -135,7 +135,7 @@ const StockDetailPage: React.FC = () => {
     try {
       const pureSymbol = symbol.replace(/\.(SH|SZ)$/, '');
       const [kResp, sResp] = await Promise.all([
-        fetch(`/api/stocks/${pureSymbol}/kline`).then(r => r.json()),
+        fetch(`/api/stocks/${pureSymbol}/kline?period=${klinePeriod}`).then(r => r.json()),
         fetch(`/api/stocks/${pureSymbol}/strategy`).then(r => r.json()).catch(() => null),
       ]);
       // K-line data
@@ -143,10 +143,10 @@ const StockDetailPage: React.FC = () => {
         const kData: KLineData[] = kResp.data.quotes
           .map((q: any) => ({
             tradeDate: q.tradeDate,
-            open: q.openPrice || 0,
-            close: q.closePrice || 0,
-            high: q.highPrice || 0,
-            low: q.lowPrice || 0,
+            open: q.open || 0,
+            close: q.close || 0,
+            high: q.high || 0,
+            low: q.low || 0,
             volume: q.volume || 0,
             turnover: q.turnover || 0,
           }));
