@@ -8,6 +8,8 @@ import React, { useMemo } from 'react';
 import { Card, Typography, Space } from 'antd';
 import { BranchesOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
+import echarts from '@/utils/echarts';
 
 const { Text } = Typography;
 
@@ -142,7 +144,7 @@ const FundFlowSankey = React.memo<FundFlowSankeyProps>(({
         </Space>
       }
     >
-      <ReactECharts
+      <ReactECharts echarts={echarts}
         option={option}
         style={{ height: `${height}px`, width: '100%' }}
         showLoading={loading}

@@ -6,6 +6,7 @@
 
 import React, { useMemo, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 
 export interface TimeLineData {
   time: string;       // HH:mm
@@ -197,7 +198,7 @@ const TimeLineChart: React.FC<TimeLineChartProps> = React.memo(({
   }, [data, title]);
 
   return (
-    <ReactECharts
+    <ReactECharts echarts={echarts}
       ref={chartRef}
       option={option}
       style={{ height: `${height}px`, width: '100%' }}

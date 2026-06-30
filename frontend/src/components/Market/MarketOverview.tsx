@@ -12,6 +12,7 @@ import {
   PieChartOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 import type { ColumnsType } from 'antd/es/table';
 
 interface MarketIndex {
@@ -262,7 +263,7 @@ const MarketOverview: React.FC<MarketOverviewProps> = ({
             </Col>
             <Col xs={24} md={12}>
               <Card title="涨跌分布" size="small">
-                <ReactECharts
+                <ReactECharts echarts={echarts}
                   option={pieOption}
                   style={{ height: '250px', width: '100%' }}
                   notMerge={true}

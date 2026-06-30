@@ -6,6 +6,7 @@
 
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 import { Card, Tabs, Skeleton } from 'antd';
 
 export interface IndicatorPoint {
@@ -77,7 +78,7 @@ const IndicatorPanel = React.memo<IndicatorPanelProps>(({
           key: t.key,
           label: t.label,
           children: (
-            <ReactECharts
+            <ReactECharts echarts={echarts}
               option={t.option}
               style={{ height: `${height}px`, width: '100%' }}
               notMerge={true}

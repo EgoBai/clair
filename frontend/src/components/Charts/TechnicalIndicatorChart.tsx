@@ -5,6 +5,7 @@
 
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 
 export interface IndicatorData {
   tradeDate: string;
@@ -70,7 +71,7 @@ const TechnicalIndicatorChart = React.memo<TechnicalIndicatorChartProps>(({
   }, [data, type, title]);
 
   return (
-    <ReactECharts
+    <ReactECharts echarts={echarts}
       option={option}
       style={{ height: `${height}px`, width: '100%' }}
       showLoading={loading}

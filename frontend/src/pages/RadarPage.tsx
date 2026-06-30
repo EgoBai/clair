@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Spin, Empty, Row, Col, Statistic, Button, Card, message } from 'antd';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 import { apiFetch } from '../utils/api';
 import { THEME, GOLD } from '../styles/theme-constants';
 
@@ -450,7 +451,7 @@ const RadarPage: React.FC = () => {
               style={{ height: '100%' }}
               bodyStyle={{ padding: '8px 12px' }}
             >
-              <ReactECharts
+              <ReactECharts echarts={echarts}
                 option={radarOption}
                 style={{ height: 340, minHeight: 280 }}
                 opts={{ renderer: 'svg' }}

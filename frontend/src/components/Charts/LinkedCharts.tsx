@@ -9,6 +9,7 @@ import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import { Card, Space, Tag, Typography } from 'antd';
 import { LinkOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 import dayjs from 'dayjs';
 
 const { _Text } = Typography;
@@ -283,7 +284,7 @@ const LinkedCharts: React.FC<LinkedChartsProps> = React.memo(({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {/* Main K-line */}
-        <ReactECharts
+        <ReactECharts echarts={echarts}
           ref={klineRef}
           option={klineOption}
           style={{ height: `${chartHeight}px`, width: '100%' }}
@@ -292,7 +293,7 @@ const LinkedCharts: React.FC<LinkedChartsProps> = React.memo(({
           opts={{ renderer: 'canvas' }}
         />
         {/* Volume/Turnover */}
-        <ReactECharts
+        <ReactECharts echarts={echarts}
           ref={subRef}
           option={subOption}
           style={{ height: `${subHeight}px`, width: '100%' }}
@@ -301,7 +302,7 @@ const LinkedCharts: React.FC<LinkedChartsProps> = React.memo(({
         />
         {/* Fund flow (optional) */}
         {fundData && fundData.length > 0 && (
-          <ReactECharts
+          <ReactECharts echarts={echarts}
             ref={fundRef}
             option={fundOption}
             style={{ height: `${fundHeight}px`, width: '100%' }}

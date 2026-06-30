@@ -5,6 +5,7 @@
 
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 import dayjs from 'dayjs';
 
 export interface VolumeData {
@@ -180,7 +181,7 @@ const VolumeChart: React.FC<VolumeChartProps> = React.memo(({
   }, [data, title, showTurnover]);
 
   return (
-    <ReactECharts
+    <ReactECharts echarts={echarts}
       option={option}
       style={{ height: `${height}px`, width: '100%' }}
       showLoading={loading}

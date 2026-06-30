@@ -7,6 +7,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Spin, Tag, Typography, Empty, Card, Statistic } from 'antd';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 
 const { Title, Text } = Typography;
 
@@ -142,7 +143,7 @@ const IndexDetailPage: React.FC = () => {
             title={<span style={{ fontWeight: 600 }}>K线图</span>}
             style={{ marginBottom: 16, borderRadius: 12, border: '1px solid #e2e8f0' }}
           >
-            <ReactECharts option={chartOption} style={{ height: 400 }} />
+            <ReactECharts echarts={echarts} option={chartOption} style={{ height: 400 }} />
           </Card>
         )}
 

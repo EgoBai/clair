@@ -6,6 +6,7 @@
 
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 
 export interface FundFlowItem {
   date: string;
@@ -133,7 +134,7 @@ export const FundFlowChart = React.memo<FundFlowChartProps>(({
   }, [data, title]);
 
   return (
-    <ReactECharts
+    <ReactECharts echarts={echarts}
       option={option}
       style={{ height: `${height}px`, width: '100%' }}
       showLoading={loading}
@@ -230,7 +231,7 @@ export const IndustryFlowChart = React.memo<IndustryFlowChartProps>(({
   }, [data, title]);
 
   return (
-    <ReactECharts option={option} style={{ height: `${height}px`, width: '100%' }} notMerge={true} />
+    <ReactECharts echarts={echarts} option={option} style={{ height: `${height}px`, width: '100%' }} notMerge={true} />
   );
 });
 

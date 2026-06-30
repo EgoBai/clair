@@ -6,6 +6,7 @@
 
 import React, { useMemo, useRef, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
+import echarts from '@/utils/echarts';
 import dayjs from 'dayjs';
 
 export interface KLineData {
@@ -480,7 +481,7 @@ const KLineChart = React.memo<KLineChartProps>(({
   }, [data, title, showMA, maLines, showEMA, emaLines, subIndicator, indicatorData]);
 
   return (
-    <ReactECharts
+    <ReactECharts echarts={echarts}
       ref={chartRef}
       option={option}
       style={{ height: `${height}px`, width: '100%' }}
