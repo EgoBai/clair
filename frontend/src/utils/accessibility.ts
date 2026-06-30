@@ -4,6 +4,7 @@
  * 新增: 颜色对比度检测、表格可访问性、表单验证播报、增强键盘导航
  */
 
+import { safeGetItem, safeSetItem } from './safeStorage';
 import React, { useEffect, useRef, useCallback, createContext, useContext, useState } from 'react';
 
 // ==================== ARIA 工具 ====================
@@ -336,13 +337,13 @@ export function useHighContrast() {
 
 export function HighContrastProvider({ children }: { children: React.ReactNode }) {
   const [enabled, setEnabled] = useState(() => {
-    return localStorage.getItem('high-contrast') === 'true';
+    return safeGetItem('high-contrast') === 'true';
   });
 
   const toggle = useCallback(() => {
     setEnabled((prev) => {
       const next = !prev;
-      localStorage.setItem('high-contrast', String(next));
+      safeSetItem('high-contrast', String(next));
       document.documentElement.setAttribute('data-high-contrast', String(next));
       return next;
     });

@@ -29,6 +29,8 @@ export interface UserProperties {
 
 // ==================== 分析追踪器 ====================
 
+import { safeGetItem, safeSetItem } from './safeStorage';
+
 class Analytics {
   private sessionId: string;
   private userId?: string;
@@ -50,7 +52,7 @@ class Analytics {
     if (typeof window === 'undefined') return;
 
     // 从localStorage恢复userId
-    this.userId = localStorage.getItem('analytics_user_id') || undefined;
+    this.userId = safeGetItem('analytics_user_id') || undefined;
 
     // 定期发送队列中的事件
     setInterval(() => this.flush(), this.flushInterval);
@@ -77,7 +79,7 @@ class Analytics {
   setUserId(userId: string): void {
     this.userId = userId;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('analytics_user_id', userId);
+      safeSetItem('analytics_user_id', userId);
     }
   }
 

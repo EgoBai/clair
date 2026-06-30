@@ -624,7 +624,8 @@ async function getAverageVolume(stockId: number, days: number = 20): Promise<num
     if (!quotes || quotes.length === 0) return 0;
     const total = quotes.reduce((sum: number, q: DailyQuote) => sum + (q.volume || 0), 0);
     return total / quotes.length;
-  } catch {
+  } catch (e) {
+    console.warn('[Alerts] 计算平均成交量失败:', e);
     return 0;
   }
 }

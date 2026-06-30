@@ -15,6 +15,7 @@ import {
   DeleteOutlined, BellOutlined, AlertOutlined, RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
   InfoCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { apiFetch } from '../utils/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ColumnsType } from 'antd/es/table';
@@ -259,7 +260,7 @@ const WatchlistPage: React.FC = () => {
   /* State */
   const [groups, setGroups] = useState<WatchlistGroup[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = safeGetItem(STORAGE_KEY);
       if (saved) return JSON.parse(saved);
     } catch { /* ignore */ }
     return getDefaultGroups();
@@ -301,7 +302,7 @@ const WatchlistPage: React.FC = () => {
 
   /* ─── Persist groups ─── */
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
+    safeSetItem(STORAGE_KEY, JSON.stringify(groups));
   }, [groups]);
 
   /* ─── Fetch quotes ─── */

@@ -36,7 +36,8 @@ router.get('/ai/multi-signal/:symbol', asyncHandler(async (req: Request, res: Re
         generateNarrative(signalResult),
         new Promise<string>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000))
       ]);
-    } catch {
+    } catch (e) {
+      console.warn('[MultiSignal] LLM叙述生成失败，使用模板:', e);
       narrative = generateTemplateNarrative(signalResult);
     }
   } else {
@@ -68,7 +69,8 @@ router.get('/ai/multi-signal', asyncHandler(async (req: Request, res: Response) 
         generateNarrative(signalResult),
         new Promise<string>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000))
       ]);
-    } catch {
+    } catch (e) {
+      console.warn('[MultiSignal] LLM市场叙述生成失败，使用模板:', e);
       narrative = generateTemplateNarrative(signalResult);
     }
   } else {

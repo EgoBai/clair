@@ -11,6 +11,7 @@ import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, Filter
 
 const { Title, Text, _Paragraph } = Typography;
 
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
@@ -596,7 +597,7 @@ const DiscoverPage: React.FC = () => {
                         e.stopPropagation();
                         try {
                           const KEY = 'astock_watchlist_v2';
-                          const saved = localStorage.getItem(KEY);
+                          const saved = safeGetItem(KEY);
                           const groups = saved ? JSON.parse(saved) : [{ id: 'default', name: '默认分组', stocks: [], isDefault: true }];
                           const def = groups.find((g: any) => g.id === 'default') || groups[0];
                           if (def.stocks.find((s: any) => s.symbol === r.symbol)) {
@@ -604,7 +605,7 @@ const DiscoverPage: React.FC = () => {
                             return;
                           }
                           def.stocks.push({ symbol: r.symbol, name: r.name, market: r.market || '', sortIndex: def.stocks.length, groupId: def.id });
-                          localStorage.setItem(KEY, JSON.stringify(groups));
+                          safeSetItem(KEY, JSON.stringify(groups));
                           message.success(`已将 ${r.name} 添加到自选股`);
                         } catch { message.error('添加失败'); }
                       }} />

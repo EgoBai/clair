@@ -11,6 +11,7 @@ import {
   FolderOutlined, StarFilled,
   CloseOutlined, ReloadOutlined,
 } from '@ant-design/icons';
+import { safeGetItem, safeSetItem } from '../../utils/safeStorage';
 import { apiFetch } from '../../utils/api';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -26,7 +27,7 @@ interface StockQuote { symbol: string; name: string; price: number; changePercen
 const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = React.memo(({ onStockClick }) => {
   const [groups, setGroups] = useState<WatchlistGroup[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = safeGetItem(STORAGE_KEY);
       if (saved) return JSON.parse(saved);
     } catch (e) {
       // ignore parse error
@@ -41,7 +42,7 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
   const [alerts, setAlerts] = useState<any[]>([]);
 
   // 持久化
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(groups)); }, [groups]);
+  useEffect(() => { safeSetItem(STORAGE_KEY, JSON.stringify(groups)); }, [groups]);
 
   // 实时行情
   const currentGroup = groups.find(g => g.id === activeGroup) || groups[0];

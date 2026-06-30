@@ -25,6 +25,8 @@ const DEFAULT_CONFIG: CacheConfig = {
   strategy: 'stale-while-revalidate',
 };
 
+import { safeGetItem, safeSetItem, safeRemoveItem, safeKey, safeLength } from '../utils/safeStorage';
+
 export class CacheManager {
   private config: CacheConfig;
   private memoryCache: Map<string, CacheEntry> = new Map();
@@ -45,7 +47,7 @@ export class CacheManager {
 
     // Check localStorage
     try {
-      const stored = localStorage.getItem(this.config.storagePrefix + key);
+      const stored = safeGetItem(this.config.storagePrefix + key);
       if (stored) {
         const entry: CacheEntry<T> = JSON.parse(stored);
         const stale = Date.now() - entry.timestamp > entry.ttl;
@@ -58,7 +60,7 @@ export class CacheManager {
       }
     } catch {
       // Parse error, remove corrupted entry
-      localStorage.removeItem(this.config.storagePrefix + key);
+      safeRemoveItem(this.config.storagePrefix + key);
     }
 
     return null;
@@ -86,7 +88,7 @@ export class CacheManager {
 
     // Persist to localStorage
     try {
-      localStorage.setItem(
+      safeSetItem(
         this.config.storagePrefix + key,
         JSON.stringify(entry)
       );
@@ -94,7 +96,7 @@ export class CacheManager {
       // Storage full, evict oldest
       this.evictOldest();
       try {
-        localStorage.setItem(
+        safeSetItem(
           this.config.storagePrefix + key,
           JSON.stringify(entry)
         );
@@ -106,7 +108,7 @@ export class CacheManager {
 
   async invalidate(key: string): Promise<void> {
     this.memoryCache.delete(key);
-    localStorage.removeItem(this.config.storagePrefix + key);
+    safeRemoveItem(this.config.storagePrefix + key);
     this.accessOrder = this.accessOrder.filter(k => k !== key);
   }
 
@@ -122,12 +124,12 @@ export class CacheManager {
     }
 
     // localStorage
-    for (let i = 0; i < localStorage.length; i++) {
-      const storageKey = localStorage.key(i);
+    for (let i = 0; i < safeLength(); i++) {
+      const storageKey = safeKey(i);
       if (storageKey?.startsWith(this.config.storagePrefix)) {
         const cacheKey = storageKey.slice(this.config.storagePrefix.length);
         if (pattern.test(cacheKey)) {
-          localStorage.removeItem(storageKey);
+          safeRemoveItem(storageKey);
           count++;
         }
       }
@@ -205,18 +207,18 @@ export class CacheManager {
   }
 
   private evictOldest(): void {
-    for (let i = 0; i < localStorage.length && i < 5; i++) {
-      const key = localStorage.key(i);
+    for (let i = 0; i < safeLength() && i < 5; i++) {
+      const key = safeKey(i);
       if (key?.startsWith(this.config.storagePrefix)) {
-        localStorage.removeItem(key);
+        safeRemoveItem(key);
       }
     }
   }
 
   getStats(): { memoryEntries: number; storageEntries: number } {
     let storageEntries = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      if (localStorage.key(i)?.startsWith(this.config.storagePrefix)) {
+    for (let i = 0; i < safeLength(); i++) {
+      if (safeKey(i)?.startsWith(this.config.storagePrefix)) {
         storageEntries++;
       }
     }
@@ -226,10 +228,10 @@ export class CacheManager {
   clearAll(): void {
     this.memoryCache.clear();
     this.accessOrder = [];
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const key = localStorage.key(i);
+    for (let i = safeLength() - 1; i >= 0; i--) {
+      const key = safeKey(i);
       if (key?.startsWith(this.config.storagePrefix)) {
-        localStorage.removeItem(key);
+        safeRemoveItem(key);
       }
     }
   }

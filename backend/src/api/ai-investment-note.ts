@@ -91,7 +91,8 @@ ${stockSummary}
         },
       },
     });
-  } catch {
+  } catch (e) {
+    console.warn('[AIInvestmentNote] 生成投资笔记失败:', e);
     res.json({
       success: true,
       data: {

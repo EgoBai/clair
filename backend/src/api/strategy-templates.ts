@@ -61,7 +61,8 @@ router.get('/strategy-templates', asyncHandler(async (req: Request, res: Respons
       { column: 'usage_count', order: 'desc' },
       { column: 'created_at', order: 'desc' }
     ]);
-  } catch {
+  } catch (e) {
+    console.warn('[StrategyTemplates] 查询策略模板失败:', e);
     // 表不存在时返回空数组，避免阻塞前端
   }
   

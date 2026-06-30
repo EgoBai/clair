@@ -4,6 +4,7 @@
  * 参考 TradingView 多图表布局
  */
 
+import { safeGetItem, safeSetItem } from '../../utils/safeStorage';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 interface DashboardWidget {
@@ -55,7 +56,7 @@ const CustomDashboard: React.FC<CustomDashboardProps> = ({
 
   // 保存到 localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('dashboard_layout');
+    const saved = safeGetItem('dashboard_layout');
     if (saved && !initialWidgets) {
       try {
         setWidgets(JSON.parse(saved));
@@ -67,7 +68,7 @@ const CustomDashboard: React.FC<CustomDashboardProps> = ({
 
   const saveLayout = useCallback((newWidgets: DashboardWidget[]) => {
     setWidgets(newWidgets);
-    localStorage.setItem('dashboard_layout', JSON.stringify(newWidgets));
+    safeSetItem('dashboard_layout', JSON.stringify(newWidgets));
     onLayoutChange?.(newWidgets);
   }, [onLayoutChange]);
 

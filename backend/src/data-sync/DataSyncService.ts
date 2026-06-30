@@ -217,7 +217,7 @@ export class DataSyncService {
                   bidPrice1: quote.bidPrice1,
                   askPrice1: quote.askPrice1,
                 });
-              } catch { /* WebSocket 推送失败不影响数据同步 */ }
+              } catch (e) { console.warn('[DataSync] WebSocket推送失败:', e); }
             } catch (error) {
               result.errors.push(`保存失败 ${quote.symbol}: ${(error as Error).message}`);
             }

@@ -74,6 +74,7 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
     });
   } catch (e) {
     // 数据注入失败不阻塞对话
+    console.warn('[AIChat] 数据注入失败:', e);
   }
 
   messages.push({ role: 'user' as const, content: message });
@@ -316,6 +317,7 @@ router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Respons
 
     res.json({ success: true, data: insight });
   } catch (error) {
+    console.error('[AIChat] 获取市场洞察失败:', error);
     res.status(500).json({ success: false, error: '获取市场洞察失败' });
   }
 }));
