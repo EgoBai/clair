@@ -207,6 +207,7 @@ export const LazyImage: React.FC<LazyImageProps> = ({
         }} />
       )}
       <img
+        loading="lazy"
         {...imgProps}
         src={error ? placeholder : currentSrc}
         alt={alt}
