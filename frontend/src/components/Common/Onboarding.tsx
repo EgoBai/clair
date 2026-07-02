@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
-const { _Step } = Steps;
+const { Step } = Steps;
 
 interface TourStep {
   title: string;

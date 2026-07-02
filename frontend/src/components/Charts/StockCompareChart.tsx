@@ -7,7 +7,7 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { Typography, Empty, Skeleton } from 'antd';
 
-const { _Text } = Typography;
+const { Text } = Typography;
 
 interface CompareStock {
   symbol: string;

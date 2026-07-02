@@ -11,6 +11,7 @@ import {
   asyncHandler, sendSuccess, sendPaginated, sendNotFound, sendInternalError,
 } from '../utils/apiResponse';
 import { queryCache } from '../utils/queryCache';
+import { dataSyncService } from '../data-sync/DataSyncService';
 
 const router = Router();
 
@@ -378,6 +379,53 @@ router.post('/tech/batch', asyncHandler(async (req, res) => {
   }
 
   sendSuccess(res, { data: results });
+}));
+
+
+// ==================== 数据新鲜度 ====================
+
+router.get('/data/freshness', asyncHandler(async (_req, res) => {
+  const cacheKey = 'data:freshness';
+  const result = await queryCache.query(cacheKey, async () => {
+    // 查询最新交易日
+    const latestDateRow = await db.connection('daily_quotes')
+      .max('trade_date as latest_date')
+      .first();
+    const latestTradeDate: string | null = latestDateRow?.latest_date
+      ? new Date(latestDateRow.latest_date).toISOString().slice(0, 10)
+      : null;
+
+    // 查询今日行情数量
+    const today = new Date().toISOString().slice(0, 10);
+    const todayRow = await db.connection('daily_quotes')
+      .where('trade_date', '>=', today)
+      .count('* as cnt')
+      .first();
+    const quotesToday = Number(todayRow?.cnt || 0);
+
+    // 查询活跃股票数量
+    const stockRow = await db.connection('stocks')
+      .where('is_active', true)
+      .count('* as cnt')
+      .first();
+    const stockCount = Number(stockRow?.cnt || 0);
+
+    // 同步状态
+    const syncState = dataSyncService.getSyncState();
+
+    return {
+      latestTradeDate,
+      stockCount,
+      quotesToday,
+      syncInterval: syncState.intervalSeconds,
+      lastSyncAt: syncState.lastSyncAt,
+      totalSyncs: syncState.totalSyncs,
+      isSyncing: syncState.running,
+      degraded: syncState.degraded || false,
+    };
+  }, 60000); // 60秒缓存
+
+  sendSuccess(res, result);
 }));
 
 export default router;

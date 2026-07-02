@@ -11,7 +11,7 @@ import {
   ThunderboltOutlined, SmileOutlined, FrownOutlined, MehOutlined,
 } from '@ant-design/icons';
 
-const { Text, _Title } = Typography;
+const { Text, Title } = Typography;
 
 interface SentimentProps {
   riseCount: number;

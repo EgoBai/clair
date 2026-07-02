@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button } from 'antd';
 import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
 
-const { Title, Text, _Paragraph } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { THEME, GOLD } from '../styles/theme-constants';

@@ -302,6 +302,17 @@ app.get('/api/sync/state', asyncHandler(async (_req, res) => {
   sendSuccess(res, dataSyncService.getSyncState());
 }));
 
+// 降级状态查询
+app.get('/api/sync/degradation', asyncHandler(async (_req, res) => {
+  sendSuccess(res, dataSyncService.getDegradationStatus());
+}));
+
+// 手动清除降级标记
+app.post('/api/sync/degradation/clear', asyncHandler(async (_req, res) => {
+  dataSyncService.clearDegradation();
+  sendSuccess(res, { message: '降级标记已清除，恢复腾讯API调用' });
+}));
+
 // ==================== 根路径 ====================
 app.get('/', (_req, res) => {
   res.json({

@@ -26,6 +26,8 @@ export interface SyncState {
   totalSyncs: number;
   nextSyncAt: number | null;  // timestamp ms
   intervalSeconds: number;
+  degraded: boolean;
+  consecutiveFailures: number;
 }
 
 export interface RawQuoteData {
@@ -77,7 +79,15 @@ export class DataSyncService {
     totalSyncs: 0,
     nextSyncAt: null,
     intervalSeconds: 300,
+    degraded: false,
+    consecutiveFailures: 0,
   };
+
+  /** 腾讯API降级：连续失败计数 */
+  private tencentFailureCount: number = 0;
+  private readonly MAX_CONSECUTIVE_FAILURES: number = 3;
+  /** 缓存最近一次成功的行情数据（降级时使用） */
+  private cachedQuotes: RawQuoteData[] = [];
 
   /**
    * 启动定时同步 (默认每5分钟)
@@ -347,27 +357,94 @@ export class DataSyncService {
     return this.isRunning;
   }
 
+  /**
+   * 获取降级状态
+   */
+  getDegradationStatus(): { degraded: boolean; consecutiveFailures: number; cacheAvailable: boolean } {
+    return {
+      degraded: this.syncState.degraded,
+      consecutiveFailures: this.tencentFailureCount,
+      cacheAvailable: this.cachedQuotes.length > 0,
+    };
+  }
+
+  /**
+   * 手动清除降级标记（用于运维恢复）
+   */
+  clearDegradation(): void {
+    this.syncState.degraded = false;
+    this.tencentFailureCount = 0;
+    this.syncState.consecutiveFailures = 0;
+    console.log('[DataSync] 降级标记已清除，恢复API调用');
+  }
+
   // ==================== 私有方法 ====================
 
   /**
    * 从腾讯API获取实时行情
    */
   private async fetchTencentQuotes(symbols: string[]): Promise<RawQuoteData[]> {
+    // 降级模式：使用缓存数据
+    if (this.syncState.degraded) {
+      console.warn(`[DataSync] 腾讯API降级中，使用缓存数据 (${this.cachedQuotes.length} 条)`);
+      // 过滤出请求的 symbols
+      const symbolSet = new Set(symbols.map(s => s.toLowerCase()));
+      return this.cachedQuotes.filter(q => symbolSet.has(q.symbol.toLowerCase()));
+    }
+
     const symbolStr = symbols.join(',');
     const url = `https://qt.gtimg.cn/q=${symbolStr}`;
 
-    const response = await axios.get(url, {
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://finance.qq.com',
-      },
-      responseType: 'arraybuffer',  // GBK 编码，不能当 UTF-8 直接读
-    });
+    try {
+      const response = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://finance.qq.com',
+        },
+        responseType: 'arraybuffer',  // GBK 编码，不能当 UTF-8 直接读
+      });
 
-    // 腾讯行情 API 返回 GBK 编码，需手动转 UTF-8
-    const rawText = iconv.decode(Buffer.from(response.data), 'gbk');
-    return this.parseTencentResponse(rawText);
+      // 腾讯行情 API 返回 GBK 编码，需手动转 UTF-8
+      const rawText = iconv.decode(Buffer.from(response.data), 'gbk');
+      const quotes = this.parseTencentResponse(rawText);
+
+      // 成功：重置失败计数，缓存数据，清除降级标记
+      this.tencentFailureCount = 0;
+      if (quotes.length > 0) {
+        this.cachedQuotes = quotes;
+      }
+      if (this.syncState.degraded) {
+        console.log('[DataSync] 腾讯API恢复，退出降级模式');
+        this.syncState.degraded = false;
+        this.syncState.consecutiveFailures = 0;
+      }
+
+      return quotes;
+    } catch (error) {
+      this.tencentFailureCount++;
+      this.syncState.consecutiveFailures = this.tencentFailureCount;
+
+      console.error(
+        `[DataSync] 腾讯API请求失败 (${this.tencentFailureCount}/${this.MAX_CONSECUTIVE_FAILURES}):`,
+        (error as Error).message
+      );
+
+      // 连续失败达到阈值：自动降级
+      if (this.tencentFailureCount >= this.MAX_CONSECUTIVE_FAILURES) {
+        console.error('[DataSync] 腾讯API连续失败3次，自动降级到缓存模式');
+        this.syncState.degraded = true;
+      }
+
+      // 有缓存数据则返回缓存
+      if (this.cachedQuotes.length > 0) {
+        console.warn(`[DataSync] 降级使用缓存数据 (${this.cachedQuotes.length} 条)`);
+        const symbolSet = new Set(symbols.map(s => s.toLowerCase()));
+        return this.cachedQuotes.filter(q => symbolSet.has(q.symbol.toLowerCase()));
+      }
+
+      throw error; // 无缓存数据，抛出错误
+    }
   }
 
   /**

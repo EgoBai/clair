@@ -9,7 +9,6 @@ import { Card, Typography, Space } from 'antd';
 import { BranchesOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
-import echarts from '@/utils/echarts';
 
 const { Text } = Typography;
 

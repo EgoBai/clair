@@ -12,7 +12,7 @@ import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
 import dayjs from 'dayjs';
 
-const { _Text } = Typography;
+const { Text } = Typography;
 
 export interface LinkedKLineData {
   tradeDate: string;

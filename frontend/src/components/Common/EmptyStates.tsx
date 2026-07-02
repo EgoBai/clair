@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
-const { Title, _Text, Paragraph } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
 interface EmptyStateProps {
   icon?: React.ReactNode;
