@@ -44,11 +44,11 @@ export interface ManipulationResult {
  */
 export function beneishMScore(input: ManipulationInput): ManipulationResult {
   const {
-    revenue, prevRevenue, _cogs, _prevCogs, currentAssets, totalAssets,
-    _currentLiabilities, depreciation, sgaExpense, longTermAssets,
+    revenue, prevRevenue, cogs, prevCogs, currentAssets, totalAssets,
+    currentLiabilities, depreciation, sgaExpense, longTermAssets,
     prevLongTermAssets, totalLiabilities, cashFromOperations, netIncome,
     accountsReceivable, prevAccountsReceivable, grossProfit, prevGrossProfit,
-    _intangibleAssets,
+    intangibleAssets,
   } = input;
 
   // Days Sales in Receivables Index

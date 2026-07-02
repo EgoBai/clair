@@ -43,7 +43,7 @@ const EChartsWrapper: React.FC<EChartsWrapperProps> = ({
 
   const initChart = useCallback(() => {
     if (!containerRef.current) return;
-    const instance = echarts.init(containerRef.current, theme, opts);
+    const instance = echarts.init(containerRef.current, theme, opts as any);
     chartRef.current = instance;
     if (showLoading) instance.showLoading(loadingOption);
     instance.setOption(option, notMerge);

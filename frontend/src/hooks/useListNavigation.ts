@@ -30,7 +30,7 @@ interface UseListNavigationReturn {
 export function useListNavigation<T>(
   options: UseListNavigationOptions<T>
 ): UseListNavigationReturn {
-  const { items, onSelect, onHover, enabled = true, loop = true, _getId } = options;
+  const { items, onSelect, onHover, enabled = true, loop = true, getId } = options;
   const [activeIndex, setActiveIndex] = useState(-1);
 
   const moveUp = useCallback(() => {

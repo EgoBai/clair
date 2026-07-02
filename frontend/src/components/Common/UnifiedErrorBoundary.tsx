@@ -123,7 +123,7 @@ interface FallbackUIProps {
 const DefaultFallback: React.FC<FallbackUIProps> = ({
   error,
   errorInfo,
-  _boundaryType = 'default',
+  boundaryType = 'default',
   componentName,
   retryCount,
   maxRetries,

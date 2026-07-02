@@ -37,7 +37,7 @@ export interface CycleResult {
  * 行业景气度分析
  */
 export function analyzeIndustryCycle(data: IndustryCycleData): CycleResult {
-  const { pmi, capacityUtilization, profitGrowth, revenueGrowth, inventoryRatio, prevInventoryRatio, orderIndex, _exportRatio } = data;
+  const { pmi, capacityUtilization, profitGrowth, revenueGrowth, inventoryRatio, prevInventoryRatio, orderIndex, exportRatio } = data;
 
   // 子项评分
   const pmiScore = Math.min(100, Math.max(0, (pmi - 45) * 10));

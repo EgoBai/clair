@@ -248,7 +248,7 @@ export function analyzeOptionChain(
   spotPrice: number
 ): OptionChainAnalysis {
   const maxPain = calculateMaxPain(contracts);
-  const { volumeRatio, _oiRatio } = calculatePutCallRatio(contracts);
+  const { volumeRatio, oiRatio } = calculatePutCallRatio(contracts);
   const skew = calculateSkew(contracts, spotPrice);
   const termStructure = buildTermStructure(contracts);
   const { supportZone, resistanceZone } = findOptionsSupportResistance(
