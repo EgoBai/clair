@@ -2005,14 +2005,30 @@ async function handleAiGems(request, env) {
 
       const totalScore = momentumScore + volumeScore + valuationScore + sizeScore + industryScore + qualityScore;
 
-      // 上榜理由 (规则化解释，供雷达页展示"为什么有潜力"，不耗LLM/不依赖key)
+      // 上榜理由 (个性化 v2: 嵌入实际数据，与后端 ai-gems.ts 对齐)
       const reasons = [];
-      if (momentumScore >= 15) reasons.push('涨势适中不追高');
-      if (volumeScore >= 15) reasons.push('成交活跃换手健康');
-      if (valuationScore >= 12) reasons.push('估值合理');
-      if (sizeScore >= 12) reasons.push('中盘成长空间');
-      if (industryScore >= 11) reasons.push('所属板块景气');
-      if (qualityScore >= 13) reasons.push('质量无瑕疵');
+      if (momentumScore >= 19) reasons.push(`涨势强劲 +${changePercent.toFixed(1)}%`);
+      else if (momentumScore >= 15) reasons.push(`涨势适中 +${changePercent.toFixed(1)}%`);
+      else if (momentumScore >= 12) reasons.push(`动量尚可 +${changePercent.toFixed(1)}%`);
+
+      if (volumeScore >= 19) reasons.push(`成交活跃 换手${turnoverRate.toFixed(1)}%`);
+      else if (volumeScore >= 15) reasons.push(`换手健康 ${turnoverRate.toFixed(1)}%`);
+      else if (volumeScore >= 10) reasons.push(`成交温和 ${turnoverRate.toFixed(1)}%`);
+
+      if (valuationScore >= 14) reasons.push(peRatio ? `估值合理 PE${peRatio.toFixed(0)}` : '估值合理');
+      else if (valuationScore >= 12) reasons.push(peRatio ? `估值偏低 PE${peRatio.toFixed(0)}` : '估值偏低');
+      else if (valuationScore >= 10) reasons.push(peRatio ? `估值稍高 PE${peRatio.toFixed(0)}` : '估值适中');
+
+      if (sizeScore >= 14) reasons.push(`中盘成长 ${capYi.toFixed(0)}亿`);
+      else if (sizeScore >= 10) reasons.push(`大盘蓝筹 ${capYi.toFixed(0)}亿`);
+      else if (sizeScore >= 8) reasons.push(`小盘弹性 ${capYi.toFixed(0)}亿`);
+
+      if (industryScore >= 13) reasons.push(`行业景气 ${industry}`);
+      else if (industryScore >= 11) reasons.push(`板块偏热 ${industry}`);
+      else if (industryScore >= 9) reasons.push(`板块中性 ${industry}`);
+
+      if (qualityScore >= 14) reasons.push('质量优良无瑕疵');
+      else if (qualityScore >= 12) reasons.push('基本面稳健');
 
       if (totalScore >= minScore) {
         gems.push({
