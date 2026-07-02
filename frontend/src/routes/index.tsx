@@ -17,6 +17,8 @@ const SectorDetailPage = lazy(() => import('../pages/SectorDetailPage'));
 const BacktestPage = lazy(() => import('../pages/BacktestPage'));
 const StrategyTemplatesPage = lazy(() => import('../pages/StrategyTemplatesPage'));
 const IndustryMapPage = lazy(() => import('../pages/IndustryMapPage'));
+const RadarPage = lazy(() => import('../pages/RadarPage'));
+const KnowledgeBase = lazy(() => import('../pages/KnowledgeBase'));
 
 // 404
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
@@ -54,6 +56,8 @@ export const AppRoutes = () => {
         <Route path="/backtest" element={<BacktestPage />} />
         <Route path="/strategies" element={<StrategyTemplatesPage />} />
         <Route path="/industry-map" element={<IndustryMapPage />} />
+        <Route path="/radar" element={<RadarPage />} />
+        <Route path="/knowledge" element={<KnowledgeBase />} />
 
         {/* 重定向 */}
         <Route path="/home" element={<Navigate to="/" replace />} />

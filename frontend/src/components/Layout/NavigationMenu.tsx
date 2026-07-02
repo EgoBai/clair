@@ -55,6 +55,13 @@ const NAV_ITEMS: NavItem[] = [
     path: '/radar',
     icon: '🏆',
     description: 'AI多因子评分 · 潜力股排行 · 综合分析'
+  },
+  {
+    id: 'knowledge',
+    label: '知识库',
+    path: '/knowledge',
+    icon: '📚',
+    description: '投资知识积累 · AI问答保存 · 分类回顾'
   }
 ];
 

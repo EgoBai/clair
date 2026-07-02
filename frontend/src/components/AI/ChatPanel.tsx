@@ -13,6 +13,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { chat } from '../../services/aiClient';
 import { renderMarkdown } from '../../utils/markdown';
+import { saveEntry, CATEGORIES, type KnowledgeCategory } from '../../utils/knowledgeStore';
 
 // ============================================================
 // 类型定义
@@ -107,6 +108,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions =
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [savingMsgId, setSavingMsgId] = useState<string | null>(null);
+  const [savedMsgIds, setSavedMsgIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -351,6 +354,29 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
               />
               {message.isStreaming && (
                 <span className="typing-cursor">▊</span>
+              )}
+              {/* AI消息的保存按钮 */}
+              {message.role === 'assistant' && !message.isStreaming && message.content && (
+                <div style={{ marginTop: 6 }}>
+                  {savingMsgId === message.id ? (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {CATEGORIES.slice(0, 4).map(cat => (
+                        <span key={cat.key} onClick={() => {
+                          saveEntry({ question: messages.find(m => m.role === 'user' && messages.indexOf(m) < messages.indexOf(message))?.content || '', answer: message.content, category: cat.key, tags: [], page: pageContext?.page || '', symbol: pageContext?.symbol });
+                          setSavedMsgIds(prev => new Set(prev).add(message.id));
+                          setSavingMsgId(null);
+                        }} style={{ padding: '2px 8px', borderRadius: 4, cursor: 'pointer', background: '#334155', color: '#cbd5e1', fontSize: 11 }}>{cat.icon} {cat.label}</span>
+                      ))}
+                      <span onClick={() => setSavingMsgId(null)} style={{ padding: '2px 8px', cursor: 'pointer', color: '#94a3b8', fontSize: 11 }}>取消</span>
+                    </div>
+                  ) : savedMsgIds.has(message.id) ? (
+                    <span style={{ fontSize: 11, color: '#22c55e' }}>✅ 已保存到知识库</span>
+                  ) : (
+                    <span onClick={() => setSavingMsgId(message.id)} style={{ fontSize: 11, color: '#667eea', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, background: 'rgba(102,126,234,0.1)' }}>
+                      💾 保存到知识库
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
