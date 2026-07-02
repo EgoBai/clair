@@ -178,6 +178,26 @@
 
 Hermes 已完成申万2021二级行业分类重制。前端露出（DiscoverPage 板块分析切换一/二级、ScreenerPage 行业筛选下钻）可开始。
 
+---
+
+## 🎯 MiMoCode 任务 — 2026-07-01 (Loop S1)
+
+### 任务1: 生产环境 Worker AI gems reasons 个性化
+- **背景**: 本地后端 ai-gems.ts 已升级为个性化reasons(嵌入涨跌幅/换手率/市值), 但生产Worker仍用通用版
+- **文件**: `clair-worker/worker.js` + `_worker.js`
+- **描述**: 将本地 `backend/src/api/ai-gems.ts` 的reasons生成逻辑同步到Worker
+- **契约**: POST /api/ai/gems 返回 `{gems:[{reasons:['涨势强劲+6.4%','成交活跃换手8.1%',...]}],...}`
+- **优先级**: P2 (下次Worker部署时一并处理)
+
+### 任务2: 前端预存TypeScript错误修复
+- **背景**: 前端33个预存TS错误(多为`_Text`/`_Title`私有属性访问)
+- **文件**: frontend/src/components/ 下的多个文件
+- **描述**: 每次修5个, 逐步清零
+- **优先级**: P2
+
+### 协作确认
+Hermes 已推送最新代码。MiMoCode 如需了解最新API变更, 查看 CLAIR-STANDARDS.md 第1.3节 API契约。
+
 ### 后端新增 API（可直接调用）
 
 | 端点 | 说明 |
