@@ -54,9 +54,13 @@ BG=`#0f172a` CARD=`#1e293b` UP=`#cf2a2a`(红涨) DOWN=`#1db468`(绿跌) ACCENT=`
 - 6 核心页面 QA 全过（发掘/筛选/自选/复盘/个股详情/产业地图）
 - 三大 AI 功能端到端验证通过: `/ai/market-insight-llm`、`/ai/watchlist-summary`、`/ai/trade-analysis`
 - LLM市场解读增强完成: 前端优先调用LLM端点，失败时fallback到规则引擎
-- **Phase 14 进行中**: 质量闭环+产品深度
+- **潜力股雷达页已完成**: RadarPage.tsx (六因子雷达图+Top50+理由标签)
+- **K线修复完成**: period参数传递 + 暗色tooltip + KDJ指标 + 参数面板
+- **筛选性能优化**: 虚拟滚动 + 骨架屏
+- **Clair Development Loop已建立**: SCAN→EVAL→PLAN→EXEC→VERIFY→CAPTURE
+- **Harness知识库已建立**: 产品/工程/设计/领域/运维 5个KB
 - **唯一生产卡点**: Cloudflare Pages 配 `DEEPSEEK_API_KEY`
-- **当前重点**: Phase 14 四页端到端QA + AI功能打磨 + 部署就绪
+- **当前重点**: 按Loop持续推进P1/P2优化
 
 ## %BASE_URL% / SPA 部署陷阱（2026-06-25 实战）
 - **静态资源绝对路径在 base=/clair/ 下会 404**: index.html 里 `'/sw.js'`、`href="/icon.png"` 不被 Vite 重写 → 用 `%BASE_URL%sw.js`（Vite 构建时替换）。`<link rel="manifest">` 是例外（Vite 自动注入 base）。

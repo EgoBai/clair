@@ -100,9 +100,10 @@ const QUICK_COMMANDS: QuickCommand[] = [
 
 interface ChatPanelProps {
   pageContext?: PageContext;
+  suggestedQuestions?: Array<{ icon: string; text: string; prompt: string }>;
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext }) => {
+const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions = [] }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -233,6 +234,34 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
     }
   }, [inputValue, isLoading, messages, systemHint]);
 
+  // 直接发送指定prompt (用于猜你想问点击)
+  const handleSendWithPrompt = useCallback(async (prompt: string) => {
+    if (!prompt.trim() || isLoading) return;
+    const userMessage: Message = {
+      id: Date.now().toString(), role: 'user', content: prompt.trim(), timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setInputValue('');
+    setIsLoading(true);
+    const aiMessageId = (Date.now() + 1).toString();
+    const aiMessage: Message = {
+      id: aiMessageId, role: 'assistant', content: '', timestamp: new Date(), isStreaming: true,
+    };
+    setMessages(prev => [...prev, aiMessage]);
+    try {
+      const context = [
+        { role: 'system' as const, content: systemHint },
+        ...messages.slice(-5).map(m => ({ role: m.role, content: m.content })),
+        { role: 'user' as const, content: prompt.trim() },
+      ];
+      const aiContent = await chat(prompt.trim(), context, pageContext?.symbol);
+      setMessages(prev => prev.map(m => m.id === aiMessageId ? { ...m, content: aiContent, isStreaming: false } : m));
+    } catch (error) {
+      console.error('AI chat error:', error);
+      setMessages(prev => prev.map(m => m.id === aiMessageId ? { ...m, content: `⚠️ AI服务暂时不可用`, isStreaming: false } : m));
+    } finally { setIsLoading(false); }
+  }, [isLoading, messages, systemHint, pageContext?.symbol]);
+
   // 快捷指令点击
   const handleQuickCommand = useCallback((command: QuickCommand) => {
     // 如果是个股页面且指令需要股票代码，注入当前股票
@@ -278,6 +307,33 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
 
       {/* 消息列表 */}
       <div className="chat-messages">
+        {/* 猜你想问 — 仅首次打开无消息时显示 */}
+        {messages.length === 0 && suggestedQuestions.length > 0 && (
+          <div style={{ padding: '12px 16px 8px' }}>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8, fontWeight: 600 }}>
+              💡 猜你想问
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {suggestedQuestions.map((q, i) => (
+                <div
+                  key={i}
+                  onClick={() => handleSendWithPrompt(q.prompt)}
+                  style={{
+                    padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
+                    background: '#1e293b', border: '1px solid #334155',
+                    fontSize: 13, color: '#cbd5e1', transition: 'all 0.15s',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#334155'; e.currentTarget.style.borderColor = '#667eea'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.borderColor = '#334155'; }}
+                >
+                  <span>{q.icon}</span>
+                  <span>{q.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {messages.map(message => (
           <div
             key={message.id}
