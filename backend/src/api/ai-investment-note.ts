@@ -23,7 +23,7 @@ router.post('/ai/investment-note', asyncHandler(async (req: Request, res: Respon
   const db = getDb();
 
   // 获取自选股实时行情
-  const stocks = await db.connection('stocks as s')
+  const stocks = await (db.connection as any)('stocks as s')
     .leftJoin('daily_quotes as dq', function(this: any) {
       this.on('s.id', '=', 'dq.stock_id')
         .andOn('dq.trade_date', '=', db.connection.raw(

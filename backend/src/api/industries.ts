@@ -17,7 +17,7 @@ router.get('/industries', asyncHandler(async (req: Request, res: Response) => {
 
   if (level === '2') {
     const db = getDb();
-    const rows = await db.connection('stocks as s')
+    const rows = await (db.connection as any)('stocks as s')
       .join('daily_quotes as dq', function(this: any) {
         this.on('s.id', '=', 'dq.stock_id')
           .andOn('dq.trade_date', '=', db.connection.raw(
@@ -37,7 +37,7 @@ router.get('/industries', asyncHandler(async (req: Request, res: Response) => {
       )
       .orderBy('stock_count', 'desc');
 
-    return res.json({
+    res.json({
       success: true,
       data: {
         standard: '申万2021 二级(自研分类引擎 v3)',

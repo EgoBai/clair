@@ -16,7 +16,7 @@ import {
 import { apiFetch } from '../utils/api';
 
 const { Title, Text } = Typography;
-const { _Option } = Select;
+const { Option } = Select;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;

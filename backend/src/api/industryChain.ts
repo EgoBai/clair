@@ -43,7 +43,7 @@ async function queryStocksByFilter(filter: StockFilter): Promise<DbStock[]> {
   const dbInstance = getDb();
   const knex = dbInstance.connection;
   
-  let query = knex('stocks as s')
+  let query = (knex('stocks as s') as any)
     .leftJoin('daily_quotes as dq', function(this: any) {
       this.on('s.id', '=', 'dq.stock_id')
         .andOn('dq.trade_date', '=', knex.raw(
@@ -69,7 +69,7 @@ async function queryStocksByFilter(filter: StockFilter): Promise<DbStock[]> {
   }
   
   // 关键词过滤
-  if (filter.nameKeywords?.length > 0) {
+  if ((filter.nameKeywords?.length ?? 0) > 0) {
     query = query.where(function(builder: any) {
       filter.nameKeywords!.forEach(kw => {
         builder.orWhere('s.name', 'like', `%${kw}%`);
@@ -78,8 +78,8 @@ async function queryStocksByFilter(filter: StockFilter): Promise<DbStock[]> {
   }
   
   // 排除关键词
-  if (filter.excludeKeywords?.length > 0) {
-    filter.excludeKeywords.forEach(kw => {
+  if ((filter.excludeKeywords?.length ?? 0) > 0) {
+    filter.excludeKeywords!.forEach(kw => {
       query = query.whereNot('s.name', 'like', `%${kw}%`);
     });
   }
@@ -142,7 +142,7 @@ async function queryStocksByConcept(chainId: string, segmentId: string): Promise
     
     const dbInstance = getDb();
     const knex = dbInstance.connection;
-    const rows = await knex('stocks as s')
+    const rows = await (knex('stocks as s') as any)
       .leftJoin('daily_quotes as dq', function(this: any) {
         this.on('s.id', '=', 'dq.stock_id')
           .andOn('dq.trade_date', '=', knex.raw('(SELECT MAX(trade_date) FROM daily_quotes WHERE stock_id = s.id)'));
@@ -694,7 +694,7 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
     const chain = industryChains.find(c => c.id === id);
     if (!chain) return sendNotFound(res, '产业链未找到');
     // 无详细数据的产业链直接返回摘要
-    const enriched = { ...chain };
+    const enriched: any = { ...chain };
     // 尝试从DB查询，如果有filter定义
     const filters = segmentFilters.filter((f: any) => f.chainId === id);
     if (filters.length > 0) {

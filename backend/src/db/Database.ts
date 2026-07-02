@@ -452,7 +452,7 @@ export class Database {
 
     const quoteMap = new Map<number, DailyQuote>();
     latestQuotes.rows.forEach((quote: DailyQuote) => {
-      quoteMap.set(quote.stock_id as unknown as number, quote);
+      quoteMap.set(quote.stockId as unknown as number, quote);
     });
 
     return stocks.map(stock => ({

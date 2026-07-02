@@ -131,7 +131,7 @@ ${watchlistContext}
     // 构建数据库查询
     const dbInstance = getDb();
     const knex = dbInstance.connection;
-    let queryBuilder = knex('stocks as s')
+    let queryBuilder = (knex as any)('stocks as s')
       .leftJoin('daily_quotes as dq', function(this: any) {
         this.on('s.id', '=', 'dq.stock_id')
           .andOn('dq.trade_date', '=', knex.raw(

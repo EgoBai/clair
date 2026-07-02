@@ -43,7 +43,7 @@ router.get('/industry-alerts', asyncHandler(async (_req: Request, res: Response)
   for (const concept of conceptMappings) {
     const symbols = concept.symbols.flatMap(s => [`${s}.SH`, `${s}.SZ`, `${s}.BJ`]);
     
-    const rows = await db.connection('stocks as s')
+    const rows = await (db.connection as any)('stocks as s')
       .leftJoin('daily_quotes as dq', function(this: any) {
         this.on('s.id', '=', 'dq.stock_id')
           .andOn('dq.trade_date', '=', db.connection.raw(

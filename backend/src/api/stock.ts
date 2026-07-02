@@ -285,7 +285,7 @@ router.post('/tech/batch', asyncHandler(async (req, res) => {
     return sendSuccess(res, { data: {} });
   }
 
-  const results: Record<string, Record<string, number | null>> = {};
+  const results: Record<string, any> = {};
 
   // Parallel: resolve all symbols to stock_ids
   const stockInfos = await Promise.all(
@@ -307,8 +307,8 @@ router.post('/tech/batch', asyncHandler(async (req, res) => {
           if (!quotes || quotes.length < 5) return { symbol };
 
           // Sort ascending by trade_date (oldest first)
-          quotes.sort((a, b) => new Date(a.trade_date).getTime() - new Date(b.trade_date).getTime());
-          const closes = quotes.map(q => Number(q.close_price)).filter(c => c > 0);
+          quotes.sort((a, b) => new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime());
+          const closes = quotes.map(q => Number(q.closePrice)).filter(c => c > 0);
           if (closes.length < 5) return { symbol };
 
           const latest = closes[closes.length - 1];

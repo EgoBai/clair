@@ -178,9 +178,9 @@ app.get('/api/search', asyncHandler(async (req, res) => {
     try {
       const qLower = q.toLowerCase();
       // 先尝试精确匹配
-      results = await getDb().connection('stocks')
+      results = await (getDb().connection as any)('stocks')
         .where('is_active', true)
-        .andWhere(function() {
+        .andWhere(function(this: any) {
           this.whereILike('symbol', `%${q}%`)
             .orWhereILike('code', `%${q}%`)
             .orWhereILike('name', `%${q}%`)
@@ -202,7 +202,7 @@ app.get('/api/search', asyncHandler(async (req, res) => {
       if (results.length === 0 && q.length >= 2) {
         const chars = q.split('');
         const likeConditions = chars.map(c => `name ILIKE '%${c}%'`).join(' AND ');
-        results = await getDb().connection('stocks')
+        results = await (getDb().connection as any)('stocks')
           .where('is_active', true)
           .andWhereRaw(likeConditions)
           .select('id', 'symbol', 'name', 'market', 'industry')

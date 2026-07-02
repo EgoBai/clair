@@ -44,7 +44,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
   } catch { /* 行业动量评分获取失败时降级: sectorScores 保持为空, 不影响主流程 */ }
 
   // JOIN stocks + latest daily_quotes
-  const stocks = await db.connection('stocks as s')
+  const stocks = await (db.connection as any)('stocks as s')
     .leftJoin('daily_quotes as dq', function(this: any) {
       this.on('s.id', '=', 'dq.stock_id')
         .andOn('dq.trade_date', '=', db.connection.raw(

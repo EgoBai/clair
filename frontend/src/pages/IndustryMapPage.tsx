@@ -77,8 +77,8 @@ import { useWatchlistStore } from '../hooks/useWatchlistStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
-const { _Search } = Input;
-const { _Option } = Select;
+const { Search } = Input;
+const { Option } = Select;
 
 // API 基础 URL
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
