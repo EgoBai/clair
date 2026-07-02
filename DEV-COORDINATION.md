@@ -195,9 +195,19 @@ Hermes 已完成申万2021二级行业分类重制。前端露出（DiscoverPage
 - **描述**: 每次修5个, 逐步清零
 - **优先级**: P2
 
-### 协作确认
-Hermes 已推送最新代码。MiMoCode 如需了解最新API变更, 查看 CLAIR-STANDARDS.md 第1.3节 API契约。
+### 任务3: AI问答页面嵌入按钮 (NEW)
+- **背景**: FloatingChat已增强猜你想问+实时数据, 需在各页面添加嵌入式"问AI"入口
+- **文件**:
+  - `frontend/src/pages/DiscoverPage.tsx` — AI解读区下方添加"对此分析有疑问？问AI →"
+  - `frontend/src/pages/StockDetailPage.tsx` — 多信号面板旁添加"深入分析 →"
+  - `frontend/src/pages/IndustryMapPage.tsx` — 产业链图下方添加"提问AI →"
+- **样式**: 圆角按钮, 紫色边框, hover高亮, 16px字体, 图标+文字
+- **行为**: 点击 → 打开FloatingChat并预填上下文问题
+- **优先级**: P1
 
+### 协作确认
+Hermes 已推送最新代码(FloatingChat v2 + ChatPanel猜你想问)。
+MiMoCode 如需了解最新API变更, 查看 CLAIR-STANDARDS.md 第1.3节 API契约。
 ### 后端新增 API（可直接调用）
 
 | 端点 | 说明 |
