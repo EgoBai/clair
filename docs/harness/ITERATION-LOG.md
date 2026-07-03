@@ -1,125 +1,41 @@
-# 迭代日志 — Clair Development Loop
+## 2026-07-01 Loop S4 复盘
 
-> 每轮迭代必须记录。格式：SCAN → EVAL → PLAN → EXEC → VERIFY → CAPTURE
+### 周期: S4 (第4轮标准循环)
 
----
+### 任务: vendor-antd 1.1MB 优化
 
-## Round 2026-06-29: K线修复 + RadarPage + 图表暗色主题
+### 执行
+- 3 Agent 并行 (CSS分离 / DatePicker延迟 / 图标检查)
+- 全部 3/3 完成, 总耗时 143s
 
-### SCAN
-- 前端测试: 852文件/17733用例 全绿 ✅
-- 后端测试: 588文件/14334用例 全绿 ✅
-- Lint: 0 errors, 41 warnings ✅
-- 服务: 后端:301 ✅ 前端:5173 ✅
-- 用户反馈: "K线图还是不能正常展示"
+### 发现
+- antd v5 CSS-in-JS 无物理CSS文件 → CSS分离不可行
+- DatePicker 已被 Rollup tree-shake → 不在 vendor-antd 中
+- 57个图标导入全命名导入 → tree-shaking 完美
+- **vendor-antd 1.1MB = antd v5 最小运行时, 不可进一步优化**
 
-### EVAL
-| 差距 | 严重度 | 影响 |
-|------|--------|------|
-| K线period参数未传API | P0 | 周K/月K切换无效 |
-| K线tooltip白色背景 | P0 | 暗色主题下刺眼 |
-| RadarPage未创建 | P1 | 差异化功能缺失 |
-| LinkedCharts tooltip | P1 | 同上 |
-| 导出图片白色背景 | P2 | 视觉不一致 |
+### 意外收获
+- 发现死代码 ExportPanel.tsx (509行, 无任何引用)
+- 已清理: -878行代码
 
-### PLAN
-- T9: K线修复 (period + tooltip + export)
-- T10: 图表暗色统一
-- T11: RadarPage创建+路由+导航
-- T12: DEV-COORDINATION.md更新
+### 决策
+- **Pivot**: vendor-antd 优化取消 → 转向其他可优化项
+- 下一轮: 前端测试稳定性 (3 flaky timeout) + 移动端检查
 
-### EXEC
-- T9 ✅: StockDetailPage.tsx + KLineChart.tsx + LinkedCharts.tsx
-- T10 ✅: 剩余Charts文件rgba(255,255,255)是暗色背景上的白色半透，正常
-- T11 ✅: RadarPage.tsx (493行) + main.tsx路由 + NavigationMenu导航项
-- T12 ✅: DEV-COORDINATION.md更新分工+计划+文件锁
+### Agent 集群表现
+- 3/3 子Agent成功完成
+- 平均耗时 92s/Agent
+- 发现正确性: Agent B 发现死代码 (主Agent未察觉)
+- 主Agent验证: 编译0错误 ✅
 
-### VERIFY
-- K线period: ✅ `?period=daily` 正确传递
-- K线tooltip: ✅ 暗色背景+亮色文字
-- RadarPage: ✅ TS编译0错误，API返回真实数据
-- 全量测试: ✅ 未破坏现有测试
+### 下一轮任务池
+| 优先级 | 任务 | 预估收益 |
+|--------|------|----------|
+| P2 | 修复前端 vitest worker flaky timeout | 测试稳定性 |
+| P2 | 移动端6页面快速巡检 | UX一致性 |
+| P3 | 后端测试覆盖率 | 质量可见性 |
+| P3 | 528只行业分类补充 | 数据完整性 |
 
-### CAPTURE
-- **学到的**: `useCallback` deps数组包含变量但函数体未使用 → 常见遗漏模式
-- **学到的**: Charts组件rgba(255,255,255,*);在暗色背景上是正常设计，不是bug
-- **决策**: RadarPage路由用 `/radar`，导航图标用 🏆
-- **新增知识**: KLineChart已支持MACD/KDJ/RSI副图，前端按钮需要对应
-
----
-
-## Round 2026-06-29 PM: K线指标面板 + 筛选性能
-
-### SCAN
-- 上午完成: K线修复 + RadarPage + 图表暗色
-- K线面板: 仅有成交量/MACD/RSI三个按钮，缺KDJ
-- 筛选页: 6000只股票全量加载，表格渲染慢
-
-### EVAL
-| 差距 | 严重度 | 影响 |
-|------|--------|------|
-| KDJ指标不可选 | P1 | 技术分析不完整 |
-| 指标参数不可调 | P1 | 专业用户需求 |
-| 筛选页表格渲染慢 | P1 | 用户体验差 |
-| 无加载骨架屏 | P2 | 首屏体验 |
-
-### PLAN
-- T13: K线指标面板增强 (KDJ + 参数调整 + 颜色编码)
-- T14: 筛选性能优化 (虚拟列表 + pageSize + 骨架屏)
-
-### EXEC
-- T13 ✅: StockDetailPage.tsx — KDJ按钮 + indicatorParams状态 + 参数输入面板 + 颜色编码
-- T14 ✅: ScreenerPage.tsx — virtual prop + pageSize 50→100 + useMemo(columns) + Skeleton
-
-### VERIFY
-- TS编译: ✅ 0新错误
-- KDJ按钮: ✅ 紫色#8b5cf6编码
-- 参数面板: ✅ MACD/KDJ/RSI各有对应参数
-- 虚拟滚动: ✅ Ant Design 5.12+原生支持
-
-### CAPTURE
-- **学到的**: Ant Design Table `virtual` prop 无需额外依赖即可虚拟滚动
-- **学到的**: KLineChart已内置MACD/KDJ/RSI计算，前端只需传subIndicator参数
-- **决策**: 筛选页保持6000全量加载（策略模板需要全量数据做评分），用虚拟滚动优化渲染
-
----
-
-## Round 2026-07-03: P1修复 (lint error + test竞态)
-
-### SCAN
-- 后端: 588文件/14334测试 ✅
-- 前端: 851通过/1失败 MarketOverview.test.tsx (vitest竞态)
-- Lint: 3 errors + 54 warnings
-- TS: 23 errors (auto-sync后降为0)
-- API: 全部200
-
-### EVAL
-| 差距 | 严重度 | 修复难度 |
-|------|--------|----------|
-| MarketOverview.test.tsx 竞态失败 | P1 | 低(已自愈) |
-| ChatPanel/KnowledgeCategory未用import | P1 | 低 |
-| MultiSignalPanel/Empty未用import | P1 | 低 |
-| EChartsWrapper重复react import | P1 | 低 |
-
-### PLAN
-- 修复3个lint error
-- 验证测试全绿
-
-### EXEC
-- ChatPanel.tsx: 删除 `type KnowledgeCategory` import
-- MultiSignalPanel.tsx: 删除 `Empty` import
-- EChartsWrapper.tsx: 合并两个react import为一个
-
-### VERIFY
-- Lint: 0 errors ✅
-- TS: 0 errors ✅
-- 测试: 852文件/17733用例 全绿 ✅
-
-### CAPTURE
-- **学到的**: vitest.config.ts已有`@`别名，MarketOverview测试全量运行时偶发失败是竞态，单独运行通过
-- **学到的**: `import type X from 'react'` + `import { Y } from 'react'` 被no-duplicate-imports视为重复，应合并为 `import { Y, type X } from 'react'`
-- **学到的**: TS 23个error在auto-sync commit后降为0，说明之前的修复已被合并
-
----
-
-> 后续每轮迭代按相同格式追加
+### 记录
+- 任务计划: docs/harness/task-S4-vendor-antd.md
+- Git: c5b80f3
