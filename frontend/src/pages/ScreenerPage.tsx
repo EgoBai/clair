@@ -774,7 +774,16 @@ const ScreenerPage: React.FC = () => {
                 onChange: setPage, showSizeChanger: false,
                 showTotal: (total) => `共 ${total} 只`,
               }}
-              locale={{ emptyText: <Empty description="暂无符合条件的股票" /> }}
+              locale={{ emptyText: (
+              <Empty
+                description={
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>未找到匹配股票</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>建议尝试放宽筛选条件、减少筛选指标，或更换策略模板</div>
+                  </div>
+                }
+              />
+            ) }}
               style={{ background: 'transparent' }}
             />
           )}

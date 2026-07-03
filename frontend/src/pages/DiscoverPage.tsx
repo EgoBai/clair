@@ -6,8 +6,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button } from 'antd';
-import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
+import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button, Alert, Result } from 'antd';
+import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined, ReloadOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -77,21 +77,49 @@ const DiscoverPage: React.FC = () => {
   const [insightLoading, setInsightLoading] = useState(false);
   const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
   const [news, setNews] = useState<any[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [summaryError, setSummaryError] = useState(false);  // /api/market/summary 错误降级
 
   // Load market overview + scores (fast, show immediately)
   useEffect(() => {
     (async () => {
       setLoading(true);
       setInsightLoading(true);
+      setLoadError(false);
+      setSummaryError(false);
       const apiPath = sectorType === 'industry' ? '/api/sectors/momentum' : '/api/sectors/concept';
-      const [iRes, sRes, mRes] = await Promise.all([
-        fetch('/api/market/indices').then(r => r.json()).catch(() => ({ data: { indices: [] } })),
-        fetch(apiPath).then(r => r.json()).catch(() => ({ data: { sectors: [] } })),
-        fetch('/api/market/summary').then(r => r.json()).catch(() => null),
-      ]);
-      setIndices(iRes.data?.indices || []);
-      setScores(sRes.data?.sectors || []);
-      if (mRes?.data) setMarketSummary(mRes.data);
+      
+      let mRes: any = null;
+      let hasCriticalError = false;
+      
+      try {
+        const results = await Promise.allSettled([
+          fetch('/api/market/indices').then(r => r.json()),
+          fetch(apiPath).then(r => r.json()),
+          fetch('/api/market/summary').then(r => r.json()),
+        ]);
+        
+        // indices
+        if (results[0].status === 'fulfilled') {
+          setIndices(results[0].value.data?.indices || []);
+        }
+        // sectors
+        if (results[1].status === 'fulfilled') {
+          setScores(results[1].value.data?.sectors || []);
+        } else {
+          hasCriticalError = true;
+        }
+        // summary — 单独追踪降级
+        if (results[2].status === 'fulfilled' && results[2].value?.data) {
+          setMarketSummary(results[2].value.data);
+        } else {
+          setSummaryError(true);
+        }
+      } catch {
+        setLoadError(true);
+      }
+      
+      if (hasCriticalError) setLoadError(true);
       setLoading(false);
 
       // AI insight: instant rule-based (0 delay)
@@ -158,7 +186,148 @@ const DiscoverPage: React.FC = () => {
   const hasGainers = topGainers.length > 0 && Number(topGainers[0].avg_change_percent ?? topGainers[0].avgChange ?? 0) > 0;
   const leaderTitle = hasGainers ? '🏆 领涨板块' : '💪 相对抗跌'; // 普跌日不再把负涨幅称作"领涨"
 
-  if (loading) return <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
+  // Skeleton 加载骨架屏 + 数据加载错误降级
+  if (loading) return (
+    <div style={{ background: BG, minHeight: '100vh', color: TEXT }}>
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 40px' }}>
+        {/* 头部骨架 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: 4,
+              background: 'linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%)',
+              backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+            }} />
+            <div style={{
+              width: 120, height: 28, borderRadius: 6,
+              background: 'linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%)',
+              backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+            }} />
+          </div>
+          <div style={{
+            width: 280, height: 14, borderRadius: 4, marginTop: 6,
+            background: 'linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%)',
+            backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+          }} />
+        </div>
+
+        {/* AI解读区骨架 */}
+        <div style={{
+          borderRadius: 12, padding: '28px 32px', marginBottom: 20,
+          background: 'var(--card-bg)', border: '1px solid var(--border-subtle)',
+        }}>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: 12,
+              background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+              backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+            }} />
+            <div>
+              <div style={{
+                width: 160, height: 22, borderRadius: 4, marginBottom: 6,
+                background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+              }} />
+              <div style={{
+                width: 240, height: 14, borderRadius: 4,
+                background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+              }} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 24 }}>
+            <div>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} style={{ marginBottom: 18 }}>
+                  <div style={{
+                    width: i === 0 ? '55%' : '40%', height: 16, borderRadius: 4, marginBottom: 10,
+                    background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                    backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+                  }} />
+                  {Array.from({ length: 2 }).map((__, j) => (
+                    <div key={j} style={{
+                      width: `${80 + j * 10}%`, height: 13, borderRadius: 4, marginBottom: 8,
+                      background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                      backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+                    }} />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} style={{
+                  display: 'flex', justifyContent: 'space-between', marginBottom: 12,
+                  padding: '6px 8px', borderRadius: 6, background: 'var(--bg-surface)',
+                }}>
+                  <div style={{
+                    width: 80, height: 14, borderRadius: 4,
+                    background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                    backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+                  }} />
+                  <div style={{
+                    width: 50, height: 14, borderRadius: 4,
+                    background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                    backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+                  }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 板块骨架 */}
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} style={{
+            borderRadius: 10, padding: '12px 16px', marginBottom: 8,
+            background: 'var(--card-bg)', border: '1px solid var(--border-subtle)',
+            display: 'flex', alignItems: 'center', gap: 16,
+          }}>
+            <div style={{
+              width: 50, height: 50, borderRadius: 8,
+              background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+              backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+            }} />
+            <div style={{ flex: 1 }}>
+              <div style={{
+                width: 130, height: 15, borderRadius: 4, marginBottom: 8,
+                background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+              }} />
+              <div style={{
+                width: 260, height: 12, borderRadius: 4,
+                background: 'linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%)',
+                backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
+              }} />
+            </div>
+          </div>
+        ))}
+
+        <style>{`
+          @keyframes skeleton-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+          }
+        `}</style>
+      </div>
+    </div>
+  );
+
+  // 关键数据加载失败，显示带重试按钮的降级 UI
+  if (loadError) return (
+    <div style={{ background: BG, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Result
+        status="error"
+        title="数据加载失败"
+        subTitle="无法获取市场数据，请检查网络连接后重试"
+        extra={
+          <Button type="primary" onClick={() => window.location.reload()} icon={<ReloadOutlined />}>
+            重新加载
+          </Button>
+        }
+      />
+    </div>
+  );
 
   const moodEmoji = insight?.moodEmoji || '📊';
   // 使用真实市场数据替代旧的 AI insight 虚构数据
@@ -189,6 +358,22 @@ const DiscoverPage: React.FC = () => {
 
         {view === 'market' ? (
           <>
+            {/* 市场摘要 API 降级提示 */}
+            {summaryError && (
+              <Alert
+                type="warning"
+                message="部分数据加载失败"
+                description="市场涨跌家数等统计数据暂不可用，部分指标可能显示为 0。其他数据正常展示。"
+                style={{ marginBottom: 16, borderRadius: 8 }}
+                showIcon
+                action={
+                  <Button size="small" onClick={() => window.location.reload()} icon={<ReloadOutlined />}>
+                    重试
+                  </Button>
+                }
+              />
+            )}
+
             {/* ====== AI 市场解读 v3：全宽双栏布局 ====== */}
             <div className="card-modern animate-fade-in" style={{ padding: '28px 32px', marginBottom: 20 }}>
               {/* 顶部情绪栏 */}
