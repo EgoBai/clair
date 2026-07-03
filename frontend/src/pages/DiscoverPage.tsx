@@ -329,12 +329,6 @@ const DiscoverPage: React.FC = () => {
                           {(Array.isArray(insight?.topSectors) ? insight.topSectors.filter((s: any) => s.score >= 70).length : topScores.filter(s => s.score >= 70).length)} 个
                         </span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 12, color: TEXT_SEC }}>涨停家数</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: COLOR_UP }}>
-                          {insight?.limitUpCount ?? scores.reduce((sum, s) => sum + s.limit_up_count, 0)} 只
-                        </span>
-                      </div>
                     </div>
                   </div>
 

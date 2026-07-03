@@ -84,4 +84,42 @@
 
 ---
 
+## Round 2026-07-03: P1修复 (lint error + test竞态)
+
+### SCAN
+- 后端: 588文件/14334测试 ✅
+- 前端: 851通过/1失败 MarketOverview.test.tsx (vitest竞态)
+- Lint: 3 errors + 54 warnings
+- TS: 23 errors (auto-sync后降为0)
+- API: 全部200
+
+### EVAL
+| 差距 | 严重度 | 修复难度 |
+|------|--------|----------|
+| MarketOverview.test.tsx 竞态失败 | P1 | 低(已自愈) |
+| ChatPanel/KnowledgeCategory未用import | P1 | 低 |
+| MultiSignalPanel/Empty未用import | P1 | 低 |
+| EChartsWrapper重复react import | P1 | 低 |
+
+### PLAN
+- 修复3个lint error
+- 验证测试全绿
+
+### EXEC
+- ChatPanel.tsx: 删除 `type KnowledgeCategory` import
+- MultiSignalPanel.tsx: 删除 `Empty` import
+- EChartsWrapper.tsx: 合并两个react import为一个
+
+### VERIFY
+- Lint: 0 errors ✅
+- TS: 0 errors ✅
+- 测试: 852文件/17733用例 全绿 ✅
+
+### CAPTURE
+- **学到的**: vitest.config.ts已有`@`别名，MarketOverview测试全量运行时偶发失败是竞态，单独运行通过
+- **学到的**: `import type X from 'react'` + `import { Y } from 'react'` 被no-duplicate-imports视为重复，应合并为 `import { Y, type X } from 'react'`
+- **学到的**: TS 23个error在auto-sync commit后降为0，说明之前的修复已被合并
+
+---
+
 > 后续每轮迭代按相同格式追加
