@@ -2,8 +2,7 @@
  * 轻量 ECharts React 包装器
  * 使用按需引入的 echarts 实例，替代全量 echarts-for-react
  */
-import React, { useRef, useEffect, useCallback } from 'react';
-import type { CSSProperties } from 'react';
+import React, { useRef, useEffect, useCallback, type CSSProperties } from 'react';
 import echarts from '@/utils/echarts';
 import type { EChartsType } from 'echarts/core';
 

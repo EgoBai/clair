@@ -13,7 +13,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { chat } from '../../services/aiClient';
 import { renderMarkdown } from '../../utils/markdown';
-import { saveEntry, CATEGORIES, type KnowledgeCategory } from '../../utils/knowledgeStore';
+import { saveEntry, CATEGORIES } from '../../utils/knowledgeStore';
 
 // ============================================================
 // 类型定义

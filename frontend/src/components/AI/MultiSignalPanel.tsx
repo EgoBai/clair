@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Card, Row, Col, Tag, Progress, Spin, Typography, Empty, Collapse } from 'antd';
+import { Card, Row, Col, Tag, Progress, Spin, Typography, Collapse } from 'antd';
 import {
   RiseOutlined,
   FallOutlined,

@@ -1,26 +1,24 @@
 {
-  "name": "澄观 Clair · 水静则明",
+  "name": "澄观 Clair",
   "short_name": "澄观",
-  "description": "AI驱动的A股投资研究平台 — 板块景气度发掘 · 智能筛选 · 实时追踪",
-  "start_url": ".",
-  "scope": ".",
+  "description": "AI陪伴式投资研究助手 — 发掘·筛选·自选·复盘",
+  "start_url": "/clair/",
+  "scope": "/clair/",
   "display": "standalone",
   "background_color": "#0f172a",
-  "theme_color": "#3b82f6",
+  "theme_color": "#667eea",
   "orientation": "any",
-  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "/clair/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
+      "type": "image/png"
     },
     {
-      "src": "icon-512.png",
+      "src": "/clair/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
+      "type": "image/png"
     }
-  ]
+  ],
+  "categories": ["finance", "productivity"]
 }
