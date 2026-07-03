@@ -7,7 +7,6 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     {
       name: 'echarts-tree-shaking',
-      enforce: 'pre',
       resolveId(id) {
         if (id === 'echarts') {
           return path.resolve(__dirname, 'src/utils/echarts.ts');
