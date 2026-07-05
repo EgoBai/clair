@@ -39,3 +39,33 @@
 ### 记录
 - 任务计划: docs/harness/task-S4-vendor-antd.md
 - Git: c5b80f3
+
+---
+
+## Round 2026-07-03 PM: P1修复 + P2骨架屏 + 页面过渡动画
+
+### SCAN (2026-07-03)
+- 后端: 588文件/14334测试 ✅
+- 前端: 851文件/17721测试 全绿 ✅
+- Lint: 0 errors ✅
+- TS: 0 errors ✅
+- API: 全部200 ✅
+
+### P1修复
+| 问题 | 修复 |
+|------|------|
+| ChatPanel.tsx KnowledgeCategory未用import | 删除 |
+| MultiSignalPanel.tsx Empty未用import | 删除 |
+| EChartsWrapper.tsx 重复react import | 合并为一行 |
+| MarketOverview.test.tsx 竞态失败 | vitest竞态，单独运行通过 |
+
+### P2实现
+| 功能 | 实现 |
+|------|------|
+| 骨架屏 | LazyPage.tsx: Skeleton统计卡片+双栏骨架; StateComponents.tsx: LoadingState用Skeleton |
+| 页面过渡动画 | LazyPage.tsx: FadeIn组件, fadeIn 0.3s + translateY(8px→0) |
+
+### CAPTURE
+- **学到的**: Ant Design Skeleton比Spin更适合首屏加载——用户能预判页面结构
+- **学到的**: 两个子代理修改同一文件时后者覆盖前者，需确认最终状态
+- **决策**: 动画时长0.3s——太快无感，太慢影响效率
