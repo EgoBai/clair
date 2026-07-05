@@ -17,6 +17,13 @@ export default defineConfig({
     // 测试超时设置
     testTimeout: 10000, // 10秒超时
     hookTimeout: 10000, // hook超时
+    // Pool配置: 修复worker启动flaky timeout
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: false,
+      },
+    },
     // 覆盖率配置
     coverage: {
       provider: 'v8',
