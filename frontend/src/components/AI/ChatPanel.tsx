@@ -370,10 +370,10 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
                       <span onClick={() => setSavingMsgId(null)} style={{ padding: '2px 8px', cursor: 'pointer', color: '#94a3b8', fontSize: 11 }}>取消</span>
                     </div>
                   ) : savedMsgIds.has(message.id) ? (
-                    <span style={{ fontSize: 11, color: '#22c55e' }}>✅ 已保存到知识库</span>
+                    <span style={{ fontSize: 11, color: '#22c55e' }}>✅ 已保存到投资笔记</span>
                   ) : (
                     <span onClick={() => setSavingMsgId(message.id)} style={{ fontSize: 11, color: '#667eea', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, background: 'rgba(102,126,234,0.1)' }}>
-                      💾 保存到知识库
+                      📝 保存到投资笔记
                     </span>
                   )}
                 </div>

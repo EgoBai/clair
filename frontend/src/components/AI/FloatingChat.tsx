@@ -4,7 +4,7 @@
  * v2新增:
  * - 猜你想问: 基于当前页面+市场数据生成推荐问题
  * - 实时数据注入: market summary数据注入system提示词
- * - 知识库入口: "保存到知识库"按钮
+ * - 投资笔记入口: "保存到投资笔记"按钮
  */
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';

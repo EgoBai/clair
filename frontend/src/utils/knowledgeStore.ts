@@ -1,5 +1,5 @@
 /**
- * 个人知识库存储 (localStorage-based v1)
+ * 投资笔记存储 (原"知识库", localStorage-based v1)
  * 
  * 结构: { id, question, answer, category, tags, page, symbol?, createdAt }
  * 分类: 产业知识 | 投资方法 | 关注概念 | 学习笔记
@@ -16,6 +16,12 @@ export interface KnowledgeEntry {
   page: string;
   symbol?: string;
   createdAt: string; // ISO
+}
+
+export interface NoteStats {
+  total: number;
+  thisWeek: number;
+  topCategory: { key: KnowledgeCategory; label: string; icon: string; count: number } | null;
 }
 
 const STORAGE_KEY = 'clair_knowledge_base';
@@ -43,6 +49,26 @@ export function saveEntry(entry: Omit<KnowledgeEntry, 'id' | 'createdAt'>): Know
   entries.unshift(newEntry); // newest first
   writeAll(entries);
   return newEntry;
+}
+
+/**
+ * 保存手动笔记 (title + content)
+ */
+export function saveManualNote(data: {
+  title: string;
+  content: string;
+  category: KnowledgeCategory;
+  tags?: string[];
+  symbol?: string;
+}): KnowledgeEntry {
+  return saveEntry({
+    question: data.title,
+    answer: data.content,
+    category: data.category,
+    tags: data.tags || [],
+    page: '手动笔记',
+    symbol: data.symbol,
+  });
 }
 
 export function deleteEntry(id: string): void {
@@ -73,6 +99,31 @@ export function searchEntries(query: string): KnowledgeEntry[] {
     e.answer.toLowerCase().includes(q) ||
     e.tags.some(t => t.toLowerCase().includes(q))
   );
+}
+
+/**
+ * 获取笔记统计: 总数 / 本周新增 / 最常关注分类
+ */
+export function getNoteStats(): NoteStats {
+  const all = readAll();
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+
+  const thisWeek = all.filter(e => new Date(e.createdAt) >= weekStart).length;
+
+  const counts = getCategoryCounts();
+  let topCategory: NoteStats['topCategory'] = null;
+  let max = 0;
+  for (const c of CATEGORIES) {
+    if (counts[c.key] > max) {
+      max = counts[c.key];
+      topCategory = { key: c.key, label: c.label, icon: c.icon, count: counts[c.key] };
+    }
+  }
+
+  return { total: all.length, thisWeek, topCategory };
 }
 
 export const CATEGORIES: { key: KnowledgeCategory; label: string; icon: string; desc: string }[] = [

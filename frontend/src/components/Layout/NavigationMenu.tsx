@@ -58,10 +58,10 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'knowledge',
-    label: '知识库',
+    label: '投资笔记',
     path: '/knowledge',
-    icon: '📚',
-    description: '投资知识积累 · AI问答保存 · 分类回顾'
+    icon: '📝',
+    description: 'AI问答收藏·手动笔记·投资积累'
   }
 ];
 
