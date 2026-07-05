@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Spin, Button, Result } from 'antd';
+import { Button, Result, Skeleton } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 
 interface LoadingStateProps {
@@ -12,17 +12,16 @@ interface LoadingStateProps {
   fullPage?: boolean;
 }
 
-export const LoadingState: React.FC<LoadingStateProps> = ({ tip = '加载中...', fullPage }) => {
+export const LoadingState: React.FC<LoadingStateProps> = ({ fullPage }) => {
   if (fullPage) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <Spin size="large" tip={tip}>
-          <div style={{ padding: 50 }} />
-        </Spin>
+      <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
+        <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
+        <Skeleton active paragraph={{ rows: 6 }} />
       </div>
     );
   }
-  return <Spin tip={tip}><div style={{ padding: 30 }} /></Spin>;
+  return <Skeleton active paragraph={{ rows: 3 }} />;
 };
 
 interface EmptyStateProps {
