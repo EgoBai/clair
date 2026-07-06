@@ -1,11 +1,12 @@
 /**
  * 潜力股雷达 🏆
  * AI多因子雷达图 + Top50排行榜 + 综合评分
+ * 默认展示优质池(≥80分) + 分布标签
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Spin, Empty, Row, Col, Statistic, Button, Card, message } from 'antd';
+import { Table, Tag, Spin, Empty, Row, Col, Statistic, Button, Card, message, Switch } from 'antd';
 import type { Breakpoint } from 'antd';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
@@ -20,6 +21,9 @@ const TEXT_SEC = THEME.textSec;
 const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
 const ACCENT = THEME.accent;
+const PURPLE = '#a855f7';   // 优质池紫色
+const PURPLE_BG = 'rgba(168,85,247,0.08)';  // 优质行背景
+const PURPLE_HOVER = 'rgba(168,85,247,0.14)';
 
 interface GemStock {
   symbol: string;
@@ -61,6 +65,11 @@ const RADAR_INDICATORS = [
   { name: '质量', max: 15 },
 ];
 
+const PREMIUM_THRESHOLD = 80;
+const ALL_THRESHOLD = 40;
+
+type ScoreFilter = 'premium' | 'all';
+
 const RadarPage: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -69,14 +78,17 @@ const RadarPage: React.FC = () => {
   const [model, setModel] = useState('');
   const [selectedStock, setSelectedStock] = useState<GemStock | null>(null);
   const [total, setTotal] = useState(0);
+  const [totalAll, setTotalAll] = useState(0);        // 全部(≥40)的总数
+  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('premium');
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (filter: ScoreFilter) => {
     setLoading(true);
     try {
+      const minScore = filter === 'premium' ? PREMIUM_THRESHOLD : ALL_THRESHOLD;
       const resp = await apiFetch('/api/ai/gems', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topN: 50, minScore: 40 }),
+        body: JSON.stringify({ topN: 50, minScore }),
       });
       const data: GemsResponse = await resp.json();
       if (data?.success && data.data) {
@@ -97,9 +109,38 @@ const RadarPage: React.FC = () => {
     }
   }, []);
 
+  // 初始加载：优质池 + 获取全部总数
   useEffect(() => {
-    fetchData();
+    fetchData('premium');
+    // 同时获取 ≥40 的总数（轻量请求，仅为了展示标签）
+    (async () => {
+      try {
+        const resp = await apiFetch('/api/ai/gems', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topN: 1, minScore: ALL_THRESHOLD }),
+        });
+        const data: GemsResponse = await resp.json();
+        if (data?.success && data.data) {
+          setTotalAll(data.data.total || 0);
+        }
+      } catch {
+        // 静默失败，不影响主流程
+      }
+    })();
   }, [fetchData]);
+
+  const handleFilterChange = useCallback((checked: boolean) => {
+    const next = checked ? 'all' : 'premium';
+    setScoreFilter(next);
+    fetchData(next);
+  }, [fetchData]);
+
+  const premiumCount = useMemo(() => {
+    if (scoreFilter === 'premium') return total;
+    // 在"全部"模式下，从当前数据中统计 ≥80 的数量
+    return gems.filter((g) => g.score >= PREMIUM_THRESHOLD).length;
+  }, [gems, total, scoreFilter]);
 
   const avgScore = useMemo(() => {
     if (!gems.length) return 0;
@@ -113,6 +154,9 @@ const RadarPage: React.FC = () => {
 
   const radarOption = useMemo(() => {
     const stock = selectedStock;
+    const isPremium = stock && stock.score >= PREMIUM_THRESHOLD;
+    const mainColor = isPremium ? PURPLE : '#3b82f6';
+
     if (!stock) {
       return {
         radar: {
@@ -149,7 +193,9 @@ const RadarPage: React.FC = () => {
         splitLine: { lineStyle: { color: 'rgba(148,163,184,0.12)' } },
         splitArea: {
           areaStyle: {
-            color: ['rgba(59,130,246,0.02)', 'rgba(59,130,246,0.04)', 'rgba(59,130,246,0.06)', 'rgba(59,130,246,0.08)', 'rgba(59,130,246,0.10)'],
+            color: isPremium
+              ? ['rgba(168,85,247,0.02)', 'rgba(168,85,247,0.04)', 'rgba(168,85,247,0.06)', 'rgba(168,85,247,0.08)', 'rgba(168,85,247,0.10)']
+              : ['rgba(59,130,246,0.02)', 'rgba(59,130,246,0.04)', 'rgba(59,130,246,0.06)', 'rgba(59,130,246,0.08)', 'rgba(59,130,246,0.10)'],
           },
         },
         axisLine: { lineStyle: { color: 'rgba(148,163,184,0.15)' } },
@@ -175,13 +221,13 @@ const RadarPage: React.FC = () => {
                   type: 'linear',
                   x: 0, y: 0, x2: 0, y2: 1,
                   colorStops: [
-                    { offset: 0, color: 'rgba(59,130,246,0.35)' },
-                    { offset: 1, color: 'rgba(59,130,246,0.05)' },
+                    { offset: 0, color: isPremium ? 'rgba(168,85,247,0.35)' : 'rgba(59,130,246,0.35)' },
+                    { offset: 1, color: isPremium ? 'rgba(168,85,247,0.05)' : 'rgba(59,130,246,0.05)' },
                   ],
                 },
               },
-              lineStyle: { color: '#3b82f6', width: 2 },
-              itemStyle: { color: '#3b82f6', borderColor: '#1e293b', borderWidth: 2 },
+              lineStyle: { color: mainColor, width: 2 },
+              itemStyle: { color: mainColor, borderColor: '#1e293b', borderWidth: 2 },
             },
           ],
         },
@@ -228,7 +274,7 @@ const RadarPage: React.FC = () => {
         render: (score: number) => (
           <span
             style={{
-              color: score >= 80 ? COLOR_UP : score >= 60 ? GOLD : ACCENT,
+              color: score >= PREMIUM_THRESHOLD ? PURPLE : score >= 60 ? GOLD : ACCENT,
               fontWeight: 700,
               fontSize: 15,
               fontFamily: 'monospace',
@@ -317,7 +363,7 @@ const RadarPage: React.FC = () => {
         ),
       },
     ],
-    [COLOR_UP, COLOR_DOWN, GOLD, ACCENT, TEXT, TEXT_SEC]
+    [COLOR_UP, COLOR_DOWN, GOLD, ACCENT, TEXT, TEXT_SEC, PURPLE]
   );
 
   const handleRowClick = useCallback((record: GemStock) => {
@@ -357,8 +403,17 @@ const RadarPage: React.FC = () => {
         .radar-page .ant-table-tbody > tr:hover > td {
           background: rgba(59,130,246,0.06) !important;
         }
+        .radar-page .ant-table-tbody > tr.row-premium > td {
+          background: ${PURPLE_BG} !important;
+        }
+        .radar-page .ant-table-tbody > tr.row-premium:hover > td {
+          background: ${PURPLE_HOVER} !important;
+        }
         .radar-page .ant-table-tbody > tr.selected-row > td {
           background: rgba(59,130,246,0.12) !important;
+        }
+        .radar-page .ant-table-tbody > tr.row-premium.selected-row > td {
+          background: rgba(168,85,247,0.18) !important;
         }
         .radar-page .ant-table-wrapper .ant-table { border-radius: 8px; overflow: hidden; }
         .radar-page .ant-table-wrapper .ant-table-container { border: 1px solid rgba(148,163,184,0.1); border-radius: 8px; }
@@ -367,6 +422,7 @@ const RadarPage: React.FC = () => {
         .radar-page .ant-statistic-content { color: ${TEXT} !important; }
         .radar-page .ant-pagination .ant-pagination-item-active a { color: ${ACCENT} !important; }
         .radar-page .ant-pagination .ant-pagination-item-active { border-color: ${ACCENT} !important; }
+        .radar-page .ant-switch-checked { background-color: ${PURPLE} !important; }
       `}</style>
 
       <div className="radar-page">
@@ -377,7 +433,7 @@ const RadarPage: React.FC = () => {
           </h2>
           <Button
             icon={<ReloadOutlined />}
-            onClick={fetchData}
+            onClick={() => fetchData(scoreFilter)}
             loading={loading}
             style={{ borderColor: 'rgba(148,163,184,0.2)', color: TEXT_SEC }}
           >
@@ -388,7 +444,46 @@ const RadarPage: React.FC = () => {
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} sm={6}>
             <Card size="small">
-              <Statistic title="入选数" value={total} suffix="只" valueStyle={{ color: ACCENT, fontSize: 20 }} />
+              <Statistic
+                title={
+                  <span>
+                    入选数
+                    {totalAll > 0 && scoreFilter === 'premium' && (
+                      <Tag
+                        style={{
+                          marginLeft: 8,
+                          background: 'rgba(168,85,247,0.12)',
+                          color: PURPLE,
+                          border: `1px solid rgba(168,85,247,0.25)`,
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}
+                      >
+                        优质(≥80): {premiumCount}只
+                      </Tag>
+                    )}
+                    {totalAll > 0 && scoreFilter === 'all' && (
+                      <Tag
+                        style={{
+                          marginLeft: 8,
+                          background: 'rgba(168,85,247,0.12)',
+                          color: PURPLE,
+                          border: `1px solid rgba(168,85,247,0.25)`,
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}
+                      >
+                        优质(≥80): {premiumCount}只
+                      </Tag>
+                    )}
+                  </span>
+                }
+                value={scoreFilter === 'premium' ? premiumCount : total}
+                suffix="只"
+                valueStyle={{ color: ACCENT, fontSize: 20 }}
+              />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
@@ -412,6 +507,42 @@ const RadarPage: React.FC = () => {
             </Card>
           </Col>
         </Row>
+
+        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ color: TEXT_SEC, fontSize: 13 }}>筛选：</span>
+          <Tag
+            color={scoreFilter === 'premium' ? 'purple' : 'default'}
+            style={{
+              cursor: 'pointer',
+              fontWeight: scoreFilter === 'premium' ? 700 : 400,
+              opacity: scoreFilter === 'premium' ? 1 : 0.6,
+              borderColor: scoreFilter === 'premium' ? PURPLE : 'rgba(148,163,184,0.25)',
+              background: scoreFilter === 'premium' ? 'rgba(168,85,247,0.15)' : 'transparent',
+              color: scoreFilter === 'premium' ? PURPLE : TEXT_SEC,
+              padding: '4px 14px',
+              fontSize: 13,
+            }}
+            onClick={() => { setScoreFilter('premium'); fetchData('premium'); }}
+          >
+            优质 (≥{PREMIUM_THRESHOLD}分)
+          </Tag>
+          <Tag
+            color={scoreFilter === 'all' ? 'blue' : 'default'}
+            style={{
+              cursor: 'pointer',
+              fontWeight: scoreFilter === 'all' ? 700 : 400,
+              opacity: scoreFilter === 'all' ? 1 : 0.6,
+              borderColor: scoreFilter === 'all' ? ACCENT : 'rgba(148,163,184,0.25)',
+              background: scoreFilter === 'all' ? 'rgba(59,130,246,0.1)' : 'transparent',
+              color: scoreFilter === 'all' ? ACCENT : TEXT_SEC,
+              padding: '4px 14px',
+              fontSize: 13,
+            }}
+            onClick={() => { setScoreFilter('all'); fetchData('all'); }}
+          >
+            全部 (≥{ALL_THRESHOLD}分)
+          </Tag>
+        </div>
 
         {aiSummary && (
           <Card
@@ -462,7 +593,11 @@ const RadarPage: React.FC = () => {
           </Col>
           <Col lg={12} xs={24}>
             <Card
-              title={<span style={{ color: TEXT, fontSize: 14 }}>Top50 排行榜</span>}
+              title={
+                <span style={{ color: TEXT, fontSize: 14 }}>
+                  {scoreFilter === 'premium' ? '优质推荐' : 'Top50'} 排行榜
+                </span>
+              }
               style={{ height: '100%' }}
               bodyStyle={{ padding: 0 }}
             >
@@ -473,13 +608,16 @@ const RadarPage: React.FC = () => {
                   rowKey="symbol"
                   size="small"
                   pagination={{ pageSize: 10, showSizeChanger: false, simple: true }}
+                  rowClassName={(record) => {
+                    const classes = [];
+                    if (record.score >= PREMIUM_THRESHOLD) classes.push('row-premium');
+                    if (selectedStock?.symbol === record.symbol) classes.push('selected-row');
+                    return classes.join(' ');
+                  }}
                   onRow={(record) => ({
                     onClick: () => handleRowClick(record),
                     onDoubleClick: () => handleStockClick(record.symbol),
-                    style: {
-                      cursor: 'pointer',
-                      background: selectedStock?.symbol === record.symbol ? 'rgba(59,130,246,0.08)' : undefined,
-                    },
+                    style: { cursor: 'pointer' },
                   })}
                   locale={{ emptyText: <Empty description="暂无数据" /> }}
                   scroll={{ x: 'max-content' }}
