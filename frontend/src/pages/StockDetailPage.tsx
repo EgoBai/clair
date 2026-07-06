@@ -11,7 +11,7 @@ import {
 } from 'antd';
 import { StockOutlined, CompassOutlined,
   ReloadOutlined, StarOutlined, StarFilled, LineChartOutlined,
-  FundProjectionScreenOutlined,
+  FundProjectionScreenOutlined, FullscreenOutlined, FullscreenExitOutlined,
 } from '@ant-design/icons';
 import KLineChart, { KLineData } from '../components/Charts/KLineChart';
 import { useStockActions, useWatchlist } from '../store/useStockStore';
@@ -77,6 +77,7 @@ const StockDetailPage: React.FC = () => {
     kdjPeriod: 9,
     rsiPeriod: 14,
   });
+  const [klineFullscreen, setKlineFullscreen] = useState(false);
   const [aiStrategy, setAiStrategy] = useState<any>(null);
   const [aiDiagnosis, setAiDiagnosis] = useState<any>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
@@ -171,6 +172,14 @@ const StockDetailPage: React.FC = () => {
 
   useEffect(() => { fetchStockData(); }, [fetchStockData]);
   useEffect(() => { fetchKlineData(); }, [fetchKlineData]);
+
+  useEffect(() => {
+    const handler = () => {
+      if (!document.fullscreenElement) setKlineFullscreen(false);
+    };
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
 
   // 自动触发AI诊断（页面加载后延迟执行，避免阻塞首屏）
   useEffect(() => {
@@ -321,6 +330,7 @@ const StockDetailPage: React.FC = () => {
 
         {/* ===== K线图 ===== */}
         <Card
+          className={klineFullscreen ? 'kline-fullscreen' : ''}
           size="small"
           title={
             <Space>
@@ -334,6 +344,22 @@ const StockDetailPage: React.FC = () => {
                 value={klinePeriod}
                 onChange={(val) => setKlinePeriod(val as string)}
                 size="small"
+              />
+              <Button
+                size="small"
+                icon={klineFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                onClick={() => {
+                  if (!klineFullscreen) {
+                    document.documentElement.requestFullscreen?.().then(() => {
+                      (screen.orientation as any)?.lock?.('landscape').catch(() => {});
+                    });
+                  } else {
+                    document.exitFullscreen?.();
+                    (screen.orientation as any)?.unlock?.();
+                  }
+                  setKlineFullscreen(!klineFullscreen);
+                }}
+                style={{ fontSize: 11 }}
               />
             </Space>
           }
@@ -406,6 +432,18 @@ const StockDetailPage: React.FC = () => {
                   subIndicator={subIndicator}
                 />
               </div>
+              {klineFullscreen && (
+                <style>{`
+                  .kline-fullscreen {
+                    position: fixed; inset: 0; z-index: 9999;
+                    background: #0f172a; padding: 16px;
+                    display: flex; flex-direction: column;
+                    margin: 0; border-radius: 0;
+                  }
+                  .kline-fullscreen .ant-card-body { flex: 1; display: flex; flex-direction: column; overflow: auto; }
+                  .kline-fullscreen .kline-chart-responsive { flex: 1; display: flex; flex-direction: column; }
+                `}</style>
+              )}
             </>
           ) : (
             <div style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

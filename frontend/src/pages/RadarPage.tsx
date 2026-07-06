@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Spin, Empty, Row, Col, Statistic, Button, Card, message } from 'antd';
+import type { Breakpoint } from 'antd';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
@@ -260,6 +261,7 @@ const RadarPage: React.FC = () => {
         dataIndex: 'industry',
         key: 'industry',
         width: 100,
+        responsive: ['lg'] as Breakpoint[],
         render: (industry: string) => (
           <Tag
             style={{
@@ -307,7 +309,7 @@ const RadarPage: React.FC = () => {
         dataIndex: 'marketCap',
         key: 'marketCap',
         width: 90,
-        sorter: (a: GemStock, b: GemStock) => a.marketCap - b.marketCap,
+        responsive: ['lg'] as Breakpoint[],
         render: (val: number) => (
           <span style={{ color: TEXT_SEC, fontFamily: 'monospace', fontSize: 12 }}>
             {val > 0 ? val.toFixed(1) : '—'}
@@ -453,7 +455,7 @@ const RadarPage: React.FC = () => {
             >
               <ReactECharts echarts={echarts}
                 option={radarOption}
-                style={{ height: 340, minHeight: 280 }}
+                style={{ height: typeof window !== 'undefined' && window.innerWidth < 768 ? 250 : 350 }}
                 opts={{ renderer: 'svg' }}
               />
             </Card>

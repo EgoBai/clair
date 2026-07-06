@@ -17,6 +17,7 @@ const log = createLogger('App');
 import stockRouter from './api/stock';
 import indicatorRouter from './api/indicators';
 import sectorRouter from './api/sectors';
+import sectorMultidimRouter from './api/sector-multidim';
 import industriesRouter from './api/industries';
 import fundFlowRouter from './api/fund-flow';
 import watchlistRouter from './api/watchlist';
@@ -103,6 +104,7 @@ app.use('/api/news', apiCache.middleware({ ttl: 60, key: 'cache:news' }) as impo
 app.use('/api', stockRouter);
 app.use('/api', indicatorRouter);
 app.use('/api', sectorRouter);
+app.use('/api', sectorMultidimRouter);
 app.use('/api', industriesRouter);
 app.use('/api', fundFlowRouter);
 app.use('/api', watchlistRouter);

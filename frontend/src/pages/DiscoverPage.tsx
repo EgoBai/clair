@@ -23,7 +23,20 @@ const COLOR_DOWN = THEME.down;
 const ACCENT = THEME.accent;
 
 interface IndexData { name: string; symbol: string; closePrice: number; changePercent: number; volume: number; category?: string; }
-interface SectorScore { industry: string; score: number; changeScore: number; volumeScore: number; breadthScore: number; momentumScore?: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number; avgChange?: number; }
+interface SectorScore { industry: string;
+ score: number; changeScore: number; volumeScore: number; breadthScore: number; momentumScore?: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number; avgChange?: number; }
+
+interface MultidimData {
+  totalScore: number;
+  dimensions: {
+    crowding:      { score: number; label: string };
+    diffusion:     { score: number; label: string };
+    concentration: { score: number; label: string };
+    retail:        { score: number; label: string };
+    recovery:      { score: number; label: string };
+  };
+}
+
 interface StockData { symbol: string; name: string; price: number; changePercent: number; turnoverRate?: number; peRatio?: number; market: string; }
 
 /** Highlight numbers in text: percentages in green/red, plain numbers in monospace bold */
@@ -68,6 +81,7 @@ const DiscoverPage: React.FC = () => {
   const navigate = useNavigate();
   const [indices, setIndices] = useState<IndexData[]>([]);
   const [scores, setScores] = useState<SectorScore[]>([]);
+  const [multidimMap, setMultidimMap] = useState<Record<string, MultidimData>>({});
   const [marketSummary, setMarketSummary] = useState<any>(null);
   const [selectedSector, setSelectedSector] = useState<SectorScore | null>(null);
   const [sectorStocks, setSectorStocks] = useState<StockData[]>([]);
@@ -106,6 +120,23 @@ const DiscoverPage: React.FC = () => {
         // sectors
         if (results[1].status === 'fulfilled') {
           setScores(results[1].value.data?.sectors || []);
+      // 预加载前15板块的多维度数据
+      const top15List = results[1].value.data?.sectors || [];
+      if (top15List.length > 0) {
+        Promise.allSettled(
+          top15List.slice(0, 15).map((s: SectorScore) =>
+            fetch(`/api/sectors/${encodeURIComponent(s.industry)}/multidim`).then(r => r.json())
+          )
+        ).then(mdResults => {
+          const map: Record<string, MultidimData> = {};
+          top15List.slice(0, 15).forEach((s: SectorScore, i: number) => {
+            if (mdResults[i].status === 'fulfilled' && mdResults[i].value?.data) {
+              map[s.industry] = mdResults[i].value.data;
+            }
+          });
+          setMultidimMap(map);
+        }).catch(() => {});
+      }
         } else {
           hasCriticalError = true;
         }
@@ -709,7 +740,43 @@ const DiscoverPage: React.FC = () => {
                         {Number(s.avg_change_percent) >= 0 ? '+' : ''}{Number(s.avg_change_percent).toFixed(2)}%
                       </span>
                       <span>额{formatBig(Number(s.total_turnover))}</span>
-                    </div>
+                    
+                      {multidimMap[s.industry] && (
+                        <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                          {Object.entries(multidimMap[s.industry].dimensions).map(([key, dim]: [string, any]) => {
+                            const colorMap: Record<string, string> = {
+                              crowding: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                              diffusion: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                              concentration: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                              retail: dim.score >= 14 ? '#ef4444' : dim.score >= 8 ? '#f59e0b' : '#22c55e',
+                              recovery: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                            };
+                            const labelMap: Record<string, string> = {
+                              crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补',
+                            };
+                            return (
+                              <Tooltip key={key} title={`${labelMap[key]}: ${dim.label} (${dim.score}/20)`}>
+                                <span style={{
+                                  fontSize: 10, padding: '1px 5px', borderRadius: 3,
+                                  background: `${colorMap[key]}18`, color: colorMap[key],
+                                  border: `1px solid ${colorMap[key]}40`,
+                                }}>
+                                  {labelMap[key]}{dim.score}
+                                </span>
+                              </Tooltip>
+                            );
+                          })}
+                          <Tooltip title={`多维度综合: ${multidimMap[s.industry].totalScore}/100`}>
+                            <span style={{
+                              fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
+                              background: '#3b82f618', color: '#3b82f6',
+                              border: '1px solid #3b82f640',
+                            }}>
+                              综合{multidimMap[s.industry].totalScore}
+                            </span>
+                          </Tooltip>
+                        </div>
+                      )}</div>
                   </div>
 
                   <RightOutlined style={{ color: TEXT_SEC, fontSize: 12 }} />
