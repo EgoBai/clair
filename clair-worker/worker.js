@@ -1913,18 +1913,18 @@ function extractJsonObject(text) {
   try { return JSON.parse(t.slice(start, end + 1)); } catch { return null; }
 }
 
-// POST /api/ai/gems — AI 潜力发现 (移植 backend ai-gems v2.0 六因子模型 + DeepSeek 解读)
-// 返回 { success, data: { gems: [...], total, model, aiSummary, factors, scoring } } 对齐 ScreenerPage.fetchAiGems
+// POST /api/ai/gems — AI 潜力发现 (v3.0 百分位排序 + 负向惩罚)
+// 返回 { success, data: { gems: [...], total, model, distribution, over80, aiSummary, factors, scoring } }
 async function handleAiGems(request, env) {
   try {
     const body = await request.json().catch(() => ({}));
-    const topN = Math.min(Math.max(Number(body.topN) || 20, 1), 50);
-    const minScore = Number(body.minScore) || 40;
+    const topN = Math.min(Math.max(Number(body.topN) || 100, 1), 200);
+    const minScore = Number(body.minScore) || 60;
 
     const stocks = await getStockList();
     const quoteMap = await getFullMarketQuoteMap(stocks);
 
-    // 行业景气度: 基于真实行情的行业平均涨幅 → 0..100 (作为 backend db.getSectorMomentumScore 的自包含替代)
+    // 行业景气度: 基于真实行情的行业平均涨幅 → 0..100
     const indAgg = {};
     for (const s of stocks) {
       const q = quoteMap[stockTencentKey(s)];
@@ -1934,13 +1934,33 @@ async function handleAiGems(request, env) {
       indAgg[ind].sum += Number(q.changePercent) || 0;
       indAgg[ind].count++;
     }
-    const sectorScore = {};
+    const sectorScores = {};
     for (const [ind, a] of Object.entries(indAgg)) {
       const avg = a.count ? a.sum / a.count : 0;
-      sectorScore[ind] = Math.max(0, Math.min(100, 50 + avg * 10));
+      sectorScores[ind] = Math.max(0, Math.min(100, 50 + avg * 10));
     }
 
-    const gems = [];
+    // ====== 百分位评分函数 ======
+    function computePercentileScores(rawValues, maxScore, powerExponent) {
+      powerExponent = powerExponent || 1.0;
+      const n = rawValues.length;
+      if (n === 0) return [];
+      if (n === 1) return [Math.round(maxScore * 0.5)];
+
+      const indexed = rawValues.map(function(v, i) { return { v: v, i: i }; });
+      indexed.sort(function(a, b) { return a.v - b.v; });
+
+      const scores = new Array(n).fill(0);
+      for (var rank = 0; rank < n; rank++) {
+        var percentile = rank / (n - 1);
+        var adjPercentile = Math.pow(percentile, powerExponent);
+        scores[indexed[rank].i] = Math.round(adjPercentile * maxScore);
+      }
+      return scores;
+    }
+
+    // ====== 阶段1: 收集所有股票的原始因子值 ======
+    const rawStocks = [];
     for (const s of stocks) {
       const name = String(s.name || '').trim();
       if (!name || name.includes('ST') || name.includes('退') || name.includes('*')) continue;
@@ -1956,109 +1976,183 @@ async function handleAiGems(request, env) {
       const capYi = Number(q.marketCap) || 0; // 亿元
       const peRatio = (q.peRatio && q.peRatio > 0) ? Number(q.peRatio) : null;
 
-      // 1) 动量 (0-20): 涨幅 3-8% 最佳，避免追高
-      let momentumScore;
-      const absChange = Math.abs(changePercent);
-      if (absChange >= 3 && absChange <= 8) momentumScore = 20;
-      else if (absChange >= 1.5 && absChange < 3) momentumScore = 15;
-      else if (absChange > 8 && absChange <= 10) momentumScore = 12;
-      else if (absChange > 10) momentumScore = 5;
-      else momentumScore = Math.round((absChange / 3) * 10);
+      // 动量: 涨幅越高越好
+      const momentumRaw = changePercent;
 
-      // 2) 成交活跃 (0-20): 换手 3-15% 最佳
-      let volumeScore;
-      if (turnoverRate >= 3 && turnoverRate <= 15) volumeScore = 20;
-      else if (turnoverRate >= 1 && turnoverRate < 3) volumeScore = Math.round((turnoverRate / 3) * 15);
-      else if (turnoverRate > 15 && turnoverRate <= 25) volumeScore = Math.round((1 - (turnoverRate - 15) / 10) * 15 + 5);
-      else volumeScore = 5;
+      // 成交: 距离理想换手(9%)越近越好
+      const volumeRaw = -Math.abs(turnoverRate - 9);
 
-      // 3) 估值 (0-15): PE 10-30 最佳
-      let valuationScore;
-      if (peRatio && peRatio > 0) {
-        if (peRatio >= 10 && peRatio <= 30) valuationScore = 15;
-        else if (peRatio >= 5 && peRatio < 10) valuationScore = 12;
-        else if (peRatio > 30 && peRatio <= 50) valuationScore = 10;
-        else if (peRatio > 50) valuationScore = 5;
-        else valuationScore = 8;
-      } else valuationScore = 7;
+      // 估值: PE越低越好, 对数距离PE=15
+      let valuationRaw;
+      if (peRatio !== null && peRatio > 0) {
+        valuationRaw = -Math.abs(Math.log10(peRatio) - Math.log10(15));
+      } else if (peRatio !== null && peRatio <= 0) {
+        valuationRaw = -5;
+      } else {
+        valuationRaw = -0.8;
+      }
 
-      // 4) 规模 (0-15): 50-500 亿最佳成长空间
-      let sizeScore;
-      if (capYi >= 50 && capYi <= 500) sizeScore = 15;
-      else if (capYi >= 20 && capYi < 50) sizeScore = 12;
-      else if (capYi > 500 && capYi <= 1000) sizeScore = 10;
-      else if (capYi > 1000 && capYi <= 3000) sizeScore = 8;
-      else if (capYi > 3000) sizeScore = 5;
-      else sizeScore = 3;
+      // 规模: 对数距离理想市值 ~158亿
+      const logCap = Math.log10(Math.max(1, capYi));
+      const sizeRaw = -Math.abs(logCap - Math.log10(158));
 
-      // 5) 行业景气 (0-15)
-      const sectorHot = sectorScore[industry] != null ? sectorScore[industry] : 50;
-      const industryScore = Math.round((sectorHot / 100) * 15);
+      rawStocks.push({
+        symbol: String(s.symbol), name: name,
+        price: price,
+        changePercent: Math.round(changePercent * 100) / 100,
+        turnoverRate: Math.round(turnoverRate * 100) / 100,
+        marketCap: Math.round(capYi * 100) / 100,
+        peRatio: peRatio, industry: industry,
+        momentumRaw: momentumRaw, volumeRaw: volumeRaw,
+        valuationRaw: valuationRaw, sizeRaw: sizeRaw,
+      });
+    }
 
-      // 6) 质量 (0-15): 排除劣质/异常
-      let qualityScore = 15;
-      if (changePercent > 9.5) qualityScore -= 5;
-      if (turnoverRate > 25) qualityScore -= 3;
-      if (turnoverRate < 0.5) qualityScore -= 3;
-      if (capYi < 10) qualityScore -= 5;
-      qualityScore = Math.max(0, qualityScore);
+    const totalCount = rawStocks.length;
 
-      const totalScore = momentumScore + volumeScore + valuationScore + sizeScore + industryScore + qualityScore;
+    // ====== 阶段2: 百分位评分 (幂次=1.1 拉开顶部差距) ======
+    const POWER = 1.1;
+    const momentumScores  = computePercentileScores(rawStocks.map(function(s) { return s.momentumRaw; }), 20, POWER);
+    const volumeScores    = computePercentileScores(rawStocks.map(function(s) { return s.volumeRaw; }), 20, POWER);
+    const valuationScores = computePercentileScores(rawStocks.map(function(s) { return s.valuationRaw; }), 15, POWER);
+    const sizeScores      = computePercentileScores(rawStocks.map(function(s) { return s.sizeRaw; }), 15, POWER);
 
-      // 上榜理由 (个性化 v2: 嵌入实际数据，与后端 ai-gems.ts 对齐)
-      const reasons = [];
-      if (momentumScore >= 19) reasons.push(`涨势强劲 +${changePercent.toFixed(1)}%`);
-      else if (momentumScore >= 15) reasons.push(`涨势适中 +${changePercent.toFixed(1)}%`);
-      else if (momentumScore >= 12) reasons.push(`动量尚可 +${changePercent.toFixed(1)}%`);
+    // ====== 阶段3: 合成总分 + 负向因子 ======
+    const gems = [];
+    const allScoresDist = [];
 
-      if (volumeScore >= 19) reasons.push(`成交活跃 换手${turnoverRate.toFixed(1)}%`);
-      else if (volumeScore >= 15) reasons.push(`换手健康 ${turnoverRate.toFixed(1)}%`);
-      else if (volumeScore >= 10) reasons.push(`成交温和 ${turnoverRate.toFixed(1)}%`);
+    for (var i = 0; i < rawStocks.length; i++) {
+      var s = rawStocks[i];
+      var momentumScore  = momentumScores[i];
+      var volumeScore    = volumeScores[i];
+      var valuationScore = valuationScores[i];
+      var sizeScore      = sizeScores[i];
 
-      if (valuationScore >= 14) reasons.push(peRatio ? `估值合理 PE${peRatio.toFixed(0)}` : '估值合理');
-      else if (valuationScore >= 12) reasons.push(peRatio ? `估值偏低 PE${peRatio.toFixed(0)}` : '估值偏低');
-      else if (valuationScore >= 10) reasons.push(peRatio ? `估值稍高 PE${peRatio.toFixed(0)}` : '估值适中');
+      // 行业景气
+      var sectorHot = sectorScores[s.industry] != null ? sectorScores[s.industry] : 50;
+      var industryScore = Math.round((sectorHot / 100) * 15);
 
-      if (sizeScore >= 14) reasons.push(`中盘成长 ${capYi.toFixed(0)}亿`);
-      else if (sizeScore >= 10) reasons.push(`大盘蓝筹 ${capYi.toFixed(0)}亿`);
-      else if (sizeScore >= 8) reasons.push(`小盘弹性 ${capYi.toFixed(0)}亿`);
+      // 质量因子 (减法)
+      var qualityScore = 15;
+      if (s.changePercent > 9.5) qualityScore -= 5;
+      if (s.turnoverRate > 25) qualityScore -= 3;
+      if (s.turnoverRate < 0.5) qualityScore -= 3;
+      if (s.marketCap < 10) qualityScore -= 5;
 
-      if (industryScore >= 13) reasons.push(`行业景气 ${industry}`);
-      else if (industryScore >= 11) reasons.push(`板块偏热 ${industry}`);
-      else if (industryScore >= 9) reasons.push(`板块中性 ${industry}`);
+      // 负向惩罚
+      var penalty = 0;
+      if (s.changePercent < -3) penalty += 10;
+      if (s.peRatio !== null && s.peRatio > 100) penalty += 5;
+      if (s.peRatio !== null && s.peRatio < 0) penalty += 8;
 
-      if (qualityScore >= 14) reasons.push('质量优良无瑕疵');
-      else if (qualityScore >= 12) reasons.push('基本面稳健');
+      var rawTotal = momentumScore + volumeScore + valuationScore + sizeScore
+                   + industryScore + Math.max(0, qualityScore) - penalty;
+
+      // 钳制 30-98
+      var totalScore = Math.max(30, Math.min(98, rawTotal));
+      allScoresDist.push(totalScore);
+
+      // 上榜理由 (v3: 百分位标签 + 实际数据)
+      var reasons = [];
+      function pctLabel(score, max) {
+        if (max > 0 && score >= max * 0.85) return 'top15%';
+        if (max > 0 && score >= max * 0.7) return 'top30%';
+        return '';
+      }
+
+      var ml = pctLabel(momentumScore, 20);
+      var vl = pctLabel(volumeScore, 20);
+      var val = pctLabel(valuationScore, 15);
+      var sl = pctLabel(sizeScore, 15);
+
+      if (ml) reasons.push('动量' + ml + ' ' + (s.changePercent > 0 ? '+' : '') + s.changePercent.toFixed(1) + '%');
+      if (vl) reasons.push('成交' + vl + ' 换手' + s.turnoverRate.toFixed(1) + '%');
+      if (val) reasons.push(s.peRatio ? '估值' + val + ' PE' + s.peRatio.toFixed(0) : '估值合理');
+      if (sl) reasons.push('规模' + sl + ' ' + s.marketCap.toFixed(0) + '亿');
+      if (industryScore >= 12) reasons.push(s.industry ? '行业景气 ' + s.industry : '行业景气');
+      if (Math.max(0, qualityScore) >= 12) reasons.push('质量优良');
+      if (penalty > 0) reasons.push('\u26a0\ufe0f扣分' + penalty);
 
       if (totalScore >= minScore) {
         gems.push({
-          symbol: s.symbol, name, price,
-          changePercent: Math.round(changePercent * 100) / 100,
-          turnoverRate: Math.round(turnoverRate * 100) / 100,
-          marketCap: Math.round(capYi * 100) / 100,
-          peRatio, industry, score: totalScore,
-          momentumScore, volumeScore, valuationScore, sizeScore, industryScore, qualityScore,
+          symbol: s.symbol, name: s.name,
+          price: s.price, changePercent: s.changePercent,
+          turnoverRate: s.turnoverRate,
+          marketCap: s.marketCap, peRatio: s.peRatio,
+          industry: s.industry,
+          score: totalScore,
+          momentumScore: momentumScore, volumeScore: volumeScore,
+          valuationScore: valuationScore,
+          sizeScore: sizeScore, industryScore: industryScore,
+          qualityScore: Math.max(0, qualityScore),
           reasons: reasons.slice(0, 3),
         });
       }
     }
 
-    gems.sort((a, b) => b.score - a.score);
+    gems.sort(function(a, b) { return b.score - a.score; });
     const topGems = gems.slice(0, topN);
 
-    // DeepSeek 解读 (可选，缺 key / 失败时优雅降级，不影响结构化结果)
-    let aiSummary = '';
+    // ====== 全市场分布统计 ======
+    const buckets = { '90+': 0, '80-89': 0, '70-79': 0, '60-69': 0, '50-59': 0, '40-49': 0, '30-39': 0 };
+    for (var j = 0; j < allScoresDist.length; j++) {
+      var s = allScoresDist[j];
+      if (s >= 90) buckets['90+']++;
+      else if (s >= 80) buckets['80-89']++;
+      else if (s >= 70) buckets['70-79']++;
+      else if (s >= 60) buckets['60-69']++;
+      else if (s >= 50) buckets['50-59']++;
+      else if (s >= 40) buckets['40-49']++;
+      else buckets['30-39']++;
+    }
+
+    const over80 = buckets['90+'] + buckets['80-89'];
+
+    // ====== AI 摘要 ======
+    var aiSummary = '';
     if (env && env.DEEPSEEK_API_KEY && topGems.length > 0) {
       try {
-        const candidateText = topGems.slice(0, 15).map(g =>
-          `${g.name}(${g.symbol}) 行业${g.industry} 涨${g.changePercent}% 换手${g.turnoverRate}% PE${g.peRatio ?? '—'} 市值${g.marketCap}亿 评分${g.score}`
-        ).join('\n');
+        const candidateText = topGems.slice(0, 15).map(function(g) {
+          return g.name + '(' + g.symbol + ') 行业' + g.industry + ' 涨' + g.changePercent + '% 换手' + g.turnoverRate + '% PE' + (g.peRatio || '—') + ' 市值' + g.marketCap + '亿 评分' + g.score;
+        }).join('\\n');
         const sys = '你是A股资深策略分析师，擅长从量化打分结果中提炼投资逻辑。语言简洁专业，红涨绿跌的A股语境。结尾不需要免责声明。';
-        const usr = `以下是六因子量化模型(动量/成交/估值/规模/行业景气/质量)从全市场真实行情中筛出的潜力股候选(已按综合评分降序)：\n${candidateText}\n\n请用80字以内给出整体解读：当前这批标的的共性特征、值得关注的方向。只输出解读正文，不要罗列个股。`;
+        const usr = '以下是百分位模型v3.0(动量/成交/估值/规模/行业景气/质量+负向惩罚)从全市场真实行情中筛出的潜力股候选(已按综合评分降序)：\\n' + candidateText + '\\n\\n请用80字以内给出整体解读：当前这批标的的共性特征、值得关注的方向。只输出解读正文，不要罗列个股。';
         aiSummary = await callDeepSeek(env, sys, usr, { temperature: 0.6, maxTokens: 300 });
       } catch (e) {
         aiSummary = '';
       }
+    }
+
+    // 无 DeepSeek 时生成统计摘要
+    if (!aiSummary) {
+      const avgTopScore = topGems.length > 0
+        ? (topGems.reduce(function(sum, g) { return sum + g.score; }, 0) / topGems.length).toFixed(1)
+        : '0';
+      const topIndustries = [];
+      var seenInd = {};
+      for (var k = 0; k < topGems.length && topIndustries.length < 5; k++) {
+        var ind = topGems[k].industry;
+        if (ind && !seenInd[ind]) { seenInd[ind] = true; topIndustries.push(ind); }
+      }
+      const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+      aiSummary = [
+        '\u{1F4CA} **' + today + ' \u6F5C\u529B\u80A1\u96F7\u8FBE\u626B\u63CF\u62A5\u544A**',
+        '',
+        '\u5168\u5E02\u573A ' + totalCount + ' \u53EA\u6807\u7684\uFF0C\u767E\u5206\u4F4D\u6A21\u578B v3.0 \u626B\u63CF\uFF1A',
+        '\u2265' + minScore + '\u5206: **' + gems.length + '** \u53EA\uFF08\u524D ' + ((gems.length/totalCount)*100).toFixed(1) + '%\uFF09',
+        '\u226580\u5206\uFF08\u4F18\u8D28\uFF09: **' + over80 + '** \u53EA\uFF08\u524D ' + ((over80/totalCount)*100).toFixed(1) + '%\uFF09',
+        '',
+        '**\u{1F4C8} \u5168\u5E02\u573A\u5206\u5E03\uFF1A**',
+        '  90+: ' + buckets['90+'] + '  |  80-89: ' + buckets['80-89'] + '  |  70-79: ' + buckets['70-79'],
+        '  60-69: ' + buckets['60-69'] + '  |  50-59: ' + buckets['50-59'] + '  |  40-49: ' + buckets['40-49'] + '  |  30-39: ' + buckets['30-39'],
+        '',
+        '**\u{1F525} Top' + topGems.length + ' \u7279\u5F81\uFF08\u5747\u5206 ' + avgTopScore + '\uFF09\uFF1A**',
+        '\u2022 \u70ED\u70B9\u884C\u4E1A: ' + (topIndustries.join('\u3001') || '\u5206\u6563'),
+        '',
+        '**\u{1F4A1} \u6A21\u578B v3.0\uFF1A** 6\u56E0\u5B50\u767E\u5206\u4F4D\u6392\u5E8F + \u5E42\u6B21\u53D8\u6362\u62C9\u5927\u533A\u5206\u5EA6',
+        '\u8D1F\u5411\u60E9\u7F5A\uFF1A\u8DCC>3%(-10) | PE>100(-5) | \u4E8F\u635F(-8)',
+        '\u26A0\uFE0F \u91CF\u5316\u7B5B\u9009\u7ED3\u679C\uFF0C\u4E0D\u6784\u6210\u6295\u8D44\u5EFA\u8BAE\u3002',
+      ].join('\\n');
     }
 
     return json({
@@ -2066,17 +2160,20 @@ async function handleAiGems(request, env) {
       data: {
         gems: topGems,
         total: gems.length,
-        model: 'v2.0',
-        aiSummary,
+        model: 'v3.0',
+        distribution: buckets,
+        over80: over80,
+        aiSummary: aiSummary,
         factors: {
-          momentum: '涨幅动量(0-20): 3-8%最佳',
-          volume: '成交活跃(0-20): 换手3-15%最佳',
-          valuation: '估值合理(0-15): PE 10-30最佳',
-          size: '成长空间(0-15): 市值50-500亿最佳',
-          industry: '行业景气(0-15): 基于行业实时平均涨幅',
-          quality: '质量过滤(0-15): 排除ST/异常波动',
+          momentum: '动量(0-20): 涨幅百分位排名,幂次拉开',
+          volume: '成交(0-20): 换手距理想区间百分位',
+          valuation: '估值(0-15): PE百分位(低PE优)',
+          size: '规模(0-15): 市值距理想区间百分位',
+          industry: '行业(0-15): 板块动量景气度',
+          quality: '质量(0-15): 减法扣分(追高/投机/微型)',
+          penalty: '负向: 跌>3%(-10) PE>100(-5) 亏损(-8)',
         },
-        scoring: '总分(0-100) = 动量 + 成交 + 估值 + 规模 + 行业 + 质量',
+        scoring: '总分(30-98) = Σ百分位分 + 行业 + 质量 - 负向惩罚',
       },
     });
   } catch (e) {
