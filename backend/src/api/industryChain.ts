@@ -251,6 +251,62 @@ const industryChains = [
     marketDrivers: ['人口老龄化', 'AI技术进步', '制造业升级'],
     updatedAt: '2026-06-15',
   },
+  {
+    id: 'medical-pharma',
+    name: '医药生物产业链',
+    description: '从CRO/CDMO到医疗服务的医药生物全链条，涵盖药物研发、创新药、医疗器械、医疗服务等核心环节',
+    theme: '医药',
+    category: 'healthcare',
+    hotLevel: 80,
+    segmentCount: 4,
+    companyCount: 30,
+    relatedConcepts: ['创新药', 'CRO', '医疗器械', '医疗服务'],
+    relatedPolicies: ['医保改革', '创新药审批加速', '集采常态化'],
+    marketDrivers: ['人口老龄化', '健康消费升级', '创新药出海'],
+    updatedAt: '2026-07-06',
+  },
+  {
+    id: 'consumer-electronics',
+    name: '消费电子产业链',
+    description: '从芯片设计到品牌终端的消费电子全链条，涵盖芯片设计、零部件、整机组装、品牌终端等核心环节',
+    theme: '消费电子',
+    category: 'consumer',
+    hotLevel: 75,
+    segmentCount: 4,
+    companyCount: 40,
+    relatedConcepts: ['消费电子', '手机', 'AI终端', '可穿戴'],
+    relatedPolicies: ['消费电子补贴', '数字经济', '以旧换新'],
+    marketDrivers: ['AI终端爆发', '换机周期', '折叠屏'],
+    updatedAt: '2026-07-06',
+  },
+  {
+    id: 'defense-military',
+    name: '国防军工产业链',
+    description: '从原材料到总装的国防军工全链条，涵盖原材料、零部件、分系统、总装等核心环节',
+    theme: '军工',
+    category: 'technology',
+    hotLevel: 70,
+    segmentCount: 4,
+    companyCount: 35,
+    relatedConcepts: ['军工', '航空', '航天', '船舶', '兵器'],
+    relatedPolicies: ['国防预算增长', '军民融合', '军工改革'],
+    marketDrivers: ['国防预算增长', '装备换装周期', '军贸出口'],
+    updatedAt: '2026-07-06',
+  },
+  {
+    id: 'wind-power',
+    name: '风电产业链',
+    description: '从原材料到运营的风电全链条，涵盖原材料、零部件（叶片/齿轮箱）、整机、运营等核心环节',
+    theme: '风电',
+    category: 'energy',
+    hotLevel: 70,
+    segmentCount: 4,
+    companyCount: 30,
+    relatedConcepts: ['风电', '碳中和', '新能源', '海上风电'],
+    relatedPolicies: ['碳达峰碳中和', '可再生能源补贴', '海上风电规划'],
+    marketDrivers: ['碳中和目标', '海上风电爆发', '大兆瓦趋势'],
+    updatedAt: '2026-07-06',
+  },
 ];
 
 // AI算力产业链详细数据
@@ -614,6 +670,427 @@ const semiconductorChainDetail = {
   },
 };
 
+
+// 医药生物产业链详细数据
+const medicalPharmaChainDetail = {
+  id: 'medical-pharma',
+  name: '医药生物产业链',
+  description: '从CRO/CDMO到医疗服务的医药生物全链条',
+  theme: '医药',
+  hotLevel: 80,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '药物研发与生产外包',
+      order: 1,
+      segments: [
+        {
+          id: 'cro-cdmo',
+          name: 'CRO/CDMO',
+          description: '药物研发外包和定制生产服务，新药研发核心支撑',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1500亿元',
+            growthRate: 'CAGR 20%',
+            competitiveLandscape: '龙头集中，药明康德一家独大',
+            barriers: ['技术壁垒', '客户粘性', '合规要求'],
+            keyDrivers: ['创新药研发热潮', '海外订单转移', 'ADC/多肽新赛道'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['innovative-drug'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '药品研发与器械制造',
+      order: 2,
+      segments: [
+        {
+          id: 'innovative-drug',
+          name: '创新药',
+          description: '创新药研发和商业化，生物医药行业核心驱动力',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1000亿元',
+            growthRate: 'CAGR 25%',
+            competitiveLandscape: 'Big Pharma主导，Biotech蓬勃发展',
+            barriers: ['研发周期长', '成功率低', '资金密集'],
+            keyDrivers: ['审评加速', '国际化', '差异化靶点'],
+          },
+          upstreamTo: ['cro-cdmo'],
+          downstreamTo: ['medical-device'],
+        },
+        {
+          id: 'medical-device',
+          name: '医疗器械',
+          description: '医疗器械研发制造，高端设备国产替代加速',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计8000亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '进口替代加速，国产龙头崛起',
+            barriers: ['技术壁垒', '注册审批', '渠道建设'],
+            keyDrivers: ['国产替代', '基层医疗扩容', '高端设备突破'],
+          },
+          upstreamTo: ['innovative-drug'],
+          downstreamTo: ['medical-service'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '医疗服务与消费',
+      order: 3,
+      segments: [
+        {
+          id: 'medical-service',
+          name: '医疗服务',
+          description: '医疗机构和健康服务，居民健康消费升级受益方向',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计6000亿元',
+            growthRate: 'CAGR 12%',
+            competitiveLandscape: '连锁化趋势明显，龙头加速扩张',
+            barriers: ['品牌认知', '医生资源', '区域优势'],
+            keyDrivers: ['消费升级', '老龄化', '分级诊疗'],
+          },
+          upstreamTo: ['medical-device'],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['创新药', 'CRO', '医疗器械', '医疗服务'],
+  relatedPolicies: ['医保改革', '创新药审批加速', '集采常态化'],
+  marketDrivers: ['人口老龄化', '健康消费升级', '创新药出海'],
+};
+
+// 消费电子产业链详细数据
+const consumerElectronicsChainDetail = {
+  id: 'consumer-electronics',
+  name: '消费电子产业链',
+  description: '从芯片设计到品牌终端的消费电子全链条',
+  theme: '消费电子',
+  hotLevel: 75,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '核心芯片与零部件',
+      order: 1,
+      segments: [
+        {
+          id: 'ce-chip-design',
+          name: '芯片设计',
+          description: '消费电子芯片设计，AI终端核心驱动',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计800亿元',
+            growthRate: 'CAGR 20%',
+            competitiveLandscape: '海外主导，国产追赶',
+            barriers: ['技术壁垒', 'IP积累', '生态壁垒'],
+            keyDrivers: ['AI终端需求', '国产替代', '可穿戴爆发'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['ce-components'],
+        },
+        {
+          id: 'ce-components',
+          name: '零部件',
+          description: '消费电子零部件制造，包括连接器、PCB、天线、声学等',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计3000亿元',
+            growthRate: 'CAGR 10%',
+            competitiveLandscape: '细分龙头众多，格局稳定',
+            barriers: ['规模效应', '客户认证', '技术积累'],
+            keyDrivers: ['AI终端创新', '折叠屏增长', 'XR设备放量'],
+          },
+          upstreamTo: ['ce-chip-design'],
+          downstreamTo: ['ce-assembly'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '整机组装与系统集成',
+      order: 2,
+      segments: [
+        {
+          id: 'ce-assembly',
+          name: '整机组装',
+          description: '消费电子整机代工组装，全球制造核心',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计5000亿元',
+            growthRate: 'CAGR 8%',
+            competitiveLandscape: '寡头集中，代工巨头主导',
+            barriers: ['规模效应', '供应链管理', '工艺能力'],
+            keyDrivers: ['AI换机潮', '多品类代工', '海外产能布局'],
+          },
+          upstreamTo: ['ce-components'],
+          downstreamTo: ['ce-brand'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '品牌终端与消费者',
+      order: 3,
+      segments: [
+        {
+          id: 'ce-brand',
+          name: '品牌终端',
+          description: '消费电子品牌商，直接面向消费者',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计万亿元',
+            growthRate: 'CAGR 5%',
+            competitiveLandscape: '头部集中，品牌效应明显',
+            barriers: ['品牌认知', '渠道优势', '生态构建'],
+            keyDrivers: ['AI终端引领', '折叠屏/XR创新', '海外市场拓展'],
+          },
+          upstreamTo: ['ce-assembly'],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['消费电子', '手机', 'AI终端', '可穿戴'],
+  relatedPolicies: ['消费电子补贴', '数字经济', '以旧换新'],
+  marketDrivers: ['AI终端爆发', '换机周期', '折叠屏'],
+};
+
+// 国防军工产业链详细数据
+const defenseMilitaryChainDetail = {
+  id: 'defense-military',
+  name: '国防军工产业链',
+  description: '从原材料到总装的国防军工全链条',
+  theme: '军工',
+  hotLevel: 70,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '基础原材料',
+      order: 1,
+      segments: [
+        {
+          id: 'defense-materials',
+          name: '原材料',
+          description: '军工基础材料，包括钛合金、高温合金、碳纤维等',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计500亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '技术壁垒高，国产替代加速',
+            barriers: ['材料纯度', '认证周期', '技术积累'],
+            keyDrivers: ['装备放量', '国产替代', '新机型新材料需求'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['defense-components'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '零部件与分系统',
+      order: 2,
+      segments: [
+        {
+          id: 'defense-components',
+          name: '零部件',
+          description: '军工零部件制造，包括连接器、轴承、精密结构件等',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计800亿元',
+            growthRate: 'CAGR 12%',
+            competitiveLandscape: '细分领域龙头效应明显',
+            barriers: ['资质壁垒', '技术积累', '产业链认证'],
+            keyDrivers: ['军机放量', '导弹列装', '舰艇下水'],
+          },
+          upstreamTo: ['defense-materials'],
+          downstreamTo: ['defense-subsystem'],
+        },
+        {
+          id: 'defense-subsystem',
+          name: '分系统',
+          description: '军工分系统集成，包括发动机、雷达、导航、火控等',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1500亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '军工央企主导，民营配套',
+            barriers: ['资质壁垒', '技术门槛', '体系认证'],
+            keyDrivers: ['信息化升级', '无人化趋势', '军贸出口'],
+          },
+          upstreamTo: ['defense-components'],
+          downstreamTo: ['defense-assembly'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '总装与交付',
+      order: 3,
+      segments: [
+        {
+          id: 'defense-assembly',
+          name: '总装',
+          description: '军工整机总装，包括战斗机、军舰、导弹等',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计2000亿元',
+            growthRate: 'CAGR 10%',
+            competitiveLandscape: '高度集中，军工央企垄断',
+            barriers: ['资质壁垒', '体系认证', '规模效应'],
+            keyDrivers: ['国防预算增长', '新装备列装', '备战需求'],
+          },
+          upstreamTo: ['defense-subsystem'],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['军工', '航空', '航天', '船舶', '兵器'],
+  relatedPolicies: ['国防预算增长', '军民融合', '军工改革'],
+  marketDrivers: ['国防预算增长', '装备换装周期', '军贸出口'],
+};
+
+// 风电产业链详细数据
+const windPowerChainDetail = {
+  id: 'wind-power',
+  name: '风电产业链',
+  description: '从原材料到运营的风电全链条',
+  theme: '风电',
+  hotLevel: 70,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '基础原材料',
+      order: 1,
+      segments: [
+        {
+          id: 'wind-materials',
+          name: '原材料',
+          description: '风电基础材料，包括玻纤、碳纤维、树脂、钢材等',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计300亿元',
+            growthRate: 'CAGR 10%',
+            competitiveLandscape: '大化工企业主导',
+            barriers: ['材料认证', '规模效应', '技术积累'],
+            keyDrivers: ['大兆瓦趋势', '海上风电', '材料国产化'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['wind-components'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '零部件制造与整机组装',
+      order: 2,
+      segments: [
+        {
+          id: 'wind-components',
+          name: '零部件(叶片/齿轮箱)',
+          description: '风电核心零部件，包括叶片、齿轮箱、发电机、轴承等',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1500亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '细分龙头崛起，国产化率提升',
+            barriers: ['技术壁垒', '客户认证', '规模效应'],
+            keyDrivers: ['大兆瓦叶片', '海上风电', '齿轮箱国产化'],
+          },
+          upstreamTo: ['wind-materials'],
+          downstreamTo: ['wind-turbine'],
+        },
+        {
+          id: 'wind-turbine',
+          name: '整机',
+          description: '风电机组整机制造，全球前十大整机商中国占6席',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计2000亿元',
+            growthRate: 'CAGR 12%',
+            competitiveLandscape: '头部集中，价格竞争激烈',
+            barriers: ['规模效应', '技术积累', '市场份额'],
+            keyDrivers: ['大兆瓦化', '海上风电', '出口增量'],
+          },
+          upstreamTo: ['wind-components'],
+          downstreamTo: ['wind-operation'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '风电场开发与运营',
+      order: 3,
+      segments: [
+        {
+          id: 'wind-operation',
+          name: '运营',
+          description: '风电场开发与运维服务，轻资产+重资产双模式',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1000亿元',
+            growthRate: 'CAGR 10%',
+            competitiveLandscape: '央企主导，民营企业积极参与',
+            barriers: ['资金密集', '资源获取', '运维经验'],
+            keyDrivers: ['海上风电项目', '绿电交易', '运维服务'],
+          },
+          upstreamTo: ['wind-turbine'],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['风电', '碳中和', '新能源', '海上风电'],
+  relatedPolicies: ['碳达峰碳中和', '可再生能源补贴', '海上风电规划'],
+  marketDrivers: ['碳中和目标', '海上风电爆发', '大兆瓦趋势'],
+};
+
 // ============= API 路由 =============
 
 /**
@@ -690,6 +1167,10 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   let chainDetail: any = null;
   if (id === 'ai-computing') chainDetail = aiComputingChainDetail;
   else if (id === 'semiconductor') chainDetail = semiconductorChainDetail;
+  else if (id === 'medical-pharma') chainDetail = medicalPharmaChainDetail;
+  else if (id === 'consumer-electronics') chainDetail = consumerElectronicsChainDetail;
+  else if (id === 'defense-military') chainDetail = defenseMilitaryChainDetail;
+  else if (id === 'wind-power') chainDetail = windPowerChainDetail;
   else {
     const chain = industryChains.find(c => c.id === id);
     if (!chain) return sendNotFound(res, '产业链未找到');
@@ -765,6 +1246,54 @@ router.get('/:id/segments', (req: Request, res: Response) => {
     return sendSuccess(res, { segments, total: segments.length });
   }
   
+
+  // 医药生物
+  if (id === 'medical-pharma') {
+    const segments = medicalPharmaChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
+
+  // 消费电子
+  if (id === 'consumer-electronics') {
+    const segments = consumerElectronicsChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
+
+  // 国防军工
+  if (id === 'defense-military') {
+    const segments = defenseMilitaryChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
+
+  // 风电
+  if (id === 'wind-power') {
+    const segments = windPowerChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
   sendSuccess(res, { segments: [], total: 0 });
 });
 
@@ -846,6 +1375,78 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
     return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
   }
   
+
+  if (id === 'medical-pharma') {
+    let stocks = medicalPharmaChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        segment.companies.map(company => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
+    if (position) stocks = stocks.filter(s => s.position === position);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
+
+  if (id === 'consumer-electronics') {
+    let stocks = consumerElectronicsChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        segment.companies.map(company => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
+    if (position) stocks = stocks.filter(s => s.position === position);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
+
+  if (id === 'defense-military') {
+    let stocks = defenseMilitaryChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        segment.companies.map(company => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
+    if (position) stocks = stocks.filter(s => s.position === position);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
+
+  if (id === 'wind-power') {
+    let stocks = windPowerChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        segment.companies.map(company => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
+    if (position) stocks = stocks.filter(s => s.position === position);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
   sendSuccess(res, { stocks: [], total: 0 });
 });
 
@@ -893,6 +1494,34 @@ router.get('/:id/hot-stocks', (req: Request, res: Response) => {
     return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
   }
   
+
+  if (id === 'medical-pharma') {
+    const stocks = medicalPharmaChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
+
+  if (id === 'consumer-electronics') {
+    const stocks = consumerElectronicsChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
+
+  if (id === 'defense-military') {
+    const stocks = defenseMilitaryChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
+
+  if (id === 'wind-power') {
+    const stocks = windPowerChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
   sendSuccess(res, { stocks: [] });
 });
 
@@ -911,6 +1540,22 @@ router.get('/:id/analysis', (req: Request, res: Response) => {
     return sendSuccess(res, { analysis: semiconductorChainDetail.aiAnalysis });
   }
   
+
+  if (id === 'medical-pharma') {
+    return sendSuccess(res, { analysis: medicalPharmaChainDetail.aiAnalysis || null });
+  }
+
+  if (id === 'consumer-electronics') {
+    return sendSuccess(res, { analysis: consumerElectronicsChainDetail.aiAnalysis || null });
+  }
+
+  if (id === 'defense-military') {
+    return sendSuccess(res, { analysis: defenseMilitaryChainDetail.aiAnalysis || null });
+  }
+
+  if (id === 'wind-power') {
+    return sendSuccess(res, { analysis: windPowerChainDetail.aiAnalysis || null });
+  }
   sendSuccess(res, { analysis: null });
 });
 
