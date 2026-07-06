@@ -66,6 +66,30 @@ const segmentFilters: SegmentFilter[] = [
   { chainId: 'ai-robot', segmentId: 'controller', segmentName: '控制器', industries: ['机械设备', '计算机'], nameKeywords: ['控制器', '运动控制', '机器人'], excludeKeywords: ['太阳能'], marketCapMin: 30, leaderCount: 3 },
   { chainId: 'ai-robot', segmentId: 'sensor', segmentName: '传感器', industries: ['电子', '计算机', '机械设备'], nameKeywords: ['传感器', '传感', '检测', '激光雷达', '机器视觉', '力觉'], marketCapMin: 30, leaderCount: 3 },
   { chainId: 'ai-robot', segmentId: 'robot-body', segmentName: '机器人本体', industries: ['机械设备'], nameKeywords: ['机器人', '自动化', '智能制造'], excludeKeywords: ['减速器', '电机', '传感器'], marketCapMin: 50, leaderCount: 3 },
+
+  // ==================== 医药生物产业链 ====================
+  { chainId: 'medical-pharma', segmentId: 'cro-cdmo', segmentName: 'CRO/CDMO', industries: ['医药生物'], nameKeywords: ['药明', '康龙', '泰格', '昭衍', 'CRO', 'CDMO', '医药研发', '临床', '凯莱英', '博腾', '美迪西', '诺思格'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'medical-pharma', segmentId: 'innovative-drug', segmentName: '创新药', industries: ['医药生物'], nameKeywords: ['恒瑞', '百济', '信达', '君实', '创新药', '生物药', '单抗', 'PD-1', 'ADC', '双抗', '细胞治疗', '基因'], excludeKeywords: ['医疗', '器械', '服务', '连锁'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'medical-pharma', segmentId: 'medical-device', segmentName: '医疗器械', industries: ['医药生物'], nameKeywords: ['迈瑞', '联影', '医疗', '器械', '设备', '诊断', '影像', '耗材', '微创', '乐普', '威高'], excludeKeywords: ['服务', '医院', '药', '生物'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'medical-pharma', segmentId: 'medical-service', segmentName: '医疗服务', industries: ['医药生物'], nameKeywords: ['医疗', '服务', '医院', '体检', '爱尔', '通策', '眼科', '牙科', '国际医学', '美年', '金域', '迪安'], excludeKeywords: ['器械', '药', '设备'], marketCapMin: 30, leaderCount: 3 },
+
+  // ==================== 消费电子产业链 ====================
+  { chainId: 'consumer-electronics', segmentId: 'ce-chip-design', segmentName: '芯片设计', industries: ['电子'], nameKeywords: ['芯片', 'IC', '设计', '半导体', '处理器', '射频', '模拟', '数字', '指纹', '触控'], excludeKeywords: ['设备', '材料', '制造', '封装'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'consumer-electronics', segmentId: 'ce-components', segmentName: '零部件', industries: ['电子'], nameKeywords: ['零', '组件', '连接器', 'PCB', '天线', '声学', '光学', '结构件', '精密', '模切', '散热', '屏蔽'], excludeKeywords: ['整机', '组装', '品牌'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'consumer-electronics', segmentId: 'ce-assembly', segmentName: '整机组装', industries: ['电子'], nameKeywords: ['组装', '代工', '制造', '整机', 'ODM', 'OEM', '富士康', '立讯', '歌尔', '闻泰', '华勤'], excludeKeywords: ['零', '品牌', '终端'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'consumer-electronics', segmentId: 'ce-brand', segmentName: '品牌终端', industries: ['电子'], nameKeywords: ['手机', '消费电子', '品牌', '终端', '华为', '小米', 'OPPO', '传音', '可穿戴', '智能'], excludeKeywords: ['零', '组装', '代工'], marketCapMin: 50, leaderCount: 3 },
+
+  // ==================== 国防军工产业链 ====================
+  { chainId: 'defense-military', segmentId: 'defense-materials', segmentName: '原材料', industries: ['国防军工', '有色金属'], nameKeywords: ['材料', '钛', '高温合金', '碳纤维', '复合材料', '军工', '特钢', '高温', '合金'], excludeKeywords: ['设备', '系统', '总装'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'defense-military', segmentId: 'defense-components', segmentName: '零部件', industries: ['国防军工'], nameKeywords: ['零', '部件', '连接器', '传感器', '军工电子', '精密', '轴承', '锻件', '铸件'], excludeKeywords: ['系统', '总装', '主机'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'defense-military', segmentId: 'defense-subsystem', segmentName: '分系统', industries: ['国防军工'], nameKeywords: ['分系统', '子系统', '发动机', '雷达', '导航', '武器', '火控', '指控', '电', '光'], excludeKeywords: ['总装', '整机', '主机'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'defense-military', segmentId: 'defense-assembly', segmentName: '总装', industries: ['国防军工'], nameKeywords: ['总装', '整机', '航空', '航天', '船舶', '兵器', '主机厂', '沈飞', '西飞', '航发', '中航', '中国动力', '中国船舶'], excludeKeywords: ['零', '系统', '材料'], marketCapMin: 100, leaderCount: 3 },
+
+  // ==================== 风电产业链 ====================
+  { chainId: 'wind-power', segmentId: 'wind-materials', segmentName: '原材料', industries: ['电力设备', '基础化工'], nameKeywords: ['风电', '材料', '玻纤', '碳纤维', '树脂', '钢材', '结构', '叶片材料'], excludeKeywords: ['整机', '运营', '发电'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'wind-power', segmentId: 'wind-components', segmentName: '零部件(叶片/齿轮箱)', industries: ['电力设备'], nameKeywords: ['叶片', '齿轮箱', '发电机', '轴承', '风电', '铸件', '塔筒', '法兰', '主轴', '变流器'], excludeKeywords: ['整机', '运营', '电场'], marketCapMin: 30, leaderCount: 3 },
+  { chainId: 'wind-power', segmentId: 'wind-turbine', segmentName: '整机', industries: ['电力设备'], nameKeywords: ['整机', '风机', '风电', '风电机组', '金风', '远景', '明阳', '运达', '三一', '电气风电'], excludeKeywords: ['零', '叶片', '齿', '材料', '运营'], marketCapMin: 50, leaderCount: 3 },
+  { chainId: 'wind-power', segmentId: 'wind-operation', segmentName: '运营', industries: ['电力设备', '公用事业'], nameKeywords: ['运营', '运维', '风电场', '发电', '新能源', '节能', '风电'], excludeKeywords: ['整机', '叶片', '设备制造'], marketCapMin: 30, leaderCount: 3 },
 ];
 
 export default segmentFilters;

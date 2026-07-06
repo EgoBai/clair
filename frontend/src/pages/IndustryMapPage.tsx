@@ -405,6 +405,17 @@ const IndustryMapPage: React.FC = () => {
       ? (allCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / allCompanies.length).toFixed(2)
       : '0';
     const totalMc = allCompanies.reduce((sum, c) => sum + (c.marketCap || 0), 0);
+
+    // 产业链位置分析: 计算每个segment的详情（用于热度排序）
+    const segmentDetails = chain.layers?.flatMap(l =>
+      l.segments?.map(s => {
+        const segCompanies = s.companies || [];
+        const segAvgChange = segCompanies.length > 0
+          ? (segCompanies.reduce((sum, c) => sum + (c.changePercent || 0), 0) / segCompanies.length).toFixed(2)
+          : '0';
+        return `${s.name}[${segCompanies.length}家,均涨${segAvgChange}%]`;
+      }) || []
+    ) || [];
     
     const marketContext = `
 【实时市场数据】
@@ -419,8 +430,11 @@ ${chain.layers?.map(l =>
   `\n${l.name}(${l.type}): ${l.segments?.map(s => 
     `${s.name}[${s.companies?.length || 0}家, 龙头:${s.companies?.filter(c => c.position === 'leader').map(c => c.name).join(',') || '无'}]`
   ).join(', ')}`
-).join('') || ''}`;
-    
+).join('') || ''}
+
+【各环节涨跌明细】${segmentDetails.join(' ｜ ')}
+【产业链位置与投资时间窗口】请根据以上数据判断当前产业链处于景气周期的哪个阶段（早期/中期/后期），并给出对应的投资时间窗口建议。`;
+
     try {
       const response = await fetch(`${API_BASE}/api/ai/chat`, {
         method: 'POST',
@@ -435,10 +449,11 @@ ${marketContext}
 用户问题: ${q}
 
 要求:
-1. 引用具体公司名称和实时涨跌数据
-2. 分析产业链各环节的强弱分布
-3. 如果涉及投资，必须加风险提示
-4. 回答简洁专业，300字以内`,
+1. 引用具体公司名称和实时涨跌数据，标注产业链位置
+2. 分析产业链各环节的强弱分布和景气阶段
+3. 给出投资时间窗口判断（短期/中期/长期视角）
+4. 如果涉及投资，必须加风险提示
+5. 回答简洁专业，400字以内`,
           context: [
             { role: 'system', content: '你是澄观AI产业链研究助手，专注于A股产业链实时分析。请基于提供的实时市场数据回答，不要编造信息。回答风格：专业、数据驱动、简洁。' },
           ],
@@ -906,7 +921,123 @@ ${marketContext}
                   </TabPane>
                 </Tabs>
               ) : (
-                <Empty description="暂无AI分析" />
+                (() => {
+                  // 基于segment数据生成分析
+                  const layers = chain.layers || [];
+                  const allSegments = layers.flatMap((l: any) =>
+                    (l.segments || []).map((s: any) => ({
+                      ...s,
+                      layerName: l.name,
+                      layerType: l.type,
+                      companyCount: (s.companies || []).length,
+                      avgChange: (s.companies || []).length > 0
+                        ? (s.companies || []).reduce((sum: number, c: any) => sum + (c.changePercent || 0), 0) / (s.companies || []).length
+                        : 0,
+                      leaderCount: (s.companies || []).filter((c: any) => c.position === 'leader').length,
+                    }))
+                  );
+                  const hotSegment = allSegments.length > 0
+                    ? allSegments.reduce((a: any, b: any) => (a.avgChange > b.avgChange ? a : b))
+                    : null;
+                  const coldSegment = allSegments.length > 0
+                    ? allSegments.reduce((a: any, b: any) => (a.avgChange < b.avgChange ? a : b))
+                    : null;
+
+                  return (
+                    <Tabs defaultActiveKey="segments" size="small">
+                      <TabPane tab="环节分析" key="segments">
+                        <Paragraph style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
+                          {chain.description}
+                        </Paragraph>
+                        {allSegments.length > 0 ? (
+                          <div>
+                            {allSegments.map((seg: any) => (
+                              <div key={seg.id} style={{
+                                padding: '8px 12px',
+                                marginBottom: 8,
+                                borderRadius: 6,
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border-subtle)',
+                              }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Space>
+                                    <Tag color={LAYER_COLORS[seg.layerType as LayerType] || '#1890ff'}>
+                                      {seg.layerName}
+                                    </Tag>
+                                    <Text strong style={{ color: 'var(--text-primary)' }}>{seg.name}</Text>
+                                  </Space>
+                                  <Text style={{
+                                    color: seg.avgChange >= 0 ? 'var(--color-up)' : 'var(--color-down)',
+                                    fontWeight: 600,
+                                  }}>
+                                    {seg.avgChange >= 0 ? '+' : ''}{seg.avgChange.toFixed(2)}%
+                                  </Text>
+                                </div>
+                                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                                  {seg.companyCount}家公司 · 龙头{seg.leaderCount}家
+                                  {seg.companyCount > 0 && seg.leaderCount > 0 && (
+                                    <span>：{(seg.companies || []).filter((c: any) => c.position === 'leader').map((c: any) => c.name).join('、')}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <Text type="secondary">暂无环节数据，加载中...</Text>
+                        )}
+                      </TabPane>
+                      <TabPane tab="热度排行" key="heat">
+                        {hotSegment && coldSegment ? (
+                          <div>
+                            <div style={{
+                              padding: '10px 14px',
+                              marginBottom: 12,
+                              borderRadius: 6,
+                              background: 'rgba(255, 77, 79, 0.08)',
+                              border: '1px solid rgba(255, 77, 79, 0.2)',
+                            }}>
+                              <Text strong style={{ color: 'var(--color-up)' }}>
+                                🔥 最热环节：{hotSegment.name}
+                              </Text>
+                              <div style={{ color: 'var(--text-secondary)', marginTop: 4, fontSize: 13 }}>
+                                均涨 +{hotSegment.avgChange.toFixed(2)}% · {hotSegment.companyCount}家公司
+                              </div>
+                            </div>
+                            <div style={{
+                              padding: '10px 14px',
+                              marginBottom: 12,
+                              borderRadius: 6,
+                              background: 'rgba(82, 196, 26, 0.06)',
+                              border: '1px solid rgba(82, 196, 26, 0.2)',
+                            }}>
+                              <Text strong style={{ color: 'var(--color-down)' }}>
+                                ❄️ 最冷环节：{coldSegment.name}
+                              </Text>
+                              <div style={{ color: 'var(--text-secondary)', marginTop: 4, fontSize: 13 }}>
+                                均涨 {coldSegment.avgChange.toFixed(2)}% · {coldSegment.companyCount}家公司
+                              </div>
+                            </div>
+                            <Divider style={{ margin: '8px 0' }} />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              热度差：{(hotSegment.avgChange - coldSegment.avgChange).toFixed(2)}%，表明产业链内部分化
+                              {(hotSegment.avgChange - coldSegment.avgChange) > 3 ? '显著' : '一般'}。
+                            </Text>
+                          </div>
+                        ) : (
+                          <Text type="secondary">暂无热度数据</Text>
+                        )}
+                      </TabPane>
+                      <TabPane tab="投资关注" key="focus">
+                        <ul style={{ color: 'var(--text-secondary)', paddingLeft: 20, fontSize: 13 }}>
+                          <li style={{ marginBottom: 8 }}>关注{chain.name}各环节景气度变化，优先布局景气上行环节</li>
+                          <li style={{ marginBottom: 8 }}>龙头企业具备护城河优势，是长期配置的核心选择</li>
+                          <li style={{ marginBottom: 8 }}>注意产业链上下游传导时滞，上游先行、下游跟进</li>
+                          <li style={{ marginBottom: 8 }}>结合政策面和资金面变化，动态调整配置权重</li>
+                        </ul>
+                      </TabPane>
+                    </Tabs>
+                  );
+                })()
               )}
             </Card>
           )}
@@ -944,21 +1075,44 @@ ${marketContext}
             <Space wrap style={{ marginBottom: 16 }}>
               <Tag
                 style={{ cursor: 'pointer' }}
-                onClick={() => handleAsk('这个产业链的核心壁垒是什么？')}
+                color="blue"
+                onClick={() => handleAsk('这条链的投资逻辑是什么？当前处于什么景气阶段？')}
               >
-                核心壁垒
+                投资逻辑
               </Tag>
               <Tag
                 style={{ cursor: 'pointer' }}
+                color="purple"
+                onClick={() => handleAsk('哪个环节弹性最大？为什么？')}
+              >
+                弹性最大
+              </Tag>
+              <Tag
+                style={{ cursor: 'pointer' }}
+                color="cyan"
                 onClick={() => handleAsk('龙头企业有哪些？各自优势是什么？')}
               >
                 龙头企业
               </Tag>
               <Tag
                 style={{ cursor: 'pointer' }}
-                onClick={() => handleAsk('这个产业链的投资逻辑和风险是什么？')}
+                color="orange"
+                onClick={() => handleAsk('当前投资时间窗口如何？短期/中期/长期分别怎么看？')}
               >
-                投资逻辑
+                时间窗口
+              </Tag>
+              <Tag
+                style={{ cursor: 'pointer' }}
+                onClick={() => handleAsk('这个产业链的核心壁垒是什么？')}
+              >
+                核心壁垒
+              </Tag>
+              <Tag
+                style={{ cursor: 'pointer' }}
+                color="red"
+                onClick={() => handleAsk('主要风险因素有哪些？如何应对？')}
+              >
+                风险提示
               </Tag>
             </Space>
             

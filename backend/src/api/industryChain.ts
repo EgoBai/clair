@@ -1308,7 +1308,7 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
   if (id === 'ai-computing') {
     let stocks = aiComputingChainDetail.layers.flatMap(layer => 
       layer.segments.flatMap(segment => 
-        segment.companies.map(company => ({
+        (segment.companies as any[]).map((company: any) => ({
           ...company,
           segmentId: segment.id,
           segmentName: segment.name,
@@ -1343,7 +1343,7 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
   if (id === 'semiconductor') {
     let stocks = semiconductorChainDetail.layers.flatMap(layer => 
       layer.segments.flatMap(segment => 
-        segment.companies.map(company => ({
+        (segment.companies as any[]).map((company: any) => ({
           ...company,
           segmentId: segment.id,
           segmentName: segment.name,
@@ -1379,7 +1379,7 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
   if (id === 'medical-pharma') {
     let stocks = medicalPharmaChainDetail.layers.flatMap(layer => 
       layer.segments.flatMap(segment => 
-        segment.companies.map(company => ({
+        (segment.companies as any[]).map((company: any) => ({
           ...company,
           segmentId: segment.id,
           segmentName: segment.name,
@@ -1397,7 +1397,7 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
   if (id === 'consumer-electronics') {
     let stocks = consumerElectronicsChainDetail.layers.flatMap(layer => 
       layer.segments.flatMap(segment => 
-        segment.companies.map(company => ({
+        (segment.companies as any[]).map((company: any) => ({
           ...company,
           segmentId: segment.id,
           segmentName: segment.name,
@@ -1415,7 +1415,7 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
   if (id === 'defense-military') {
     let stocks = defenseMilitaryChainDetail.layers.flatMap(layer => 
       layer.segments.flatMap(segment => 
-        segment.companies.map(company => ({
+        (segment.companies as any[]).map((company: any) => ({
           ...company,
           segmentId: segment.id,
           segmentName: segment.name,
@@ -1433,7 +1433,7 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
   if (id === 'wind-power') {
     let stocks = windPowerChainDetail.layers.flatMap(layer => 
       layer.segments.flatMap(segment => 
-        segment.companies.map(company => ({
+        (segment.companies as any[]).map((company: any) => ({
           ...company,
           segmentId: segment.id,
           segmentName: segment.name,
@@ -1496,28 +1496,28 @@ router.get('/:id/hot-stocks', (req: Request, res: Response) => {
   
 
   if (id === 'medical-pharma') {
-    const stocks = medicalPharmaChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const stocks = (medicalPharmaChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
     const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
     uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
     return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
   }
 
   if (id === 'consumer-electronics') {
-    const stocks = consumerElectronicsChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const stocks = (consumerElectronicsChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
     const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
     uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
     return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
   }
 
   if (id === 'defense-military') {
-    const stocks = defenseMilitaryChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const stocks = (defenseMilitaryChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
     const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
     uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
     return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
   }
 
   if (id === 'wind-power') {
-    const stocks = windPowerChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies));
+    const stocks = (windPowerChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
     const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
     uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
     return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
@@ -1542,19 +1542,19 @@ router.get('/:id/analysis', (req: Request, res: Response) => {
   
 
   if (id === 'medical-pharma') {
-    return sendSuccess(res, { analysis: medicalPharmaChainDetail.aiAnalysis || null });
+    return sendSuccess(res, { analysis: (medicalPharmaChainDetail as any).aiAnalysis || null });
   }
 
   if (id === 'consumer-electronics') {
-    return sendSuccess(res, { analysis: consumerElectronicsChainDetail.aiAnalysis || null });
+    return sendSuccess(res, { analysis: (consumerElectronicsChainDetail as any).aiAnalysis || null });
   }
 
   if (id === 'defense-military') {
-    return sendSuccess(res, { analysis: defenseMilitaryChainDetail.aiAnalysis || null });
+    return sendSuccess(res, { analysis: (defenseMilitaryChainDetail as any).aiAnalysis || null });
   }
 
   if (id === 'wind-power') {
-    return sendSuccess(res, { analysis: windPowerChainDetail.aiAnalysis || null });
+    return sendSuccess(res, { analysis: (windPowerChainDetail as any).aiAnalysis || null });
   }
   sendSuccess(res, { analysis: null });
 });
