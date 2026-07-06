@@ -153,7 +153,7 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
   const totalCount = rawStocks.length;
 
   // ====== 阶段2: 百分位评分 (幂次=1.3 拉开顶部差距) ======
-  const POWER = 1.3;
+  const POWER = 1.1;
   const momentumScores  = computePercentileScores(rawStocks.map(s => s.momentumRaw), 20, POWER);
   const volumeScores    = computePercentileScores(rawStocks.map(s => s.volumeRaw), 20, POWER);
   const valuationScores = computePercentileScores(rawStocks.map(s => s.valuationRaw), 15, POWER);
