@@ -12,6 +12,7 @@ import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, Filter
 const { Title, Text, Paragraph } = Typography;
 
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
+import EChartsWrapper from '../components/Charts/EChartsWrapper';
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
@@ -783,7 +784,7 @@ const DiscoverPage: React.FC = () => {
                 </div>
               ))}
             </div>
-            {/* ====== 多维景气热力 ====== */}
+            {/* ====== 多维景气热力图 (ECharts) ====== */}
             {Object.keys(multidimMap).length > 0 && (() => {
               const multidimSorted = Object.entries(multidimMap)
                 .map(([industry, data]) => ({ industry, ...data }))
@@ -793,59 +794,157 @@ const DiscoverPage: React.FC = () => {
               const dimLabels: Record<string, string> = {
                 crowding: '拥挤度', diffusion: '扩散', concentration: '资金集中', retail: '小白指数', recovery: '回补',
               };
-              const getCellBg = (key: string, score: number) => {
-                if (key === 'retail') {
-                  return score >= 14 ? 'rgba(239,68,68,0.22)' : score >= 8 ? 'rgba(245,158,11,0.18)' : 'rgba(34,197,94,0.16)';
-                }
-                return score >= 14 ? 'rgba(34,197,94,0.20)' : score >= 8 ? 'rgba(245,158,11,0.16)' : 'rgba(239,68,68,0.16)';
+              // Rows (yAxis): sector names (top to bottom = highest score first)
+              const yLabels = multidimSorted.map(s => s.industry);
+              // Columns (xAxis): 5 dimensions + 综合
+              const xLabels = [...dimKeys.map(k => dimLabels[k]), '综合'];
+
+              // Build heatmap data: [colIndex, rowIndex, value]
+              const heatData: [number, number, number][] = [];
+              multidimSorted.forEach((item, rowIdx) => {
+                dimKeys.forEach((k, colIdx) => {
+                  heatData.push([colIdx, rowIdx, item.dimensions[k].score]);
+                });
+                heatData.push([dimKeys.length, rowIdx, item.totalScore]);
+              });
+
+              // Hover detail map
+              const hoverDetail: Record<string, string> = {};
+              multidimSorted.forEach((item) => {
+                dimKeys.forEach(k => {
+                  hoverDetail[`${item.industry}__${k}`] = item.dimensions[k].label;
+                });
+                hoverDetail[`${item.industry}__综合`] = `板块景气多维度综合评分 ${item.totalScore}/100`;
+              });
+
+              // Color: 红(0-5)→黄(6-12)→绿(13-20) (综合列 0-100 映射到 0-20 色阶)
+              const option = {
+                tooltip: {
+                  position: 'top' as const,
+                  backgroundColor: 'rgba(15,23,42,0.95)',
+                  borderColor: 'var(--border-subtle, #334155)',
+                  textStyle: { color: '#e2e8f0', fontSize: 12 },
+                  formatter: (params: any) => {
+                    const data = params.data as [number, number, number];
+                    if (!data) return '';
+                    const colIdx = data[0];
+                    const rowIdx = data[1];
+                    const val = data[2];
+                    const industry = yLabels[rowIdx];
+                    const dimName = xLabels[colIdx];
+                    const key = `${industry}__${dimName}`;
+                    const detail = hoverDetail[key] || '';
+                    const sectorObj = multidimSorted[rowIdx];
+                    const dimKey = colIdx < dimKeys.length ? dimKeys[colIdx] : null;
+                    const isRetail = dimKey === 'retail';
+                    const colorHex = val >= 14 ? '#22c55e' : val >= 8 ? '#f59e0b' : '#ef4444';
+                    const retailColorHex = val >= 14 ? '#ef4444' : val >= 8 ? '#f59e0b' : '#22c55e';
+                    return `<div style="font-weight:700;margin-bottom:4px">${industry}</div>
+                      <div style="color:#94a3b8">${dimName}: <span style="color:${dimKey === 'retail' ? retailColorHex : colorHex};font-weight:700;font-size:16px">${val}分</span></div>
+                      <div style="color:#64748b;font-size:11px;margin-top:2px;max-width:200px">${detail}</div>
+                      <div style="color:#475569;font-size:10px;margin-top:4px">点击查看板块详情</div>`;
+                  },
+                },
+                grid: {
+                  left: 110, right: 60, top: 30, bottom: 50,
+                  containLabel: false,
+                },
+                xAxis: {
+                  type: 'category' as const,
+                  data: xLabels,
+                  position: 'top' as const,
+                  axisLabel: {
+                    color: '#94a3b8',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    rotate: 0,
+                  },
+                  axisLine: { show: false },
+                  axisTick: { show: false },
+                  splitArea: { show: true },
+                },
+                yAxis: {
+                  type: 'category' as const,
+                  data: yLabels,
+                  axisLabel: {
+                    color: '#e2e8f0',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    width: 100,
+                    overflow: 'truncate' as const,
+                  },
+                  axisLine: { show: false },
+                  axisTick: { show: false },
+                  splitArea: { show: true },
+                },
+                visualMap: {
+                  min: 0,
+                  max: 20,
+                  calculable: true,
+                  orient: 'vertical' as const,
+                  right: 0,
+                  top: 'center',
+                  itemWidth: 10,
+                  itemHeight: 140,
+                  textStyle: { color: '#94a3b8', fontSize: 10 },
+                  inRange: {
+                    color: ['#ef4444', '#ef4444', '#f59e0b', '#f59e0b', '#22c55e', '#22c55e'],
+                  },
+                  pieces: [
+                    { min: 0, max: 5, color: '#ef4444', label: '低(0-5)' },
+                    { min: 6, max: 12, color: '#f59e0b', label: '中(6-12)' },
+                    { min: 13, max: 20, color: '#22c55e', label: '高(13-20)' },
+                  ],
+                  outOfRange: { color: '#334155' },
+                },
+                series: [{
+                  type: 'heatmap' as const,
+                  data: heatData,
+                  label: {
+                    show: true,
+                    color: '#1e293b',
+                    fontSize: 11,
+                    fontWeight: 800,
+                  },
+                  emphasis: {
+                    itemStyle: {
+                      shadowBlur: 10,
+                      shadowColor: 'rgba(0,0,0,0.5)',
+                      borderColor: '#fff',
+                      borderWidth: 1,
+                    },
+                  },
+                  itemStyle: {
+                    borderColor: 'var(--border-subtle, #1e293b)',
+                    borderWidth: 1,
+                    borderRadius: 2,
+                  },
+                }],
               };
-              const getCellColor = (key: string, score: number) => {
-                if (key === 'retail') {
-                  return score >= 14 ? '#ef4444' : score >= 8 ? '#f59e0b' : '#22c55e';
-                }
-                return score >= 14 ? '#22c55e' : score >= 8 ? '#f59e0b' : '#ef4444';
-              };
-              const totalColor = (s: number) => s >= 70 ? '#22c55e' : s >= 45 ? '#f59e0b' : '#ef4444';
+
               return (
                 <div style={{ marginTop: 24 }}>
                   <div style={{ marginBottom: 12 }}>
                     <Text strong style={{ color: TEXT, fontSize: 15 }}>🌡️ 多维景气热力</Text>
                     <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-                      Top10板块 × 5维度评分 · 按综合分降序排列
+                      Top10板块 × 5维度评分 · 按综合分降序 · 红(0-5)→黄(6-12)→绿(13-20)
                     </div>
                   </div>
-                  <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                      <thead>
-                        <tr style={{ background: 'var(--bg-surface)' }}>
-                          <th style={{ padding: '10px 14px', textAlign: 'left', color: TEXT_SEC, fontWeight: 600, borderBottom: `1px solid ${BORDER}`, fontSize: 11 }}>板块</th>
-                          {dimKeys.map(k => (
-                            <th key={k} style={{ padding: '10px 12px', textAlign: 'center', color: TEXT_SEC, fontWeight: 600, borderBottom: `1px solid ${BORDER}`, fontSize: 11 }}>{dimLabels[k]}</th>
-                          ))}
-                          <th style={{ padding: '10px 14px', textAlign: 'center', color: TEXT_SEC, fontWeight: 600, borderBottom: `1px solid ${BORDER}`, fontSize: 11 }}>综合</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {multidimSorted.map((item, idx) => (
-                          <tr key={item.industry}
-                            onClick={() => { const s = scores.find(x => x.industry === item.industry); if (s) openSector(s); }}
-                            style={{ cursor: 'pointer', transition: 'background .12s', borderBottom: `1px solid ${BORDER}` }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-surface)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                          >
-                            <td style={{ padding: '9px 14px', color: TEXT, fontWeight: 600, fontSize: 12 }}>
-                              <span style={{ color: TEXT_SEC, marginRight: 6 }}>{idx + 1}</span>{item.industry}
-                            </td>
-                            {dimKeys.map(k => (
-                              <td key={k} style={{ padding: '6px 10px', textAlign: 'center' }}>
-                                <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 6, fontWeight: 700, fontFamily: 'monospace', fontSize: 12, color: getCellColor(k, item.dimensions[k].score), background: getCellBg(k, item.dimensions[k].score), minWidth: 36 }}>{item.dimensions[k].score}</span>
-                              </td>
-                            ))}
-                            <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 800, fontFamily: 'monospace', fontSize: 13, color: totalColor(item.totalScore) }}>{item.totalScore}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden', padding: '8px 0' }}>
+                    <EChartsWrapper
+                      option={option}
+                      style={{ width: '100%', height: 420 }}
+                      onEvents={{
+                        click: (params: any) => {
+                          if (params.data) {
+                            const rowIdx = (params.data as [number, number, number])[1];
+                            const industry = yLabels[rowIdx];
+                            const s = scores.find(x => x.industry === industry);
+                            if (s) openSector(s);
+                          }
+                        },
+                      }}
+                    />
                   </div>
                 </div>
               );

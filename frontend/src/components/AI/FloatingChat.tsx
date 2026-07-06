@@ -29,6 +29,17 @@ interface MarketData {
   limitDownCount: number;
 }
 
+
+interface MultidimDimension {
+  score: number;
+  label: string;
+}
+
+interface MultidimData {
+  totalScore: number;
+  dimensions: Record<string, MultidimDimension>;
+}
+
 type SuggestedQuestion = { icon: string; text: string; prompt: string };
 
 // ===== 页面上下文映射 =====
@@ -105,6 +116,17 @@ const getSuggestedQuestions = (page: string, stockName?: string): SuggestedQuest
 
 const STOCK_DETAIL_PATTERN = /^\/stocks\/(\d{6})/;
 
+// 多维景气摘要格式化 (单板块 -> 单行文本)
+function buildMultidimSummary(industry: string, data: MultidimData): string {
+  const dimMap: Record<string, string> = {
+    crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补',
+  };
+  const parts = Object.entries(data.dimensions).map(([key, dim]) =>
+    `${dimMap[key] || key}${dim.score}(${dim.label})`
+  );
+  return `  ${industry}: ${parts.join(' / ')} [综合${data.totalScore}]`;
+}
+
 const FloatingChat: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [marketData, setMarketData] = useState<MarketData | null>(null);
@@ -129,6 +151,64 @@ const FloatingChat: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchMarketData(); }, [fetchMarketData]);
+
+  // 多维景气数据摘要
+  const [multidimSummary, setMultidimSummary] = useState<string>('');
+
+  // 获取多维景气上下文
+  const fetchMultidimContext = useCallback(async (page: string, symbol?: string) => {
+    setMultidimSummary('');
+    try {
+      if (page === 'stock-detail' && symbol) {
+        // 个股页: 获取所属板块，再获取板块多维数据
+        const stockResp = await fetch(`/api/stocks/${symbol}`);
+        const stockData = await stockResp.json();
+        const industry = stockData?.data?.industry;
+        if (industry) {
+          const mdResp = await fetch(`/api/sectors/${encodeURIComponent(industry)}/multidim`);
+          const mdData = await mdResp.json();
+          if (mdData?.data) {
+            const summary = buildMultidimSummary(industry, mdData.data);
+            setMultidimSummary(`板块景气多维: ${summary}`);
+          }
+        }
+      } else if (page === 'discover') {
+        // 发现页: 获取Top3板块的多维摘要
+        const sectorResp = await fetch('/api/sectors/momentum');
+        const sectorData = await sectorResp.json();
+        const topSectors = (sectorData?.data?.sectors || []).slice(0, 3);
+        if (topSectors.length > 0) {
+          const mdResults = await Promise.allSettled(
+            topSectors.map((s: any) =>
+              fetch(`/api/sectors/${encodeURIComponent(s.industry)}/multidim`).then(r => r.json())
+            )
+          );
+          const parts: string[] = [];
+          topSectors.forEach((s: any, i: number) => {
+            if (mdResults[i].status === 'fulfilled' && mdResults[i].value?.data) {
+              parts.push(buildMultidimSummary(s.industry, mdResults[i].value.data));
+            }
+          });
+          if (parts.length > 0) {
+            setMultidimSummary('Top3板块多维景气:\n' + parts.join('\n'));
+          }
+        }
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  // 页面变化时获取多维数据
+  useEffect(() => {
+    const pathname = location.pathname;
+    const stockMatch = pathname.match(STOCK_DETAIL_PATTERN);
+    if (stockMatch) {
+      fetchMultidimContext('stock-detail', stockMatch[1]);
+    } else if (pathname === '/') {
+      fetchMultidimContext('discover');
+    } else {
+      setMultidimSummary('');
+    }
+  }, [location.pathname, fetchMultidimContext]);
 
   // 计算当前页面上下文
   const pageContext: PageContext = useMemo(() => {
@@ -172,11 +252,16 @@ const FloatingChat: React.FC = () => {
       }
     } catch { /* ignore */ }
 
+    // 注入多维景气数据
+    if (multidimSummary) {
+      hint += '\n\n' + multidimSummary;
+    }
+
     // 更新推荐问题
     setSuggestedQuestions(getSuggestedQuestions(pageContext.page, pageContext.stockName));
 
     return { ...pageContext, systemHint: hint };
-  }, [pageContext, marketData]);
+  }, [pageContext, marketData, multidimSummary]);
 
   return (
     <>

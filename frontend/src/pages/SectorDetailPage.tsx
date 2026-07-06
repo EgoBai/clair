@@ -1,15 +1,18 @@
 /**
  * 行业板块分析页面
  * 成分股、权重、估值、PE分布、市值分布
+ * P0-2: 5维度雷达图 + 解读仪表盘
  */
 
 import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Row, Col, Statistic, Spin, Select, Space, Progress } from 'antd';
+import { Card, Table, Tag, Row, Col, Statistic, Spin, Select, Space, Progress, Tooltip } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
+import ReactECharts from 'echarts-for-react';
+import echarts from '../utils/echarts';
 import {
-  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer,
 } from 'recharts';
 
@@ -42,22 +45,89 @@ interface SectorDetail extends SectorSummary {
   marketCapDistribution: { range: string; count: number; total: number }[];
 }
 
+// 多维分析 API 返回类型
+interface MultidimDim {
+  score: number;
+  label: string;
+  detail: string;
+}
+
+interface MultidimResult {
+  industry: string;
+  totalScore: number;
+  dimensions: {
+    crowding: MultidimDim;
+    diffusion: MultidimDim;
+    concentration: MultidimDim;
+    retail: MultidimDim;
+    recovery: MultidimDim;
+  };
+  metadata: {
+    stockCount: number;
+    avgPE: number;
+    medianPE: number;
+    aboveMA20Pct: number;
+    top5TurnoverPct: number;
+    smallCapTurnoverSurge: number;
+    ma5Change: number;
+    ma20Change: number;
+  };
+}
+
 const COLORS = ['#1890ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1', '#13c2c2', '#eb2f96', '#fadb14'];
 
+// 雷达图维度颜色
+const RADAR_COLORS = {
+  crowding: '#f59e0b',      // 拥挤度 - 琥珀
+  diffusion: '#3b82f6',     // 扩散程度 - 蓝
+  concentration: '#10b981', // 资金集中度 - 绿
+  retail: '#f97316',        // 小白指数 - 橙
+  recovery: '#8b5cf6',      // 回补程度 - 紫
+};
+
+const DIM_ICONS: Record<string, string> = {
+  crowding: '👥',
+  diffusion: '📊',
+  concentration: '💰',
+  retail: '🐟',
+  recovery: '🔄',
+};
+
+const DIM_NAMES: Record<string, string> = {
+  crowding: '拥挤度',
+  diffusion: '扩散程度',
+  concentration: '资金集中度',
+  retail: '小白指数',
+  recovery: '回补程度',
+};
+
+// 总分评级
+function getTotalRank(totalScore: number): { label: string; color: string } {
+  if (totalScore >= 80) return { label: '优秀', color: '#10b981' };
+  if (totalScore >= 60) return { label: '良好', color: '#3b82f6' };
+  if (totalScore >= 40) return { label: '一般', color: '#f59e0b' };
+  return { label: '偏弱', color: '#ef4444' };
+}
+
 export default function SectorDetailPage() {
-  const { code } = useParams<{ code?: string }>();
+  const { symbol } = useParams<{ symbol?: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [sectorList, setSectorList] = useState<SectorSummary[]>([]);
   const [selectedSector, setSelectedSector] = useState<SectorDetail | null>(null);
-  const [activeCode, setActiveCode] = useState(code || '');
+  const [activeCode, setActiveCode] = useState(symbol || '');
+  const [multidimData, setMultidimData] = useState<MultidimResult | null>(null);
+  const [multidimLoading, setMultidimLoading] = useState(false);
 
   useEffect(() => {
     loadSectorList();
   }, []);
 
   useEffect(() => {
-    if (activeCode) loadSectorDetail(activeCode);
+    if (activeCode) {
+      loadSectorDetail(activeCode);
+      loadMultidimAnalysis(activeCode);
+    }
   }, [activeCode]);
 
   const loadSectorList = async () => {
@@ -86,6 +156,95 @@ export default function SectorDetailPage() {
     } catch (e) {
       logger.error('加载板块详情失败:', e);
     }
+  };
+
+  const loadMultidimAnalysis = async (sectorCode: string) => {
+    setMultidimLoading(true);
+    try {
+      const res = await fetch(`/api/sectors/${encodeURIComponent(sectorCode)}/multidim`);
+      const data = await res.json();
+      if (data.success) {
+        setMultidimData(data.data);
+      } else {
+        setMultidimData(null);
+      }
+    } catch (e) {
+      logger.error('加载多维分析失败:', e);
+      setMultidimData(null);
+    } finally {
+      setMultidimLoading(false);
+    }
+  };
+
+  // ============== 雷达图配置 ==============
+  const buildRadarOption = () => {
+    if (!multidimData) return {};
+
+    const dims = multidimData.dimensions;
+    const keys: (keyof typeof dims)[] = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery'];
+
+    const indicator = keys.map((k) => ({
+      name: DIM_NAMES[k],
+      max: 20,
+    }));
+
+    const values = keys.map((k) => dims[k].score);
+
+    return {
+      radar: {
+        indicator,
+        center: ['50%', '52%'],
+        radius: '70%',
+        axisName: {
+          color: '#94a3b8',
+          fontSize: 12,
+          padding: [3, 5],
+        },
+        splitArea: {
+          areaStyle: {
+            color: ['rgba(59, 130, 246, 0.02)', 'rgba(59, 130, 246, 0.02)'],
+          },
+        },
+        splitLine: {
+          lineStyle: {
+            color: 'rgba(148, 163, 184, 0.2)',
+          },
+        },
+        axisLine: {
+          lineStyle: {
+            color: 'rgba(148, 163, 184, 0.3)',
+          },
+        },
+      },
+      series: [
+        {
+          type: 'radar',
+          data: [
+            {
+              value: values,
+              name: multidimData.industry,
+              areaStyle: {
+                color: {
+                  type: 'radial',
+                  x: 0.5, y: 0.5, r: 0.5,
+                  colorStops: [
+                    { offset: 0, color: 'rgba(59, 130, 246, 0.35)' },
+                    { offset: 1, color: 'rgba(139, 92, 246, 0.12)' },
+                  ],
+                },
+              },
+              lineStyle: {
+                color: '#3b82f6',
+                width: 2,
+              },
+              itemStyle: {
+                color: '#3b82f6',
+              },
+            },
+          ],
+        },
+      ],
+    };
   };
 
   const stockColumns = [
@@ -118,6 +277,9 @@ export default function SectorDetailPage() {
   ];
 
   if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
+
+  // 获取维度解读数据
+  const dimKeys: (keyof MultidimResult['dimensions'])[] = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery'];
 
   return (
     <div style={{ padding: 16 }}>
@@ -163,6 +325,112 @@ export default function SectorDetailPage() {
         ))}
       </Row>
 
+      {/* ========== P0-2: 多维雷达图 + 解读仪表盘 ========== */}
+      {multidimLoading ? (
+        <Card size="small" style={{ marginBottom: 16, textAlign: 'center', padding: 40 }}>
+          <Spin tip="加载多维分析..." />
+        </Card>
+      ) : multidimData ? (
+        <Card
+          size="small"
+          style={{ marginBottom: 16 }}
+          title={
+            <Space>
+              <span>🎯 板块多维雷达图</span>
+              <Tag color={getTotalRank(multidimData.totalScore).color}>
+                综合得分: {multidimData.totalScore}/100 ({getTotalRank(multidimData.totalScore).label})
+              </Tag>
+            </Space>
+          }
+        >
+          <Row gutter={[24, 24]}>
+            {/* 雷达图 */}
+            <Col xs={24} md={12} lg={10}>
+              <ReactECharts
+                echarts={echarts}
+                option={buildRadarOption()}
+                style={{ height: 380 }}
+                notMerge
+              />
+            </Col>
+
+            {/* 维度解读 */}
+            <Col xs={24} md={12} lg={14}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', justifyContent: 'center' }}>
+                {dimKeys.map((key) => {
+                  const dim = multidimData.dimensions[key];
+                  const color = RADAR_COLORS[key];
+                  const icon = DIM_ICONS[key];
+                  const name = DIM_NAMES[key];
+                  const scorePct = (dim.score / 20) * 100;
+
+                  return (
+                    <div key={key} style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      transition: 'all 0.2s',
+                    }}>
+                      {/* 图标 */}
+                      <div style={{
+                        width: 40, height: 40, borderRadius: 10,
+                        background: `${color}15`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 20, flexShrink: 0,
+                      }}>
+                        {icon}
+                      </div>
+
+                      {/* 内容 */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: 14, color: '#e2e8f0' }}>{name}</span>
+                          <Tag color={dim.score >= 14 ? 'green' : dim.score >= 9 ? 'orange' : 'red'} style={{ margin: 0, fontSize: 11 }}>
+                            {dim.score}/20
+                          </Tag>
+                          <span style={{ fontSize: 12, color: color, fontWeight: 500 }}>{dim.label}</span>
+                        </div>
+
+                        {/* 进度条 */}
+                        <div style={{
+                          height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)',
+                          marginBottom: 6, overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%', borderRadius: 2,
+                            width: `${scorePct}%`,
+                            background: `linear-gradient(90deg, ${color}, ${color}88)`,
+                            transition: 'width 0.5s ease',
+                          }} />
+                        </div>
+
+                        {/* 详细解读 */}
+                        <Tooltip title={dim.detail}>
+                          <span style={{
+                            fontSize: 12, color: '#94a3b8',
+                            lineHeight: 1.5,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}>
+                            {dim.detail}
+                          </span>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Col>
+          </Row>
+        </Card>
+      ) : null}
+
       {selectedSector && (
         <>
           {/* 板块详情指标 */}
@@ -198,7 +466,7 @@ export default function SectorDetailPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="range" />
                     <YAxis />
-                    <Tooltip />
+                    <RechartsTooltip />
                     <Bar dataKey="count" name="公司数" fill="#1890ff" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -214,7 +482,7 @@ export default function SectorDetailPage() {
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <RechartsTooltip />
                   </PieChart>
                 </ResponsiveContainer>
               </Card>

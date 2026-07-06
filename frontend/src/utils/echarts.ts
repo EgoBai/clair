@@ -15,6 +15,7 @@ import {
   CandlestickChart,
   RadarChart,
   SankeyChart,
+  HeatmapChart,
 } from 'echarts/charts';
 
 // 组件
@@ -47,6 +48,7 @@ echarts.use([
   CandlestickChart,
   RadarChart,
   SankeyChart,
+  HeatmapChart,
   GridComponent,
   TooltipComponent,
   AxisPointerComponent,
