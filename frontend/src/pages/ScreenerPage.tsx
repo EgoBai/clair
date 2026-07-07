@@ -475,7 +475,7 @@ const ScreenerPage: React.FC = () => {
     { title: '代码', dataIndex: 'symbol', width: 95,
       render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: ACCENT }}>{v.replace(/\.(SH|SZ)$/, '')}</span>
     },
-    { title: '名称', dataIndex: 'name', ellipsis: true,
+    { title: '名称', dataIndex: 'name', width: 80, ellipsis: true,
       render: (v: string) => <span style={{ color: TEXT }}>{v}</span>
     },
     { title: '行业', dataIndex: 'industry', width: 80,

@@ -13,7 +13,7 @@ import {
   PlusOutlined, SearchOutlined, FolderOutlined, StarFilled,
   CloseOutlined, ReloadOutlined, LineChartOutlined, EyeOutlined,
   DeleteOutlined, BellOutlined, AlertOutlined, RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
-  InfoCircleOutlined, ThunderboltOutlined,
+  InfoCircleOutlined, ThunderboltOutlined, UpOutlined, DownOutlined,
 } from '@ant-design/icons';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { apiFetch } from '../utils/api';
@@ -544,6 +544,35 @@ const WatchlistPage: React.FC = () => {
     message.success(`${stockName} 已移除`);
   }, []);
 
+  const handleMoveStock = useCallback((symbol: string, direction: 'up' | 'down') => {
+    setGroups(prev => prev.map(g => {
+      if (g.id !== activeGroup) return g;
+      const idx = g.stocks.findIndex(s => s.symbol === symbol);
+      if (idx === -1) return g;
+      const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (newIdx < 0 || newIdx >= g.stocks.length) return g;
+      const newStocks = [...g.stocks];
+      [newStocks[idx], newStocks[newIdx]] = [newStocks[newIdx], newStocks[idx]];
+      return { ...g, stocks: newStocks };
+    }));
+  }, [activeGroup]);
+
+  const handleMoveStockToGroup = useCallback((symbol: string, targetGroupId: string) => {
+    setGroups(prev => {
+      const sourceGroup = prev.find(g => g.id === activeGroup);
+      const targetGroup = prev.find(g => g.id === targetGroupId);
+      if (!sourceGroup || !targetGroup) return prev;
+      const stock = sourceGroup.stocks.find(st => st.symbol === symbol);
+      if (!stock) return prev;
+      return prev.map(g => {
+        if (g.id === activeGroup) return { ...g, stocks: g.stocks.filter(st => st.symbol !== symbol) };
+        if (g.id === targetGroupId) return { ...g, stocks: [...g.stocks, { ...stock, groupId: targetGroupId }] };
+        return g;
+      });
+    });
+    message.success(`已移至「${groups.find(g => g.id === targetGroupId)?.name || targetGroupId}」`);
+  }, [activeGroup, groups]);
+
   /* ─── Navigation ─── */
   const goToDetail = (symbol: string) => navigate(`/stocks/${symbol}`);
   const goToBacktest = (symbol: string, e: React.MouseEvent) => {
@@ -691,46 +720,95 @@ const WatchlistPage: React.FC = () => {
     },
     {
       title: '操作',
-      width: 110,
+      width: 160,
       align: 'center' as const,
-      render: (_: unknown, r: WatchlistStock) => (
-        <Space size={4}>
-          <Tooltip title="查看详情">
-            <Button
-              type="text"
-              size="small"
-              icon={<EyeOutlined />}
-              style={{ color: ACCENT }}
-              onClick={(e) => { e.stopPropagation(); goToDetail(r.symbol); }}
-            />
-          </Tooltip>
-          <Tooltip title="快速回测">
-            <Button
-              type="text"
-              size="small"
-              icon={<LineChartOutlined />}
-              style={{ color: GOLD }}
-              onClick={(e) => goToBacktest(r.symbol, e)}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="确定移除此股票？"
-            description={`${r.name}（${r.symbol}）将从追踪列表中移除`}
-            onConfirm={() => handleRemoveStock(r.symbol, r.name)}
-            okText="移除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button
-              type="text"
-              size="small"
-              icon={<DeleteOutlined />}
-              danger
-              onClick={e => e.stopPropagation()}
-            />
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_: unknown, r: WatchlistStock, index: number) => {
+        const stockList = currentGroup?.stocks || [];
+        return (
+          <Space size={2} wrap>
+            <div style={{ display: 'inline-flex', gap: 1 }}>
+              <Tooltip title="上移">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<UpOutlined />}
+                  disabled={index === 0}
+                  onClick={(e) => { e.stopPropagation(); handleMoveStock(r.symbol, 'up'); }}
+                  style={{ fontSize: 10, padding: '0 4px', color: index === 0 ? '#333' : TEXT_SEC }}
+                />
+              </Tooltip>
+              <Tooltip title="下移">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DownOutlined />}
+                  disabled={index === stockList.length - 1}
+                  onClick={(e) => { e.stopPropagation(); handleMoveStock(r.symbol, 'down'); }}
+                  style={{ fontSize: 10, padding: '0 4px', color: index === stockList.length - 1 ? '#333' : TEXT_SEC }}
+                />
+              </Tooltip>
+            </div>
+            {groups.length > 1 && (
+              <select
+                value={activeGroup}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  handleMoveStockToGroup(r.symbol, e.target.value);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  fontSize: 10,
+                  padding: '1px 4px',
+                  borderRadius: 4,
+                  background: 'transparent',
+                  border: `1px solid ${CARD_BORDER}`,
+                  color: TEXT_SEC,
+                  cursor: 'pointer',
+                  lineHeight: '16px',
+                }}
+              >
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.id === activeGroup ? '当前' : g.name}</option>
+                ))}
+              </select>
+            )}
+            <Tooltip title="查看详情">
+              <Button
+                type="text"
+                size="small"
+                icon={<EyeOutlined />}
+                style={{ color: ACCENT }}
+                onClick={(e) => { e.stopPropagation(); goToDetail(r.symbol); }}
+              />
+            </Tooltip>
+            <Tooltip title="快速回测">
+              <Button
+                type="text"
+                size="small"
+                icon={<LineChartOutlined />}
+                style={{ color: GOLD }}
+                onClick={(e) => goToBacktest(r.symbol, e)}
+              />
+            </Tooltip>
+            <Popconfirm
+              title="确定移除此股票？"
+              description={`${r.name}（${r.symbol}）将从追踪列表中移除`}
+              onConfirm={() => handleRemoveStock(r.symbol, r.name)}
+              okText="移除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<DeleteOutlined />}
+                danger
+                onClick={e => e.stopPropagation()}
+              />
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 

@@ -159,3 +159,25 @@
 - **学到的**: L2 API返回75个行业(IT服务964只/半导体462只等)，数据丰富
 - **学到的**: chart-theme.ts仅定义常量，现有组件可逐步迁移使用
 - **决策**: L2列表显示20只(按总市值降序)，不做分页
+
+---
+
+## Round 2026-07-07: WatchlistPage拖拽排序 + K线移动端自适应
+
+### SCAN
+- P1遗留: WatchlistPage无拖拽排序, K线移动端高度固定
+- WatchlistPage: 1261行, 已有分组(CreateGroupModal)但无排序
+- KLineChart: height=520固定, dataZoom无moveOnTouch
+
+### EXEC
+- T23 ✅: WatchlistPage — handleMoveStock(上下移动) + handleMoveStockToGroup(跨组) + UpOutlined/DownOutlined按钮 + select分组选择器
+- T24 ✅: StockDetailPage — isMobile state(768px) + height 350/520自适应; KLineChart — moveOnTouch:true
+
+### VERIFY
+- TS: 0 errors ✅
+- Lint: 0 errors ✅
+
+### CAPTURE
+- **学到的**: ECharts dataZoom的moveOnTouch:true启用触摸平移,pinch-to-zoom通过zoomOnMouseWheel自动支持
+- **学到的**: WatchlistPage已有CreateGroupModal+groups state,只需添加排序和跨组移动
+- **决策**: 用上下移动按钮而非DnD库——更简单,移动端更可靠,无新依赖

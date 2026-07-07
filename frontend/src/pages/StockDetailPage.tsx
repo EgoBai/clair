@@ -78,6 +78,7 @@ const StockDetailPage: React.FC = () => {
     rsiPeriod: 14,
   });
   const [klineFullscreen, setKlineFullscreen] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [aiStrategy, setAiStrategy] = useState<any>(null);
   const [aiDiagnosis, setAiDiagnosis] = useState<any>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
@@ -172,6 +173,12 @@ const StockDetailPage: React.FC = () => {
 
   useEffect(() => { fetchStockData(); }, [fetchStockData]);
   useEffect(() => { fetchKlineData(); }, [fetchKlineData]);
+
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
 
   useEffect(() => {
     const handler = () => {
@@ -425,7 +432,7 @@ const StockDetailPage: React.FC = () => {
                 <KLineChart
                   data={klineData}
                   title={`${stockInfo?.name || symbol} - ${klinePeriod === 'daily' ? '日K' : klinePeriod === 'weekly' ? '周K' : '月K'}`}
-                  height={520}
+                  height={isMobile ? 350 : 520}
                   loading={klineLoading}
                   showMA={true}
                   maLines={[5, 10, 20, 60]}

@@ -240,6 +240,7 @@ const ReviewPage: React.FC = () => {
       setHasWatchlist(true);
       const symbolList = watchlistSymbols.map((s) => s.symbol);
       const days = dateRangeToDays(dateRange);
+      console.warn("[ReviewPage] watchlist symbols:", JSON.stringify(symbolList.slice(0, 5)), symbolList.length > 5 ? "...(" + symbolList.length + " total)" : "");
 
       // 并行拉取：实时快照(价/名/行业) + 区间技术指标(区间涨跌幅)
       const [quotesResp, techResp] = await Promise.allSettled([

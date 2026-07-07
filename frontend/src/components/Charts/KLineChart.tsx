@@ -432,6 +432,7 @@ const KLineChart = React.memo<KLineChartProps>(({
           zoomOnMouseWheel: true,
           moveOnMouseMove: true,
           moveOnMouseWheel: false,
+          moveOnTouch: true,
           preventDefaultMouseMove: true,
         },
         {
