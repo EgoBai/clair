@@ -133,3 +133,29 @@
 - **学到的**: RadarPage表格列用`responsive: ['lg']`按断点隐藏
 - **学到的**: PWA SW需在main.tsx注册，仅放public/sw.js不够
 - **决策**: K线全屏用原生Fullscreen API——兼容性更好
+
+---
+
+## Round 2026-07-06 P1+P2: L2行业下钻 + 图表配色统一
+
+### SCAN
+- P1-P3已完成: lint 0 errors, TS 0 errors, 测试全绿
+- DiscoverPage: 行业板块仅支持L1(31个)，无L2下钻
+- 图表配色: 各组件硬编码，无统一主题文件
+- L2 API: `/api/industries?level=2`返回75个二级行业
+
+### EXEC
+- T20 ✅: DiscoverPage热力图点击已支持openSector跳转
+- T21 ✅: DiscoverPage — 一级/二级toggle + L2数据获取 + 20只L2行业列表
+- T22 ✅: chart-theme.ts — 统一色板+Tooltip+网格+坐标轴+雷达图+K线+导出配置
+
+### VERIFY
+- TS: 0 errors ✅
+- Lint: 0 errors ✅
+- L2 API: 75个二级行业 ✅
+- chart-theme.ts: 纯TS，无依赖 ✅
+
+### CAPTURE
+- **学到的**: L2 API返回75个行业(IT服务964只/半导体462只等)，数据丰富
+- **学到的**: chart-theme.ts仅定义常量，现有组件可逐步迁移使用
+- **决策**: L2列表显示20只(按总市值降序)，不做分页
