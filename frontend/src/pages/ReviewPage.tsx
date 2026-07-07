@@ -322,8 +322,11 @@ const ReviewPage: React.FC = () => {
 
       setStocks(records);
     } catch (err) {
-      console.error('Failed to load stock data:', err);
-      message.error('加载自选股数据失败，请稍后重试');
+      console.error('Failed to load review stock data:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      message.warning(msg.includes('404') || msg.includes('Network')
+        ? '自选股数据接口暂不可用，请检查后端服务'
+        : '加载自选股数据失败，请稍后重试');
       setStocks([]);
     } finally {
       setLoading(false);
@@ -715,7 +718,7 @@ const ReviewPage: React.FC = () => {
               },
             })}
             size="middle"
-            scroll={{ x: 760 }}
+            scroll={{ x: 'max-content' }}
             style={{ background: 'transparent' }}
           />
         )}
