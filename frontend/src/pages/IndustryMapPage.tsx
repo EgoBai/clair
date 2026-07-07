@@ -181,44 +181,7 @@ const chainToGraph = (chain: IndustryChain) => {
   
   const layers = chain.layers.sort((a, b) => (a.order || 0) - (b.order || 0));
   
-  // 单层模式: 网格布局 (每个segment一格, 3列)
-  if (layers.length === 1 && layers[0].segments) {
-    const segments = layers[0].segments;
-    const cols = Math.min(3, segments.length);
-    const spacingX = 350;
-    const spacingY = 160;
-    
-    segments.forEach((segment, index) => {
-      const col = index % cols;
-      const row = Math.floor(index / cols);
-      const x = col * spacingX + 50;
-      const y = row * spacingY + 50;
-      
-      nodes.push({
-        id: segment.id,
-        type: 'segment',
-        position: { x, y },
-        data: { segment, layerType: layers[0].type },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-      });
-      
-      segment.downstreamTo?.forEach((targetId) => {
-        edges.push({
-          id: `${segment.id}-${targetId}`,
-          source: segment.id,
-          target: targetId,
-          type: 'smoothstep',
-          animated: true,
-          style: { stroke: LAYER_COLORS[layers[0].type] || '#667eea', strokeWidth: 2 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: LAYER_COLORS[layers[0].type] || '#667eea' },
-        });
-      });
-    });
-    return { nodes, edges };
-  }
-  
-  // 多层模式: 按上游/中游/下游排布
+  // 统一多层渲染: 上游(左)/中游(中)/下游(右), 按连线绘制边
   layers.forEach((layer) => {
     const x = layerPositions[layer.type as LayerType] || 0;
     const segments = layer.segments;

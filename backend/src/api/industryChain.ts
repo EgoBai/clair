@@ -1091,6 +1091,466 @@ const windPowerChainDetail = {
   marketDrivers: ['碳中和目标', '海上风电爆发', '大兆瓦趋势'],
 };
 
+
+// 新能源汽车产业链详细数据
+const newEnergyVehicleChainDetail = {
+  id: 'new-energy-vehicle',
+  name: '新能源汽车产业链',
+  description: '从锂矿到整车的新能源汽车全链条',
+  theme: '新能源',
+  hotLevel: 85,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '电池原材料',
+      order: 1,
+      segments: [
+        {
+          id: 'lithium-mining',
+          name: '锂矿/钴镍',
+          description: '锂电池核心矿产资源，决定电池成本和供应链安全',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计2000亿元',
+            growthRate: 'CAGR 8%',
+            competitiveLandscape: '资源为王，龙头集中',
+            barriers: ['资源禀赋', '采矿资质', '冶炼技术'],
+            keyDrivers: ['电动车销量增长', '储能需求', '资源供给偏紧'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['cathode-material', 'anode-material'],
+        },
+        {
+          id: 'cathode-material',
+          name: '正极材料',
+          description: '决定电池能量密度的核心材料，三元/磷酸铁锂路线竞争',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1500亿元',
+            growthRate: 'CAGR 12%',
+            competitiveLandscape: '产能扩张，龙头份额提升',
+            barriers: ['技术迭代快', '产能规模', '客户认证'],
+            keyDrivers: ['高镍化趋势', '磷酸铁锂回潮', '海外建厂'],
+          },
+          upstreamTo: ['lithium-mining'],
+          downstreamTo: ['battery-cell'],
+        },
+        {
+          id: 'anode-material',
+          name: '负极材料',
+          description: '锂电池负极材料，石墨为主流，硅碳负极是未来方向',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计500亿元',
+            growthRate: 'CAGR 10%',
+            competitiveLandscape: '中国主导，全球份额超80%',
+            barriers: ['石墨化产能', '技术积累', '成本控制'],
+            keyDrivers: ['硅碳负极突破', '快充需求', '一体化布局'],
+          },
+          upstreamTo: ['lithium-mining'],
+          downstreamTo: ['battery-cell'],
+        },
+        {
+          id: 'electrolyte',
+          name: '电解液',
+          description: '锂电池"血液"，决定电池循环寿命和安全性能',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计400亿元',
+            growthRate: 'CAGR 8%',
+            competitiveLandscape: '双龙头格局稳定',
+            barriers: ['配方专利', '添加剂技术', '六氟产能'],
+            keyDrivers: ['新型锂盐', '固态电解质', '高压电解液'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['battery-cell'],
+        },
+        {
+          id: 'separator',
+          name: '隔膜',
+          description: '锂电池关键内层组件，保障安全和离子传导',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计300亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '龙头集中度高，湿法为主',
+            barriers: ['设备壁垒', '工艺know-how', '客户认证'],
+            keyDrivers: ['涂覆膜渗透率提升', '海外市场', '半固态隔膜'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['battery-cell'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '核心零部件与系统',
+      order: 2,
+      segments: [
+        {
+          id: 'battery-cell',
+          name: '动力电池',
+          description: '新能源汽车心脏，占整车成本40%以上',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计8000亿元',
+            growthRate: 'CAGR 20%',
+            competitiveLandscape: '宁德时代一家独大，二线追赶',
+            barriers: ['技术领先', '规模效应', '客户绑定'],
+            keyDrivers: ['CTP/CTC技术', '固态电池突破', '海外产能'],
+          },
+          upstreamTo: ['cathode-material', 'anode-material', 'electrolyte', 'separator'],
+          downstreamTo: ['vehicle-oem'],
+        },
+        {
+          id: 'motor-controller',
+          name: '电机电控',
+          description: '新能源汽车动力总成核心，决定驾驶性能',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计800亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '第三方供应商崛起，车企自研并存',
+            barriers: ['技术积累', '电控算法', '集成能力'],
+            keyDrivers: ['扁线电机', 'SiC电控', '多合一集成'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['vehicle-oem'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '整车制造与基础设施',
+      order: 3,
+      segments: [
+        {
+          id: 'vehicle-oem',
+          name: '整车制造',
+          description: '新能源汽车终端产品，品牌和渠道为王',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计3万亿元',
+            growthRate: 'CAGR 25%',
+            competitiveLandscape: '比亚迪引领，新势力崛起',
+            barriers: ['品牌认知', '渠道网络', '产能规模'],
+            keyDrivers: ['智能化升级', '海外出口', '价格战洗牌'],
+          },
+          upstreamTo: ['battery-cell', 'motor-controller'],
+          downstreamTo: [],
+        },
+        {
+          id: 'charging-pile',
+          name: '充电桩',
+          description: '新能源汽车配套基础设施，车桩比仍有差距',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计500亿元',
+            growthRate: 'CAGR 30%',
+            competitiveLandscape: '分散竞争，运营商+设备商双赛道',
+            barriers: ['场地资源', '设备认证', '运营效率'],
+            keyDrivers: ['超快充技术', '政策补贴', '车桩比改善'],
+          },
+          upstreamTo: [],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['电动车', '锂电池', '充电桩', '智能驾驶'],
+  relatedPolicies: ['新能源汽车补贴', '双积分政策', '碳中和'],
+  marketDrivers: ['政策驱动', '技术进步', '成本下降'],
+};
+
+// AI机器人产业链详细数据
+const aiRobotChainDetail = {
+  id: 'ai-robot',
+  name: 'AI机器人产业链',
+  description: '从核心零部件到整机的AI机器人全链条',
+  theme: '机器人',
+  hotLevel: 80,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '核心零部件',
+      order: 1,
+      segments: [
+        {
+          id: 'reducer',
+          name: '减速器',
+          description: '机器人关节核心部件，决定精度和负载能力',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计100亿元',
+            growthRate: 'CAGR 30%',
+            competitiveLandscape: '日本企业主导，国产替代加速',
+            barriers: ['精密加工', '材料工艺', '寿命可靠性'],
+            keyDrivers: ['人形机器人量产', '谐波/RV国产化', '降本需求'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['servo-motor'],
+        },
+        {
+          id: 'sensor',
+          name: '传感器',
+          description: '机器人感知系统核心，涵盖视觉/力觉/触觉等多模态',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计200亿元',
+            growthRate: 'CAGR 25%',
+            competitiveLandscape: '细分领域龙头，六维力/3D视觉壁垒高',
+            barriers: ['精度要求', '标定技术', '算法融合'],
+            keyDrivers: ['多模态感知', '人形机器人', '具身智能'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['servo-motor', 'controller'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '核心系统集成',
+      order: 2,
+      segments: [
+        {
+          id: 'servo-motor',
+          name: '伺服电机',
+          description: '机器人动力核心，决定运动性能',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计150亿元',
+            growthRate: 'CAGR 20%',
+            competitiveLandscape: '国产龙头已突破，性能追赶国际水平',
+            barriers: ['高功率密度', '响应速度', '散热设计'],
+            keyDrivers: ['人形机器人需求', '一体化关节', '空心杯电机'],
+          },
+          upstreamTo: ['reducer', 'sensor'],
+          downstreamTo: ['robot-body'],
+        },
+        {
+          id: 'controller',
+          name: '控制系统',
+          description: '机器人大脑，运动控制和决策核心',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计120亿元',
+            growthRate: 'CAGR 22%',
+            competitiveLandscape: '国产替代空间大，AI赋能新机会',
+            barriers: ['算法积累', '实时性要求', '生态兼容'],
+            keyDrivers: ['AI大模型赋能', '运动控制升级', '具身智能'],
+          },
+          upstreamTo: ['sensor'],
+          downstreamTo: ['robot-body'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '整机与应用',
+      order: 3,
+      segments: [
+        {
+          id: 'robot-body',
+          name: '机器人整机',
+          description: '机器人本体制造，人形机器人是终极形态',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计300亿元',
+            growthRate: 'CAGR 35%',
+            competitiveLandscape: '多方入局，制造业巨头+科技公司',
+            barriers: ['整机设计', '供应链整合', '成本控制'],
+            keyDrivers: ['人形机器人量产', '工业协作机器人', '服务机器人'],
+          },
+          upstreamTo: ['servo-motor', 'controller'],
+          downstreamTo: [],
+        },
+        {
+          id: 'application',
+          name: '应用场景',
+          description: '机器人终端应用，涵盖工业、服务、特种等领域',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1000亿元',
+            growthRate: 'CAGR 30%',
+            competitiveLandscape: '场景碎片化，垂直领域龙头涌现',
+            barriers: ['场景理解', '客户粘性', '解决方案能力'],
+            keyDrivers: ['智能制造', '人口老龄化', '特种作业替代'],
+          },
+          upstreamTo: ['robot-body'],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['人形机器人', '减速器', '传感器'],
+  relatedPolicies: ['机器人产业发展规划'],
+  marketDrivers: ['人口老龄化', 'AI技术进步', '制造业升级'],
+};
+
+// 光伏产业链详细数据
+const photovoltaicChainDetail = {
+  id: 'photovoltaic',
+  name: '光伏产业链',
+  description: '从硅料到电站的光伏全链条',
+  theme: '太阳能',
+  hotLevel: 75,
+  layers: [
+    {
+      id: 'upstream',
+      name: '上游',
+      type: 'upstream',
+      description: '基础原材料',
+      order: 1,
+      segments: [
+        {
+          id: 'silicon-material',
+          name: '硅料',
+          description: '光伏产业最上游，多晶硅/颗粒硅技术路线竞争',
+          layerId: 'upstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计1500亿元',
+            growthRate: 'CAGR -5%',
+            competitiveLandscape: '产能过剩，龙头成本优势凸显',
+            barriers: ['资金密集', '电费成本', '技术路线'],
+            keyDrivers: ['产能出清', '颗粒硅渗透', 'N型料需求'],
+          },
+          upstreamTo: [],
+          downstreamTo: ['silicon-wafer'],
+        },
+      ],
+    },
+    {
+      id: 'midstream',
+      name: '中游',
+      type: 'midstream',
+      description: '硅片与电池片制造',
+      order: 2,
+      segments: [
+        {
+          id: 'silicon-wafer',
+          name: '硅片',
+          description: '光伏产业链核心环节，大尺寸和薄片化是趋势',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计2000亿元',
+            growthRate: 'CAGR 5%',
+            competitiveLandscape: '双龙头格局，隆基+TCL中环',
+            barriers: ['产能规模', '技术工艺', '成本控制'],
+            keyDrivers: ['大尺寸化', '薄片化', 'N型转型'],
+          },
+          upstreamTo: ['silicon-material'],
+          downstreamTo: ['solar-cell', 'pv-module'],
+        },
+        {
+          id: 'solar-cell',
+          name: '电池片',
+          description: '光伏技术迭代最快环节，TOPCon/HJT/BC三路线并进',
+          layerId: 'midstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计2500亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '技术迭代驱动格局变化',
+            barriers: ['技术壁垒', '转换效率', '成本竞争力'],
+            keyDrivers: ['TOPCon放量', 'HJT/BC突破', '钙钛矿叠层'],
+          },
+          upstreamTo: ['silicon-wafer'],
+          downstreamTo: ['pv-module'],
+        },
+      ],
+    },
+    {
+      id: 'downstream',
+      name: '下游',
+      type: 'downstream',
+      description: '组件、逆变器与电站',
+      order: 3,
+      segments: [
+        {
+          id: 'pv-module',
+          name: '组件',
+          description: '光伏终端产品，品牌和渠道决定市场份额',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计3000亿元',
+            growthRate: 'CAGR 10%',
+            competitiveLandscape: '中国主导全球，CR5超60%',
+            barriers: ['品牌渠道', '全球化布局', '产能规模'],
+            keyDrivers: ['N型组件升级', '海外市场', '分布式爆发'],
+          },
+          upstreamTo: ['silicon-wafer', 'solar-cell'],
+          downstreamTo: [],
+        },
+        {
+          id: 'inverter',
+          name: '逆变器',
+          description: '光伏系统核心电力电子设备，储能逆变器是新增长点',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计500亿元',
+            growthRate: 'CAGR 20%',
+            competitiveLandscape: '国产龙头全球领先',
+            barriers: ['技术积累', '品牌认证', '渠道建设'],
+            keyDrivers: ['储能逆变器', '海外市场', '微型逆变器'],
+          },
+          upstreamTo: [],
+          downstreamTo: [],
+        },
+        {
+          id: 'pv-station',
+          name: '电站运营',
+          description: '光伏电站开发与运维，现金流稳定的公用事业资产',
+          layerId: 'downstream',
+          companies: [],
+          characteristics: {
+            marketSize: '2025年预计2000亿元',
+            growthRate: 'CAGR 15%',
+            competitiveLandscape: '央企主导，民企差异化竞争',
+            barriers: ['资金密集', '资源获取', '运维能力'],
+            keyDrivers: ['大基地项目', '分布式光伏', '绿电交易'],
+          },
+          upstreamTo: [],
+          downstreamTo: [],
+        },
+      ],
+    },
+  ],
+  relatedConcepts: ['太阳能', '碳中和', '新能源'],
+  relatedPolicies: ['碳达峰碳中和', '可再生能源补贴'],
+  marketDrivers: ['碳中和目标', '成本下降', '海外需求'],
+};
+
 // ============= API 路由 =============
 
 /**
@@ -1171,6 +1631,9 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   else if (id === 'consumer-electronics') chainDetail = consumerElectronicsChainDetail;
   else if (id === 'defense-military') chainDetail = defenseMilitaryChainDetail;
   else if (id === 'wind-power') chainDetail = windPowerChainDetail;
+  else if (id === 'new-energy-vehicle') chainDetail = newEnergyVehicleChainDetail;
+  else if (id === 'ai-robot') chainDetail = aiRobotChainDetail;
+  else if (id === 'photovoltaic') chainDetail = photovoltaicChainDetail;
   else {
     const chain = industryChains.find(c => c.id === id);
     if (!chain) return sendNotFound(res, '产业链未找到');
@@ -1286,6 +1749,42 @@ router.get('/:id/segments', (req: Request, res: Response) => {
   // 风电
   if (id === 'wind-power') {
     const segments = windPowerChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
+
+  // 新能源汽车
+  if (id === 'new-energy-vehicle') {
+    const segments = newEnergyVehicleChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
+
+  // AI机器人
+  if (id === 'ai-robot') {
+    const segments = aiRobotChainDetail.layers.flatMap(layer => 
+      layer.segments.map(segment => ({
+        ...segment,
+        layerType: layer.type,
+        layerName: layer.name,
+      }))
+    );
+    return sendSuccess(res, { segments, total: segments.length });
+  }
+
+  // 光伏
+  if (id === 'photovoltaic') {
+    const segments = photovoltaicChainDetail.layers.flatMap(layer => 
       layer.segments.map(segment => ({
         ...segment,
         layerType: layer.type,
@@ -1447,6 +1946,60 @@ router.get('/:id/stocks', (req: Request, res: Response) => {
     uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
     return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
   }
+
+  if (id === 'new-energy-vehicle') {
+    let stocks = newEnergyVehicleChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        (segment.companies as any[]).map((company: any) => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
+    if (position) stocks = stocks.filter(s => s.position === position);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
+
+  if (id === 'ai-robot') {
+    let stocks = aiRobotChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        (segment.companies as any[]).map((company: any) => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
+    if (position) stocks = stocks.filter(s => s.position === position);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
+
+  if (id === 'photovoltaic') {
+    let stocks = photovoltaicChainDetail.layers.flatMap(layer => 
+      layer.segments.flatMap(segment => 
+        (segment.companies as any[]).map((company: any) => ({
+          ...company,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+        }))
+      )
+    );
+    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
+    if (position) stocks = stocks.filter(s => s.position === position);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
+    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
+  }
   sendSuccess(res, { stocks: [], total: 0 });
 });
 
@@ -1522,6 +2075,27 @@ router.get('/:id/hot-stocks', (req: Request, res: Response) => {
     uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
     return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
   }
+
+  if (id === 'new-energy-vehicle') {
+    const stocks = (newEnergyVehicleChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
+
+  if (id === 'ai-robot') {
+    const stocks = (aiRobotChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
+
+  if (id === 'photovoltaic') {
+    const stocks = (photovoltaicChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
+    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
+    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
+    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
+  }
   sendSuccess(res, { stocks: [] });
 });
 
@@ -1555,6 +2129,18 @@ router.get('/:id/analysis', (req: Request, res: Response) => {
 
   if (id === 'wind-power') {
     return sendSuccess(res, { analysis: (windPowerChainDetail as any).aiAnalysis || null });
+  }
+
+  if (id === 'new-energy-vehicle') {
+    return sendSuccess(res, { analysis: (newEnergyVehicleChainDetail as any).aiAnalysis || null });
+  }
+
+  if (id === 'ai-robot') {
+    return sendSuccess(res, { analysis: (aiRobotChainDetail as any).aiAnalysis || null });
+  }
+
+  if (id === 'photovoltaic') {
+    return sendSuccess(res, { analysis: (photovoltaicChainDetail as any).aiAnalysis || null });
   }
   sendSuccess(res, { analysis: null });
 });

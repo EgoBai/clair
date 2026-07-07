@@ -91,6 +91,8 @@ const DiscoverPage: React.FC = () => {
   const [insight, setInsight] = useState<any>(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
+  const [industryLevel, setIndustryLevel] = useState<1 | 2>(1);
+  const [l2Industries, setL2Industries] = useState<Array<{name: string; stock_count: number; avg_change: string; avg_turnover: string; total_cap: string}>>([]);
   const [news, setNews] = useState<any[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [summaryError, setSummaryError] = useState(false);  // /api/market/summary 错误降级
@@ -168,6 +170,20 @@ const DiscoverPage: React.FC = () => {
       fetch('/api/news?limit=6').then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
     })();
   }, [sectorType]);
+
+  // Load L2 industries
+  useEffect(() => {
+    if (sectorType === 'industry' && industryLevel === 2) {
+      fetch('/api/industries?level=2')
+        .then(r => r.json())
+        .then(d => {
+          if (d.success && d.data?.industries) {
+            setL2Industries(d.data.industries);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [sectorType, industryLevel]);
 
   // Load sector stocks
   const openSector = useCallback(async (s: SectorScore) => {
@@ -684,105 +700,142 @@ const DiscoverPage: React.FC = () => {
                   综合评分 = 板块热度×50% + 成交活跃×30% + 赚钱效应×20%
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 4, background: 'var(--bg-surface)', borderRadius: 8, padding: 2 }}>
-                {(['industry', 'concept'] as const).map(t => (
-                  <div key={t} onClick={() => setSectorType(t)} style={{
-                    padding: '3px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
-                    fontWeight: sectorType === t ? 700 : 400,
-                    color: sectorType === t ? TEXT : TEXT_SEC,
-                    background: sectorType === t ? 'var(--border)' : 'transparent',
-                    transition: 'all .15s',
-                  }}>
-                    {t === 'industry' ? '行业板块' : '概念板块'}
+              <div>
+                <div style={{ display: 'flex', gap: 4, background: 'var(--bg-surface)', borderRadius: 8, padding: 2 }}>
+                  {(['industry', 'concept'] as const).map(t => (
+                    <div key={t} onClick={() => setSectorType(t)} style={{
+                      padding: '3px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                      fontWeight: sectorType === t ? 700 : 400,
+                      color: sectorType === t ? TEXT : TEXT_SEC,
+                      background: sectorType === t ? 'var(--border)' : 'transparent',
+                      transition: 'all .15s',
+                    }}>
+                      {t === 'industry' ? '行业板块' : '概念板块'}
+                    </div>
+                  ))}
+                </div>
+                {sectorType === 'industry' && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                    {([1, 2] as const).map(lv => (
+                      <div key={lv} onClick={() => setIndustryLevel(lv)} style={{
+                        padding: '2px 8px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                        fontWeight: industryLevel === lv ? 600 : 400,
+                        color: industryLevel === lv ? ACCENT : TEXT_SEC,
+                        background: industryLevel === lv ? 'rgba(59,130,246,0.1)' : 'transparent',
+                        transition: 'all .15s',
+                      }}>
+                        {lv === 1 ? '一级' : '二级'}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {scores.slice(0, 15).map(s => (
-                <div key={s.industry} onClick={() => openSector(s)}
-                  style={{
-                    background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '12px 16px',
-                    cursor: 'pointer', transition: 'border-color .15s', display: 'flex', alignItems: 'center', gap: 16,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = BORDER}
-                >
-                  {/* Score Badge */}
-                  <div style={{ textAlign: 'center', minWidth: 50 }}>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: scoreColor(s.score), fontFamily: 'monospace' }}>{s.score}</div>
-                    <Tag style={{ fontSize: 10, margin: 0, borderRadius: 4, padding: '0 4px', lineHeight: '16px' }}
-                      color={s.score >= 70 ? 'green' : s.score >= 45 ? 'gold' : 'default'}>{scoreLabel(s.score)}</Tag>
-                  </div>
-
-                  {/* Sector Info */}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <Text strong style={{ color: TEXT, fontSize: 13 }}>{s.industry}</Text>
-                      <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>{s.stock_count}只</Tag>
-                      {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
-                      <Button
-                        type="link" size="small" icon={<ApartmentOutlined />}
-                        style={{ fontSize: 10, padding: 0, color: '#1890ff' }}
-                        onClick={(e) => { e.stopPropagation(); navigate(`/industry-map?industry=${encodeURIComponent(s.industry)}`); }}
-                      >产业链</Button>
+              {sectorType === 'industry' && industryLevel === 2
+                ? l2Industries.slice(0, 20).map(s => (
+                    <div key={s.name} onClick={() => navigate(`/screener?industry=${encodeURIComponent(s.name)}`)}
+                      style={{
+                        background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '10px 16px',
+                        cursor: 'pointer', transition: 'border-color .15s', display: 'flex', alignItems: 'center', gap: 16,
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = BORDER}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: TEXT, fontWeight: 600, fontSize: 14 }}>{s.name}</div>
+                        <div style={{ color: TEXT_SEC, fontSize: 11, marginTop: 2 }}>{s.stock_count}只 · 涨幅 {s.avg_change}% · 换手 {s.avg_turnover}%</div>
+                      </div>
+                      <div style={{ color: Number(s.avg_change) >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 700, fontSize: 16 }}>
+                        {Number(s.avg_change) >= 0 ? '+' : ''}{s.avg_change}%
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
-                      <Tooltip title="板块热度 (50%)：平均涨跌幅的绝对值，涨得越猛得分越高">
-                        <span>🔥 {s.changeScore}</span>
-                      </Tooltip>
-                      <Tooltip title="成交活跃 (30%)：总成交金额，成交越大说明市场越关注">
-                        <span>💰 {s.volumeScore}</span>
-                      </Tooltip>
-                      <Tooltip title="赚钱效应 (20%)：涨停家数，涨停越多说明板块内更容易赚钱">
-                        <span>🎯 {s.breadthScore}</span>
-                      </Tooltip>
-                      <span style={{ color: Number(s.avg_change_percent) >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
-                        {Number(s.avg_change_percent) >= 0 ? '+' : ''}{Number(s.avg_change_percent).toFixed(2)}%
-                      </span>
-                      <span>额{formatBig(Number(s.total_turnover))}</span>
-                    
-                      {multidimMap[s.industry] && (
-                        <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                          {Object.entries(multidimMap[s.industry].dimensions).map(([key, dim]: [string, any]) => {
-                            const colorMap: Record<string, string> = {
-                              crowding: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
-                              diffusion: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
-                              concentration: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
-                              retail: dim.score >= 14 ? '#ef4444' : dim.score >= 8 ? '#f59e0b' : '#22c55e',
-                              recovery: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
-                            };
-                            const labelMap: Record<string, string> = {
-                              crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补',
-                            };
-                            return (
-                              <Tooltip key={key} title={`${labelMap[key]}: ${dim.label} (${dim.score}/20)`}>
+                  ))
+                : scores.slice(0, 15).map(s => (
+                    <div key={s.industry} onClick={() => openSector(s)}
+                      style={{
+                        background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '12px 16px',
+                        cursor: 'pointer', transition: 'border-color .15s', display: 'flex', alignItems: 'center', gap: 16,
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = BORDER}
+                    >
+                      {/* Score Badge */}
+                      <div style={{ textAlign: 'center', minWidth: 50 }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: scoreColor(s.score), fontFamily: 'monospace' }}>{s.score}</div>
+                        <Tag style={{ fontSize: 10, margin: 0, borderRadius: 4, padding: '0 4px', lineHeight: '16px' }}
+                          color={s.score >= 70 ? 'green' : s.score >= 45 ? 'gold' : 'default'}>{scoreLabel(s.score)}</Tag>
+                      </div>
+
+                      {/* Sector Info */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <Text strong style={{ color: TEXT, fontSize: 13 }}>{s.industry}</Text>
+                          <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>{s.stock_count}只</Tag>
+                          {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
+                          <Button
+                            type="link" size="small" icon={<ApartmentOutlined />}
+                            style={{ fontSize: 10, padding: 0, color: '#1890ff' }}
+                            onClick={(e) => { e.stopPropagation(); navigate(`/industry-map?industry=${encodeURIComponent(s.industry)}`); }}
+                          >产业链</Button>
+                        </div>
+                        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC }}>
+                          <Tooltip title="板块热度 (50%)：平均涨跌幅的绝对值，涨得越猛得分越高">
+                            <span>🔥 {s.changeScore}</span>
+                          </Tooltip>
+                          <Tooltip title="成交活跃 (30%)：总成交金额，成交越大说明市场越关注">
+                            <span>💰 {s.volumeScore}</span>
+                          </Tooltip>
+                          <Tooltip title="赚钱效应 (20%)：涨停家数，涨停越多说明板块内更容易赚钱">
+                            <span>🎯 {s.breadthScore}</span>
+                          </Tooltip>
+                          <span style={{ color: Number(s.avg_change_percent) >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
+                            {Number(s.avg_change_percent) >= 0 ? '+' : ''}{Number(s.avg_change_percent).toFixed(2)}%
+                          </span>
+                          <span>额{formatBig(Number(s.total_turnover))}</span>
+                        
+                          {multidimMap[s.industry] && (
+                            <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                              {Object.entries(multidimMap[s.industry].dimensions).map(([key, dim]: [string, any]) => {
+                                const colorMap: Record<string, string> = {
+                                  crowding: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                                  diffusion: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                                  concentration: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                                  retail: dim.score >= 14 ? '#ef4444' : dim.score >= 8 ? '#f59e0b' : '#22c55e',
+                                  recovery: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                                };
+                                const labelMap: Record<string, string> = {
+                                  crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补',
+                                };
+                                return (
+                                  <Tooltip key={key} title={`${labelMap[key]}: ${dim.label} (${dim.score}/20)`}>
+                                    <span style={{
+                                      fontSize: 10, padding: '1px 5px', borderRadius: 3,
+                                      background: `${colorMap[key]}18`, color: colorMap[key],
+                                      border: `1px solid ${colorMap[key]}40`,
+                                    }}>
+                                      {labelMap[key]}{dim.score}
+                                    </span>
+                                  </Tooltip>
+                                );
+                              })}
+                              <Tooltip title={`多维度综合: ${multidimMap[s.industry].totalScore}/100`}>
                                 <span style={{
-                                  fontSize: 10, padding: '1px 5px', borderRadius: 3,
-                                  background: `${colorMap[key]}18`, color: colorMap[key],
-                                  border: `1px solid ${colorMap[key]}40`,
+                                  fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
+                                  background: '#3b82f618', color: '#3b82f6',
+                                  border: '1px solid #3b82f640',
                                 }}>
-                                  {labelMap[key]}{dim.score}
+                                  综合{multidimMap[s.industry].totalScore}
                                 </span>
                               </Tooltip>
-                            );
-                          })}
-                          <Tooltip title={`多维度综合: ${multidimMap[s.industry].totalScore}/100`}>
-                            <span style={{
-                              fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
-                              background: '#3b82f618', color: '#3b82f6',
-                              border: '1px solid #3b82f640',
-                            }}>
-                              综合{multidimMap[s.industry].totalScore}
-                            </span>
-                          </Tooltip>
-                        </div>
-                      )}</div>
-                  </div>
+                            </div>
+                          )}</div>
+                      </div>
 
-                  <RightOutlined style={{ color: TEXT_SEC, fontSize: 12 }} />
-                </div>
-              ))}
+                      <RightOutlined style={{ color: TEXT_SEC, fontSize: 12 }} />
+                    </div>
+                  ))
+              }
             </div>
             {/* ====== 多维景气热力图 (ECharts) ====== */}
             {Object.keys(multidimMap).length > 0 && (() => {
