@@ -1,11 +1,1 @@
-node_modules/
-dist/
-build/
-*.log
-.DS_Store
-.env
-.env.local
-.env
-.env.*
-*.bak
-backend/coverage/
+coverage/
