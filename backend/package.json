@@ -38,6 +38,7 @@
     "@types/pg": "^8.10.9",
     "@types/supertest": "^7.2.0",
     "@types/ws": "^8.5.10",
+    "@vitest/coverage-v8": "^1.6.1",
     "eslint": "^10.2.0",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
