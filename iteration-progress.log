@@ -1,0 +1,71 @@
+## Round 962 (2026-04-25 22:16 CST) — 消除剩余 as any & 修复波动率测试
+
+### 改动
+1. **消除6处生产代码 as any**:
+   - MarginTradingPage.tsx: 定义 MarginOverview/MarginRankEntry 接口，3处 as any → as unknown as
+   - TopTradersPage.tsx: 2处 as any → as TopTraderOverview/SeatRankEntry
+   - ModelExplanationViz.tsx: props as any → props as { payload: Record[] }
+   - codeAudit.ts: 仅剩的1处是审计规则描述文本(非实际使用)
+2. **修复 flaky 测试**: marketRegimeEngine.test.ts 随机性改为确定性数据
+
+### 状态
+- 生产代码 as any: 0 处 ✅
+- 前端 TSC: 0 错误 ✅
+- 前端测试: 852/852 文件, 17728/17728 测试通过 ✅
+- 后端测试: 625/625 文件, 15195/15195 测试通过 ✅
+- 合计: 1477/1477 文件, 32923/32923 测试通过, 100% ✅
+- 进度: 962/1000 (剩余38轮)
+### 附加改进 (同一轮次)
+3. **后端类型改进**:
+   - dbFactory.ts: DatabaseProxy 接口替代 Record<string, unknown>，消除61处未知方法错误
+   - apiResponse.ts: asyncHandler 返回类型 void→void|Promise<void>
+
+### 状态更新
+- 后端 TS 错误: 从183降至122 (减少61个) ✅
+- 进度: 962/1000 (剩余38轮)
+- 下一轮重点: 修复剩余后端TS错误 or 性能优化
+
+====================================================
+
+## Round 963 (2026-04-25 22:34 CST) — 性能优化: 添加 React.memo 到市场页面组件
+
+### 改动
+1. **5个市场组件添加 React.memo**:
+   - MarketOverview.tsx — 市场概览 (涨跌分布、主要指数、热门行业)
+   - MarketSentiment.tsx — 市场情绪仪表盘 (涨跌比/换手率/成交量/情绪分数)
+   - MarketBreadthPanel.tsx — 市场宽度分析 (多空对比)
+   - SectorHeatmap.tsx — 行业轮动热力图
+   - CapitalFlowPanel.tsx — 资金流向面板
+2. **技术细节**: 使用 React.memo<PropsType> 泛型方式避免不必要的重渲染
+
+### 状态
+- 前端 TSC: 0 错误 ✅
+- 前端测试: 17728/17728 测试通过 ✅
+- 后端测试: 15195/15195 测试通过 ✅
+- 合计: 32923/32923 测试通过, 100% ✅
+- 进度: 963/1000 (剩余37轮)
+- 下一轮重点: 继续 React.memo 覆盖更多组件, 或后端 TS 错误修复
+2026-04-26 00:20 - Round 965完成: React.memo 添加7个数据密集型图表组件 (SectorTreeMap, MarketHeatmap, KLineChart, OrderBookPanel, FundFlowChart, IndustryFlowChart, IndicatorPanel)
+2026-04-26 01:22 - Round 966完成: React.memo 添加9个图表组件 (CandlestickWithVolume, RiverChart, StockCompareChart, SectorHeatmap, FundFlowSankey, TechnicalIndicatorChart, ShareholderChart, FundFlowPieChart, IndustryFlowPieChart)
+
+====================================================
+
+## Round 967 (2026-04-26 05:25 CST) — React.memo: 剩余5个组件添加memo包装
+
+### 改动
+1. **5个剩余组件添加 React.memo**:
+   - ExportButton.tsx — 导出按钮 (data/columns 对象引用变化)
+   - LanguageSwitcher.tsx — 语言切换器 (props 稳定化)
+   - Onboarding.tsx — 新手引导 (仅挂载时展示)
+   - ShortcutHelpOverlay.tsx — 快捷键帮助遮罩层 (visible prop)
+   - WebVitalsWidget.original.tsx — 性能指标小组件 (compact prop)
+2. **转换模式**: 所有组件从 export default function → const Component:React.FC + export default React.memo(Component)
+
+### 状态
+- 前端 TSC: 0 错误 ✅
+- 前端测试: 1480/1480 文件, 32977/32977 测试通过 ✅
+- 后端测试: 同前端测试一起运行 ✅
+- 合计: 1480/1480 文件, 32977/32977 测试通过, 100% ✅
+- React.memo 覆盖所有目标组件 ✅ (全部6个: WatchlistToggle已有memo + 本次5个)
+- 进度: 967/1000 (剩余33轮)
+- 下一轮重点: 后端测试扩展/重构 或 其他优化方向

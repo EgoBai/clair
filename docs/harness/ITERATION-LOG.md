@@ -181,3 +181,26 @@
 - **学到的**: ECharts dataZoom的moveOnTouch:true启用触摸平移,pinch-to-zoom通过zoomOnMouseWheel自动支持
 - **学到的**: WatchlistPage已有CreateGroupModal+groups state,只需添加排序和跨组移动
 - **决策**: 用上下移动按钮而非DnD库——更简单,移动端更可靠,无新依赖
+
+---
+
+## Round 2026-07-11: Antd包优化 + 后端测试覆盖率
+
+### SCAN
+- vendor-antd: 1146 kB (353 kB gz) 单chunk
+- 后端覆盖率: api 38.65%, db 44.2%, routes 41.7%, websocket 45.1%
+- 前端: TS 0 errors, Lint 0 errors, 测试全绿
+
+### EXEC
+- Antd优化: icons分包(32.7kB独立chunk) + remove antd from optimizeDeps
+- 后端测试: api-routes-coverage(32) + db-coverage(7) + websocket-coverage(3) = 42新测试
+
+### VERIFY
+- 构建: vendor-antd 1146→1113 kB (-33kB)
+- 新测试: 42/42 全绿
+- 全量: 591文件/14376测试, 3失败(预存在CI/CD配置测试)
+
+### CAPTURE
+- **学到的**: @ant-design/icons 20MB,独分包后仅32.7kB打包——大部分未使用
+- **学到的**: POST /api/ai/gems 在内存模式返回503(leftJoin不支持MockQueryBuilder)
+- **学到的**: supertest URL含中文需encodeURIComponent
