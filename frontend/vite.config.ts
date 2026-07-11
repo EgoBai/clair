@@ -46,14 +46,17 @@ export default defineConfig(({ mode }) => ({
             if (id.includes('react/') || id.includes('react-dom/') || id.includes('react-router')) {
               return 'vendor-react';
             }
-            if (id.includes('antd/') || id.includes('@ant-design/')) {
+            if (id.includes('@ant-design/icons')) {
+              return 'vendor-antd-icons';
+            }
+            if (id.includes('antd/') || id.includes('antd')) {
               return 'vendor-antd';
             }
             // recharts must come before echarts (recharts contains 'echarts' substring)
             if (id.includes('recharts')) {
               return 'vendor-recharts';
             }
-            if (id.includes('echarts')) {
+            if (id.includes('echarts') && !id.includes('echarts-for-react')) {
               return 'vendor-echarts';
             }
             if (id.includes('axios') || id.includes('dayjs') || id.includes('zustand')) {
@@ -88,13 +91,10 @@ export default defineConfig(({ mode }) => ({
       'react',
       'react-dom',
       'react-router-dom',
-      'antd',
-      '@ant-design/icons',
       'echarts-for-react',
       'axios',
       'dayjs',
       'zustand',
-      'recharts',
     ],
     exclude: [],
   },
