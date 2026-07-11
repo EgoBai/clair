@@ -35,6 +35,11 @@ interface MultidimData {
     concentration: { score: number; label: string };
     retail:        { score: number; label: string };
     recovery:      { score: number; label: string };
+    panic:        { score: number; label: string };
+    volatility:   { score: number; label: string };
+    momIndex:     { score: number; label: string };
+    searchHeat:   { score: number; label: string };
+    spreadDegree: { score: number; label: string };
   };
 }
 
@@ -128,7 +133,7 @@ const DiscoverPage: React.FC = () => {
       if (top15List.length > 0) {
         Promise.allSettled(
           top15List.slice(0, 15).map((s: SectorScore) =>
-            fetch(`/api/sectors/${encodeURIComponent(s.industry)}/multidim`).then(r => r.json())
+            fetch(`/api/sectors/${encodeURIComponent(s.industry)}/multidim-v2`).then(r => r.json())
           )
         ).then(mdResults => {
           const map: Record<string, MultidimData> = {};
@@ -803,9 +808,14 @@ const DiscoverPage: React.FC = () => {
                                   concentration: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
                                   retail: dim.score >= 14 ? '#ef4444' : dim.score >= 8 ? '#f59e0b' : '#22c55e',
                                   recovery: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                                  panic: dim.score >= 14 ? '#ef4444' : dim.score >= 8 ? '#f59e0b' : '#22c55e',
+                                  volatility: dim.score >= 14 ? '#ef4444' : dim.score >= 8 ? '#f59e0b' : '#22c55e',
+                                  momIndex: dim.score >= 14 ? '#ef4444' : dim.score >= 8 ? '#f59e0b' : '#22c55e',
+                                  searchHeat: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
+                                  spreadDegree: dim.score >= 14 ? '#22c55e' : dim.score >= 8 ? '#f59e0b' : '#ef4444',
                                 };
                                 const labelMap: Record<string, string> = {
-                                  crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补',
+                                  crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补', panic: '恐慌', volatility: '动摇', momIndex: '宝妈', searchHeat: '搜索', spreadDegree: '传播',
                                 };
                                 return (
                                   <Tooltip key={key} title={`${labelMap[key]}: ${dim.label} (${dim.score}/20)`}>
@@ -843,13 +853,13 @@ const DiscoverPage: React.FC = () => {
                 .map(([industry, data]) => ({ industry, ...data }))
                 .sort((a, b) => b.totalScore - a.totalScore)
                 .slice(0, 10);
-              const dimKeys = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery'] as const;
+              const dimKeys = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery', 'panic', 'volatility', 'momIndex', 'searchHeat', 'spreadDegree'] as const;
               const dimLabels: Record<string, string> = {
-                crowding: '拥挤度', diffusion: '扩散', concentration: '资金集中', retail: '小白指数', recovery: '回补',
+                                  crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补', panic: '恐慌', volatility: '动摇', momIndex: '宝妈', searchHeat: '搜索', spreadDegree: '传播',
               };
               // Rows (yAxis): sector names (top to bottom = highest score first)
               const yLabels = multidimSorted.map(s => s.industry);
-              // Columns (xAxis): 5 dimensions + 综合
+              // Columns (xAxis): 10 dimensions + 综合
               const xLabels = [...dimKeys.map(k => dimLabels[k]), '综合'];
 
               // Build heatmap data: [colIndex, rowIndex, value]
@@ -889,11 +899,11 @@ const DiscoverPage: React.FC = () => {
                     const detail = hoverDetail[key] || '';
                     const sectorObj = multidimSorted[rowIdx];
                     const dimKey = colIdx < dimKeys.length ? dimKeys[colIdx] : null;
-                    const isRetail = dimKey === 'retail';
+                    const isInverse = dimKey === 'retail' || dimKey === 'panic' || dimKey === 'volatility' || dimKey === 'momIndex';
                     const colorHex = val >= 14 ? '#22c55e' : val >= 8 ? '#f59e0b' : '#ef4444';
                     const retailColorHex = val >= 14 ? '#ef4444' : val >= 8 ? '#f59e0b' : '#22c55e';
                     return `<div style="font-weight:700;margin-bottom:4px">${industry}</div>
-                      <div style="color:#94a3b8">${dimName}: <span style="color:${dimKey === 'retail' ? retailColorHex : colorHex};font-weight:700;font-size:16px">${val}分</span></div>
+                      <div style="color:#94a3b8">${dimName}: <span style="color:${isInverse ? retailColorHex : colorHex};font-weight:700;font-size:16px">${val}分</span></div>
                       <div style="color:#64748b;font-size:11px;margin-top:2px;max-width:200px">${detail}</div>
                       <div style="color:#475569;font-size:10px;margin-top:4px">点击查看板块详情</div>`;
                   },
@@ -980,7 +990,7 @@ const DiscoverPage: React.FC = () => {
                   <div style={{ marginBottom: 12 }}>
                     <Text strong style={{ color: TEXT, fontSize: 15 }}>🌡️ 多维景气热力</Text>
                     <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-                      Top10板块 × 5维度评分 · 按综合分降序 · 红(0-5)→黄(6-12)→绿(13-20)
+                      Top10板块 × 10维度评分 · 按综合分降序 · 红(0-5)→黄(6-12)→绿(13-20)
                     </div>
                   </div>
                   <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden', padding: '8px 0' }}>
