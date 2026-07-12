@@ -312,7 +312,7 @@ const DiscoverPage: React.FC = () => {
               }} />
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 24 }}>
+          <div className="ai-insight-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 0.8fr)", gap: 24 }}>
             <div>
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} style={{ marginBottom: 18 }}>
@@ -510,7 +510,7 @@ const DiscoverPage: React.FC = () => {
               </div>
 
               {/* 正文：双栏布局 */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 24 }}>
+              <div className="ai-insight-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 0.8fr)", gap: 24 }}>
                 {/* 左栏：AI分析 */}
                 <div>
                   {insight?.sections ? (
@@ -1140,7 +1140,7 @@ const DiscoverPage: React.FC = () => {
 
             <Title level={5} style={{ color: TEXT, marginBottom: 12 }}>板块内个股 <Badge count={sectorStocks.length} style={{ backgroundColor: ACCENT }} /></Title>
             <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
-              <Table dataSource={sectorStocks} rowKey="symbol" size="middle" pagination={false}
+              <Table dataSource={sectorStocks} rowKey="symbol" size="middle" pagination={false} scroll={{ x: "max-content" }}
                 className="dark-table"
                 locale={{ emptyText: <Empty description="暂无数据" /> }}
                 columns={[
