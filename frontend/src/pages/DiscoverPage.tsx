@@ -153,7 +153,21 @@ const DiscoverPage: React.FC = () => {
             });
           }
           setMultidimMap(map);
-        }).catch(() => {});
+        }).catch(() => {
+          // 降级: v3不可用 → 逐个请求 v2
+          console.warn('[DiscoverPage] multidim-v3 batch failed, fallback to v2');
+          Promise.allSettled(codes.map((code: string) =>
+            fetch(`/api/sectors/${encodeURIComponent(code)}/multidim-v2`).then(r => r.json())
+          )).then(results => {
+            const map: Record<string, MultidimData> = {};
+            results.forEach((r: any) => {
+              if (r.status === 'fulfilled' && r.value?.data) {
+                map[r.value.data.industry || r.value.data.sectorName] = r.value.data;
+              }
+            });
+            setMultidimMap(map);
+          }).catch(() => {});
+        });
       }
         } else {
           hasCriticalError = true;
