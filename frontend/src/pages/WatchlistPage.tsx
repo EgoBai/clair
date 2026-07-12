@@ -1193,7 +1193,7 @@ const WatchlistPage: React.FC = () => {
               size="middle"
               pagination={false}
               loading={quotesLoading && symbols.length > 0}
-              scroll={{ y: 500 }}
+              scroll={{ x: 'max-content', y: 500 }}
               style={{ background: 'transparent' }}
               onRow={r => ({
                 style: {
