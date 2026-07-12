@@ -28,26 +28,18 @@ interface SectorScore { industry: string;
  score: number; changeScore: number; volumeScore: number; breadthScore: number; momentumScore?: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number; avgChange?: number; }
 
 interface MultidimData {
-  industry: string;
   totalScore: number;
-  maxScore: number;
-  boomScore: number;
-  crowdingScore: number;
   dimensions: {
     crowding:      { score: number; label: string };
     diffusion:     { score: number; label: string };
     concentration: { score: number; label: string };
     retail:        { score: number; label: string };
     recovery:      { score: number; label: string };
-    panic:         { score: number; label: string };
-    volatility:    { score: number; label: string };
-    momIndex:      { score: number; label: string };
-    searchHeat:    { score: number; label: string };
-    spreadDegree:  { score: number; label: string };
-    momentumPosition: { score: number; label: string };
-    zScore:        { score: number; label: string };
-    leverage:      { score: number; label: string };
-    fundFlow:      { score: number; label: string };
+    panic:        { score: number; label: string };
+    volatility:   { score: number; label: string };
+    momIndex:     { score: number; label: string };
+    searchHeat:   { score: number; label: string };
+    spreadDegree: { score: number; label: string };
   };
 }
 
@@ -109,7 +101,6 @@ const DiscoverPage: React.FC = () => {
   const [news, setNews] = useState<any[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [summaryError, setSummaryError] = useState(false);  // /api/market/summary 错误降级
-  const [sortMode, setSortMode] = useState<'boom' | 'crowding'>('boom');
 
   // Load market overview + scores (fast, show immediately)
   useEffect(() => {
@@ -137,21 +128,20 @@ const DiscoverPage: React.FC = () => {
         // sectors
         if (results[1].status === 'fulfilled') {
           setScores(results[1].value.data?.sectors || []);
-      // 预加载前15板块的多维度数据 (v3 batch API)
+      // 预加载前15板块的多维度数据
       const top15List = results[1].value.data?.sectors || [];
       if (top15List.length > 0) {
-        const codes = top15List.slice(0, 15).map((s: SectorScore) => s.industry);
-        fetch('/api/sectors/multidim-v3/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ codes }),
-        }).then(r => r.json()).then(d => {
+        Promise.allSettled(
+          top15List.slice(0, 15).map((s: SectorScore) =>
+            fetch(`/api/sectors/${encodeURIComponent(s.industry)}/multidim-v2`).then(r => r.json())
+          )
+        ).then(mdResults => {
           const map: Record<string, MultidimData> = {};
-          if (d?.data?.sectors) {
-            d.data.sectors.forEach((item: MultidimData) => {
-              map[item.industry] = item;
-            });
-          }
+          top15List.slice(0, 15).forEach((s: SectorScore, i: number) => {
+            if (mdResults[i].status === 'fulfilled' && mdResults[i].value?.data) {
+              map[s.industry] = mdResults[i].value.data;
+            }
+          });
           setMultidimMap(map);
         }).catch(() => {});
       }
@@ -839,22 +829,13 @@ const DiscoverPage: React.FC = () => {
                                   </Tooltip>
                                 );
                               })}
-                              <Tooltip title={`景气度: ${multidimMap[s.industry].boomScore}/100 (扩散+回补+动量仓位+搜索+传播)`}>
+                              <Tooltip title={`多维度综合: ${multidimMap[s.industry].totalScore}/100`}>
                                 <span style={{
                                   fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
-                                  background: '#22c55e18', color: '#22c55e',
-                                  border: '1px solid #22c55e40',
+                                  background: '#3b82f618', color: '#3b82f6',
+                                  border: '1px solid #3b82f640',
                                 }}>
-                                  📈{multidimMap[s.industry].boomScore}
-                                </span>
-                              </Tooltip>
-                              <Tooltip title={`拥挤度: ${multidimMap[s.industry].crowdingScore}/100 (PE分位+集中度+Z值+杠杆+恐慌+基金代理)`}>
-                                <span style={{
-                                  fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
-                                  background: '#f59e0b18', color: '#f59e0b',
-                                  border: '1px solid #f59e0b40',
-                                }}>
-                                  🔥{multidimMap[s.industry].crowdingScore}
+                                  综合{multidimMap[s.industry].totalScore}
                                 </span>
                               </Tooltip>
                             </div>
@@ -866,51 +847,40 @@ const DiscoverPage: React.FC = () => {
                   ))
               }
             </div>
-            {/* ====== 多维景气热力图 v3 (ECharts) — 景气度/拥挤度双重组 ====== */}
+            {/* ====== 多维景气热力图 (ECharts) ====== */}
             {Object.keys(multidimMap).length > 0 && (() => {
-              const sortKey = sortMode === 'boom' ? 'boomScore' : 'crowdingScore';
               const multidimSorted = Object.entries(multidimMap)
-                .map(([industry, data]) => ({ ...data, industry }))
-                .sort((a, b) => (b as any)[sortKey] - (a as any)[sortKey])
+                .map(([industry, data]) => ({ industry, ...data }))
+                .sort((a, b) => b.totalScore - a.totalScore)
                 .slice(0, 10);
-              
-              // v3 dimensions: boom group (5) + crowding group (6) + total
-              const boomKeys = ['diffusion', 'recovery', 'momentumPosition', 'searchHeat', 'spreadDegree'] as const;
-              const crowdingKeys = ['crowding', 'concentration', 'zScore', 'leverage', 'panic', 'fundFlow'] as const;
-              const allDimKeys = [...boomKeys, ...crowdingKeys];
+              const dimKeys = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery', 'panic', 'volatility', 'momIndex', 'searchHeat', 'spreadDegree'] as const;
               const dimLabels: Record<string, string> = {
-                diffusion: '扩散', recovery: '回补', momentumPosition: '动量仓位', searchHeat: '搜索', spreadDegree: '传播',
-                crowding: 'PE分位', concentration: '集中度', zScore: 'Z值', leverage: '杠杆', panic: '恐慌', fundFlow: '基金代理',
+                                  crowding: '拥挤', diffusion: '扩散', concentration: '集中', retail: '小白', recovery: '回补', panic: '恐慌', volatility: '动摇', momIndex: '宝妈', searchHeat: '搜索', spreadDegree: '传播',
               };
-              
+              // Rows (yAxis): sector names (top to bottom = highest score first)
               const yLabels = multidimSorted.map(s => s.industry);
-              const xLabels = [...allDimKeys.map(k => dimLabels[k]), '景气度', '拥挤度'];
-              
-              // Build heatmap data
+              // Columns (xAxis): 10 dimensions + 综合
+              const xLabels = [...dimKeys.map(k => dimLabels[k]), '综合'];
+
+              // Build heatmap data: [colIndex, rowIndex, value]
               const heatData: [number, number, number][] = [];
               multidimSorted.forEach((item, rowIdx) => {
-                allDimKeys.forEach((k, colIdx) => {
-                  const dim = (item.dimensions as any)[k];
-                  heatData.push([colIdx, rowIdx, dim ? dim.score : 0]);
+                dimKeys.forEach((k, colIdx) => {
+                  heatData.push([colIdx, rowIdx, item.dimensions[k].score]);
                 });
-                heatData.push([allDimKeys.length, rowIdx, item.boomScore]);
-                heatData.push([allDimKeys.length + 1, rowIdx, item.crowdingScore]);
+                heatData.push([dimKeys.length, rowIdx, item.totalScore]);
               });
-              
-              // Highlight column index for current sort mode
-              const highlightColIdx = sortMode === 'boom' ? allDimKeys.length : allDimKeys.length + 1;
-              
+
               // Hover detail map
               const hoverDetail: Record<string, string> = {};
               multidimSorted.forEach((item) => {
-                allDimKeys.forEach(k => {
-                  const dim = (item.dimensions as any)[k];
-                  hoverDetail[`${item.industry}__${dimLabels[k]}`] = dim ? dim.label : '';
+                dimKeys.forEach(k => {
+                  hoverDetail[`${item.industry}__${k}`] = item.dimensions[k].label;
                 });
-                hoverDetail[`${item.industry}__景气度`] = `景气度 ${item.boomScore}/100 (扩散+回补+动量仓位+搜索+传播)`;
-                hoverDetail[`${item.industry}__拥挤度`] = `拥挤度 ${item.crowdingScore}/100 (PE分位+集中度+Z值+杠杆+恐慌+基金代理)`;
+                hoverDetail[`${item.industry}__综合`] = `板块景气多维度综合评分 ${item.totalScore}/100`;
               });
-              
+
+              // Color: 红(0-5)→黄(6-12)→绿(13-20) (综合列 0-100 映射到 0-20 色阶)
               const option = {
                 tooltip: {
                   position: 'top' as const,
@@ -927,11 +897,13 @@ const DiscoverPage: React.FC = () => {
                     const dimName = xLabels[colIdx];
                     const key = `${industry}__${dimName}`;
                     const detail = hoverDetail[key] || '';
-                    const isSummaryCol = colIdx >= allDimKeys.length;
-                    const isBoom = colIdx === allDimKeys.length;
-                    const colorHex = isBoom ? '#22c55e' : isSummaryCol ? '#f59e0b' : (val >= 14 ? '#22c55e' : val >= 8 ? '#f59e0b' : '#ef4444');
+                    const sectorObj = multidimSorted[rowIdx];
+                    const dimKey = colIdx < dimKeys.length ? dimKeys[colIdx] : null;
+                    const isInverse = dimKey === 'retail' || dimKey === 'panic' || dimKey === 'volatility' || dimKey === 'momIndex';
+                    const colorHex = val >= 14 ? '#22c55e' : val >= 8 ? '#f59e0b' : '#ef4444';
+                    const retailColorHex = val >= 14 ? '#ef4444' : val >= 8 ? '#f59e0b' : '#22c55e';
                     return `<div style="font-weight:700;margin-bottom:4px">${industry}</div>
-                      <div style="color:#94a3b8">${dimName}: <span style="color:${colorHex};font-weight:700;font-size:16px">${val}分</span></div>
+                      <div style="color:#94a3b8">${dimName}: <span style="color:${isInverse ? retailColorHex : colorHex};font-weight:700;font-size:16px">${val}分</span></div>
                       <div style="color:#64748b;font-size:11px;margin-top:2px;max-width:200px">${detail}</div>
                       <div style="color:#475569;font-size:10px;margin-top:4px">点击查看板块详情</div>`;
                   },
@@ -946,7 +918,7 @@ const DiscoverPage: React.FC = () => {
                   position: 'top' as const,
                   axisLabel: {
                     color: '#94a3b8',
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: 600,
                     rotate: 0,
                   },
@@ -994,7 +966,7 @@ const DiscoverPage: React.FC = () => {
                   label: {
                     show: true,
                     color: '#1e293b',
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: 800,
                   },
                   emphasis: {
@@ -1010,69 +982,21 @@ const DiscoverPage: React.FC = () => {
                     borderWidth: 1,
                     borderRadius: 2,
                   },
-                  markArea: {
-                    silent: true,
-                    data: [[
-                      {
-                        xAxis: xLabels[highlightColIdx],
-                        itemStyle: {
-                          color: sortMode === 'boom' ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
-                          borderColor: sortMode === 'boom' ? '#22c55e' : '#f59e0b',
-                          borderWidth: 2,
-                          borderType: 'dashed' as const,
-                        },
-                      },
-                      { xAxis: xLabels[highlightColIdx] },
-                    ]],
-                  },
                 }],
               };
-              
-              const sortLabel = sortMode === 'boom' ? '景气度排序' : '拥挤度排序';
-              const sortColor = sortMode === 'boom' ? '#22c55e' : '#f59e0b';
-              
+
               return (
                 <div style={{ marginTop: 24 }}>
-                  <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <Text strong style={{ color: TEXT, fontSize: 15 }}>🌡️ 多维景气热力 v3</Text>
-                      <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-                        Top10板块 × 11维度(5景气+6拥挤) · 红(0-5)→黄(6-12)→绿(13-20)
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <Button
-                        size="small"
-                        type={sortMode === 'boom' ? 'primary' : 'default'}
-                        onClick={() => setSortMode('boom')}
-                        style={{
-                          borderRadius: 6,
-                          background: sortMode === 'boom' ? '#22c55e' : undefined,
-                          borderColor: sortMode === 'boom' ? '#22c55e' : undefined,
-                          fontWeight: sortMode === 'boom' ? 700 : 400,
-                        }}
-                      >
-                        📈 景气度排序
-                      </Button>
-                      <Button
-                        size="small"
-                        type={sortMode === 'crowding' ? 'primary' : 'default'}
-                        onClick={() => setSortMode('crowding')}
-                        style={{
-                          borderRadius: 6,
-                          background: sortMode === 'crowding' ? '#f59e0b' : undefined,
-                          borderColor: sortMode === 'crowding' ? '#f59e0b' : undefined,
-                          fontWeight: sortMode === 'crowding' ? 700 : 400,
-                        }}
-                      >
-                        🔥 拥挤度排序
-                      </Button>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong style={{ color: TEXT, fontSize: 15 }}>🌡️ 多维景气热力</Text>
+                    <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
+                      Top10板块 × 10维度评分 · 按综合分降序 · 红(0-5)→黄(6-12)→绿(13-20)
                     </div>
                   </div>
                   <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden', padding: '8px 0' }}>
                     <EChartsWrapper
                       option={option}
-                      style={{ width: '100%', height: 460 }}
+                      style={{ width: '100%', height: 420 }}
                       onEvents={{
                         click: (params: any) => {
                           if (params.data) {
