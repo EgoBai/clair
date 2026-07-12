@@ -594,3 +594,112 @@
     padding-bottom: 0 !important;
   }
 }
+
+/* ==================== DiscoverPage 响应式 ==================== */
+
+/* AI 洞察双栏 → 移动端单栏堆叠 */
+.ai-insight-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .ai-insight-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+/* 指数+板块宽度区：桌面端并排，移动端堆叠 */
+.index-breadth-grid {
+  display: flex;
+  gap: 12px;
+}
+
+.index-breadth-grid .index-grid {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .index-breadth-grid {
+    flex-direction: column;
+  }
+
+  .index-breadth-grid .index-grid {
+    flex-wrap: wrap;
+  }
+}
+
+/* 板块详情统计区响应式 */
+@media (max-width: 600px) {
+  .sector-detail-stats {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .sector-detail-actions {
+    width: 100%;
+  }
+
+  .sector-detail-actions .ant-btn {
+    width: 100%;
+  }
+}
+
+/* ==================== ScreenerPage 响应式 ==================== */
+
+/* 策略模板网格：auto-fill 自适应列数 */
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+/* 移动端策略卡片优化 */
+@media (max-width: 480px) {
+  .strategy-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+}
+
+/* ==================== 通用表格移动端优化 ==================== */
+
+/* 表格外层容器保证不突破视口 */
+.ant-table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 480px) {
+  /* 移动端表格字体缩小 */
+  .ant-table {
+    font-size: 11px;
+  }
+  
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 6px 4px !important;
+  }
+
+  /* DiscoverPage 暗色表格移动端 */
+  .dark-table .ant-table-thead > tr > th,
+  .dark-table .ant-table-tbody > tr > td {
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+  }
+}
+
+/* ==================== 页面容器移动端间距 ==================== */
+@media (max-width: 480px) {
+  .discover-container {
+    padding: 12px 12px 80px !important; /* 底部留空给 TabBar */
+  }
+
+  .screener-page {
+    padding: 12px 12px 80px !important;
+  }
+}

@@ -591,7 +591,7 @@ const ScreenerPage: React.FC = () => {
           style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
           bodyStyle={{ padding: '16px' }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }} className="strategy-grid">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
             {STRATEGY_TEMPLATES.map(strategy => (
               <div key={strategy.id}
                 onClick={() => selectStrategy(strategy.id)}
@@ -765,7 +765,7 @@ const ScreenerPage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <Table scroll={{ x: "max-content" }}
+            <Table
               dataSource={paged} columns={columns} loading={loading}
               rowKey="symbol" size="small"
               virtual
