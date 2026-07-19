@@ -1,6 +1,6 @@
 # Clair (AStock) 研发计划
 
-> 更新于 2026-07-13 | 状态：Phase 14-20 — 全部完成 🎉
+> 更新于 2026-07-19 | 状态：Phase 5-21 — 全部完成 🎉
 
 ## 核心原则
 
@@ -90,7 +90,7 @@
 - [x] 错误追踪 — UnifiedErrorBoundary + 自动重试
 - [x] 用户分析 — analytics.ts + /api/analytics 端点
 
-## Phase 13: AI融合深化 🔄 进行中
+## Phase 13: AI融合深化 ✅ 完成
 
 ### 已完成
 - [x] FloatingChat上下文感知
@@ -163,32 +163,29 @@
 - [x] 后端测试覆盖率
 - [x] Worker Cloudflare部署
 
-## Phase 14: 质量闭环 + 产品深度 ✅ 完成
 
-### 14.1 测试修复 ✅
-- [x] 后端3个失败测试修复（metrics.ts/industries.ts/industryChain*.ts）
-- [x] 前端198个lint warnings修复（unused vars前缀_）
-- [x] 前端852文件/17733测试全绿
-- [x] 后端588文件/14334测试全绿
+## Phase 21: 多Agent深度协作 ✅ 完成 (2026-07-19)
 
-### 14.2 API端点验证 ✅
-- [x] 所有核心API端点返回200
-- [x] market-insight-llm: 真实DB数据 + LLM结构化解读
-- [x] watchlist-summary/trade-analysis: 正常返回分析
-- [x] industries?level=2: 75个二级行业
-- [x] stocks/:symbol/kline: K线数据
+### 21.1 多维矩阵体系 (S7-S22)
+- [x] S7: 潜力雷达v3.0 — 景气度多维度扩展
+- [x] S8: 雷达默认优质池 + DiscoverPage多维热力表格
+- [x] S10: 产业地图4新链 + 图谱重叠修复 + AI解读增强
+- [x] S12: 产业链统一标准 — 3链重构多层 + 移除前端兜底
+- [x] S13: 投资笔记404修复 + 多维矩阵设计文档
+- [x] S14: 多维矩阵v2 — 10维度后端API + DiscoverPage热力图
+- [x] S20: 多维矩阵v3 — 专业指标 + 景气度/拥挤度双排序
+- [x] S22: DiscoverPage v3降级容错 — batch失败自动回退v2
 
-### 14.3 AI功能验证 ✅
-- [x] AI市场洞察引用真实市场数据（板块景气度/涨跌幅/涨停数/市场宽度）
-- [x] LLM生成4段结构化解读（市场基本面/资金面/政策面/风险提示）
-- [x] FloatingChat 上下文注入当前页面数据
-- [x] 自选股AI追踪总结正常
+### 21.2 移动端+运维
+- [x] 移动端响应式全面覆盖（WatchlistPage x轴滚动等）
+- [x] Worker Cloudflare生产验证
+- [x] 0点cron日报自动化
 
-### 14.4 待完成
-- [x] Worker本地验证（wrangler dev）
-- [x] 生产部署端到端测试
-
-## Phase 13: AI融合深化 ✅ 完成
+### 21.3 构建+测试巩固
+- [x] 前端17732/17733测试通过（仅1个flaky）
+- [x] 后端14190/14190测试全部通过
+- [x] 后端测试覆盖率提升
+- [x] Antd包体积优化（动态导入）
 
 ## 多Agent协作模式
 

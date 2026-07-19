@@ -385,7 +385,7 @@ const RadarPage: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
+    <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto', overflowX: 'hidden' }}>
       <style>{`
         .radar-page .ant-table { background: transparent !important; }
         .radar-page .ant-table-thead > tr > th { 

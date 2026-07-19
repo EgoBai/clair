@@ -484,3 +484,165 @@
     display: none !important;
   }
 }
+
+/* ==================== 潜力股雷达页 (RadarPage) ==================== */
+
+/* 375px 小屏：确保无横滚 */
+@media (max-width: 480px) {
+  .radar-page {
+    overflow-x: hidden !important;
+  }
+
+  /* 标题缩小 */
+  .radar-page h2 {
+    font-size: 17px !important;
+  }
+
+  /* 筛选标签缩小 */
+  .radar-page .ant-tag {
+    font-size: 11px !important;
+  }
+
+  /* 表格外层容器：强制不突破视口 */
+  .radar-page .ant-card .ant-table-wrapper,
+  .radar-page .ant-card .ant-table-container {
+    max-width: 100% !important;
+  }
+
+  /* 雷达卡片 body 减 padding */
+  .radar-page .ant-card-body {
+    padding: 8px 10px !important;
+  }
+
+  /* AI 解读卡片文字缩小 */
+  .radar-page .ant-card .ant-card-body .ant-card-body {
+    font-size: 12px !important;
+  }
+}
+
+/* 平板：雷达图高度自适应 */
+@media (max-width: 768px) {
+  .radar-page .echarts-for-react {
+    max-height: 280px !important;
+  }
+}
+
+/* ==================== 产业地图页 (IndustryMapPage) 增强 ==================== */
+
+/* 375-480px 图谱进一步缩小 */
+@media (max-width: 480px) {
+  .industry-map-page {
+    padding: 8px !important;
+    overflow-x: hidden !important;
+  }
+
+  /* 图谱高度再缩小 */
+  .industry-map-page .react-flow {
+    height: 260px !important;
+  }
+
+  /* 图谱节点在小屏缩小 */
+  .industry-map-page .react-flow__node {
+    font-size: 10px !important;
+    min-width: 120px !important;
+  }
+
+  /* 节点内部 padding 缩减 */
+  .industry-map-page .react-flow__node > div {
+    padding: 8px 10px !important;
+    min-width: 130px !important;
+  }
+
+  /* 统计卡片 Statistic 值缩小 */
+  .industry-map-page .ant-statistic-content-value {
+    font-size: 16px !important;
+  }
+
+  /* AI 问答输入框全宽适配 */
+  .industry-map-page .ant-input-group-compact {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .industry-map-page .ant-input-group-compact .ant-input {
+    flex: 1 !important;
+    width: auto !important;
+  }
+
+  /* 热门板块标签缩小 */
+  .industry-map-page .ant-tag {
+    font-size: 11px !important;
+    padding: 2px 8px !important;
+  }
+
+  /* Tab 标签缩小 */
+  .industry-map-page .ant-tabs-tab {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+  }
+}
+
+/* 图谱卡片防止溢出 */
+@media (max-width: 768px) {
+  .industry-map-page .react-flow__viewport {
+    max-width: 100% !important;
+  }
+
+  .industry-map-page .ant-card:has(.react-flow) {
+    overflow: hidden !important;
+  }
+}
+
+/* ==================== 投资笔记页 (KnowledgeBase) ==================== */
+
+/* 375px 小屏：搜索框 + 统计卡片响应式 */
+@media (max-width: 480px) {
+  /* 容器减少侧边 padding */
+  .knowledge-base-container {
+    padding: 12px 12px 80px !important;
+  }
+
+  /* 统计卡片区：375px 改为单列 */
+  .knowledge-base-stats-row .ant-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* 统计卡片间距缩小 */
+  .knowledge-base-stats-row {
+    row-gap: 8px !important;
+  }
+
+  /* 搜索框适配 */
+  .knowledge-base-search {
+    margin-bottom: 12px !important;
+  }
+
+  /* 卡片内容 padding 缩减 */
+  .knowledge-base-card .ant-card-body {
+    padding: 10px 12px !important;
+  }
+
+  /* 标题文字缩小 */
+  .knowledge-base-header h3 {
+    font-size: 16px !important;
+  }
+
+  /* 分类标签缩小+换行 */
+  .knowledge-base-categories .ant-tag {
+    font-size: 11px !important;
+    padding: 2px 10px !important;
+  }
+
+  /* Modal 写笔记全宽 */
+  .knowledge-base-modal .ant-modal {
+    max-width: 100% !important;
+  }
+}
+
+/* 平板：统计卡片 3 列保持 */
+@media (min-width: 481px) and (max-width: 768px) {
+  .knowledge-base-container {
+    padding: 16px 20px 60px !important;
+  }
+}

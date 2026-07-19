@@ -100,10 +100,10 @@ const KnowledgeBase: React.FC = () => {
   const inputBg = 'var(--bg-tertiary, #1c2333)';
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base, #080b14)', color: textPrimary, padding: '24px 32px' }}>
+    <div className="knowledge-base-container" style={{ minHeight: '100vh', background: 'var(--bg-base, #080b14)', color: textPrimary, padding: '24px 32px' }}>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
         {/* ====== Header ====== */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div className="knowledge-base-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} type="text" style={{ color: textSecondary }} />
             <BookOutlined style={{ fontSize: 22, color: accentSolid }} />
@@ -116,7 +116,7 @@ const KnowledgeBase: React.FC = () => {
         </div>
 
         {/* ====== Stats Bar ====== */}
-        <Row gutter={16} style={{ marginBottom: 24 }}>
+        <Row gutter={16} className="knowledge-base-stats-row" style={{ marginBottom: 24 }}>
           <Col span={8}>
             <div style={{
               background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: 14,
@@ -171,7 +171,7 @@ const KnowledgeBase: React.FC = () => {
         </Row>
 
         {/* ====== Category tabs ====== */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div className="knowledge-base-categories" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <Tag color={!activeCategory ? 'blue' : 'default'}
             style={{ cursor: 'pointer', padding: '4px 14px', borderRadius: 8, fontSize: 13 }}
             onClick={() => setActiveCategory(null)}>
@@ -188,7 +188,7 @@ const KnowledgeBase: React.FC = () => {
         </div>
 
         {/* ====== Search (below categories) ====== */}
-        <Input
+        <Input className="knowledge-base-search"
           prefix={<SearchOutlined />}
           placeholder="搜索笔记..."
           value={searchQuery}
@@ -222,7 +222,7 @@ const KnowledgeBase: React.FC = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {entries.map(entry => (
-              <Card key={entry.id} size="small"
+              <Card key={entry.id} size="small" className="knowledge-base-card"
                 style={{
                   background: cardBg, border: `1px solid ${cardBorder}`,
                   borderRadius: 14, cursor: 'pointer',
@@ -273,7 +273,7 @@ const KnowledgeBase: React.FC = () => {
         )}
 
         {/* ====== Write Note Modal ====== */}
-        <Modal
+        <Modal className="knowledge-base-modal"
           title={
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <EditOutlined style={{ color: accentSolid }} />
