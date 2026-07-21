@@ -204,3 +204,30 @@
 - **学到的**: @ant-design/icons 20MB,独分包后仅32.7kB打包——大部分未使用
 - **学到的**: POST /api/ai/gems 在内存模式返回503(leftJoin不支持MockQueryBuilder)
 - **学到的**: supertest URL含中文需encodeURIComponent
+
+---
+
+## Round 2026-07-13: 移动端375px响应式 + 后端测试覆盖率续
+
+### SCAN
+- 6核心页面在375px可能有水平溢出
+- 后端services/utils覆盖率低
+
+### EXEC
+- T25 ✅: 后端新增113测试(services-coverage + utils-coverage)
+- T26 ✅: 6核心页面375px修复 — Watchlist/Screener/Discover/Review/StockDetail添加scroll+responsive CSS
+
+### VERIFY
+- TS: 0 errors ✅
+- 后端: 593文件/14489用例 ✅
+- 前端: 851文件/17721用例 ✅
+
+### CAPTURE
+- **学到的**: Ant Design Table无scroll是移动端溢出首要原因
+- **学到的**: inline minWidth阻止flex子元素缩小——用minWidth:0替代
+- **学到的**: ECharts grid.left/right在窄屏需响应式调整
+- **决策**: 移动端padding从24px→12px, 表格统一加scroll={{ x: 'max-content' }}
+
+---
+
+> 后续每轮迭代按相同格式追加

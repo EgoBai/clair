@@ -951,7 +951,9 @@ const DiscoverPage: React.FC = () => {
                   },
                 },
                 grid: {
-                  left: 110, right: 60, top: 30, bottom: 50,
+                  left: typeof window !== 'undefined' && window.innerWidth < 480 ? 60 : 110,
+                  right: typeof window !== 'undefined' && window.innerWidth < 480 ? 40 : 60,
+                  top: 30, bottom: 50,
                   containLabel: false,
                 },
                 xAxis: {
@@ -975,7 +977,7 @@ const DiscoverPage: React.FC = () => {
                     color: '#e2e8f0',
                     fontSize: 11,
                     fontWeight: 600,
-                    width: 100,
+                    width: typeof window !== 'undefined' && window.innerWidth < 480 ? 60 : 100,
                     overflow: 'truncate' as const,
                   },
                   axisLine: { show: false },

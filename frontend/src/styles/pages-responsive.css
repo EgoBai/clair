@@ -137,6 +137,16 @@
 }
 
 /* ==================== 筛选页 ==================== */
+.screener-page {
+  padding: 24px;
+}
+
+@media (max-width: 768px) {
+  .screener-page {
+    padding: 12px 12px 80px !important;
+  }
+}
+
 .screener-page .screener-filters {
   display: flex;
   flex-wrap: wrap;
@@ -200,6 +210,16 @@
 }
 
 /* ==================== 自选页 ==================== */
+.watchlist-page {
+  padding: 24px 32px;
+}
+
+@media (max-width: 768px) {
+  .watchlist-page {
+    padding: 12px 12px 80px !important;
+  }
+}
+
 .watchlist-page .industry-tag.ant-tag {
   background: var(--bg-tertiary) !important;
   color: var(--accent-solid) !important;
@@ -219,6 +239,16 @@
 }
 
 /* ==================== 复盘页 ==================== */
+.review-page {
+  padding: 24px 32px;
+}
+
+@media (max-width: 768px) {
+  .review-page {
+    padding: 12px 12px 80px !important;
+  }
+}
+
 .review-page .review-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -354,11 +384,8 @@
 }
 
 /* ==================== 详情页 ==================== */
-.stock-detail-page .stock-price-header {
-  display: flex;
-  align-items: flex-end;
-  gap: 16px;
-  flex-wrap: wrap;
+.stock-detail-page {
+  padding: 16px 24px;
 }
 
 .stock-detail-page .stock-meta-grid {
@@ -369,7 +396,7 @@
 
 @media (max-width: 768px) {
   .stock-detail-page {
-    padding: 12px 12px 24px !important;
+    padding: 12px 12px 80px !important;
   }
 
   .stock-detail-page .stock-price-header {

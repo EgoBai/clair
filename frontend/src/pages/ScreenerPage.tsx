@@ -680,7 +680,7 @@ const ScreenerPage: React.FC = () => {
 
         {/* AI 筛选 + 搜索 + 控制栏 */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 300 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 0 }}>
             <span style={{ fontSize: 16 }}>🤖</span>
             <input type="text" placeholder="自然语言筛选：如 涨幅超3%的科技股 或 市盈率低于20的银行股"
               value={aiFilterQuery} onChange={(e) => setAiFilterQuery(e.target.value)}
@@ -698,7 +698,7 @@ const ScreenerPage: React.FC = () => {
           </div>
           <input type="text" placeholder="搜索代码/名称"
             value={searchText} onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
-            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-default)', borderRadius: 8, padding: '8px 12px', color: 'var(--text-primary)', fontSize: 13, width: 150, outline: 'none' }}
+            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-default)', borderRadius: 8, padding: '8px 12px', color: 'var(--text-primary)', fontSize: 13, width: 150, maxWidth: '100%', outline: 'none' }}
           />
           <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} style={{ borderRadius: 8 }}>刷新</Button>
         </div>
