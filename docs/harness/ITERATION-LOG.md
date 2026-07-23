@@ -276,4 +276,56 @@
 
 ---
 
+## Round 2026-07-13 P4续: vendor-misc拆分
+
+### SCAN
+- vendor-misc: 279kB (90kB gz) — 最大可优化vendor chunk
+- recharts: 232kB — 已通过main.tsx lazy分包,无需额外处理
+- reactflow: 88kB隐藏在vendor-misc中
+
+### EXEC
+- T32 ✅: vendor-misc拆分 — reactflow 87.5kB + dayjs 7kB独立chunk
+
+### VERIFY
+- 构建: vendor-misc 279→191kB (-31%)
+- TS: 0 errors ✅
+
+### CAPTURE
+- **学到的**: vendor-misc的279kB主因是reactflow(88kB)而非dayjs
+- **学到的**: recharts已通过main.tsx lazy分包,不需要额外处理
+
+---
+
+## Round 2026-07-13 P4终: PWA升级 + 图片优化
+
+### SCAN
+- SW: v1基础缓存,无版本管理,无离线fallback
+- manifest: 缺512px icon, theme_color不对
+- 图片组件: 无loading=lazy, 无decoding=async
+
+### EXEC
+- T33 ✅: SW v2(skip-waiting+stale-while-revalidate+offline fallback) + manifest(512px+dark theme) + offline.html
+- T34 ✅: LazyImage/OptimizedImage添加loading=lazy+decoding=async+fetchPriority=low
+
+### VERIFY
+- TS: 0 errors ✅
+- SW: 版本化缓存(clair-v2), 自动清理旧缓存 ✅
+- manifest: 双图标(192 SVG + 512 PNG), maskable ✅
+- offline.html: 离线fallback页面 ✅
+
+### CAPTURE
+- **学到的**: icon-512.png已存在(20kB),无需额外生成
+- **学到的**: React loading属性只接受lazy|eager,不接受auto
+- **学到的**: stale-while-revalidate比cache-first更好的用户体验——先返回缓存,后台更新
+
+---
+
+> 后续每轮迭代按相同格式追加
+
+---
+
+> 后续每轮迭代按相同格式追加
+
+---
+
 > 后续每轮迭代按相同格式追加
