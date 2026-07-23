@@ -11,6 +11,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MessageOutlined, CloseOutlined, BulbOutlined } from '@ant-design/icons';
 import ChatPanel from './ChatPanel';
+import { message } from 'antd';
+import { NOTE_SAVED_EVENT, type NoteSavedEventDetail } from '../../utils/knowledgeStore';
 
 interface PageContext {
   page: string;
@@ -209,6 +211,23 @@ const FloatingChat: React.FC = () => {
       setMultidimSummary('');
     }
   }, [location.pathname, fetchMultidimContext]);
+
+  // 监听投资笔记保存事件 — 与其他组件联动
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<NoteSavedEventDetail>).detail;
+      if (detail?.entry) {
+        const catInfo = ['产业知识', '投资方法', '关注概念', '学习笔记'];
+        message.success({
+          content: `📝 笔记已保存到「${detail.entry.category}」— 点击右下角 AI 助手继续深入探讨`,
+          duration: 3,
+          style: { marginTop: 48 },
+        });
+      }
+    };
+    window.addEventListener(NOTE_SAVED_EVENT, handler);
+    return () => window.removeEventListener(NOTE_SAVED_EVENT, handler);
+  }, []);
 
   // 计算当前页面上下文
   const pageContext: PageContext = useMemo(() => {

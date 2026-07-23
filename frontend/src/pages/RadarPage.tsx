@@ -129,11 +129,6 @@ const RadarPage: React.FC = () => {
     })();
   }, [fetchData]);
 
-  const handleFilterChange = useCallback((checked: boolean) => {
-    const next = checked ? 'all' : 'premium';
-    setScoreFilter(next);
-    fetchData(next);
-  }, [fetchData]);
 
   const premiumCount = useMemo(() => {
     if (scoreFilter === 'premium') return total;

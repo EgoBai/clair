@@ -230,4 +230,26 @@
 
 ---
 
+## Round 2026-07-13 PM: KnowledgeBase视觉升级 + 热力图移动端
+
+### SCAN
+- MiMoCode P1剩余: KnowledgeBase视觉简单, 热力图移动端溢出
+- KnowledgeBase: 344行, 无时间线, 空状态简陋
+- DiscoverPage热力图: 420px高, 10×5矩阵, 移动端过宽
+
+### EXEC
+- T27 ✅: KnowledgeBase — THEME常量+时间线CSS+改进空状态(CTA)+移动端padding
+- T28 ✅: DiscoverPage — <768px卡片列表替代热力图(5维度标签+总分+点击)
+
+### VERIFY
+- TS: 0 errors ✅
+- 测试: 851/17721 全绿 ✅
+
+### CAPTURE
+- **学到的**: 热力图在移动端用卡片列表替代是更好的UX——用户不需要看5×10矩阵
+- **学到的**: KnowledgeBase时间线用CSS ::before伪元素实现,无需额外组件
+- **决策**: 移动端热力图阈值768px,与现有breakpoint一致
+
+---
+
 > 后续每轮迭代按相同格式追加

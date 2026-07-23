@@ -72,7 +72,7 @@ interface StockRaw {
 }
 
 router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
-  const { topN = 100, minScore = 60 } = req.body;
+  const { topN = 100, minScore = 80 } = req.body;
 
   const db = getDb();
 

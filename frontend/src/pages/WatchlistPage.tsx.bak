@@ -1,11 +1,6 @@
 /**
  * 📊 追踪中心 — Tracking Center
  * 全功能自选股追踪页面：分组管理 + 实时行情 + 异动提醒 + AI总结 + 策略信号
- * 
- * 修复 v2:
- *  - 表格列完整: 代码/名称/最新价/涨跌幅/PE/PB/市值/信号/操作
- *  - quotes 正确提取 peRatio/pbRatio/marketCap 字段
- *  - AI 建议/总结不可用时自动生成规则化替代内容
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
@@ -64,9 +59,6 @@ interface StockQuote {
   volume?: number;
   turnoverRate?: number;
   industry?: string;
-  peRatio?: number;
-  pbRatio?: number;
-  marketCap?: number;
 }
 
 interface AlertItem {
@@ -87,212 +79,6 @@ interface StrategySignal {
 /* ─── Helper: default groups ─── */
 function getDefaultGroups(): WatchlistGroup[] {
   return [{ id: 'default', name: '默认分组', stocks: [], isDefault: true }];
-}
-
-/* ─── Helper: format market cap ─── */
-function formatMarketCap(value: number | undefined | null): string {
-  if (value == null || value === 0) return '—';
-  const abs = Math.abs(value);
-  if (abs >= 1e12) return (value / 1e12).toFixed(2) + '万亿';
-  if (abs >= 1e8) return (value / 1e8).toFixed(2) + '亿';
-  if (abs >= 1e4) return (value / 1e4).toFixed(2) + '万';
-  return value.toFixed(0);
-}
-
-/* ─── Helper: rule-based AI summary ─── */
-function generateRuleBasedSummary(
-  symbols: string[],
-  quotes: Record<string, StockQuote>,
-  signals: Record<string, StrategySignal>,
-  alerts: AlertItem[],
-): string {
-  if (symbols.length === 0) return '';
-
-  const parts: string[] = [];
-
-  // 总体表现
-  const qValues = Object.values(quotes);
-  const avgChange = qValues.length > 0
-    ? qValues.reduce((s, q) => s + Number(q.changePercent || 0), 0) / qValues.length
-    : 0;
-
-  const upCount = qValues.filter(q => Number(q.changePercent) > 0).length;
-  const downCount = qValues.filter(q => Number(q.changePercent) < 0).length;
-  const flatCount = qValues.filter(q => Number(q.changePercent) === 0).length;
-
-  parts.push(`**📈 今日追踪概览**`);
-  parts.push(`- 追踪 **${symbols.length}** 只股票，今日平均涨跌 **${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}%**`);
-  parts.push(`- 上涨 **${upCount}** 只，下跌 **${downCount}** 只${flatCount > 0 ? `，持平 ${flatCount} 只` : ''}`);
-
-  // 涨跌分析
-  if (qValues.length > 0) {
-    const sorted = [...qValues].sort((a, b) => Number(b.changePercent) - Number(a.changePercent));
-    // 重点关注极端表现
-    const topGainers = sorted.filter(q => Number(q.changePercent) > 3);
-    const topLosers = sorted.filter(q => Number(q.changePercent) < -3);
-
-    if (topGainers.length > 0) {
-      const list = topGainers.map(q => `${q.name}(**+${Number(q.changePercent).toFixed(2)}%**)`).join('、');
-      parts.push(`\n**🔺 涨幅较大**：${list}`);
-    }
-    if (topLosers.length > 0) {
-      const list = topLosers.map(q => `${q.name}(**${Number(q.changePercent).toFixed(2)}%**)`).join('、');
-      parts.push(`\n**🔻 跌幅较大**：${list}`);
-    }
-  }
-
-  // PE 估值分析
-  const withPE = qValues.filter(q => q.peRatio != null && q.peRatio > 0);
-  if (withPE.length > 0) {
-    const avgPE = withPE.reduce((s, q) => s + (q.peRatio as number), 0) / withPE.length;
-    const highPE = withPE.filter(q => (q.peRatio as number) > 50);
-    const lowPE = withPE.filter(q => (q.peRatio as number) > 0 && (q.peRatio as number) < 15);
-    parts.push(`\n**📊 估值概览**：平均 PE **${avgPE.toFixed(1)}** 倍`);
-    if (lowPE.length > 0) {
-      const list = lowPE.map(q => `${q.name}(PE ${(q.peRatio as number).toFixed(1)})`).join('、');
-      parts.push(`- 低估值标的：${list}`);
-    }
-    if (highPE.length > 0) {
-      const list = highPE.map(q => `${q.name}(PE ${(q.peRatio as number).toFixed(1)})`).join('、');
-      parts.push(`- 高估值标的：${list}`);
-    }
-  }
-
-  // 策略信号
-  if (Object.keys(signals).length > 0) {
-    const buySignals = Object.entries(signals).filter(([, s]) => s.signal === 'buy');
-    const sellSignals = Object.entries(signals).filter(([, s]) => s.signal === 'sell');
-    if (buySignals.length > 0) {
-      const list = buySignals.map(([sym, s]) => `${quotes[sym]?.name || sym}(**${s.score}分**)`).join('、');
-      parts.push(`\n**✅ 买入信号**：${list}`);
-    }
-    if (sellSignals.length > 0) {
-      const list = sellSignals.map(([sym, s]) => `${quotes[sym]?.name || sym}(**${s.score}分**)`).join('、');
-      parts.push(`\n**⚠️ 卖出信号**：${list}`);
-    }
-  }
-
-  // 异动提醒
-  const alertCount = alerts.reduce((s, a) => s + (a.alerts?.length || 0), 0);
-  if (alertCount > 0) {
-    parts.push(`\n**🚨 异动提醒**：共 **${alertCount}** 条，涉及 ${alerts.map(a => a.name).join('、')}`);
-  } else {
-    parts.push(`\n**✅ 无异动**：当前追踪组合表现平稳，暂无异常波动。`);
-  }
-
-  // 建议
-  parts.push(`\n**💡 操作建议**：`);
-  if (avgChange > 2) {
-    parts.push(`- 组合整体强势，可适当关注获利了结时机`);
-  } else if (avgChange < -2) {
-    parts.push(`- 组合偏弱，注意控制仓位风险，等待市场企稳信号`);
-  } else {
-    parts.push(`- 组合整体平稳，可关注低估值标的的加仓机会`);
-  }
-
-  return parts.join('\n');
-}
-
-/* ─── Helper: rule-based AI recommendations ─── */
-function generateRuleBasedRecommendations(
-  symbols: string[],
-  quotes: Record<string, StockQuote>,
-): string {
-  if (symbols.length === 0) return '';
-
-  const parts: string[] = [];
-  const qValues = Object.values(quotes);
-
-  parts.push(`**🎯 基于您的关注偏好分析**\n`);
-
-  // 行业偏好分析
-  const industries = qValues
-    .filter(q => q.industry)
-    .map(q => q.industry as string);
-  const industryCount: Record<string, number> = {};
-  industries.forEach(ind => { industryCount[ind] = (industryCount[ind] || 0) + 1; });
-  const topIndustries = Object.entries(industryCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3);
-
-  if (topIndustries.length > 0) {
-    const indList = topIndustries.map(([ind, cnt]) => `**${ind}**(${cnt}只)`).join('、');
-    parts.push(`- 行业偏好：${indList}`);
-  }
-
-  // 风格偏好
-  const withPE = qValues.filter(q => q.peRatio != null && q.peRatio > 0);
-  if (withPE.length > 0) {
-    const avgPE = withPE.reduce((s, q) => s + (q.peRatio as number), 0) / withPE.length;
-    const avgPB = qValues.filter(q => q.pbRatio != null).reduce((s, q) => s + (q.pbRatio as number), 0) /
-      qValues.filter(q => q.pbRatio != null).length || 0;
-
-    let style = '';
-    if (avgPE > 40) style = '成长型偏好，偏向高估值成长股';
-    else if (avgPE > 20) style = '均衡型偏好，兼顾价值与成长';
-    else style = '价值型偏好，偏向低估值蓝筹';
-
-    parts.push(`- 估值风格：${style}（平均 PE ${avgPE.toFixed(1)}，PB ${avgPB.toFixed(2)}）`);
-  }
-
-  // 市值偏好
-  const withMC = qValues.filter(q => q.marketCap != null && q.marketCap > 0);
-  if (withMC.length > 0) {
-    const avgMC = withMC.reduce((s, q) => s + (q.marketCap as number), 0) / withMC.length;
-    let size = '';
-    if (avgMC > 1e11) size = '大盘蓝筹偏好';
-    else if (avgMC > 5e10) size = '中盘股偏好';
-    else size = '中小盘偏好';
-    parts.push(`- 市值偏好：${size}（平均市值 ${formatMarketCap(avgMC)}）`);
-  }
-
-  // 推荐逻辑
-  parts.push(`\n**📋 推荐关注方向**\n`);
-
-  if (topIndustries.length > 0) {
-    const primaryIndustry = topIndustries[0][0];
-
-    // 同行业补涨标的
-    parts.push(`1. **同行业补涨标的**：在 **${primaryIndustry}** 板块中，关注涨幅落后的优质个股，存在补涨机会`);
-
-    // 产业链延伸
-    const chainMap: Record<string, string> = {
-      '白酒': '食品饮料、消费升级相关标的',
-      '新能源': '锂电材料、光伏、储能产业链',
-      '汽车': '智能驾驶、汽车零部件、充电桩',
-      '半导体': '芯片设计、封装测试、半导体设备',
-      '医药': '创新药、医疗器械、CXO服务',
-      '银行': '券商、保险等金融板块',
-      '房地产': '建材、家居、物业管理',
-    };
-    const chain = chainMap[primaryIndustry] || '相关产业链上下游';
-    parts.push(`2. **产业链延伸**：关注 ${chain}`);
-
-    // 估值对比
-    if (withPE.length > 0) {
-      const lowPEStocks = withPE.filter(q => (q.peRatio as number) > 0 && (q.peRatio as number) < 20);
-      if (lowPEStocks.length > 0) {
-        const sample = lowPEStocks.slice(0, 2).map(q => q.name).join('、');
-        parts.push(`3. **低估值机会**：当前组合中 ${sample} 等 PE 较低，可在同类行业中寻找估值更优的标的`);
-      }
-    }
-  }
-
-  // 动量延续
-  const strongStocks = qValues.filter(q => Number(q.changePercent) > 2);
-  if (strongStocks.length > 0) {
-    const sample = strongStocks.slice(0, 2).map(q => q.name).join('、');
-    parts.push(`4. **动量延续**：${sample} 表现强势，关注同板块的跟涨机会`);
-  }
-
-  // 风险提示
-  parts.push(`\n**⚠️ 风险提示**`);
-  parts.push(`- 以上推荐基于规则化分析，不构成投资建议`);
-  parts.push(`- 建议结合基本面和资金面综合判断`);
-  parts.push(`- 分散配置，控制单只股票仓位不超过 20%`);
-  parts.push(`- 设置止损位，严格执行交易纪律`);
-
-  return parts.join('\n');
 }
 
 /* ─── Sub-Component: AddStockModal ─── */
@@ -543,9 +329,6 @@ const WatchlistPage: React.FC = () => {
             volume: q.volume,
             turnoverRate: q.turnoverRate ?? q.turnover_rate,
             industry: q.industry || s.industry,
-            peRatio: q.peRatio ?? q.pe_ratio ?? undefined,
-            pbRatio: q.pbRatio ?? q.pb_ratio ?? undefined,
-            marketCap: q.marketCap ?? q.market_cap ?? undefined,
           };
         }
       }
@@ -596,27 +379,17 @@ const WatchlistPage: React.FC = () => {
     setSignals(newSignals);
   }, [symbols.join(',')]);
 
-  /* ─── Fetch AI summary (with rule-based fallback) ─── */
+  /* ─── Fetch AI summary ─── */
   const fetchAiSummary = useCallback(async () => {
     if (symbols.length === 0) { setAiSummary(''); return; }
     setAiSummaryLoading(true);
-
-    // Generate rule-based fallback immediately
-    const fallbackSummary = generateRuleBasedSummary(symbols, quotes, signals, alerts);
-    setAiSummary(fallbackSummary);
-
     try {
       const quoteData = symbols.map(sym => {
         const q = quotes[sym];
         return {
-          symbol: sym,
-          name: q?.name || '',
           price: q?.price || 0,
           changePercent: q?.changePercent || 0,
           turnoverRate: q?.turnoverRate || 0,
-          peRatio: q?.peRatio,
-          pbRatio: q?.pbRatio,
-          marketCap: q?.marketCap,
         };
       });
       const resp = await apiFetch('/api/ai/watchlist-summary', {
@@ -626,27 +399,21 @@ const WatchlistPage: React.FC = () => {
       });
       const data = await resp.json();
       if (data.summary) setAiSummary(data.summary);
-      // If API returns nothing, the fallback is already set above
     } catch {
-      // Use the already-set rule-based fallback
+      // silent fail
     } finally {
       setAiSummaryLoading(false);
     }
-  }, [symbols.join(','), JSON.stringify(quotes), JSON.stringify(signals), JSON.stringify(alerts)]);
+  }, [symbols.join(','), JSON.stringify(quotes)]);
 
-  /* ─── Fetch AI recommendations (with rule-based fallback) ─── */
+  /* ─── Fetch AI recommendations ─── */
   const fetchAiRecommendations = useCallback(async () => {
     if (symbols.length === 0) { setAiRecommendations(''); return; }
     setAiRecommendationsLoading(true);
-
-    // Generate rule-based fallback immediately
-    const fallbackRecs = generateRuleBasedRecommendations(symbols, quotes);
-    setAiRecommendations(fallbackRecs);
-
     try {
       const stockList = symbols.map(sym => {
         const q = quotes[sym];
-        return `${sym}(${q?.name || ''}, ${q?.industry || ''}, PE:${q?.peRatio ?? 'N/A'}, PB:${q?.pbRatio ?? 'N/A'})`;
+        return `${sym}(${q?.name || ''}, ${q?.industry || ''})`;
       }).join('、');
 
       const resp = await apiFetch('/api/ai/chat', {
@@ -668,9 +435,8 @@ const WatchlistPage: React.FC = () => {
       if (data?.content) {
         setAiRecommendations(data.content);
       }
-      // If API returns nothing, the fallback is already set above
     } catch {
-      // Use the already-set rule-based fallback
+      // silent fail
     } finally {
       setAiRecommendationsLoading(false);
     }
@@ -844,6 +610,27 @@ const WatchlistPage: React.FC = () => {
       ),
     },
     {
+      title: '行业',
+      className: 'hide-mobile',
+      width: 100,
+      render: (_: unknown, r: WatchlistStock) => {
+        const q = quotes[r.symbol];
+        if (!q?.industry) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
+        return (
+          <Tag
+            className="industry-tag"
+            style={{
+              fontSize: 11,
+              margin: 0,
+              borderRadius: 4,
+            }}
+          >
+            {q.industry}
+          </Tag>
+        );
+      },
+    },
+    {
       title: '最新价',
       width: 95,
       align: 'right' as const,
@@ -887,55 +674,9 @@ const WatchlistPage: React.FC = () => {
       },
     },
     {
-      title: 'PE',
-      width: 70,
-      align: 'right' as const,
-      className: 'hide-mobile',
-      render: (_: unknown, r: WatchlistStock) => {
-        const q = quotes[r.symbol];
-        if (!q || q.peRatio == null || q.peRatio === 0) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
-        const peColor = q.peRatio > 50 ? COLOR_UP : q.peRatio > 20 ? GOLD : COLOR_DOWN;
-        return (
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: peColor, fontWeight: 600 }}>
-            {Number(q.peRatio).toFixed(1)}
-          </span>
-        );
-      },
-    },
-    {
-      title: 'PB',
-      width: 70,
-      align: 'right' as const,
-      className: 'hide-mobile',
-      render: (_: unknown, r: WatchlistStock) => {
-        const q = quotes[r.symbol];
-        if (!q || q.pbRatio == null || q.pbRatio === 0) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
-        return (
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: TEXT, fontWeight: 600 }}>
-            {Number(q.pbRatio).toFixed(2)}
-          </span>
-        );
-      },
-    },
-    {
-      title: '市值',
-      width: 85,
-      align: 'right' as const,
-      className: 'hide-mobile',
-      render: (_: unknown, r: WatchlistStock) => {
-        const q = quotes[r.symbol];
-        if (!q || q.marketCap == null) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
-        return (
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: TEXT_SEC, fontWeight: 500 }}>
-            {formatMarketCap(q.marketCap)}
-          </span>
-        );
-      },
-    },
-    {
       title: '换手率',
       className: 'hide-mobile',
-      width: 75,
+      width: 80,
       align: 'right' as const,
       render: (_: unknown, r: WatchlistStock) => {
         const q = quotes[r.symbol];
@@ -949,7 +690,7 @@ const WatchlistPage: React.FC = () => {
     },
     {
       title: '信号',
-      width: 70,
+      width: 80,
       align: 'center' as const,
       render: (_: unknown, r: WatchlistStock) => {
         const sig = signals[r.symbol];
@@ -1200,6 +941,7 @@ const WatchlistPage: React.FC = () => {
               {Object.entries(signals).map(([sym, sig]) => {
                 const signalColor = sig.signal === 'buy' ? COLOR_UP : sig.signal === 'sell' ? COLOR_DOWN : TEXT_SEC;
                 const signalText = sig.signal === 'buy' ? '买入' : sig.signal === 'sell' ? '卖出' : '持有';
+                const _q = quotes[sym];
                 return (
                   <div
                     key={sym}
@@ -1495,15 +1237,35 @@ const WatchlistPage: React.FC = () => {
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(aiSummary) }}
                 />
               ) : (
-                <div
-                  style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}
-                  dangerouslySetInnerHTML={{
-                    __html: renderMarkdown(generateRuleBasedSummary(symbols, quotes, signals, alerts))
-                  }}
-                />
+                <div style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}>
+                  <Paragraph style={{ color: TEXT, marginBottom: 8 }}>
+                    当前追踪 <Text strong style={{ color: ACCENT }}>{symbols.length}</Text> 只股票，
+                    {stats.avgChange >= 0 ? '今日整体' : '今日整体'}
+                    <Text
+                      strong
+                      style={{
+                        color: stats.avgChange >= 0 ? COLOR_UP : COLOR_DOWN,
+                        margin: '0 4px',
+                      }}
+                    >
+                      {stats.avgChange >= 0 ? '上涨' : '下跌'} {Math.abs(stats.avgChange).toFixed(2)}%
+                    </Text>
+                    。
+                    {stats.alertCount > 0 && (
+                      <>
+                        共有 <Text strong style={{ color: GOLD }}>{stats.alertCount}</Text> 条异动提醒需要注意。
+                      </>
+                    )}
+                    {stats.alertCount === 0 && '暂无异常波动。'}
+                  </Paragraph>
+                  <Paragraph style={{ color: TEXT_SEC, fontSize: 12, marginBottom: 0 }}>
+                    💡 建议关注信号为「买入」的标的，结合换手率和成交量变化综合判断。
+                    每30秒自动刷新行情数据。
+                  </Paragraph>
+                </div>
               )}
             </div>
-            <Tooltip title="基于行情数据的智能分析">
+            <Tooltip title="AI 功能开发中，更多分析即将上线">
               <InfoCircleOutlined style={{ color: TEXT_SEC, fontSize: 14 }} />
             </Tooltip>
           </div>
@@ -1548,12 +1310,11 @@ const WatchlistPage: React.FC = () => {
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(aiRecommendations) }}
                 />
               ) : (
-                <div
-                  style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}
-                  dangerouslySetInnerHTML={{
-                    __html: renderMarkdown(generateRuleBasedRecommendations(symbols, quotes))
-                  }}
-                />
+                <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.8 }}>
+                  基于您关注的 {symbols.length} 只股票，AI 将推荐相似的、值得关注的标的。
+                  <br />
+                  <span style={{ fontSize: 12 }}>💡 推荐基于行业关联、风格匹配、估值对比等维度。</span>
+                </div>
               )}
             </div>
           </div>
