@@ -59,8 +59,17 @@ export default defineConfig(({ mode }) => ({
             if (id.includes('echarts') && !id.includes('echarts-for-react')) {
               return 'vendor-echarts';
             }
-            if (id.includes('axios') || id.includes('dayjs') || id.includes('zustand')) {
+            if (id.includes('dayjs')) {
+              return 'vendor-dayjs';
+            }
+            if (id.includes('axios') || id.includes('zustand')) {
               return 'vendor-utils';
+            }
+            if (id.includes('reactflow')) {
+              return 'vendor-reactflow';
+            }
+            if (id.includes('xlsx')) {
+              return 'vendor-xlsx';
             }
             return 'vendor-misc';
           }
