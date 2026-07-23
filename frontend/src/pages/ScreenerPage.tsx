@@ -7,7 +7,7 @@
  * 指标：行情/估值/财务/技术/行业 5维度
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { Card, Button, Tag, Table, Empty, Skeleton, Typography, message, Space, Tooltip } from 'antd';
@@ -240,6 +240,19 @@ const ScreenerPage: React.FC = () => {
   const [aiFilterStocks, setAiFilterStocks] = useState<StockData[]>([]);
   const [aiGems, setAiGems] = useState<any[]>([]);
   const [aiGemsLoading, setAiGemsLoading] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Cmd/Ctrl+K 快捷键聚焦搜索框
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   // 技术指标缓存
   interface TechData { change5d?: number | null; change20d?: number | null; ma20?: number; maDeviation?: number | null; rsi14?: number | null; volatility20d?: number | null; }
@@ -696,10 +709,11 @@ const ScreenerPage: React.FC = () => {
             {activeStrategyObj && <Tag color={activeStrategyObj.color}>{activeStrategyObj.name}</Tag>}
             {activeMetricLabels.map(name => <Tag key={name} color="blue">{name}</Tag>)}
           </div>
-          <input type="text" placeholder="搜索代码/名称"
+          <input ref={searchInputRef} type="text" placeholder="搜索代码/名称"
             value={searchText} onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
-            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-default)', borderRadius: 8, padding: '8px 12px', color: 'var(--text-primary)', fontSize: 13, width: 150, maxWidth: '100%', outline: 'none' }}
+            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-default)', borderRadius: 8, padding: '8px 12px', paddingRight: 50, color: 'var(--text-primary)', fontSize: 13, width: 150, maxWidth: '100%', outline: 'none' }}
           />
+          <kbd style={{ position: 'absolute', right: 88, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--text-tertiary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '1px 5px', pointerEvents: 'none' }}>⌘K</kbd>
           <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} style={{ borderRadius: 8 }}>刷新</Button>
         </div>
 

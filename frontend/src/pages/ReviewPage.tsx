@@ -10,6 +10,7 @@ import {
   Typography,
   Space,
   Empty,
+  Skeleton,
   message,
 } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
@@ -699,8 +700,9 @@ const ReviewPage: React.FC = () => {
         }
       >
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '48px 0' }}>
-            <LoadingState />
+          <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
+            <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
+            <Skeleton active paragraph={{ rows: 6 }} />
           </div>
         ) : (
           <Table<StockRecord>

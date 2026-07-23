@@ -22,6 +22,7 @@ import {
   InfoCircleOutlined, ThunderboltOutlined, UpOutlined, DownOutlined,
 } from '@ant-design/icons';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
+import { toast } from '../components/ui/toast';
 import { apiFetch } from '../utils/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ColumnsType } from 'antd/es/table';
@@ -766,7 +767,7 @@ const WatchlistPage: React.FC = () => {
       return { ...g, stocks: [...g.stocks, newStock] };
     }));
     setAddModalOpen(false);
-    message.success(`${name} 已添加到追踪列表`);
+    toast('已添加到自选股', { type: 'success' });
   }, [activeGroup]);
 
   const handleRemoveStock = useCallback((symbol: string, stockName: string) => {
@@ -776,7 +777,7 @@ const WatchlistPage: React.FC = () => {
     })));
     setQuotes(prev => { const n = { ...prev }; delete n[symbol]; return n; });
     setSignals(prev => { const n = { ...prev }; delete n[symbol]; return n; });
-    message.success(`${stockName} 已移除`);
+    toast('已从自选股移除', { type: 'info' });
   }, []);
 
   const handleMoveStock = useCallback((symbol: string, direction: 'up' | 'down') => {
@@ -805,7 +806,7 @@ const WatchlistPage: React.FC = () => {
         return g;
       });
     });
-    message.success(`已移至「${groups.find(g => g.id === targetGroupId)?.name || targetGroupId}」`);
+    toast('已移动到新分组', { type: 'success' });
   }, [activeGroup, groups]);
 
   /* ─── Navigation ─── */

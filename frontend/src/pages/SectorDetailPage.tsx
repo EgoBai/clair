@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip } from 'antd';
+import { Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip, Skeleton } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
@@ -277,7 +277,12 @@ export default function SectorDetailPage() {
     { title: '换手率%', dataIndex: 'turnover', key: 'turnover', align: 'right' as const },
   ];
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><LoadingState /></div>;
+  if (loading) return (
+    <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
+      <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
+      <Skeleton active paragraph={{ rows: 6 }} />
+    </div>
+  );
 
   // 获取维度解读数据
   const dimKeys: (keyof MultidimResult['dimensions'])[] = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery'];

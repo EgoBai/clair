@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useWatchlistSync } from '../../hooks/useWatchlistSync';
 import NavigationMenu from './NavigationMenu';
@@ -16,6 +16,19 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
   const _navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   useWatchlistSync(); // 自动同步localStorage→后端
+
+  // Cmd/Ctrl+K 全局快捷键聚焦搜索
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchInput = document.querySelector('[data-search-input]') as HTMLInputElement;
+        searchInput?.focus();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   return (
     <SimpleErrorBoundary name="AppLayout">

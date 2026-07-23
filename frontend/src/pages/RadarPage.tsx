@@ -6,12 +6,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Empty, Row, Col, Statistic, Button, Card, message, type Breakpoint } from 'antd';
+import { Table, Tag, Empty, Row, Col, Statistic, Button, Card, Skeleton, message, Alert, type Breakpoint } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import echarts from '@/utils/echarts';
 const ReactECharts = React.lazy(() => import('echarts-for-react'));
 import { apiFetch } from '../utils/api';
+import { DEMO_RADAR_STOCKS } from '../utils/demoData';
 import { THEME, GOLD } from '../styles/theme-constants';
 import { TOOLTIP_DARK, RADAR_CONFIG, CHART_COLORS } from '../styles/chart-theme';
 
@@ -81,9 +82,11 @@ const RadarPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [totalAll, setTotalAll] = useState(0);        // 全部(≥40)的总数
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('premium');
+  const [usingDemoData, setUsingDemoData] = useState(false);
 
   const fetchData = useCallback(async (filter: ScoreFilter) => {
     setLoading(true);
+    setUsingDemoData(false);
     try {
       const minScore = filter === 'premium' ? PREMIUM_THRESHOLD : ALL_THRESHOLD;
       const resp = await apiFetch('/api/ai/gems', {
@@ -104,7 +107,31 @@ const RadarPage: React.FC = () => {
         message.error('数据加载失败');
       }
     } catch {
-      message.error('潜力股数据加载失败');
+      // 演示数据降级：API 不可达时使用演示雷达数据
+      const demoGems: GemStock[] = DEMO_RADAR_STOCKS.map(s => ({
+        symbol: s.symbol,
+        name: s.name,
+        price: 0,
+        changePercent: 0,
+        turnoverRate: 0,
+        marketCap: 0,
+        peRatio: null,
+        industry: s.sector,
+        score: s.score,
+        momentumScore: Math.round(s.score * 0.3),
+        volumeScore: Math.round(s.score * 0.2),
+        valuationScore: Math.round(s.score * 0.15),
+        sizeScore: Math.round(s.score * 0.15),
+        industryScore: Math.round(s.score * 0.1),
+        qualityScore: Math.round(s.score * 0.1),
+        reasons: s.reasons,
+      }));
+      setGems(demoGems);
+      setAiSummary('⚠️ 当前为演示数据。后端服务不可达，以下为示例潜力股供您预览。');
+      setModel('demo-data');
+      setTotal(demoGems.length);
+      if (demoGems.length > 0) setSelectedStock(demoGems[0]);
+      setUsingDemoData(true);
     } finally {
       setLoading(false);
     }
@@ -369,8 +396,9 @@ const RadarPage: React.FC = () => {
 
   if (loading && gems.length === 0) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <LoadingState />
+      <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
+        <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
+        <Skeleton active paragraph={{ rows: 6 }} />
       </div>
     );
   }
@@ -430,6 +458,16 @@ const RadarPage: React.FC = () => {
             刷新
           </Button>
         </div>
+
+        {usingDemoData && (
+          <Alert
+            type="info"
+            message="📋 当前为演示数据"
+            description="后端服务不可达，以下为示例潜力股供您预览。恢复后端服务后将自动切换至真实数据。"
+            style={{ marginBottom: 16, borderRadius: 8 }}
+            showIcon
+          />
+        )}
 
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} sm={6}>
