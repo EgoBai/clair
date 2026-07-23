@@ -1,7 +1,15 @@
 /**
  * ChatPanel — AI对话界面组件（上下文感知版）
  * 
- * 澄观的核心交互：对话式投资研究
+ * 澄
+
+  // 外部预填问题（如ScreenerPage的AI助手栏点击chip）
+  useEffect(() => {
+    if (prefilledQuestion) {
+      setInputValue(prefilledQuestion);
+      inputRef.current?.focus();
+    }
+  }, [prefilledQuestion]);观的核心交互：对话式投资研究
  * 
  * 功能：
  * 1. 实时对话（Streaming打字机效果）
@@ -102,9 +110,10 @@ const QUICK_COMMANDS: QuickCommand[] = [
 interface ChatPanelProps {
   pageContext?: PageContext;
   suggestedQuestions?: Array<{ icon: string; text: string; prompt: string }>;
+  prefilledQuestion?: string;
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions = [] }) => {
+const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions = [], prefilledQuestion }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);

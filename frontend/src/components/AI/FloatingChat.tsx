@@ -133,6 +133,7 @@ const FloatingChat: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [marketData, setMarketData] = useState<MarketData | null>(null);
   const [suggestedQuestions, setSuggestedQuestions] = useState<SuggestedQuestion[]>([]);
+  const [prefilledQuestion, setPrefilledQuestion] = useState<string>('');
   const location = useLocation();
 
   // 获取实时市场数据
@@ -153,6 +154,19 @@ const FloatingChat: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchMarketData(); }, [fetchMarketData]);
+
+  // 监听外部预填问题事件（如ScreenerPage的AI助手栏）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ question: string }>).detail;
+      if (detail?.question) {
+        setPrefilledQuestion(detail.question);
+        setOpen(true);
+      }
+    };
+    window.addEventListener('clair:prefill-question', handler);
+    return () => window.removeEventListener('clair:prefill-question', handler);
+  }, []);
 
   // 多维景气数据摘要
   const [multidimSummary, setMultidimSummary] = useState<string>('');
@@ -351,6 +365,7 @@ const FloatingChat: React.FC = () => {
             <ChatPanel
               pageContext={enrichedContext}
               suggestedQuestions={suggestedQuestions}
+              prefilledQuestion={prefilledQuestion}
             />
           </div>
         </div>
