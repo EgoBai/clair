@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../utils/api';
+import { DEMO_WATCHLIST, DEMO_WATCHLIST_GROUPS, DEMO_STOCKS } from '../utils/demoData';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -89,7 +90,23 @@ const STORAGE_KEY = 'astock_watchlist_v2';
 function readWatchlistGroups(): WatchlistGroup[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [{ id: 'default', name: '默认分组', stocks: [], isDefault: true }];
+    if (!raw) {
+      // 演示数据降级：localStorage 无自选股时返回演示分组
+      return DEMO_WATCHLIST_GROUPS.map((g, groupIdx) => ({
+        id: g.id,
+        name: g.name,
+        isDefault: groupIdx === 0,
+        stocks: DEMO_WATCHLIST
+          .filter(w => w.groupId === g.id)
+          .map((w, idx) => ({
+            symbol: w.symbol,
+            name: w.name,
+            market: w.stock.market,
+            sortIndex: idx,
+            groupId: g.id,
+          })),
+      }));
+    }
     const data = JSON.parse(raw);
     return Array.isArray(data) ? data : (data.groups || [{ id: 'default', name: '默认分组', stocks: [], isDefault: true }]);
   } catch {
@@ -179,7 +196,29 @@ export function useWatchlistData(autoRefreshMs = 0): WatchlistDataState {
       setQuotes(map);
       setLastRefresh(new Date());
     } catch {
-      // silent fail
+      // 演示数据降级：API 不可达且 localStorage 无真实自选股时，使用演示行情
+      const hasRealWatchlist = !!localStorage.getItem(STORAGE_KEY);
+      if (!hasRealWatchlist) {
+        const demoQuotes: Record<string, StockQuote> = {};
+        for (const s of DEMO_STOCKS) {
+          const q = s.latestQuote;
+          if (!q) continue;
+          demoQuotes[s.symbol] = {
+            symbol: s.symbol,
+            name: s.name,
+            price: q.closePrice,
+            changePercent: q.changePercent,
+            change: q.change,
+            volume: q.volume,
+            industry: s.industry,
+            peRatio: q.peRatio,
+            pbRatio: q.pbRatio,
+            marketCap: q.marketCap,
+          };
+        }
+        setQuotes(demoQuotes);
+        setLastRefresh(new Date());
+      }
     } finally {
       setQuotesLoading(false);
     }

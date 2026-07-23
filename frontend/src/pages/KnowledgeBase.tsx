@@ -12,7 +12,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card, Tag, Empty, Input, Typography, Space, Button, Modal, Select,
-  Statistic, Tooltip, Row, Col, message,
+  Statistic, Tooltip, Row, Col, message, Alert,
 } from 'antd';
 import {
   SearchOutlined,
@@ -42,6 +42,7 @@ import {
   type NoteStats,
 } from '../utils/knowledgeStore';
 import { renderMarkdown } from '../utils/markdown';
+import { DEMO_NOTES } from '../utils/demoData';
 import { THEME } from '../styles/theme-constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -227,6 +228,7 @@ const KnowledgeBase: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [stats, setStats] = useState<NoteStats>({ total: 0, thisWeek: 0, topCategory: null });
+  const [usingDemoData, setUsingDemoData] = useState(false);
 
   // 写笔记 Modal
   const [modalVisible, setModalVisible] = useState(false);
@@ -240,8 +242,30 @@ const KnowledgeBase: React.FC = () => {
   // ============================================================
   const loadData = useCallback(() => {
     const all = searchQuery ? searchEntries(searchQuery) : getEntries(activeCategory || undefined);
-    setEntries(all);
-    setStats(getNoteStats());
+    if (all.length === 0 && !searchQuery) {
+      // 演示数据降级：无真实笔记时显示演示笔记
+      const demoEntries: KnowledgeEntry[] = DEMO_NOTES.map(n => ({
+        id: `demo-${n.id}`,
+        question: n.title,
+        answer: n.content,
+        category: '学习笔记' as KnowledgeCategory,
+        tags: n.tags,
+        page: '演示数据',
+        symbol: n.symbol,
+        createdAt: n.createdAt,
+      }));
+      setEntries(demoEntries);
+      setUsingDemoData(true);
+      setStats({
+        total: demoEntries.length,
+        thisWeek: 0,
+        topCategory: { key: '学习笔记', label: '学习笔记', icon: '📝', count: demoEntries.length },
+      });
+    } else {
+      setEntries(all);
+      setUsingDemoData(false);
+      setStats(getNoteStats());
+    }
   }, [activeCategory, searchQuery]);
 
   useEffect(() => {
@@ -254,6 +278,11 @@ const KnowledgeBase: React.FC = () => {
   // 操作
   // ============================================================
   const handleDelete = useCallback((id: string) => {
+    // 演示数据不可删除，直接从前端列表移除
+    if (id.startsWith('demo-')) {
+      setEntries(prev => prev.filter(e => e.id !== id));
+      return;
+    }
     Modal.confirm({
       title: '确认删除',
       icon: <ExclamationCircleOutlined />,
@@ -349,6 +378,17 @@ const KnowledgeBase: React.FC = () => {
             写笔记
           </Button>
         </div>
+
+        {/* 演示数据提示 */}
+        {usingDemoData && (
+          <Alert
+            type="info"
+            message="📋 当前为演示数据"
+            description="您还没有投资笔记，以下为演示内容供您预览。在 AI 对话中保存笔记或手动添加后，演示数据将自动隐藏。"
+            style={{ marginBottom: 24, borderRadius: 10 }}
+            showIcon
+          />
+        )}
 
         {/* ============================================================ */}
         {/* 统计卡片: 总笔记数 / 本周新增 / 最常关注                           */}

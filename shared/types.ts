@@ -121,6 +121,42 @@ export interface KLineData {
   turnover: number;
 }
 
+// ==================== 数据新鲜度与缓存策略 ====================
+
+/**
+ * 数据类别 — 决定缓存 TTL 的语义标签
+ *
+ * - quote:   实时行情（价格、指数、涨跌幅） → TTL 5s
+ * - quote:     行情数据、实时报价            → TTL 5s
+ * - market:    市场总览、板块表现、新闻统计   → TTL 60s
+ * - financial: 财务数据、研报、基本面分析    → TTL 300s
+ * - default:   其他通用数据                  → TTL 30s
+ */
+export type DataCategory = 'quote' | 'market' | 'financial' | 'default';
+
+/** 缓存策略 TTL 常量（毫秒） */
+export const CACHE_TTL: Record<DataCategory, number> = {
+  quote: 5_000,        // 5秒：行情数据
+  market: 60_000,      // 60秒：市场总览/板块/新闻统计
+  financial: 300_000,  // 5分钟：财务/研报
+  default: 30_000,     // 30秒：通用数据
+} as const;
+
+/**
+ * 数据新鲜度元信息 — 附加在 ApiResponse 上
+ * 所有数据卡片应展示 `updatedAt` 时间戳
+ */
+export interface DataFreshness {
+  /** ISO 8601 UTC 时间戳 — 数据获取/缓存时间 */
+  updatedAt: string;
+  /** 数据类别（决定 TTL） */
+  category: DataCategory;
+  /** 剩余有效时间（毫秒）— 消费方可据此判断是否即将过期 */
+  remainingTTL: number;
+  /** 数据是否来自缓存 */
+  fromCache: boolean;
+}
+
 // ==================== API 响应类型 ====================
 
 export interface ApiResponse<T = any> {
@@ -128,6 +164,8 @@ export interface ApiResponse<T = any> {
   data: T;
   error?: string;
   details?: string;
+  /** 缓存元信息 — 由前端缓存层注入，后端不返回此字段 */
+  _cacheMeta?: DataFreshness;
 }
 
 export interface PaginationInfo {

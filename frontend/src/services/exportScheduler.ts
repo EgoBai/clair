@@ -3,8 +3,17 @@
  * 支持定时生成报表、邮件发送、文件存储
  */
 
-import { ExportFormat, ExportResult, ReportTemplate, generateReport } from '../utils/bloombergExportEngine';
+import type { ExportFormat, ExportResult, ReportTemplate } from '../utils/bloombergExportEngine';
 import logger from '../utils/logger';
+
+async function lazyGenerateReport(
+  data: Record<string, unknown>[],
+  template: ReportTemplate,
+  format: ExportFormat,
+): Promise<{ export: ExportResult; summary: import('../utils/bloombergExportEngine').ReportSummary }> {
+  const { generateReport } = await import('../utils/bloombergExportEngine');
+  return generateReport(data, template, format);
+}
 
 // ==================== 类型定义 ====================
 
@@ -129,7 +138,7 @@ export class ExportScheduler {
     this.executions.push(execution);
 
     try {
-      const report = generateReport(data, template, task.format);
+      const report = await lazyGenerateReport(data, template, task.format);
       
       execution.endTime = new Date();
       execution.status = 'success';

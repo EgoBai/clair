@@ -304,6 +304,7 @@ const StockDetailPage: React.FC = () => {
               <Space>
                 <Button icon={<ReloadOutlined />} onClick={() => { fetchStockData(); fetchKlineData(); }}>刷新</Button>
                 <Button type="primary" icon={<FundProjectionScreenOutlined />} onClick={() => navigate(`/backtest?symbol=${displaySymbol}`)} style={{ background: '#2563eb', borderColor: '#2563eb' }}>📊 回测</Button>
+                <Button icon={<LineChartOutlined />} onClick={() => navigate(`/financials/${displaySymbol}`)}>📈 财务三表</Button>
                 <Button icon={<LineChartOutlined />} onClick={() => navigate('/stocks')}>返回列表</Button>
               </Space>
             </Col>

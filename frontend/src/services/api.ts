@@ -18,7 +18,10 @@ import type {
   TopTraderOverview,
   SeatRankEntry,
   MarginRankEntry,
+  DataCategory,
+  DataFreshness,
 } from '../../../shared/types';
+import { CACHE_TTL } from '../../../shared/types';
 
 // Re-export shared types for consumers
 export type {
@@ -30,7 +33,10 @@ export type {
   StockSearchParams,
   QuoteParams,
   PaginatedData,
+  DataCategory,
+  DataFreshness,
 } from '../../../shared/types';
+export { CACHE_TTL } from '../../../shared/types';
 
 // ==================== 缓存层 ====================
 
@@ -38,12 +44,13 @@ interface CacheEntry<T> {
   data: T;
   timestamp: number;
   ttl: number;
+  category: DataCategory;
 }
 
 class ApiCache {
   private cache = new Map<string, CacheEntry<any>>();
-  private defaultTTL = 30000; // 30秒
-  private maxSize = 200; // 最大缓存条目数，防止内存泄漏
+  private defaultTTL = CACHE_TTL.default;
+  private maxSize = 200;
 
   get<T>(key: string): T | null {
     const entry = this.cache.get(key);
@@ -55,8 +62,27 @@ class ApiCache {
     return entry.data;
   }
 
-  set<T>(key: string, data: T, ttl?: number): void {
-    // 超过最大容量时，淘汰最旧的条目
+  /** 带元信息的缓存获取 — 供 freshness indicator 使用 */
+  getWithMeta<T>(key: string): { data: T; meta: DataFreshness } | null {
+    const entry = this.cache.get(key) as CacheEntry<T> | undefined;
+    if (!entry) return null;
+    const age = Date.now() - entry.timestamp;
+    if (age > entry.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+    return {
+      data: entry.data,
+      meta: {
+        updatedAt: new Date(entry.timestamp).toISOString(),
+        category: entry.category,
+        remainingTTL: entry.ttl - age,
+        fromCache: true,
+      },
+    };
+  }
+
+  set<T>(key: string, data: T, ttl?: number, category: DataCategory = 'default'): void {
     if (this.cache.size >= this.maxSize) {
       const oldestKey = this.cache.keys().next().value;
       if (oldestKey) this.cache.delete(oldestKey);
@@ -64,8 +90,15 @@ class ApiCache {
     this.cache.set(key, {
       data,
       timestamp: Date.now(),
-      ttl: ttl || this.defaultTTL,
+      ttl: ttl ?? this.defaultTTL,
+      category,
     });
+  }
+
+  /** 获取指定 key 的缓存时间戳（毫秒） */
+  getTimestamp(key: string): number | null {
+    const entry = this.cache.get(key);
+    return entry ? entry.timestamp : null;
   }
 
   invalidate(pattern?: string): void {
@@ -80,7 +113,6 @@ class ApiCache {
     }
   }
 
-  /** 定期清理过期条目 */
   cleanup(): void {
     const now = Date.now();
     for (const [key, entry] of this.cache) {
@@ -211,40 +243,57 @@ class ApiService {
 
   /**
    * 带缓存的GET请求（自动重试网络错误和5xx）
+   * @param url - 请求路径
+   * @param params - 查询参数
+   * @param category - 数据类别（决定 TTL 和 freshness label）
    */
   private async cachedGet<T>(
     url: string,
-    params?: object,
-    ttl?: number
+    params: object | undefined,
+    category: DataCategory = 'default',
   ): Promise<ApiResponse<T>> {
+    const ttl = CACHE_TTL[category];
     const cacheKey = `${url}?${JSON.stringify(params || {})}`;
-    const cached = cache.get<ApiResponse<T>>(cacheKey);
-    if (cached) return cached;
 
+    // 检查缓存
+    const cached = cache.getWithMeta<ApiResponse<T>>(cacheKey);
+    if (cached) return cached.data;
+
+    // 发起请求
     const response = await this.retryRequest(
       () => this.client.get<ApiResponse<T>>(url, { params }),
       url
     );
-    cache.set(cacheKey, response.data, ttl);
-    return response.data;
+    const result = response.data;
+
+    // 写入缓存 + 注入元信息
+    cache.set(cacheKey, result, ttl, category);
+    result._cacheMeta = {
+      updatedAt: new Date().toISOString(),
+      category,
+      remainingTTL: ttl,
+      fromCache: false,
+    };
+
+    return result;
   }
 
   // ==================== 股票相关 ====================
 
   async getStocks(params: StockSearchParams = {}): Promise<ApiResponse<PaginatedData<StockWithQuote>>> {
-    return this.cachedGet('/stocks', params, 30000);
+    return this.cachedGet('/stocks', params, 'default');
   }
 
   async getStock(symbol: string): Promise<ApiResponse<StockWithQuote>> {
-    return this.cachedGet(`/stocks/${symbol}`, undefined, 15000);
+    return this.cachedGet(`/stocks/${symbol}`, undefined, 'quote');
   }
 
   async getStockQuotes(symbol: string, params: QuoteParams = {}): Promise<ApiResponse<{ stock: StockWithQuote; quotes: DailyQuote[] }>> {
-    return this.cachedGet(`/stocks/${symbol}/quotes`, params, 60000);
+    return this.cachedGet(`/stocks/${symbol}/quotes`, params, 'quote');
   }
 
   async getLatestQuote(symbol: string): Promise<ApiResponse<StockWithQuote>> {
-    return this.cachedGet(`/stocks/${symbol}/latest`, undefined, 5000);
+    return this.cachedGet(`/stocks/${symbol}/latest`, undefined, 'quote');
   }
 
   async batchGetQuotes(symbols: string[]): Promise<ApiResponse<{ stocks: StockWithQuote[]; count: number }>> {
@@ -255,29 +304,29 @@ class ApiService {
   // ==================== 市场数据 ====================
 
   async getMarketSummary(date?: string): Promise<ApiResponse<MarketSummary>> {
-    return this.cachedGet('/market/summary', date ? { date } : undefined, 60000);
+    return this.cachedGet('/market/summary', date ? { date } : undefined, 'market');
   }
 
   async getIndustryPerformance(date?: string): Promise<ApiResponse<{ date: string; industries: IndustryPerformance[] }>> {
-    return this.cachedGet('/market/industries', date ? { date } : undefined, 60000);
+    return this.cachedGet('/market/industries', date ? { date } : undefined, 'market');
   }
 
   async getTopGainers(date?: string, limit: number = 10): Promise<ApiResponse<{ date: string; topGainers: StockWithQuote[] }>> {
     const params: Record<string, unknown> = { limit };
     if (date) params.date = date;
-    return this.cachedGet('/market/top-gainers', params, 30000);
+    return this.cachedGet('/market/top-gainers', params, 'default');
   }
 
   async getTopLosers(date?: string, limit: number = 10): Promise<ApiResponse<{ date: string; topLosers: StockWithQuote[] }>> {
     const params: Record<string, unknown> = { limit };
     if (date) params.date = date;
-    return this.cachedGet('/market/top-losers', params, 30000);
+    return this.cachedGet('/market/top-losers', params, 'default');
   }
 
   async getTopTurnover(date?: string, limit: number = 10): Promise<ApiResponse<{ date: string; topTurnover: StockWithQuote[] }>> {
     const params: Record<string, unknown> = { limit };
     if (date) params.date = date;
-    return this.cachedGet('/market/top-turnover', params, 30000);
+    return this.cachedGet('/market/top-turnover', params, 'default');
   }
 
   // ==================== 通用请求（带重试） ====================
@@ -336,7 +385,7 @@ class ApiService {
   }
 
   async getBacktestPresets(): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/backtest/presets', undefined, 300000);
+    return this.cachedGet('/backtest/presets', undefined, 'financial');
   }
 
   async compareBacktests(symbol: string, strategies: string[]): Promise<ApiResponse<unknown>> {
@@ -347,11 +396,11 @@ class ApiService {
   // ==================== 投资组合 ====================
 
   async getPortfolios(): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/portfolio', undefined, 10000);
+    return this.cachedGet('/portfolio', undefined, 'quote');
   }
 
   async getPortfolio(id: number): Promise<ApiResponse<unknown>> {
-    return this.cachedGet(`/portfolio/${id}`, undefined, 5000);
+    return this.cachedGet(`/portfolio/${id}`, undefined, 'quote');
   }
 
   async createPortfolio(name: string, description?: string, cashBalance?: number): Promise<ApiResponse<unknown>> {
@@ -387,25 +436,25 @@ class ApiService {
   // ==================== 新闻资讯 ====================
 
   async getNews(params: Record<string, unknown> = {}): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/news', params, 30000);
+    return this.cachedGet('/news', params, 'default');
   }
 
   async getStockNews(symbol: string, limit: number = 10): Promise<ApiResponse<unknown>> {
-    return this.cachedGet(`/news/stock/${symbol}`, { limit }, 60000);
+    return this.cachedGet(`/news/stock/${symbol}`, { limit }, 'market');
   }
 
   async getNewsDetail(id: number): Promise<ApiResponse<unknown>> {
-    return this.cachedGet(`/news/${id}`, undefined, 300000);
+    return this.cachedGet(`/news/${id}`, undefined, 'financial');
   }
 
   async getNewsStats(): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/news/stats/overview', undefined, 60000);
+    return this.cachedGet('/news/stats/overview', undefined, 'market');
   }
 
   // ==================== 选股器 ====================
 
   async getScreenerTemplates(): Promise<ApiResponse<{ presets: unknown[]; customs: unknown[] }>> {
-    return this.cachedGet('/screener/templates', undefined, 60000);
+    return this.cachedGet('/screener/templates', undefined, 'market');
   }
 
   async runScreener(data: unknown): Promise<ApiResponse<unknown>> {
@@ -435,39 +484,39 @@ class ApiService {
   // ==================== 个股对比 ====================
 
   async compareStocks(symbols: string[]): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/compare', { symbols: symbols.join(',') }, 30000);
+    return this.cachedGet('/compare', { symbols: symbols.join(',') }, 'default');
   }
 
   async compareRadar(symbols: string[]): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/compare/radar', { symbols: symbols.join(',') }, 30000);
+    return this.cachedGet('/compare/radar', { symbols: symbols.join(',') }, 'default');
   }
 
   // ==================== 财务数据 ====================
 
   async getFinancialSummary(symbol: string): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/financials/summary', { symbol }, 30000);
+    return this.cachedGet('/financials/summary', { symbol }, 'default');
   }
 
   async getBalanceSheet(symbol: string, periods = 4): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/financials/balance-sheet', { symbol, periods }, 60000);
+    return this.cachedGet('/financials/balance-sheet', { symbol, periods }, 'market');
   }
 
   async getIncomeStatement(symbol: string, periods = 4): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/financials/income-statement', { symbol, periods }, 60000);
+    return this.cachedGet('/financials/income-statement', { symbol, periods }, 'market');
   }
 
   async getCashFlow(symbol: string, periods = 4): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/financials/cash-flow', { symbol, periods }, 60000);
+    return this.cachedGet('/financials/cash-flow', { symbol, periods }, 'market');
   }
 
   // ==================== 社会/社区 ====================
 
   async getSocialComments(params: Record<string, unknown> = {}): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/social/comments', params, 15000);
+    return this.cachedGet('/social/comments', params, 'default');
   }
 
   async getSocialUsers(params: Record<string, unknown> = {}): Promise<ApiResponse<unknown>> {
-    return this.cachedGet('/social/users', params, 30000);
+    return this.cachedGet('/social/users', params, 'default');
   }
 }
 

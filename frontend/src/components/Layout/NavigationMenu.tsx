@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ROUTE_PATHS } from '../../routes';
+import { ROUTE_PATHS } from '../../routes/paths';
 
 // 导航项类型
 interface NavItem {

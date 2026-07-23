@@ -74,6 +74,7 @@ import {
 } from '../types/industryChain';
 import { renderMarkdown } from '../utils/markdown';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';
+import { DEMO_INDUSTRY_NODES } from '../utils/demoData';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -265,7 +266,18 @@ const IndustryMapPage: React.FC = () => {
           const sorted = (data.data || []).sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
           setHotSectors(sorted.slice(0, 5));
         }
-      } catch { /* fallback to empty */ }
+      } catch {
+        // 演示数据降级：API 不可达时使用演示产业节点
+        setHotSectors(
+          DEMO_INDUSTRY_NODES
+            .filter(n => n.level === 0)
+            .map(n => ({
+              industry: n.name,
+              avg_change_percent: n.change,
+              score: Math.round(50 + n.change * 10),
+            }))
+        );
+      }
     };
     fetchHotSectors();
   }, []);

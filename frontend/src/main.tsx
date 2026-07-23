@@ -20,19 +20,18 @@ if (typeof window !== 'undefined' && !import.meta.env.DEV) {
   } as typeof fetch;
 }
 
-import React, { useRef, useCallback, useState, lazy, useEffect } from 'react';
+import React, { useRef, useCallback, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
 import { Modal, Typography } from 'antd';
-import AppLayout from './components/Layout/AppLayout';
 import ThemeProvider from './components/Common/ThemeProvider';
 import { UnifiedErrorBoundary } from './components/Common/UnifiedErrorBoundary';
 import { useKeyboardShortcuts, useShortcutHints } from './hooks/useKeyboardShortcuts';
 import { useAppStore } from './store/useAppStore';
 import { initWebVitals } from './utils/webVitals';
-import LazyPage from './components/Common/LazyPage';
 import I18nProvider from './i18n';
 import { analytics } from './utils/analytics';
+import { AppRoutes } from './routes';
 import './App.css';
 import './styles/design-system.css';
 import './styles/global-dark.css';
@@ -44,24 +43,6 @@ import './styles/touch-interactions.css';
 initWebVitals();
 
 const { Text } = Typography;
-
-// ===== 核心循环页面 =====
-const DiscoverPage = lazy(() => import('./pages/DiscoverPage'));
-const ScreenerPage = lazy(() => import('./pages/ScreenerPage'));
-const WatchlistPage = lazy(() => import('./pages/WatchlistPage'));
-const ReviewPage = lazy(() => import('./pages/ReviewPage'));
-
-// ===== 穿透页面 =====
-const StockListPage = lazy(() => import('./pages/StockListPage'));
-const StockDetailPage = lazy(() => import('./pages/StockDetailPage'));
-const IndexDetailPage = lazy(() => import('./pages/IndexDetailPage'));
-const SectorDetailPage = lazy(() => import('./pages/SectorDetailPage'));
-const BacktestPage = lazy(() => import('./pages/BacktestPage'));
-const IndustryMapPage = lazy(() => import('./pages/IndustryMapPage'));
-const RadarPage = lazy(() => import('./pages/RadarPage'));
-const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'));
-const StrategyTemplatesPage = lazy(() => import('./pages/StrategyTemplatesPage'));
-const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 // ==================== 全局快捷键包装器 ====================
 
@@ -150,30 +131,7 @@ function App() {
       }}>
         <PageViewTracker />
         <GlobalShortcuts>
-          <Routes>
-            <Route path="/" element={<AppLayout />}>
-              {/* 核心循环 */}
-              <Route index element={<LazyPage component={DiscoverPage} name="发掘" />} />
-              <Route path="screener" element={<LazyPage component={ScreenerPage} name="筛选" />} />
-              <Route path="watchlist" element={<LazyPage component={WatchlistPage} name="自选" />} />
-              <Route path="review" element={<LazyPage component={ReviewPage} name="复盘" />} />
-
-              {/* 穿透页面 */}
-              <Route path="stocks" element={<LazyPage component={StockListPage} name="股票列表" />} />
-              <Route path="stocks/:symbol" element={<LazyPage component={StockDetailPage} name="股票详情" />} />
-              <Route path="index/:symbol" element={<LazyPage component={IndexDetailPage} name="指数详情" />} />
-              <Route path="sectors/:code" element={<LazyPage component={SectorDetailPage} name="板块详情" />} />
-              <Route path="backtest" element={<LazyPage component={BacktestPage} name="回测" />} />
-              <Route path="industry-map" element={<LazyPage component={IndustryMapPage} name="产业地图" />} />
-              <Route path="radar" element={<LazyPage component={RadarPage} name="潜力雷达" />} />
-
-              <Route path="knowledge" element={<LazyPage component={KnowledgeBase} name="投资笔记" />} />
-              <Route path="strategies" element={<LazyPage component={StrategyTemplatesPage} name="策略模板" />} />
-
-              {/* 404 */}
-              <Route path="*" element={<LazyPage component={NotFoundPage} name="404" />} />
-            </Route>
-          </Routes>
+          <AppRoutes />
         </GlobalShortcuts>
       </BrowserRouter>
       </I18nProvider>
