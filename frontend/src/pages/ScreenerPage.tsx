@@ -19,7 +19,7 @@ import {
   RobotOutlined,
   FallOutlined, RocketOutlined, SafetyOutlined,
   DollarOutlined, TrophyOutlined, PercentageOutlined,
-  InfoCircleOutlined,
+  InfoCircleOutlined, AudioOutlined,
 } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
@@ -755,6 +755,26 @@ const ScreenerPage: React.FC = () => {
             )}
           </Card>
         )}
+
+        {/* 🤖 AI筛选助手 — 快捷提问+场景感知 */}
+        <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }} bodyStyle={{ padding: '10px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ color: ACCENT, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>🤖 AI助手</span>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+              {[
+                { label: '最近涨得好的科技股', icon: '📈' },
+                { label: '低估值高分红的蓝筹', icon: '💎' },
+                { label: '市值小但成交活跃', icon: '🚀' },
+                { label: '帮我优化筛选条件', icon: '🎯' },
+              ].map(chip => (
+                <Tag key={chip.label} color="blue" style={{ cursor: 'pointer', margin: 0, padding: '2px 10px', fontSize: 12 }}
+                  onClick={() => window.dispatchEvent(new CustomEvent('clair:prefill-question', { detail: chip.label }))}
+                >{chip.icon} {chip.label}</Tag>
+              ))}
+            </div>
+            <Button size="small" type="primary" ghost icon={<AudioOutlined />} onClick={() => message.info('语音功能开发中')} />
+          </div>
+        </Card>
 
         {/* 股票列表 */}
         <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}` }} bodyStyle={{ padding: 0 }}>

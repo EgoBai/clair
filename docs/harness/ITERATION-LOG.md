@@ -252,4 +252,28 @@
 
 ---
 
+## Round 2026-07-13 P4: 图表配色统一+StateComponents+代码分割
+
+### SCAN
+- chart-theme.ts已创建但未被组件使用
+- 各页面直接import Spin/Empty,未用StateComponents
+- KLineChart/EChartsWrapper静态import,未lazy load
+
+### EXEC
+- T29 ✅: KLineChart用TOOLTIP_DARK/KLINE_CONFIG/EXPORT_CONFIG/CHART_COLORS; RadarPage用RADAR_CONFIG
+- T30 ✅: 10页面Spin/Empty→LoadingState/EmptyState
+- T31 ✅: KLineChart/EChartsWrapper/ReactECharts→React.lazy动态导入
+
+### VERIFY
+- TS: 0 errors ✅
+- 测试: 851文件/17721用例(1 vitest竞态,单独通过)
+- 构建: KLineChart独立chunk 9.13kB, EChartsWrapper 0.98kB
+
+### CAPTURE
+- **学到的**: chart-theme.ts迁移比预想简单——只需import+替换
+- **学到的**: StateComponents替换有边界——wrapper模式(Spin spinning)和Table locale中的Empty不应替换
+- **学到的**: React.lazy对chart组件效果显著——KLineChart 9.13kB独立chunk
+
+---
+
 > 后续每轮迭代按相同格式追加
