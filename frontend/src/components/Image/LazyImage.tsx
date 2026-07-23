@@ -14,6 +14,9 @@ export interface LazyImageProps {
   className?: string;
   srcSet?: string;
   sizes?: string;
+  fetchPriority?: 'high' | 'low' | 'auto';
+  loading?: 'lazy' | 'eager';
+  decoding?: 'sync' | 'async' | 'auto';
 }
 
 /**
@@ -43,6 +46,9 @@ export const LazyImage: React.FC<LazyImageProps> = ({
   className = '',
   srcSet,
   sizes,
+  fetchPriority = 'low',
+  loading = 'lazy',
+  decoding = 'auto',
   ..._props
 }) => {
   const [isLoaded, setIsLoaded] = useState(eager);
@@ -141,7 +147,9 @@ export const LazyImage: React.FC<LazyImageProps> = ({
       ref={imgRef}
       src={imageUrl}
       alt={alt}
-      loading={eager ? 'eager' : 'lazy'}
+      loading={eager ? 'eager' : loading}
+      decoding={decoding}
+      fetchPriority={fetchPriority}
       style={imageStyle}
       className={imageClassName}
       srcSet={srcSet}

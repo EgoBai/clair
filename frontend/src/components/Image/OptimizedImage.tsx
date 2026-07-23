@@ -14,6 +14,7 @@ interface OptimizedImageProps extends Omit<LazyImageProps, 'src' | 'alt'>, Omit<
   onLoadStart?: () => void; // 开始加载回调
   onLoadEnd?: () => void; // 加载结束回调
   onProgressiveLoad?: (progress: number) => void; // 渐进加载进度
+  fetchPriority?: 'high' | 'low' | 'auto'; // 图片加载优先级
 }
 
 /**
@@ -55,6 +56,7 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
   onLoadStart,
   onLoadEnd,
   onProgressiveLoad,
+  fetchPriority = 'low',
   style,
   className = '',
   ...props
@@ -220,6 +222,9 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
         placeholder={generatePlaceholder()}
         onLoad={handleLoadEnd}
         onError={handleLoadEnd}
+        loading="lazy"
+        decoding="async"
+        fetchPriority={fetchPriority}
         style={{ width: '100%', height: 'auto' }}
         className={mergedClassName}
         {...props as Record<string, unknown>}
