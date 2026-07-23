@@ -4,7 +4,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Spin, Tag, Typography, Empty, Card, Statistic } from 'antd';
+import { Tag, Typography, Card, Statistic } from 'antd';
+import { LoadingState, EmptyState } from '../components/Common/StateComponents';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
@@ -67,8 +68,8 @@ const IndexDetailPage: React.FC = () => {
     })();
   }, [symbol]);
 
-  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spin size="large" /></div>;
-  if (!detail) return <div style={{ padding: 40, textAlign: 'center' }}><Empty description="指数数据不可用" /></div>;
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><LoadingState /></div>;
+  if (!detail) return <div style={{ padding: 40, textAlign: 'center' }}><EmptyState title="指数数据不可用" /></div>;
 
   const up = detail.changePercent >= 0;
   const changeColor = up ? COLOR_UP : COLOR_DOWN;

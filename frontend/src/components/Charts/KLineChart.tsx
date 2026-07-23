@@ -8,6 +8,7 @@ import React, { useMemo, useRef, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
 import dayjs from 'dayjs';
+import { TOOLTIP_DARK, KLINE_CONFIG, EXPORT_CONFIG, CHART_COLORS } from '../../styles/chart-theme';
 
 export interface KLineData {
   tradeDate: string;
@@ -61,7 +62,7 @@ const KLineChart = React.memo<KLineChartProps>(({
   const _exportImage = useCallback(() => {
     const instance = chartRef.current?.getEchartsInstance();
     if (instance) {
-      const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0f172a' });
+      const url = instance.getDataURL({ type: 'png', pixelRatio: EXPORT_CONFIG.pixelRatio, backgroundColor: EXPORT_CONFIG.backgroundColor });
       const link = document.createElement('a');
       link.download = `${title || 'kline'}-${dayjs().format('YYYYMMDD')}.png`;
       link.href = url;
@@ -228,7 +229,7 @@ const KLineChart = React.memo<KLineChartProps>(({
         type: 'bar',
         data: volumes.map((vol, i) => ({
           value: vol,
-          itemStyle: { color: data[i].close >= data[i].open ? '#ef4444' : '#22c55e' },
+          itemStyle: { color: data[i].close >= data[i].open ? CHART_COLORS.up : CHART_COLORS.down },
         })),
         xAxisIndex: 1,
         yAxisIndex: 1,
@@ -240,7 +241,7 @@ const KLineChart = React.memo<KLineChartProps>(({
           type: 'line',
           data: indicatorData.map(d => d.macd ?? null),
           symbol: 'none',
-          lineStyle: { width: 1.5, color: '#3b82f6' },
+          lineStyle: { width: 1.5, color: CHART_COLORS.accent },
           xAxisIndex: 1,
           yAxisIndex: 1,
         },
@@ -249,7 +250,7 @@ const KLineChart = React.memo<KLineChartProps>(({
           type: 'line',
           data: indicatorData.map(d => d.macdSignal ?? null),
           symbol: 'none',
-          lineStyle: { width: 1.5, color: '#f59e0b' },
+          lineStyle: { width: 1.5, color: CHART_COLORS.gold },
           xAxisIndex: 1,
           yAxisIndex: 1,
         },
@@ -259,7 +260,7 @@ const KLineChart = React.memo<KLineChartProps>(({
           data: indicatorData.map(d => {
             const val = d.macdHistogram;
             if (val === undefined || val === null) return null;
-            return { value: val, itemStyle: { color: val >= 0 ? '#ef4444' : '#22c55e' } };
+            return { value: val, itemStyle: { color: val >= 0 ? CHART_COLORS.up : CHART_COLORS.down } };
           }),
           barMaxWidth: 6,
           xAxisIndex: 1,
@@ -283,7 +284,7 @@ const KLineChart = React.memo<KLineChartProps>(({
         {
           name: 'J', type: 'line',
           data: indicatorData.map(d => d.kdjJ ?? null),
-          symbol: 'none', lineStyle: { width: 1.5, color: '#ef4444' },
+          symbol: 'none',           lineStyle: { width: 1.5, color: CHART_COLORS.up },
           xAxisIndex: 1, yAxisIndex: 1,
         },
       ];
@@ -292,7 +293,7 @@ const KLineChart = React.memo<KLineChartProps>(({
         name: 'RSI', type: 'line',
         data: indicatorData.map(d => d.rsi ?? null),
         symbol: 'none',
-        lineStyle: { width: 1.5, color: '#8b5cf6' },
+        lineStyle: { width: 1.5, color: CHART_COLORS.purple },
         areaStyle: { color: 'rgba(139,92,246,0.08)' },
         xAxisIndex: 1, yAxisIndex: 1,
       }];
@@ -310,11 +311,11 @@ const KLineChart = React.memo<KLineChartProps>(({
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross', crossStyle: { color: '#999' } },
-        backgroundColor: 'rgba(30,41,59,0.96)',
-        borderColor: 'rgba(148,163,184,0.2)',
-        borderWidth: 1,
+        backgroundColor: TOOLTIP_DARK.backgroundColor,
+        borderColor: TOOLTIP_DARK.borderColor,
+        borderWidth: TOOLTIP_DARK.borderWidth,
         padding: [8, 12],
-        textStyle: { fontSize: 12, color: '#f8fafc' },
+        textStyle: { fontSize: TOOLTIP_DARK.textStyle.fontSize, color: TOOLTIP_DARK.textStyle.color },
         formatter: (params: { seriesType: string; dataIndex: number; seriesName: string; value: number[]; color: string }[]) => {
           const kline = params.find((p) => p.seriesType === 'candlestick');
           if (!kline) return '';
@@ -325,7 +326,7 @@ const KLineChart = React.memo<KLineChartProps>(({
           const changePercent = d.open > 0 ? ((d.close - d.open) / d.open * 100).toFixed(2) : '0.00';
           const changeAmount = (d.close - d.open).toFixed(2);
           const changeDir = d.close >= d.open ? '+' : '';
-          const color = d.close >= d.open ? '#ef4444' : '#22c55e';
+          const color = d.close >= d.open ? CHART_COLORS.up : CHART_COLORS.down;
 
           // 成交量柱形指示 (相对最大成交量比例)
           const maxVol = Math.max(...data.map(dd => dd.volume));
@@ -342,8 +343,8 @@ const KLineChart = React.memo<KLineChartProps>(({
               </div>
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;font-size:11px">
                 <div>开 <span style="color:${color};font-weight:500">${d.open.toFixed(2)}</span></div>
-                <div>高 <span style="color:#ef4444;font-weight:500">${d.high.toFixed(2)}</span></div>
-                <div>低 <span style="color:#22c55e;font-weight:500">${d.low.toFixed(2)}</span></div>
+                <div>高 <span style="color:${CHART_COLORS.up};font-weight:500">${d.high.toFixed(2)}</span></div>
+                <div>低 <span style="color:${CHART_COLORS.down};font-weight:500">${d.low.toFixed(2)}</span></div>
                 <div>收 <span style="color:${color};font-weight:500">${d.close.toFixed(2)}</span></div>
               </div>
               <div style="margin-top:4px;font-size:11px;color:#94a3b8">
@@ -358,7 +359,7 @@ const KLineChart = React.memo<KLineChartProps>(({
           // 附带MA值 - TradingView风格, 每个MA用对应颜色显示
           if (showMA && maSeries.length > 0) {
             html += '<div style="display:flex;gap:10px;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(148,163,184,0.2)">';
-            const maColors = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+            const maColors = [CHART_COLORS.ma5, CHART_COLORS.ma10, CHART_COLORS.ma20, CHART_COLORS.ma60, '#14b8a6', '#f97316'];
             for (let si = 0; si < maSeries.length; si++) {
               const s = maSeries[si];
               const val = s.data[kline.dataIndex];
@@ -443,8 +444,8 @@ const KLineChart = React.memo<KLineChartProps>(({
           bottom: '2%',
           height: 18,
           fillerColor: 'rgba(59,130,246,0.08)',
-          borderColor: '#e5e7eb',
-          handleStyle: { color: '#3b82f6' },
+          borderColor: TOOLTIP_DARK.borderColor,
+          handleStyle: { color: CHART_COLORS.accent },
         },
       ],
       animation: true,
@@ -460,14 +461,14 @@ const KLineChart = React.memo<KLineChartProps>(({
           xAxisIndex: 0,
           yAxisIndex: 0,
           itemStyle: {
-            color: '#cf2a2a',       // 阳线 (涨) — 中国红
-            color0: '#1db468',      // 阴线 (跌) — 绿色
-            borderColor: '#cf2a2a',
-            borderColor0: '#1db468',
+            color: KLINE_CONFIG.itemStyle.color,
+            color0: KLINE_CONFIG.itemStyle.color0,
+            borderColor: KLINE_CONFIG.itemStyle.borderColor,
+            borderColor0: KLINE_CONFIG.itemStyle.borderColor0,
           },
-          barWidth: '55%',
+          barWidth: KLINE_CONFIG.barWidth,
           // 富途风格：阳线空心，阴线实心
-          emphasis: { itemStyle: { color: '#cf2a2a', color0: '#1db468' } },
+          emphasis: { itemStyle: { color: KLINE_CONFIG.itemStyle.color, color0: KLINE_CONFIG.itemStyle.color0 } },
           markPoint: crossSignals.length > 0 ? {
             data: crossSignals,
             animation: false,

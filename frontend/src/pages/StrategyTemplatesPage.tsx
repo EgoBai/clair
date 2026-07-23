@@ -8,8 +8,9 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import {
   Card, Button, Tag, Modal, Form, Input, Select, Space, Typography,
-  message, Spin, Empty, Tooltip, Popconfirm, Divider, InputNumber
+  message, Tooltip, Popconfirm, Divider, InputNumber
 } from 'antd';
+import { LoadingState, EmptyState } from '../components/Common/StateComponents';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined,
   PlayCircleOutlined, FilterOutlined, StarOutlined,
@@ -389,11 +390,11 @@ const StrategyTemplatesPage: React.FC = () => {
         {/* 模板列表 */}
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}>
-            <Spin size="large" />
+            <LoadingState />
           </div>
         ) : filteredTemplates.length === 0 ? (
           <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}` }}>
-            <Empty description="暂无策略模板" />
+            <EmptyState title="暂无策略模板" />
           </Card>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 16 }}>
@@ -721,7 +722,7 @@ const StrategyTemplatesPage: React.FC = () => {
           {/* AI推荐结果 */}
           {aiLoading ? (
             <div style={{ textAlign: 'center', padding: 40 }}>
-              <Spin size="large" />
+              <LoadingState />
               <div style={{ color: TEXT_SEC, marginTop: 16 }}>AI正在分析市场数据...</div>
             </div>
           ) : aiRecommendations.length > 0 ? (

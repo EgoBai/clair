@@ -9,10 +9,10 @@ import {
   Col,
   Typography,
   Space,
-  Spin,
   Empty,
   message,
 } from 'antd';
+import { LoadingState } from '../components/Common/StateComponents';
 import {
   ArrowDownOutlined,
   TrophyOutlined,
@@ -700,7 +700,7 @@ const ReviewPage: React.FC = () => {
       >
         {loading ? (
           <div style={{ textAlign: 'center', padding: '48px 0' }}>
-            <Spin tip="加载行情数据中..." />
+            <LoadingState />
           </div>
         ) : (
           <Table<StockRecord>

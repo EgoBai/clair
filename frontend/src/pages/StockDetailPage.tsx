@@ -3,17 +3,19 @@
  * 深色主题卡片 + 红涨绿跌(A股惯例) + 清晰K线 + 高对比度
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Typography, Breadcrumb, Card, Row, Col, Space, Tag,
-  Spin, Button, Segmented, Empty, Divider, Tooltip,
+  Spin, Button, Segmented, Divider, Tooltip, Skeleton,
 } from 'antd';
+import { LoadingState, EmptyKLine, EmptyState } from '../components/Common/StateComponents';
 import { StockOutlined, CompassOutlined,
   ReloadOutlined, StarOutlined, StarFilled, LineChartOutlined,
   FundProjectionScreenOutlined, FullscreenOutlined, FullscreenExitOutlined,
 } from '@ant-design/icons';
-import KLineChart, { KLineData } from '../components/Charts/KLineChart';
+import type { KLineData } from '../components/Charts/KLineChart';
+const KLineChart = React.lazy(() => import('../components/Charts/KLineChart'));
 import { useStockActions, useWatchlist } from '../store/useStockStore';
 import { analyze } from '../utils/strategy';
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
@@ -212,7 +214,7 @@ const StockDetailPage: React.FC = () => {
   const marketLabel = stockInfo?.market === 'SH' ? '沪' : stockInfo?.market === 'SZ' ? '深' : stockInfo?.market === 'INDEX' ? '指' : '';
 
   if (!symbol) {
-    return <div style={{ padding: 24, textAlign: 'center' }}><Empty description="未指定股票代码" /></div>;
+    return <div style={{ padding: 24, textAlign: 'center' }}><EmptyState title="未指定股票代码" /></div>;
   }
 
   const StatItem = ({ label, value, color }: { label: string; value: string; color?: string }) => (
@@ -429,15 +431,17 @@ const StockDetailPage: React.FC = () => {
                 </div>
               )}
               <div className="kline-chart-responsive">
-                <KLineChart
-                  data={klineData}
-                  title={`${stockInfo?.name || symbol} - ${klinePeriod === 'daily' ? '日K' : klinePeriod === 'weekly' ? '周K' : '月K'}`}
-                  height={isMobile ? 350 : 520}
-                  loading={klineLoading}
-                  showMA={true}
-                  maLines={[5, 10, 20, 60]}
-                  subIndicator={subIndicator}
-                />
+                <Suspense fallback={<Skeleton active paragraph={{ rows: 4 }} />}>
+                  <KLineChart
+                    data={klineData}
+                    title={`${stockInfo?.name || symbol} - ${klinePeriod === 'daily' ? '日K' : klinePeriod === 'weekly' ? '周K' : '月K'}`}
+                    height={isMobile ? 350 : 520}
+                    loading={klineLoading}
+                    showMA={true}
+                    maLines={[5, 10, 20, 60]}
+                    subIndicator={subIndicator}
+                  />
+                </Suspense>
               </div>
               {klineFullscreen && (
                 <style>{`
@@ -454,7 +458,7 @@ const StockDetailPage: React.FC = () => {
             </>
           ) : (
             <div style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {klineLoading ? <Spin tip="加载K线数据..." /> : <Empty description="暂无K线数据" />}
+              {klineLoading ? <LoadingState /> : <EmptyKLine />}
             </div>
           )}
         </Card>

@@ -4,15 +4,16 @@
  * 陪伴式引导：全宽AI解读 + 关键数据高亮 + 双栏布局
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button, Alert, Result } from 'antd';
+import { LoadingState } from '../components/Common/StateComponents';
 import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined, ReloadOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
-import EChartsWrapper from '../components/Charts/EChartsWrapper';
+const EChartsWrapper = React.lazy(() => import('../components/Charts/EChartsWrapper'));
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
@@ -1138,20 +1139,22 @@ const DiscoverPage: React.FC = () => {
                     </div>
                   </div>
                   <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden', padding: '8px 0' }}>
-                    <EChartsWrapper
-                      option={option}
-                      style={{ width: '100%', height: 460 }}
-                      onEvents={{
-                        click: (params: any) => {
-                          if (params.data) {
-                            const rowIdx = (params.data as [number, number, number])[1];
-                            const industry = yLabels[rowIdx];
-                            const s = scores.find(x => x.industry === industry);
-                            if (s) openSector(s);
-                          }
-                        },
-                      }}
-                    />
+                    <Suspense fallback={<div style={{ height: 460, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState /></div>}>
+                      <EChartsWrapper
+                        option={option}
+                        style={{ width: '100%', height: 460 }}
+                        onEvents={{
+                          click: (params: any) => {
+                            if (params.data) {
+                              const rowIdx = (params.data as [number, number, number])[1];
+                              const industry = yLabels[rowIdx];
+                              const s = scores.find(x => x.industry === industry);
+                              if (s) openSector(s);
+                            }
+                          },
+                        }}
+                      />
+                    </Suspense>
                   </div>
                 </div>
               );

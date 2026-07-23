@@ -5,9 +5,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Input, Button, Card, Spin, Empty, Tag, Typography, Table, 
+  Input, Button, Card, Tag, Typography, Table, 
   Select, Tooltip, message, Row, Col, Statistic 
 } from 'antd';
+import { LoadingState, EmptyState } from '../components/Common/StateComponents';
 import { 
   SearchOutlined, TrophyOutlined,
   LineChartOutlined, ThunderboltOutlined,
@@ -210,7 +211,7 @@ const BacktestPage: React.FC = () => {
         {/* 加载状态 */}
         {loading && (
           <div style={{ textAlign: 'center', padding: 60 }}>
-            <Spin size="large" />
+            <LoadingState />
             <div style={{ color: TEXT_SEC, marginTop: 16 }}>正在执行回测分析...</div>
           </div>
         )}
@@ -218,7 +219,7 @@ const BacktestPage: React.FC = () => {
         {/* 错误信息 */}
         {error && !loading && (
           <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}` }}>
-            <Empty description={<span style={{ color: TEXT_SEC }}>{error}</span>} />
+            <EmptyState title={error || '加载失败'} />
           </Card>
         )}
 
@@ -383,7 +384,7 @@ const BacktestPage: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <Empty description="暂无权益数据" />
+                <EmptyState title="暂无权益数据" />
               )}
             </Card>
 

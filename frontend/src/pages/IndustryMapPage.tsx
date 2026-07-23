@@ -27,8 +27,8 @@ import {
   Input,
   message,
   Divider,
-  Empty,
 } from 'antd';
+import { EmptyState } from '../components/Common/StateComponents';
 import {
   ApartmentOutlined,
   RocketOutlined,
@@ -477,7 +477,7 @@ ${marketContext}
       style={{ marginBottom: 16, maxHeight: 400, overflow: 'auto' }}
     >
       {companies.length === 0 ? (
-        <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <EmptyState title="暂无数据" />
       ) : (
         <List
           size="small"

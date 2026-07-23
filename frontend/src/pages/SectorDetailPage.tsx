@@ -7,7 +7,8 @@
 import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Row, Col, Statistic, Spin, Select, Space, Progress, Tooltip } from 'antd';
+import { Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip } from 'antd';
+import { LoadingState } from '../components/Common/StateComponents';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import echarts from '../utils/echarts';
@@ -276,7 +277,7 @@ export default function SectorDetailPage() {
     { title: '换手率%', dataIndex: 'turnover', key: 'turnover', align: 'right' as const },
   ];
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
+  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><LoadingState /></div>;
 
   // 获取维度解读数据
   const dimKeys: (keyof MultidimResult['dimensions'])[] = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery'];
@@ -328,7 +329,7 @@ export default function SectorDetailPage() {
       {/* ========== P0-2: 多维雷达图 + 解读仪表盘 ========== */}
       {multidimLoading ? (
         <Card size="small" style={{ marginBottom: 16, textAlign: 'center', padding: 40 }}>
-          <Spin tip="加载多维分析..." />
+          <LoadingState />
         </Card>
       ) : multidimData ? (
         <Card

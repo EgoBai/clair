@@ -4,14 +4,16 @@
  * 默认展示优质池(≥80分) + 分布标签
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Spin, Empty, Row, Col, Statistic, Button, Card, message, type Breakpoint } from 'antd';
+import { Table, Tag, Empty, Row, Col, Statistic, Button, Card, message, type Breakpoint } from 'antd';
+import { LoadingState } from '../components/Common/StateComponents';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
+const ReactECharts = React.lazy(() => import('echarts-for-react'));
 import { apiFetch } from '../utils/api';
 import { THEME, GOLD } from '../styles/theme-constants';
+import { TOOLTIP_DARK, RADAR_CONFIG, CHART_COLORS } from '../styles/chart-theme';
 
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
@@ -149,18 +151,13 @@ const RadarPage: React.FC = () => {
   const radarOption = useMemo(() => {
     const stock = selectedStock;
     const isPremium = stock && stock.score >= PREMIUM_THRESHOLD;
-    const mainColor = isPremium ? PURPLE : '#3b82f6';
+    const mainColor = isPremium ? PURPLE : CHART_COLORS.accent;
 
     if (!stock) {
       return {
         radar: {
           indicator: RADAR_INDICATORS,
-          shape: 'polygon',
-          splitNumber: 5,
-          axisName: { color: '#94a3b8', fontSize: 12 },
-          splitLine: { lineStyle: { color: 'rgba(148,163,184,0.15)' } },
-          splitArea: { areaStyle: { color: ['rgba(59,130,246,0.02)', 'rgba(59,130,246,0.05)'] } },
-          axisLine: { lineStyle: { color: 'rgba(148,163,184,0.2)' } },
+          ...RADAR_CONFIG,
         },
         series: [{ type: 'radar', data: [] }],
       };
@@ -169,18 +166,17 @@ const RadarPage: React.FC = () => {
     return {
       tooltip: {
         trigger: 'item',
-        backgroundColor: '#1e293b',
-        borderColor: '#334155',
-        textStyle: { color: '#f8fafc', fontSize: 12 },
+        backgroundColor: TOOLTIP_DARK.backgroundColor,
+        borderColor: TOOLTIP_DARK.borderColor,
+        textStyle: { color: TOOLTIP_DARK.textStyle.color, fontSize: TOOLTIP_DARK.textStyle.fontSize },
       },
       radar: {
         indicator: RADAR_INDICATORS,
-        shape: 'polygon',
-        splitNumber: 5,
+        ...RADAR_CONFIG,
         center: ['50%', '52%'],
         radius: '65%',
         axisName: {
-          color: '#94a3b8',
+          ...RADAR_CONFIG.axisName,
           fontSize: 13,
           fontWeight: 500,
         },
@@ -374,7 +370,7 @@ const RadarPage: React.FC = () => {
   if (loading && gems.length === 0) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <Spin size="large" tip="正在分析潜力股..." />
+        <LoadingState />
       </div>
     );
   }
@@ -578,11 +574,13 @@ const RadarPage: React.FC = () => {
               style={{ height: '100%' }}
               bodyStyle={{ padding: '8px 12px' }}
             >
-              <ReactECharts echarts={echarts}
-                option={radarOption}
-                style={{ height: typeof window !== 'undefined' && window.innerWidth < 768 ? 250 : 350 }}
-                opts={{ renderer: 'svg' }}
-              />
+              <Suspense fallback={<div style={{ height: typeof window !== 'undefined' && window.innerWidth < 768 ? 250 : 350, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState /></div>}>
+                <ReactECharts echarts={echarts}
+                  option={radarOption}
+                  style={{ height: typeof window !== 'undefined' && window.innerWidth < 768 ? 250 : 350 }}
+                  opts={{ renderer: 'svg' }}
+                />
+              </Suspense>
             </Card>
           </Col>
           <Col lg={12} xs={24}>

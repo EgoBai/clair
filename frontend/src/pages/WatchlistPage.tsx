@@ -14,6 +14,7 @@ import {
   Table, Button, Input, Modal, message, Tag, Space, Typography,
   Popconfirm, Empty, Card, Row, Col, Statistic, Badge, Tooltip, Spin,
 } from 'antd';
+import { EmptyState, EmptySearch } from '../components/Common/StateComponents';
 import {
   PlusOutlined, SearchOutlined, FolderOutlined, StarFilled,
   CloseOutlined, ReloadOutlined, LineChartOutlined, EyeOutlined,
@@ -409,12 +410,12 @@ const AddStockModal: React.FC<{
         </div>
       )}
       {!searching && query && results.length === 0 && (
-        <Empty description={<span style={{ color: TEXT_SEC }}>未找到匹配的股票</span>} />
+        <EmptySearch query={query} />
       )}
       {!query && (
-        <Empty
-          description={<span style={{ color: TEXT_SEC }}>输入代码或名称开始搜索</span>}
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        <EmptyState
+          icon={<SearchOutlined />}
+          title="输入代码或名称开始搜索"
         />
       )}
     </Modal>
