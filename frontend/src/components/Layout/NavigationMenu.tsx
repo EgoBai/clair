@@ -30,17 +30,10 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'watchlist',
-    label: '自选追踪',
+    label: '自选组合',
     path: ROUTE_PATHS.WATCHLIST,
     icon: '⭐',
-    description: '实时行情 · 异动提醒 · AI总结 · 推荐发现'
-  },
-  {
-    id: 'review',
-    label: '复盘研究',
-    path: '/review',
-    icon: '📊',
-    description: '组合分析 · 策略回测 · AI复盘 · 交易诊断'
+    description: '实时行情 · 异动提醒 · AI总结 · AI复盘 · 推荐发现'
   },
   {
     id: 'industry-map',

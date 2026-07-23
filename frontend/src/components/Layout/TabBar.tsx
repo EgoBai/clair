@@ -2,10 +2,11 @@
  * TabBar — 移动端底部导航栏
  * 
  * 设计参考：iOS Human Interface Guidelines / Material Design Bottom Navigation
- * - 4个核心Tab对应4个核心页面
+ * - 核心Tab对应核心页面
  * - 当前页面高亮 + 顶部指示条
  * - 触摸目标 ≥ 48px
  * - 支持 iPhone 安全区
+ * - v2: 自选追踪与复盘研究合并为「自选组合」
  */
 
 import React from 'react';
@@ -22,7 +23,6 @@ const TAB_ITEMS: TabItem[] = [
   { id: 'discover', label: '洞察', icon: '🔭', path: '/' },
   { id: 'screener', label: '选股', icon: '🎯', path: '/screener' },
   { id: 'watchlist', label: '自选', icon: '⭐', path: '/watchlist' },
-  { id: 'review', label: '复盘', icon: '📊', path: '/review' },
   { id: 'industry-map', label: '产业', icon: '🗺️', path: '/industry-map' },
 ];
 

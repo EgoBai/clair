@@ -6,8 +6,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 // 核心循环
 const DiscoverPage = lazy(() => import('../pages/DiscoverPage'));
 const ScreenerPage = lazy(() => import('../pages/ScreenerPage'));
-const WatchlistPage = lazy(() => import('../pages/WatchlistPage'));
-const ReviewPage = lazy(() => import('../pages/ReviewPage'));
+const WatchlistHubPage = lazy(() => import('../pages/WatchlistHubPage'));
 
 // 穿透页面
 const StockDetailPage = lazy(() => import('../pages/StockDetailPage'));
@@ -137,8 +136,9 @@ export const AppRoutes = () => {
         {/* 核心循环 */}
         <Route path="/" element={<DiscoverPage />} />
         <Route path="/screener" element={<ScreenerPage />} />
-        <Route path="/watchlist" element={<WatchlistPage />} />
-        <Route path="/review" element={<ReviewPage />} />
+        <Route path="/watchlist" element={<WatchlistHubPage />} />
+        {/* /review 重定向到 /watchlist?tab=review */}
+        <Route path="/review" element={<Navigate to="/watchlist?tab=review" replace />} />
 
         {/* 穿透页面 */}
         <Route path="/stocks" element={<StockListPage />} />
