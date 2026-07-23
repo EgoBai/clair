@@ -29,8 +29,15 @@ import {
   type NoteStats,
 } from '../utils/knowledgeStore';
 import { renderMarkdown } from '../utils/markdown';
+import { THEME } from '../styles/theme-constants';
+const BG = THEME.bg;
+const CARD_BG = THEME.cardBg;
+const BORDER = THEME.border;
+const TEXT = THEME.text;
+const TEXT_SEC = THEME.textSec;
+const ACCENT = THEME.accent;
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const KnowledgeBase: React.FC = () => {
@@ -90,17 +97,50 @@ const KnowledgeBase: React.FC = () => {
     setModalVisible(true);
   };
 
-  const cardBg = 'var(--bg-secondary, #161b26)';
-  const cardBorder = 'var(--border-subtle, rgba(255,255,255,0.06))';
-  const textPrimary = 'var(--text-primary, #e8edf5)';
-  const textSecondary = 'var(--text-secondary, #8b95a8)';
+  const cardBg = CARD_BG;
+  const cardBorder = BORDER;
+  const textPrimary = TEXT;
+  const textSecondary = TEXT_SEC;
   const textTertiary = 'var(--text-tertiary, #5a6478)';
-  const accentSolid = 'var(--accent-solid, #3b82f6)';
+  const accentSolid = ACCENT;
   const accentLight = 'var(--accent-light, rgba(59,130,246,0.12))';
   const inputBg = 'var(--bg-tertiary, #1c2333)';
 
   return (
-    <div className="knowledge-base-container" style={{ minHeight: '100vh', background: 'var(--bg-base, #080b14)', color: textPrimary, padding: '24px 32px' }}>
+    <div className="knowledge-base-container knowledge-page" style={{ minHeight: '100vh', background: BG, color: textPrimary, padding: '24px 32px' }}>
+      <style>{`
+        .kb-timeline { position: relative; padding-left: 24px; }
+        .kb-timeline::before {
+          content: '';
+          position: absolute;
+          left: 8px;
+          top: 0;
+          bottom: 0;
+          width: 2px;
+          background: ${BORDER};
+        }
+        .kb-entry { position: relative; margin-bottom: 16px; }
+        .kb-entry::before {
+          content: '';
+          position: absolute;
+          left: -20px;
+          top: 8px;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: ${ACCENT};
+        }
+        @media (max-width: 768px) {
+          .knowledge-page { padding: 12px !important; }
+          .knowledge-page .ant-card { margin-bottom: 8px; }
+          .kb-timeline { padding-left: 16px; }
+          .kb-entry::before { left: -12px; width: 6px; height: 6px; }
+          .knowledge-base-header { flex-direction: column; gap: 12px; align-items: flex-start !important; }
+          .knowledge-base-stats-row .ant-col { flex: 0 0 100% !important; max-width: 100% !important; margin-bottom: 8px; }
+          .knowledge-base-categories { gap: 6px; }
+          .knowledge-base-search { width: 100% !important; }
+        }
+      `}</style>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
         {/* ====== Header ====== */}
         <div className="knowledge-base-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -208,21 +248,20 @@ const KnowledgeBase: React.FC = () => {
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
                 <div style={{ color: textTertiary }}>
-                  <Paragraph style={{ fontSize: 15, marginBottom: 8, color: textSecondary }}>
-                    还没有投资笔记
-                  </Paragraph>
-                  <Paragraph style={{ fontSize: 13, color: textTertiary, lineHeight: 2 }}>
-                    在 AI 对话中点击「<Tag color="purple" style={{ cursor: 'default' }}>保存到投资笔记</Tag>」<br />
-                    或点击上方「<Button type="link" size="small" icon={<PlusOutlined />} style={{ padding: 0, color: accentSolid }}>写笔记</Button>」手动记录
-                  </Paragraph>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: textPrimary, marginBottom: 8 }}>暂无投资笔记</div>
+                  <div style={{ fontSize: 13 }}>开始记录你的投资研究和发现</div>
                 </div>
               }
-            />
+            >
+              <Button type="primary" onClick={openModal}>
+                创建第一条笔记
+              </Button>
+            </Empty>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="kb-timeline" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {entries.map(entry => (
-              <Card key={entry.id} size="small" className="knowledge-base-card"
+              <Card key={entry.id} size="small" className="knowledge-base-card kb-entry"
                 style={{
                   background: cardBg, border: `1px solid ${cardBorder}`,
                   borderRadius: 14, cursor: 'pointer',

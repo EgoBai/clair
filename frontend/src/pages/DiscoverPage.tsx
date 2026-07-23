@@ -110,6 +110,13 @@ const DiscoverPage: React.FC = () => {
   const [loadError, setLoadError] = useState(false);
   const [summaryError, setSummaryError] = useState(false);  // /api/market/summary 错误降级
   const [sortMode, setSortMode] = useState<'boom' | 'crowding'>('boom');
+  const [isMobileHeatmap, setIsMobileHeatmap] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handler = () => setIsMobileHeatmap(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
 
   // Load market overview + scores (fast, show immediately)
   useEffect(() => {
@@ -887,6 +894,51 @@ const DiscoverPage: React.FC = () => {
                 .map(([industry, data]) => ({ ...data, industry }))
                 .sort((a, b) => (b as any)[sortKey] - (a as any)[sortKey])
                 .slice(0, 10);
+
+              const mobileSorted = Object.entries(multidimMap)
+                .map(([industry, data]) => ({ ...data, industry }))
+                .sort((a, b) => (b as any).totalScore - (a as any).totalScore)
+                .slice(0, 10);
+
+              if (isMobileHeatmap) {
+                return (
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{ marginBottom: 12 }}>
+                      <Text strong style={{ color: TEXT, fontSize: 15 }}>🌡️ 多维景气热力</Text>
+                      <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>Top10板块 · 点击查看详情</div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {mobileSorted.map((item) => (
+                        <div key={item.industry}
+                          onClick={() => {
+                            const s = scores.find(x => x.industry === item.industry);
+                            if (s) openSector(s);
+                          }}
+                          style={{
+                            background: CARD_BG, borderRadius: 8, border: `1px solid ${BORDER}`,
+                            padding: '10px 12px', cursor: 'pointer',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          }}
+                        >
+                          <div>
+                            <div style={{ color: TEXT, fontWeight: 600, fontSize: 13 }}>{item.industry}</div>
+                            <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                              {['crowding', 'diffusion', 'concentration', 'retail', 'recovery'].map(k => (
+                                <Tag key={k} style={{ fontSize: 10, margin: 0 }}>
+                                  {k === 'crowding' ? '拥挤' : k === 'diffusion' ? '扩散' : k === 'concentration' ? '集中' : k === 'retail' ? '散户' : '回补'}: {(item.dimensions as any)[k]?.score ?? '-'}
+                                </Tag>
+                              ))}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: item.totalScore >= 14 ? '#22c55e' : item.totalScore >= 8 ? '#f59e0b' : '#ef4444' }}>
+                            {item.totalScore}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
               
               // v3 dimensions: boom group (5) + crowding group (6) + total
               const boomKeys = ['diffusion', 'recovery', 'momentumPosition', 'searchHeat', 'spreadDegree'] as const;
