@@ -28,19 +28,30 @@
 - [x] 投资笔记页面视觉升级
 - [x] 多维热力图移动端缩略
 
-### P2 — 数据质量 (Hermes主导)
-- [ ] 腾讯API健康监控+降级策略
-- [ ] 数据新鲜度检查(交易时段<5分钟)
-- [ ] 528只行业分类补充
+## 🎯 当前任务 — WorkBuddy主导, Hermes辅助
 
-### P3 — 部署就绪 (Hermes主导)
-- [ ] Worker Cloudflare部署验证
-- [ ] DEEPSEEK_API_KEY生产配置确认
+### 🔴 P0: DiscoverPage逻辑修复 (WorkBuddy)
 
-### P4 — 后续优化 (MiMoCode)
-- [ ] 全局图表配色迁移到chart-theme.ts
-- [ ] StateComponents统一使用率提升
-- [ ] 前端代码分割进一步优化
+**问题诊断 (Hermes 2026-07-24):**
+
+1. 概念板块无数据: GET /api/sectors/concept → 404
+   - backend/src/api/sector.ts 缺少concept端点
+   
+2. 二级行业无数据: l2Industries数据源需检查
+   
+3. 排序/热力图混乱: displayMode三Tab同时影响列表和热力图
+
+**建议修复方案:**
+- 列表固定按totalScore排序(不随热力图切换)
+- 热力图独立展开/折叠 → 内部切景气/拥挤
+- concept API: 按concept_tags聚合daily_quotes
+- 二级行业: /api/sectors/momentum?level=2
+
+### Hermes辅助任务
+- [x] 诊断报告完成
+- [x] API数据验证
+- [ ] concept端点创建(如WorkBuddy需要)
+- [ ] 端到端验证
 
 ## 协作约定
 - **Hermes负责**: 后端/API/数据/AI模型/部署
