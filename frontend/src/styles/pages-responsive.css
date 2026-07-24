@@ -22,12 +22,18 @@
   grid-template-columns: 2fr 1fr;
   gap: 12px;
   margin-bottom: 20px;
+  align-items: start;
 }
 
 .discover-page .index-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.discover-page .index-grid > div {
+  flex: 1 1 calc(33.333% - 6px);
+  min-width: 100px;
 }
 
 /* AI 解读三栏 */
@@ -81,8 +87,9 @@
   }
 
   /* 指数网格：小屏2列，大屏3列 */
-  .discover-page .index-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .discover-page .index-grid > div {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 80px;
   }
 
   /* AI 情绪栏统计改为换行 */
@@ -127,8 +134,9 @@
 
 /* ==================== 小屏手机 ==================== */
 @media (max-width: 480px) {
-  .discover-page .index-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .discover-page .index-grid > div {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 70px;
   }
 
   .discover-page .insight-header-stats {

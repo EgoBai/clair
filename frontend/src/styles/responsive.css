@@ -615,12 +615,19 @@
 .index-breadth-grid {
   display: flex;
   gap: 12px;
+  align-items: flex-start;
 }
 
 .index-breadth-grid .index-grid {
   display: flex;
   flex: 1;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.index-breadth-grid .index-grid > div {
+  flex: 1 1 calc(33.333% - 6px);
+  min-width: 100px;
 }
 
 @media (max-width: 768px) {
@@ -628,8 +635,9 @@
     flex-direction: column;
   }
 
-  .index-breadth-grid .index-grid {
-    flex-wrap: wrap;
+  .index-breadth-grid .index-grid > div {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 80px;
   }
 }
 
