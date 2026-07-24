@@ -31,8 +31,8 @@ describe('NavigationMenu', () => {
     renderWithRouter(<NavigationMenu />);
     expect(screen.getByText('市场洞察')).toBeDefined();
     expect(screen.getByText('策略选股')).toBeDefined();
-    expect(screen.getByText('自选追踪')).toBeDefined();
-    expect(screen.getByText('复盘研究')).toBeDefined();
+    expect(screen.getByText('自选组合')).toBeDefined();
+    expect(screen.getByText('产业地图')).toBeDefined();
   });
 
   it('should display navigation icons', () => {
@@ -40,7 +40,7 @@ describe('NavigationMenu', () => {
     expect(screen.getByText('🔭')).toBeDefined();
     expect(screen.getByText('🎯')).toBeDefined();
     expect(screen.getByText('⭐')).toBeDefined();
-    expect(screen.getByText('📊')).toBeDefined();
+    expect(screen.getByText('🗺️')).toBeDefined();
   });
 
   it('should display service status', () => {
