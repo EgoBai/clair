@@ -1,6 +1,6 @@
-# 证券交易投研助手
+# 澄观 Clair · AI-native 投研助手
 
-专业的股行情分析平台，提供实时行情、技术分析、量化策略、AI 智能分析等一站式投资工具。
+基于 **React 18 + TypeScript + Vite + Ant Design 5 + ECharts** 的 A 股行情分析与投研平台。接入**真实大模型**（非规则引擎）驱动全部 AI 能力，并以**游戏化体验闭环（探索 → 求证 → 决策 → 复盘 → 成长）**串联个股研究、风险管理和社区协作，提供实时行情、技术分析、量化策略、AI 智能分析等一站式投资工具。
 
 ## ✨ 核心功能
 
@@ -235,6 +235,25 @@ a-stock-website/
 ### 设计模式 (8篇)
 - WebSocket集成模式、WebSocket容灾、前端状态管理、PWA/移动端、数据异常检测、离线模式、安全加固模式、高级筛选器模式
 
+## 📜 版本历史 / Version History
+
+完整变更日志见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### 近期战略里程碑
+- **内核完成 R301–R400（百轮迭代）**：~19,215 行代码、100+ 功能模块，覆盖技术分析、风险管理、图表交互、社区/笔记/观点、智能提醒、北向资金/融资融券、个股深度/行业比较、宏观/全球联动、数据导入导出、个性化设置。
+- **市场洞察页硬伤修复**：修复 `DiscoverPage` 六级逻辑硬伤与 `++` 符号 bug；demoData 回归测试 164 项全绿，`tsc` + `build` 通过。
+- **轻量静态 UI 质量守卫 D6 / S6-1**：`npm run guard`（ts-morph AST + 基线扫描）覆盖 585 文件 = 0 ERROR，发现 6 处死 `useState` 与 9 处硬编码空兜底（INFO）。
+- **前端现代化战略 D7**：架构师《前端现代化技术战略》 + 产品经理《前端体验设计语言》，决策含 React 19 审慎升级、motion 动效、Zustand 保持、CSS 变量 token 单一真相源、antd5 + echarts 共存边界、Taro 4 小程序可移植、P0–P3 迁移。
+- **战略重构决策 D4–D8**：D4 专业数据源（Tushare Pro / AkShare / Alpha Vantage，后端代理）；D5 真实大模型 + 游戏化闭环；D6 轻量静态 UI 守卫先行；D7 前端现代化多端 + 小程序；D8 版本历史与主页面同步（本任务）。
+
+### 战略设计文档
+- [前端现代化技术战略（架构师，D7）](./design/frontend-modernization-strategy.md)
+- [前端体验设计语言（产品经理，D7）](./requirements/frontend-experience-design-language.md)
+- [UI 质量守卫设计（D6）](./design/ui-quality-guard-design.md)
+
+### 部署
+项目提供容器化部署：`docker-compose.yml`（配合 `frontend/Dockerfile` 与 `backend/Dockerfile`），另有 `docker-compose.prod.yml` / `docker-compose.canary.yml` / `docker-compose.blue-green.yml` 等环境编排，详见 [DEPLOY.md](./DEPLOY.md) 与 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)。
+
 ## 🔧 开发工具
 
 ```bash
@@ -263,4 +282,4 @@ MIT License
 
 ---
 
-**版本**: 2.0.0
+**版本**: 主版本 3.2.0+ · 详见 [CHANGELOG.md](./CHANGELOG.md)
