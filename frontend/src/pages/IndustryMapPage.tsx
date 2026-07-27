@@ -27,6 +27,9 @@ import {
   Input,
   message,
   Divider,
+  Table,
+  Progress,
+  Alert,
 } from 'antd';
 import { EmptyState } from '../components/Common/StateComponents';
 import {
@@ -75,6 +78,11 @@ import {
 import { renderMarkdown } from '../utils/markdown';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';
 import { DEMO_INDUSTRY_NODES } from '../utils/demoData';
+import {
+  getIndustryRotationDemo,
+  IndustryRotationRow,
+  RotationGroup,
+} from '../utils/industryRotationDemo';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -1105,6 +1113,196 @@ ${marketContext}
           </Card>
         </Col>
       </Row>
+
+      {/* 行业研究中心：对比矩阵 + 轮动信号（确定性演示数据兜底） */}
+      <Card
+        style={{ marginTop: 24, background: 'var(--card-bg)' }}
+        title={
+          <Space>
+            <FundOutlined />
+            行业研究中心
+            <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+              申万一级行业对比与轮动信号（演示数据）
+            </Text>
+          </Space>
+        }
+      >
+        <Tabs defaultActiveKey="matrix" size="large">
+          <TabPane tab="行业对比矩阵" key="matrix">
+            <IndustryCompareMatrix />
+          </TabPane>
+          <TabPane tab="行业轮动信号" key="rotation">
+            <IndustryRotationPanel />
+          </TabPane>
+        </Tabs>
+      </Card>
+    </div>
+  );
+};
+
+// ============= 行业对比矩阵 / 行业轮动信号（确定性演示数据兜底） =============
+
+/** 涨跌幅着色渲染（中国习惯：涨红跌绿） */
+const renderPct = (v: number) => (
+  <Text style={{ color: v >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 600 }}>
+    {v >= 0 ? '+' : ''}{v.toFixed(2)}%
+  </Text>
+);
+
+/** 行业对比矩阵：横向对比主要申万一级行业核心指标 */
+const IndustryCompareMatrix: React.FC = () => {
+  const { rows } = useMemo(() => getIndustryRotationDemo(), []);
+
+  const columns = [
+    {
+      title: '行业',
+      dataIndex: 'name',
+      key: 'name',
+      fixed: 'left' as const,
+      render: (name: string) => <Text strong style={{ color: 'var(--text-primary)' }}>{name}</Text>,
+    },
+    {
+      title: '近1月',
+      dataIndex: 'change1m',
+      key: 'change1m',
+      sorter: (a: IndustryRotationRow, b: IndustryRotationRow) => a.change1m - b.change1m,
+      render: (v: number) => renderPct(v),
+    },
+    {
+      title: '近3月',
+      dataIndex: 'change3m',
+      key: 'change3m',
+      sorter: (a: IndustryRotationRow, b: IndustryRotationRow) => a.change3m - b.change3m,
+      render: (v: number) => renderPct(v),
+    },
+    {
+      title: 'PE(TTM)',
+      dataIndex: 'pe',
+      key: 'pe',
+      sorter: (a: IndustryRotationRow, b: IndustryRotationRow) => a.pe - b.pe,
+      render: (v: number) => <Text style={{ color: 'var(--text-primary)' }}>{v.toFixed(1)}</Text>,
+    },
+    {
+      title: 'PB',
+      dataIndex: 'pb',
+      key: 'pb',
+      sorter: (a: IndustryRotationRow, b: IndustryRotationRow) => a.pb - b.pb,
+      render: (v: number) => <Text style={{ color: 'var(--text-primary)' }}>{v.toFixed(2)}</Text>,
+    },
+    {
+      title: 'ROE',
+      dataIndex: 'roe',
+      key: 'roe',
+      sorter: (a: IndustryRotationRow, b: IndustryRotationRow) => a.roe - b.roe,
+      render: (v: number) => <Text style={{ color: v >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{v.toFixed(1)}%</Text>,
+    },
+    {
+      title: '净利润增速YoY',
+      dataIndex: 'profitGrowthYoY',
+      key: 'profitGrowthYoY',
+      sorter: (a: IndustryRotationRow, b: IndustryRotationRow) => a.profitGrowthYoY - b.profitGrowthYoY,
+      render: (v: number) => renderPct(v),
+    },
+    {
+      title: '热度/拥挤度',
+      dataIndex: 'heatScore',
+      key: 'heatScore',
+      sorter: (a: IndustryRotationRow, b: IndustryRotationRow) => a.heatScore - b.heatScore,
+      render: (v: number) => (
+        <Progress
+          percent={v}
+          size="small"
+          showInfo
+          format={(p) => `${p}`}
+          strokeColor={v >= 60 ? 'var(--color-up)' : v <= 35 ? 'var(--color-down)' : 'var(--accent-solid)'}
+        />
+      ),
+    },
+  ];
+
+  return (
+    <Table<IndustryRotationRow>
+      rowKey="name"
+      size="middle"
+      columns={columns}
+      dataSource={rows}
+      pagination={false}
+      scroll={{ x: 720 }}
+      style={{ background: 'transparent' }}
+    />
+  );
+};
+
+/** 行业轮动信号：动量分排序，分组呈现领涨/流入与走弱/流出 */
+const IndustryRotationPanel: React.FC = () => {
+  const { rows, overview, leadIndustries, weakIndustries } = useMemo(() => getIndustryRotationDemo(), []);
+
+  const renderGroup = (group: RotationGroup) => {
+    const list = rows.filter((r) => r.group === group);
+    const color = group === 'lead' ? 'var(--color-up)' : 'var(--color-down)';
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 10 }}>
+          <Tag color={group === 'lead' ? 'red' : 'green'}>
+            {group === 'lead' ? '领涨 / 净流入' : '走弱 / 净流出'}
+          </Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {group === 'lead' ? leadIndustries.join('、') : weakIndustries.join('、')}
+          </Text>
+        </div>
+        {list.length === 0 ? (
+          <Text type="secondary">暂无</Text>
+        ) : (
+          list.map((r) => {
+            // 归一化动量分到 0-100 用于进度条
+            const percent = Math.max(0, Math.min(100, Number(((r.momentum + 15) / 30 * 100).toFixed(0))));
+            return (
+              <div
+                key={r.name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '6px 0',
+                }}
+              >
+                <Text strong style={{ width: 88, color: 'var(--text-primary)' }}>{r.name}</Text>
+                <div style={{ flex: 1 }}>
+                  <Progress
+                    percent={percent}
+                    showInfo={false}
+                    strokeColor={color}
+                    trailColor="var(--border-subtle)"
+                    size="small"
+                  />
+                </div>
+                <Text style={{ width: 64, textAlign: 'right', color, fontWeight: 600 }}>
+                  {r.momentum >= 0 ? '+' : ''}{r.momentum.toFixed(2)}
+                </Text>
+              </div>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        message="行业轮动概览"
+        description={overview}
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
+      />
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        轮动动量分 = 近1月涨幅 × 0.6 + 资金净流入强度 × 0.4
+      </Text>
+      <div style={{ marginTop: 12 }}>
+        {renderGroup('lead')}
+        {renderGroup('weak')}
+      </div>
     </div>
   );
 };

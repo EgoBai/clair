@@ -93,7 +93,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
             return;
           case '6':
             e.preventDefault();
-            navigate('/ai-selection');
+            navigate('/screener');
             return;
         }
       }

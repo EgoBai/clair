@@ -3,7 +3,7 @@
  * 支持多策略选择 + 参数配置 + 深色主题
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   Input, Button, Card, Tag, Typography, Table, 
   Select, Tooltip, message, Row, Col, Statistic 
@@ -15,6 +15,7 @@ import {
   FundOutlined, BarChartOutlined
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';
+import { generateBacktestDemo } from '../utils/backtestDemo';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -37,7 +38,7 @@ const STRATEGIES = [
   { id: 'boll', name: '布林带策略', icon: <ThunderboltOutlined />, description: '布林带突破', color: '#22c55e' },
 ];
 
-interface BacktestResult {
+export interface BacktestResult {
   strategy: string;
   symbol: string;
   startDate: string;
@@ -73,19 +74,7 @@ const BacktestPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState('');
-  const [_presets, setPresets] = useState<any[]>([]);
-
-  // 获取策略预设
-  useEffect(() => {
-    apiFetch('/api/backtest/presets')
-      .then(r => r.json())
-      .then(data => {
-        if (data.success && data.data?.presets) {
-          setPresets(data.data.presets);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const [isDemo, setIsDemo] = useState(false);
 
   const runBacktest = async () => {
     if (!symbol.trim()) {
@@ -109,13 +98,19 @@ const BacktestPage: React.FC = () => {
       const data = await resp.json();
       if (data.success && data.data) {
         setResult(data.data);
+        setIsDemo(false);
       } else {
-        setError(data.error || '回测数据不足');
-        setResult(null);
+        // 后端无数据 → 确定性演示兜底
+        setResult(generateBacktestDemo(symbol.trim(), strategy));
+        setIsDemo(true);
+        message.info('后端未就绪，展示演示回测结果');
       }
     } catch (e) {
-      setError('请求失败');
-      console.error('回测失败:', e);
+      // 请求失败（后端缺失）→ 确定性演示兜底
+      setResult(generateBacktestDemo(symbol.trim(), strategy));
+      setIsDemo(true);
+      message.info('后端未就绪，展示演示回测结果');
+      console.error('回测失败，已用演示数据兜底:', e);
     } finally {
       setLoading(false);
     }
@@ -231,6 +226,7 @@ const BacktestPage: React.FC = () => {
               title={
                 <span style={{ color: TEXT }}>
                   {currentStrategy?.icon} {currentStrategy?.name} - {result.symbol}
+                  {isDemo && <Tag color="gold" style={{ marginLeft: 8 }}>演示数据</Tag>}
                 </span>
               }
               style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}

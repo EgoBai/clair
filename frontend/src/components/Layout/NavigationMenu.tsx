@@ -62,11 +62,9 @@ const NAV_ITEMS: NavItem[] = [
 export const NavigationMenu: React.FC = () => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [_activeItem, setActiveItem] = useState<string>('');
 
   // 处理导航项点击
-  const handleNavClick = (itemId: string) => {
-    setActiveItem(itemId);
+  const handleNavClick = () => {
     setIsMobileMenuOpen(false);
   };
 
@@ -115,7 +113,7 @@ export const NavigationMenu: React.FC = () => {
                   className={({ isActive }) => 
                     `nav-link ${isActive ? 'active' : ''}`
                   }
-                  onClick={() => handleNavClick(item.id)}
+                  onClick={() => handleNavClick()}
                   title={item.description}
                 >
                   <span className="nav-icon">{item.icon}</span>

@@ -50,7 +50,9 @@ function GlobalShortcuts({ children }: { children: React.ReactNode }) {
   const _navigate = useNavigate();
   const [showHints, setShowHints] = useState(false);
   const _searchRef = useRef<HTMLInputElement | null>(null);
-  const { setTheme, preferences } = useAppStore();
+  // T4 粒度优化：细粒度选择器替代全 store 解构，避免任意状态变化重渲染整个路由子树
+  const setTheme = useAppStore((s) => s.setTheme);
+  const currentTheme = useAppStore((s) => s.preferences.theme);
 
   const handleSearchFocus = useCallback(() => {
     const searchInput = document.querySelector<HTMLInputElement>(
@@ -68,10 +70,10 @@ function GlobalShortcuts({ children }: { children: React.ReactNode }) {
 
   const handleToggleTheme = useCallback(() => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-    const currentIdx = themes.indexOf(preferences.theme);
+    const currentIdx = themes.indexOf(currentTheme);
     const nextTheme = themes[(currentIdx + 1) % themes.length];
     setTheme(nextTheme);
-  }, [preferences.theme, setTheme]);
+  }, [currentTheme, setTheme]);
 
   useKeyboardShortcuts({
     onSearchFocus: handleSearchFocus,

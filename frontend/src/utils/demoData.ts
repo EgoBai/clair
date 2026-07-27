@@ -237,6 +237,182 @@ export const DEMO_INDUSTRIES: IndustryPerformance[] = [
   { industry: '房地产', avgChangePercent: -1.85, totalMarketCap: 1.8e12, stockCount: 128, totalVolume: 3.2e8, totalTurnover: 4.8e9 },
 ];
 
+// ==================== 演示概念板块（对齐 SectorScore 接口） ====================
+// 概念分类请求 200 但 sectors 为空 / 请求失败时的兜底数据，使用固定可复现数值
+
+export interface DemoSectorScore {
+  industry: string;
+  score: number;
+  changeScore: number;
+  volumeScore: number;
+  breadthScore: number;
+  momentumScore?: number;
+  stock_count: number;
+  avg_change_percent: number;
+  total_turnover: number;
+  limit_up_count: number;
+  avgChange?: number;
+}
+
+export const DEMO_CONCEPTS: DemoSectorScore[] = [
+  { industry: 'AI算力',     score: 82, changeScore: 85, volumeScore: 78, breadthScore: 70, momentumScore: 80, stock_count: 45,  avg_change_percent: 3.85,  total_turnover: 4.2e9, limit_up_count: 3, avgChange: 3.85 },
+  { industry: '半导体',     score: 76, changeScore: 70, volumeScore: 80, breadthScore: 65, momentumScore: 72, stock_count: 120, avg_change_percent: 2.45,  total_turnover: 6.5e9, limit_up_count: 2, avgChange: 2.45 },
+  { industry: '新能源汽车', score: 71, changeScore: 68, volumeScore: 62, breadthScore: 60, momentumScore: 65, stock_count: 95,  avg_change_percent: 1.85,  total_turnover: 5.1e9, limit_up_count: 1, avgChange: 1.85 },
+  { industry: '光伏',       score: 58, changeScore: 45, volumeScore: 70, breadthScore: 40, momentumScore: 42, stock_count: 110, avg_change_percent: -1.25, total_turnover: 4.8e9, limit_up_count: 0, avgChange: -1.25 },
+  { industry: '创新药',     score: 69, changeScore: 60, volumeScore: 58, breadthScore: 62, momentumScore: 64, stock_count: 80,  avg_change_percent: 1.45,  total_turnover: 3.2e9, limit_up_count: 1, avgChange: 1.45 },
+  { industry: '白酒',       score: 74, changeScore: 72, volumeScore: 55, breadthScore: 68, momentumScore: 70, stock_count: 20,  avg_change_percent: 2.15,  total_turnover: 2.1e9, limit_up_count: 0, avgChange: 2.15 },
+  { industry: '银行',       score: 52, changeScore: 48, volumeScore: 60, breadthScore: 50, momentumScore: 47, stock_count: 42,  avg_change_percent: -0.18, total_turnover: 4.2e9, limit_up_count: 0, avgChange: -0.18 },
+  { industry: '军工',       score: 67, changeScore: 62, volumeScore: 52, breadthScore: 58, momentumScore: 60, stock_count: 90,  avg_change_percent: 1.25,  total_turnover: 3.5e9, limit_up_count: 1, avgChange: 1.25 },
+  { industry: '机器人',     score: 79, changeScore: 82, volumeScore: 65, breadthScore: 70, momentumScore: 78, stock_count: 75,  avg_change_percent: 3.25,  total_turnover: 3.8e9, limit_up_count: 2, avgChange: 3.25 },
+  { industry: '低空经济',   score: 73, changeScore: 75, volumeScore: 60, breadthScore: 65, momentumScore: 72, stock_count: 60,  avg_change_percent: 2.65,  total_turnover: 2.8e9, limit_up_count: 1, avgChange: 2.65 },
+];
+
+// ==================== 演示二级行业（挂在一级行业 parent 下） ====================
+
+export const DEMO_L2_INDUSTRIES: Array<{ parent: string; name: string; stock_count: number; avg_change: string; avg_turnover: string; total_cap: string }> = [
+  { parent: '电力设备', name: '电池',         stock_count: 78,  avg_change: '+2.95', avg_turnover: '3.2', total_cap: '3.5万亿' },
+  { parent: '电力设备', name: '光伏',         stock_count: 95,  avg_change: '-1.35', avg_turnover: '2.8', total_cap: '2.8万亿' },
+  { parent: '电力设备', name: '风电',         stock_count: 42,  avg_change: '+1.15', avg_turnover: '1.6', total_cap: '1.4万亿' },
+  { parent: '食品饮料', name: '白酒',         stock_count: 20,  avg_change: '+2.15', avg_turnover: '1.2', total_cap: '3.2万亿' },
+  { parent: '食品饮料', name: '乳制品',       stock_count: 18,  avg_change: '+0.85', avg_turnover: '0.8', total_cap: '0.9万亿' },
+  { parent: '食品饮料', name: '调味品',       stock_count: 24,  avg_change: '+0.45', avg_turnover: '0.6', total_cap: '0.7万亿' },
+  { parent: '医药生物', name: '化学制药',     stock_count: 145, avg_change: '+1.65', avg_turnover: '1.5', total_cap: '2.1万亿' },
+  { parent: '医药生物', name: '生物制品',     stock_count: 78,  avg_change: '+1.25', avg_turnover: '1.1', total_cap: '1.6万亿' },
+  { parent: '医药生物', name: '医疗器械',     stock_count: 120, avg_change: '+1.05', avg_turnover: '1.0', total_cap: '1.4万亿' },
+  { parent: '电子',     name: '半导体',       stock_count: 152, avg_change: '+2.45', avg_turnover: '3.1', total_cap: '3.8万亿' },
+  { parent: '电子',     name: '消费电子',     stock_count: 98,  avg_change: '+0.95', avg_turnover: '2.4', total_cap: '2.6万亿' },
+  { parent: '电子',     name: '光学光电子',   stock_count: 86,  avg_change: '+0.35', avg_turnover: '1.8', total_cap: '1.9万亿' },
+  { parent: '汽车',     name: '乘用车',       stock_count: 24,  avg_change: '+0.85', avg_turnover: '1.2', total_cap: '2.1万亿' },
+  { parent: '汽车',     name: '汽车零部件',   stock_count: 152, avg_change: '+0.55', avg_turnover: '1.6', total_cap: '1.8万亿' },
+  { parent: '汽车',     name: '汽车服务',     stock_count: 22,  avg_change: '-0.25', avg_turnover: '0.4', total_cap: '0.4万亿' },
+  { parent: '非银金融', name: '证券',         stock_count: 50,  avg_change: '+0.45', avg_turnover: '1.1', total_cap: '2.4万亿' },
+  { parent: '非银金融', name: '保险',         stock_count: 8,   avg_change: '+0.25', avg_turnover: '0.6', total_cap: '2.1万亿' },
+  { parent: '非银金融', name: '多元金融',     stock_count: 30,  avg_change: '+0.15', avg_turnover: '0.5', total_cap: '0.9万亿' },
+  { parent: '银行',     name: '国有大型银行', stock_count: 6,   avg_change: '-0.05', avg_turnover: '0.8', total_cap: '6.8万亿' },
+  { parent: '银行',     name: '股份制银行',   stock_count: 12,  avg_change: '-0.22', avg_turnover: '1.0', total_cap: '3.2万亿' },
+  { parent: '银行',     name: '城商行',       stock_count: 24,  avg_change: '-0.15', avg_turnover: '0.6', total_cap: '1.8万亿' },
+  { parent: '计算机',   name: '软件开发',     stock_count: 145, avg_change: '-0.45', avg_turnover: '1.5', total_cap: '1.9万亿' },
+  { parent: '计算机',   name: 'IT服务',       stock_count: 120, avg_change: '-0.65', avg_turnover: '1.3', total_cap: '1.6万亿' },
+  { parent: '计算机',   name: '计算机设备',   stock_count: 47,  avg_change: '-0.35', avg_turnover: '0.9', total_cap: '1.1万亿' },
+  { parent: '传媒',     name: '游戏',         stock_count: 32,  avg_change: '-1.05', avg_turnover: '0.9', total_cap: '0.6万亿' },
+  { parent: '传媒',     name: '影视院线',     stock_count: 24,  avg_change: '-1.35', avg_turnover: '0.5', total_cap: '0.4万亿' },
+  { parent: '传媒',     name: '广告营销',     stock_count: 42,  avg_change: '-0.95', avg_turnover: '0.6', total_cap: '0.5万亿' },
+  { parent: '房地产',   name: '房地产开发',   stock_count: 96,  avg_change: '-1.85', avg_turnover: '0.8', total_cap: '1.4万亿' },
+  { parent: '房地产',   name: '房地产服务',   stock_count: 22,  avg_change: '-2.05', avg_turnover: '0.3', total_cap: '0.2万亿' },
+  { parent: '房地产',   name: '园区开发',     stock_count: 18,  avg_change: '-1.45', avg_turnover: '0.3', total_cap: '0.5万亿' },
+];
+
+// ==================== 演示多因子数据（MultidimData 兼容结构） ====================
+
+export interface DemoMultidimData {
+  industry: string;
+  totalScore: number;
+  maxScore: number;
+  boomScore: number;
+  crowdingScore: number;
+  dimensions: {
+    crowding:      { score: number; label: string };
+    diffusion:     { score: number; label: string };
+    concentration: { score: number; label: string };
+    retail:        { score: number; label: string };
+    recovery:      { score: number; label: string };
+    panic:         { score: number; label: string };
+    volatility:    { score: number; label: string };
+    momIndex:      { score: number; label: string };
+    searchHeat:    { score: number; label: string };
+    spreadDegree:  { score: number; label: string };
+    momentumPosition: { score: number; label: string };
+    zScore:        { score: number; label: string };
+    leverage:      { score: number; label: string };
+    fundFlow:      { score: number; label: string };
+  };
+}
+
+// 稳定的字符串哈希（FNV-1a），保证演示数据可复现
+function hashString(str: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// 基于板块名 + 维度序号派生 0-20 的稳定分数（确定性，无随机）
+function stableDimScore(seed: number, idx: number): number {
+  const x = Math.sin((seed % 1000) + idx * 12.9898) * 43758.5453;
+  const frac = x - Math.floor(x);
+  return Math.round(frac * 20); // 0..20
+}
+
+const MULTIDIM_LABELS: Record<string, string> = {
+  crowding: '拥挤度', diffusion: '扩散度', concentration: '集中度', retail: '散户情绪',
+  recovery: '回补动能', panic: '恐慌指数', volatility: '波动率', momIndex: '动量指数',
+  searchHeat: '搜索热度', spreadDegree: '传播度', momentumPosition: '动量仓位',
+  zScore: 'Z值', leverage: '杠杆率', fundFlow: '基金流向',
+};
+
+const BOOM_KEYS = ['diffusion', 'recovery', 'momentumPosition', 'searchHeat', 'spreadDegree'];
+const CROWDING_KEYS = ['crowding', 'concentration', 'zScore', 'leverage', 'panic', 'fundFlow'];
+// 14 个维度键：BOOM(5) + CROWDING(6) + 额外 3 维(retail/volatility/momIndex)
+// 注：MULTIDIM_LABELS 已为这 3 键提供中文标签，无需补充。
+const ALL_DIM_KEYS = [
+  ...BOOM_KEYS, ...CROWDING_KEYS,
+  'retail', 'volatility', 'momIndex',
+] as const;
+
+/** 为板块列表生成确定性的 14 维多因子数据（演示兜底用，可复现） */
+export function buildDemoMultidim(sectors: Array<{ industry: string }>): Record<string, DemoMultidimData> {
+  const map: Record<string, DemoMultidimData> = {};
+  sectors.forEach((sec, si) => {
+    const seed = hashString(sec.industry) + si * 97;
+    const dimensions = {} as DemoMultidimData['dimensions'];
+    ALL_DIM_KEYS.forEach((k, idx) => {
+      (dimensions as Record<string, { score: number; label: string }>)[k] = {
+        score: stableDimScore(seed, idx),
+        label: MULTIDIM_LABELS[k],
+      };
+    });
+    const boomAvg = BOOM_KEYS.reduce((sum, k) => sum + (dimensions as Record<string, { score: number }>)[k].score, 0) / BOOM_KEYS.length;
+    const crowdingAvg = CROWDING_KEYS.reduce((sum, k) => sum + (dimensions as Record<string, { score: number }>)[k].score, 0) / CROWDING_KEYS.length;
+    const totalAvg = ALL_DIM_KEYS.reduce((sum, k) => sum + (dimensions as Record<string, { score: number }>)[k].score, 0) / ALL_DIM_KEYS.length;
+    map[sec.industry] = {
+      industry: sec.industry,
+      totalScore: Math.round(totalAvg),
+      maxScore: 20,
+      boomScore: Math.round(boomAvg * 5),         // 0-100
+      crowdingScore: Math.round(crowdingAvg * 5), // 0-100
+      dimensions,
+    };
+  });
+  return map;
+}
+
+// ==================== 演示板块评分（SectorScore 兼容结构） ====================
+// 行业/概念演示兜底分数，统一入口供 DiscoverPage 调用（从 demoData 导出以便回归测试导入）。
+
+/** 行业数据 → SectorScore（演示兜底用，与界面 SectorScore 接口对齐） */
+export function buildIndustryScores(): DemoSectorScore[] {
+  return DEMO_INDUSTRIES.map(ind => ({
+    industry: ind.industry,
+    score: Math.round(50 + ind.avgChangePercent * 10),
+    changeScore: Math.round(ind.avgChangePercent * 10),
+    volumeScore: 50,
+    breadthScore: 50,
+    momentumScore: Math.round(50 + ind.avgChangePercent * 5),
+    stock_count: ind.stockCount,
+    avg_change_percent: ind.avgChangePercent,
+    total_turnover: ind.totalTurnover ?? 0,
+    limit_up_count: 0,
+    avgChange: ind.avgChangePercent,
+  }));
+}
+
+// 概念/行业演示兜底分数统一入口
+export function buildDemoScores(type: 'industry' | 'concept'): DemoSectorScore[] {
+  return type === 'concept' ? DEMO_CONCEPTS : buildIndustryScores();
+}
+
 // ==================== 演示市场总览 ====================
 
 export const DEMO_MARKET_SUMMARY: MarketSummary = {
@@ -404,6 +580,8 @@ export const DEMO_DATA = {
   notes: DEMO_NOTES,
   industryNodes: DEMO_INDUSTRY_NODES,
   radarStocks: DEMO_RADAR_STOCKS,
+  concepts: DEMO_CONCEPTS,
+  l2Industries: DEMO_L2_INDUSTRIES,
 } as const;
 
 export default DEMO_DATA;

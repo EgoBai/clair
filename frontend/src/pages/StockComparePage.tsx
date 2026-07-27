@@ -48,6 +48,100 @@ const STOCK_OPTIONS = [
 
 const COLORS = ['#1890ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1'];
 
+// ==================== 演示数据（降级用，确定性生成，不发起网络请求） ====================
+// 后端无 /compare 接口时，依据股票代码确定性生成合理演示指标，保证页面可独立预览。
+
+const DEMO_METRICS: MetricDef[] = [
+  { label: '市盈率(PE)', key: 'pe', unit: '', higher: 'worse' },
+  { label: '市净率(PB)', key: 'pb', unit: '', higher: 'worse' },
+  { label: 'ROE(%)', key: 'roe', unit: '%', higher: 'better' },
+  { label: '营收增长(%)', key: 'revenueGrowth', unit: '%', higher: 'better' },
+  { label: '净利润增长(%)', key: 'profitGrowth', unit: '%', higher: 'better' },
+  { label: '毛利率(%)', key: 'grossMargin', unit: '%', higher: 'better' },
+  { label: '资产负债率(%)', key: 'debtRatio', unit: '%', higher: 'worse' },
+  { label: '股息率(%)', key: 'dividendYield', unit: '%', higher: 'better' },
+];
+
+// 雷达图维度（与下方 radarScores 的 key 对应）
+const DEMO_RADAR_INDICATORS = [
+  { label: '估值优势', key: 'valuation', fullMark: 100 },
+  { label: '成长能力', key: 'growth', fullMark: 100 },
+  { label: '盈利能力', key: 'profitability', fullMark: 100 },
+  { label: '财务安全', key: 'safety', fullMark: 100 },
+  { label: '分红回报', key: 'dividend', fullMark: 100 },
+];
+
+// 基于字符串的确定性哈希，保证相同代码生成相同演示数据
+function hashSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// 确定性伪随机：同 (seed, salt) 返回固定 0~1 小数，避免每次刷新数值抖动
+function seededRand(seed: number, salt: number): number {
+  const x = Math.sin(seed * 31.7 + salt * 12.3) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function randInRange(seed: number, salt: number, min: number, max: number): number {
+  return +(min + seededRand(seed, salt) * (max - min)).toFixed(2);
+}
+
+// 为一组股票代码生成演示对比数据
+function buildDemoCompare(symbols: string[]): {
+  stocks: CompareStock[];
+  metrics: MetricDef[];
+  radarData: Record<string, string | number>[];
+} {
+  const stocks: CompareStock[] = symbols.map((sym) => {
+    const opt = STOCK_OPTIONS.find((o) => o.value === sym);
+    const name = opt?.label || sym;
+    const seed = hashSeed(sym);
+    const metrics: Record<string, number> = {
+      pe: randInRange(seed, 1, 10, 60),            // 市盈率 10~60
+      pb: randInRange(seed, 2, 1, 15),             // 市净率 1~15
+      roe: randInRange(seed, 3, 5, 30),            // ROE 5%~30%
+      revenueGrowth: randInRange(seed, 4, 0, 40),  // 营收增长 0%~40%
+      profitGrowth: randInRange(seed, 5, -10, 50), // 净利润增长 -10%~50%
+      grossMargin: randInRange(seed, 6, 10, 75),   // 毛利率 10%~75%
+      debtRatio: randInRange(seed, 7, 20, 70),     // 资产负债率 20%~70%
+      dividendYield: randInRange(seed, 8, 0, 5),   // 股息率 0%~5%
+    };
+    const radarScores: Record<string, number> = {
+      valuation: Math.round(randInRange(seed, 11, 40, 95)),
+      growth: Math.round(randInRange(seed, 12, 40, 95)),
+      profitability: Math.round(randInRange(seed, 13, 40, 95)),
+      safety: Math.round(randInRange(seed, 14, 40, 95)),
+      dividend: Math.round(randInRange(seed, 15, 40, 95)),
+    };
+    return {
+      symbol: sym,
+      name,
+      metrics,
+      radarScores,
+      price: +randInRange(seed, 20, 10, 2000).toFixed(2),
+      changePercent: +randInRange(seed, 21, -5, 5).toFixed(2),
+      marketCap: Math.floor(randInRange(seed, 22, 1e10, 3e12)),
+      volume: Math.floor(randInRange(seed, 23, 1e7, 5e8)),
+    };
+  });
+
+  // 雷达图数据：每个维度一行，列为各股票名称
+  const radarData = DEMO_RADAR_INDICATORS.map((ind) => {
+    const row: Record<string, string | number> = { metric: ind.label, fullMark: ind.fullMark };
+    stocks.forEach((s) => {
+      row[s.name] = s.radarScores[ind.key];
+    });
+    return row;
+  });
+
+  return { stocks, metrics: DEMO_METRICS, radarData };
+}
+
 export default function StockComparePage() {
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(['600519', '000858', '000001']);
   const [stocks, setStocks] = useState<CompareStock[]>([]);
@@ -65,10 +159,15 @@ export default function StockComparePage() {
         apiService.get<{ indicators: { label: string; fullMark: number; key: string }[]; stocks: { name: string; scores: Record<string, number> }[] }>('/compare/radar', { symbols }),
       ]);
 
-      if (compareRes.success) {
+      // 后端无 /compare 接口（success 为 false 会进入下方 catch），此处仅处理成功且非空的情况
+      if (compareRes.success && compareRes.data?.stocks?.length) {
         setStocks(compareRes.data.stocks);
         setMetrics(compareRes.data.metrics);
+      } else {
+        // 接口返回成功但无数据，同样降级
+        throw new Error('对比接口返回空数据');
       }
+
       if (radarRes.success) {
         const indicators = radarRes.data.indicators;
         const radar = indicators.map((ind) => {
@@ -81,7 +180,12 @@ export default function StockComparePage() {
         setRadarData(radar);
       }
     } catch (error) {
-      logger.error('获取对比数据失败:', error);
+      // API 失败（接口不存在/网络错误/返回空）时降级到内置确定性演示数据
+      logger.warn('获取对比数据失败，降级使用演示数据:', error);
+      const demo = buildDemoCompare(selectedSymbols);
+      setStocks(demo.stocks);
+      setMetrics(demo.metrics);
+      setRadarData(demo.radarData);
     } finally {
       setLoading(false);
     }

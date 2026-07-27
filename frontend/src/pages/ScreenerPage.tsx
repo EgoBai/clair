@@ -257,7 +257,6 @@ const ScreenerPage: React.FC = () => {
   // 技术指标缓存
   interface TechData { change5d?: number | null; change20d?: number | null; ma20?: number; maDeviation?: number | null; rsi14?: number | null; volatility20d?: number | null; }
   const [techData, setTechData] = useState<Record<string, TechData>>({});
-  const [_techLoading, setTechLoading] = useState(false);
 
   const watchlistStore = useWatchlistStore();
 
@@ -340,7 +339,6 @@ const ScreenerPage: React.FC = () => {
     const toLoad = symbols.filter(s => !techData[s]);
     if (!toLoad.length) return;
     
-    setTechLoading(true);
     try {
       const resp = await apiFetch('/api/tech/batch', {
         method: 'POST',
@@ -353,7 +351,7 @@ const ScreenerPage: React.FC = () => {
       }
     } catch (e) {
       // Silent fail — tech indicators are supplementary
-    } finally { setTechLoading(false); }
+    }
   }, [techData]);
 
   useEffect(() => {

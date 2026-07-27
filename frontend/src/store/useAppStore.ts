@@ -265,9 +265,11 @@ export const useAppStore = create<AppStore>()(
 
 // ==================== 选择器工具 ====================
 
-/** 主题模式选择器（含系统偏好检测） */
+/** 主题模式选择器（含系统偏好检测）
+ * T4 粒度优化：只订阅 preferences.theme（原订阅整个 preferences 对象，
+ * klinePeriod/sidebar 等无关字段变化也会触发重渲染） */
 export function useResolvedTheme(): 'light' | 'dark' {
-  const { theme } = useAppStore((s) => s.preferences);
+  const theme = useAppStore((s) => s.preferences.theme);
   if (theme === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }

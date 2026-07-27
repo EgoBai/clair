@@ -49,7 +49,6 @@ const IndexDetailPage: React.FC = () => {
   const [kline, setKline] = useState<KLineQuote[]>([]);
   const [strategy, setStrategy] = useState<StrategyData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [_chartPeriod, _setChartPeriod] = useState<string>('candlestick');
 
   useEffect(() => {
     if (!symbol) return;

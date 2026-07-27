@@ -16,9 +16,12 @@ import { StockOutlined, CompassOutlined,
 } from '@ant-design/icons';
 import type { KLineData } from '../components/Charts/KLineChart';
 const KLineChart = React.lazy(() => import('../components/Charts/KLineChart'));
+const IndicatorPanel = React.lazy(() => import('../components/Charts/IndicatorPanel'));
 import { useStockActions, useWatchlist } from '../store/useStockStore';
 import { analyze } from '../utils/strategy';
+import { computeIndicatorSeries } from '../utils/indicatorCalc';
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
+import ValuationPanel from '../components/valuation/ValuationPanel';
 
 const { Title, Text } = Typography;
 
@@ -91,6 +94,21 @@ const StockDetailPage: React.FC = () => {
   }, [latestQuote]);
 
   const isInWatchlist = symbol ? watchlist.includes(symbol) : false;
+
+  // 技术指标中心: 从 K 线计算全部 11 个指标 (useMemo 缓存避免重复计算)
+  const indicatorSeries = useMemo(
+    () => computeIndicatorSeries(
+      klineData.map(k => ({
+        date: k.tradeDate,
+        open: k.open,
+        high: k.high,
+        low: k.low,
+        close: k.close,
+        volume: k.volume,
+      })),
+    ),
+    [klineData],
+  );
 
   const formatLargeNumber = (num?: number) => {
     if (!num && num !== 0) return '-';
@@ -231,7 +249,7 @@ const StockDetailPage: React.FC = () => {
       <Breadcrumb
         style={{ marginBottom: 12 }}
         items={[
-          { href: '/discover', title: <><CompassOutlined /> 发掘</> },
+          { href: '/', title: <><CompassOutlined /> 发掘</> },
           { href: '/stocks', title: <><StockOutlined /> 股票</> },
           { title: stockInfo?.name || displaySymbol },
         ]}
@@ -337,6 +355,9 @@ const StockDetailPage: React.FC = () => {
             </Row>
           </Card>
         )}
+
+        {/* ===== 估值分析 (S2-1) ===== */}
+        {symbol && <ValuationPanel symbol={symbol} />}
 
         {/* ===== K线图 ===== */}
         <Card
@@ -562,6 +583,19 @@ const StockDetailPage: React.FC = () => {
 
         {/* ===== 多信号融合面板 ===== */}
         <MultiSignalPanel symbol={symbol || ''} />
+
+        {/* ===== 技术指标中心 (S3-2) ===== */}
+        {klineData.length > 0 && (
+          <Card
+            size="small"
+            title={<span style={{ fontWeight: 700, color: TEXT_PRIMARY, fontSize: 14 }}>📈 技术指标中心</span>}
+            style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
+          >
+            <Suspense fallback={<Skeleton active paragraph={{ rows: 4 }} />}>
+              <IndicatorPanel data={indicatorSeries} loading={klineLoading} />
+            </Suspense>
+          </Card>
+        )}
 
         {/* ===== AI 诊断面板 ===== */}
         <Card

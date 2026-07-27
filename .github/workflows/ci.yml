@@ -42,3 +42,9 @@ jobs:
           npm run build
         env:
           VITE_API_BASE: https://clair-api.pages.dev
+
+      # 前端质量门禁: UI 守卫(静态 AST + 数据基线扫描)
+      # 发现 ERROR 级问题时进程非零退出，使 CI 失败
+      - name: Frontend - UI guard
+        working-directory: frontend
+        run: npm run guard

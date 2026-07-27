@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 
 // 股票数据类型
 export interface Stock {
@@ -287,47 +289,35 @@ export const useSearchResults = () => useStockStore((state) => state.searchResul
 export const useSearchLoading = () => useStockStore((state) => state.searchLoading);
 
 // 操作钩子
-export const useStockActions = () => {
-  const {
-    setStocks,
-    setLoading,
-    setError,
-    selectStock,
-    addToWatchlist,
-    removeFromWatchlist,
-    toggleWatchlist,
-    updatePreferences,
-    toggleTheme,
-    toggleNotification,
-    updateStockPrice,
-    searchStocksAPI,
-    clearSearchResults,
-    reset,
-  } = useStockStore();
-
-  return {
-    setStocks,
-    setLoading,
-    setError,
-    selectStock,
-    addToWatchlist,
-    removeFromWatchlist,
-    toggleWatchlist,
-    updatePreferences,
-    toggleTheme,
-    toggleNotification,
-    updateStockPrice,
-    searchStocksAPI,
-    clearSearchResults,
-    reset,
-  };
-};
+// T4 粒度优化：原实现 `useStockStore()` 全 store 订阅（无选择器），
+// 任意状态变化（stocks/searchResults/loading…）都会重渲染所有调用组件。
+// 改为 useShallow 聚合选择器：action 引用稳定，浅比较恒等 → 零多余重渲染。
+export const useStockActions = () =>
+  useStockStore(
+    useShallow((s) => ({
+      setStocks: s.setStocks,
+      setLoading: s.setLoading,
+      setError: s.setError,
+      selectStock: s.selectStock,
+      addToWatchlist: s.addToWatchlist,
+      removeFromWatchlist: s.removeFromWatchlist,
+      toggleWatchlist: s.toggleWatchlist,
+      updatePreferences: s.updatePreferences,
+      toggleTheme: s.toggleTheme,
+      toggleNotification: s.toggleNotification,
+      updateStockPrice: s.updateStockPrice,
+      searchStocksAPI: s.searchStocksAPI,
+      clearSearchResults: s.clearSearchResults,
+      reset: s.reset,
+    }))
+  );
 
 // 计算钩子
+// T4 粒度优化：派生统计用 useMemo 缓存，仅 stocks 引用变化时重算（原每次渲染都重算 3 次遍历）
 export const useStockStats = () => {
   const stocks = useStocks();
-  
-  return {
+
+  return useMemo(() => ({
     totalStocks: stocks.length,
     risingStocks: stocks.filter(s => s.changePercent > 0).length,
     fallingStocks: stocks.filter(s => s.changePercent < 0).length,
@@ -339,5 +329,5 @@ export const useStockStats = () => {
     averageChange: stocks.length > 0
       ? stocks.reduce((sum, stock) => sum + stock.changePercent, 0) / stocks.length
       : 0,
-  };
+  }), [stocks]);
 };

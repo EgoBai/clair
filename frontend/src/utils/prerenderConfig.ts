@@ -51,25 +51,11 @@ export const prerenderRoutes: PrerenderRoute[] = [
     changefreq: 'always',
   },
   {
-    path: '/news',
-    title: '财经资讯 - 最新新闻',
-    description: 'A股市场最新财经资讯、公告、研报',
-    priority: 0.7,
-    changefreq: 'hourly',
-  },
-  {
     path: '/etf',
     title: 'ETF基金 - 场内基金',
     description: 'ETF基金行情、涨跌幅、成交量排名',
     priority: 0.7,
     changefreq: 'daily',
-  },
-  {
-    path: '/dashboard',
-    title: '仪表盘 - 个人中心',
-    description: '个人投资仪表盘，一目了然看持仓、收益',
-    priority: 0.6,
-    changefreq: 'always',
   },
 ];
 

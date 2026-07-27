@@ -17,7 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'home', path: '/', label: '首页', icon: '🏠' },
   { key: 'market', path: '/market', label: '行情', icon: '📊' },
   { key: 'watchlist', path: '/watchlist', label: '自选', icon: '⭐' },
-  { key: 'screener', path: '/advanced-screener', label: '选股', icon: '🔍' },
+  { key: 'screener', path: '/screener', label: '选股', icon: '🔍' },
   { key: 'portfolio', path: '/portfolio', label: '持仓', icon: '💼' },
 ];
 

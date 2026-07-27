@@ -8,8 +8,10 @@ import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { apiService } from '../services/api';
 import { useParams } from 'react-router-dom';
-import { Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
+import { Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Progress, Descriptions, List, Divider } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined, RobotOutlined } from '@ant-design/icons';
+import { generateDeterministicFinancials, computeFinancialInsight } from '../utils/financialInsightDemo';
+import type { FinancialInsight } from '../utils/financialInsightDemo';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -92,6 +94,7 @@ export default function FinancialsPage() {
   const [balanceHistory, setBalanceHistory] = useState<BalanceSheet[]>([]);
   const [incomeHistory, setIncomeHistory] = useState<IncomeStatement[]>([]);
   const [cashFlowHistory, setCashFlowHistory] = useState<CashFlow[]>([]);
+  const [isDemo, setIsDemo] = useState(false);
   const [activeTab, setActiveTab] = useState('summary');
 
   useEffect(() => {
@@ -100,6 +103,10 @@ export default function FinancialsPage() {
 
   const loadData = async () => {
     setLoading(true);
+    let summaryData: FinancialSummary | null = null;
+    let bs: BalanceSheet[] = [];
+    let is: IncomeStatement[] = [];
+    let cf: CashFlow[] = [];
     try {
       const [summaryRes, bsRes, isRes, cfRes] = await Promise.all([
         apiService.get<FinancialSummary>('/financials/summary', { symbol: targetSymbol }),
@@ -108,19 +115,42 @@ export default function FinancialsPage() {
         apiService.get<{ periods: CashFlow[] }>('/financials/cash-flow', { symbol: targetSymbol, periods: 4 }),
       ]);
 
-      if (summaryRes.success) setSummary(summaryRes.data);
-      if (bsRes.success) setBalanceHistory(bsRes.data.periods);
-      if (isRes.success) setIncomeHistory(isRes.data.periods);
-      if (cfRes.success) setCashFlowHistory(cfRes.data.periods);
+      if (summaryRes.success) summaryData = summaryRes.data;
+      if (bsRes.success) bs = bsRes.data.periods;
+      if (isRes.success) is = isRes.data.periods;
+      if (cfRes.success) cf = cfRes.data.periods;
     } catch (error) {
       logger.error('加载财务数据失败:', error);
     } finally {
+      // 后端财报接口缺失时，用确定性演示数据兜底（LCG 种子=20260725 + symbol 哈希），保证渲染稳定可复现
+      let demo = false;
+      if (!summaryData || bs.length === 0 || is.length === 0 || cf.length === 0) {
+        const gen = generateDeterministicFinancials(targetSymbol);
+        summaryData = summaryData ?? gen.summary;
+        bs = bs.length ? bs : gen.balanceHistory;
+        is = is.length ? is : gen.incomeHistory;
+        cf = cf.length ? cf : gen.cashFlowHistory;
+        demo = true;
+      }
+      setSummary(summaryData);
+      setBalanceHistory(bs);
+      setIncomeHistory(is);
+      setCashFlowHistory(cf);
+      setIsDemo(demo);
       setLoading(false);
     }
   };
 
   if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" tip="加载财务数据..." /></div>;
   if (!summary) return <Alert message="无法加载财务数据" type="error" showIcon />;
+
+  const insight: FinancialInsight = computeFinancialInsight(
+    summary,
+    incomeHistory,
+    balanceHistory,
+    cashFlowHistory,
+    isDemo,
+  );
 
   const { balanceSheet, incomeStatement, cashFlow, indicators } = summary;
 
@@ -395,7 +425,98 @@ export default function FinancialsPage() {
         <h2 style={{ margin: 0 }}>📊 财务报表 - {targetSymbol}</h2>
         <Tag color="blue">最近更新: {new Date().toLocaleDateString('zh-CN')}</Tag>
       </Row>
+      <AiInsightPanel insight={insight} />
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
     </div>
+  );
+}
+
+// ==================== AI 财报解读面板 ====================
+
+function AiInsightPanel({ insight }: { insight: FinancialInsight }) {
+  const { profitability, growth, solvency, cashQuality, overallScore, rating, risks } = insight;
+  const dims = [profitability, growth, solvency, cashQuality];
+  const scoreColor =
+    overallScore >= 85 ? '#52c41a' : overallScore >= 70 ? '#1890ff' : overallScore >= 55 ? '#faad14' : '#f5222d';
+
+  return (
+    <Card
+      size="small"
+      style={{ marginBottom: 16 }}
+      title={
+        <span>
+          <RobotOutlined style={{ marginRight: 6 }} />
+          AI 财报解读
+          <Tag color="purple" style={{ marginLeft: 8 }}>结构化摘要</Tag>
+        </span>
+      }
+      extra={
+        insight.isDemo ? (
+          <Tag color="orange">演示数据 · 确定性兜底</Tag>
+        ) : (
+          <Tag color="green">实时数据</Tag>
+        )
+      }
+    >
+      <Row gutter={[16, 16]}>
+        {dims.map((d) => (
+          <Col xs={24} sm={12} md={6} key={d.title}>
+            <Card
+              type="inner"
+              size="small"
+              title={
+                <span>
+                  {d.title}
+                  <Tag color={d.tagColor} style={{ marginLeft: 6 }}>{d.tagText}</Tag>
+                </span>
+              }
+            >
+              <Statistic
+                value={d.headline}
+                suffix={d.headlineSuffix}
+                precision={d.headlinePrecision}
+                valueStyle={{ color: d.color, fontSize: 22 }}
+              />
+              <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: 12 }}>{d.trendText}</div>
+              <div style={{ marginTop: 8, color: d.color, fontSize: 13 }}>{d.conclusion}</div>
+              <Divider style={{ margin: '10px 0' }} />
+              <Descriptions
+                size="small"
+                column={1}
+                items={d.details.map((x) => ({ key: x.label, label: x.label, children: x.value }))}
+              />
+            </Card>
+          </Col>
+        ))}
+        <Col xs={24} md={10}>
+          <Card type="inner" size="small" title="综合健康度评分">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <Progress type="dashboard" percent={overallScore} strokeColor={scoreColor} size={120} />
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 600 }}>{rating}</div>
+                <div style={{ color: '#8c8c8c' }}>综合评分 {overallScore}/100</div>
+                <div style={{ color: '#bfbfbf', fontSize: 12, marginTop: 4 }}>生成于 {insight.generatedAt}</div>
+              </div>
+            </div>
+          </Card>
+        </Col>
+        <Col xs={24} md={14}>
+          <Card type="inner" size="small" title="风险提示">
+            <List
+              size="small"
+              dataSource={risks}
+              renderItem={(item) => (
+                <List.Item>
+                  <span>
+                    <WarningOutlined style={{ color: '#faad14', marginRight: 8 }} />
+                    {item}
+                  </span>
+                </List.Item>
+              )}
+            />
+          </Card>
+        </Col>
+      </Row>
+    </Card>
   );
 }

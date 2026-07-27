@@ -234,7 +234,7 @@ export function EmptyBacktest() {
       description="选择股票和策略参数，验证你的投资策略表现"
       action={{
         text: '选择策略',
-        onClick: () => navigate('/advanced-screener'),
+        onClick: () => navigate('/screener'),
       }}
     />
   );
