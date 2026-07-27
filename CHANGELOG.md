@@ -33,6 +33,24 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.3.0] - 2026-07-27 (第15轮 — 战略重构 P0 基建硬化启动)
+
+### 新增
+- **后端 LLM 网关健壮性** (`backend/src/services/llmGateway.ts`，约260行)
+  - 请求超时（非流式 30s / 流式首字节 20s，AbortController）
+  - 指数退避重试（默认2次，仅网络错误/429/5xx，4xx 不重试）
+  - 按 provider 熔断器（连续5次失败 open 60s → half-open 探测，`CircuitOpenError` 快速失败）
+  - 内存计量：调用/失败/token 计数，`getGatewayStats()` 暴露
+  - `aiService.ts` 6 处上游调用统一接入 `gatewayFetch`，对外签名与降级语义不变
+- **ChatPanel 流式化 + 降级承接** (`frontend/src/components/AI/ChatPanel.tsx` + `utils/aiChatFallback.ts`)
+  - `chat()` → `chatStream()` 打字机增量渲染，首包 15s 超时（Promise.race）
+  - 流失败/超时降级本地确定性演示回复（FNV-1a+LCG 种子），消息附「降级·演示」徽标
+  - 发送中防重复（输入/按钮禁用）
+
+### 质量
+- 前端 tsc 0 错 / build 5.86s / guard P0=0 / E2E chromium 20/20 / 8 关键路由 200
+- 后端 tsc 无新增错误（维持基线）
+
 ## [3.2.0] - 2026-04-25 (Round 113 — parseFloat 假零陷阱系统性修复)
 
 ### 修复

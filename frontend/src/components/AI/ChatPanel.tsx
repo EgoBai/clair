@@ -19,9 +19,12 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { chat } from '../../services/aiClient';
+import { chatStream } from '../../services/aiClient';
+import type { ChatMessage } from '../../services/aiClient';
+import { Tag } from 'antd';
 import { renderMarkdown } from '../../utils/markdown';
 import { saveEntry, CATEGORIES } from '../../utils/knowledgeStore';
+import { buildFallbackReply } from '../../utils/aiChatFallback';
 
 // ============================================================
 // 类型定义
@@ -33,6 +36,7 @@ interface Message {
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
+  isFallback?: boolean; // 降级·演示：chatStream 失败/超时后由本地兜底回复承接
 }
 
 interface PageContext {
@@ -102,6 +106,34 @@ const QUICK_COMMANDS: QuickCommand[] = [
     prompt: '当前市场有哪些风险信号需要注意？',
   },
 ];
+
+// ============================================================
+// 流式首包超时包装器
+// ============================================================
+// 仅对生成器的第一次 next() 做 Promise.race：超过 timeoutMs 未收到首包则 reject，
+// 由调用方捕获并降级到本地演示回复。后续 chunk 不再计时，避免长文被误杀。
+async function* streamWithTimeout(
+  gen: AsyncGenerator<{ content: string; done: boolean }>,
+  timeoutMs: number,
+): AsyncGenerator<{ content: string; done: boolean }> {
+  let isFirst = true;
+  while (true) {
+    const next = gen.next();
+    if (isFirst) {
+      isFirst = false;
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('流式首包超时（15s）')), timeoutMs),
+      );
+      const res = await Promise.race([next, timeout]);
+      if (res.done || res.value?.done) return;
+      yield res.value;
+    } else {
+      const res = await next;
+      if (res.done || res.value?.done) return;
+      yield res.value;
+    }
+  }
+}
 
 // ============================================================
 // 组件
@@ -178,10 +210,10 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
     ]);
   }, [pageContext?.page, pageContext?.symbol]);
 
-  // 发送消息
-  const handleSend = useCallback(async () => {
-    const content = inputValue.trim();
-    if (!content || isLoading) return;
+  // 统一的流式发送入口：新增用户消息 + 占位 AI 消息，逐 chunk 追加（打字机）
+  const startChat = useCallback(async (rawPrompt: string) => {
+    const content = rawPrompt.trim();
+    if (!content || isLoading) return; // 防重复发送：发送中直接忽略
 
     // 添加用户消息
     const userMessage: Message = {
@@ -190,12 +222,11 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       content,
       timestamp: new Date(),
     };
-
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
 
-    // 添加AI占位消息
+    // 添加 AI 占位消息（流式）
     const aiMessageId = (Date.now() + 1).toString();
     const aiMessage: Message = {
       id: aiMessageId,
@@ -204,75 +235,58 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       timestamp: new Date(),
       isStreaming: true,
     };
-
     setMessages(prev => [...prev, aiMessage]);
 
+    // 构建上下文：系统提示 + 最近5条消息；chatStream 不接收 symbol，
+    // 故把当前查看标的并入 system 上下文，保留个股页语义。
+    const systemContent = pageContext?.symbol
+      ? `${systemHint}\n\n[当前查看标的: ${pageContext.symbol}]`
+      : systemHint;
+    const context: ChatMessage[] = [
+      { role: 'system', content: systemContent },
+      ...messages.slice(-5).map(m => ({ role: m.role, content: m.content })),
+    ];
+
+    let acc = '';
     try {
-      // 构建上下文：系统提示 + 最近5条消息
-      const context = [
-        { role: 'system' as const, content: systemHint },
-        ...messages.slice(-5).map(m => ({
-          role: m.role,
-          content: m.content,
-        })),
-      ];
-
-      // 调用AI（非流式，更可靠，附带当前页面symbol）
-      const aiContent = await chat(content, context, pageContext?.symbol);
-
+      // 流式逐 chunk 追加；首包 15s 超时 -> streamWithTimeout 抛错进入降级
+      for await (const chunk of streamWithTimeout(chatStream(content, context), 15000)) {
+        acc += chunk.content;
+        setMessages(prev =>
+          prev.map(m => (m.id === aiMessageId ? { ...m, content: acc } : m)),
+        );
+      }
+      // 占位或空响应也视为失败，回退演示
+      if (!acc.trim()) throw new Error('AI 返回内容为空');
       setMessages(prev =>
-        prev.map(m =>
-          m.id === aiMessageId
-            ? { ...m, content: aiContent, isStreaming: false }
-            : m
-        )
+        prev.map(m => (m.id === aiMessageId ? { ...m, content: acc, isStreaming: false } : m)),
       );
     } catch (error) {
-      console.error('AI chat error:', error);
+      // 降级承接：流式失败/首包超时 -> 本地确定性演示回复
+      console.warn('[ChatPanel] 流式失败，降级到演示回复:', error);
+      const fallback = buildFallbackReply(content);
       setMessages(prev =>
         prev.map(m =>
           m.id === aiMessageId
-            ? {
-                ...m,
-                content: `⚠️ AI服务暂时不可用: ${(error as Error).message || '未知错误'}`,
-                isStreaming: false,
-              }
-            : m
-        )
+            ? { ...m, content: fallback, isStreaming: false, isFallback: true }
+            : m,
+        ),
       );
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [inputValue, isLoading, messages, systemHint]);
-
-  // 直接发送指定prompt (用于猜你想问点击)
-  const handleSendWithPrompt = useCallback(async (prompt: string) => {
-    if (!prompt.trim() || isLoading) return;
-    const userMessage: Message = {
-      id: Date.now().toString(), role: 'user', content: prompt.trim(), timestamp: new Date(),
-    };
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue('');
-    setIsLoading(true);
-    const aiMessageId = (Date.now() + 1).toString();
-    const aiMessage: Message = {
-      id: aiMessageId, role: 'assistant', content: '', timestamp: new Date(), isStreaming: true,
-    };
-    setMessages(prev => [...prev, aiMessage]);
-    try {
-      const context = [
-        { role: 'system' as const, content: systemHint },
-        ...messages.slice(-5).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user' as const, content: prompt.trim() },
-      ];
-      const aiContent = await chat(prompt.trim(), context, pageContext?.symbol);
-      setMessages(prev => prev.map(m => m.id === aiMessageId ? { ...m, content: aiContent, isStreaming: false } : m));
-    } catch (error) {
-      console.error('AI chat error:', error);
-      setMessages(prev => prev.map(m => m.id === aiMessageId ? { ...m, content: `⚠️ AI服务暂时不可用`, isStreaming: false } : m));
-    } finally { setIsLoading(false); }
   }, [isLoading, messages, systemHint, pageContext?.symbol]);
+
+  // 输入框发送
+  const handleSend = useCallback(() => {
+    startChat(inputValue);
+  }, [startChat, inputValue]);
+
+  // 直接发送指定 prompt（用于猜你想问点击）
+  const handleSendWithPrompt = useCallback((prompt: string) => {
+    startChat(prompt);
+  }, [startChat]);
 
   // 快捷指令点击
   const handleQuickCommand = useCallback((command: QuickCommand) => {
@@ -313,7 +327,7 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
           )}
         </div>
         <div className="chat-status">
-          {isLoading ? '思考中...' : '在线'}
+          {isLoading ? '生成中...' : '在线'}
         </div>
       </div>
 
@@ -364,8 +378,12 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
               {message.isStreaming && (
                 <span className="typing-cursor">▊</span>
               )}
+              {/* 降级·演示 徽标（流式失败/超时后由本地兜底回复承接） */}
+              {message.isFallback && (
+                <Tag color="gold" style={{ marginTop: 6 }}>降级·演示</Tag>
+              )}
               {/* AI消息的保存按钮 */}
-              {message.role === 'assistant' && !message.isStreaming && message.content && (
+              {message.role === 'assistant' && !message.isStreaming && message.content && !message.isFallback && (
                 <div style={{ marginTop: 6 }}>
                   {savingMsgId === message.id ? (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>

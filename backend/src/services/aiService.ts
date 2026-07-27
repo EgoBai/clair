@@ -11,6 +11,7 @@
  */
 
 import { logger } from './logger';
+import { gatewayFetch, reportGatewayUsage } from './llmGateway';
 
 // ============================================================
 // 类型定义
@@ -199,7 +200,7 @@ async function callOpenAI(messages: AIMessage[], request: AIRequest): Promise<AI
   const provider = AI_CONFIG.provider;
   const config = provider === 'deepseek' ? AI_CONFIG.deepseek : AI_CONFIG.openai;
   
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+  const response = await gatewayFetch(provider, `${config.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -214,13 +215,10 @@ async function callOpenAI(messages: AIMessage[], request: AIRequest): Promise<AI
     }),
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} - ${error}`);
-  }
-
   const data = await response.json();
   const choice = data.choices[0];
+
+  reportGatewayUsage(provider, data.usage?.total_tokens ?? 0);
 
   return {
     content: choice.message.content,
@@ -238,7 +236,7 @@ async function* streamOpenAI(messages: AIMessage[], request: AIRequest): AsyncGe
   const provider = AI_CONFIG.provider;
   const config = provider === 'deepseek' ? AI_CONFIG.deepseek : AI_CONFIG.openai;
   
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+  const response = await gatewayFetch(provider, `${config.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -251,12 +249,7 @@ async function* streamOpenAI(messages: AIMessage[], request: AIRequest): AsyncGe
       max_tokens: request.maxTokens ?? AI_CONFIG.defaults.maxTokens,
       stream: true,
     }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} - ${error}`);
-  }
+  }, { streaming: true });
 
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body');
@@ -301,13 +294,14 @@ async function* streamOpenAI(messages: AIMessage[], request: AIRequest): AsyncGe
 // ============================================================
 
 async function callClaude(messages: AIMessage[], request: AIRequest): Promise<AIResponse> {
+  const provider = AI_CONFIG.provider;
   const config = AI_CONFIG.claude;
   
   // Claude API格式与OpenAI不同
   const systemMessage = messages.find(m => m.role === 'system')?.content || '';
   const userMessages = messages.filter(m => m.role !== 'system');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await gatewayFetch(provider, 'https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -326,12 +320,12 @@ async function callClaude(messages: AIMessage[], request: AIRequest): Promise<AI
     }),
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Claude API error: ${response.status} - ${error}`);
-  }
-
   const data = await response.json();
+
+  reportGatewayUsage(
+    provider,
+    (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
+  );
 
   return {
     content: data.content[0].text,
@@ -346,12 +340,13 @@ async function callClaude(messages: AIMessage[], request: AIRequest): Promise<AI
 }
 
 async function* streamClaude(messages: AIMessage[], request: AIRequest): AsyncGenerator<AIStreamChunk> {
+  const provider = AI_CONFIG.provider;
   const config = AI_CONFIG.claude;
   
   const systemMessage = messages.find(m => m.role === 'system')?.content || '';
   const userMessages = messages.filter(m => m.role !== 'system');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await gatewayFetch(provider, 'https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -369,12 +364,7 @@ async function* streamClaude(messages: AIMessage[], request: AIRequest): AsyncGe
       temperature: request.temperature ?? AI_CONFIG.defaults.temperature,
       stream: true,
     }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Claude API error: ${response.status} - ${error}`);
-  }
+  }, { streaming: true });
 
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body');
@@ -421,9 +411,10 @@ async function* streamClaude(messages: AIMessage[], request: AIRequest): AsyncGe
 // ============================================================
 
 async function callLocal(messages: AIMessage[], request: AIRequest): Promise<AIResponse> {
+  const provider = AI_CONFIG.provider;
   const config = AI_CONFIG.local;
   
-  const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+  const response = await gatewayFetch(provider, `${config.baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -437,13 +428,10 @@ async function callLocal(messages: AIMessage[], request: AIRequest): Promise<AIR
     }),
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Local LLM error: ${response.status} - ${error}`);
-  }
-
   const data = await response.json();
   const choice = data.choices[0];
+
+  reportGatewayUsage(provider, data.usage?.total_tokens ?? 0);
 
   return {
     content: choice.message.content,
@@ -458,9 +446,10 @@ async function callLocal(messages: AIMessage[], request: AIRequest): Promise<AIR
 }
 
 async function* streamLocal(messages: AIMessage[], request: AIRequest): AsyncGenerator<AIStreamChunk> {
+  const provider = AI_CONFIG.provider;
   const config = AI_CONFIG.local;
   
-  const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+  const response = await gatewayFetch(provider, `${config.baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -472,12 +461,7 @@ async function* streamLocal(messages: AIMessage[], request: AIRequest): AsyncGen
       max_tokens: request.maxTokens ?? AI_CONFIG.defaults.maxTokens,
       stream: true,
     }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Local LLM error: ${response.status} - ${error}`);
-  }
+  }, { streaming: true });
 
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body');
