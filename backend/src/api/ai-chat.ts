@@ -146,6 +146,108 @@ router.get('/ai/market-analysis', asyncHandler(async (_req: Request, res: Respon
 }));
 
 // ============================================================
+// 真实数据解析 + 确定性演示兜底
+// ============================================================
+
+// 用 symbol 字符串生成稳定哈希种子（FNV-1a）
+function hashSeed(str: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// 确定性伪随机数发生器（mulberry32），保证同一 symbol 始终产出相同演示值
+function makeRng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// DB 查不到时使用的确定性演示数据（标注为演示，不写真实数值）
+function buildDemoStockData(symbol: string): Record<string, unknown> {
+  const rng = makeRng(hashSeed(symbol));
+  const f = (v: number, d = 2) => v.toFixed(d);
+  const price = 20 + rng() * 80;
+  const ma5 = price * (0.95 + rng() * 0.1);
+  const ma20 = price * (0.90 + rng() * 0.15);
+  const ma60 = price * (0.85 + rng() * 0.2);
+  const macd = rng() * 2 - 1;
+  const rsi = rng() * 60 + 20;
+  return {
+    name: `演示-${symbol}`,
+    symbol,
+    industry: '演示行业',
+    price: f(price),
+    change: f(rng() * 10 - 5),
+    pe: f(rng() * 40 + 5, 1),
+    pb: f(rng() * 5 + 0.5, 1),
+    roe: f(rng() * 25, 1),
+    marketCap: Math.round(rng() * 900 + 100).toString(),
+    ma5: f(ma5),
+    ma20: f(ma20),
+    ma60: f(ma60),
+    macd: f(macd),
+    rsi: f(rsi, 1),
+    technicalIndicators: {
+      ma5: f(ma5),
+      ma20: f(ma20),
+      macd: f(macd),
+      rsi: f(rsi, 1),
+    },
+  };
+}
+
+// 优先取真实数据库数据；查不到或异常时降级为确定性演示数据
+async function resolveStockData(symbol: string): Promise<{ stockData: Record<string, unknown>; dataSource: 'real' | 'demo' }> {
+  try {
+    const db = getDb();
+    const stock = await db.getStockWithLatestQuote(symbol);
+    if (stock) {
+      const q = stock.latestQuote;
+      const ti = stock.technicalIndicators && stock.technicalIndicators.length
+        ? stock.technicalIndicators[stock.technicalIndicators.length - 1]
+        : undefined;
+      const fin = stock.financialIndicators && stock.financialIndicators.length
+        ? stock.financialIndicators[stock.financialIndicators.length - 1]
+        : undefined;
+      const stockData: Record<string, unknown> = {
+        name: stock.name,
+        symbol: stock.symbol,
+        industry: stock.industry ?? '未知',
+        price: q ? q.closePrice.toFixed(2) : null,
+        change: q ? q.changePercent.toFixed(2) : null,
+        pe: q?.peRatio != null ? q.peRatio.toFixed(1) : null,
+        pb: q?.pbRatio != null ? q.pbRatio.toFixed(1) : null,
+        roe: fin?.roe != null ? fin.roe.toFixed(1) : null,
+        marketCap: q?.marketCap != null ? (q.marketCap / 1e8).toFixed(0) : null,
+        ma5: ti?.ma5 != null ? ti.ma5.toFixed(2) : null,
+        ma20: ti?.ma20 != null ? ti.ma20.toFixed(2) : null,
+        ma60: ti?.ma60 != null ? ti.ma60.toFixed(2) : null,
+        macd: ti?.macd != null ? ti.macd.toFixed(2) : null,
+        rsi: ti?.rsi != null ? ti.rsi.toFixed(1) : null,
+      };
+      stockData.technicalIndicators = {
+        ma5: stockData.ma5,
+        ma20: stockData.ma20,
+        macd: stockData.macd,
+        rsi: stockData.rsi,
+      };
+      return { stockData, dataSource: 'real' };
+    }
+  } catch (e) {
+    console.warn('[AIChat] 获取真实股票数据失败，降级演示数据:', e);
+  }
+  return { stockData: buildDemoStockData(symbol), dataSource: 'demo' };
+}
+
+// ============================================================
 // 个股诊断
 // ============================================================
 
@@ -153,26 +255,9 @@ router.get('/ai/diagnose/:symbol', asyncHandler(async (req: Request, res: Respon
   const { symbol } = req.params;
 
   try {
-    // TODO: 从数据库/缓存获取股票数据
-    const stockData = {
-      name: '示例股票',
-      symbol,
-      industry: '示例行业',
-      price: '100.00',
-      change: '2.5',
-      pe: '15.5',
-      pb: '1.8',
-      roe: '12.5',
-      marketCap: '500',
-      ma5: '99.5',
-      ma20: '98.0',
-      ma60: '95.0',
-      macd: '0.5',
-      rsi: '65',
-    };
-
+    const { stockData, dataSource } = await resolveStockData(symbol);
     const diagnosis = await aiService.diagnoseStock(stockData);
-    res.json({ diagnosis });
+    res.json({ diagnosis, dataSource });
   } catch (error) {
     logger.error('Stock diagnosis error:', error as Error);
     res.status(500).json({ error: '个股诊断失败' });
@@ -187,17 +272,12 @@ router.post('/ai/strategy', asyncHandler(async (req: Request, res: Response) => 
   const { symbol, riskLevel, horizon, position } = req.body;
 
   try {
-    // TODO: 从数据库/缓存获取股票数据
+    const { stockData: base, dataSource } = await resolveStockData(symbol);
     const stockData = {
-      name: '示例股票',
-      symbol,
-      price: '100.00',
-      technicalIndicators: {
-        ma5: '99.5',
-        ma20: '98.0',
-        macd: '0.5',
-        rsi: '65',
-      },
+      name: base.name,
+      symbol: base.symbol,
+      price: base.price,
+      technicalIndicators: base.technicalIndicators as Record<string, unknown>,
     };
 
     const userPreference = {
@@ -207,7 +287,7 @@ router.post('/ai/strategy', asyncHandler(async (req: Request, res: Response) => 
     };
 
     const strategy = await aiService.generateStrategy(stockData, userPreference);
-    res.json({ strategy });
+    res.json({ strategy, dataSource });
   } catch (error) {
     logger.error('Strategy generation error:', error as Error);
     res.status(500).json({ error: '策略生成失败' });

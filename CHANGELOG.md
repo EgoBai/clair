@@ -33,6 +33,26 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.4.0] - 2026-07-28 (第16轮 — 战略重构 P1 单点真实化收官)
+
+### 新增
+- **知识库「AI 润色」**（`frontend/src/utils/notePolish.ts` 48行 + `KnowledgeBase.tsx` +95行 + `knowledgeStore.updateEntry`）
+  - 真实 LLM 链路：aiClient.chat → 后端 LLM 网关（落实 D5：非本地模板规则）
+  - 15s 超时保护；原文 vs 润色稿对比 Modal，用户确认「采用」才覆盖
+  - 失败降级不做假润色，仅提示"原文未改动"；已润色笔记带「AI 润色」Tag
+
+### 变更
+- **AI 端点 mock 全清**（`backend/src/api/ai-chat.ts` +150行）
+  - `/ai/diagnose/:symbol`、`/ai/strategy` 由硬编码"示例股票"切换为真实 DB 数据（`getStockWithLatestQuote` + 技术/财务指标末项）
+  - DB 未命中时 FNV-1a+mulberry32 确定性演示兜底；响应新增 `dataSource: 'real' | 'demo'` 字段（结构向后兼容）
+  - `/ai/market-insight-llm` 经幂等检查确认此前已接真实板块数据
+- 至此战略重构 **P0（基建硬化）+ P1（单点真实化）两阶段完成**；真实 AI 端到端输出仅差 DeepSeek API key（D14）
+
+### 质量
+- 前端 tsc 0 错 / build 4.33s / guard P0=0 / E2E chromium 20/20 / 6 关键路由 200；后端 tsc 无新增错误
+
+---
+
 ## [3.3.0] - 2026-07-27 (第15轮 — 战略重构 P0 基建硬化启动)
 
 ### 新增

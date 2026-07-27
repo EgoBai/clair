@@ -28,6 +28,7 @@ import {
   MessageOutlined,
   ExclamationCircleOutlined,
   BulbOutlined,
+  HighlightOutlined,
 } from '@ant-design/icons';
 import {
   getEntries,
@@ -36,6 +37,7 @@ import {
   searchEntries,
   saveManualNote,
   getNoteStats,
+  updateEntry,
   CATEGORIES,
   type KnowledgeEntry,
   type KnowledgeCategory,
@@ -43,6 +45,7 @@ import {
 } from '../utils/knowledgeStore';
 import { renderMarkdown } from '../utils/markdown';
 import { DEMO_NOTES } from '../utils/demoData';
+import { polishNote } from '../utils/notePolish';
 import { THEME } from '../styles/theme-constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -102,9 +105,11 @@ interface NoteCardProps {
   expanded: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  onPolish: () => void;
+  polishing: boolean;
 }
 
-const NoteCard: React.FC<NoteCardProps> = ({ entry, expanded, onToggle, onDelete }) => {
+const NoteCard: React.FC<NoteCardProps> = ({ entry, expanded, onToggle, onDelete, onPolish, polishing }) => {
   const categoryInfo = CATEGORIES.find(c => c.key === entry.category);
   const answerPreview = entry.answer.length > 120
     ? entry.answer.slice(0, 120).replace(/\n/g, ' ') + '...'
@@ -148,6 +153,19 @@ const NoteCard: React.FC<NoteCardProps> = ({ entry, expanded, onToggle, onDelete
               {categoryInfo.icon} {entry.category}
             </Tag>
           )}
+          <Tooltip title={entry.id.startsWith('demo-') ? '演示笔记暂不支持 AI 润色' : '用 AI 润色此笔记'}>
+            <Button
+              type="text"
+              size="small"
+              icon={<HighlightOutlined />}
+              loading={polishing}
+              disabled={entry.id.startsWith('demo-')}
+              onClick={e => { e.stopPropagation(); onPolish(); }}
+              style={{ color: polishing ? undefined : ACCENT }}
+            >
+              润色
+            </Button>
+          </Tooltip>
           <Tooltip title="删除此笔记">
             <Button
               type="text"
@@ -205,6 +223,11 @@ const NoteCard: React.FC<NoteCardProps> = ({ entry, expanded, onToggle, onDelete
             <MessageOutlined style={{ fontSize: 10 }} /> AI 对话
           </Tag>
         )}
+        {entry.polished && (
+          <Tag color="geekblue" style={{ borderRadius: 4, fontSize: 11, margin: 0 }}>
+            <HighlightOutlined style={{ fontSize: 10 }} /> AI 润色
+          </Tag>
+        )}
         {entry.tags.length > 0 && (
           <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {entry.tags.map(tag => (
@@ -236,6 +259,14 @@ const KnowledgeBase: React.FC = () => {
   const [noteContent, setNoteContent] = useState('');
   const [noteCategory, setNoteCategory] = useState<KnowledgeCategory>('学习笔记');
   const [saving, setSaving] = useState(false);
+
+  // AI 润色状态：正在润色的笔记 id / 润色对比弹窗
+  const [polishingId, setPolishingId] = useState<string | null>(null);
+  const [polishModal, setPolishModal] = useState<{
+    original: string;
+    polished: string;
+    entryId: string;
+  } | null>(null);
 
   // ============================================================
   // 数据加载
@@ -337,6 +368,33 @@ const KnowledgeBase: React.FC = () => {
     setNoteCategory('学习笔记');
     setModalVisible(true);
   }, []);
+
+  // ============================================================
+  // AI 润色 (D5: 必须走真实 LLM，由 aiClient.chat → 后端 LLM 网关)
+  // ============================================================
+  const handlePolish = useCallback(async (entry: KnowledgeEntry) => {
+    // 演示笔记不在 localStorage 中，禁用润色
+    if (entry.id.startsWith('demo-')) return;
+    setPolishingId(entry.id);
+    try {
+      const polished = await polishNote(entry.answer);
+      setPolishModal({ original: entry.answer, polished, entryId: entry.id });
+    } catch {
+      // 失败/超时：保持原文不变，仅提示降级（不做假润色）
+      message.warning('AI 服务暂不可用，润色已降级，原文未改动');
+    } finally {
+      setPolishingId(null);
+    }
+  }, []);
+
+  // 采用润色稿：更新笔记正文 + 标记已润色（走既有 store 更新机制）
+  const handleAdoptPolish = useCallback(() => {
+    if (!polishModal) return;
+    updateEntry(polishModal.entryId, { answer: polishModal.polished, polished: true });
+    setPolishModal(null);
+    loadData();
+    message.success('已采用 AI 润色稿');
+  }, [polishModal, loadData]);
 
   // ============================================================
   // 渲染
@@ -547,6 +605,8 @@ const KnowledgeBase: React.FC = () => {
                 expanded={expandedId === entry.id}
                 onToggle={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
                 onDelete={() => handleDelete(entry.id)}
+                onPolish={() => handlePolish(entry)}
+                polishing={polishingId === entry.id}
               />
             ))}
             {/* 列表底部提示 */}
@@ -642,6 +702,71 @@ const KnowledgeBase: React.FC = () => {
               />
             </div>
           </div>
+        </Modal>
+
+        {/* ============================================================ */}
+        {/* AI 润色对比弹窗: 原文 vs 润色稿 (采用才覆盖保存)                */}
+        {/* ============================================================ */}
+        <Modal
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <HighlightOutlined style={{ color: ACCENT }} />
+              <span style={{ color: TEXT }}>AI 润色对比</span>
+            </div>
+          }
+          open={!!polishModal}
+          onCancel={() => setPolishModal(null)}
+          onOk={handleAdoptPolish}
+          okText="采用润色稿"
+          cancelText="放弃"
+          okButtonProps={{ disabled: !polishModal }}
+          width={760}
+          destroyOnClose
+          styles={{ body: { padding: '20px 24px' } }}
+        >
+          {polishModal && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ color: TEXT_SEC, fontSize: 13 }}>
+                请确认润色结果，点击下方「采用润色稿」才会覆盖原笔记。
+              </div>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, color: THEME.textMuted, marginBottom: 6,
+                  }}>
+                    原文
+                  </div>
+                  <div
+                    style={{
+                      background: 'var(--bg-tertiary, #1c2333)',
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: 10, padding: '12px 14px',
+                      fontSize: 13, lineHeight: 1.75, color: TEXT_SEC,
+                      maxHeight: 320, overflow: 'auto',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(polishModal.original) }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, color: ACCENT, marginBottom: 6,
+                  }}>
+                    AI 润色稿
+                  </div>
+                  <div
+                    style={{
+                      background: 'var(--bg-tertiary, #1c2333)',
+                      border: `1px solid ${ACCENT}`,
+                      borderRadius: 10, padding: '12px 14px',
+                      fontSize: 13, lineHeight: 1.75, color: TEXT,
+                      maxHeight: 320, overflow: 'auto',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(polishModal.polished) }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </Modal>
       </div>
     </div>

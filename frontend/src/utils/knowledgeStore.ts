@@ -22,6 +22,7 @@ export interface KnowledgeEntry {
   page: string;
   symbol?: string;
   createdAt: string; // ISO 8601
+  polished?: boolean; // 是否经 AI 润色
 }
 
 export interface NoteStats {
@@ -110,6 +111,18 @@ export function saveManualNote(data: {
 /** 删除笔记 */
 export function deleteEntry(id: string): void {
   writeAll(readAll().filter(e => e.id !== id));
+}
+
+/** 更新笔记 (最小 update action: 局部 patch 已存条目) */
+export function updateEntry(
+  id: string,
+  patch: Partial<Omit<KnowledgeEntry, 'id' | 'createdAt'>>,
+): void {
+  const entries = readAll();
+  const idx = entries.findIndex(e => e.id === id);
+  if (idx === -1) return;
+  entries[idx] = { ...entries[idx], ...patch };
+  writeAll(entries);
 }
 
 /** 获取笔记列表 (可按分类筛选) */
