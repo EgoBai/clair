@@ -40,6 +40,9 @@ export const ROUTE_PATHS = {
   // Sprint 5 多资产
   HK_CONNECT: '/hk-connect',
   ETF: '/etf',
+  // Sprint 6 战略重构：D4 资金流 + P2 游戏化
+  FUND_FLOW: '/fund-flow',
+  JOURNEY: '/journey',
 } as const;
 
 // 路由配置类型

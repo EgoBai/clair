@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';
 import { generateBacktestDemo } from '../utils/backtestDemo';
+import { useGamificationStore } from '../store/useGamificationStore';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -113,6 +114,8 @@ const BacktestPage: React.FC = () => {
       console.error('回测失败，已用演示数据兜底:', e);
     } finally {
       setLoading(false);
+      // 游戏化埋点：运行回测事件（backtest_run）
+      useGamificationStore.getState().track('backtest_run');
     }
   };
 

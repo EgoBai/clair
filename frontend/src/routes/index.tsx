@@ -50,6 +50,10 @@ const FactorLabPage = lazy(() => import('../pages/FactorLabPage'));
 const HKConnectPage = lazy(() => import('../pages/HKConnectPage'));
 const ETFPage = lazy(() => import('../pages/ETFPage'));
 
+// Sprint 6 战略重构：D4 资金流 + P2 游戏化
+const FundFlowPage = lazy(() => import('../pages/FundFlowPage'));
+const JourneyPage = lazy(() => import('../pages/JourneyPage'));
+
 // 404
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
 
@@ -99,6 +103,10 @@ export const AppRoutes = () => {
         {/* Sprint 5 多资产 */}
         <Route path="hk-connect" element={<LazyPage component={HKConnectPage} name="港股通" />} />
         <Route path="etf" element={<LazyPage component={ETFPage} name="ETF中心" />} />
+
+        {/* Sprint 6 战略重构：D4 资金流 + P2 游戏化 */}
+        <Route path="fund-flow" element={<LazyPage component={FundFlowPage} name="资金流向" />} />
+        <Route path="journey" element={<LazyPage component={JourneyPage} name="成长中心" />} />
 
         <Route path="knowledge" element={<LazyPage component={KnowledgeBase} name="投资笔记" />} />
         <Route path="strategies" element={<LazyPage component={StrategyTemplatesPage} name="策略模板" />} />

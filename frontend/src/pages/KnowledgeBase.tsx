@@ -46,6 +46,7 @@ import {
 import { renderMarkdown } from '../utils/markdown';
 import { DEMO_NOTES } from '../utils/demoData';
 import { polishNote } from '../utils/notePolish';
+import { useGamificationStore } from '../store/useGamificationStore';
 import { THEME } from '../styles/theme-constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -343,6 +344,8 @@ const KnowledgeBase: React.FC = () => {
       setNoteContent('');
       setNoteCategory('学习笔记');
       loadData();
+      // 游戏化埋点：记笔记事件（note_created）
+      useGamificationStore.getState().track('note_created');
 
       // Toast: 保存成功，引导用户可与 AI 继续对话
       message.success({

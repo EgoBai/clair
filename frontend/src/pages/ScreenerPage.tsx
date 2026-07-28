@@ -26,6 +26,7 @@ const { Title, Text } = Typography;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';
+import { useGamificationStore } from '../store/useGamificationStore';
 import { parseStockList } from '@shared/types';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
@@ -252,6 +253,15 @@ const ScreenerPage: React.FC = () => {
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  // 游戏化埋点：使用选股器（config 无专属计数器，复用 page_visited_distinct 计入「探索者」成就；每会话仅记一次）
+  const screenerTracked = useRef(false);
+  useEffect(() => {
+    if (!screenerTracked.current) {
+      screenerTracked.current = true;
+      useGamificationStore.getState().track('page_visited_distinct');
+    }
   }, []);
 
   // 技术指标缓存

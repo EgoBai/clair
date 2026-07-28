@@ -25,6 +25,15 @@ import { Tag } from 'antd';
 import { renderMarkdown } from '../../utils/markdown';
 import { saveEntry, CATEGORIES } from '../../utils/knowledgeStore';
 import { buildFallbackReply } from '../../utils/aiChatFallback';
+import { useCompanion } from '../../store/useGamificationStore';
+
+// 伴生情绪 → emoji（情绪类型来自 config 的 CompanionMood）
+const COMPANION_MOOD_EMOJI: Record<string, string> = {
+  excited: '🤩',
+  happy: '😊',
+  calm: '😌',
+  sleepy: '😴',
+};
 
 // ============================================================
 // 类型定义
@@ -146,6 +155,7 @@ interface ChatPanelProps {
 }
 
 const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions = [], prefilledQuestion }) => {
+  const companion = useCompanion();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -325,6 +335,9 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
           {pageContext && (
             <span className="page-badge">{pageContext.pageName}</span>
           )}
+          <span className="page-badge" style={{ background: 'rgba(251,191,36,0.18)', color: '#fbbf24' }}>
+            {COMPANION_MOOD_EMOJI[companion.mood]} {companion.name}
+          </span>
         </div>
         <div className="chat-status">
           {isLoading ? '生成中...' : '在线'}

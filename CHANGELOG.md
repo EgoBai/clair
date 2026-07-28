@@ -33,6 +33,23 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.6.0] - 2026-07-28 (第18轮 — D4 前端收官 + P2 游戏化二期 UI 首秀)
+
+### 新增
+- **D4-b 资金流前端页**（`frontend/src/pages/FundFlowPage.tsx` 411行 + `utils/fundFlowPageDemo.ts` 130行，路由 `/fund-flow`）
+  - 5 区块：市场资金概览 / 个股资金流查询（GET `/api/fund-flow/:symbol` 趋势图）/ 行业资金流排行（GET `/industry` 条形图+表）/ **外资视角**（GET `/global`，Alpha Vantage 骨架数据）/ 数据源状态条（`dataSource` Tag：真实源 blue、演示 gold）+ `/meta` provider 链诊断折叠面板
+  - 每请求 try/catch + AbortController 超时；后端不可达时 LCG 种子 20260728 确定性演示兜底，页面不空转
+  - **D4 全链路闭环：后端 5 适配器骨架（3.5.0）+ 前端消费展示（本版）**，真 key（D14）到位即端到端真实数据
+- **P2-b 游戏化二期 UI 首秀**（用户可见）
+  - 新建成长中心 `JourneyPage`（263行，路由 `/journey`）：成长概览（等级/称号/XP进度）/ 14 成就墙 / 任务面板（daily/weekly/onboarding）/ 伴生助手卡
+  - `track()` 埋点接入 4 高频页：StockDetail(`stock_viewed`) / Screener(`page_visited_distinct`) / KnowledgeBase(`note_created`) / Backtest(`backtest_run`)，均 ≤9 行最小侵入
+  - ChatPanel 头部注入伴生状态（情绪 emoji + 昵称，+13 行），不触碰对话/流式/降级逻辑
+
+### 质量
+- 前端 tsc 0 错 / build 4.44s / guard P0=0 / E2E chromium 20/20 / 6 路由 200；新页 chunk（JourneyPage/FundFlowPage）确认生成
+
+---
+
 ## [3.5.0] - 2026-07-28 (第17轮 — D4 资金流适配器骨架 + P2 游戏化 store 一期)
 
 ### 新增

@@ -22,8 +22,12 @@ import { analyze } from '../utils/strategy';
 import { computeIndicatorSeries } from '../utils/indicatorCalc';
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 import ValuationPanel from '../components/valuation/ValuationPanel';
+import { useGamificationStore } from '../store/useGamificationStore';
 
 const { Title, Text } = Typography;
+
+// 游戏化埋点：查看个股详情（每个不同标的仅记一次，防 StrictMode 重复计数）
+const VIEWED_STOCKS = new Set<string>();
 
 import { THEME } from '../styles/theme-constants';
 // 配色方案
@@ -193,6 +197,14 @@ const StockDetailPage: React.FC = () => {
 
   useEffect(() => { fetchStockData(); }, [fetchStockData]);
   useEffect(() => { fetchKlineData(); }, [fetchKlineData]);
+
+  // 游戏化埋点：查看个股详情事件（stock_viewed）
+  useEffect(() => {
+    if (symbol && !VIEWED_STOCKS.has(symbol)) {
+      VIEWED_STOCKS.add(symbol);
+      useGamificationStore.getState().track('stock_viewed');
+    }
+  }, [symbol]);
 
   useEffect(() => {
     const handler = () => setIsMobile(window.innerWidth < 768);
