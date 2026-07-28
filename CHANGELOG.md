@@ -33,6 +33,21 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.7.0] - 2026-07-28 (第19轮 — P3 知识库 RAG 一期 + D7 导航 IA 方案)
+
+### Added
+- **知识库 RAG 一期（P3 差异化首块，无需任何 API key）**：新增 `frontend/src/utils/knowledgeRetrieval.ts`（158 行）——确定性本地检索引擎：中文双字 bigram + 英文/数字 token 分词，加权打分（tags×3 / question×2 / answer×1 / symbol 精确 +5）+ 180 天线性时间衰减，`buildRagContext` 将命中笔记压缩为 ≤1200 字系统提示。
+- **ChatPanel 检索增强注入**（+25 行）：发送消息前检索用户投资笔记，命中 ≥1 条时以 `system` 角色注入对话上下文（现有系统提示后、历史消息前），AI 回复气泡显示「已参考 N 条笔记」蓝色 Tag；检索失败静默跳过，不影响流式/降级/防重复既有逻辑。
+- **D7 导航信息架构方案**：新增 `design/navigation-ia-proposal.md`（336 行，纯文档）——33 路由现状全审计（15+ 页面仅 URL 直达不可发现）、6 组投研工作流分组推荐案 + 5 阶段旅程导航备选案、GlobalSearch Header 恢复集成点（D3 联动）、移动端底部 Tab 响应式策略、12 个实施 Ticket 拆解。**待用户拍板（D15）后进入实现**。
+
+### Fixed / Found
+- 审计附带发现：⌘K 全局搜索快捷键处理器存在但目标组件未挂载，实际失效（D3 新证据）；4 条路由缺 `ROUTE_PATHS` 常量（新观察项 T8，待补齐）。
+
+### Quality
+- tsc 0 错；build 4.54s 一次通过；ui-guard P0=0；E2E chromium 20/20；6 关键路由 200。
+
+---
+
 ## [3.6.0] - 2026-07-28 (第18轮 — D4 前端收官 + P2 游戏化二期 UI 首秀)
 
 ### 新增
