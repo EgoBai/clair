@@ -9,8 +9,12 @@ import axios from 'axios';
 import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
+import { getDemoProvider, getFundFlowMeta, getGlobalIndicators } from '../services/fundFlowProviders';
 
 const router = Router();
+
+/** DemoProvider 实例：用于确定性历史兜底（替代原 Math.random mock） */
+const demoProvider = getDemoProvider();
 
 export interface FundFlowData {
   symbol: string;
@@ -112,83 +116,60 @@ async function fetchIndustryFlow(): Promise<IndustryFlowData[]> {
 }
 
 /**
- * 生成模拟历史资金流向数据
+ * 生成历史资金流向数据（确定性兜底）。
+ * 改用 DemoProvider 的 LCG 确定性历史，替代原 Math.random 非确定性 mock；
+ * 返回结构与旧实现一致，同一 symbol 每次结果相同。
  */
-function generateMockHistory(symbol: string, days: number = 10): FundFlowData[] {
-  const result: FundFlowData[] = [];
-  const today = new Date();
-
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-
-    // 跳过周末
-    const dow = date.getDay();
-    if (dow === 0 || dow === 6) continue;
-
-    const rand = () => (Math.random() - 0.5) * 20000;
-    result.push({
-      symbol,
-      name: '',
-      mainNet: rand(),
-      superLargeNet: rand() * 0.3,
-      largeNet: rand() * 0.4,
-      mediumNet: rand() * 0.2,
-      smallNet: rand() * 0.1,
-      tradeDate: date.toISOString().split('T')[0],
-    });
-  }
-
-  return result;
+async function generateMockHistory(symbol: string, days: number = 10): Promise<FundFlowData[]> {
+  const history = await demoProvider.fetchFlowHistory(symbol, days);
+  return history.map((h) => ({
+    symbol: h.symbol,
+    name: '',
+    mainNet: h.mainNet,
+    superLargeNet: h.superLargeNet,
+    largeNet: h.largeNet,
+    mediumNet: h.mediumNet,
+    smallNet: h.smallNet,
+    tradeDate: h.tradeDate,
+  }));
 }
 
 // ==================== API 路由 ====================
+// ⚠️ 路由顺序约定：所有"静态路径"路由（/meta、/global、/industry、/batch）
+// 必须注册在 /fund-flow/:symbol 之前，否则会被 Express 的参数路由 `:symbol`
+// 吞掉（例如 GET /fund-flow/meta 会被当作 symbol="meta" 处理）。
+// 历史既有 bug：原 /industry 注册在 /:symbol 之后，现已一并前置修正。
 
 /**
- * 获取个股资金流向
- * GET /api/fund-flow/:symbol
+ * 资金流适配器诊断元信息
+ * GET /api/fund-flow/meta
+ * 返回当前生效的 provider 链与各 env key 配置状态，供前端/运维排查。
  */
-router.get('/fund-flow/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.fundFlowQuery), async (req: Request, res: Response) => {
+router.get('/fund-flow/meta', (_req: Request, res: Response) => {
   try {
-    const { symbol } = req.params;
-    const stock = await db.getStockBySymbol(symbol);
+    res.json({ success: true, data: getFundFlowMeta() });
+  } catch (error) {
+    console.error('获取资金流元信息失败:', error);
+    res.status(500).json({ success: false, error: '获取资金流元信息失败' });
+  }
+});
 
-    if (!stock) {
-      return res.status(404).json({ success: false, error: '股票未找到' });
-    }
-
-    let flowData = await fetchFundFlow(symbol);
-
-    if (!flowData) {
-      // 返回模拟数据
-      flowData = {
-        symbol: stock.symbol,
-        name: stock.name,
-        mainNet: 0,
-        superLargeNet: 0,
-        largeNet: 0,
-        mediumNet: 0,
-        smallNet: 0,
-        tradeDate: new Date().toISOString().split('T')[0],
-      };
-    }
-
-    flowData.name = stock.name;
-
-    // 获取历史资金流向
-    const days = parseInt(req.query.days as string) || 10;
-    const history = generateMockHistory(symbol, days);
-
+/**
+ * 国际资金视角（外资 / 全球维度）
+ * GET /api/fund-flow/global
+ * Alpha Vantage 可用且有真实数据则走真实调用，否则 DemoProvider 确定性生成
+ * （北向/美元指数关联/全球风险偏好/离岸人民币 等多个演示指标序列）。
+ */
+router.get('/fund-flow/global', async (_req: Request, res: Response) => {
+  try {
+    const { dataSource, indicators } = await getGlobalIndicators();
     res.json({
       success: true,
-      data: {
-        current: flowData,
-        history,
-      },
+      data: { indicators, dataSource },
     });
   } catch (error) {
-    console.error('获取资金流向失败:', error);
-    res.status(500).json({ success: false, error: '获取资金流向失败' });
+    console.error('获取国际资金视角失败:', error);
+    res.status(500).json({ success: false, error: '获取国际资金视角失败' });
   }
 });
 
@@ -213,13 +194,19 @@ router.get('/fund-flow/industry', validateQuery(schemas.industryFlowQuery), asyn
         .orderBy('stockCount', 'desc')
         .limit(limit);
 
-      industryFlow = industries.map((ind: Record<string, string | number>) => ({
-        industry: String(ind.industry),
-        mainNet: (Math.random() - 0.5) * 50000,
-        netInflow: (Math.random() - 0.5) * 30000,
-        stockCount: Number(ind.stockCount),
-        topStocks: [],
-      }));
+      // 确定性演示兜底：以行业名派生种子（DemoProvider LCG），替代原 Math.random
+      industryFlow = await Promise.all(
+        industries.map(async (ind: Record<string, string | number>) => {
+          const f = await demoProvider.fetchStockFlow(`industry:${String(ind.industry)}`);
+          return {
+            industry: String(ind.industry),
+            mainNet: (f?.mainNet ?? 0) * 2.5, // 缩放至 ±25000 量级
+            netInflow: (f?.largeNet ?? 0) * 3.75,
+            stockCount: Number(ind.stockCount),
+            topStocks: [],
+          };
+        })
+      );
     }
 
     res.json({
@@ -273,6 +260,56 @@ router.post('/fund-flow/batch', validateBody(schemas.fundFlowBatch), async (req:
   } catch (error) {
     console.error('批量获取资金流向失败:', error);
     res.status(500).json({ success: false, error: '批量获取资金流向失败' });
+  }
+});
+
+/**
+ * 获取个股资金流向
+ * GET /api/fund-flow/:symbol
+ * ⚠️ 必须注册在所有静态路径路由之后（见顶部路由顺序约定）。
+ */
+router.get('/fund-flow/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.fundFlowQuery), async (req: Request, res: Response) => {
+  try {
+    const { symbol } = req.params;
+    const stock = await db.getStockBySymbol(symbol);
+
+    if (!stock) {
+      return res.status(404).json({ success: false, error: '股票未找到' });
+    }
+
+    let flowData = await fetchFundFlow(symbol);
+
+    if (!flowData) {
+      // 返回模拟数据
+      flowData = {
+        symbol: stock.symbol,
+        name: stock.name,
+        mainNet: 0,
+        superLargeNet: 0,
+        largeNet: 0,
+        mediumNet: 0,
+        smallNet: 0,
+        tradeDate: new Date().toISOString().split('T')[0],
+      };
+    }
+
+    flowData.name = stock.name;
+
+    // 获取历史资金流向（确定性兜底，替代原 Math.random mock）
+    const days = parseInt(req.query.days as string) || 10;
+    const history = await generateMockHistory(symbol, days);
+
+    res.json({
+      success: true,
+      data: {
+        current: flowData,
+        history,
+        dataSource: 'eastmoney' as const,
+      },
+    });
+  } catch (error) {
+    console.error('获取资金流向失败:', error);
+    res.status(500).json({ success: false, error: '获取资金流向失败' });
   }
 });
 

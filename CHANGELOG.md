@@ -33,6 +33,27 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.5.0] - 2026-07-28 (第17轮 — D4 资金流适配器骨架 + P2 游戏化 store 一期)
+
+### 新增
+- **D4-a 资金流后端适配器骨架**（`backend/src/services/fundFlowProviders.ts` 415行）
+  - 统一 `FundFlowProvider` 接口 + 5 适配器：Tushare Pro（POST api.tushare.pro moneyflow，env `TUSHARE_TOKEN`）/ AkShare（HTTP 代理，env `AKSHARE_PROXY_URL`）/ Alpha Vantage（FX_DAILY 国际资金视角，env `ALPHAVANTAGE_KEY`）/ Eastmoney（既有）/ Demo（FNV-1a^20260728+LCG 确定性链尾兜底）
+  - `resolveProviderChain()` 优先级链 + `getFundFlowMeta()` 诊断；真 key 到位一键切换（D14 选项C）
+  - fund-flow API 新增 `GET /meta`、`GET /global`（外资视角骨架）、响应体 `dataSource` 字段；`.env.example` 记录 3 key
+- **P2-a 游戏化状态机一期**（`frontend/src/config/gamification.ts` 158行 + `frontend/src/store/useGamificationStore.ts` 239行）
+  - 配置驱动：10 级投研叙事成长曲线 + 14 成就 + 7 任务（daily/weekly/onboarding）+ 伴生情绪配置
+  - 五切片 progression/counters/achievements/quests/companion；`track()` 一次埋点联动计数/成就解锁/任务推进/xp 发放（防重复）
+  - persist `clair-gamification`（partialize）+ useShallow 细粒度 hooks；零 UI 侵入，UI 挂载二期
+
+### 修复
+- **fund-flow 既有路由顺序 bug**：`/fund-flow/industry` 原注册在 `/:symbol` 之后被参数路由吞掉，静态路径（/meta /global /industry /batch）全部前置
+- fund-flow 历史与行业兜底 `Math.random` 非确定性 mock 全清，改为 DemoProvider 确定性生成（主理人复核补修行业分支 2 处遗漏）
+
+### 质量
+- 前端 tsc 0 错 / build 5.17s / guard P0=0 / E2E chromium 20/20 / 6 路由 200；后端 tsc 维持基线无新增
+
+---
+
 ## [3.4.0] - 2026-07-28 (第16轮 — 战略重构 P1 单点真实化收官)
 
 ### 新增
