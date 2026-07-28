@@ -33,6 +33,19 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.7.1] - 2026-07-29 (第20轮 — 低风险清理：RAG 检索单测 + T8 路由常量补齐)
+
+### Added
+- **RAG 检索引擎单元测试**：新增 `frontend/src/utils/__tests__/knowledgeRetrieval.test.mts`（21 用例全绿，tsx 直跑独立可复现）——覆盖中文 bigram/英文 token 分词、字段加权排序（tags×3 > question×2 > answer×1）、symbol 精确命中 +5（query token 与 opts.symbol 双路径）、180 天时间衰减区间验证、limit 截断与降序、空态（空 query/无命中/空库）、`buildRagContext` 前缀/单条截断/整体 1200 字上限；Node 环境注入内存版 localStorage shim。
+
+### Fixed
+- **T8 清零**：`routes/paths.ts` 补齐 4 条既有可达路由缺失的 `ROUTE_PATHS` 常量（`INDEX_DETAIL: /index/:symbol`、`SECTOR_DETAIL: /sectors/:symbol`、`RADAR: /radar`、`KNOWLEDGE: /knowledge`），路径字符串与 `routes/index.tsx` 完全一致，不改动任何路由行为（第19轮导航 IA 审计发现项，亦为 IA 实施 T10 前置）。
+
+### Quality
+- tsc 0 错 / build 5.20s 一次过 / guard P0=0 / E2E chromium 20/20 / 7 关键路由 200 / RAG 单测 21/21。
+
+---
+
 ## [3.7.0] - 2026-07-28 (第19轮 — P3 知识库 RAG 一期 + D7 导航 IA 方案)
 
 ### Added
