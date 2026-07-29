@@ -8,8 +8,8 @@ import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { apiService } from '../services/api';
 import { useParams } from 'react-router-dom';
-import { Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Progress, Descriptions, List, Divider } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined, RobotOutlined } from '@ant-design/icons';
+import { Breadcrumb, Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Progress, Descriptions, List, Divider } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined, RobotOutlined, CompassOutlined, StockOutlined } from '@ant-design/icons';
 import { generateDeterministicFinancials, computeFinancialInsight } from '../utils/financialInsightDemo';
 import type { FinancialInsight } from '../utils/financialInsightDemo';
 import {
@@ -421,6 +421,14 @@ export default function FinancialsPage() {
 
   return (
     <div style={{ padding: 16 }}>
+      <Breadcrumb
+        style={{ marginBottom: 12 }}
+        items={[
+          { href: '/', title: <><CompassOutlined /> 发掘</> },
+          { href: '/stocks', title: <><StockOutlined /> 股票</> },
+          { title: `财务三表 · ${targetSymbol}` },
+        ]}
+      />
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>📊 财务报表 - {targetSymbol}</h2>
         <Tag color="blue">最近更新: {new Date().toLocaleDateString('zh-CN')}</Tag>

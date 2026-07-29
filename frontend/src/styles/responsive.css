@@ -135,6 +135,81 @@
     white-space: nowrap;
   }
 
+  /* ==================== 更多 Sheet（移动端底部抽屉）==================== */
+  .more-sheet .ant-drawer-body {
+    padding: 0;
+  }
+
+  .more-sheet-body {
+    padding: 8px 0 calc(8px + var(--safe-area-bottom));
+  }
+
+  .more-sheet-group {
+    padding: 4px 0;
+  }
+
+  .more-sheet-group-title {
+    padding: 10px 16px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .more-sheet-group-items {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .more-sheet-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 16px;
+    border: none;
+    background: none;
+    text-align: left;
+    color: var(--color-text, #111827);
+    font-size: 15px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .more-sheet-item:active {
+    background: var(--color-border, #e5e7eb);
+  }
+
+  .more-sheet-item.active {
+    color: var(--color-primary, #3b82f6);
+  }
+
+  .more-sheet-item-icon {
+    font-size: 18px;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .more-sheet-item.active .more-sheet-item-icon {
+    color: var(--color-primary, #3b82f6);
+  }
+
+  [data-theme="dark"] .more-sheet-item {
+    color: #e0e0e0;
+  }
+
+  [data-theme="dark"] .more-sheet-item:active {
+    background: #1f2a4a;
+  }
+
+  [data-theme="dark"] .more-sheet-item-icon {
+    color: #a0a0b0;
+  }
+
+  [data-theme="dark"] .more-sheet-item.active,
+  [data-theme="dark"] .more-sheet-item.active .more-sheet-item-icon {
+    color: var(--color-primary, #3b82f6);
+  }
+
   /* 主内容区底部留白 */
   .app-content {
     padding-bottom: calc(var(--tab-bar-height) + var(--safe-area-bottom) + 8px) !important;

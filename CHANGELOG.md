@@ -33,6 +33,16 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.8.2] - 2026-07-29 (第24轮 — 导航 IA 响应式补齐：T6 移动端 TabBar 5+更多 Sheet + T8 详情页面包屑)
+
+### Added
+- **T6 移动端 TabBar「5 主入口 + 更多」**（`TabBar.tsx` 63→155 行 + `responsive.css` +70 行）：保留洞察/选股/自选/产业 4 主 Tab，新增「更多」Tab 展开底部 Sheet，动态复用 `NAV_GROUPS` 配置（过滤 4 主 Tab 已覆盖路径，空分组剔除），移动端与桌面侧栏导航体系完全同步；激活态三级判定（主 Tab / 更多 Tab / Sheet 子项 aria-current），触控 ≥48px + safe-area。
+- **T8 详情页面包屑补齐**（3 页各 +11/12 行）：FinancialsPage（首页→股票 `/stocks`→财务三表·symbol）、IndexDetailPage（首页→指数名）、SectorDetailPage（首页→产业地图→板块名），复用 StockDetailPage 既有 Breadcrumb 模式，全部链接指向真实路由（守卫复扫 P0=0）。
+
+### Quality
+- tsc 0 错；build 5.07s 一次过；guard P0=0（INFO 非阻塞）；E2E chromium 20/20；10 核心路由 curl 全 200。
+- 导航 IA 剩余 Ticket：T7 平板折叠、T12。
+
 ## [3.8.1] - 2026-07-29 (第23轮 — 收尾第22轮未提交改动：RAG ChatPanel 接入 + T11 导航单测 + 轮14遗留断言清理)
 
 ### Added

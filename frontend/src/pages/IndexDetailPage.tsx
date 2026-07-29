@@ -4,9 +4,9 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tag, Typography, Card, Statistic, Skeleton } from 'antd';
+import { Breadcrumb, Tag, Typography, Card, Statistic, Skeleton } from 'antd';
 import { LoadingState, EmptyState } from '../components/Common/StateComponents';
-import { ArrowLeftOutlined, RiseOutlined, FallOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, RiseOutlined, FallOutlined, CompassOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
 
@@ -109,6 +109,13 @@ const IndexDetailPage: React.FC = () => {
   return (
     <div style={{ background: BG, minHeight: '100vh' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 24px' }}>
+        <Breadcrumb
+          style={{ marginBottom: 12 }}
+          items={[
+            { href: '/', title: <><CompassOutlined /> 发掘</> },
+            { title: detail.name },
+          ]}
+        />
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>

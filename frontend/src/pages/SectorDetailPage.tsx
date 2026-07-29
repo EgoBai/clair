@@ -7,9 +7,9 @@
 import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip, Skeleton } from 'antd';
+import { Breadcrumb, Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip, Skeleton } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
-import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ArrowDownOutlined, CompassOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import echarts from '../utils/echarts';
 import {
@@ -289,6 +289,14 @@ export default function SectorDetailPage() {
 
   return (
     <div style={{ padding: 16 }}>
+      <Breadcrumb
+        style={{ marginBottom: 12 }}
+        items={[
+          { href: '/', title: <><CompassOutlined /> 发掘</> },
+          { href: '/industry-map', title: <><NodeIndexOutlined /> 产业地图</> },
+          { title: sectorList.find(s => s.code === activeCode)?.name || '行业板块' },
+        ]}
+      />
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>📈 行业板块分析</h2>
         <Space>
