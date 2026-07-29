@@ -33,6 +33,24 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.8.0] - 2026-07-29 (第22轮 — 用户拍板 D15/D3/D14/D2：导航 IA 上线 + 全局搜索复活 + 真实 AI 验证)
+
+### Added
+- **D15 导航 IA 推荐案 A 上线（T1-T3，Mimo）**：新建 `frontend/src/config/navGroups.ts`（126 行，6 组投研工作流分组 24 页面全覆盖：市场总览/个股研究/资金面/组合与风控/量化实验/成长旅程，antd 实名 icon + ROUTE_PATHS 常量引用）；`NavigationMenu.tsx` 重构为两级可折叠侧栏（341 行：分组折叠状态 localStorage `clair-nav-collapsed-groups`、当前路由组强制展开、aria-expanded/aria-current/44px 触控）。**16+ 个原先只能 URL 直达的页面首次获得导航入口**。
+- **D3 GlobalSearch 复活（T4+T5，Hermes）**：`AppLayout.tsx` 顶部挂载 Header 搜索区，孤儿组件 `GlobalSearch.tsx` 首次接线——onSearch 双路合并（`/api/stocks?search=` 真实股票搜索 + 新建 `pageIndex.ts` 24 页面跳转索引），onSelect 分流（股票→个股详情/页面→直达路由）；**⌘K 快捷键复活**（既有处理器随 `data-search-input` 挂载自动生效）。SearchResult 扩展可选 `path` 字段。
+- **D2 启动：小程序迁移评估**：新建 `design/miniprogram-migration-assessment.md`（150 行）——推荐 Taro 4.x React（明确不推荐原生/uni-app）；MVP 6 页窄而深；SSE 流式经 `wx.request enableChunked` 可原生消费后端零改造；**最高风险为金融类目审核合规（证券投资咨询资质）**；POC 四件套待拍板。
+
+### Verified
+- **D14 端到端真实 AI 验证通过**：`backend/.env` 已配置 DeepSeek key（AI_PROVIDER=deepseek），`/api/ai/chat` 真实流式输出验证成功（茅台问答逐 token SSE）——AI 链路"通电"确认，非演示兜底。剩余缺口：TUSHARE_TOKEN/ALPHAVANTAGE_KEY 未配置，fund-flow 仍演示兜底。
+
+### Changed
+- 侧栏样式全面 token 化：清除 `#1a1a2e/#16213e` 渐变与 `#667eea/#764ba2` 紫色硬编码，统一 `--bg-*/--text-*/--accent-*` 设计变量；GlobalSearch 下拉面板深色主题适配（8 处硬编码色→token）。
+
+### Quality
+- tsc 0 错 / build 5.28s 一次过 / guard P0=0 / E2E chromium 20/20 / 6 关键路由 200 / grep 计数复核全部属实。
+
+---
+
 ## [3.7.1] - 2026-07-29 (第20轮 — 低风险清理：RAG 检索单测 + T8 路由常量补齐)
 
 ### Added

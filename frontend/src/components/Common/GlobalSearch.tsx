@@ -11,12 +11,13 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { useSearchHistory } from '../../hooks/useSearchHistory';
 import SearchHighlight from '../Common/SearchHighlight';
 
-interface SearchResult {
+export interface SearchResult {
   id: string | number;
   symbol: string;
   name: string;
   type?: string;
   industry?: string;
+  path?: string;
 }
 
 interface GlobalSearchProps {
@@ -142,7 +143,7 @@ export default function GlobalSearch({
     <div ref={dropdownRef} style={{ position: 'relative', width: '100%', maxWidth: 480 }}>
       <Input
         ref={inputRef}
-        prefix={<SearchOutlined style={{ color: '#999' }} />}
+        prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
         placeholder={placeholder}
         value={query}
         onChange={handleInputChange}
@@ -151,7 +152,7 @@ export default function GlobalSearch({
         suffix={
           query ? (
             <CloseOutlined
-              style={{ cursor: 'pointer', color: '#999' }}
+              style={{ cursor: 'pointer', color: 'var(--text-tertiary)' }}
               onClick={() => { setQuery(''); setResults([]); }}
             />
           ) : loading ? <Spin size="small" /> : null
@@ -168,10 +169,10 @@ export default function GlobalSearch({
           left: 0,
           right: 0,
           marginTop: 4,
-          background: '#fff',
+          background: 'var(--bg-elevated)',
           borderRadius: 8,
           boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
-          border: '1px solid #e2e8f0',
+          border: '1px solid var(--border-default)',
           maxHeight: 400,
           overflowY: 'auto',
           zIndex: 1000,
@@ -185,7 +186,7 @@ export default function GlobalSearch({
                 alignItems: 'center',
                 marginBottom: 8,
                 fontSize: 12,
-                color: '#999',
+                color: 'var(--text-tertiary)',
               }}>
                 <span><ClockCircleOutlined /> 搜索历史</span>
                 <Button type="link" size="small" onClick={() => {}}>
@@ -198,8 +199,8 @@ export default function GlobalSearch({
                     key={item}
                     style={{
                       cursor: 'pointer',
-                      background: activeIndex === i ? '#e6f7ff' : undefined,
-                      border: activeIndex === i ? '1px solid #1890ff' : undefined,
+                      background: activeIndex === i ? 'var(--accent-light)' : undefined,
+                      border: activeIndex === i ? '1px solid var(--accent-border)' : undefined,
                     }}
                     onClick={() => handleHistorySelect(item)}
                     closable
@@ -221,8 +222,8 @@ export default function GlobalSearch({
                   style={{
                     padding: '10px 16px',
                     cursor: 'pointer',
-                    background: activeIndex === i ? '#f0f7ff' : undefined,
-                    borderLeft: activeIndex === i ? '3px solid #1890ff' : '3px solid transparent',
+                    background: activeIndex === i ? 'var(--accent-light)' : undefined,
+                    borderLeft: activeIndex === i ? '3px solid var(--accent-solid)' : '3px solid transparent',
                   }}
                   onClick={() => handleSelect(item)}
                   onMouseEnter={() => setActiveIndex(i)}
@@ -231,7 +232,7 @@ export default function GlobalSearch({
                     <div style={{ fontWeight: 600 }}>
                       <SearchHighlight text={item.symbol} query={query} />
                     </div>
-                    <div style={{ fontSize: 13, color: '#666' }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                       <SearchHighlight text={item.name} query={query} />
                       {item.industry && (
                         <Tag style={{ marginLeft: 8, fontSize: 11 }}>{item.industry}</Tag>

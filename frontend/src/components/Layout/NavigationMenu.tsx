@@ -1,74 +1,29 @@
 import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { DownOutlined } from '@ant-design/icons';
+import { NAV_GROUPS } from '../../config/navGroups';
 import { ROUTE_PATHS } from '../../routes/paths';
 
-// 导航项类型
-interface NavItem {
-  id: string;
-  label: string;
-  path: string;
-  icon: string;
-  description?: string;
-  children?: NavItem[];
-}
+// 折叠状态持久化 key（localStorage）
+const COLLAPSED_STORAGE_KEY = 'clair-nav-collapsed-groups';
 
-// 导航配置
-const NAV_ITEMS: NavItem[] = [
-  {
-    id: 'discover',
-    label: '市场洞察',
-    path: '/',
-    icon: '🔭',
-    description: '大盘趋势 · 板块轮动 · 资金流向 · AI解读'
-  },
-  {
-    id: 'market',
-    label: '策略选股',
-    path: ROUTE_PATHS.SCREENER,
-    icon: '🎯',
-    description: 'AI策略推荐 · 核心指标组合 · 智能筛选'
-  },
-  {
-    id: 'watchlist',
-    label: '自选组合',
-    path: ROUTE_PATHS.WATCHLIST,
-    icon: '⭐',
-    description: '实时行情 · 异动提醒 · AI总结 · AI复盘 · 推荐发现'
-  },
-  {
-    id: 'industry-map',
-    label: '产业地图',
-    path: '/industry-map',
-    icon: '🗺️',
-    description: '产业链图谱 · 投资逻辑 · AI解读 · 核心标的'
-  },
-  {
-    id: 'radar',
-    label: '潜力雷达',
-    path: '/radar',
-    icon: '🏆',
-    description: 'AI多因子评分 · 潜力股排行 · 综合分析'
-  },
-  {
-    id: 'knowledge',
-    label: '投资笔记',
-    path: '/knowledge',
-    icon: '📝',
-    description: 'AI问答收藏·手动笔记·投资积累'
+// 读取持久化的折叠状态 { [groupId]: true }
+function readCollapsedGroups(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+  } catch {
+    return {};
   }
-];
+}
 
 // 导航菜单组件
 export const NavigationMenu: React.FC = () => {
   const location = useLocation();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // 默认全部展开：未记录的组视为展开（collapsed 只记录"已折叠"的组）
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsedGroups);
 
-  // 处理导航项点击
-  const handleNavClick = () => {
-    setIsMobileMenuOpen(false);
-  };
-
-  // 判断是否为当前路径
+  // 判断路径是否激活：首页精确匹配，其余前缀匹配（覆盖 /stocks/:symbol 等详情级）
   const isActivePath = (path: string): boolean => {
     if (path === ROUTE_PATHS.HOME) {
       return location.pathname === path;
@@ -76,284 +31,285 @@ export const NavigationMenu: React.FC = () => {
     return location.pathname.startsWith(path);
   };
 
-  // 移动端菜单切换
-  const toggleMobileMenu = () => {
-    setIsMobileMenuOpen(!isMobileMenuOpen);
+  // 当前路由所在分组 id（该组必须展开）
+  const activeGroupId = NAV_GROUPS.find((g) => g.items.some((i) => isActivePath(i.path)))?.id;
+
+  // 切换分组折叠态并持久化
+  const toggleGroup = (groupId: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [groupId]: !prev[groupId] };
+      try {
+        localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* 忽略持久化失败（隐私模式等） */
+      }
+      return next;
+    });
   };
 
-  return (
-    <nav className="navigation-menu">
-      {/* 移动端菜单按钮 */}
-      <div className="mobile-menu-button">
-        <button
-          onClick={toggleMobileMenu}
-          className="menu-toggle"
-          aria-label={isMobileMenuOpen ? '关闭菜单' : '打开菜单'}
-        >
-          <span className="menu-icon">{isMobileMenuOpen ? '✕' : '☰'}</span>
-          <span className="menu-label">菜单</span>
-        </button>
-      </div>
+  // 分组是否展开：未折叠 OR 属于当前路由所在组（必展开）
+  const isGroupExpanded = (groupId: string): boolean =>
+    !collapsed[groupId] || groupId === activeGroupId;
 
-      {/* 桌面端导航 */}
-      <div className={`nav-container ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
+  return (
+    <nav className="navigation-menu" aria-label="主导航">
+      <div className="nav-container">
+        {/* 品牌头 */}
         <div className="nav-header">
           <h2 className="nav-title">澄观</h2>
           <div className="nav-subtitle">Clair · 水静则明</div>
         </div>
 
-        <ul className="nav-list">
-          {NAV_ITEMS.map((item) => {
-            const isActive = isActivePath(item.path);
-            
+        {/* 可滚动分组区 */}
+        <div className="nav-scroll">
+          {NAV_GROUPS.map((group) => {
+            const expanded = isGroupExpanded(group.id);
+            const groupListId = `nav-group-${group.id}`;
             return (
-              <li key={item.id} className="nav-item">
-                <NavLink
-                  to={item.path}
-                  className={({ isActive }) => 
-                    `nav-link ${isActive ? 'active' : ''}`
-                  }
-                  onClick={() => handleNavClick()}
-                  title={item.description}
+              <section className="nav-group" key={group.id}>
+                <button
+                  type="button"
+                  className="nav-group-header"
+                  aria-expanded={expanded}
+                  aria-controls={groupListId}
+                  onClick={() => toggleGroup(group.id)}
                 >
-                  <span className="nav-icon">{item.icon}</span>
-                  <span className="nav-label">{item.label}</span>
-                  {isActive && (
-                    <span className="nav-indicator">▶</span>
-                  )}
-                </NavLink>
-                
-                {item.description && (
-                  <div className="nav-tooltip">
-                    {item.description}
-                  </div>
-                )}
-              </li>
+                  <span className="nav-group-label">{group.label}</span>
+                  <DownOutlined className="nav-group-chevron" aria-hidden="true" />
+                </button>
+
+                <ul
+                  id={groupListId}
+                  className={`nav-group-items${expanded ? '' : ' is-collapsed'}`}
+                >
+                  {group.items.map((item) => {
+                    const isActive = isActivePath(item.path);
+                    const ItemIcon = item.icon;
+                    return (
+                      <li className="nav-item" key={item.id}>
+                        <NavLink
+                          to={item.path}
+                          className={`nav-link${isActive ? ' active' : ''}`}
+                          aria-current={isActive ? 'page' : undefined}
+                        >
+                          <ItemIcon className="nav-icon" aria-hidden="true" />
+                          <span className="nav-label">{item.label}</span>
+                        </NavLink>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             );
           })}
-        </ul>
+        </div>
 
-        {/* 导航底部信息 */}
+        {/* 导航底部状态区 */}
         <div className="nav-footer">
           <div className="nav-status">
-            <div className="status-indicator online"></div>
+            <span className="status-indicator" aria-hidden="true" />
             <span className="status-text">服务正常</span>
           </div>
           <div className="nav-version">v1.0.0</div>
         </div>
       </div>
 
-      {/* 移动端菜单遮罩 */}
-      {isMobileMenuOpen && (
-        <div 
-          className="mobile-menu-overlay"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
       <style>{`
         .navigation-menu {
           position: relative;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-
-        /* 移动端菜单按钮 */
-        .mobile-menu-button {
-          display: none;
-          position: fixed;
-          top: 10px;
-          left: 10px;
-          z-index: 1001;
-        }
-
-        .menu-toggle {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 12px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-          transition: all 0.2s ease;
-        }
-
-        .menu-toggle:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        .menu-icon {
-          font-size: 18px;
-          font-weight: bold;
+          font-family: var(--font-body);
         }
 
         /* 导航容器 */
         .nav-container {
           width: 240px;
           height: 100vh;
-          background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-          color: #e0e0e0;
+          background: var(--bg-primary);
+          color: var(--text-secondary);
           display: flex;
           flex-direction: column;
           position: fixed;
           left: 0;
           top: 0;
           z-index: 1000;
-          box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
-          transition: transform 0.3s ease;
+          border-right: 1px solid var(--border-subtle);
+          transition: transform var(--transition-slow);
         }
 
-        /* 导航头部 */
+        /* 品牌头 */
         .nav-header {
-          padding: 24px 20px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          padding: var(--space-6) var(--space-5);
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .nav-title {
           margin: 0;
-          font-size: 20px;
-          font-weight: 700;
-          color: white;
-          background: linear-gradient(90deg, #667eea, #764ba2);
+          font-size: var(--text-2xl);
+          font-weight: var(--weight-bold);
+          color: var(--text-inverse);
+          background: var(--accent-gradient);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
         }
 
         .nav-subtitle {
-          margin-top: 4px;
-          font-size: 12px;
-          color: #a0a0a0;
+          margin-top: var(--space-1);
+          font-size: var(--text-sm);
+          color: var(--text-tertiary);
         }
 
-        /* 导航列表 */
-        .nav-list {
+        /* 可滚动分组区 */
+        .nav-scroll {
           flex: 1;
-          padding: 16px 0;
           overflow-y: auto;
+          padding: var(--space-3) 0;
+        }
+
+        .nav-group {
+          margin: 0 var(--space-3);
+        }
+
+        /* 分组标题按钮（可折叠） */
+        .nav-group-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          min-height: 44px;
+          padding: var(--space-2) var(--space-3);
+          background: transparent;
+          border: none;
+          color: var(--text-tertiary);
+          font-family: var(--font-body);
+          font-size: var(--text-xs);
+          font-weight: var(--weight-semibold);
+          letter-spacing: 0.06em;
+          cursor: pointer;
+          border-radius: var(--radius-md);
+          transition: color var(--transition-fast), background var(--transition-fast);
+        }
+
+        .nav-group-header:hover {
+          color: var(--text-secondary);
+          background: var(--bg-tertiary);
+        }
+
+        .nav-group-header:focus-visible {
+          outline: 2px solid var(--accent-solid);
+          outline-offset: 1px;
+        }
+
+        .nav-group-label {
+          flex: 1;
+          text-align: left;
+        }
+
+        .nav-group-chevron {
+          font-size: 11px;
+          transition: transform var(--transition-fast);
+        }
+
+        .nav-group-header[aria-expanded="false"] .nav-group-chevron {
+          transform: rotate(-90deg);
+        }
+
+        /* 分组子项列表 */
+        .nav-group-items {
           list-style: none;
           margin: 0;
+          padding: 0;
+        }
+
+        .nav-group-items.is-collapsed {
+          display: none;
         }
 
         .nav-item {
-          position: relative;
-          margin: 4px 12px;
+          margin: 2px 0;
         }
 
+        /* 子项链接 */
         .nav-link {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 12px 16px;
-          color: #b0b0b0;
+          gap: var(--space-3);
+          min-height: 44px;
+          padding: var(--space-2) var(--space-3);
+          color: var(--text-secondary);
           text-decoration: none;
-          border-radius: 8px;
-          transition: all 0.2s ease;
-          position: relative;
+          border-radius: var(--radius-md);
+          border-left: 3px solid transparent;
+          transition: color var(--transition-fast), background var(--transition-fast);
         }
 
         .nav-link:hover {
-          background: rgba(255, 255, 255, 0.05);
-          color: white;
-          transform: translateX(4px);
+          background: var(--bg-tertiary);
+          color: var(--text-primary);
+        }
+
+        .nav-link:focus-visible {
+          outline: 2px solid var(--accent-solid);
+          outline-offset: 1px;
         }
 
         .nav-link.active {
-          background: linear-gradient(90deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
-          color: white;
-          border-left: 3px solid #667eea;
+          background: var(--accent-light);
+          color: var(--accent-solid);
+          border-left-color: var(--accent-solid);
+          font-weight: var(--weight-medium);
         }
 
         .nav-icon {
-          font-size: 18px;
-          width: 24px;
-          text-align: center;
+          font-size: 16px;
+          width: 20px;
+          display: flex;
+          justify-content: center;
+          flex-shrink: 0;
         }
 
         .nav-label {
           flex: 1;
-          font-size: 14px;
-          font-weight: 500;
+          font-size: var(--text-md);
         }
 
-        .nav-indicator {
-          color: #667eea;
-          font-size: 12px;
-          animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-
-        /* 工具提示 */
-        .nav-tooltip {
-          position: absolute;
-          left: 100%;
-          top: 50%;
-          transform: translateY(-50%);
-          background: rgba(0, 0, 0, 0.9);
-          color: white;
-          padding: 8px 12px;
-          border-radius: 6px;
-          font-size: 12px;
-          white-space: nowrap;
-          opacity: 0;
-          visibility: hidden;
-          transition: all 0.2s ease;
-          z-index: 1002;
-          pointer-events: none;
-          margin-left: 8px;
-        }
-
-        .nav-item:hover .nav-tooltip {
-          opacity: 1;
-          visibility: visible;
-        }
-
-        /* 导航底部 */
+        /* 导航底部状态区 */
         .nav-footer {
-          padding: 16px 20px;
-          border-top: 1px solid rgba(255, 255, 255, 0.1);
-          font-size: 12px;
+          padding: var(--space-4) var(--space-5);
+          border-top: 1px solid var(--border-subtle);
+          font-size: var(--text-sm);
         }
 
         .nav-status {
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-bottom: 8px;
+          gap: var(--space-2);
+          margin-bottom: var(--space-2);
         }
 
         .status-indicator {
           width: 8px;
           height: 8px;
-          border-radius: 50%;
-          background: #4caf50;
-          animation: status-pulse 2s infinite;
+          border-radius: var(--radius-full);
+          background: var(--accent-solid);
+          animation: clair-status-pulse 2s infinite;
         }
 
-        @keyframes status-pulse {
+        @keyframes clair-status-pulse {
           0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+          50% { opacity: 0.4; }
         }
 
         .status-text {
-          color: #a0a0a0;
+          color: var(--text-tertiary);
         }
 
         .nav-version {
-          color: #666;
+          color: var(--text-tertiary);
           text-align: center;
         }
 
-        /* 移动端：完全隐藏侧边栏，用底部TabBar替代 */
+        /* 移动端：整体隐藏，由底部 TabBar 承载 */
         @media (max-width: 768px) {
           .navigation-menu {
             display: none;
@@ -361,21 +317,21 @@ export const NavigationMenu: React.FC = () => {
         }
 
         /* 滚动条样式 */
-        .nav-list::-webkit-scrollbar {
+        .nav-scroll::-webkit-scrollbar {
           width: 4px;
         }
 
-        .nav-list::-webkit-scrollbar-track {
-          background: rgba(255, 255, 255, 0.05);
+        .nav-scroll::-webkit-scrollbar-track {
+          background: transparent;
         }
 
-        .nav-list::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 2px;
+        .nav-scroll::-webkit-scrollbar-thumb {
+          background: var(--border-default);
+          border-radius: var(--radius-sm);
         }
 
-        .nav-list::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.3);
+        .nav-scroll::-webkit-scrollbar-thumb:hover {
+          background: var(--border-strong);
         }
       `}</style>
     </nav>

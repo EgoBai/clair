@@ -1,13 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useWatchlistSync } from '../../hooks/useWatchlistSync';
 import NavigationMenu from './NavigationMenu';
 import TabBar from './TabBar';
 import ThemeToggle from '../Common/ThemeToggle';
 import { SimpleErrorBoundary } from '../Common/UnifiedErrorBoundary';
+import GlobalSearch, { SearchResult } from '../Common/GlobalSearch';
 import { SettingOutlined, GithubOutlined } from '@ant-design/icons';
 import { Tooltip, Modal, Typography } from 'antd';
 import FloatingChat from '../AI/FloatingChat';
+import { apiService } from '../../services/api';
+import type { StockSearchParams } from '../../services/api';
+import { getRoutePath } from '../../routes/paths';
+import { searchPages } from '../../config/pageIndex';
 import '../../styles/responsive.css';
 
 const { Text, Link } = Typography;
@@ -30,12 +35,48 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
+  // 全局搜索：股票 + 页面跳转
+  const handleGlobalSearch = useCallback(async (q: string): Promise<SearchResult[]> => {
+    try {
+      const res = await apiService.getStocks({ search: q, limit: 8 } as StockSearchParams);
+      const stocks: SearchResult[] = (res.data?.stocks ?? []).map((s) => ({
+        id: s.id,
+        symbol: s.symbol,
+        name: s.name,
+        type: 'stock',
+        industry: s.industry,
+      }));
+      const pages: SearchResult[] = searchPages(q).map((p) => ({
+        id: `page:${p.path}`,
+        symbol: p.label,
+        name: '页面',
+        type: 'page',
+        industry: p.path,
+        path: p.path,
+      }));
+      return [...pages, ...stocks];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const handleGlobalSelect = useCallback((result: SearchResult) => {
+    if (result.type === 'page' && result.path) {
+      _navigate(result.path);
+    } else {
+      _navigate(getRoutePath('STOCK_DETAIL', { symbol: result.symbol }));
+    }
+  }, [_navigate]);
+
   return (
     <SimpleErrorBoundary name="AppLayout">
       <div className="app-layout">
         <NavigationMenu />
         
         <main className="app-content">
+          <header className="global-search-header">
+            <GlobalSearch onSearch={handleGlobalSearch} onSelect={handleGlobalSelect} />
+          </header>
           <div className="content-wrapper">
             {children || <Outlet />}
           </div>
@@ -117,6 +158,23 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
           min-height: 100vh;
           display: flex;
           flex-direction: column;
+        }
+
+        .global-search-header {
+          position: sticky;
+          top: 0;
+          z-index: 50;
+          background: var(--bg-primary);
+          border-bottom: 1px solid var(--border-subtle);
+          padding: var(--space-3) var(--space-6);
+          display: flex;
+          justify-content: center;
+        }
+
+        @media (max-width: 768px) {
+          .global-search-header {
+            padding: var(--space-2) var(--space-4);
+          }
         }
 
         .content-wrapper {
