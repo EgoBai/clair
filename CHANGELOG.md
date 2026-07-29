@@ -33,6 +33,16 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
+## [3.8.1] - 2026-07-29 (第23轮 — T11 NavigationMenu 单测重写 + v3.8.0 全量回归)
+
+### Fixed
+- **T11 导航单测修复（主理人）**：旧 `NavigationMenu.test.tsx` 面向 v3.8.0 重构前实现（emoji 图标、移动端 ☰/✕ 抽屉、overlay、`.nav-tooltip`），实测 **7/16 失败**。重写为 17 用例匹配新两级折叠侧栏：6 分组渲染 / 24 子项全覆盖 / 链接 href 与 navGroups 配置一致性 / 折叠交互 + `localStorage(clair-nav-collapsed-groups)` 持久化与恢复 / 当前路由组强制展开 / `aria-expanded`·`aria-current` 可访问性 / 首页精确匹配 + 详情级前缀匹配激活态。**17/17 全绿**。
+
+### Quality
+- v3.8.0 新代码全量回归：tsc 0 错 / build 5.01s 一次过 / guard ERROR=0 WARN=0（9 INFO 非阻塞）/ E2E chromium 20/20 / 21 核心路由 200。
+
+---
+
 ## [3.8.0] - 2026-07-29 (第22轮 — 用户拍板 D15/D3/D14/D2：导航 IA 上线 + 全局搜索复活 + 真实 AI 验证)
 
 ### Added
