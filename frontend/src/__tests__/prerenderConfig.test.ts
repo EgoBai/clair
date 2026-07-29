@@ -15,9 +15,10 @@ describe('预渲染配置', () => {
   });
 
   describe('prerenderRoutes', () => {
-    it('至少有 8 个预渲染路由', async () => {
+    it('至少有 6 个预渲染路由', async () => {
       const { prerenderRoutes } = await import('../utils/prerenderConfig');
-      expect(prerenderRoutes.length).toBeGreaterThanOrEqual(8);
+      // 第14轮 UI 守卫回收 2 条死路径(/news /dashboard)后，有效预渲染路由为 6 条
+      expect(prerenderRoutes.length).toBeGreaterThanOrEqual(6);
     });
 
     it('首页优先级最高 (1.0)', async () => {

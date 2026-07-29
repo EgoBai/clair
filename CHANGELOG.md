@@ -33,13 +33,17 @@ All notable changes to the A股行情分析网站 project.
 
 ---
 
-## [3.8.1] - 2026-07-29 (第23轮 — T11 NavigationMenu 单测重写 + v3.8.0 全量回归)
+## [3.8.1] - 2026-07-29 (第23轮 — 收尾第22轮未提交改动：RAG ChatPanel 接入 + T11 导航单测 + 轮14遗留断言清理)
+
+### Added
+- **RAG 一期 ChatPanel 接入补全（主理人）**：`ChatPanel.tsx` 接线 `knowledgeRetrieval.retrieveRelevantNotes` / `buildRagContext`——发送前检索用户投资笔记，命中≥1条以 `system` 角色注入对话上下文（含 `pageContext.symbol` 精确过滤），气泡显示「已参考 N 条笔记」蓝 Tag，`Message.ragNoteCount` 字段扩展；检索失败静默容错不影响对话。补全第19轮 RAG 一期中缺失的 UI 落地环节。
 
 ### Fixed
 - **T11 导航单测修复（主理人）**：旧 `NavigationMenu.test.tsx` 面向 v3.8.0 重构前实现（emoji 图标、移动端 ☰/✕ 抽屉、overlay、`.nav-tooltip`），实测 **7/16 失败**。重写为 17 用例匹配新两级折叠侧栏：6 分组渲染 / 24 子项全覆盖 / 链接 href 与 navGroups 配置一致性 / 折叠交互 + `localStorage(clair-nav-collapsed-groups)` 持久化与恢复 / 当前路由组强制展开 / `aria-expanded`·`aria-current` 可访问性 / 首页精确匹配 + 详情级前缀匹配激活态。**17/17 全绿**。
+- **清理 2 处第14轮遗留过期断言**：① `prerenderConfig.test.ts` 预渲染路由下限 `≥8`→`≥6`（第14轮 UI 守卫回收 2 条死路径 /news、/dashboard 后有效路由为 6 条）；② `emptyStates.test.tsx` 空态按钮导航期望 `/advanced-screener`→`/screener`（第14轮将该死路径修正为 /screener，StateComponents.tsx:237）。全量单测回归 **17,704 用例全绿**。
 
 ### Quality
-- v3.8.0 新代码全量回归：tsc 0 错 / build 5.01s 一次过 / guard ERROR=0 WARN=0（9 INFO 非阻塞）/ E2E chromium 20/20 / 21 核心路由 200。
+- 收尾验证：tsc 0 错 / build 8.13s 一次过 / guard ERROR=0（9 INFO 非阻塞）/ 全量单测 17,704 通过 / RAG ChatPanel 接线类型校验通过。
 
 ---
 

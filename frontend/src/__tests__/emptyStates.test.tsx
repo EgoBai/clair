@@ -216,10 +216,11 @@ describe('EmptyBacktest', () => {
     expect(screen.getByText('开始策略回测')).toBeTruthy();
   });
 
-  it('navigates to advanced-screener on action', () => {
+  it('navigates to screener on action', () => {
     render(<EmptyBacktest />);
     fireEvent.click(screen.getByText('选择策略'));
-    expect(mockNavigate).toHaveBeenCalledWith('/advanced-screener');
+    // 第14轮 UI 守卫将死路径 /advanced-screener 修正为 /screener（StateComponents.tsx:237）
+    expect(mockNavigate).toHaveBeenCalledWith('/screener');
   });
 });
 

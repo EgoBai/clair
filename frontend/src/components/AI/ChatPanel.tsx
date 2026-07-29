@@ -24,6 +24,7 @@ import type { ChatMessage } from '../../services/aiClient';
 import { Tag } from 'antd';
 import { renderMarkdown } from '../../utils/markdown';
 import { saveEntry, CATEGORIES } from '../../utils/knowledgeStore';
+import { retrieveRelevantNotes, buildRagContext } from '../../utils/knowledgeRetrieval';
 import { buildFallbackReply } from '../../utils/aiChatFallback';
 import { useCompanion } from '../../store/useGamificationStore';
 
@@ -46,6 +47,7 @@ interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   isFallback?: boolean; // 降级·演示：chatStream 失败/超时后由本地兜底回复承接
+  ragNoteCount?: number; // 本轮 AI 回复参考的投资笔记条数（RAG 一期）
 }
 
 interface PageContext {
@@ -238,12 +240,30 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
 
     // 添加 AI 占位消息（流式）
     const aiMessageId = (Date.now() + 1).toString();
+
+    // RAG 一期：检索用户投资笔记，命中则注入为系统提示（静默容错）
+    let ragContext = '';
+    let ragNoteCount = 0;
+    try {
+      const notes = retrieveRelevantNotes(
+        content,
+        pageContext?.symbol ? { symbol: pageContext.symbol } : undefined,
+      );
+      if (notes.length > 0) {
+        ragContext = buildRagContext(notes);
+        ragNoteCount = notes.length;
+      }
+    } catch {
+      // 检索失败静默跳过，不影响对话
+    }
+
     const aiMessage: Message = {
       id: aiMessageId,
       role: 'assistant',
       content: '',
       timestamp: new Date(),
       isStreaming: true,
+      ...(ragNoteCount > 0 ? { ragNoteCount } : {}),
     };
     setMessages(prev => [...prev, aiMessage]);
 
@@ -254,6 +274,7 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       : systemHint;
     const context: ChatMessage[] = [
       { role: 'system', content: systemContent },
+      ...(ragContext ? [{ role: 'system' as const, content: ragContext }] : []),
       ...messages.slice(-5).map(m => ({ role: m.role, content: m.content })),
     ];
 
@@ -395,6 +416,10 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
               {message.isFallback && (
                 <Tag color="gold" style={{ marginTop: 6 }}>降级·演示</Tag>
               )}
+              {/* RAG 一期：已参考 N 条笔记 */}
+              {message.ragNoteCount ? (
+                <Tag color="blue" style={{ marginTop: 6 }}>已参考 {message.ragNoteCount} 条笔记</Tag>
+              ) : null}
               {/* AI消息的保存按钮 */}
               {message.role === 'assistant' && !message.isStreaming && message.content && !message.isFallback && (
                 <div style={{ marginTop: 6 }}>
