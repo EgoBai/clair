@@ -11,41 +11,42 @@ import {
 
 const router = Router();
 
-// 完整行业树（支持 ?level=2 返回真实 PostgreSQL L2 数据）
+/** 市值(元) → 人类可读字符串（万亿/亿/万） */
+function formatCap(yuan: number): string {
+  if (!isFinite(yuan) || yuan <= 0) return '0';
+  if (yuan >= 1e12) return `${(yuan / 1e12).toFixed(2)}万亿`;
+  if (yuan >= 1e8) return `${(yuan / 1e8).toFixed(2)}亿`;
+  if (yuan >= 1e4) return `${(yuan / 1e4).toFixed(2)}万`;
+  return yuan.toFixed(0);
+}
+
+// 完整行业树（支持 ?level=2 返回真实二级行业数据）
 router.get('/industries', asyncHandler(async (req: Request, res: Response) => {
   const level = (req.query.level as string) || '1';
 
   if (level === '2') {
+    // 模式无关：对全部股票实时用 classifyStock(行业, 名称) 反推二级行业，
+    // '综合'/'未分类'/NULL 强制按名称反推，补齐未分类股。
     const db = getDb();
-    const rows = await (db.connection as any)('stocks as s')
-      .join('daily_quotes as dq', function(this: any) {
-        this.on('s.id', '=', 'dq.stock_id')
-          .andOn('dq.trade_date', '=', db.connection.raw(
-            '(SELECT MAX(trade_date) FROM daily_quotes WHERE stock_id = s.id)'
-          ));
-      })
-      .where('s.is_active', true)
-      .whereNotNull('s.industry_level2')
-      .whereNot('s.industry_level2', '综合')
-      .groupBy('s.industry_level2')
-      .select(
-        's.industry_level2 as name',
-        db.connection.raw('COUNT(*)::int as stock_count'),
-        db.connection.raw('ROUND(AVG(dq.change_percent)::numeric, 2) as avg_change'),
-        db.connection.raw('ROUND(AVG(dq.turnover_rate)::numeric, 2) as avg_turnover'),
-        db.connection.raw('ROUND(SUM(dq.market_cap)::numeric / 10000, 2) as total_cap')
-      )
-      .orderBy('stock_count', 'desc');
-
+    const rows = await db.getSubIndustryPerformance();
+    const industries = rows.map((r) => ({
+      parent: r.parent,
+      name: r.name,
+      stock_count: r.stock_count,
+      avg_change: (r.avg_change_percent >= 0 ? '+' : '') + r.avg_change_percent.toFixed(2),
+      avg_turnover: r.avg_turnover_percent.toFixed(2),
+      total_cap: formatCap(r.total_market_cap),
+    }));
     res.json({
       success: true,
       data: {
         standard: '申万2021 二级(自研分类引擎 v3)',
         level: 2,
-        count: rows.length,
-        industries: rows,
+        count: industries.length,
+        industries,
       },
     });
+    return;
   }
 
   // Default: L1 theoretical tree (backward-compatible)
@@ -162,7 +163,7 @@ router.get('/industries/sub-sector/:subIndustry/stocks', asyncHandler(async (req
   });
 }));
 
-// 按二级行业查询股票（直接读 stocks.industry_level2）
+// 按二级行业查询股票（实时分类，模式无关）
 router.get('/industries/level2/stocks', asyncHandler(async (req: Request, res: Response) => {
   const name = req.query.name as string;
   if (!name) {
@@ -171,36 +172,24 @@ router.get('/industries/level2/stocks', asyncHandler(async (req: Request, res: R
   }
 
   const db = getDb();
-  const stocks = await db.connection('stocks')
-    .where('is_active', true)
-    .where('industry_level2', name)
-    .select('symbol', 'name', 'industry', 'industry_level2', 'market_cap', 'pe_ratio', 'turnover_rate')
-    .orderBy('market_cap', 'desc')
-    .limit(200);
-
-  // 附加最新行情
-  const symbols = stocks.map((s: any) => s.symbol);
-  const quotes = symbols.length > 0 ? await db.getStocksWithLatestQuotes(symbols) : [];
+  const stocks = await db.getStocksBySubIndustry(name);
 
   res.json({
     success: true,
     data: {
       industry: name,
       count: stocks.length,
-      stocks: stocks.map((s: any, i: number) => {
-        const q = quotes[i] || {};
-        return {
-          symbol: s.symbol,
-          name: s.name,
-          l1: s.industry,
-          l2: s.industry_level2,
-          marketCap: Number(s.market_cap) || 0,
-          peRatio: s.pe_ratio ? Number(s.pe_ratio) : null,
-          price: q.latestQuote?.closePrice ?? null,
-          changePercent: q.latestQuote?.changePercent ?? null,
-          turnoverRate: s.turnover_rate ? Number(s.turnover_rate) : null,
-        };
-      }),
+      stocks: stocks.map((s) => ({
+        symbol: s.symbol,
+        name: s.name,
+        l1: s.l1,
+        l2: s.l2,
+        marketCap: s.marketCap,
+        peRatio: s.peRatio,
+        price: s.price,
+        changePercent: s.changePercent,
+        turnoverRate: s.turnoverRate,
+      })),
     },
   });
 }));

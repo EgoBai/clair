@@ -5,6 +5,7 @@
 
 import knex, { Knex } from 'knex';
 import { Stock, DailyQuote, StockSearchParams, StockWithQuotes } from '../models/Stock';
+import { classifyStock } from '@shared/industryClassification';
 
 export class Database {
   private knexInstance: Knex;
@@ -615,6 +616,97 @@ export class Database {
         limit_up_count: Number(s.limit_up_count),
       };
     }).sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * 申万二级行业表现（模式无关，实时分类）
+   * 取全部活跃股票 + 各股最新行情，用 classifyStock(行业, 名称) 反推二级行业：
+   * - 行业为 '综合'/'未分类'/NULL 时强制按名称反推（补齐未分类股）
+   * - daily_quotes.market_cap 以万元存储，归一到元供前端统一格式化
+   */
+  async getSubIndustryPerformance(): Promise<Array<{
+    parent: string; name: string; stock_count: number;
+    avg_change_percent: number; avg_turnover_percent: number; total_market_cap: number;
+  }>> {
+    const rows = await this.knexInstance.raw(`
+      SELECT s.industry AS industry, s.name AS name,
+             dq.change_percent AS change_percent,
+             dq.turnover_rate AS turnover_rate,
+             dq.market_cap AS market_cap_wan
+      FROM stocks s
+      LEFT JOIN (
+        SELECT DISTINCT ON (stock_id) stock_id, change_percent, turnover_rate, market_cap
+        FROM daily_quotes
+        ORDER BY stock_id, trade_date DESC
+      ) dq ON dq.stock_id = s.id
+      WHERE s.is_active = true
+    `);
+    const toNum = (v: unknown): number => (v === null || v === undefined ? 0 : parseFloat(String(v)));
+    const map = new Map<string, {
+      parent: string; count: number; totalChange: number; totalTurnover: number; totalCap: number;
+    }>();
+    for (const r of rows.rows as Array<Record<string, unknown>>) {
+      const rawL1 = (r.industry && r.industry !== '综合' && r.industry !== '未分类') ? String(r.industry) : undefined;
+      const { industry, subIndustry } = classifyStock(rawL1, String(r.name));
+      const key = subIndustry || '未分类';
+      const parent = (subIndustry && subIndustry !== '未分类') ? (industry || '未分类') : '未分类';
+      if (!map.has(key)) map.set(key, { parent, count: 0, totalChange: 0, totalTurnover: 0, totalCap: 0 });
+      const e = map.get(key)!;
+      e.count++;
+      e.totalChange += toNum(r.change_percent);
+      e.totalTurnover += toNum(r.turnover_rate);
+      e.totalCap += toNum(r.market_cap_wan) * 10000; // 万元 → 元
+    }
+    return Array.from(map.entries()).map(([name, d]) => ({
+      parent: d.parent,
+      name,
+      stock_count: d.count,
+      avg_change_percent: Math.round((d.totalChange / d.count) * 100) / 100,
+      avg_turnover_percent: Math.round((d.totalTurnover / d.count) * 100) / 100,
+      total_market_cap: d.totalCap,
+    })).sort((a, b) => b.avg_change_percent - a.avg_change_percent);
+  }
+
+  /** 按二级行业查股票（实时分类，返回带最新行情的列表） */
+  async getStocksBySubIndustry(subName: string): Promise<Array<{
+    symbol: string; name: string; l1: string; l2: string;
+    price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+  }>> {
+    const rows = await this.knexInstance.raw(`
+      SELECT s.industry AS industry, s.symbol AS symbol, s.name AS name,
+             dq.close_price AS close_price, dq.change_percent AS change_percent,
+             dq.pe_ratio AS pe_ratio, dq.turnover_rate AS turnover_rate,
+             dq.market_cap AS market_cap_wan
+      FROM stocks s
+      LEFT JOIN (
+        SELECT DISTINCT ON (stock_id) stock_id, close_price, change_percent, pe_ratio, turnover_rate, market_cap
+        FROM daily_quotes
+        ORDER BY stock_id, trade_date DESC
+      ) dq ON dq.stock_id = s.id
+      WHERE s.is_active = true
+    `);
+    const toNum = (v: unknown): number => (v === null || v === undefined ? 0 : parseFloat(String(v)));
+    const result: Array<{
+      symbol: string; name: string; l1: string; l2: string;
+      price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+    }> = [];
+    for (const r of rows.rows as Array<Record<string, unknown>>) {
+      const rawL1 = (r.industry && r.industry !== '综合' && r.industry !== '未分类') ? String(r.industry) : undefined;
+      const { industry, subIndustry } = classifyStock(rawL1, String(r.name));
+      if (subIndustry !== subName) continue;
+      result.push({
+        symbol: String(r.symbol),
+        name: String(r.name),
+        l1: industry,
+        l2: subIndustry,
+        price: toNum(r.close_price),
+        changePercent: toNum(r.change_percent),
+        peRatio: r.pe_ratio != null ? toNum(r.pe_ratio) : null,
+        turnoverRate: toNum(r.turnover_rate),
+        marketCap: toNum(r.market_cap_wan) * 10000, // 万元 → 元
+      });
+    }
+    return result.sort((a, b) => b.marketCap - a.marketCap);
   }
 
   /**

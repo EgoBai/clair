@@ -119,6 +119,14 @@ interface DatabaseProxy {
     breadthScore: number; stock_count: number; avg_change_percent: number;
     total_turnover: number; limit_up_count: number;
   }>>;
+  getSubIndustryPerformance(): Promise<Array<{
+    parent: string; name: string; stock_count: number;
+    avg_change_percent: number; avg_turnover_percent: number; total_market_cap: number;
+  }>>;
+  getStocksBySubIndustry(subName: string): Promise<Array<{
+    symbol: string; name: string; l1: string; l2: string;
+    price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+  }>>;
   cleanupOldData(retentionDays: number): Promise<{ dailyQuotes: number; minuteQuotes: number }>;
   rebuildIndexes(): Promise<void>;
   getDatabaseStats(): Promise<Record<string, unknown>>;

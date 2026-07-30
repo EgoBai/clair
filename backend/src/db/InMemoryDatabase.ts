@@ -17,6 +17,7 @@ import {
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { classifyStock } from '@shared/industryClassification';
 
 // ==================== 内部类型定义 ====================
 
@@ -310,12 +311,15 @@ class InMemoryDatabase {
     }
 
     stockList.forEach((s, idx) => {
+      // 真实申万分类：一级有效直接用，缺失/非标准则按名称反推一级，再得二级
+      const { industry, subIndustry } = classifyStock(s.industry, s.name);
       const stock: Stock = {
         id: idx + 1,
         symbol: s.symbol,
         name: s.name,
         market: s.market,
-        industry: s.industry,
+        industry,
+        subIndustry,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -762,6 +766,70 @@ class InMemoryDatabase {
         limit_up_count: s.limit_up_count,
       };
     }).sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * 申万二级行业表现（模式无关，JS 聚合）
+   * 对每只股票用 classifyStock(行业, 名称) 实时反推二级行业：
+   * - 行业为 '综合'/'未分类'/NULL 时强制按名称反推（补齐未分类股）
+   * - market_cap 以元计（内存模式 generateQuotes 即元）
+   */
+  async getSubIndustryPerformance(): Promise<Array<{
+    parent: string; name: string; stock_count: number;
+    avg_change_percent: number; avg_turnover_percent: number; total_market_cap: number;
+  }>> {
+    const map = new Map<string, {
+      parent: string; count: number; totalChange: number; totalTurnover: number; totalCap: number;
+    }>();
+    for (const s of this.stocks) {
+      const quotes = this.quotes.get(s.symbol);
+      const latest = quotes && quotes.length ? quotes[quotes.length - 1] : null;
+      if (!latest) continue;
+      const rawL1 = (s.industry && s.industry !== '综合' && s.industry !== '未分类') ? s.industry : undefined;
+      const { industry, subIndustry } = classifyStock(rawL1, s.name);
+      const key = subIndustry || '未分类';
+      const parent = (subIndustry && subIndustry !== '未分类') ? (industry || '未分类') : '未分类';
+      if (!map.has(key)) map.set(key, { parent, count: 0, totalChange: 0, totalTurnover: 0, totalCap: 0 });
+      const e = map.get(key)!;
+      e.count++;
+      e.totalChange += latest.changePercent;
+      e.totalTurnover += latest.turnoverRate;
+      e.totalCap += latest.marketCap || 0;
+    }
+    return Array.from(map.entries()).map(([name, d]) => ({
+      parent: d.parent,
+      name,
+      stock_count: d.count,
+      avg_change_percent: Math.round((d.totalChange / d.count) * 100) / 100,
+      avg_turnover_percent: Math.round((d.totalTurnover / d.count) * 100) / 100,
+      total_market_cap: d.totalCap,
+    })).sort((a, b) => b.avg_change_percent - a.avg_change_percent);
+  }
+
+  /** 按二级行业查股票（实时分类，返回带最新行情的列表） */
+  async getStocksBySubIndustry(subName: string): Promise<Array<{
+    symbol: string; name: string; l1: string; l2: string;
+    price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+  }>> {
+    const result: Array<{
+      symbol: string; name: string; l1: string; l2: string;
+      price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+    }> = [];
+    for (const s of this.stocks) {
+      const rawL1 = (s.industry && s.industry !== '综合' && s.industry !== '未分类') ? s.industry : undefined;
+      const { industry, subIndustry } = classifyStock(rawL1, s.name);
+      if (subIndustry !== subName) continue;
+      const quotes = this.quotes.get(s.symbol);
+      const latest = quotes && quotes.length ? quotes[quotes.length - 1] : null;
+      if (!latest) continue;
+      result.push({
+        symbol: s.symbol, name: s.name, l1: industry, l2: subIndustry,
+        price: latest.closePrice, changePercent: latest.changePercent,
+        peRatio: latest.peRatio ?? null, turnoverRate: latest.turnoverRate,
+        marketCap: latest.marketCap || 0,
+      });
+    }
+    return result.sort((a, b) => b.marketCap - a.marketCap);
   }
 }
 

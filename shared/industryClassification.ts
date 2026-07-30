@@ -319,3 +319,34 @@ export function getSubIndustries(industry: string): string[] {
 export function getParentIndustry(subIndustry: string): string | undefined {
   return SUB_TO_PARENT[subIndustry];
 }
+
+/**
+ * 仅凭公司名称反推一级行业（用于补齐未分类股票）
+ * 复用 SUB_INDUSTRY_KEYWORDS：命中某二级的关键词即返回其所属一级。
+ * 无法命中返回 '未分类'。
+ */
+export function deriveIndustryFromName(name: string): string {
+  for (const [sub, keywords] of Object.entries(SUB_INDUSTRY_KEYWORDS)) {
+    if (keywords?.some((kw) => name.includes(kw))) {
+      const parent = SUB_TO_PARENT[sub];
+      if (parent) return parent;
+    }
+  }
+  return '未分类';
+}
+
+/**
+ * 计算单只股票的申万二级行业（含一级缺失时的名称反推）
+ * - 一级有效且存在于映射 → 直接 classifySubIndustry
+ * - 一级缺失/非标准 → 先用 deriveIndustryFromName 反推一级，再分类
+ * 返回 { industry, subIndustry }
+ */
+export function classifyStock(industry: string | undefined, name: string): {
+  industry: string;
+  subIndustry: string;
+} {
+  let l1 = industry && SW_INDUSTRY_MAP[industry] ? industry : deriveIndustryFromName(name);
+  const sub = classifySubIndustry(l1, name);
+  return { industry: l1, subIndustry: sub };
+}
+
