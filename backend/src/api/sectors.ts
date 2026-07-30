@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { db } from '../db/dbFactory';
 import { validateQuery, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendPaginated } from '../utils/apiResponse';
+import { fetchAllConceptBoards, scoreConceptBoards, persistConcepts } from '../services/conceptBoardService';
 
 const router = Router();
 
@@ -75,6 +76,17 @@ router.get('/sectors/momentum', asyncHandler(async (_req, res) => {
   try { await db.reclassifyAll(); } catch { /* ignore: reclassify is best-effort */ }
   const scores = await db.getSectorMomentumScore();
   sendSuccess(res, { sectors: scores });
+}));
+
+// 概念板块景气度评分 (P0-1) — 数据源: 东方财富概念板块行情
+// 评分模型与 /sectors/momentum 同一标准 (change 50 + volume 30 + breadth 20)
+router.get('/sectors/concept', asyncHandler(async (_req, res) => {
+  const boards = await fetchAllConceptBoards();
+  const scores = scoreConceptBoards(boards);
+  // PG 可用时落盘（尽力而为，不阻塞响应）
+  const knexLike = (db as { connection?: { raw: (sql: string, bindings?: unknown[]) => Promise<unknown> } }).connection ?? null;
+  void persistConcepts(knexLike, boards);
+  sendSuccess(res, { sectors: scores, count: scores.length, source: 'eastmoney' });
 }));
 
 export default router;

@@ -1,6 +1,6 @@
 # 澄观 Clair 前端 UI 质量守卫 · 扫描报告
 
-> 生成时间: 2026-07-27T08:40:28.369Z
+> 生成时间: 2026-07-29T14:57:55.442Z
 > 层级: **轻量静态层（S6-1 / D6 决策）** —— 仅静态 AST + 正则/数据基线，**不含** Playwright 运行时截图（属第二阶段）。
 
 ## 1. 守卫设计概览
@@ -30,40 +30,23 @@ npx tsc --noEmit       # 应用类型检查（守卫脚本自身不在该 tsconf
 
 ## 3. AST 扫描结果
 
-### ast-scan（扫描 585 个文件）
+### ast-scan（扫描 595 个文件）
 
-错误: 0 · 警告: 6 · 提示: 0
+错误: 0 · 警告: 0 · 提示: 0
 
-- **[WARN]** (dead-useState) useState 状态 "_presets" 被声明但从未被读取（疑似死状态；历史 bug：showHeatmap / heatmapMode）。 `./src/pages/BacktestPage.tsx:78`
-  - 代码: `const [_presets, setPresets] = useState<any[]>([]);`
-  - 建议: 若 "_presets" 确实无用请删除该 useState；若应驱动 UI，请补充读取/使用。
-- **[WARN]** (dead-useState) useState 状态 "conceptLoading" 被声明但从未被读取（疑似死状态；历史 bug：showHeatmap / heatmapMode）。 `./src/pages/DiscoverPage.tsx:163`
-  - 代码: `const [conceptLoading, setConceptLoading] = useState(false);`
-  - 建议: 若 "conceptLoading" 确实无用请删除该 useState；若应驱动 UI，请补充读取/使用。
-- **[WARN]** (dead-useState) useState 状态 "l2Loading" 被声明但从未被读取（疑似死状态；历史 bug：showHeatmap / heatmapMode）。 `./src/pages/DiscoverPage.tsx:164`
-  - 代码: `const [l2Loading, setL2Loading] = useState(false);`
-  - 建议: 若 "l2Loading" 确实无用请删除该 useState；若应驱动 UI，请补充读取/使用。
-- **[WARN]** (dead-useState) useState 状态 "_chartPeriod" 被声明但从未被读取（疑似死状态；历史 bug：showHeatmap / heatmapMode）。 `./src/pages/IndexDetailPage.tsx:52`
-  - 代码: `const [_chartPeriod, _setChartPeriod] = useState<string>('candlestick');`
-  - 建议: 若 "_chartPeriod" 确实无用请删除该 useState；若应驱动 UI，请补充读取/使用。
-- **[WARN]** (dead-useState) useState 状态 "_techLoading" 被声明但从未被读取（疑似死状态；历史 bug：showHeatmap / heatmapMode）。 `./src/pages/ScreenerPage.tsx:260`
-  - 代码: `const [_techLoading, setTechLoading] = useState(false);`
-  - 建议: 若 "_techLoading" 确实无用请删除该 useState；若应驱动 UI，请补充读取/使用。
-- **[WARN]** (dead-useState) useState 状态 "_activeItem" 被声明但从未被读取（疑似死状态；历史 bug：showHeatmap / heatmapMode）。 `./src/components/Layout/NavigationMenu.tsx:65`
-  - 代码: `const [_activeItem, setActiveItem] = useState<string>('');`
-  - 建议: 若 "_activeItem" 确实无用请删除该 useState；若应驱动 UI，请补充读取/使用。
+_未发现该层相关的问题。_
 
 
 ## 4. 基线扫描结果
 
-### baseline-scan（扫描 585 个文件）
+### baseline-scan（扫描 595 个文件）
 
 错误: 0 · 警告: 0 · 提示: 9
 
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/DiscoverPage.tsx:468`
+- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/DiscoverPage.tsx:461`
   - 代码: `const detail = hoverDetail['${industry}__${dimName}'] || '';`
   - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/StockDetailPage.tsx:291`
+- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/StockDetailPage.tsx:303`
   - 代码: `onClick={() => navigate('/industry-map?industry=${encodeURIComponent(stockInfo.industry || '')}')}`
   - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
 - **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/WatchlistPage.tsx:651`
@@ -92,9 +75,9 @@ npx tsc --noEmit       # 应用类型检查（守卫脚本自身不在该 tsconf
 ## 5. 汇总
 
 - 错误(ERROR): 0
-- 警告(WARN): 6
+- 警告(WARN): 0
 - 提示(INFO): 9
-- 总文件扫描: AST 585 + 基线 585
+- 总文件扫描: AST 595 + 基线 595
 
 **结论: ✅ PASS（无 ERROR 级问题）**
 

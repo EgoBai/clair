@@ -157,8 +157,10 @@ describe('Services Module Coverage', () => {
     it('should instantiate VersionedCache', async () => {
       const { VersionedCache } = await import('../services/cacheEngine');
       const cache = new VersionedCache<string>();
-      cache.set('key1', 'value1');
-      expect(cache.get('key1')).toBe('value1');
+      cache.set('key1', 'value1', 1);
+      expect(cache.get('key1', 1)).toBe('value1');
+      // 版本不匹配应返回 undefined
+      expect(cache.get('key1', 2)).toBeUndefined();
     });
   });
 
