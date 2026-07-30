@@ -1,11 +1,22 @@
 /**
  * conceptBoardService 单元测试 (P0-1)
+ * 数据源: 腾讯财经板块排行接口（proxy.finance.qq.com/cgi/cgi-bin/rank/pt/getRank）
  * 覆盖: 分页拉取/字段映射/评分模型/缓存/异常兜底/落盘
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockGet } = vi.hoisted(() => ({ mockGet: vi.fn() }));
-vi.mock('axios', () => ({ default: { get: mockGet } }));
+const { mockFetch } = vi.hoisted(() => ({ mockFetch: vi.fn() }));
+
+/** 构造腾讯 rank 接口响应 */
+function tencentResp(rankList: Record<string, unknown>[]): Response {
+  const body = JSON.stringify({ code: 0, msg: 'ok', data: { rank_list: rankList } });
+  return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
+vi.stubGlobal(
+  'fetch',
+  vi.fn(async (_url: string, _opts?: unknown) => mockFetch())
+);
 
 import {
   fetchAllConceptBoards,
@@ -15,12 +26,9 @@ import {
   type ConceptBoardRaw,
 } from '../services/conceptBoardService';
 
-function emResp(diff: Record<string, unknown>[], total: number) {
-  return { data: { data: { total, diff } } };
-}
-
-const BOARD_A = { f12: 'BK0892', f14: '乳业', f3: 5.4, f6: 1_200_000_000, f8: 2.41, f104: 29, f105: 2, f128: '一鸣食品', f140: '605179' };
-const BOARD_B = { f12: 'BK1082', f14: '噪声防治', f3: -1.2, f6: 300_000_000, f8: 5.24, f104: 3, f105: 6, f128: '天晟新材', f140: '300169' };
+// 腾讯接口字段: name/zdf(涨跌幅%)/turnover(成交额万元)/zgb("up/total")/hsl/lzg{name,code}
+const BOARD_A = { code: 'pt02BK0892', name: '乳业', zdf: '5.4', turnover: '1200000000', hsl: '2.41', zgb: '29/31', lzg: { name: '一鸣食品', code: '605179' } };
+const BOARD_B = { code: 'pt02BK1082', name: '噪声防治', zdf: '-1.2', turnover: '300000000', hsl: '5.24', zgb: '3/9', lzg: { name: '天晟新材', code: '300169' } };
 
 describe('conceptBoardService', () => {
   beforeEach(() => {
@@ -29,12 +37,12 @@ describe('conceptBoardService', () => {
   });
 
   describe('fetchAllConceptBoards', () => {
-    it('单页数据: 正确映射东财字段', async () => {
-      mockGet.mockResolvedValueOnce(emResp([BOARD_A], 1));
+    it('单页数据: 正确映射腾讯字段', async () => {
+      mockFetch.mockResolvedValueOnce(tencentResp([BOARD_A]));
       const boards = await fetchAllConceptBoards();
       expect(boards).toHaveLength(1);
       expect(boards[0]).toMatchObject({
-        code: 'BK0892',
+        code: 'pt02BK0892',
         name: '乳业',
         changePercent: 5.4,
         turnover: 1_200_000_000,
@@ -46,53 +54,54 @@ describe('conceptBoardService', () => {
       });
     });
 
-    it('多页数据: total=150 时拉取 2 页并合并', async () => {
-      const page1 = Array.from({ length: 100 }, (_, i) => ({ ...BOARD_A, f12: `BK${1000 + i}`, f14: `概念${i}` }));
-      const page2 = Array.from({ length: 50 }, (_, i) => ({ ...BOARD_B, f12: `BK${2000 + i}`, f14: `概念B${i}` }));
-      mockGet.mockResolvedValueOnce(emResp(page1, 150)).mockResolvedValueOnce(emResp(page2, 150));
+    it('多页数据: 首页满 200 时翻页补齐', async () => {
+      const page1 = Array.from({ length: 200 }, (_, i) => ({ ...BOARD_A, code: `pt${1000 + i}`, name: `概念${i}`, zgb: '10/20' }));
+      const page2 = Array.from({ length: 50 }, (_, i) => ({ ...BOARD_B, code: `pt${2000 + i}`, name: `概念B${i}` }));
+      mockFetch.mockResolvedValueOnce(tencentResp(page1)).mockResolvedValueOnce(tencentResp(page2));
       const boards = await fetchAllConceptBoards();
-      expect(mockGet).toHaveBeenCalledTimes(2);
-      expect(boards).toHaveLength(150);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(boards).toHaveLength(250);
     });
 
     it('5分钟内二次调用命中缓存, 不再发请求', async () => {
-      mockGet.mockResolvedValueOnce(emResp([BOARD_A], 1));
+      mockFetch.mockResolvedValueOnce(tencentResp([BOARD_A]));
       await fetchAllConceptBoards();
       const again = await fetchAllConceptBoards();
-      expect(mockGet).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(again).toHaveLength(1);
     });
 
-    it('东财返回空/异常结构时返回空数组且不缓存', async () => {
-      mockGet.mockResolvedValueOnce({ data: { rc: 1 } });
+    it('腾讯返回空/异常结构时返回空数组且不缓存', async () => {
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: {} }), { status: 200 }));
       const boards = await fetchAllConceptBoards();
       expect(boards).toEqual([]);
       // 不缓存空结果 → 下次仍会请求
-      mockGet.mockResolvedValueOnce(emResp([BOARD_A], 1));
+      mockFetch.mockResolvedValueOnce(tencentResp([BOARD_A]));
       const retry = await fetchAllConceptBoards();
       expect(retry).toHaveLength(1);
     });
 
-    it('空值字段("-")归零, 不产生 NaN', async () => {
-      mockGet.mockResolvedValueOnce(emResp([{ ...BOARD_A, f3: '-', f6: '-' }], 1));
+    it('缺失字段归零, 不产生 NaN', async () => {
+      mockFetch.mockResolvedValueOnce(tencentResp([{ name: 'X', zdf: '-', turnover: '-', zgb: 'xx' }]));
       const boards = await fetchAllConceptBoards();
       expect(boards[0].changePercent).toBe(0);
       expect(boards[0].turnover).toBe(0);
+      expect(boards[0].stockCount).toBe(0);
     });
   });
 
   describe('scoreConceptBoards', () => {
     const mk = (over: Partial<ConceptBoardRaw>): ConceptBoardRaw => ({
-      code: 'BK0001', name: 'X', changePercent: 0, turnoverRate: 0, turnover: 0,
+      code: 'pt0001', name: 'X', changePercent: 0, turnoverRate: 0, turnover: 0,
       stockCount: 10, upCount: 5, downCount: 5, leaderName: '', leaderSymbol: '', ...over,
     });
 
     it('评分模型与行业momentum同标准: change≤50 volume≤30 breadth≤20', () => {
       const scores = scoreConceptBoards([
-        mk({ name: '强势', changePercent: 5, turnover: 1000, upCount: 10, downCount: 0 }),
-        mk({ name: '弱势', changePercent: -1, turnover: 100, upCount: 0, downCount: 10 }),
+        mk({ name: '强势', changePercent: 5, turnover: 1000, upCount: 10, downCount: 0, stockCount: 10 }),
+        mk({ name: '弱势', changePercent: -1, turnover: 100, upCount: 0, downCount: 10, stockCount: 10 }),
       ]);
-      const strong = scores.find(s => s.industry === '强势')!;
+      const strong = scores.find((s) => s.industry === '强势')!;
       expect(strong.changeScore).toBe(50);
       expect(strong.volumeScore).toBe(30);
       expect(strong.breadthScore).toBe(20);
@@ -110,17 +119,18 @@ describe('conceptBoardService', () => {
     });
 
     it('输出结构对齐前端 SectorScore(industry/score/stock_count等)', () => {
-      const s = scoreConceptBoards([mk({ name: '半导体', changePercent: 2.5 })])[0];
+      const s = scoreConceptBoards([mk({ name: '半导体', changePercent: 2.5, stockCount: 40, upCount: 30, downCount: 10 })])[0];
       expect(s).toHaveProperty('industry', '半导体');
       expect(s).toHaveProperty('avg_change_percent', 2.5);
       expect(s).toHaveProperty('total_turnover');
-      expect(s).toHaveProperty('stock_count');
+      expect(s).toHaveProperty('stock_count', 40);
+      expect(s).toHaveProperty('up_count', 30);
     });
   });
 
   describe('persistConcepts', () => {
     const mk = (name: string): ConceptBoardRaw => ({
-      code: 'BK0001', name, changePercent: 1, turnoverRate: 1, turnover: 1,
+      code: 'pt0001', name, changePercent: 1, turnoverRate: 1, turnover: 1,
       stockCount: 10, upCount: 5, downCount: 5, leaderName: '', leaderSymbol: '',
     });
 

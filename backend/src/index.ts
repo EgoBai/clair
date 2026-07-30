@@ -4,6 +4,9 @@
  */
 
 import 'dotenv/config';
+// 环境修复：本机 IPv6 出口到东财/腾讯等 CDN 不通，统一优先 IPv4
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv4first');
 import { app, httpServer } from './app';
 import { initDatabase, getDb } from './db/dbFactory';
 import { wsService } from './websocket/server';

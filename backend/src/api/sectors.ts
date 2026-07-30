@@ -86,7 +86,7 @@ router.get('/sectors/concept', asyncHandler(async (_req, res) => {
   // PG 可用时落盘（尽力而为，不阻塞响应）
   const knexLike = (db as { connection?: { raw: (sql: string, bindings?: unknown[]) => Promise<unknown> } }).connection ?? null;
   void persistConcepts(knexLike, boards);
-  sendSuccess(res, { sectors: scores, count: scores.length, source: 'eastmoney' });
+  sendSuccess(res, { sectors: scores, count: scores.length, source: 'tencent' });
 }));
 
 export default router;
