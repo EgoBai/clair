@@ -508,7 +508,7 @@ async function* streamLocal(messages: AIMessage[], request: AIRequest): AsyncGen
 /**
  * AI市场解读
  */
-export async function analyzeMarket(marketData: any): Promise<string> {
+export async function analyzeMarket(marketData: any, note = ''): Promise<string> {
   const response = await chat({
     messages: [
       {
@@ -525,7 +525,7 @@ export async function analyzeMarket(marketData: any): Promise<string> {
 - 涨停: ${marketData.limitUp}只
 - 跌停: ${marketData.limitDown}只
 - 成交额: ${marketData.turnover}亿
-
+${note}
 请从以下角度分析：
 1. 市场整体趋势判断
 2. 资金流向分析

@@ -9,6 +9,7 @@ import { asyncHandler } from '../utils/apiResponse';
 import aiService from '../services/aiService';
 import { logger } from '../services/logger';
 import { getDb } from '../db/dbFactory';
+import { getRealMarketData } from '../services/realMarketData';
 
 import { aiTiming } from '../middleware/aiTiming';
 
@@ -130,23 +131,29 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
 
 router.get('/ai/market-analysis', asyncHandler(async (_req: Request, res: Response) => {
   try {
-    // TODO: 从实际数据源获取市场数据
+    // 直连真实行情源（腾讯指数 + 东方财富涨跌分布），绝不回填演示/硬编码数据
+    const real = await getRealMarketData();
+    const breadth = real.breadth;
     const marketData = {
-      shanghai: { price: '3200', change: '0.5' },
-      shenzhen: { price: '10500', change: '0.8' },
-      chinext: { price: '2100', change: '1.2' },
-      advanceCount: 3200,
-      declineCount: 1800,
-      limitUp: 45,
-      limitDown: 12,
-      turnover: 8500,
+      shanghai: { price: String(real.shanghai.price), change: String(real.shanghai.changePct) },
+      shenzhen: { price: String(real.shenzhen.price), change: String(real.shenzhen.changePct) },
+      chinext: { price: String(real.chinext.price), change: String(real.chinext.changePct) },
+      advanceCount: breadth ? breadth.up : 0,
+      declineCount: breadth ? breadth.down : 0,
+      limitUp: breadth ? breadth.limitUp : 0,
+      limitDown: breadth ? breadth.limitDown : 0,
+      turnover: breadth ? breadth.turnoverYi : 0,
     };
+    // 涨跌分布暂不可用时显式告知 AI，避免伪装成真实数值
+    const note = breadth
+      ? ''
+      : '\n注意：涨跌分布/成交额数据当前暂不可用，请仅基于上方三大指数数据进行客观分析，不要臆测涨跌家数。';
 
-    const analysis = await aiService.analyzeMarket(marketData);
-    res.json({ analysis });
+    const analysis = await aiService.analyzeMarket(marketData, note);
+    res.json({ analysis, dataSource: 'real', breadthAvailable: !!breadth });
   } catch (error) {
     logger.error('Market analysis error:', error as Error);
-    res.status(500).json({ error: '市场分析失败' });
+    res.status(500).json({ error: '市场分析失败：真实行情源不可用', dataSource: 'real' });
   }
 }));
 
