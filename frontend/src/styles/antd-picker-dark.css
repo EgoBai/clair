@@ -1,0 +1,186 @@
+/**
+ * Antd DatePicker / RangePicker 弹层暗色适配
+ *
+ * 背景：global-dark.css 只覆盖了 `.ant-picker`（输入框本体），
+ * 而日历面板 `.ant-picker-dropdown` 由 antd 通过 portal 渲染到 body 下，
+ * 不在页面容器内，未被任何暗色规则命中 → 在 #0f172a 背景上弹出白底日历。
+ *
+ * 本文件只处理弹层部分，与 global-dark.css 的输入框规则互补，不重复覆盖。
+ * 全部使用 design-system.css 的 CSS 变量，跟随亮/暗色主题切换。
+ */
+
+/* ---------- 弹层容器与面板 ---------- */
+.ant-picker-dropdown .ant-picker-panel-container {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.ant-picker-dropdown .ant-picker-panel,
+.ant-picker-dropdown .ant-picker-date-panel,
+.ant-picker-dropdown .ant-picker-month-panel,
+.ant-picker-dropdown .ant-picker-year-panel,
+.ant-picker-dropdown .ant-picker-decade-panel {
+  background: transparent !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 双面板之间的分隔线 */
+.ant-picker-dropdown .ant-picker-panels > *:not(:last-child) {
+  border-right: 1px solid var(--border-subtle) !important;
+}
+
+/* ---------- 头部（年月切换） ---------- */
+.ant-picker-dropdown .ant-picker-header {
+  color: var(--text-primary) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+.ant-picker-dropdown .ant-picker-header button {
+  color: var(--text-secondary) !important;
+}
+
+.ant-picker-dropdown .ant-picker-header > button:hover,
+.ant-picker-dropdown .ant-picker-header-view button:hover {
+  color: var(--accent-solid) !important;
+}
+
+/* ---------- 星期表头 / 单元格 ---------- */
+.ant-picker-dropdown .ant-picker-content th {
+  color: var(--text-tertiary) !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell {
+  color: var(--text-tertiary) !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell-in-view {
+  color: var(--text-primary) !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell:hover:not(.ant-picker-cell-selected):not(.ant-picker-cell-range-start):not(.ant-picker-cell-range-end)
+  .ant-picker-cell-inner {
+  background: var(--bg-tertiary) !important;
+}
+
+/* 今天 */
+.ant-picker-dropdown .ant-picker-cell-today .ant-picker-cell-inner::before {
+  border-color: var(--accent-solid) !important;
+}
+
+/* 选中端点 */
+.ant-picker-dropdown .ant-picker-cell-selected .ant-picker-cell-inner,
+.ant-picker-dropdown .ant-picker-cell-range-start .ant-picker-cell-inner,
+.ant-picker-dropdown .ant-picker-cell-range-end .ant-picker-cell-inner {
+  background: var(--accent-solid) !important;
+  color: #ffffff !important;
+}
+
+/* 区间内 / 预览区间 */
+.ant-picker-dropdown .ant-picker-cell-in-range::before,
+.ant-picker-dropdown .ant-picker-cell-range-hover::before,
+.ant-picker-dropdown .ant-picker-cell-range-hover-start::before,
+.ant-picker-dropdown .ant-picker-cell-range-hover-end::before {
+  background: var(--accent-light) !important;
+}
+
+/* 禁用日期（未来日期） */
+.ant-picker-dropdown .ant-picker-cell-disabled {
+  color: var(--text-tertiary) !important;
+  opacity: 0.35 !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell-disabled::before {
+  background: transparent !important;
+}
+
+/* ---------- 快捷区间侧栏（presets） ---------- */
+.ant-picker-dropdown .ant-picker-presets {
+  border-right: 1px solid var(--border-subtle) !important;
+}
+
+.ant-picker-dropdown .ant-picker-presets ul {
+  background: transparent !important;
+}
+
+.ant-picker-dropdown .ant-picker-presets li {
+  color: var(--text-secondary) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.ant-picker-dropdown .ant-picker-presets li:hover {
+  background: var(--accent-light) !important;
+  color: var(--accent-solid) !important;
+}
+
+/* ---------- 底部 / 分隔符 / 清除按钮 ---------- */
+.ant-picker-dropdown .ant-picker-footer,
+.ant-picker-dropdown .ant-picker-footer-extra {
+  border-top: 1px solid var(--border-subtle) !important;
+  color: var(--text-secondary) !important;
+}
+
+.ant-picker-dropdown .ant-picker-range-arrow::before {
+  background: var(--bg-elevated) !important;
+}
+
+.ant-picker .ant-picker-separator,
+.ant-picker .ant-picker-suffix {
+  color: var(--text-tertiary) !important;
+}
+
+.ant-picker .ant-picker-input > input {
+  color: var(--text-primary) !important;
+}
+
+.ant-picker .ant-picker-input > input::placeholder {
+  color: var(--text-tertiary) !important;
+}
+
+.ant-picker .ant-picker-clear {
+  background: var(--bg-secondary) !important;
+  color: var(--text-tertiary) !important;
+}
+
+/* 区间选择时的高亮下划线 */
+.ant-picker .ant-picker-active-bar {
+  background: var(--accent-solid) !important;
+}
+
+/* ---------- 移动端 375px：双面板并排会溢出，改为单列 ---------- */
+@media (max-width: 480px) {
+  .ant-picker-dropdown .ant-picker-panels {
+    flex-direction: column !important;
+  }
+
+  .ant-picker-dropdown .ant-picker-panels > *:not(:last-child) {
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+  }
+
+  .ant-picker-dropdown .ant-picker-panel-container {
+    max-width: calc(100vw - 24px) !important;
+    overflow-x: auto !important;
+  }
+
+  /* 快捷区间侧栏在窄屏改为顶部横排，避免挤压日历 */
+  .ant-picker-dropdown .ant-picker-panel-layout {
+    flex-direction: column !important;
+  }
+
+  .ant-picker-dropdown .ant-picker-presets {
+    max-width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+  }
+
+  .ant-picker-dropdown .ant-picker-presets ul {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    height: auto !important;
+    padding: 8px !important;
+  }
+}

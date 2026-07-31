@@ -28,6 +28,7 @@ import { THEME, GOLD } from '../styles/theme-constants';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';
 import { useGamificationStore } from '../store/useGamificationStore';
 import { parseStockList } from '@shared/types';
+import StrategyPrincipleCard, { type StrategyCondition } from '../components/Screener/StrategyPrincipleCard';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
 const BORDER = THEME.border;
@@ -58,6 +59,18 @@ interface StockData {
   prevClose?: number;
 }
 
+/**
+ * 指标筛选方向 —— 描述"该条件取数值的哪一端"，是对 filter 代码的客观陈述，
+ * 不含"哪种更好"的主观判断。
+ */
+type MetricDirection = 'high' | 'low' | 'set';
+
+const DIRECTION_TEXT: Record<MetricDirection, string> = {
+  high: '取高端 · 数值越大越容易命中本条件',
+  low: '取低端 · 数值越小越容易命中本条件',
+  set: '集合匹配 · 行业名称命中清单即算命中',
+};
+
 interface FilterMetric {
   id: string;
   name: string;
@@ -66,7 +79,19 @@ interface FilterMetric {
   category: string;
   description: string;
   tooltip: string;
+  /** 依赖的 StockData 字段 */
+  field: string;
+  /** 与 filter 同源的判定表达式（展示用，须与 filter 一致） */
+  expr: string;
+  /** 数值口径说明（单位/来源），无特殊口径可省略 */
+  unit?: string;
+  direction: MetricDirection;
   filter: (s: StockData) => boolean;
+}
+
+/** 运行时条件：展示契约 + 真实谓词 */
+interface RuntimeCondition extends StrategyCondition {
+  test: (s: StockData) => boolean;
 }
 
 interface StrategyTemplate {
@@ -76,150 +101,229 @@ interface StrategyTemplate {
   icon: React.ReactNode;
   color: string;
   metrics: string[];
+  /** 真实筛选条件（AND）。filter 由此组合而来，避免展示与执行脱节 */
+  conditions: RuntimeCondition[];
   filter: (s: StockData) => boolean;
   explanation: string;
   fetchFromApi?: boolean;
   apiEndpoint?: string;
 }
 
+/** 由条件列表组合出 filter：全部条件满足才命中（与原 && 语义一致） */
+const buildFilter =
+  (conditions: RuntimeCondition[]) =>
+  (s: StockData): boolean =>
+    conditions.every((c) => c.test(s));
+
+// 行业清单 —— 原先在 4 处内联重复，抽出后指标与策略共用同一份，
+// 保证「策略原理卡」展示的行业与实际匹配的行业完全一致。
+const HOT_INDUSTRIES = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车', '医药生物'];
+const DEFENSIVE_INDUSTRIES = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输', '煤炭'];
+
+const inIndustry = (list: string[]) => (s: StockData) =>
+  list.some((ind) => s.industry?.includes(ind));
+
 // ===== 核心筛选指标 — 10个多维度 =====
 const FILTER_METRICS: FilterMetric[] = [
   {
     id: 'strong_momentum', name: '强势动量', icon: <RiseOutlined />, color: '#f59e0b',
     category: '行情', description: '涨幅 > 3%', tooltip: '当日涨幅超过3%的强势股，反映短期资金追捧程度',
+    field: 'changePercent', expr: 'changePercent > 3', unit: '%，当日行情快照',
+    direction: 'high',
     filter: (s) => Number(s.changePercent) > 3,
   },
   {
     id: 'high_turnover', name: '高换手率', icon: <FireOutlined />, color: '#ef4444',
     category: '行情', description: '换手率 > 5%', tooltip: '换手率超过5%，说明市场交投活跃，流动性好',
+    field: 'turnoverRate', expr: 'turnoverRate > 5', unit: '%，当日行情快照',
+    direction: 'high',
     filter: (s) => Number(s.turnoverRate) > 5,
   },
   {
     id: 'high_amplitude', name: '高振幅', icon: <ThunderboltOutlined />, color: '#f97316',
     category: '行情', description: '振幅 > 7%', tooltip: '日内振幅超过7%，波动剧烈，适合短线操作',
+    field: 'amplitude', expr: 'amplitude > 7', unit: '%，当日行情快照',
+    direction: 'high',
     filter: (s) => Number(s.amplitude) > 7,
   },
   {
     id: 'low_pe', name: '低市盈率', icon: <PercentageOutlined />, color: '#22c55e',
     category: '估值', description: 'PE < 15', tooltip: '市盈率低于15倍，估值处于偏低水平，安全边际较高',
+    field: 'pe', expr: 'pe > 0 && pe < 15', unit: '倍，取自行情接口 peRatio',
+    direction: 'low',
     filter: (s) => Number(s.pe) > 0 && Number(s.pe) < 15,
   },
   {
     id: 'low_pb', name: '低市净率', icon: <DollarOutlined />, color: '#14b8a6',
     category: '估值', description: 'PB < 1.5', tooltip: '市净率低于1.5倍，接近净资产价值，防御性强',
+    field: 'pb', expr: 'pb > 0 && pb < 1.5', unit: '倍，取自行情接口 pbRatio',
+    direction: 'low',
     filter: (s) => Number(s.pb) > 0 && Number(s.pb) < 1.5,
   },
   {
     id: 'large_cap', name: '大盘蓝筹', icon: <FundOutlined />, color: '#3b82f6',
     category: '财务', description: '市值 > 200亿', tooltip: '市值超过200亿，流动性好，机构关注度高',
+    field: 'marketCapNum', expr: 'marketCapNum > 2000000', unit: '万元（2000000 万 = 200 亿）',
+    direction: 'high',
     filter: (s) => Number(s.marketCapNum) > 2000000,
   },
   {
     id: 'small_cap', name: '小盘成长', icon: <RocketOutlined />, color: '#ec4899',
     category: '财务', description: '市值 < 50亿', tooltip: '市值小于50亿，弹性大，适合小资金博弈',
+    field: 'marketCapNum', expr: 'marketCapNum > 0 && marketCapNum < 500000', unit: '万元（500000 万 = 50 亿）',
+    direction: 'low',
     filter: (s) => Number(s.marketCapNum) > 0 && Number(s.marketCapNum) < 500000,
   },
   {
     id: 'oversold', name: '超跌反弹', icon: <FallOutlined />, color: '#8b5cf6',
     category: '技术', description: '跌幅 > 5%', tooltip: '当日跌幅超过5%，短期超卖，存在技术性反弹机会',
+    field: 'changePercent', expr: 'changePercent < -5', unit: '%，当日行情快照',
+    direction: 'low',
     filter: (s) => Number(s.changePercent) < -5,
   },
   {
     id: 'hot_industry', name: '热门行业', icon: <FireOutlined />, color: '#f59e0b',
     category: '行业', description: '科技/新能源/军工', tooltip: '电子、计算机、电力设备、国防军工、通信、汽车等热门赛道',
-    filter: (s) => {
-      const hot = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车', '医药生物'];
-      return hot.some(ind => s.industry?.includes(ind));
-    },
+    field: 'industry', expr: `industry 包含 [${HOT_INDUSTRIES.join(' / ')}] 之一`,
+    direction: 'set',
+    filter: inIndustry(HOT_INDUSTRIES),
   },
   {
     id: 'defensive', name: '防御型', icon: <SafetyOutlined />, color: '#14b8a6',
     category: '行业', description: '公用事业/银行/食品', tooltip: '公用事业、银行、食品饮料、医药生物、交通运输等防御型行业',
-    filter: (s) => {
-      const def = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输', '煤炭'];
-      return def.some(ind => s.industry?.includes(ind));
-    },
+    field: 'industry', expr: `industry 包含 [${DEFENSIVE_INDUSTRIES.join(' / ')}] 之一`,
+    direction: 'set',
+    filter: inIndustry(DEFENSIVE_INDUSTRIES),
   },
 ];
 
+/** 指标说明 tooltip —— 内容全部来自 FILTER_METRICS 的真实定义，不额外编写公式 */
+const renderMetricTooltip = (m: FilterMetric) => (
+  <div style={{ fontSize: 12, lineHeight: 1.7, maxWidth: 260 }}>
+    <div style={{ fontWeight: 700, marginBottom: 4 }}>{m.name}（{m.category}）</div>
+    <div>{m.tooltip}</div>
+    <div style={{ marginTop: 6, opacity: 0.85 }}>
+      判定式：<code style={{ fontFamily: 'monospace' }}>{m.expr}</code>
+    </div>
+    {m.unit && <div style={{ opacity: 0.85 }}>口径：{m.unit}</div>}
+    <div style={{ opacity: 0.85 }}>方向：{DIRECTION_TEXT[m.direction]}</div>
+  </div>
+);
+
 // ===== 8大推荐策略模板 =====
-const STRATEGY_TEMPLATES: StrategyTemplate[] = [
+// 每个策略先声明 conditions（展示 + 执行同源），filter 再由 buildFilter 组合，
+// 保证「策略原理卡」里展示的条件就是真正跑的条件。
+
+// 复用度较高的条件构造器
+const condMarketCap = (op: '>' | '<', threshold: number, label: string): RuntimeCondition => ({
+  field: 'marketCapNum',
+  label,
+  expr: `marketCapNum ${op} ${threshold}（万元，即 ${threshold / 10000} 亿）`,
+  test: (s) => (op === '>' ? Number(s.marketCapNum) > threshold : Number(s.marketCapNum) > 0 && Number(s.marketCapNum) < threshold),
+});
+
+const condIndustry = (list: string[], label: string): RuntimeCondition => ({
+  field: 'industry',
+  label,
+  expr: `industry 包含 [${list.join(' / ')}] 之一`,
+  test: inIndustry(list),
+});
+
+/** 策略声明：不含 filter，filter 统一由 conditions 组合生成 */
+type StrategyTemplateDef = Omit<StrategyTemplate, 'filter'>;
+
+const STRATEGY_DEFS: StrategyTemplateDef[] = [
   {
     id: 'value_investing', name: '价值投资', description: '大盘蓝筹 + 低估值',
     icon: <TrophyOutlined />, color: '#22c55e',
     metrics: ['large_cap', 'low_pe'],
-    filter: (s) => Number(s.marketCapNum) > 2000000 && Number(s.pe) > 0 && Number(s.pe) < 20,
+    conditions: [
+      condMarketCap('>', 2000000, '大盘蓝筹'),
+      { field: 'pe', label: '估值不高', expr: 'pe > 0 && pe < 20', test: (s) => Number(s.pe) > 0 && Number(s.pe) < 20 },
+    ],
     explanation: '筛选市值>200亿且PE<20的蓝筹股，适合中长期价值投资。核心逻辑：大市值保证流动性，低估值提供安全边际。',
   },
   {
     id: 'momentum_strategy', name: '动量策略', description: '强势上涨 + 活跃成交',
     icon: <RiseOutlined />, color: '#f59e0b',
     metrics: ['strong_momentum', 'high_turnover'],
-    filter: (s) => Number(s.changePercent) > 3 && Number(s.turnoverRate) > 3,
+    conditions: [
+      { field: 'changePercent', label: '当日强势', expr: 'changePercent > 3', test: (s) => Number(s.changePercent) > 3 },
+      { field: 'turnoverRate', label: '成交活跃', expr: 'turnoverRate > 3', test: (s) => Number(s.turnoverRate) > 3 },
+    ],
     explanation: '筛选涨幅>3%且换手>3%的强势股，适合趋势跟踪。核心逻辑：追涨强势标的，量价配合确认动能。',
   },
   {
     id: 'small_growth', name: '小而美', description: '小盘 + 活跃 + 热门赛道',
     icon: <RocketOutlined />, color: '#ec4899',
     metrics: ['small_cap', 'high_turnover', 'hot_industry'],
-    filter: (s) => {
-      const hot = ['电子', '计算机', '电力设备', '医药生物', '国防军工', '通信', '汽车'];
-      return Number(s.marketCapNum) > 0 && Number(s.marketCapNum) < 500000
-        && Number(s.turnoverRate) > 3
-        && hot.some(ind => s.industry?.includes(ind));
-    },
+    conditions: [
+      condMarketCap('<', 500000, '小市值'),
+      { field: 'turnoverRate', label: '成交活跃', expr: 'turnoverRate > 3', test: (s) => Number(s.turnoverRate) > 3 },
+      condIndustry(HOT_INDUSTRIES, '热门赛道'),
+    ],
     explanation: '筛选市值<50亿、换手>3%且处于热门赛道的成长股。核心逻辑：小市值弹性大，叠加行业风口提升胜率。',
   },
   {
     id: 'defensive_yield', name: '防御收益', description: '防御行业 + 估值合理',
     icon: <SafetyOutlined />, color: '#14b8a6',
     metrics: ['defensive', 'large_cap', 'low_pb'],
-    filter: (s) => {
-      const def = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输', '煤炭'];
-      return def.some(ind => s.industry?.includes(ind))
-        && Number(s.marketCapNum) > 500000
-        && Number(s.pb) > 0 && Number(s.pb) < 2;
-    },
+    conditions: [
+      condIndustry(DEFENSIVE_INDUSTRIES, '防御行业'),
+      condMarketCap('>', 500000, '中大市值'),
+      { field: 'pb', label: '市净率合理', expr: 'pb > 0 && pb < 2', test: (s) => Number(s.pb) > 0 && Number(s.pb) < 2 },
+    ],
     explanation: '筛选防御型行业中市值>50亿且PB<2的标的。核心逻辑：弱市中防御板块抗跌，低PB提供下行保护。',
   },
   {
     id: 'oversold_bounce', name: '超跌反弹', description: '深跌 + 高换手',
     icon: <FallOutlined />, color: '#8b5cf6',
     metrics: ['oversold', 'high_turnover'],
-    filter: (s) => Number(s.changePercent) < -5 && Number(s.turnoverRate) > 3 && !s.name?.includes('ST'),
+    conditions: [
+      { field: 'changePercent', label: '当日深跌', expr: 'changePercent < -5', test: (s) => Number(s.changePercent) < -5 },
+      { field: 'turnoverRate', label: '有资金承接', expr: 'turnoverRate > 3', test: (s) => Number(s.turnoverRate) > 3 },
+      { field: 'name', label: '排除 ST', expr: "!name.includes('ST')", test: (s) => !s.name?.includes('ST') },
+    ],
     explanation: '筛选跌幅>5%、换手>3%的非ST股。核心逻辑：短期超卖后资金博弈反弹，高换手说明有资金承接。',
   },
   {
     id: 'hot_chase', name: '热门追击', description: '热门赛道 + 趋势确认',
     icon: <ThunderboltOutlined />, color: '#f97316',
     metrics: ['hot_industry', 'strong_momentum', 'large_cap'],
-    filter: (s) => {
-      const hot = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车', '医药生物'];
-      return hot.some(ind => s.industry?.includes(ind))
-        && Number(s.changePercent) > 2
-        && Number(s.marketCapNum) > 500000;
-    },
+    conditions: [
+      condIndustry(HOT_INDUSTRIES, '热门赛道'),
+      { field: 'changePercent', label: '趋势确认', expr: 'changePercent > 2', test: (s) => Number(s.changePercent) > 2 },
+      condMarketCap('>', 500000, '中大市值'),
+    ],
     explanation: '筛选热门赛道中涨>2%且市值>50亿的标的。核心逻辑：热点行业+资金确认+流动性保障，三重过滤提高胜率。',
   },
   {
     id: 'low_valuation', name: '低估值修复', description: 'PE<15 + PB<1.5 + 盈利',
     icon: <DollarOutlined />, color: '#3b82f6',
     metrics: ['low_pe', 'low_pb', 'large_cap'],
-    filter: (s) => Number(s.pe) > 0 && Number(s.pe) < 15
-      && Number(s.pb) > 0 && Number(s.pb) < 1.5
-      && Number(s.marketCapNum) > 500000,
+    conditions: [
+      { field: 'pe', label: '低市盈率', expr: 'pe > 0 && pe < 15', test: (s) => Number(s.pe) > 0 && Number(s.pe) < 15 },
+      { field: 'pb', label: '低市净率', expr: 'pb > 0 && pb < 1.5', test: (s) => Number(s.pb) > 0 && Number(s.pb) < 1.5 },
+      condMarketCap('>', 500000, '中大市值'),
+    ],
     explanation: 'PE<15、PB<1.5且市值>50亿的低估标的。核心逻辑：双低估值+大市值，适合逆向布局等待估值修复。',
   },
   {
     id: 'ai_gems', name: 'AI潜力发现', description: 'AI多因子综合评分',
     icon: <RobotOutlined />, color: '#ec4899',
     metrics: ['ai_gems'],
-    filter: (_s) => true,
+    // 前端不做条件过滤，结果整体来自 /api/ai/gems 打分
+    conditions: [],
     fetchFromApi: true,
     apiEndpoint: '/api/ai/gems',
     explanation: 'AI模型综合动量、成交、规模、行业四维因子打分。机器挖掘人眼难以发现的潜力标的，适合辅助决策。',
   },
 ];
+
+const STRATEGY_TEMPLATES: StrategyTemplate[] = STRATEGY_DEFS.map((t) => ({
+  ...t,
+  filter: buildFilter(t.conditions),
+}));
 
 const ScreenerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -650,11 +754,13 @@ const ScreenerPage: React.FC = () => {
                 {activeStrategyObj.explanation}
               </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, color: TEXT_SEC }}>筛选指标：</span>
+                {/* 指标标签展示的是指标自身阈值，策略实际阈值可能不同（如价值投资用 PE<20），
+                    以结果区「策略原理卡」的条件为准 */}
+                <span style={{ fontSize: 11, color: TEXT_SEC }}>相关指标（实际阈值见下方原理卡）：</span>
                 {activeStrategyObj.metrics.map(mid => {
                   const m = FILTER_METRICS.find(fm => fm.id === mid);
                   return m ? (
-                    <Tooltip key={mid} title={m.tooltip}>
+                    <Tooltip key={mid} title={renderMetricTooltip(m)}>
                       <Tag style={{ fontSize: 10, cursor: 'help' }}>{m.name}: {m.description}</Tag>
                     </Tooltip>
                   ) : <Tag key={mid} style={{ fontSize: 10 }}>{mid}</Tag>;
@@ -678,7 +784,7 @@ const ScreenerPage: React.FC = () => {
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {metrics.map(metric => (
-                  <Tooltip key={metric.id} title={metric.tooltip}>
+                  <Tooltip key={metric.id} title={renderMetricTooltip(metric)}>
                     <div onClick={() => toggleMetric(metric.id)}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
@@ -797,6 +903,21 @@ const ScreenerPage: React.FC = () => {
             <Button size="small" type="primary" ghost icon={<AudioOutlined />} onClick={() => message.info('语音功能开发中')} />
           </div>
         </Card>
+
+        {/* 策略原理卡 —— 选中策略后在结果区说明「为什么是这些股票」+ 排雷 */}
+        {activeStrategyObj && (
+          <StrategyPrincipleCard
+            name={activeStrategyObj.name}
+            description={activeStrategyObj.description}
+            color={activeStrategyObj.color}
+            icon={activeStrategyObj.icon}
+            explanation={activeStrategyObj.explanation}
+            conditions={activeStrategyObj.conditions as StrategyCondition[]}
+            apiEndpoint={activeStrategyObj.apiEndpoint}
+            matchedCount={filtered.length}
+            totalCount={stocks.length}
+          />
+        )}
 
         {/* 股票列表 */}
         <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}` }} bodyStyle={{ padding: 0 }}>
