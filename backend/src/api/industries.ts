@@ -8,8 +8,22 @@ import {
   SW_INDUSTRY_MAP, getAllSubIndustries,
   classifySubIndustry, getSubIndustries,
 } from '@shared/industryClassification';
+import type { ResponseMeta } from '@shared/types';
 
 const router = Router();
+
+/**
+ * F01 契约：行业类接口的数据来自本地 PostgreSQL（无上游拉取），
+ * 因此只有 live / unavailable 两态；stale 保留给依赖外部上游的概念板块接口。
+ */
+function dbMeta(rowCount: number, emptyReason: string): ResponseMeta {
+  return rowCount > 0
+    ? { source: 'live', updatedAt: new Date().toISOString() }
+    : { source: 'unavailable', updatedAt: null, error: emptyReason };
+}
+
+/** 静态行业树（来自 shared/industryClassification 常量，不依赖 DB） */
+const STATIC_META: ResponseMeta = { source: 'live', updatedAt: null };
 
 /** 市值(元) → 人类可读字符串（万亿/亿/万） */
 function formatCap(yuan: number): string {
@@ -44,6 +58,7 @@ router.get('/industries', asyncHandler(async (req: Request, res: Response) => {
         level: 2,
         count: industries.length,
         industries,
+        meta: dbMeta(industries.length, '无二级行业聚合数据（stocks 表为空或未同步行情）'),
       },
     });
     return;
@@ -57,13 +72,14 @@ router.get('/industries', asyncHandler(async (req: Request, res: Response) => {
       primaryCount: Object.keys(SW_INDUSTRY_MAP).length,
       subCount: getAllSubIndustries().length,
       tree: SW_INDUSTRY_MAP,
+      meta: STATIC_META,
     },
   });
 }));
 
 // 所有二级行业
 router.get('/industries/sub', asyncHandler(async (_req: Request, res: Response) => {
-  res.json({ success: true, data: getAllSubIndustries() });
+  res.json({ success: true, data: getAllSubIndustries(), meta: STATIC_META });
 }));
 
 // 某一级下的子行业
@@ -73,7 +89,7 @@ router.get('/industries/:industry/sub', asyncHandler(async (req: Request, res: R
     res.status(404).json({ success: false, error: `未找到行业: ${req.params.industry}` });
     return;
   }
-  res.json({ success: true, data: subs });
+  res.json({ success: true, data: subs, meta: STATIC_META });
 }));
 
 // 子行业景气度（实时计算）
@@ -111,6 +127,7 @@ router.get('/industries/sub-sector/momentum', asyncHandler(async (_req: Request,
     data: {
       subSectors,
       total: subSectors.length,
+      meta: dbMeta(subSectors.length, '无板块景气度数据（stocks/daily_quotes 为空或未同步）'),
     },
   });
 }));
@@ -150,6 +167,7 @@ router.get('/industries/sub-sector/:subIndustry/stocks', asyncHandler(async (req
       subIndustry,
       parentIndustry,
       count: filtered.length,
+      meta: dbMeta(stocksWithQuote.length, `子行业 ${subIndustry} 无带行情的成分股`),
       stocks: stocksWithQuote.map((st: any) => ({
         symbol: st.symbol,
         name: st.name,
@@ -179,6 +197,7 @@ router.get('/industries/level2/stocks', asyncHandler(async (req: Request, res: R
     data: {
       industry: name,
       count: stocks.length,
+      meta: dbMeta(stocks.length, `二级行业 ${name} 无匹配股票（分类引擎未命中或行情未同步）`),
       stocks: stocks.map((s) => ({
         symbol: s.symbol,
         name: s.name,

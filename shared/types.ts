@@ -3,6 +3,28 @@
  * 前后端共用的核心数据类型
  */
 
+// ==================== 数据新鲜度契约 (F01) ====================
+
+/**
+ * 数据来源状态
+ * - live        本次实时拉取上游成功
+ * - stale       上游失败，用了数据库历史缓存（updatedAt 为缓存时间）
+ * - unavailable 彻底没数据（error 给可读原因）
+ */
+export type DataSourceStatus = 'live' | 'stale' | 'unavailable';
+
+/**
+ * 统一附加在 sectors / industries 系列 API 响应 data 上的兄弟字段。
+ * 现有字段原样保留，meta 为**新增**字段，前端可安全按需读取。
+ */
+export interface ResponseMeta {
+  source: DataSourceStatus;
+  /** ISO8601；unavailable 时为 null */
+  updatedAt: string | null;
+  /** 仅 stale / unavailable 时出现，人类可读原因 */
+  error?: string;
+}
+
 // ==================== 股票基础类型 ====================
 
 export interface Stock {
