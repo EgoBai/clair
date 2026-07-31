@@ -1,11 +1,25 @@
+# 依赖与构建产物
 node_modules/
 dist/
-.env
-.env.local
-.env.*.local
-*.log
+build/
+.vite/
 coverage/
-*.bak-*
-.DS_Store
+
+# 环境变量 —— 任何层级的 .env 一律不入库，只提交 .env.example
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# 日志与临时文件
+*.log
 .cache/
 tmp/
+
+# 编辑器副本 / 回收站
+*.bak
+*.bak-*
+*.orig
+*.tmp
+.trash-bak/
+.DS_Store
