@@ -8,7 +8,12 @@ import { db } from '../db/dbFactory';
 import { asyncHandler, sendSuccess, sendValidationError } from '../utils/apiResponse';
 import { chatStream, type AIMessage } from '../services/aiService';
 
+import { aiTiming } from '../middleware/aiTiming';
+
 const router = Router();
+
+// F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
+router.use(aiTiming);
 
 // ==================== AI策略推荐 ====================
 

@@ -83,7 +83,8 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
       });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    // A股交易日按东八区计；服务器若跑在 UTC，00:00-08:00 CST 期间用 UTC 日期会误伤"今天"
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     if (end > today) {
       return res.status(400).json({
         success: false,

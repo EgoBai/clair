@@ -7,9 +7,9 @@
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Spin, Empty, Typography, Badge, Progress, Tooltip, message, Button, Alert, Result } from 'antd';
+import { Table, Tag, Empty, Typography, Badge, Progress, Tooltip, message, Button, Result } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
-import { CompassOutlined, RightOutlined, StarOutlined, ArrowLeftOutlined, FilterOutlined, ApartmentOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CompassOutlined, RightOutlined, StarOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 

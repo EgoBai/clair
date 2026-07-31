@@ -8,7 +8,7 @@
  * 4. 智能问答
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Card,
   Row,
@@ -243,6 +243,7 @@ const IndustryMapPage: React.FC = () => {
   
   const [selectedChain, setSelectedChain] = useState<IndustryChain | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<ChainSegment | null>(null);
+  const detailAnchorRef = useRef<HTMLDivElement>(null);
   const [chains, setChains] = useState<IndustryChainSummary[]>(HOT_CHAINS);
   const [initialLoading, setInitialLoading] = useState(true);    // 首次加载
   const [chainLoading, setChainLoading] = useState(false);       // 切换链加载（不遮挡整体）
@@ -352,6 +353,12 @@ const IndustryMapPage: React.FC = () => {
   const onNodeClick = useCallback((_: any, node: Node) => {
     const segment = node.data.segment as ChainSegment;
     setSelectedSegment(segment);
+    // 窄屏（lg 断点以下）详情面板位于图谱下方、首屏不可见，点击后主动滚动到面板
+    if (typeof window !== 'undefined' && window.innerWidth < 992) {
+      requestAnimationFrame(() => {
+        detailAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
   }, []);
   
   // 计算统计信息
@@ -777,6 +784,7 @@ ${marketContext}
         
         {/* 右侧：详情面板 */}
         <Col xs={24} lg={8}>
+          <div ref={detailAnchorRef} style={{ scrollMarginTop: 12 }} />
           {selectedSegment ? (
             <Card
               title={

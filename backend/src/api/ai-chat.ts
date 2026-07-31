@@ -10,7 +10,12 @@ import aiService from '../services/aiService';
 import { logger } from '../services/logger';
 import { getDb } from '../db/dbFactory';
 
+import { aiTiming } from '../middleware/aiTiming';
+
 const router = Router();
+
+// F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
+router.use(aiTiming);
 
 // ============================================================
 // 对话接口（流式）

@@ -308,6 +308,13 @@ const FloatingChat: React.FC = () => {
     return { ...pageContext, systemHint: hint };
   }, [pageContext, marketData, multidimSummary]);
 
+  // C-02: 只登记真实取到数据的来源（含真实获取时间戳），取不到则不登记
+  // 说明: localStorage 自选股无可信获取时间，故不作为数据来源登记
+  const contextSources = useMemo(
+    () => [marketSource, multidimSource].filter(Boolean) as DataSourceRef[],
+    [marketSource, multidimSource]
+  );
+
   return (
     <>
       {/* 浮动按钮 */}
@@ -378,6 +385,7 @@ const FloatingChat: React.FC = () => {
               pageContext={enrichedContext}
               suggestedQuestions={suggestedQuestions}
               prefilledQuestion={prefilledQuestion}
+              contextSources={contextSources}
             />
           </div>
         </div>

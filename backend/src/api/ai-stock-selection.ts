@@ -8,7 +8,12 @@ import { queryCache } from '../utils/queryCache';
 import { validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 
+import { aiTiming } from '../middleware/aiTiming';
+
 const router = Router();
+
+// F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
+router.use(aiTiming);
 
 // 模拟 AI 选股推荐数据
 function generateRecommendations(strategy?: string) {
