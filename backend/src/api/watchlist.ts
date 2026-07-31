@@ -8,8 +8,55 @@ import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
 import { queryCache } from '../utils/queryCache';
+import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
+
+// F05: 自选股全部为用户私有数据，整个路由强制 JWT 鉴权
+router.use(authMiddleware);
+
+/**
+ * 从已验证的 JWT 解析出数据库用户ID（F05）
+ * 绝不再信任 req.query.userId / req.body.userId，避免越权（IDOR）
+ *
+ * 兼容两种主体：
+ * 1) sub 本身即数据库 users.id（数字）
+ * 2) sub 为内存用户体系的字符串ID → 用 token 中的 email 到 users 表反查数字ID
+ * 两者都取不到时返回 null（fail-closed，不再回落到 userId=1）
+ */
+async function getAuthUserId(req: Request): Promise<number | null> {
+  const aReq = req as AuthenticatedRequest;
+  const sub = aReq.userId;
+  if (!sub) return null;
+
+  const numeric = parseInt(sub, 10);
+  if (Number.isFinite(numeric) && numeric > 0 && String(numeric) === sub) {
+    return numeric;
+  }
+
+  const email = aReq.userEmail;
+  if (!email) return null;
+
+  const row = await db.connection('users')
+    .where('email', email)
+    .select('id')
+    .first()
+    .catch(() => null);
+
+  const dbId = row?.id ? parseInt(String(row.id), 10) : NaN;
+  return Number.isFinite(dbId) && dbId > 0 ? dbId : null;
+}
+
+/**
+ * 身份无法映射到数据库用户时的统一响应（403，fail-closed）
+ */
+function sendUnauthorized(res: Response): Response {
+  return res.status(403).json({
+    success: false,
+    error: '当前账号无法访问自选股数据',
+    code: 'IDENTITY_UNMAPPED',
+  });
+}
 
 /**
  * 获取自选股列表（含分组）
@@ -17,7 +64,8 @@ const router = Router();
  */
 router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.query.userId as string) || 1;
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
     const groupId = req.query.groupId as string;
     const cacheKey = `watchlist:${userId}:${groupId || 'all'}`;
 
@@ -89,7 +137,8 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
 router.post('/watchlist', validateBody(schemas.watchlistAdd), async (req: Request, res: Response) => {
   try {
     const { symbol, notes, groupId = 'default' } = req.body;
-    const userId = parseInt(req.body.userId as string) || 1;
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
 
     if (!symbol) {
       return res.status(400).json({ success: false, error: '需要提供股票代码' });
@@ -149,7 +198,8 @@ router.post('/watchlist', validateBody(schemas.watchlistAdd), async (req: Reques
 router.delete('/watchlist/:symbol', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
-    const userId = parseInt(req.query.userId as string) || 1;
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
@@ -184,7 +234,8 @@ router.patch('/watchlist/:symbol', validateParams(schemas.stockSymbol), validate
   try {
     const { symbol } = req.params;
     const { notes, groupId, sortIndex } = req.body;
-    const userId = parseInt(req.body.userId as string) || 1;
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
@@ -221,7 +272,8 @@ router.patch('/watchlist/:symbol', validateParams(schemas.stockSymbol), validate
 router.put('/watchlist/reorder', validateBody(schemas.watchlistReorder), async (req: Request, res: Response) => {
   try {
     const { items } = req.body; // [{ symbol, sortIndex, groupId }]
-    const userId = parseInt(req.body.userId as string) || 1;
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: '需要提供排序数据' });
@@ -253,7 +305,8 @@ router.put('/watchlist/reorder', validateBody(schemas.watchlistReorder), async (
 router.post('/watchlist/groups', validateBody(schemas.watchlistGroupCreate), async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
-    const userId = parseInt(req.body.userId as string) || 1;
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
 
     if (!name?.trim()) {
       return res.status(400).json({ success: false, error: '分组名称不能为空' });
@@ -299,7 +352,19 @@ router.delete('/watchlist/groups/:id', validateParams(schemas.watchlistGroupDele
       return res.status(400).json({ success: false, error: '默认分组不能删除' });
     }
 
-    const userId = parseInt(req.query.userId as string) || 1;
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
+
+    // F05: 归属校验 — 分组不存在或不属于当前用户，统一返回 404（不泄露资源是否存在）
+    const owned = await db.connection('watchlist_groups')
+      .where('id', id)
+      .where('user_id', userId)
+      .first()
+      .catch(() => null);
+
+    if (!owned) {
+      return res.status(404).json({ success: false, error: '分组不存在' });
+    }
 
     // 将该分组的股票移到默认分组
     await db.connection('user_watchlist')
@@ -328,7 +393,8 @@ router.delete('/watchlist/groups/:id', validateParams(schemas.watchlistGroupDele
 router.post('/watchlist/sync', async (req: Request, res: Response) => {
   try {
     const { groups } = req.body; // [{id, name, stocks: [{symbol, name, market}]}]
-    const userId = 1; // 单用户模式
+    const userId = await getAuthUserId(req);
+    if (userId === null) return sendUnauthorized(res);
 
     if (!groups || !Array.isArray(groups)) {
       res.json({ success: true, message: '无需同步', synced: 0 });

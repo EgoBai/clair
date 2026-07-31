@@ -13,7 +13,43 @@ const log = createLogger('Auth');
 
 // ==================== 配置 ====================
 
-const JWT_SECRET = process.env.JWT_SECRET || 'a-stock-dev-secret-change-in-production';
+/** JWT 密钥最小长度（HS256 建议 >= 32 字节） */
+const MIN_SECRET_LENGTH = 32;
+
+/**
+ * 解析 JWT 密钥（F06）
+ * - 密钥只能来自环境变量 JWT_SECRET，代码内不保留任何硬编码兜底值
+ * - 生产环境缺失或强度不足 → 启动即失败（fail-fast）
+ * - 非生产环境 → 生成一次性随机密钥（进程重启即失效），并打印醒目告警
+ */
+function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (!secret || secret.trim().length === 0) {
+    if (isProd) {
+      throw new Error(
+        '[FATAL] 缺少环境变量 JWT_SECRET：生产环境禁止使用默认密钥，请配置后再启动（参考 .env.example）'
+      );
+    }
+    const ephemeral = crypto.randomBytes(48).toString('hex');
+    log.warn('未配置 JWT_SECRET，已生成一次性随机密钥（重启后所有令牌失效）。请在 .env 中配置 JWT_SECRET');
+    return ephemeral;
+  }
+
+  if (secret.trim().length < MIN_SECRET_LENGTH) {
+    if (isProd) {
+      throw new Error(
+        `[FATAL] JWT_SECRET 长度不足 ${MIN_SECRET_LENGTH} 字符，强度不够，生产环境拒绝启动`
+      );
+    }
+    log.warn(`JWT_SECRET 长度不足 ${MIN_SECRET_LENGTH} 字符，仅允许在非生产环境使用`);
+  }
+
+  return secret;
+}
+
+const JWT_SECRET = resolveJwtSecret();
 const ACCESS_TOKEN_EXPIRY = 15 * 60 * 1000;   // 15分钟
 const REFRESH_TOKEN_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7天
 const ISSUER = 'a-stock-api';

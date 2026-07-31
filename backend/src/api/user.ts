@@ -5,7 +5,8 @@
  */
 
 import { NextFunction, Request, Response, Router } from 'express';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
+import bcrypt from 'bcryptjs';
 import { signAccessToken, generateRefreshToken, consumeRefreshToken } from '../middleware/auth';
 import { validateBody, validateQuery, schemas } from '../middleware/validation';
 
@@ -21,6 +22,8 @@ interface User {
   avatar?: string;
   roles: string[];          // RBAC角色列表
   status: 'active' | 'inactive' | 'banned' | 'pending';
+  /** bcrypt 密码哈希（禁止存明文/可逆摘要） */
+  passwordHash: string;
   failedLoginAttempts: number;
   lockedUntil?: string;
   mfaEnabled: boolean;
@@ -94,8 +97,28 @@ const MAX_CONCURRENT_SESSIONS = 5;
 const MAX_FAILED_ATTEMPTS = 10;
 const ACCOUNT_LOCK_DURATION = 30 * 60 * 1000; // 30分钟
 
-function hashPassword(password: string): string {
-  return createHash('sha256').update(password + 'a-stock-salt').digest('hex');
+/** bcrypt 代价因子（F06：替换原 SHA-256+固定盐弱哈希） */
+const BCRYPT_ROUNDS = 12;
+
+/** 用于用户不存在时做等时比对，避免通过响应时间枚举账号 */
+const DUMMY_HASH = bcrypt.hashSync('clair-dummy-password', BCRYPT_ROUNDS);
+
+/**
+ * 密码哈希（bcrypt，自动随机盐）
+ */
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+/**
+ * 密码校验；hash 缺失时仍执行一次等时比对再返回 false
+ */
+async function verifyPassword(password: string, hash?: string): Promise<boolean> {
+  if (!hash) {
+    await bcrypt.compare(password, DUMMY_HASH);
+    return false;
+  }
+  return bcrypt.compare(password, hash);
 }
 
 function generateToken(): string {
@@ -160,7 +183,7 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
  * 用户注册
  * POST /api/user/register
  */
-router.post('/user/register', (req: Request, res: Response) => {
+router.post('/user/register', async (req: Request, res: Response) => {
   try {
     const { email, phone, password, nickname } = req.body;
 
@@ -194,6 +217,7 @@ router.post('/user/register', (req: Request, res: Response) => {
       nickname,
       roles: ['user'],
       status: 'active',
+      passwordHash: await hashPassword(password),
       failedLoginAttempts: 0,
       mfaEnabled: false,
       settings: defaultSettings(),
@@ -236,7 +260,7 @@ router.post('/user/register', (req: Request, res: Response) => {
  * 用户登录
  * POST /api/user/login
  */
-router.post('/user/login', (req: Request, res: Response) => {
+router.post('/user/login', async (req: Request, res: Response) => {
   try {
     const { email, phone, password } = req.body;
 
@@ -250,7 +274,9 @@ router.post('/user/login', (req: Request, res: Response) => {
       if (phone && user.phone === phone) { foundUser = user; break; }
     }
 
-    if (!foundUser) {
+    // F06: 必须校验密码；用户不存在时也走一次等时比对，响应文案保持一致
+    const passwordOk = await verifyPassword(password, foundUser?.passwordHash);
+    if (!foundUser || !passwordOk) {
       return res.status(401).json({ success: false, message: '用户不存在或密码错误' });
     }
 

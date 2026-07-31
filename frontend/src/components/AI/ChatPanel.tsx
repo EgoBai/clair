@@ -26,6 +26,7 @@ import { renderMarkdown } from '../../utils/markdown';
 import { saveEntry, CATEGORIES } from '../../utils/knowledgeStore';
 import { retrieveRelevantNotes, buildRagContext } from '../../utils/knowledgeRetrieval';
 import { buildFallbackReply } from '../../utils/aiChatFallback';
+import { startAiTimer } from '../../utils/aiMetrics';
 import { useCompanion } from '../../store/useGamificationStore';
 
 // 伴生情绪 → emoji（情绪类型来自 config 的 CompanionMood）
@@ -40,6 +41,17 @@ const COMPANION_MOOD_EMOJI: Record<string, string> = {
 // 类型定义
 // ============================================================
 
+/**
+ * 数据来源引用（C-02 可溯源）
+ * 只由「实际成功拉取到的上下文数据」产生，取不到就不产生，严禁编造。
+ */
+export interface DataSourceRef {
+  /** 来源名称，如「市场概览」 */
+  label: string;
+  /** 该来源数据的实际获取时间（epoch ms） */
+  fetchedAt: number;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -48,6 +60,7 @@ interface Message {
   isStreaming?: boolean;
   isFallback?: boolean; // 降级·演示：chatStream 失败/超时后由本地兜底回复承接
   ragNoteCount?: number; // 本轮 AI 回复参考的投资笔记条数（RAG 一期）
+  sources?: DataSourceRef[]; // 本轮回答实际引用的数据来源快照（C-02）
 }
 
 interface PageContext {
@@ -154,9 +167,25 @@ interface ChatPanelProps {
   pageContext?: PageContext;
   suggestedQuestions?: Array<{ icon: string; text: string; prompt: string }>;
   prefilledQuestion?: string;
+  /** 本页面已成功获取的上下文数据来源（C-02）；由 FloatingChat 传入，为空则不展示来源 */
+  contextSources?: DataSourceRef[];
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions = [], prefilledQuestion }) => {
+/**
+ * 渲染「数据来源：X · 截至 HH:MM」
+ * 时间取所有来源中最早的一次获取时间，避免高估数据新鲜度。
+ */
+function formatSourceLine(sources: DataSourceRef[]): string | null {
+  if (!sources || sources.length === 0) return null;
+  const labels = Array.from(new Set(sources.map(s => s.label))).filter(Boolean);
+  if (labels.length === 0) return null;
+  const oldest = Math.min(...sources.map(s => s.fetchedAt));
+  if (!Number.isFinite(oldest)) return null;
+  const t = new Date(oldest).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  return `数据来源：${labels.join(' · ')} · 截至 ${t}`;
+}
+
+const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions = [], prefilledQuestion, contextSources = [] }) => {
   const companion = useCompanion();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -257,6 +286,9 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       // 检索失败静默跳过，不影响对话
     }
 
+    // C-02：快照本轮实际可用的数据来源，避免后续刷新导致展示与回答不一致
+    const sourcesSnapshot = contextSources.length > 0 ? [...contextSources] : undefined;
+
     const aiMessage: Message = {
       id: aiMessageId,
       role: 'assistant',
@@ -264,6 +296,7 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       timestamp: new Date(),
       isStreaming: true,
       ...(ragNoteCount > 0 ? { ragNoteCount } : {}),
+      ...(sourcesSnapshot ? { sources: sourcesSnapshot } : {}),
     };
     setMessages(prev => [...prev, aiMessage]);
 
@@ -278,10 +311,14 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       ...messages.slice(-5).map(m => ({ role: m.role, content: m.content })),
     ];
 
+    // F12/A-07：采集首字时延与完整响应时延（本地聚合，无第三方 SDK）
+    const timer = startAiTimer('ai/chat');
+
     let acc = '';
     try {
       // 流式逐 chunk 追加；首包 15s 超时 -> streamWithTimeout 抛错进入降级
       for await (const chunk of streamWithTimeout(chatStream(content, context), 15000)) {
+        timer.firstToken(); // 仅首次生效，记录首字时延
         acc += chunk.content;
         setMessages(prev =>
           prev.map(m => (m.id === aiMessageId ? { ...m, content: acc } : m)),
@@ -289,17 +326,20 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       }
       // 占位或空响应也视为失败，回退演示
       if (!acc.trim()) throw new Error('AI 返回内容为空');
+      timer.end(true);
       setMessages(prev =>
         prev.map(m => (m.id === aiMessageId ? { ...m, content: acc, isStreaming: false } : m)),
       );
     } catch (error) {
+      timer.end(false);
       // 降级承接：流式失败/首包超时 -> 本地确定性演示回复
       console.warn('[ChatPanel] 流式失败，降级到演示回复:', error);
       const fallback = buildFallbackReply(content);
+      // 降级回复由本地兜底生成，未使用远端数据，故清除来源标注避免误导
       setMessages(prev =>
         prev.map(m =>
           m.id === aiMessageId
-            ? { ...m, content: fallback, isStreaming: false, isFallback: true }
+            ? { ...m, content: fallback, isStreaming: false, isFallback: true, sources: undefined }
             : m,
         ),
       );
@@ -307,7 +347,7 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [isLoading, messages, systemHint, pageContext?.symbol]);
+  }, [isLoading, messages, systemHint, pageContext?.symbol, contextSources]);
 
   // 输入框发送
   const handleSend = useCallback(() => {
@@ -341,7 +381,8 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
     [handleSend]
   );
 
-  // 渲染Markdown（简单版本）
+  // 渲染 Markdown。renderMarkdown 内部已做「先转义、后消毒(DOMPurify)」，
+  // 故此处输出可安全用于 dangerouslySetInnerHTML（F04）。
   const renderContent = (content: string) => {
     return renderMarkdown(content);
   };
@@ -420,6 +461,15 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
               {message.ragNoteCount ? (
                 <Tag color="blue" style={{ marginTop: 6 }}>已参考 {message.ragNoteCount} 条笔记</Tag>
               ) : null}
+              {/* C-02 可溯源：仅在确有真实来源时展示，来源与时间均来自实际请求 */}
+              {message.role === 'assistant' && !message.isStreaming && !message.isFallback && (() => {
+                const line = message.sources ? formatSourceLine(message.sources) : null;
+                return line ? (
+                  <div className="message-sources" title="来源与时间取自本轮实际获取的数据">
+                    {line}
+                  </div>
+                ) : null;
+              })()}
               {/* AI消息的保存按钮 */}
               {message.role === 'assistant' && !message.isStreaming && message.content && !message.isFallback && (
                 <div style={{ marginTop: 6 }}>
@@ -596,6 +646,59 @@ ${pageContext?.page === 'stock-detail' ? '- 🔍 深度诊断当前股票\n- �
         .message-text li {
           margin-left: 16px;
           margin-bottom: 4px;
+        }
+
+        /* 代码块 / 表格 — 与暗色主题保持一致，禁止白底 */
+        .message-text pre {
+          background: #0f172a;
+          border: 1px solid #0f3460;
+          color: #cbd5e1;
+        }
+
+        .message-text code {
+          color: #7dd3fc;
+        }
+
+        .message-text table {
+          width: 100%;
+          border-collapse: collapse;
+          background: #0f172a;
+          margin: 8px 0;
+          font-size: 13px;
+        }
+
+        .message-text th,
+        .message-text td {
+          border: 1px solid #0f3460;
+          padding: 6px 10px;
+          text-align: left;
+          color: #cbd5e1;
+        }
+
+        .message-text th {
+          background: #16213e;
+          color: #60a5fa;
+          font-weight: 600;
+        }
+
+        .message-text blockquote {
+          margin: 8px 0;
+          padding: 6px 12px;
+          border-left: 3px solid #0f3460;
+          background: rgba(15, 52, 96, 0.35);
+          color: #94a3b8;
+        }
+
+        /* C-02 数据来源脚注 */
+        .message-sources {
+          margin-top: 6px;
+          font-size: 11px;
+          line-height: 1.5;
+          color: #94a3b8;
+          padding: 4px 8px;
+          border-left: 2px solid #0f3460;
+          background: rgba(15, 52, 96, 0.28);
+          border-radius: 0 4px 4px 0;
         }
 
         .typing-cursor {

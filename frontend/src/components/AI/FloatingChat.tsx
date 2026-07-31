@@ -11,6 +11,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MessageOutlined, CloseOutlined, BulbOutlined } from '@ant-design/icons';
 import ChatPanel from './ChatPanel';
+import type { DataSourceRef } from './ChatPanel';
 import { message } from 'antd';
 import { NOTE_SAVED_EVENT, type NoteSavedEventDetail } from '../../utils/knowledgeStore';
 
@@ -134,6 +135,9 @@ const FloatingChat: React.FC = () => {
   const [marketData, setMarketData] = useState<MarketData | null>(null);
   const [suggestedQuestions, setSuggestedQuestions] = useState<SuggestedQuestion[]>([]);
   const [prefilledQuestion, setPrefilledQuestion] = useState<string>('');
+  // C-02 可溯源：仅登记「实际成功拉取」的上下文数据来源，拉取失败即置空，不编造
+  const [marketSource, setMarketSource] = useState<DataSourceRef | null>(null);
+  const [multidimSource, setMultidimSource] = useState<DataSourceRef | null>(null);
   const location = useLocation();
 
   // 获取实时市场数据
@@ -149,8 +153,14 @@ const FloatingChat: React.FC = () => {
           limitUpCount: data.data.limitUpCount || 0,
           limitDownCount: data.data.limitDownCount || 0,
         });
+        // C-02：仅在确实拿到数据时登记来源与真实获取时间
+        setMarketSource({ label: '实时市场概览', fetchedAt: Date.now() });
+      } else {
+        setMarketSource(null);
       }
-    } catch { /* silent */ }
+    } catch {
+      setMarketSource(null);
+    }
   }, []);
 
   useEffect(() => { fetchMarketData(); }, [fetchMarketData]);
@@ -174,6 +184,7 @@ const FloatingChat: React.FC = () => {
   // 获取多维景气上下文
   const fetchMultidimContext = useCallback(async (page: string, symbol?: string) => {
     setMultidimSummary('');
+    setMultidimSource(null);
     try {
       if (page === 'stock-detail' && symbol) {
         // 个股页: 获取所属板块，再获取板块多维数据
@@ -186,6 +197,7 @@ const FloatingChat: React.FC = () => {
           if (mdData?.data) {
             const summary = buildMultidimSummary(industry, mdData.data);
             setMultidimSummary(`板块景气多维: ${summary}`);
+            setMultidimSource({ label: '板块景气多维', fetchedAt: Date.now() });
           }
         }
       } else if (page === 'discover') {
@@ -296,6 +308,13 @@ const FloatingChat: React.FC = () => {
     return { ...pageContext, systemHint: hint };
   }, [pageContext, marketData, multidimSummary]);
 
+  // C-02: 只登记真实取到数据的来源（含真实获取时间戳），取不到则不登记
+  // 说明: localStorage 自选股无可信获取时间，故不作为数据来源登记
+  const contextSources = useMemo(
+    () => [marketSource, multidimSource].filter(Boolean) as DataSourceRef[],
+    [marketSource, multidimSource]
+  );
+
   return (
     <>
       {/* 浮动按钮 */}
@@ -366,6 +385,7 @@ const FloatingChat: React.FC = () => {
               pageContext={enrichedContext}
               suggestedQuestions={suggestedQuestions}
               prefilledQuestion={prefilledQuestion}
+              contextSources={contextSources}
             />
           </div>
         </div>
