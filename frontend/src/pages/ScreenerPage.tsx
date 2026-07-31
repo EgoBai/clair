@@ -58,6 +58,18 @@ interface StockData {
   prevClose?: number;
 }
 
+/**
+ * 指标筛选方向 —— 描述"该条件取数值的哪一端"，是对 filter 代码的客观陈述，
+ * 不含"哪种更好"的主观判断。
+ */
+type MetricDirection = 'high' | 'low' | 'set';
+
+const DIRECTION_TEXT: Record<MetricDirection, string> = {
+  high: '取高端 · 数值越大越容易命中本条件',
+  low: '取低端 · 数值越小越容易命中本条件',
+  set: '集合匹配 · 行业名称命中清单即算命中',
+};
+
 interface FilterMetric {
   id: string;
   name: string;
@@ -66,7 +78,19 @@ interface FilterMetric {
   category: string;
   description: string;
   tooltip: string;
+  /** 依赖的 StockData 字段 */
+  field: string;
+  /** 与 filter 同源的判定表达式（展示用，须与 filter 一致） */
+  expr: string;
+  /** 数值口径说明（单位/来源），无特殊口径可省略 */
+  unit?: string;
+  direction: MetricDirection;
   filter: (s: StockData) => boolean;
+}
+
+/** 运行时条件：展示契约 + 真实谓词 */
+interface RuntimeCondition extends StrategyCondition {
+  test: (s: StockData) => boolean;
 }
 
 interface StrategyTemplate {
@@ -76,11 +100,27 @@ interface StrategyTemplate {
   icon: React.ReactNode;
   color: string;
   metrics: string[];
+  /** 真实筛选条件（AND）。filter 由此组合而来，避免展示与执行脱节 */
+  conditions: RuntimeCondition[];
   filter: (s: StockData) => boolean;
   explanation: string;
   fetchFromApi?: boolean;
   apiEndpoint?: string;
 }
+
+/** 由条件列表组合出 filter：全部条件满足才命中（与原 && 语义一致） */
+const buildFilter =
+  (conditions: RuntimeCondition[]) =>
+  (s: StockData): boolean =>
+    conditions.every((c) => c.test(s));
+
+// 行业清单 —— 原先在 4 处内联重复，抽出后指标与策略共用同一份，
+// 保证「策略原理卡」展示的行业与实际匹配的行业完全一致。
+const HOT_INDUSTRIES = ['电子', '计算机', '电力设备', '国防军工', '通信', '汽车', '医药生物'];
+const DEFENSIVE_INDUSTRIES = ['公用事业', '银行', '食品饮料', '医药生物', '交通运输', '煤炭'];
+
+const inIndustry = (list: string[]) => (s: StockData) =>
+  list.some((ind) => s.industry?.includes(ind));
 
 // ===== 核心筛选指标 — 10个多维度 =====
 const FILTER_METRICS: FilterMetric[] = [

@@ -6,20 +6,24 @@
 import React, { useState } from 'react';
 import { 
   Input, Button, Card, Tag, Typography, Table, 
-  Select, Tooltip, message, Row, Col, Statistic 
+  Select, Tooltip, message, Row, Col, Statistic, DatePicker, Alert
 } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
 import { LoadingState, EmptyState } from '../components/Common/StateComponents';
 import { 
   SearchOutlined, TrophyOutlined,
   LineChartOutlined, ThunderboltOutlined,
-  FundOutlined, BarChartOutlined
+  FundOutlined, BarChartOutlined, CalendarOutlined
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';
 import { generateBacktestDemo } from '../utils/backtestDemo';
 import { useGamificationStore } from '../store/useGamificationStore';
+// RangePicker 弹层（portal 到 body）的暗色适配，避免在深色页面弹出白底日历
+import '../styles/antd-picker-dark.css';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { RangePicker } = DatePicker;
 
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
@@ -32,12 +36,30 @@ const COLOR_DOWN = THEME.down;
 const _ACCENT = THEME.accent;
 
 // 策略类型配置
+// id 必须落在后端 backtestRunSchema.strategy 的枚举内
+// （ma_cross / rsi_reversal / macd_trend / breakout / custom），
+// 后端 backtest-routes.ts 的 STRATEGY_ALIAS 再映射到引擎的 StrategyType。
 const STRATEGIES = [
   { id: 'ma_cross', name: '均线交叉', icon: <LineChartOutlined />, description: 'MA5/MA20金叉死叉', color: '#3b82f6' },
-  { id: 'rsi', name: 'RSI策略', icon: <FundOutlined />, description: '超买超卖反转', color: '#8b5cf6' },
-  { id: 'macd', name: 'MACD策略', icon: <BarChartOutlined />, description: 'MACD金叉死叉', color: '#f59e0b' },
-  { id: 'boll', name: '布林带策略', icon: <ThunderboltOutlined />, description: '布林带突破', color: '#22c55e' },
+  { id: 'rsi_reversal', name: 'RSI策略', icon: <FundOutlined />, description: '超买超卖反转', color: '#8b5cf6' },
+  { id: 'macd_trend', name: 'MACD策略', icon: <BarChartOutlined />, description: 'MACD金叉死叉', color: '#f59e0b' },
+  { id: 'breakout', name: '布林带策略', icon: <ThunderboltOutlined />, description: '布林带突破', color: '#22c55e' },
 ];
+
+// 回测区间约束 — 与后端 backtest-routes.ts 保持一致
+const MIN_RANGE_DAYS = 30;   // 少于 30 个自然日覆盖不到 20 个交易日
+const MAX_RANGE_DAYS = 3650; // 单次最多 10 年
+
+/** 快捷区间：降低手动选日期的操作成本 */
+const RANGE_PRESETS: { label: string; value: [Dayjs, Dayjs] }[] = [
+  { label: '近1月', value: [dayjs().subtract(1, 'month'), dayjs()] },
+  { label: '近3月', value: [dayjs().subtract(3, 'month'), dayjs()] },
+  { label: '近1年', value: [dayjs().subtract(1, 'year'), dayjs()] },
+  { label: '今年以来', value: [dayjs().startOf('year'), dayjs()] },
+];
+
+/** 默认区间：近 1 年 */
+const DEFAULT_RANGE: [Dayjs, Dayjs] = [dayjs().subtract(1, 'year'), dayjs()];
 
 export interface BacktestResult {
   strategy: string;
@@ -72,18 +94,56 @@ export interface BacktestResult {
 const BacktestPage: React.FC = () => {
   const [symbol, setSymbol] = useState('');
   const [strategy, setStrategy] = useState<string>('ma_cross');
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>(DEFAULT_RANGE);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState('');
   const [isDemo, setIsDemo] = useState(false);
+
+  /**
+   * 区间前置校验 — 返回错误文案，null 表示通过。
+   * 与后端 backtest-routes.ts 的规则一致，前端先拦一道减少无效请求。
+   */
+  const validateRange = (range: [Dayjs, Dayjs] | null): string | null => {
+    if (!range || !range[0] || !range[1]) return '请选择回测区间';
+    const [start, end] = range;
+    if (start.isAfter(end, 'day')) {
+      return `起始日期（${start.format('YYYY-MM-DD')}）不能晚于结束日期（${end.format('YYYY-MM-DD')}）`;
+    }
+    const today = dayjs();
+    if (end.isAfter(today, 'day')) {
+      return `结束日期（${end.format('YYYY-MM-DD')}）不能晚于今天，回测只能基于已发生的历史行情`;
+    }
+    const span = end.diff(start, 'day');
+    if (span < MIN_RANGE_DAYS) {
+      return `回测区间过短（${span} 天），至少需要 ${MIN_RANGE_DAYS} 个自然日才能覆盖 20 个交易日`;
+    }
+    if (span > MAX_RANGE_DAYS) {
+      return `回测区间过长（${span} 天），单次最多支持 ${MAX_RANGE_DAYS} 天（约 10 年）`;
+    }
+    return null;
+  };
+
+  // 区间是否合法（用于禁用「开始回测」并给出即时提示）
+  const rangeError = validateRange(dateRange);
 
   const runBacktest = async () => {
     if (!symbol.trim()) {
       message.warning('请输入股票代码');
       return;
     }
+    const invalid = validateRange(dateRange);
+    if (invalid) {
+      setError(invalid);
+      message.warning(invalid);
+      return;
+    }
+
     setLoading(true);
     setError('');
+    const startDate = dateRange[0].format('YYYY-MM-DD');
+    const endDate = dateRange[1].format('YYYY-MM-DD');
+
     try {
       const resp = await apiFetch('/api/backtest/run', {
         method: 'POST',
@@ -91,27 +151,32 @@ const BacktestPage: React.FC = () => {
         body: JSON.stringify({ 
           symbol: symbol.trim(),
           strategy: strategy,
-          startDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          endDate: new Date().toISOString().split('T')[0],
-          params: { limit: 500 }
+          startDate,
+          endDate,
         })
       });
       const data = await resp.json();
+
       if (data.success && data.data) {
         setResult(data.data);
         setIsDemo(false);
-      } else {
-        // 后端无数据 → 确定性演示兜底
-        setResult(generateBacktestDemo(symbol.trim(), strategy));
-        setIsDemo(true);
-        message.info('后端未就绪，展示演示回测结果');
+        return;
       }
+
+      // 后端明确拒绝（区间无效 / 数据不足 / 参数非法）→ 如实展示原因，
+      // 不用演示数据掩盖，否则用户会误以为回测成功。
+      const reason = data.details || data.error || '回测失败';
+      setResult(null);
+      setIsDemo(false);
+      setError(reason);
+      message.error(reason);
     } catch (e) {
-      // 请求失败（后端缺失）→ 确定性演示兜底
+      // 网络层失败（后端未启动）→ 确定性演示兜底，并标注演示区间与所选区间无关
       setResult(generateBacktestDemo(symbol.trim(), strategy));
       setIsDemo(true);
-      message.info('后端未就绪，展示演示回测结果');
-      console.error('回测失败，已用演示数据兜底:', e);
+      setError('');
+      message.info('后端未就绪，展示演示回测结果（区间为演示内置，不反映所选区间）');
+      console.error('回测请求失败，已用演示数据兜底:', e);
     } finally {
       setLoading(false);
       // 游戏化埋点：运行回测事件（backtest_run）
@@ -152,7 +217,7 @@ const BacktestPage: React.FC = () => {
           style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
           bodyStyle={{ padding: '16px' }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
             {STRATEGIES.map(s => (
               <div
                 key={s.id}
@@ -180,29 +245,62 @@ const BacktestPage: React.FC = () => {
           style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
           bodyStyle={{ padding: '16px' }}
         >
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <Input
               placeholder="输入股票代码（如：600519）"
               value={symbol}
               onChange={e => setSymbol(e.target.value)}
               onPressEnter={runBacktest}
               style={{ 
-                flex: 1, 
+                flex: '1 1 200px',
+                minWidth: 0,
                 background: BG, 
                 border: `1px solid ${BORDER}`,
                 color: TEXT 
               }}
               prefix={<SearchOutlined style={{ color: TEXT_SEC }} />}
             />
+            <RangePicker
+              value={dateRange}
+              onChange={(v) => {
+                if (v && v[0] && v[1]) {
+                  setDateRange([v[0], v[1]]);
+                  setError('');
+                }
+              }}
+              allowClear={false}
+              presets={RANGE_PRESETS}
+              // 未来日期不可选：回测只能基于已发生的行情
+              disabledDate={(d) => !!d && d.isAfter(dayjs(), 'day')}
+              format="YYYY-MM-DD"
+              suffixIcon={<CalendarOutlined style={{ color: TEXT_SEC }} />}
+              // 弹层挂到页面容器内，配合 antd-picker-dark.css 确保暗色生效
+              popupClassName="clair-dark-picker"
+              style={{ flex: '0 1 280px', background: BG, borderColor: BORDER }}
+            />
             <Button 
               type="primary" 
               onClick={runBacktest} 
               loading={loading} 
+              disabled={!!rangeError}
               icon={<SearchOutlined />}
-              style={{ background: currentStrategy?.color }}
+              style={{ background: rangeError ? undefined : currentStrategy?.color }}
             >
               开始回测
             </Button>
+          </div>
+
+          {/* 区间说明 / 即时校验反馈 */}
+          <div style={{ marginTop: 10 }}>
+            {rangeError ? (
+              <Alert type="warning" showIcon message={rangeError} style={{ background: 'transparent', border: `1px solid ${BORDER}` }} />
+            ) : (
+              <Text style={{ color: TEXT_SEC, fontSize: 12 }}>
+                回测区间：{dateRange[0].format('YYYY-MM-DD')} 至 {dateRange[1].format('YYYY-MM-DD')}
+                （共 {dateRange[1].diff(dateRange[0], 'day')} 个自然日）
+                · 支持 {MIN_RANGE_DAYS}~{MAX_RANGE_DAYS} 天
+              </Text>
+            )}
           </div>
         </Card>
 
@@ -214,11 +312,20 @@ const BacktestPage: React.FC = () => {
           </div>
         )}
 
-        {/* 错误信息 */}
+        {/* 错误信息 — 如实展示后端拒绝原因（区间过短/无数据等），不静默兜底 */}
         {error && !loading && (
-          <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}` }}>
-            <EmptyState title={error || '加载失败'} />
-          </Card>
+          <Alert
+            type="error"
+            showIcon
+            message="回测未能执行"
+            description={
+              <div style={{ color: TEXT_SEC }}>
+                <div style={{ marginBottom: 6 }}>{error}</div>
+                <div style={{ fontSize: 12 }}>可尝试：扩大回测区间、更换股票代码，或选择上方的快捷区间。</div>
+              </div>
+            }
+            style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
+          />
         )}
 
         {/* 回测结果 */}
@@ -238,6 +345,12 @@ const BacktestPage: React.FC = () => {
               <div style={{ color: TEXT_SEC, fontSize: 13 }}>
                 回测区间: {result.startDate} 至 {result.endDate} | 共 {result.totalDays} 个交易日
               </div>
+              {isDemo && (
+                <div style={{ color: GOLD, fontSize: 12, marginTop: 6 }}>
+                  ⚠️ 当前为演示数据，区间由演示生成器内置，与上方所选的
+                  {dateRange[0].format('YYYY-MM-DD')} ~ {dateRange[1].format('YYYY-MM-DD')} 无关。
+                </div>
+              )}
             </Card>
 
             {/* 核心指标卡片 */}

@@ -15,6 +15,12 @@ const { Title, Text, Paragraph } = Typography;
 
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { DEMO_MARKET_SUMMARY, DEMO_L2_INDUSTRIES, buildDemoMultidim, buildDemoScores } from '../utils/demoData';
+import {
+  DataSourceBanner, DataSourceBadge, DimLoadingPlaceholder,
+  resolveDataSource, failedDataSource, isUntrusted, LIVE_SOURCE,
+  type DataSourceState,
+} from '../components/discover/DataSourceIndicator';
+import { loadMultidimAll } from '../components/discover/loadMultidimBatched';
 const EChartsWrapper = React.lazy(() => import('../components/Charts/EChartsWrapper'));
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
@@ -94,45 +100,78 @@ function renderInsightLine(line: string) {
   );
 }
 
-// 维度颜色: 0-5红, 6-10黄, 11-15绿, 16-20蓝
-const getDimColor = (score: number): string => {
-  if (score <= 5) return '#ef4444';
-  if (score <= 10) return '#f59e0b';
-  if (score <= 15) return '#22c55e';
-  return '#3b82f6';
-};
-const getDimBg = (score: number): string => {
-  const c = getDimColor(score);
-  return c + '18';
-};
-const getDimBorder = (score: number): string => {
-  const c = getDimColor(score);
-  return c + '40';
+// 维度注册表：唯一真值源（14 维，消除标签/公式/维度集合三处重复与 11 维写死）
+// polarity: 'positive' 越高越好(红→蓝=低→高景气)；'negative' 越高越风险(蓝→红=低→高风险)
+// group: 控制热力图列顺序（boom 景气组 → crowding 拥挤组 → other 其他组）
+type DimPolarity = 'positive' | 'negative';
+type DimGroup = 'boom' | 'crowding' | 'other';
+interface DimMeta { key: string; label: string; short: string; group: DimGroup; polarity: DimPolarity; formula: string; }
+const DIM_REGISTRY: DimMeta[] = [
+  { key: 'diffusion', label: '扩散度', short: '扩散', group: 'boom', polarity: 'positive', formula: '扩散程度=站上MA20的股票占比×20' },
+  { key: 'recovery', label: '回补动能', short: '回补', group: 'boom', polarity: 'positive', formula: '回补动能=MACD金叉股票占比×20' },
+  { key: 'momentumPosition', label: '动量仓位', short: '动量', group: 'boom', polarity: 'positive', formula: '动量仓位=机构仓位变化率×20' },
+  { key: 'searchHeat', label: '搜索热度', short: '搜索', group: 'boom', polarity: 'positive', formula: '搜索热度=百度搜索指数归一化×20' },
+  { key: 'spreadDegree', label: '传播度', short: '传播', group: 'boom', polarity: 'positive', formula: '传播度=舆情扩散速率×20' },
+  { key: 'crowding', label: '拥挤度', short: '拥挤', group: 'crowding', polarity: 'negative', formula: '拥挤度=PE分位数×15+资金集中度×5 (越高越拥挤)' },
+  { key: 'concentration', label: '集中度', short: '集中', group: 'crowding', polarity: 'negative', formula: '集中度=前5大权重股成交占比×20' },
+  { key: 'zScore', label: 'Z值', short: 'Z值', group: 'crowding', polarity: 'negative', formula: 'Z值=(PE-均值)/标准差×20归一化' },
+  { key: 'leverage', label: '杠杆率', short: '杠杆', group: 'crowding', polarity: 'negative', formula: '杠杆率=融资余额/流通市值×20' },
+  { key: 'panic', label: '恐慌指数', short: '恐慌', group: 'crowding', polarity: 'negative', formula: '恐慌指数=(1-VIX归一化)×20 (越低越恐慌)' },
+  { key: 'fundFlow', label: '基金流向', short: '基金', group: 'crowding', polarity: 'positive', formula: '基金流向=ETF资金净流入归一化×20' },
+  { key: 'retail', label: '散户情绪', short: '散户', group: 'other', polarity: 'negative', formula: '散户情绪=散户买入占比×20 (越高越危险)' },
+  { key: 'volatility', label: '波动率', short: '波动', group: 'other', polarity: 'negative', formula: '波动率=历史波动率分位×20 (越高越动荡)' },
+  { key: 'momIndex', label: '动量指数', short: '动量指', group: 'other', polarity: 'positive', formula: '动量指数=RSI>60的股票占比×20' },
+];
+const DIM_BY_KEY: Record<string, DimMeta> = Object.fromEntries(DIM_REGISTRY.map(d => [d.key, d]));
+const ALL_DIM_KEYS = DIM_REGISTRY.map(d => d.key);
+const DIM_LABELS: Record<string, string> = Object.fromEntries(DIM_REGISTRY.map(d => [d.key, d.label]));
+const DIM_FORMULAS: Record<string, string> = Object.fromEntries(DIM_REGISTRY.map(d => [d.key, d.formula]));
+const DIM_SHORT: Record<string, string> = Object.fromEntries(DIM_REGISTRY.map(d => [d.key, d.short]));
+// 景气度(boom)组维度：与后端 boomScore 口径完全一致
+// 后端 sector-multidim-v3.ts:745 → boomScore = 扩散+回补+动量仓位+搜索热度+传播度 (5×20 = 0-100)
+const BOOM_GROUP_KEYS = DIM_REGISTRY.filter(d => d.group === 'boom').map(d => d.key);
+
+/**
+ * 统一的「景气度」取值口径 —— 列表排序 / 热力图行尾 / 维度徽标三处共用，杜绝同词两义。
+ *
+ * 兜底规则（明确且可预期）：
+ *   1. 优先使用后端 boomScore（0-100，权威值）
+ *   2. boomScore 缺失但 14 维明细已到 → 按后端同一公式重算：boom 组 5 维分数求和(5×20=100)
+ *      这不是编造数据，而是用同一份真实明细复算同一个公式
+ *   3. 明细也缺失（尚未加载 / 加载失败）→ 返回 null，排序时统一沉底，
+ *      并保持这些板块之间的综合评分相对次序（而不是伪造 0 分混入真实分数中）
+ */
+const getBoomScore = (md?: MultidimData): number | null => {
+  if (!md) return null;
+  if (typeof md.boomScore === 'number' && Number.isFinite(md.boomScore)) return md.boomScore;
+  const dims = md.dimensions as Record<string, { score: number }> | undefined;
+  if (!dims) return null;
+  const present = BOOM_GROUP_KEYS.filter(k => typeof dims[k]?.score === 'number');
+  if (present.length !== BOOM_GROUP_KEYS.length) return null; // 明细不全 → 不猜
+  return present.reduce((sum, k) => sum + dims[k].score, 0);
 };
 
-// 维度公式说明映射
-const dimFormulaMap: Record<string, string> = {
-  crowding: '拥挤度=PE分位数×15+资金集中度×5 (越高越拥挤)',
-  diffusion: '扩散程度=站上MA20的股票占比×20',
-  concentration: '集中度=前5大权重股成交占比×20',
-  retail: '散户情绪=散户买入占比×20 (越高越危险)',
-  recovery: '回补动能=MACD金叉股票占比×20',
-  panic: '恐慌指数=(1-VIX归一化)×20 (越低越恐慌)',
-  volatility: '波动率=历史波动率分位×20 (越高越动荡)',
-  momIndex: '动量指数=RSI>60的股票占比×20',
-  searchHeat: '搜索热度=百度搜索指数归一化×20',
-  spreadDegree: '传播度=舆情扩散速率×20',
-  momentumPosition: '动量仓位=机构仓位变化率×20',
-  zScore: 'Z值=(PE-均值)/标准差×20归一化',
-  leverage: '杠杆率=融资余额/流通市值×20',
-  fundFlow: '基金流向=ETF资金净流入归一化×20',
+/** 拥挤度同口径兜底：后端 crowdingScore = round(6维求和 / 120 × 100) */
+const CROWDING_GROUP_KEYS = DIM_REGISTRY.filter(d => d.group === 'crowding').map(d => d.key);
+const getCrowdingScore = (md?: MultidimData): number | null => {
+  if (!md) return null;
+  if (typeof md.crowdingScore === 'number' && Number.isFinite(md.crowdingScore)) return md.crowdingScore;
+  const dims = md.dimensions as Record<string, { score: number }> | undefined;
+  if (!dims) return null;
+  const present = CROWDING_GROUP_KEYS.filter(k => typeof dims[k]?.score === 'number');
+  if (present.length !== CROWDING_GROUP_KEYS.length) return null;
+  return Math.min(100, Math.round(present.reduce((sum, k) => sum + dims[k].score, 0) / 120 * 100));
 };
-const dimLabelMap: Record<string, string> = {
-  crowding: '拥挤度', diffusion: '扩散度', concentration: '集中度', retail: '散户情绪',
-  recovery: '回补动能', panic: '恐慌指数', volatility: '波动率', momIndex: '动量指数',
-  searchHeat: '搜索热度', spreadDegree: '传播度', momentumPosition: '动量仓位',
-  zScore: 'Z值', leverage: '杠杆率', fundFlow: '基金流向',
+
+// 色阶（0-20）：positive 维度高分=蓝(景气)，negative 维度高分=红(风险)，与"红涨绿跌"解耦为独立风险语义
+const HEAT_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6'];
+const getDimColor = (score: number, polarity: DimPolarity = 'positive'): string => {
+  const t = score <= 5 ? 0 : score <= 10 ? 1 : score <= 15 ? 2 : 3;
+  const scale = polarity === 'negative' ? [...HEAT_COLORS].reverse() : HEAT_COLORS;
+  return scale[t];
 };
+const getDimBg = (score: number, polarity: DimPolarity = 'positive'): string => getDimColor(score, polarity) + '18';
+const getDimBorder = (score: number, polarity: DimPolarity = 'positive'): string => getDimColor(score, polarity) + '40';
 
 const DiscoverPage: React.FC = () => {
   const navigate = useNavigate();
@@ -151,14 +190,22 @@ const DiscoverPage: React.FC = () => {
   const [l2Industries, setL2Industries] = useState<Array<{parent?: string; name: string; stock_count: number; avg_change: string; avg_turnover: string; total_cap: string}>>([]);
   const [news, setNews] = useState<any[]>([]);
   const [loadError, setLoadError] = useState(false);
-  const [summaryError, setSummaryError] = useState(false);
-  const [usingDemoData, setUsingDemoData] = useState(false);
+  // ---- 数据可信度：每个数据集独立追踪来源，任何非 live 都会触发顶部显性 Banner + 卡片角标 ----
+  const [indicesSource, setIndicesSource] = useState<DataSourceState>(LIVE_SOURCE);
+  const [summarySource, setSummarySource] = useState<DataSourceState>(LIVE_SOURCE);
+  const [sectorSource, setSectorSource] = useState<DataSourceState>(LIVE_SOURCE);
+  const [l2Source, setL2Source] = useState<DataSourceState>(LIVE_SOURCE);
+  const [multidimSource, setMultidimSource] = useState<DataSourceState>(LIVE_SOURCE);
+  // 多因子分批加载进度：已解析(成功或失败)的板块名集合 + 总数，用于区分「加载中」与「确实无数据」
+  const [multidimResolved, setMultidimResolved] = useState<Set<string>>(new Set());
+  const [multidimTotal, setMultidimTotal] = useState(0);
+  // 重试：递增即重新触发加载 effect
+  const [reloadKey, setReloadKey] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   // 列表 / 热力图 视图切换（热力图作为独立可切换区块）
   const [displayMode, setDisplayMode] = useState<'list' | 'heatmap'>('list');
-  // 列表排序维度：综合评分(默认) / 景气度 / 交易拥挤度 / 涨跌幅
+  // 列表排序维度：综合评分(默认) / 景气度 / 交易拥挤度 / 涨跌幅（列表与热力图共用此唯一排序源）
   const [sortBy, setSortBy] = useState<'default' | 'boom' | 'crowding' | 'change'>('default');
-  // 热力图内部行排序（按景气度 / 按拥挤度）
-  const [heatmapSort, setHeatmapSort] = useState<'boom' | 'crowding'>('boom');
   const [isMobileHeatmap, setIsMobileHeatmap] = useState(window.innerWidth < 768);
   useEffect(() => {
     const handler = () => setIsMobileHeatmap(window.innerWidth < 768);
@@ -168,150 +215,173 @@ const DiscoverPage: React.FC = () => {
 
   // Load market overview + scores (fast, show immediately)
   useEffect(() => {
+    const ac = new AbortController();
     (async () => {
       setLoading(true);
       setInsightLoading(true);
       setLoadError(false);
-      setSummaryError(false);
-      setUsingDemoData(false);
+      setIndicesSource(LIVE_SOURCE);
+      setSummarySource(LIVE_SOURCE);
+      setSectorSource(LIVE_SOURCE);
+      setMultidimSource(LIVE_SOURCE);
+      setMultidimMap({});
+      setMultidimResolved(new Set());
+      setMultidimTotal(0);
       const apiPath = sectorType === 'industry' ? '/api/sectors/momentum' : '/api/sectors/concept';
-      
-      let mRes: any = null;
-      let hasCriticalError = false;
-      
+
       try {
         const results = await Promise.allSettled([
-          fetch('/api/market/indices').then(r => r.json()),
-          fetch(apiPath).then(r => r.json()),
-          fetch('/api/market/summary').then(r => r.json()),
+          fetch('/api/market/indices', { signal: ac.signal }).then(r => r.json()),
+          fetch(apiPath, { signal: ac.signal }).then(r => r.json()),
+          fetch('/api/market/summary', { signal: ac.signal }).then(r => r.json()),
         ]);
-        
-        // indices
+        if (ac.signal.aborted) return;
+
+        // ---- indices ----
         if (results[0].status === 'fulfilled') {
-          setIndices(results[0].value.data?.indices || []);
+          const list = (results[0].value?.data?.indices || []) as IndexData[];
+          // 契约：meta.source !== 'live' 即非真实数据；后端未返回 meta 时退化为「空即演示」
+          const st = resolveDataSource(results[0].value, list.length === 0, true);
+          setIndices(list.length > 0 ? list : (DEMO_MARKET_SUMMARY.indices || []).map(idx => ({
+            name: idx.name, symbol: idx.symbol,
+            closePrice: idx.close_price, changePercent: idx.change_percent, volume: 0,
+          })));
+          setIndicesSource(st);
         } else {
           setIndices((DEMO_MARKET_SUMMARY.indices || []).map(idx => ({
             name: idx.name, symbol: idx.symbol,
             closePrice: idx.close_price, changePercent: idx.change_percent, volume: 0,
           })));
-          setUsingDemoData(true);
+          setIndicesSource(failedDataSource(true, '指数接口请求失败'));
         }
-        // sectors
-        if (results[1].status === 'fulfilled') {
-          const secs = (results[1].value.data?.sectors || []) as SectorScore[];
-          // 200 但 sectors 为空 → 演示兜底（概念/行业区分）
-          let finalScores: SectorScore[];
-          if (secs.length > 0) {
-            finalScores = secs;
-          } else {
-            finalScores = buildDemoScores(sectorType);
-            setUsingDemoData(true);
-          }
-          setScores(finalScores);
 
-          // 统一预加载多维度数据 (v3 batch API) — 行业/概念均适用
-          const codes = finalScores.slice(0, 15).map(s => s.industry);
-          if (codes.length > 0) {
-            fetch('/api/sectors/multidim-v3/batch', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ codes, mode: sectorType }),
-            }).then(r => r.json()).then(d => {
-              const map: Record<string, MultidimData> = {};
-              if (d?.data?.sectors) {
-                d.data.sectors.forEach((item: MultidimData) => {
-                  map[item.industry] = item;
+        // ---- sectors ----
+        let sectorState: DataSourceState = LIVE_SOURCE;
+        let finalScores: SectorScore[] = [];
+        if (results[1].status === 'fulfilled') {
+          const secs = (results[1].value?.data?.sectors || []) as SectorScore[];
+          sectorState = resolveDataSource(results[1].value, secs.length === 0, true);
+          finalScores = secs.length > 0 ? secs : buildDemoScores(sectorType) as unknown as SectorScore[];
+        } else {
+          sectorState = failedDataSource(true, '板块接口请求失败');
+          finalScores = buildDemoScores(sectorType) as unknown as SectorScore[];
+        }
+        setScores(finalScores);
+        setSectorSource(sectorState);
+
+        // ---- 多因子：全量分批加载（A-03）----
+        // 板块列表本身就是演示数据时，多因子同步用演示值（口径一致，且已被 Banner 显性标注）；
+        // 板块列表为真实数据时，绝不用演示值填充真实板块 —— 未加载完成显示 loading 占位。
+        if (sectorState.kind === 'demo') {
+          setMultidimMap(buildDemoMultidim(finalScores) as unknown as Record<string, MultidimData>);
+          setMultidimResolved(new Set(finalScores.map(s => s.industry)));
+          setMultidimTotal(finalScores.length);
+          setMultidimSource({ kind: 'demo', updatedAt: null });
+        } else if (finalScores.length > 0) {
+          const codes = finalScores.map(s => s.industry);
+          setMultidimTotal(codes.length);
+          // 不 await：让板块列表先渲染，多因子渐进式补齐
+          loadMultidimAll<MultidimData>(codes, {
+            mode: sectorType,
+            signal: ac.signal,
+            onChunk: (items, batchCodes) => {
+              if (items.length > 0) {
+                setMultidimMap(prev => {
+                  const next = { ...prev };
+                  items.forEach(it => { next[it.industry] = it; });
+                  return next;
                 });
               }
-              // v3 未返回有效数据 → 演示多因子兜底
-              setMultidimMap(Object.keys(map).length > 0 ? map : buildDemoMultidim(finalScores));
-            }).catch(() => {
-              // 降级: v3不可用 → 逐个请求 v2
-              console.warn('[DiscoverPage] multidim-v3 batch failed, fallback to v2');
-              Promise.allSettled(codes.map((code: string) =>
-                fetch(`/api/sectors/${encodeURIComponent(code)}/multidim-v2`).then(r => r.json())
-              )).then(results => {
-                const map: Record<string, MultidimData> = {};
-                results.forEach((r: any) => {
-                  if (r.status === 'fulfilled' && r.value?.data) {
-                    map[r.value.data.industry || r.value.data.sectorName] = r.value.data;
-                  }
-                });
-                // v2 仍为空 → 演示多因子兜底
-                setMultidimMap(Object.keys(map).length > 0 ? map : buildDemoMultidim(finalScores));
-              }).catch(() => {
-                setMultidimMap(buildDemoMultidim(finalScores));
+              // 无论成功与否都标记为已解析，避免这些板块永久停在 loading 态
+              setMultidimResolved(prev => {
+                const next = new Set(prev);
+                batchCodes.forEach(c => next.add(c));
+                return next;
               });
-            });
-          } else {
-            setMultidimMap({});
-          }
-        } else {
-          // sectors 请求失败（rejected）→ 概念/行业区分兜底
-          const finalScores = buildDemoScores(sectorType);
-          setScores(finalScores);
-          setMultidimMap(buildDemoMultidim(finalScores));
-          setUsingDemoData(true);
+            },
+          }).then(res => {
+            if (ac.signal.aborted || res.aborted) return;
+            if (res.meta?.source && res.meta.source !== 'live') {
+              setMultidimSource({ kind: res.meta.source, updatedAt: res.meta.updatedAt ?? null, error: res.meta.error });
+            } else if (res.failedBatches > 0) {
+              setMultidimSource({
+                kind: 'unavailable', updatedAt: null,
+                error: `${res.failedBatches}/${res.totalBatches} 批多因子数据加载失败`,
+              });
+            } else if (res.okCount === 0) {
+              setMultidimSource(failedDataSource(false, '多因子接口无数据'));
+            }
+          });
         }
-        // summary
+
+        // ---- summary ----
         if (results[2].status === 'fulfilled' && results[2].value?.data) {
-          setMarketSummary(results[2].value.data);
+          const st = resolveDataSource(results[2].value, !results[2].value.data, true);
+          if (st.kind === 'demo' || st.kind === 'unavailable') setMarketSummary(DEMO_MARKET_SUMMARY);
+          else setMarketSummary(results[2].value.data);
+          setSummarySource(st);
         } else {
           setMarketSummary(DEMO_MARKET_SUMMARY);
-          setSummaryError(true);
-          setUsingDemoData(true);
+          setSummarySource(failedDataSource(true, '市场总览接口请求失败'));
         }
       } catch {
+        if (ac.signal.aborted) return;
         setIndices((DEMO_MARKET_SUMMARY.indices || []).map(idx => ({
           name: idx.name, symbol: idx.symbol,
           closePrice: idx.close_price, changePercent: idx.change_percent, volume: 0,
         })));
-        const demoScores = buildDemoScores(sectorType);
+        const demoScores = buildDemoScores(sectorType) as unknown as SectorScore[];
         setScores(demoScores);
-        setMultidimMap(buildDemoMultidim(demoScores));
+        setMultidimMap(buildDemoMultidim(demoScores) as unknown as Record<string, MultidimData>);
+        setMultidimResolved(new Set(demoScores.map(s => s.industry)));
+        setMultidimTotal(demoScores.length);
         setMarketSummary(DEMO_MARKET_SUMMARY);
-        setUsingDemoData(true);
+        const failed = failedDataSource(true, '页面数据加载异常');
+        setIndicesSource(failed);
+        setSectorSource(failed);
+        setMultidimSource(failed);
+        setSummarySource(failed);
       }
-      
-      if (hasCriticalError) setLoadError(true);
+
       setLoading(false);
+      setRetrying(false);
 
       // AI insight: instant rule-based (0 delay)
-      fetch('/api/ai/market-insight').then(r => r.json()).then(d => {
+      fetch('/api/ai/market-insight', { signal: ac.signal }).then(r => r.json()).then(d => {
         if (d?.data) { setInsight(d.data); setInsightLoading(false); }
       }).catch(() => setInsightLoading(false));
 
       // LLM enhanced insight loads in background
-      fetch('/api/ai/market-insight-llm').then(r => r.json()).then(d => {
+      fetch('/api/ai/market-insight-llm', { signal: ac.signal }).then(r => r.json()).then(d => {
         if (d?.data) setInsight(d.data);
       }).catch(() => {});
 
       // News loads in background
-      fetch('/api/news?limit=6').then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
+      fetch('/api/news?limit=6', { signal: ac.signal }).then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
     })();
-  }, [sectorType]);
+    return () => ac.abort();
+  }, [sectorType, reloadKey]);
 
   // Load L2 industries
   useEffect(() => {
     if (sectorType === 'industry' && industryLevel === 2) {
       setL2Industries([]);
+      setL2Source(LIVE_SOURCE);
       fetch('/api/industries?level=2')
         .then(r => r.json())
         .then(d => {
-          if (d.success && d.data?.industries && d.data.industries.length > 0) {
-            setL2Industries(d.data.industries);
-          } else {
-            // 空数据 / 结构异常 → 演示二级行业兜底
-            setL2Industries(DEMO_L2_INDUSTRIES);
-            setUsingDemoData(true);
-          }
+          const list = (d?.success && d?.data?.industries) ? d.data.industries : [];
+          // 契约优先：meta.source !== 'live' 即非真实；无 meta 时退化为「空即演示」
+          const st = resolveDataSource(d, list.length === 0, true);
+          setL2Industries(list.length > 0 ? list : DEMO_L2_INDUSTRIES);
+          setL2Source(st);
         })
         .catch(() => {
           setL2Industries(DEMO_L2_INDUSTRIES);
-          setUsingDemoData(true);
+          setL2Source(failedDataSource(true, '二级行业接口请求失败'));
         });
     }
-  }, [sectorType, industryLevel]);
+  }, [sectorType, industryLevel, reloadKey]);
 
   // Load sector stocks
   const openSector = useCallback(async (s: SectorScore) => {
@@ -363,28 +433,47 @@ const DiscoverPage: React.FC = () => {
   const leaderTitle = hasGainers ? '🏆 领涨板块' : '💪 相对抗跌';
 
   // ---- 列表排序（P1：景气/拥挤为排序维度，与热力图解耦） ----
+  // 列表排序：唯一排序真值源，列表与热力图共用（解决列表/热力图排序不一致）
+  // 'default'=综合评分(score) | 'boom'=多因子景气(boomScore) | 'crowding'=交易拥挤(crowdingScore) | 'change'=涨跌幅
   const sortedScores = useMemo(() => {
     const arr = [...scores];
     if (sortBy === 'change') {
       return arr.sort((a, b) =>
         Number(b.avg_change_percent ?? b.avgChange ?? 0) - Number(a.avg_change_percent ?? a.avgChange ?? 0));
     }
-    if (sortBy === 'crowding') {
-      return arr.sort((a, b) =>
-        (multidimMap[b.industry]?.crowdingScore ?? -1) - (multidimMap[a.industry]?.crowdingScore ?? -1));
+    // 景气度：独立比较器，口径 = getBoomScore()（后端 boomScore，缺失则由 boom 组 5 维按同公式复算）
+    // 兜底规则：无法得出景气度的板块（多因子尚未加载 / 加载失败）一律沉底，
+    //          并在沉底区内保持综合评分降序，保证次序稳定可预期，绝不伪造 0 分参与排序。
+    if (sortBy === 'boom') {
+      return arr.sort((a, b) => {
+        const av = getBoomScore(multidimMap[a.industry]);
+        const bv = getBoomScore(multidimMap[b.industry]);
+        if (av === null && bv === null) return b.score - a.score;
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        return bv - av || b.score - a.score;
+      });
     }
-    // 'default' / 'boom' → 综合评分（景气度同综合）
+    // 拥挤度：同上兜底规则
+    if (sortBy === 'crowding') {
+      return arr.sort((a, b) => {
+        const av = getCrowdingScore(multidimMap[a.industry]);
+        const bv = getCrowdingScore(multidimMap[b.industry]);
+        if (av === null && bv === null) return b.score - a.score;
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        return bv - av || b.score - a.score;
+      });
+    }
+    // 'default' → 综合评分
     return arr.sort((a, b) => b.score - a.score);
   }, [scores, sortBy, multidimMap]);
 
-  // 二级行业列表排序（仅有涨跌幅可排序，boom/crowding 无多因子数据则保持原序）
+  // 二级行业列表排序（仅有涨跌幅数据，统一按 avg_change；景气度/拥挤度在二级模式已禁用）
   const sortedL2 = useMemo(() => {
     const arr = [...l2Industries];
-    if (sortBy === 'change' || sortBy === 'default') {
-      return arr.sort((a, b) => Number(b.avg_change ?? 0) - Number(a.avg_change ?? 0));
-    }
-    return arr;
-  }, [l2Industries, sortBy]);
+    return arr.sort((a, b) => Number(b.avg_change ?? 0) - Number(a.avg_change ?? 0));
+  }, [l2Industries]);
 
   // 当前展示的板块列表（用于热力图取数，P6：避免 L2 时显示 L1 数据）
   const isL2 = sectorType === 'industry' && industryLevel === 2;
@@ -397,38 +486,64 @@ const DiscoverPage: React.FC = () => {
     [listIndustries, multidimMap]
   );
 
+  // ---- 数据可信度汇总（顶部显性 Banner 的唯一数据源）----
+  const sourceEntries = useMemo(() => {
+    const list = [
+      { name: '大盘指数', state: indicesSource },
+      { name: '市场总览', state: summarySource },
+      { name: sectorType === 'industry' ? '行业板块' : '概念板块', state: sectorSource },
+      { name: '多因子数据', state: multidimSource },
+    ];
+    if (isL2) list.push({ name: '二级行业', state: l2Source });
+    return list;
+  }, [indicesSource, summarySource, sectorSource, multidimSource, l2Source, isL2, sectorType]);
+
+  const hasUntrustedData = sourceEntries.some(e => isUntrusted(e.state));
+
+  const handleRetry = useCallback(() => {
+    setRetrying(true);
+    setReloadKey(k => k + 1);
+  }, []);
+
+  /** 多因子是否仍在分批加载中（用于 loading 占位，而非显示假数值） */
+  const multidimLoading = multidimTotal > 0 && multidimResolved.size < multidimTotal;
+  /** 某板块的多因子是否「已尝试加载但确实没有数据」 */
+  const isMultidimResolved = useCallback(
+    (industry: string) => multidimResolved.has(industry),
+    [multidimResolved]
+  );
+
   // ---- Heatmap rendering helpers ----
-  // 热力图只展示 11 维多因子矩阵(0-20 量程)，景气度/拥挤度作为排序维度 + 行尾标注，不再单列色阶列
-  const renderHeatmap = (sortBy: 'boom' | 'crowding', industryList: string[]) => {
-    // 仅基于当前展示的板块列表取数，缺失多因子数据的板块跳过(P6)
+  // 热力图展示全部 14 维多因子矩阵(0-20 量程)；行序跟随列表排序(sortBy)，与列表完全一致
+  const renderHeatmap = (industryList: string[]) => {
+    // 仅基于当前展示的板块列表取数，缺失多因子数据的板块跳过（行序与列表一致，不再独立重排）
     const rows = industryList
       .map(name => multidimMap[name])
       .filter((d): d is MultidimData => !!d)
-      .map(d => ({ industry: d.industry, boomScore: d.boomScore, crowdingScore: d.crowdingScore, dimensions: d.dimensions }))
-      .sort((a, b) => (sortBy === 'boom' ? b.boomScore - a.boomScore : b.crowdingScore - a.crowdingScore))
+      // 景气/拥挤与列表排序使用同一 getBoomScore/getCrowdingScore 口径，杜绝"同一个词两种含义"
+      .map(d => ({
+        industry: d.industry,
+        boomScore: getBoomScore(d),
+        crowdingScore: getCrowdingScore(d),
+        dimensions: d.dimensions,
+      }))
       .slice(0, 10);
 
     if (rows.length === 0) return null;
 
-    // 11 个固定因子维度
-    const boomKeys = ['diffusion', 'recovery', 'momentumPosition', 'searchHeat', 'spreadDegree'] as const;
-    const crowdingKeys = ['crowding', 'concentration', 'zScore', 'leverage', 'panic', 'fundFlow'] as const;
-    const allDimKeys = [...boomKeys, ...crowdingKeys];
-    const dimLabels: Record<string, string> = {
-      diffusion: '扩散度', recovery: '回补动能', momentumPosition: '动量仓位', searchHeat: '搜索热度', spreadDegree: '传播度',
-      crowding: '拥挤度', concentration: '集中度', zScore: 'Z值', leverage: '杠杆率', panic: '恐慌指数', fundFlow: '基金流向',
-    };
+    // 14 维全部展示（来自 DIM_REGISTRY 唯一真值源）
+    const allDimKeys = ALL_DIM_KEYS;
+    const xLabels = allDimKeys.map(k => DIM_LABELS[k]);
 
     // 行尾标注 景气/拥挤 汇总分（不进入色阶）
-    const yLabels = rows.map(r => `${r.industry}  景${r.boomScore}/拥${r.crowdingScore}`);
-    const xLabels = allDimKeys.map(k => dimLabels[k]);
+    const yLabels = rows.map(r => `${r.industry}  景${r.boomScore ?? '—'}/拥${r.crowdingScore ?? '—'}`);
 
-    // 构建热力图数据（缺失维度不渲染该格，避免误涂色阶）
-    const heatData: [number, number, number][] = [];
+    // 构建热力图数据：每格按维度极性独立着色（negative 高分=红/风险，positive 高分=蓝/景气）
+    const heatData: Array<{ value: [number, number, number]; itemStyle: { color: string } }> = [];
     rows.forEach((item, rowIdx) => {
       allDimKeys.forEach((k, colIdx) => {
         const dim = (item.dimensions as any)[k];
-        if (dim) heatData.push([colIdx, rowIdx, dim.score]);
+        if (dim) heatData.push({ value: [colIdx, rowIdx, dim.score], itemStyle: { color: getDimColor(dim.score, DIM_BY_KEY[k].polarity) } });
       });
     });
 
@@ -438,9 +553,9 @@ const DiscoverPage: React.FC = () => {
       allDimKeys.forEach(k => {
         const dim = (item.dimensions as any)[k];
         if (!dim) return;
-        const label = dim.label || dimLabels[k];
-        const formula = dimFormulaMap[k] || '';
-        hoverDetail[`${item.industry}__${dimLabels[k]}`] = formula ? `${label}\n${formula}` : label;
+        const label = dim.label || DIM_LABELS[k];
+        const formula = DIM_FORMULAS[k] || '';
+        hoverDetail[`${item.industry}__${DIM_LABELS[k]}`] = formula ? `${label}\n${formula}` : label;
       });
     });
 
@@ -451,7 +566,7 @@ const DiscoverPage: React.FC = () => {
         borderColor: 'var(--border-subtle, #334155)',
         textStyle: { color: '#e2e8f0', fontSize: 12 },
         formatter: (params: any) => {
-          const data = params.data as [number, number, number];
+          const data = (params.data?.value ?? params.data) as [number, number, number];
           if (!data) return '';
           const colIdx = data[0];
           const rowIdx = data[1];
@@ -460,7 +575,7 @@ const DiscoverPage: React.FC = () => {
           const dimName = xLabels[colIdx];
           const detail = hoverDetail[`${industry}__${dimName}`] || '';
           return `<div style="font-weight:700;margin-bottom:4px">${industry}</div>
-            <div style="color:#94a3b8">${dimName}: <span style="color:${getDimColor(val)};font-weight:700;font-size:16px">${val}分</span></div>
+            <div style="color:#94a3b8">${dimName}: <span style="color:${getDimColor(val, DIM_BY_KEY[dimName]?.polarity)};font-weight:700;font-size:16px">${val}分</span></div>
             <div style="color:#64748b;font-size:11px;margin-top:2px;max-width:260px;white-space:pre-line">${detail}</div>
             <div style="color:#475569;font-size:10px;margin-top:4px">点击查看板块详情</div>`;
         },
@@ -499,24 +614,6 @@ const DiscoverPage: React.FC = () => {
         axisTick: { show: false },
         splitArea: { show: true },
       },
-      visualMap: {
-        min: 0,
-        max: 20,
-        calculable: true,
-        orient: 'vertical' as const,
-        right: 0,
-        top: 'center',
-        itemWidth: 10,
-        itemHeight: 140,
-        textStyle: { color: '#94a3b8', fontSize: 10 },
-        pieces: [
-          { min: 0, max: 5, color: '#ef4444', label: '低(0-5)' },
-          { min: 6, max: 10, color: '#f59e0b', label: '中(6-10)' },
-          { min: 11, max: 15, color: '#22c55e', label: '高(11-15)' },
-          { min: 16, max: 20, color: '#3b82f6', label: '极强(16-20)' },
-        ],
-        outOfRange: { color: '#334155' },
-      },
       series: [{
         type: 'heatmap' as const,
         data: heatData,
@@ -542,36 +639,25 @@ const DiscoverPage: React.FC = () => {
       }],
     };
     
-    // 热力图内部排序控件（按景气度 / 按拥挤度 重排行）
-    const sortControl = (
-      <div style={{ display: 'flex', gap: 4, background: 'var(--bg-surface)', borderRadius: 8, padding: 2 }}>
-        {([['boom', '按景气度'], ['crowding', '按拥挤度']] as const).map(([k, label]) => (
-          <div key={k} onClick={() => setHeatmapSort(k)} style={{
-            padding: '2px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
-            fontWeight: heatmapSort === k ? 700 : 400,
-            color: heatmapSort === k ? TEXT : TEXT_SEC,
-            background: heatmapSort === k ? (k === 'boom' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)') : 'transparent',
-            transition: 'all .15s',
-          }}>{label}</div>
-        ))}
-      </div>
-    );
-
     return (
       <div>
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Text strong style={{ color: TEXT, fontSize: 15 }}>📊 多维因子热力图</Text>
-            {sortControl}
+            <Tag style={{ fontSize: 10, borderRadius: 4, padding: '0 6px', background: 'var(--bg-surface)', color: TEXT_SEC }}>行序=列表排序</Tag>
+            <DataSourceBadge state={multidimSource} />
+            {multidimLoading && (
+              <span style={{ fontSize: 10, color: TEXT_SEC }}>
+                多因子加载中 {multidimResolved.size}/{multidimTotal}
+              </span>
+            )}
           </div>
           <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-            维度 × 板块 · 11 个多因子维度(0-20 色阶) · 行尾标注 景气/拥挤 汇总分(0-100)
+            维度 × 板块 · 14 个多因子维度(0-20) · 行尾标注 景气/拥挤 汇总分(0-100) · 行序与左侧列表完全一致
           </div>
           <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-            <span style={{ color: '#ef4444' }}>红(0-5)</span>→
-            <span style={{ color: '#f59e0b' }}>黄(6-10)</span>→
-            <span style={{ color: '#22c55e' }}>绿(11-15)</span>→
-            <span style={{ color: '#3b82f6' }}>蓝(16-20)</span>
+            <span style={{ color: '#22c55e' }}>景气/机会类</span>：红(低)→蓝(高) ·
+            <span style={{ color: '#ef4444' }}> 风险类(拥挤/散户/波动等)</span>：蓝(低)→红(高=风险)
           </div>
         </div>
         <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden', padding: '8px 0' }}>
@@ -582,7 +668,7 @@ const DiscoverPage: React.FC = () => {
               onEvents={{
                 click: (params: any) => {
                   if (params.data) {
-                    const rowIdx = (params.data as [number, number, number])[1];
+                    const rowIdx = (params.data?.value ?? params.data) ? (params.data.value ?? params.data)[1] : -1;
                     const industry = rows[rowIdx].industry;
                     const s = scores.find(x => x.industry === industry);
                     if (s) openSector(s);
@@ -596,26 +682,25 @@ const DiscoverPage: React.FC = () => {
     );
   };
 
-  // ---- Mobile heatmap（与桌面一致：11 维度集合，缺失维度跳过）----
+  // ---- Mobile heatmap（与桌面一致：14 维度集合，行序=列表排序，按极性着色）----
   const renderMobileHeatmap = (industryList: string[]) => {
     const rows = industryList
       .map(name => multidimMap[name])
       .filter((d): d is MultidimData => !!d)
-      .sort((a, b) => b.totalScore - a.totalScore)
       .slice(0, 10);
     if (rows.length === 0) return null;
 
-    const allDimKeys = ['diffusion', 'recovery', 'momentumPosition', 'searchHeat', 'spreadDegree', 'crowding', 'concentration', 'zScore', 'leverage', 'panic', 'fundFlow'] as const;
-    const dimShort: Record<string, string> = {
-      diffusion: '扩散', recovery: '回补', momentumPosition: '动量', searchHeat: '搜索', spreadDegree: '传播',
-      crowding: '拥挤', concentration: '集中', zScore: 'Z值', leverage: '杠杆', panic: '恐慌', fundFlow: '基金',
-    };
+    const allDimKeys = ALL_DIM_KEYS;
 
     return (
       <div style={{ marginTop: 24 }}>
         <div style={{ marginBottom: 12 }}>
           <Text strong style={{ color: TEXT, fontSize: 15 }}>🌡️ 多维景气热力</Text>
-          <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>Top{rows.length}板块 · 点击查看详情</div>
+          <DataSourceBadge state={multidimSource} />
+          <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
+            Top{rows.length}板块 · 点击查看详情
+            {multidimLoading && ` · 加载中 ${multidimResolved.size}/${multidimTotal}`}
+          </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {rows.map(item => (
@@ -633,22 +718,23 @@ const DiscoverPage: React.FC = () => {
               <div style={{ minWidth: 0 }}>
                 <div style={{ color: TEXT, fontWeight: 600, fontSize: 13 }}>{item.industry}</div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                  {allDimKeys.map(k => {
-                    const dim = (item.dimensions as any)[k];
-                    if (!dim) return null;
-                    const label = dimShort[k] || k;
-                    return (
-                      <Tag key={k} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px',
-                        background: getDimBg(dim.score), color: getDimColor(dim.score), border: `1px solid ${getDimBorder(dim.score)}` }}>
-                        {label}{dim.score}
-                      </Tag>
-                    );
-                  })}
+            {allDimKeys.map(k => {
+              const dim = (item.dimensions as any)[k];
+              if (!dim) return null;
+              const label = DIM_SHORT[k] || k;
+              const polarity = DIM_BY_KEY[k].polarity;
+              return (
+                <Tag key={k} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px',
+                  background: getDimBg(dim.score, polarity), color: getDimColor(dim.score, polarity), border: `1px solid ${getDimBorder(dim.score, polarity)}` }}>
+                  {label}{dim.score}
+                </Tag>
+              );
+            })}
                 </div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: '#22c55e' }}>景{item.boomScore}</div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: '#f59e0b' }}>拥{item.crowdingScore}</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#22c55e' }}>景{getBoomScore(item) ?? '—'}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#f59e0b' }}>拥{getCrowdingScore(item) ?? '—'}</div>
               </div>
             </div>
           ))}
@@ -704,22 +790,35 @@ const DiscoverPage: React.FC = () => {
             <span>额{formatBig(Number(s.total_turnover))}</span>
           </div>
 
+          {/* 多因子未加载完成 → loading 占位（绝不用演示值填充真实板块，A-03） */}
+          {!md && !isMultidimResolved(s.industry) && (
+            <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {Array.from({ length: 8 }).map((_, i) => <DimLoadingPlaceholder key={i} />)}
+              <span style={{ fontSize: 10, color: TEXT_SEC }}>多因子加载中…</span>
+            </div>
+          )}
+          {/* 已尝试加载但后端确实无该板块多因子数据 → 明示缺失，不编造 */}
+          {!md && isMultidimResolved(s.industry) && (
+            <div style={{ fontSize: 10, color: TEXT_SEC, marginTop: 8 }}>该板块暂无多因子数据</div>
+          )}
+
           {/* Multidim dimension chips */}
           {md && (
             <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
-              {/* Boom group dimensions */}
-              {['diffusion', 'recovery', 'momentumPosition', 'searchHeat', 'spreadDegree'].map(key => {
+              {/* 全部 14 维多因子（来自 DIM_REGISTRY 唯一真值源，按极性着色） */}
+              {ALL_DIM_KEYS.map(key => {
                 const dim = (md.dimensions as any)[key];
                 if (!dim) return null;
-                const label = dimLabelMap[key] || key;
-                const formula = dimFormulaMap[key] || '';
+                const label = DIM_LABELS[key] || key;
+                const formula = DIM_FORMULAS[key] || '';
                 const score = dim.score;
+                const polarity = DIM_BY_KEY[key].polarity;
                 return (
                   <Tooltip key={key} title={<div style={{ whiteSpace: 'pre-line' }}>{`${label}: ${dim.label}\n分数: ${score}/20${formula ? '\n公式: '+formula : ''}`}</div>}>
                     <span style={{
                       fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 600,
-                      background: getDimBg(score), color: getDimColor(score),
-                      border: `1px solid ${getDimBorder(score)}`, cursor: 'help',
+                      background: getDimBg(score, polarity), color: getDimColor(score, polarity),
+                      border: `1px solid ${getDimBorder(score, polarity)}`, cursor: 'help',
                     }}>
                       {label.slice(0, 2)}{score}/20
                     </span>
@@ -727,43 +826,26 @@ const DiscoverPage: React.FC = () => {
                 );
               })}
               <span style={{ color: BORDER, fontSize: 10, alignSelf: 'center' }}>|</span>
-              {/* Crowding group dimensions */}
-              {['crowding', 'concentration', 'zScore', 'leverage', 'panic', 'fundFlow'].map(key => {
-                const dim = (md.dimensions as any)[key];
-                if (!dim) return null;
-                const label = dimLabelMap[key] || key;
-                const formula = dimFormulaMap[key] || '';
-                const score = dim.score;
-                return (
-                  <Tooltip key={key} title={<div style={{ whiteSpace: 'pre-line' }}>{`${label}: ${dim.label}\n分数: ${score}/20${formula ? '\n公式: '+formula : ''}`}</div>}>
-                    <span style={{
-                      fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 600,
-                      background: getDimBg(score), color: getDimColor(score),
-                      border: `1px solid ${getDimBorder(score)}`, cursor: 'help',
-                    }}>
-                      {label.slice(0, 2)}{score}/20
-                    </span>
-                  </Tooltip>
-                );
-              })}
-              <Tooltip title={`景气度: ${md.boomScore}/100 (扩散+回补+动量仓位+搜索+传播)`}>
+              {/* 景气/拥挤统一走 getBoomScore/getCrowdingScore，与列表排序、热力图行尾同一口径 */}
+              <Tooltip title={`景气度: ${getBoomScore(md) ?? '—'}/100 (扩散+回补+动量仓位+搜索+传播)`}>
                 <span style={{
                   fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 700,
                   background: '#22c55e18', color: '#22c55e',
                   border: '1px solid #22c55e40',
                 }}>
-                  📈{md.boomScore}
+                  📈{getBoomScore(md) ?? '—'}
                 </span>
               </Tooltip>
-              <Tooltip title={`拥挤度: ${md.crowdingScore}/100 (拥挤度+集中度+Z值+杠杆+恐慌+基金流向)`}>
+              <Tooltip title={`拥挤度: ${getCrowdingScore(md) ?? '—'}/100 (拥挤度+集中度+Z值+杠杆+恐慌+基金流向)`}>
                 <span style={{
                   fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 700,
                   background: '#f59e0b18', color: '#f59e0b',
                   border: '1px solid #f59e0b40',
                 }}>
-                  🔥{md.crowdingScore}
+                  🔥{getCrowdingScore(md) ?? '—'}
                 </span>
               </Tooltip>
+              {isUntrusted(multidimSource) && <DataSourceBadge state={multidimSource} compact />}
             </div>
           )}
         </div>
@@ -884,13 +966,15 @@ const DiscoverPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
             <CompassOutlined style={{ fontSize: 22, color: ACCENT }} />
             <Title level={3} style={{ color: TEXT, margin: 0, fontWeight: 800 }}>发掘·板块景气度</Title>
-            {usingDemoData && <Tag color="orange" style={{ borderRadius: 6 }}>演示数据</Tag>}
-            {summaryError && !usingDemoData && <Tag color="yellow" style={{ borderRadius: 6 }}>简化数据</Tag>}
+            {hasUntrustedData && <DataSourceBadge state={sectorSource.kind !== 'live' ? sectorSource : multidimSource} />}
           </div>
           <div style={{ fontSize: 12, color: TEXT_SEC }}>
             大盘概览 → 板块景气度评估 → 个股深挖 · 当前{sectorType === 'industry' ? '行业' : '概念'}分类
           </div>
         </div>
+
+        {/* 数据可信度警示 Banner：任何非 live 数据都必须显性告知，禁止静默降级 */}
+        <DataSourceBanner entries={sourceEntries} onRetry={handleRetry} retrying={retrying} />
 
         {/* AI Insight Section */}
         <div style={{
@@ -901,6 +985,8 @@ const DiscoverPage: React.FC = () => {
             <span style={{ fontSize: 24 }}>🧠</span>
             <Title level={5} style={{ color: TEXT, margin: 0 }}>AI 市场解读</Title>
             <Tag color="purple" style={{ fontSize: 10 }}>实时分析</Tag>
+            <DataSourceBadge state={summarySource} />
+
           </div>
           {insightLoading && !insight ? (
             <div style={{ color: TEXT_SEC, fontSize: 13 }}>正在生成市场解读...</div>
@@ -981,7 +1067,9 @@ const DiscoverPage: React.FC = () => {
               const up = idx.changePercent >= 0;
               return (
                 <div key={idx.symbol} onClick={() => navigate(`/index/${idx.symbol}`)} style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '10px 12px', cursor: 'pointer' }}>
-                  <div style={{ fontSize: 11, color: TEXT_SEC }}>{idx.name}</div>
+                  <div style={{ fontSize: 11, color: TEXT_SEC, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {idx.name}<DataSourceBadge state={indicesSource} compact />
+                  </div>
                   <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'monospace', color: TEXT }}>{idx.closePrice?.toLocaleString()}</div>
                   <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', color: up ? COLOR_UP : COLOR_DOWN }}>{up ? '+' : ''}{idx.changePercent?.toFixed(2)}%</span>
                 </div>
@@ -989,7 +1077,9 @@ const DiscoverPage: React.FC = () => {
             })}
           </div>
           <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '14px 16px' }}>
-            <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 8 }}>板块宽度</div>
+            <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              板块宽度<DataSourceBadge state={sectorSource} compact />
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
               <span style={{ color: COLOR_UP }}>{upCount} 涨</span>
               <span style={{ color: COLOR_DOWN }}>{downCount} 跌</span>
@@ -1010,7 +1100,9 @@ const DiscoverPage: React.FC = () => {
         {/* 领涨/领跌面板 */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
           <div style={{ background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 16px" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, marginBottom: 8 }}>{leaderTitle}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {leaderTitle}<DataSourceBadge state={sectorSource} compact />
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {topGainers.slice(0, 5).map(s => (
                 <div key={s.industry} onClick={() => openSector(s)} style={{
@@ -1027,7 +1119,9 @@ const DiscoverPage: React.FC = () => {
             </div>
           </div>
           <div style={{ background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 16px" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, marginBottom: 8 }}>📉 领跌板块</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              📉 领跌板块<DataSourceBadge state={sectorSource} compact />
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {topLosers.slice(0, 3).map(s => (
                 <div key={s.industry} onClick={() => openSector(s)} style={{
@@ -1050,9 +1144,14 @@ const DiscoverPage: React.FC = () => {
             {/* Section Header + Tabs */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
               <div>
-                <Text strong style={{ color: TEXT, fontSize: 15 }}>🏢 板块景气度评分</Text>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Text strong style={{ color: TEXT, fontSize: 15 }}>🏢 板块景气度评分</Text>
+                  <DataSourceBadge state={isL2 ? l2Source : sectorSource} />
+                </div>
                 <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
                   综合评分 = 板块热度×50% + 成交活跃×30% + 赚钱效应×20%
+                  {sortBy === 'boom' && ' · 景气度 = 扩散+回补+动量仓位+搜索+传播 (0-100)'}
+                  {multidimLoading && sortBy === 'boom' && ` · 多因子加载中 ${multidimResolved.size}/${multidimTotal}，未加载板块暂列末尾`}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -1073,7 +1172,7 @@ const DiscoverPage: React.FC = () => {
                 {sectorType === 'industry' && (
                   <div style={{ display: 'flex', gap: 4 }}>
                     {([1, 2] as const).map(lv => (
-                      <div key={lv} onClick={() => setIndustryLevel(lv)} style={{
+                      <div key={lv} onClick={() => { setIndustryLevel(lv); setDisplayMode('list'); if (lv === 2) setSortBy('change'); }} style={{
                         padding: '2px 8px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
                         fontWeight: industryLevel === lv ? 600 : 400,
                         color: industryLevel === lv ? ACCENT : TEXT_SEC,
@@ -1085,17 +1184,25 @@ const DiscoverPage: React.FC = () => {
                     ))}
                   </div>
                 )}
-                {/* 排序维度（景气/拥挤为排序维度，与热力图解耦） */}
+                {/* 排序维度（列表与热力图共用唯一排序源） */}
                 <div style={{ display: 'flex', gap: 4, background: 'var(--bg-surface)', borderRadius: 8, padding: 2 }}>
-                  {([['default', '综合评分'], ['boom', '景气度'], ['crowding', '交易拥挤度'], ['change', '涨跌幅']] as const).map(([k, label]) => (
-                    <div key={k} onClick={() => setSortBy(k)} style={{
-                      padding: '3px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
-                      fontWeight: sortBy === k ? 700 : 400,
-                      color: sortBy === k ? TEXT : TEXT_SEC,
-                      background: sortBy === k ? 'var(--border)' : 'transparent',
-                      transition: 'all .15s',
-                    }}>{label}</div>
-                  ))}
+                  {([['default', '综合评分'], ['boom', '景气度'], ['crowding', '交易拥挤度'], ['change', '涨跌幅']] as const).map(([k, label]) => {
+                    // 二级行业无多因子数据，景气度/拥挤度排序不可用
+                    const disabled = isL2 && (k === 'boom' || k === 'crowding');
+                    return (
+                      <Tooltip key={k} title={disabled ? '二级行业暂无多因子数据，仅支持按涨跌幅排序' : ''}>
+                        <div onClick={() => !disabled && setSortBy(k)} style={{
+                          padding: '3px 10px', borderRadius: 6, fontSize: 12,
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          fontWeight: sortBy === k ? 700 : 400,
+                          color: disabled ? 'var(--text-disabled, #475569)' : (sortBy === k ? TEXT : TEXT_SEC),
+                          background: sortBy === k ? 'var(--border)' : 'transparent',
+                          opacity: disabled ? 0.5 : 1,
+                          transition: 'all .15s',
+                        }}>{label}</div>
+                      </Tooltip>
+                    );
+                  })}
                 </div>
                 {/* 列表 / 热力图 切换（热力图作为独立可切换区块） */}
                 <div style={{ display: 'flex', gap: 4, background: 'var(--bg-surface)', borderRadius: 8, padding: 2 }}>
@@ -1152,8 +1259,8 @@ const DiscoverPage: React.FC = () => {
 
             {displayMode === 'heatmap' && (
               heatmapRows.length === 0
-                ? <Empty description="当前板块暂无多因子数据" style={{ marginTop: 24 }} />
-                : (isMobileHeatmap ? renderMobileHeatmap(listIndustries) : renderHeatmap(heatmapSort, listIndustries))
+                ? <Empty description={isL2 ? "二级行业暂不支持多因子热力图，请切换一级或列表视图" : "当前板块暂无多因子数据"} style={{ marginTop: 24 }} />
+                : (isMobileHeatmap ? renderMobileHeatmap(listIndustries) : renderHeatmap(listIndustries))
             )}
 
             {/* Bottom actions */}
