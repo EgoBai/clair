@@ -14,7 +14,7 @@ import { CompassOutlined, RightOutlined, StarOutlined, FilterOutlined, Apartment
 const { Title, Text, Paragraph } = Typography;
 
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
-import { DEMO_MARKET_SUMMARY, DEMO_L2_INDUSTRIES, buildDemoMultidim, buildDemoScores } from '../utils/demoData';
+// (演示数据生成器已移除：诚实数据红线 —— 无真实源时如实置空，绝不注入伪造数据)
 import {
   DataSourceBanner, DataSourceBadge, DimLoadingPlaceholder,
   resolveDataSource, failedDataSource, isUntrusted, LIVE_SOURCE,
@@ -240,19 +240,13 @@ const DiscoverPage: React.FC = () => {
         // ---- indices ----
         if (results[0].status === 'fulfilled') {
           const list = (results[0].value?.data?.indices || []) as IndexData[];
-          // 契约：meta.source !== 'live' 即非真实数据；后端未返回 meta 时退化为「空即演示」
-          const st = resolveDataSource(results[0].value, list.length === 0, true);
-          setIndices(list.length > 0 ? list : (DEMO_MARKET_SUMMARY.indices || []).map(idx => ({
-            name: idx.name, symbol: idx.symbol,
-            closePrice: idx.close_price, changePercent: idx.change_percent, volume: 0,
-          })));
+          // 诚实红线：后端无数据 / 返回空 → 如实置空，绝不注入演示数据；标注为「数据不可用」
+          const st = resolveDataSource(results[0].value, list.length === 0, false);
+          setIndices(list);
           setIndicesSource(st);
         } else {
-          setIndices((DEMO_MARKET_SUMMARY.indices || []).map(idx => ({
-            name: idx.name, symbol: idx.symbol,
-            closePrice: idx.close_price, changePercent: idx.change_percent, volume: 0,
-          })));
-          setIndicesSource(failedDataSource(true, '指数接口请求失败'));
+          setIndices([]);
+          setIndicesSource(failedDataSource(false, '指数接口请求失败'));
         }
 
         // ---- sectors ----
@@ -260,24 +254,19 @@ const DiscoverPage: React.FC = () => {
         let finalScores: SectorScore[] = [];
         if (results[1].status === 'fulfilled') {
           const secs = (results[1].value?.data?.sectors || []) as SectorScore[];
-          sectorState = resolveDataSource(results[1].value, secs.length === 0, true);
-          finalScores = secs.length > 0 ? secs : buildDemoScores(sectorType) as unknown as SectorScore[];
+          // 诚实红线：无数据如实置空，绝不注入演示数据
+          sectorState = resolveDataSource(results[1].value, secs.length === 0, false);
+          finalScores = secs;
         } else {
-          sectorState = failedDataSource(true, '板块接口请求失败');
-          finalScores = buildDemoScores(sectorType) as unknown as SectorScore[];
+          sectorState = failedDataSource(false, '板块接口请求失败');
+          finalScores = [];
         }
         setScores(finalScores);
         setSectorSource(sectorState);
 
         // ---- 多因子：全量分批加载（A-03）----
-        // 板块列表本身就是演示数据时，多因子同步用演示值（口径一致，且已被 Banner 显性标注）；
-        // 板块列表为真实数据时，绝不用演示值填充真实板块 —— 未加载完成显示 loading 占位。
-        if (sectorState.kind === 'demo') {
-          setMultidimMap(buildDemoMultidim(finalScores) as unknown as Record<string, MultidimData>);
-          setMultidimResolved(new Set(finalScores.map(s => s.industry)));
-          setMultidimTotal(finalScores.length);
-          setMultidimSource({ kind: 'demo', updatedAt: null });
-        } else if (finalScores.length > 0) {
+        // 板块列表为真实数据时，按板块分批加载真实多因子；无数据时不注入演示值，显示 loading 占位。
+        if (finalScores.length > 0) {
           const codes = finalScores.map(s => s.industry);
           setMultidimTotal(codes.length);
           // 不 await：让板块列表先渲染，多因子渐进式补齐
@@ -316,27 +305,25 @@ const DiscoverPage: React.FC = () => {
 
         // ---- summary ----
         if (results[2].status === 'fulfilled' && results[2].value?.data) {
-          const st = resolveDataSource(results[2].value, !results[2].value.data, true);
-          if (st.kind === 'demo' || st.kind === 'unavailable') setMarketSummary(DEMO_MARKET_SUMMARY);
+          const st = resolveDataSource(results[2].value, !results[2].value.data, false);
+          // 诚实红线：不可用则置空，绝不注入演示数据
+          if (st.kind === 'unavailable') setMarketSummary(null);
           else setMarketSummary(results[2].value.data);
           setSummarySource(st);
         } else {
-          setMarketSummary(DEMO_MARKET_SUMMARY);
-          setSummarySource(failedDataSource(true, '市场总览接口请求失败'));
+          setMarketSummary(null);
+          setSummarySource(failedDataSource(false, '市场总览接口请求失败'));
         }
       } catch {
         if (ac.signal.aborted) return;
-        setIndices((DEMO_MARKET_SUMMARY.indices || []).map(idx => ({
-          name: idx.name, symbol: idx.symbol,
-          closePrice: idx.close_price, changePercent: idx.change_percent, volume: 0,
-        })));
-        const demoScores = buildDemoScores(sectorType) as unknown as SectorScore[];
-        setScores(demoScores);
-        setMultidimMap(buildDemoMultidim(demoScores) as unknown as Record<string, MultidimData>);
-        setMultidimResolved(new Set(demoScores.map(s => s.industry)));
-        setMultidimTotal(demoScores.length);
-        setMarketSummary(DEMO_MARKET_SUMMARY);
-        const failed = failedDataSource(true, '页面数据加载异常');
+        // 诚实红线：异常时如实置空，绝不注入演示数据
+        setIndices([]);
+        setScores([]);
+        setMultidimMap({});
+        setMultidimResolved(new Set());
+        setMultidimTotal(0);
+        setMarketSummary(null);
+        const failed = failedDataSource(false, '页面数据加载异常');
         setIndicesSource(failed);
         setSectorSource(failed);
         setMultidimSource(failed);
@@ -371,14 +358,14 @@ const DiscoverPage: React.FC = () => {
         .then(r => r.json())
         .then(d => {
           const list = (d?.success && d?.data?.industries) ? d.data.industries : [];
-          // 契约优先：meta.source !== 'live' 即非真实；无 meta 时退化为「空即演示」
-          const st = resolveDataSource(d, list.length === 0, true);
-          setL2Industries(list.length > 0 ? list : DEMO_L2_INDUSTRIES);
+          // 诚实红线：无数据如实置空，绝不注入演示数据
+          const st = resolveDataSource(d, list.length === 0, false);
+          setL2Industries(list);
           setL2Source(st);
         })
         .catch(() => {
-          setL2Industries(DEMO_L2_INDUSTRIES);
-          setL2Source(failedDataSource(true, '二级行业接口请求失败'));
+          setL2Industries([]);
+          setL2Source(failedDataSource(false, '二级行业接口请求失败'));
         });
     }
   }, [sectorType, industryLevel, reloadKey]);
