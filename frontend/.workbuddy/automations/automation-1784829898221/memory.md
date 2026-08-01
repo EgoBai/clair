@@ -219,3 +219,11 @@
 - **决策门更新（DECISION_LOG）**：反映用户第22轮指令——D1 ⏸搁置、D15✅已决落地、D3✅、D14🔵部分解决（DeepSeek 通电，Tushare/AlphaVantage 缺）、D2🔵已启动（评估文档产出，POC 待拍板）。
 - **下一任务**：导航 IA 后续 Ticket（T6 TabBar / T7 平板折叠 / T8 面包屑，Mimo）+ 等 TUSHARE_TOKEN（D14 fund-flow 真实化）+ D2 POC 四件套拍板。D1 搁置不做。
 - **注意**：PLAN.md 与 automation memory 均存在自动化轮次与交互会话的读写竞态，编辑前须重读；本轮多次遇此竞态，重读/追加后成功写入。
+
+## 第29轮（2026-08-02 02:19-02:33 执行；02:33 续轮补全交付）
+- **T12 导航 IA 单测补齐（已交付）**：Mimo 建 TabBar.test.tsx 16 用例 + Hermes 建 navGroups.test.ts 18 + pageIndex.test.ts 19 = 53 新用例，于 `217fb87f` 提交。导航 IA 四交付物单测覆盖补齐至 74 用例（T11-cov 清零）。轮内验收：tsc 0错 / build 5.71s / guard 9 INFO / 新增 53/53 / NavigationMenu 21/21 / E2E 20/20 / 12 路由 200。
+- **续轮（本自动化触发）关键动作**：①补齐 round-29 遗留的 D17 写入（DECISION_LOG.md 新增 D17 导航命名一致性待拍板，4 选项 A 推荐）；②修正 PLAN.md/DECISION_LOG 过期 HEAD 引用（aabe6db0→2acabb71）；③**E5🟡 规则首验**：round-29 之后交互会话 reconcile 提交（10ac4175→cadc47a2→d0bf255e→2acabb71）收口诚实数据重构、改动 6 页生产代码，遂于当前 HEAD `2acabb71` 二次复验 T12 单测——**74/74 全绿**、build 4.55s 一次过，确认 reconcile 未破坏导航 IA 测试。
+- **决策门**：🟡 D17 触发（13 处侧栏/搜索同名异义 + 2 页缺搜索索引 + 2 条重定向 label 名不副实），待用户拍板；webhook 未配置降级。
+- **下一任务**：等 D17 拍板；候选 T13 命名对齐 / T14 TabBar 契约兜底 / 健康巡检。D14(Tushare/AlphaVantage key)、D2(POC)、RAG 二期仍待用户。
+- **自我评估**：E1-E6 维持；E5🟡"在途文件域轮内漂移"→"验收时二次复核"已证必要；Agent 克制未对命名写断言（第28轮新规内化）。
+- **注**：第25-28轮摘要见 DECISION_LOG.md「循环重大进展记录」表（本文件仅到 第23轮收尾，存在记录缺口）。
