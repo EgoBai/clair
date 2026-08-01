@@ -1,7 +1,7 @@
 /**
  * ETF 中心页
  * 概览统计 / ETF 列表（类型筛选+排序）/ 折溢价套利机会 / 选中 ETF 分析卡
- * 数据全部由 src/utils/etfDemo.ts 确定性兜底；引擎调用均 try/catch 降级。
+ * 数据依赖后端 /api/etf 接口；接口未接入时如实显示空态，不使用伪造演示数据。
  */
 
 import { useMemo, useState } from 'react';
@@ -9,7 +9,7 @@ import { Card, Row, Col, Statistic, Table, Tag, Typography, Select, Space } from
 import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { THEME, GOLD } from '../styles/theme-constants';
 import logger from '../utils/logger';
-import { etfList, type ETFData } from '../utils/etfDemo';
+import { type ETFData } from '../utils/etfDemo';
 import {
   analyzeETF,
   detectArbitrageOpportunities,
@@ -81,6 +81,9 @@ function toPremiumETF(e: ETFData) {
     underlying: e.benchmark,
   };
 }
+
+// ETF 后端数据接口（/api/etf）尚未实现；以空数据呈现，杜绝伪造演示数据
+const etfList: ETFData[] = [];
 
 export default function ETFPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -224,9 +227,8 @@ export default function ETFPage() {
       </Title>
       <Space style={{ marginBottom: 16 }}>
         <Text style={{ color: THEME.textSec }}>
-          指数 / 行业 / QDII / 商品 / 债券 / 主题 · 确定性演示数据兜底
+          指数 / 行业 / QDII / 商品 / 债券 / 主题 · 后端数据尚未接入
         </Text>
-        <Tag color="gold">演示数据</Tag>
       </Space>
 
       {/* ① 概览统计 */}
@@ -310,7 +312,7 @@ export default function ETFPage() {
         style={{ background: THEME.cardBg, borderColor: THEME.border, marginBottom: 16 }}
       >
         {arbitrageList.length === 0 ? (
-          <Text style={{ color: THEME.textSec }}>当前演示数据中无显著折溢价套利机会。</Text>
+          <Text style={{ color: THEME.textSec }}>当前数据中无显著折溢价套利机会。</Text>
         ) : (
           <Row gutter={[16, 16]}>
             {arbitrageList.map((o) => (
@@ -393,7 +395,7 @@ export default function ETFPage() {
             </Col>
           </Row>
         ) : (
-          <Text style={{ color: THEME.textSec }}>引擎分析暂不可用。</Text>
+          <Text style={{ color: THEME.textSec }}>暂无 ETF 数据，无法分析。</Text>
         )}
       </Card>
     </div>

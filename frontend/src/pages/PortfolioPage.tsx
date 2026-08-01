@@ -69,77 +69,12 @@ const INDUSTRY: Record<string, string> = {
   '000001': '银行',
 };
 
-// ==================== 演示数据兜底 ====================
-// 后端持仓接口当前未接入（技术债 T6），返回一个可复现的固定演示组合。
-
-function buildDemoPortfolio(): Portfolio {
-  const cashBalance = 50000;
-  const base: Omit<Position, 'marketValue' | 'costTotal' | 'profit' | 'profitPercent' | 'weight'>[] = [
-    { id: 1, symbol: '600519', name: '贵州茅台', quantity: 100, costPrice: 1600, currentPrice: 1700, buyDate: '2024-03-12', notes: '白酒龙头，长期持有' },
-    { id: 2, symbol: '000858', name: '五粮液', quantity: 200, costPrice: 150, currentPrice: 145, buyDate: '2024-05-20', notes: '次高端补仓' },
-    { id: 3, symbol: '300750', name: '宁德时代', quantity: 300, costPrice: 200, currentPrice: 220, buyDate: '2024-06-01', notes: '新能源电池龙头' },
-    { id: 4, symbol: '600036', name: '招商银行', quantity: 500, costPrice: 35, currentPrice: 38, buyDate: '2024-07-15', notes: '高股息银行' },
-    { id: 5, symbol: '000001', name: '平安银行', quantity: 1000, costPrice: 12, currentPrice: 11, buyDate: '2024-08-02', notes: '零售转型标的' },
-  ];
-
-  const positions: Position[] = base.map((p) => {
-    const costTotal = p.quantity * p.costPrice;
-    const marketValue = p.quantity * p.currentPrice;
-    const profit = marketValue - costTotal;
-    return {
-      ...p,
-      costTotal,
-      marketValue,
-      profit,
-      profitPercent: (profit / costTotal) * 100,
-      weight: 0,
-    };
-  });
-
-  const totalMarketValue = positions.reduce((sum, p) => sum + p.marketValue, 0);
-  const totalCost = positions.reduce((sum, p) => sum + p.costTotal, 0);
-  const totalValue = totalMarketValue + cashBalance;
-  const totalProfit = totalMarketValue - totalCost;
-
-  positions.forEach((p) => {
-    p.weight = (p.marketValue / totalValue) * 100;
-  });
-
-  // 按行业归类聚合资产配置
-  const industryMap: Record<string, number> = {};
-  base.forEach((p, i) => {
-    const ind = INDUSTRY[p.symbol] ?? '其他';
-    industryMap[ind] = (industryMap[ind] ?? 0) + positions[i].marketValue;
-  });
-  const allocation = Object.entries(industryMap).map(([name, value]) => ({
-    name,
-    value,
-    weight: (value / totalMarketValue) * 100,
-  }));
-
-  return {
-    id: 1,
-    name: '演示组合',
-    description: 'A股核心资产演示组合',
-    totalCost,
-    totalMarketValue,
-    totalProfit,
-    totalProfitPercent: (totalProfit / totalCost) * 100,
-    cashBalance,
-    totalValue,
-    positions,
-    allocation,
-    createdAt: '2024-03-12',
-  };
-}
-
 // ==================== 组件 ====================
 
 function PortfolioPage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [usingDemo, setUsingDemo] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingPosition, setEditingPosition] = useState<Position | null>(null);
@@ -159,20 +94,17 @@ function PortfolioPage() {
           const detailRes = await apiService.getPortfolio(firstId);
           if (detailRes.success) {
             setPortfolio(detailRes.data as Portfolio);
-            setUsingDemo(false);
             return;
           }
         }
-        // 列表成功但组合为空 → 回退演示数据
-        setPortfolio(buildDemoPortfolio());
-        setUsingDemo(true);
+        // 真实接口返回空组合 → 如实置空，不使用演示数据
+        setPortfolio(null);
         return;
       }
     } catch (err: unknown) {
-      // 后端接口未接入（技术债 T6）→ 回退演示数据
+      // 后端接口未接入 → 如实置空，不使用演示数据
       setError(null);
-      setPortfolio(buildDemoPortfolio());
-      setUsingDemo(true);
+      setPortfolio(null);
       return;
     } finally {
       setLoading(false);
@@ -342,21 +274,10 @@ function PortfolioPage() {
         <Alert type="error" message={error} style={{ marginBottom: 16 }} closable />
       )}
 
-      {usingDemo && (
-        <Alert
-          type="info"
-          showIcon
-          message="当前展示演示数据（持仓后端接口待接入）"
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
       {!portfolio ? (
         <Card>
           <Empty description="暂无投资组合">
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setPortfolio(buildDemoPortfolio()); setUsingDemo(true); }}>
-              加载示例组合
-            </Button>
+            <Text type="secondary">持仓后端接口尚未接入，暂无数据可展示。</Text>
           </Empty>
         </Card>
       ) : (
