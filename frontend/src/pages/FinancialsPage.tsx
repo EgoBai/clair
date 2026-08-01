@@ -94,7 +94,6 @@ export default function FinancialsPage() {
   const [balanceHistory, setBalanceHistory] = useState<BalanceSheet[]>([]);
   const [incomeHistory, setIncomeHistory] = useState<IncomeStatement[]>([]);
   const [cashFlowHistory, setCashFlowHistory] = useState<CashFlow[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
   const [activeTab, setActiveTab] = useState('summary');
 
   useEffect(() => {
@@ -127,7 +126,6 @@ export default function FinancialsPage() {
       setBalanceHistory(bs);
       setIncomeHistory(is);
       setCashFlowHistory(cf);
-      setIsDemo(false);
       setLoading(false);
     }
   };
@@ -140,7 +138,7 @@ export default function FinancialsPage() {
     incomeHistory,
     balanceHistory,
     cashFlowHistory,
-    isDemo,
+    false,
   );
 
   const { balanceSheet, incomeStatement, cashFlow, indicators } = summary;
@@ -449,13 +447,7 @@ function AiInsightPanel({ insight }: { insight: FinancialInsight }) {
           <Tag color="purple" style={{ marginLeft: 8 }}>结构化摘要</Tag>
         </span>
       }
-      extra={
-        insight.isDemo ? (
-          <Tag color="orange">演示数据 · 确定性兜底</Tag>
-        ) : (
-          <Tag color="green">实时数据</Tag>
-        )
-      }
+      extra={<Tag color="green">实时数据</Tag>}
     >
       <Row gutter={[16, 16]}>
         {dims.map((d) => (

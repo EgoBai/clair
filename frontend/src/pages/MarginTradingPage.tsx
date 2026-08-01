@@ -3,8 +3,7 @@
  * 融资余额走势、融券余量、融资融券排行
  * 参考东方财富融资融券模块
  *
- * 后端 /api/margin/* 暂未就绪：API 失败时注入确定性演示数据兜底
- * （LCG 固定种子，禁用 Math.random，保证刷新结果一致）。
+ * 数据由后端 /api/margin/* 实时提供；接口异常或为空时如实置空，绝不注入伪造演示数据。
  */
 
 import React, { useState, useEffect } from 'react';
@@ -35,121 +34,6 @@ interface MarginRecord {
   totalBalance: number;
 }
 
-const DEMO_STOCKS = [
-  { symbol: '600519', name: '贵州茅台' },
-  { symbol: '601318', name: '中国平安' },
-  { symbol: '600036', name: '招商银行' },
-  { symbol: '000858', name: '五粮液' },
-  { symbol: '601012', name: '隆基绿能' },
-  { symbol: '300750', name: '宁德时代' },
-  { symbol: '600276', name: '恒瑞医药' },
-  { symbol: '000333', name: '美的集团' },
-  { symbol: '002594', name: '比亚迪' },
-  { symbol: '601888', name: '中国中免' },
-  { symbol: '600030', name: '中信证券' },
-  { symbol: '000651', name: '格力电器' },
-  { symbol: '601166', name: '兴业银行' },
-  { symbol: '600887', name: '伊利股份' },
-  { symbol: '000001', name: '平安银行' },
-  { symbol: '002415', name: '海康威视' },
-  { symbol: '601398', name: '工商银行' },
-  { symbol: '300059', name: '东方财富' },
-  { symbol: '600009', name: '上海机场' },
-  { symbol: '600000', name: '浦发银行' },
-];
-
-/** 线性同余发生器（LCG）：固定种子 → 结果可复现，禁用 Math.random */
-function makeRng(seed: number): () => number {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 2147483646;
-  return () => {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-}
-
-function fmtDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** 生成最近 30 个交易日的融资融券余额趋势 */
-function buildDemoTrend(rng: () => number): MarginRecord[] {
-  const records: MarginRecord[] = [];
-  let financingBalance = 1.5e12; // 融资余额 1.5万亿
-  let securitiesBalance = 9.2e9; // 融券余量（股）
-  const cursor = new Date();
-  let added = 0;
-  while (added < 30) {
-    const dow = cursor.getDay();
-    if (dow !== 0 && dow !== 6) {
-      const finDelta = (rng() - 0.45) * 4e10;
-      financingBalance = Math.max(1.0e12, financingBalance + finDelta);
-      const secDelta = (rng() - 0.5) * 5e8;
-      securitiesBalance = Math.max(5e9, securitiesBalance + secDelta);
-      const financingBuy = 6e10 + rng() * 4e10;
-      const financingRepay = Math.max(0, financingBuy - finDelta);
-      // 融券余额按 ~10元/股折算为金额，纳入融资融券总余额
-      const totalBalance = financingBalance + securitiesBalance * 10;
-      records.push({
-        tradeDate: fmtDate(cursor),
-        financingBalance: Math.round(financingBalance),
-        financingBuyAmount: Math.round(financingBuy),
-        financingRepayAmount: Math.round(financingRepay),
-        financingNetBuy: Math.round(finDelta),
-        securitiesBalance: Math.round(securitiesBalance),
-        securitiesNetSell: Math.round(secDelta),
-        totalBalance: Math.round(totalBalance),
-      });
-      added++;
-    }
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return records.reverse();
-}
-
-/** 生成融资/融券排行（各 18 条） */
-function buildDemoRank(rng: () => number): MarginRankEntry[] {
-  return DEMO_STOCKS.slice(0, 18).map((stock, i) => ({
-    rank: i + 1,
-    symbol: stock.symbol,
-    name: stock.name,
-    financingBalance: Math.round(1e9 + rng() * 9e9),       // 1亿~10亿
-    financingChange: Math.round((rng() - 0.5) * 1e9),
-    securitiesBalance: Math.round(1e6 + rng() * 9e6),      // 股
-    securitiesChange: Math.round((rng() - 0.5) * 1e6),
-  }));
-}
-
-/** 汇总确定性演示数据：概览 + 趋势 + 融资/融券两类排行 */
-function buildDemoMarginData() {
-  const rng = makeRng(20240724);
-  const trend = buildDemoTrend(rng);
-  const financingRank = buildDemoRank(rng).sort((a, b) => b.financingBalance - a.financingBalance)
-    .map((e, i) => ({ ...e, rank: i + 1 }));
-  const securitiesRank = buildDemoRank(rng).sort((a, b) => b.securitiesBalance - a.securitiesBalance)
-    .map((e, i) => ({ ...e, rank: i + 1 }));
-
-  const last = trend[trend.length - 1];
-  const overview: MarginOverview = {
-    totalFinancingBalance: last.financingBalance,
-    totalSecuritiesBalance: last.securitiesBalance,
-    financingStockCount: 3200 + Math.floor(rng() * 100),
-    securitiesStockCount: 1800 + Math.floor(rng() * 100),
-    topFinancingIncrease: [...financingRank]
-      .sort((a, b) => b.financingChange - a.financingChange)
-      .slice(0, 5)
-      .map((e) => ({ symbol: e.symbol, name: e.name, change: e.financingChange })),
-    topSecuritiesIncrease: [...securitiesRank]
-      .sort((a, b) => b.securitiesChange - a.securitiesChange)
-      .slice(0, 5)
-      .map((e) => ({ symbol: e.symbol, name: e.name, change: e.securitiesChange })),
-  };
-
-  return { overview, trend, financingRank, securitiesRank };
-}
 
 const MarginTradingPage: React.FC = () => {
   const [overview, setOverview] = useState<MarginOverview | null>(null);

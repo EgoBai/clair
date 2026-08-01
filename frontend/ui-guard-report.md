@@ -1,6 +1,6 @@
 # 澄观 Clair 前端 UI 质量守卫 · 扫描报告
 
-> 生成时间: 2026-07-29T14:57:55.442Z
+> 生成时间: 2026-08-01T18:27:56.818Z
 > 层级: **轻量静态层（S6-1 / D6 决策）** —— 仅静态 AST + 正则/数据基线，**不含** Playwright 运行时截图（属第二阶段）。
 
 ## 1. 守卫设计概览
@@ -30,7 +30,7 @@ npx tsc --noEmit       # 应用类型检查（守卫脚本自身不在该 tsconf
 
 ## 3. AST 扫描结果
 
-### ast-scan（扫描 595 个文件）
+### ast-scan（扫描 600 个文件）
 
 错误: 0 · 警告: 0 · 提示: 0
 
@@ -39,11 +39,11 @@ _未发现该层相关的问题。_
 
 ## 4. 基线扫描结果
 
-### baseline-scan（扫描 595 个文件）
+### baseline-scan（扫描 600 个文件）
 
 错误: 0 · 警告: 0 · 提示: 9
 
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/DiscoverPage.tsx:461`
+- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/DiscoverPage.tsx:576`
   - 代码: `const detail = hoverDetail['${industry}__${dimName}'] || '';`
   - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
 - **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/StockDetailPage.tsx:303`
@@ -77,7 +77,7 @@ _未发现该层相关的问题。_
 - 错误(ERROR): 0
 - 警告(WARN): 0
 - 提示(INFO): 9
-- 总文件扫描: AST 595 + 基线 595
+- 总文件扫描: AST 600 + 基线 600
 
 **结论: ✅ PASS（无 ERROR 级问题）**
 

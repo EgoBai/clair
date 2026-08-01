@@ -25,7 +25,6 @@ import { formatLargeNumber } from '@/utils/formatters';
 import {
   type FundFlowProviderName, type StockFundFlowResp, type IndustryFlowResp,
   type GlobalFlowResp, type FundFlowMeta, type GlobalIndicator,
-  genStockFundFlow, genIndustryFlow, genGlobalIndicators, genMarketOverview, genMeta,
 } from '../utils/fundFlowPageDemo';
 
 const { Title, Text } = Typography;
@@ -59,8 +58,8 @@ async function apiFetch<T>(path: string, timeoutMs = 12000): Promise<T> {
 }
 
 const FundFlowPage: React.FC = () => {
-  // ── ① 市场概览恒为确定性演示（后端无市场级 5 档端点） ──
-  const overview = useMemo(() => genMarketOverview(), []);
+  // ── ① 市场概览：后端暂无市场级 5 档聚合端点，以空态呈现，杜绝伪造演示数据 ──
+  const overview = null;
 
   // ── ⑤ /meta 诊断 ──
   const [meta, setMeta] = useState<FundFlowMeta | null>(null);
@@ -91,7 +90,7 @@ const FundFlowPage: React.FC = () => {
         const m = await apiFetch<FundFlowMeta>('/api/fund-flow/meta');
         if (alive) setMeta(m);
       } catch {
-        if (alive) setMeta(genMeta());
+        if (alive) setMeta(null);
       } finally {
         if (alive) setMetaLoading(false);
       }
@@ -103,7 +102,7 @@ const FundFlowPage: React.FC = () => {
         const r = await apiFetch<IndustryFlowResp>('/api/fund-flow/industry?limit=20');
         if (alive) setIndustry(r);
       } catch {
-        if (alive) setIndustry(genIndustryFlow(20));
+        if (alive) setIndustry(null);
       } finally {
         if (alive) setIndustryLoading(false);
       }
@@ -115,8 +114,7 @@ const FundFlowPage: React.FC = () => {
         const r = await apiFetch<GlobalFlowResp>('/api/fund-flow/global');
         if (alive) { setGlobal(r); setGlobalDs(r.dataSource); }
       } catch {
-        const d = genGlobalIndicators();
-        if (alive) { setGlobal(d); setGlobalDs(d.dataSource); }
+        if (alive) { setGlobal(null); setGlobalDs('unknown'); }
       } finally {
         if (alive) setGlobalLoading(false);
       }
@@ -136,24 +134,15 @@ const FundFlowPage: React.FC = () => {
       setStock(r);
       setStockDs(r.dataSource);
     } catch {
-      setStock(genStockFundFlow(s, 10));
-      setStockDs('demo');
-      setStockNote('后端不可达或未收录该标的，已切换为确定性演示数据');
+      setStock(null);
+      setStockDs('unknown');
+      setStockNote('后端不可达或未收录该标的，暂无可展示数据');
     } finally {
       setStockLoading(false);
     }
   };
 
   useEffect(() => { queryStock(symbol); /* eslint-disable-next-line */ }, []);
-
-  // ── ① 市场概览 5 卡 ──
-  const overviewCards = [
-    { label: '主力净流入', v: overview.mainNet },
-    { label: '超大单净流入', v: overview.superLargeNet },
-    { label: '大单净流入', v: overview.largeNet },
-    { label: '中单净流入', v: overview.mediumNet },
-    { label: '小单净流入', v: overview.smallNet },
-  ];
 
   // ── ② 个股趋势图数据 ──
   const stockTrend = useMemo(
@@ -196,7 +185,7 @@ const FundFlowPage: React.FC = () => {
       <Card size="small" style={{ ...cardStyle, marginTop: 16 }}>
         <Space wrap size={[12, 8]} align="center">
           <Text strong style={titleColor}>数据源：</Text>
-          <span>市场概览 {dsTag('demo')}</span>
+          <span>市场概览 {dsTag('unknown')}</span>
           <span>个股 {dsTag(stockDs)}</span>
           <span>行业 {dsTag('unknown')}</span>
           <span>外资 {dsTag(globalDs)}</span>
@@ -224,26 +213,15 @@ const FundFlowPage: React.FC = () => {
         </Collapse>
       </Card>
 
-      {/* ① 市场资金概览（演示估算） */}
+      {/* ① 市场资金概览 */}
       <Card
         size="small"
         style={{ ...cardStyle, marginTop: 16 }}
-        title={<span style={titleColor}>市场主力资金结构 <Tag color="gold">演示估算</Tag></span>}
+        title={<span style={titleColor}>市场主力资金结构</span>}
       >
-        <Row gutter={[16, 16]}>
-          {overviewCards.map((c) => (
-            <Col xs={24} sm={12} md={8} lg={4} key={c.label}>
-              <Statistic
-                title={<span style={{ color: THEME.textSec }}>{c.label}</span>}
-                value={fmtSigned(c.v)}
-                valueStyle={{ color: flowColor(c.v), fontSize: 18 }}
-              />
-            </Col>
-          ))}
-        </Row>
-        <Text style={{ color: THEME.textSec, fontSize: 12 }}>
-          红=净流入 / 绿=净流出；后端暂无市场级 5 档聚合端点，此处为确定性演示结构。
-        </Text>
+        <Empty description="市场级 5 档聚合端点后端未提供，暂无可展示数据">
+          <Text type="secondary">后端补齐 /api/fund-flow/market 后将自动呈现主力/超大单/大单/中单/小单净流入结构。</Text>
+        </Empty>
       </Card>
 
       {/* ② 个股资金流查询 */}

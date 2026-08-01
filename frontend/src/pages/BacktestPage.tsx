@@ -97,7 +97,6 @@ const BacktestPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState('');
-  const [isDemo, setIsDemo] = useState(false);
 
   /**
    * 区间前置校验 — 返回错误文案，null 表示通过。
@@ -158,7 +157,6 @@ const BacktestPage: React.FC = () => {
 
       if (data.success && data.data) {
         setResult(data.data);
-        setIsDemo(false);
         return;
       }
 
@@ -166,13 +164,11 @@ const BacktestPage: React.FC = () => {
       // 不用演示数据掩盖，否则用户会误以为回测成功。
       const reason = data.details || data.error || '回测失败';
       setResult(null);
-      setIsDemo(false);
       setError(reason);
       message.error(reason);
     } catch (e) {
       // 网络层失败（后端未启动）→ 如实置空，绝不回填演示数据
       setResult(null);
-      setIsDemo(false);
       setError('回测服务暂不可用（后端未就绪或网络异常），请稍后重试');
       message.error('回测服务暂不可用');
       console.error('回测请求失败:', e);
@@ -335,7 +331,6 @@ const BacktestPage: React.FC = () => {
               title={
                 <span style={{ color: TEXT }}>
                   {currentStrategy?.icon} {currentStrategy?.name} - {result.symbol}
-                  {isDemo && <Tag color="gold" style={{ marginLeft: 8 }}>演示数据</Tag>}
                 </span>
               }
               style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
@@ -344,12 +339,6 @@ const BacktestPage: React.FC = () => {
               <div style={{ color: TEXT_SEC, fontSize: 13 }}>
                 回测区间: {result.startDate} 至 {result.endDate} | 共 {result.totalDays} 个交易日
               </div>
-              {isDemo && (
-                <div style={{ color: GOLD, fontSize: 12, marginTop: 6 }}>
-                  ⚠️ 当前为演示数据，区间由演示生成器内置，与上方所选的
-                  {dateRange[0].format('YYYY-MM-DD')} ~ {dateRange[1].format('YYYY-MM-DD')} 无关。
-                </div>
-              )}
             </Card>
 
             {/* 核心指标卡片 */}
