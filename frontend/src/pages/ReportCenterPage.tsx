@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from 'react';
 import {
-  Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Select, Space, Tooltip,
+  Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Select, Space, Tooltip, Empty,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -267,6 +267,23 @@ function ReportCenterPage() {
     },
   ];
 
+  // 后端研报/新闻接口未接入时如实展示空态，不做伪造数据兜底
+  if (reports.length === 0) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Title level={3}>
+          <FileTextOutlined style={{ marginRight: 8, color: ACCENT }} />
+          研报 AI 摘要中心
+        </Title>
+        <Card style={{ marginTop: 16 }}>
+          <Empty description="研报与新闻数据由后端实时接口提供，当前后端未接入，暂无可展示数据">
+            <Text type="secondary">分析引擎已就绪，接口接入后将自动呈现机构共识、评级变动与新闻情绪。</Text>
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 24 }}>
       <Title level={3}>
@@ -277,7 +294,7 @@ function ReportCenterPage() {
       <Alert
         type="info"
         showIcon
-        message="演示数据兜底（LCG 种子 20260725，结果可复现）；结论均来自研报/新闻分析引擎动态输出"
+        message="研报与新闻数据由后端实时接口提供，当前后端未接入，暂无可展示数据；分析引擎已就绪，接入后自动呈现"
         style={{ marginBottom: 16 }}
       />
 

@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress } from 'antd';
+import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress, Empty } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FallOutlined,
 } from '@ant-design/icons';
@@ -14,9 +14,10 @@ import {
   Tooltip, ResponsiveContainer, Cell, Legend,
 } from 'recharts';
 import { THEME, GOLD } from '../styles/theme-constants';
-import {
-  northboundFlows, topHoldings, sectorNetFlows,
-} from '../utils/northboundDemo';
+// 北向资金真实数据由后端实时接口提供，当前后端未接入；以下以空数据呈现，杜绝伪造演示数据。
+const northboundFlows: any[] = [];
+const topHoldings: any[] = [];
+const sectorNetFlows: any[] = [];
 import {
   summarizeNorthboundFlow, analyzeHoldingsChanges,
   sectorFlowAggregation, generateNorthboundSignals,
@@ -146,13 +147,32 @@ const NorthBoundPage: React.FC = () => {
     return { label: '中性', color: THEME.textSec, bg: 'rgba(148,163,184,0.12)' };
   };
 
+  // 北向资金真实接口未接入时，如实展示空态，不做伪造数据兜底
+  if (northboundFlows.length === 0) {
+    return (
+      <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
+        <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
+          北向资金深度追踪
+        </Title>
+        <Text style={{ color: THEME.textSec }}>
+          沪股通 / 深股通 资金流向 · 后端数据尚未接入
+        </Text>
+        <Card style={{ marginTop: 16, background: THEME.cardBg, borderColor: THEME.border }}>
+          <Empty description="北向资金数据由后端实时接口提供，当前后端未接入，暂无可展示数据">
+            <Text type="secondary">相关接口就绪后将自动呈现净流入趋势、重仓股与信号面板。</Text>
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         北向资金深度追踪
       </Title>
       <Text style={{ color: THEME.textSec }}>
-        沪股通 / 深股通 资金流向 · 确定性演示数据（技术债 T6 兜底）
+        沪股通 / 深股通 资金流向 · 后端数据尚未接入
       </Text>
 
       {/* ① 顶部概览卡 */}

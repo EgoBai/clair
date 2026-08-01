@@ -14,9 +14,11 @@ import {
   Tooltip, ResponsiveContainer, Cell, Legend,
 } from 'recharts';
 import { THEME, GOLD } from '../styles/theme-constants';
-import {
-  hkConnectFlows, northboundHoldings, ahPremiums, type AHPremiumRow,
-} from '../utils/hkConnectDemo';
+// 港股通 / A-H 溢价真实数据由后端实时接口提供，当前后端未接入；以空数据呈现，杜绝伪造演示数据。
+const hkConnectFlows: any[] = [];
+const northboundHoldings: any[] = [];
+const ahPremiums: any[] = [];
+import type { AHPremiumRow } from '../utils/hkConnectDemo';
 import {
   analyzeFlowDirection, analyzeNorthboundHoldings, analyzeFlowStyle,
   type StockConnectSignal, type FlowAnalysisResult,
@@ -188,13 +190,32 @@ const HKConnectPage: React.FC = () => {
 
   const tMeta = trendMeta(trend);
 
+  // 港股通 / A-H 溢价真实接口未接入时，如实展示空态，不做伪造数据兜底
+  if (hkConnectFlows.length === 0) {
+    return (
+      <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
+        <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
+          港股通资金 · A-H 溢价分析
+        </Title>
+        <Text style={{ color: THEME.textSec }}>
+          沪深港通南北向资金流 · 北向重仓 · A+H 两地溢价 · 后端数据尚未接入
+        </Text>
+        <Card style={{ marginTop: 16, background: THEME.cardBg, borderColor: THEME.border }}>
+          <Empty description="港股通与 A-H 溢价数据由后端实时接口提供，当前后端未接入，暂无可展示数据">
+            <Text type="secondary">相关接口就绪后将自动呈现南北向资金流、重仓股与 A-H 溢价分析。</Text>
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         港股通资金 · A-H 溢价分析
       </Title>
       <Text style={{ color: THEME.textSec }}>
-        沪深港通南北向资金流 · 北向重仓 · A+H 两地溢价 · 确定性演示数据（技术债 T6 兜底）
+        沪深港通南北向资金流 · 北向重仓 · A+H 两地溢价 · 后端数据尚未接入
       </Text>
 
       {/* ① 概览卡 */}

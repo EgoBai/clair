@@ -108,32 +108,9 @@ for (let j = 0; j < N; j++) {
 }
 
 // ── 组装 FactorData：每因子一组，nextReturn 跨因子共享为同一实现收益 ──
+// 诚实数据契约：因子时序数据由后端提供，当前未接入，保留空集合，页面自动展示空态。
 export const factorLabData: Record<string, FactorData[]> = {};
-FACTOR_KEYS.forEach((k) => {
-  factorLabData[k] = Array.from({ length: N }, (_, j) => ({
-    date: DATES[Math.floor(j / N_STOCKS)],
-    ticker: TICKERS[j % N_STOCKS],
-    factorValue: z[k][j],
-    nextReturn: returns[j],
-  }));
-});
 
 // ── 因子衰减数据：lag 1-6 的 nextReturn 为未来 L 期累计收益 ──
+// 同上，后端未接入，空集合。
 export const factorDecayData: Record<string, Map<number, FactorData[]>> = {};
-const LAGS = [1, 2, 3, 4, 5, 6];
-FACTOR_KEYS.forEach((k) => {
-  const m = new Map<number, FactorData[]>();
-  LAGS.forEach((L) => {
-    const arr: FactorData[] = [];
-    for (let t = 0; t + L < N_PERIODS; t++) {
-      for (let i = 0; i < N_STOCKS; i++) {
-        const base = t * N_STOCKS + i;
-        let fwd = 0;
-        for (let s = 1; s <= L; s++) fwd += returns[base + s * N_STOCKS];
-        arr.push({ date: DATES[t], ticker: TICKERS[i], factorValue: z[k][base], nextReturn: fwd });
-      }
-    }
-    m.set(L, arr);
-  });
-  factorDecayData[k] = m;
-});

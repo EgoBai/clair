@@ -205,10 +205,10 @@ const FactorLabPage: React.FC = () => {
     <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         多因子实验室
-        <Tag color="gold" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>演示数据</Tag>
+        <Tag color="default" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>数据未接入</Tag>
       </Title>
       <Text style={{ color: THEME.textSec }}>
-        多因子模型一期 · 8 经典因子 IC / 分层 / 衰减 / 合成（确定性 LCG 兜底，可复现）
+        多因子模型一期 · 8 经典因子 IC / 分层 / 衰减 / 合成（因子数据由后端提供，当前尚未接入）
       </Text>
 
       {/* 区块A 因子库总览表 */}
