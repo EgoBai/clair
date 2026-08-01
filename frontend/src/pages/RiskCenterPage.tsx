@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import {
-  Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Tooltip,
+  Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Tooltip, Empty,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -42,15 +42,8 @@ interface DemoAsset {
   drift: number;
 }
 
-const DEMO_ASSETS: DemoAsset[] = [
-  { symbol: '600519', name: '贵州茅台', quantity: 100, costPrice: 1600, currentPrice: 1700, beta: 0.90, idioVol: 0.012, drift: 0.0006 },
-  { symbol: '000858', name: '五粮液', quantity: 200, costPrice: 150, currentPrice: 145, beta: 1.00, idioVol: 0.014, drift: -0.0002 },
-  { symbol: '300750', name: '宁德时代', quantity: 300, costPrice: 200, currentPrice: 220, beta: 1.25, idioVol: 0.020, drift: 0.0008 },
-  { symbol: '600036', name: '招商银行', quantity: 500, costPrice: 35, currentPrice: 38, beta: 0.80, idioVol: 0.010, drift: 0.0003 },
-  { symbol: '000001', name: '平安银行', quantity: 1000, costPrice: 12, currentPrice: 11, beta: 0.85, idioVol: 0.011, drift: -0.0001 },
-  { symbol: '601318', name: '中国平安', quantity: 300, costPrice: 50, currentPrice: 52, beta: 0.95, idioVol: 0.013, drift: 0.0002 },
-  { symbol: '000333', name: '美的集团', quantity: 400, costPrice: 65, currentPrice: 70, beta: 1.05, idioVol: 0.013, drift: 0.0004 },
-];
+// 真实持仓数据源（后端持仓/行情接口）尚未接入：默认空，杜绝伪造演示风控报告
+const DEMO_ASSETS: DemoAsset[] = [];
 
 // ==================== 确定性随机（LCG + Box-Muller） ====================
 
@@ -270,6 +263,25 @@ function RiskCenterPage() {
   })();
 
   const sign = (x: number) => (x >= 0 ? '+' : '') + (x * 100).toFixed(2) + '%';
+
+  // 无真实持仓数据时如实展示空态，不渲染伪造风控报告
+  if (DEMO_ASSETS.length === 0) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Title level={3}>
+          <SafetyCertificateOutlined style={{ marginRight: 8, color: ACCENT }} />
+          组合风控中心
+        </Title>
+        <Card>
+          <Empty description="暂无持仓数据，无法计算风险指标">
+            <Text type="secondary">
+              组合风控中心依赖持仓与行情数据（后端持仓/行情接口）。当前无可用数据，相关指标暂缓展示。
+            </Text>
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
 
   // --- 相关性矩阵表格 ---
   const corrColumns: TableColumnsType<{ key: string; name: string; symbol: string; values: number[] }> = [
