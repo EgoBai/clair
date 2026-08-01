@@ -58,97 +58,6 @@ const fmtDate = (d: Date): string => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
-/** 演示股票样本池，覆盖多种解禁类型，保证数据真实感 */
-const DEMO_STOCK_POOL = [
-  { symbol: '600519', name: '贵州茅台', lockupType: '首发原股东限售股份', shareholder: '中国贵州茅台酒厂' },
-  { symbol: '300750', name: '宁德时代', lockupType: '定向增发机构配售股份', shareholder: '高瓴资本' },
-  { symbol: '002594', name: '比亚迪', lockupType: '首发原股东限售股份', shareholder: '王传福' },
-  { symbol: '688981', name: '中芯国际', lockupType: '首发战略配售股份', shareholder: '国家集成电路产业基金' },
-  { symbol: '601012', name: '隆基绿能', lockupType: '定向增发机构配售股份', shareholder: 'HHLR 管理有限公司' },
-  { symbol: '000858', name: '五粮液', lockupType: '首发原股东限售股份', shareholder: '宜宾发展控股集团' },
-  { symbol: '600276', name: '恒瑞医药', lockupType: '股权激励限售股份', shareholder: '员工持股平台' },
-  { symbol: '300059', name: '东方财富', lockupType: '首发原股东限售股份', shareholder: '其实' },
-  { symbol: '002415', name: '海康威视', lockupType: '首发原股东限售股份', shareholder: '中电海康集团' },
-  { symbol: '688111', name: '金山办公', lockupType: '首发原股东限售股份', shareholder: '金山软件' },
-  { symbol: '601318', name: '中国平安', lockupType: '定向增发机构配售股份', shareholder: '卜蜂集团有限公司' },
-  { symbol: '600036', name: '招商银行', lockupType: '首发原股东限售股份', shareholder: '招商局轮船' },
-  { symbol: '000333', name: '美的集团', lockupType: '追加承诺限售股份', shareholder: '美的控股' },
-  { symbol: '603259', name: '药明康德', lockupType: '首发原股东限售股份', shareholder: 'G&C VI Limited' },
-];
-
-/** 固定种子的线性同余伪随机，保证每次刷新演示数据完全一致（确定性） */
-function makeRng(seed: number): () => number {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 2147483646;
-  return () => {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-}
-
-/**
- * 生成内置演示解禁数据：覆盖未来 90 天、约 32 条，
- * 含不同 lockupType、合理的解禁市值与占比，并附带 byDate 与汇总。
- */
-function buildDemoLockupData(): {
-  expiries: LockupExpiry[];
-  byDate: Record<string, LockupExpiry[]>;
-  summary: LockupSummary;
-} {
-  const rng = makeRng(20240724); // 固定种子 → 结果可复现
-  const count = 32; // 演示条数（20~40 之间）
-  const today = new Date();
-  const expiries: LockupExpiry[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const stock = DEMO_STOCK_POOL[Math.floor(rng() * DEMO_STOCK_POOL.length)];
-    const offset = Math.floor(rng() * 90); // 未来 0~89 天
-    const d = new Date(today);
-    d.setDate(d.getDate() + offset);
-
-    const totalShares = Math.round((0.05 + rng() * 4.95) * 1e8); // 500万~5亿股
-    const circulatingBefore = Math.round(totalShares * (1 + rng() * 5)); // 流通盘大于解禁盘
-    const unlockRatio = Number((0.5 + rng() * 24.5).toFixed(2)); // 0.5%~25%
-    const price = Number((5 + rng() * 75).toFixed(2)); // 5~80 元
-    const marketValue = Math.round(totalShares * price);
-
-    expiries.push({
-      id: i + 1,
-      symbol: stock.symbol,
-      name: stock.name,
-      expiryDate: fmtDate(d),
-      lockupType: stock.lockupType,
-      shareholder: stock.shareholder,
-      totalShares,
-      circulatingBefore,
-      unlockRatio,
-      marketValue,
-      price,
-    });
-  }
-  expiries.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
-
-  // 按解禁日期分组，供日历单元格渲染使用
-  const byDate: Record<string, LockupExpiry[]> = {};
-  for (const e of expiries) {
-    (byDate[e.expiryDate] ||= []).push(e);
-  }
-
-  // 计算汇总指标
-  const symbols = new Set(expiries.map((e) => e.symbol));
-  const summary: LockupSummary = {
-    totalStocks: symbols.size,
-    totalEvents: expiries.length,
-    totalMarketValue: expiries.reduce((s, e) => s + e.marketValue, 0),
-    totalShares: expiries.reduce((s, e) => s + e.totalShares, 0),
-    avgUnlockRatio: expiries.length
-      ? Number((expiries.reduce((s, e) => s + e.unlockRatio, 0) / expiries.length).toFixed(2))
-      : 0,
-  };
-
-  return { expiries, byDate, summary };
-}
-
 const LockupCalendarPage: React.FC = () => {
   const [expiries, setExpiries] = useState<LockupExpiry[]>([]);
   const [byDate, setByDate] = useState<Record<string, LockupExpiry[]>>({});
@@ -166,7 +75,7 @@ const LockupCalendarPage: React.FC = () => {
         month: String(month || now.getMonth() + 1),
       });
       const res = await fetch(`/api/lockup/calendar?${params}`);
-      // 后端暂无该接口：非 200 或返回非 success 时一律降级到演示数据
+      // 数据由后端 /api/lockup/calendar 实时提供；接口异常时如实置空，不使用伪造数据
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!json.success || !json.data) throw new Error('接口返回数据格式异常');
@@ -174,11 +83,10 @@ const LockupCalendarPage: React.FC = () => {
       setByDate(json.data.byDate);
       setSummary(json.data.summary);
     } catch (err) {
-      logger.warn('限售股解禁接口不可用，降级使用内置演示数据:', err);
-      const demo = buildDemoLockupData();
-      setExpiries(demo.expiries);
-      setByDate(demo.byDate);
-      setSummary(demo.summary);
+      logger.warn('限售股解禁接口不可用（后端未就绪或返回异常），已如实置空:', err);
+      setExpiries([]);
+      setByDate({});
+      setSummary(null);
     } finally {
       setLoading(false);
     }

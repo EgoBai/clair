@@ -180,12 +180,11 @@ export default function StockComparePage() {
         setRadarData(radar);
       }
     } catch (error) {
-      // API 失败（接口不存在/网络错误/返回空）时降级到内置确定性演示数据
-      logger.warn('获取对比数据失败，降级使用演示数据:', error);
-      const demo = buildDemoCompare(selectedSymbols);
-      setStocks(demo.stocks);
-      setMetrics(demo.metrics);
-      setRadarData(demo.radarData);
+      // 诚实数据红线：真实接口不可用（不存在/网络错误/返回空）时如实置空，绝不回填演示数据
+      logger.warn('获取对比数据失败，已如实置空:', error);
+      setStocks([]);
+      setMetrics([]);
+      setRadarData([]);
     } finally {
       setLoading(false);
     }

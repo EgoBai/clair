@@ -16,6 +16,8 @@ import NavigationMenu from '../../components/Layout/NavigationMenu';
 import { NAV_GROUPS } from '../../config/navGroups';
 
 const COLLAPSED_STORAGE_KEY = 'clair-nav-collapsed-groups';
+// 平板 icon-rail「固定展开」持久化 key，存 '1' / '0' 字符串（见 NavigationMenu.tsx）
+const RAIL_PINNED_STORAGE_KEY = 'clair-nav-rail-pinned';
 
 const renderWithRouter = (initialEntries = ['/']) => {
   return render(
@@ -80,12 +82,14 @@ describe('NavigationMenu（分组渲染）', () => {
     }
   });
 
-  it('分组标题为 button 且默认 aria-expanded=true', () => {
+  it('每个分组标题都是 button 且默认 aria-expanded=true', () => {
+    // 只针对 NAV_GROUPS 各自的标题按钮做断言，不统计侧栏 button 总数——
+    // 侧栏未来新增任何按钮都不应影响本用例（T10）。
     renderWithRouter();
-    const buttons = screen.getAllByRole('button');
-    expect(buttons.length).toBe(NAV_GROUPS.length);
-    for (const btn of buttons) {
-      expect(btn.getAttribute('aria-expanded')).toBe('true');
+    for (const group of NAV_GROUPS) {
+      const header = screen.getByText(group.label).closest('button');
+      expect(header).not.toBeNull();
+      expect(header!.getAttribute('aria-expanded')).toBe('true');
     }
   });
 });
@@ -175,5 +179,45 @@ describe('NavigationMenu（激活态）', () => {
     const labels = activeLinks.map((l) => l.textContent ?? '');
     expect(labels.some((t) => t.includes('市场洞察'))).toBe(false);
     expect(labels.some((t) => t.includes('回测'))).toBe(true);
+  });
+});
+
+describe('NavigationMenu（平板 rail 固定开关）', () => {
+  /**
+   * 开关基础样式为 display:none，仅在 769–1024px 媒体查询内变为 inline-flex。
+   * jsdom 会套用组件内联 <style> 的基础规则却不解析媒体查询，故该节点在
+   * 无障碍树中恒为 hidden——查询必须显式带 { hidden: true }。
+   */
+  const getRailToggle = () => screen.getByRole('switch', { hidden: true });
+
+  it('渲染「固定导航栏」开关且默认 aria-checked=false', () => {
+    renderWithRouter();
+    const toggle = getRailToggle();
+    expect(toggle.getAttribute('aria-label')).toBe('固定导航栏');
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('点击开关后 aria-checked 变为 true', () => {
+    renderWithRouter();
+    const toggle = getRailToggle();
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('固定状态持久化到 localStorage（存 "1"）', () => {
+    renderWithRouter();
+
+    fireEvent.click(getRailToggle());
+
+    expect(localStorage.getItem(RAIL_PINNED_STORAGE_KEY)).toBe('1');
+  });
+
+  it('从 localStorage 恢复已固定状态（初始即 aria-checked=true）', () => {
+    localStorage.setItem(RAIL_PINNED_STORAGE_KEY, '1');
+    renderWithRouter();
+
+    expect(getRailToggle().getAttribute('aria-checked')).toBe('true');
   });
 });

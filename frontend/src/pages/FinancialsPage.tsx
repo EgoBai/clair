@@ -10,7 +10,7 @@ import { apiService } from '../services/api';
 import { useParams } from 'react-router-dom';
 import { Breadcrumb, Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Progress, Descriptions, List, Divider } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined, RobotOutlined, CompassOutlined, StockOutlined } from '@ant-design/icons';
-import { generateDeterministicFinancials, computeFinancialInsight } from '../utils/financialInsightDemo';
+import { computeFinancialInsight } from '../utils/financialInsightDemo';
 import type { FinancialInsight } from '../utils/financialInsightDemo';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -122,21 +122,12 @@ export default function FinancialsPage() {
     } catch (error) {
       logger.error('加载财务数据失败:', error);
     } finally {
-      // 后端财报接口缺失时，用确定性演示数据兜底（LCG 种子=20260725 + symbol 哈希），保证渲染稳定可复现
-      let demo = false;
-      if (!summaryData || bs.length === 0 || is.length === 0 || cf.length === 0) {
-        const gen = generateDeterministicFinancials(targetSymbol);
-        summaryData = summaryData ?? gen.summary;
-        bs = bs.length ? bs : gen.balanceHistory;
-        is = is.length ? is : gen.incomeHistory;
-        cf = cf.length ? cf : gen.cashFlowHistory;
-        demo = true;
-      }
+      // 诚实数据红线：任一报表缺失即如实置空，绝不回填演示数据
       setSummary(summaryData);
       setBalanceHistory(bs);
       setIncomeHistory(is);
       setCashFlowHistory(cf);
-      setIsDemo(demo);
+      setIsDemo(false);
       setLoading(false);
     }
   };

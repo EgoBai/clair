@@ -158,7 +158,6 @@ const MarginTradingPage: React.FC = () => {
   const [securitiesRank, setSecuritiesRank] = useState<MarginRankEntry[]>([]);
   const [rankType, setRankType] = useState<string>('financing');
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
 
   const rankData = rankType === 'financing' ? financingRank : securitiesRank;
 
@@ -182,13 +181,12 @@ const MarginTradingPage: React.FC = () => {
       // 趋势暂无独立市场级 API，优先尝试融资排行推导；失败则走兜底
       if (!rankRes || rankRes.length === 0) throw new Error('empty margin rank');
     } catch (err) {
-      logger.error('加载融资融券数据失败，使用演示数据兜底:', err);
-      const demo = buildDemoMarginData();
-      setOverview(demo.overview);
-      setTrend(demo.trend);
-      setFinancingRank(demo.financingRank);
-      setSecuritiesRank(demo.securitiesRank);
-      setIsDemo(true);
+      logger.error('加载融资融券数据失败（后端未就绪或接口异常），已如实置空:', err);
+      // 诚实数据红线：后端不可达时清空展示，绝不回填演示数据
+      setOverview(null);
+      setTrend([]);
+      setFinancingRank([]);
+      setSecuritiesRank([]);
     } finally {
       setLoading(false);
     }
@@ -200,11 +198,10 @@ const MarginTradingPage: React.FC = () => {
       if (type === 'financing') setFinancingRank(data);
       else setSecuritiesRank(data);
     } catch (err) {
-      logger.error('加载排行失败，使用演示数据兜底:', err);
-      const demo = buildDemoMarginData();
-      setFinancingRank(demo.financingRank);
-      setSecuritiesRank(demo.securitiesRank);
-      setIsDemo(true);
+      logger.error('加载排行失败（后端未就绪或接口异常），已如实置空:', err);
+      // 诚实数据红线：后端不可达时清空展示，绝不回填演示数据
+      setFinancingRank([]);
+      setSecuritiesRank([]);
     }
   };
 
@@ -239,7 +236,6 @@ const MarginTradingPage: React.FC = () => {
     <div style={{ padding: 24 }}>
       <Title level={3}>
         <DollarOutlined /> 融资融券
-        {isDemo && <Tag color="orange" style={{ marginLeft: 12 }}>演示数据</Tag>}
       </Title>
 
       <Spin spinning={loading}>

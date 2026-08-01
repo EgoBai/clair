@@ -16,7 +16,6 @@ import {
   FundOutlined, BarChartOutlined, CalendarOutlined
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';
-import { generateBacktestDemo } from '../utils/backtestDemo';
 import { useGamificationStore } from '../store/useGamificationStore';
 // RangePicker 弹层（portal 到 body）的暗色适配，避免在深色页面弹出白底日历
 import '../styles/antd-picker-dark.css';
@@ -171,12 +170,12 @@ const BacktestPage: React.FC = () => {
       setError(reason);
       message.error(reason);
     } catch (e) {
-      // 网络层失败（后端未启动）→ 确定性演示兜底，并标注演示区间与所选区间无关
-      setResult(generateBacktestDemo(symbol.trim(), strategy));
-      setIsDemo(true);
-      setError('');
-      message.info('后端未就绪，展示演示回测结果（区间为演示内置，不反映所选区间）');
-      console.error('回测请求失败，已用演示数据兜底:', e);
+      // 网络层失败（后端未启动）→ 如实置空，绝不回填演示数据
+      setResult(null);
+      setIsDemo(false);
+      setError('回测服务暂不可用（后端未就绪或网络异常），请稍后重试');
+      message.error('回测服务暂不可用');
+      console.error('回测请求失败:', e);
     } finally {
       setLoading(false);
       // 游戏化埋点：运行回测事件（backtest_run）

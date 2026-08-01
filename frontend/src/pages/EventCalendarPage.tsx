@@ -27,31 +27,6 @@ const fmtDate = (d: Date): string => {
 };
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const weekday = (dateStr: string): string => WEEKDAY[new Date(dateStr).getDay()];
-/** 确定性 LCG（与 LockupCalendarPage 同款），种子固定 20260725 → 结果一致 */
-function makeRng(seed: number): () => number {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 2147483646;
-  return () => {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-}
-const DEMO_STOCKS = [
-  { symbol: '600519', name: '贵州茅台' },
-  { symbol: '300750', name: '宁德时代' },
-  { symbol: '002594', name: '比亚迪' },
-  { symbol: '688981', name: '中芯国际' },
-  { symbol: '601012', name: '隆基绿能' },
-  { symbol: '000858', name: '五粮液' },
-  { symbol: '600276', name: '恒瑞医药' },
-  { symbol: '300059', name: '东方财富' },
-  { symbol: '002415', name: '海康威视' },
-  { symbol: '601318', name: '中国平安' },
-  { symbol: '600036', name: '招商银行' },
-  { symbol: '000333', name: '美的集团' },
-  { symbol: '603259', name: '药明康德' },
-  { symbol: '688111', name: '金山办公' },
-];
 const TYPE_POOL: EventType[] = [
   'earnings', 'ex_dividend', 'ipo', 'lockup_expiry',
   'index_rebalance', 'economic', 'split', 'merger',
@@ -77,74 +52,6 @@ interface RawEvent {
   date: string; type: string; symbol?: string;
   title: string; description?: string; estimatedEffect?: number;
 }
-/** 生成确定性演示事件：覆盖未来 0~89 天、8 类事件，含标题/个股/影响估算 */
-function buildDemoEvents(): CalendarEvent[] {
-  const rng = makeRng(20260725);
-  const today = new Date();
-  const quarters = ['2025年报', '2026一季报', '2026中报', '2026三季报'];
-  const macros = ['CPI/PPI数据发布', '社融与信贷数据', 'PMI制造业指数', 'GDP季度数据', '工业增加值'];
-  const raw: RawEvent[] = [];
-  const count = 66;
-  for (let i = 0; i < count; i++) {
-    const type = TYPE_POOL[Math.floor(rng() * TYPE_POOL.length)];
-    const offset = Math.floor(rng() * 90);
-    const d = new Date(today); d.setDate(d.getDate() + offset);
-    const stock = DEMO_STOCKS[Math.floor(rng() * DEMO_STOCKS.length)];
-    let symbol: string | undefined;
-    let title = '';
-    let description = '';
-    const eff = Number((rng() * 8 - 4).toFixed(2));
-    switch (type) {
-      case 'earnings':
-        if (rng() > 0.6) {
-          title = `${stock.name} 2025年度股东大会`;
-          description = '审议年度报告、利润分配方案等议案';
-        } else {
-          const q = quarters[Math.floor(rng() * quarters.length)];
-          title = `${stock.name} ${q}披露`;
-          description = '业绩预告/定期报告披露，关注盈利兑现与指引';
-        }
-        symbol = stock.symbol;
-        break;
-      case 'ex_dividend':
-        title = `${stock.name} 分红除权`;
-        description = `每股派息 ${(rng() * 2 + 0.1).toFixed(2)} 元，股权登记日后除权`;
-        symbol = stock.symbol;
-        break;
-      case 'ipo':
-        title = `新股上市：${stock.name}`;
-        description = '网上申购中签结果公布，挂牌首日均无涨跌幅限制';
-        symbol = stock.symbol;
-        break;
-      case 'lockup_expiry':
-        title = `${stock.name} 限售股解禁`;
-        description = `解禁规模约 ${(rng() * 5 + 0.5).toFixed(2)} 亿股，关注抛压`;
-        symbol = stock.symbol;
-        break;
-      case 'index_rebalance':
-        title = `指数成分调整：${stock.name}`;
-        description = '沪深300/中证500样本股定期调整生效';
-        symbol = stock.symbol;
-        break;
-      case 'economic':
-        title = macros[Math.floor(rng() * macros.length)];
-        description = '国家统计局/央行发布，影响市场流动性预期';
-        break;
-      case 'split':
-        title = `${stock.name} 送转除权`;
-        description = `每10股送转 ${(rng() * 10 + 2).toFixed(0)} 股，除权后股价重估`;
-        symbol = stock.symbol;
-        break;
-      case 'merger':
-        title = `${stock.name} 重大资产重组`;
-        description = '发行股份购买资产，复牌后关注套利空间';
-        symbol = stock.symbol;
-        break;
-    }
-    raw.push({ date: fmtDate(d), type, symbol, title, description, estimatedEffect: eff });
-  }
-  return parseEvents(raw);
-}
 const EventCalendarPage: React.FC = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -155,14 +62,14 @@ const EventCalendarPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/event-calendar');
+      const res = await fetch('/api/analytics/events');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!json.success || !json.data) throw new Error('数据格式异常');
       setEvents(parseEvents(json.data.raw || []));
     } catch (err) {
-      logger.warn('事件日历接口不可用，降级使用内置演示数据:', err);
-      setEvents(buildDemoEvents());
+      logger.warn('事件日历接口不可用（后端未就绪或返回异常），已如实置空:', err);
+      setEvents([]);
     } finally {
       setLoading(false);
     }
@@ -248,7 +155,7 @@ const EventCalendarPage: React.FC = () => {
             <CalendarOutlined /> 事件日历
           </Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            未来 90 天 A 股事件 · 接口不可用时使用确定性演示数据（种子 20260725）
+            未来 90 天 A 股事件 · 数据由后端 analytics 接口实时提供
           </Text>
         </Col>
         <Col>

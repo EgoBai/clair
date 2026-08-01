@@ -89,6 +89,7 @@ const RETRY_BASE_MS = 300;
 
 let cache: { boards: ConceptBoardRaw[]; fetchedAt: number } | null = null;
 let inflight: Promise<ConceptFetchResult> | null = null;
+let inflightIndustry: Promise<ConceptFetchResult> | null = null;
 
 /** 上游/落盘失败计数（供 /health 或日志聚合读取，可观测性要求） */
 const counters = {
@@ -185,9 +186,9 @@ async function fetchPageOnce(url: URL): Promise<PageOutcome> {
  * 拉取单页概念板块，带指数退避重试。
  * 失败时抛错（由 fetchAllConceptBoards 决定回退策略），不再静默 return []。
  */
-async function fetchPage(offset: number): Promise<ConceptBoardRaw[]> {
+async function fetchPage(offset: number, boardType: 'gn' | 'hy' = 'gn'): Promise<ConceptBoardRaw[]> {
   const url = new URL(TENCENT_RANK);
-  url.searchParams.set('board_type', 'gn');
+  url.searchParams.set('board_type', boardType);
   url.searchParams.set('sort_type', 'priceChange');
   url.searchParams.set('direct', 'down');
   url.searchParams.set('offset', String(offset));
@@ -342,6 +343,56 @@ export async function fetchConceptBoardsWithMeta(
     }
   })();
   return inflight;
+}
+
+/**
+ * 行业板块(hy)实时拉取 —— 与 fetchConceptBoardsWithMeta 对称，但 board_type=hy。
+ * 合并收口补回：本函数曾被另一条开发线实现并供 sectorMomentumService 使用，
+ * 主干 P0-1 重构 conceptBoardService 时未一同迁入，这里按相同契约补回。
+ * 诚实数据红线：上游不可达时如实返回 unavailable(空数组)，绝不回填概念板/演示数据。
+ */
+export async function fetchIndustryBoardsWithMeta(): Promise<ConceptFetchResult> {
+  if (inflightIndustry) return inflightIndustry;
+
+  inflightIndustry = (async (): Promise<ConceptFetchResult> => {
+    try {
+      const boards: ConceptBoardRaw[] = [];
+      let upstreamError: string | null = null;
+      try {
+        boards.push(...(await fetchPage(0, 'hy')));
+        let offset = PAGE_SIZE;
+        while (boards.length >= offset && offset < 1000) {
+          const page = await fetchPage(offset, 'hy');
+          if (page.length === 0) break;
+          boards.push(...page);
+          offset += PAGE_SIZE;
+        }
+      } catch (err) {
+        upstreamError = (err as Error).message;
+        counters.fetchAllFailures++;
+      }
+
+      if (boards.length > 0) {
+        return {
+          boards,
+          meta: { source: 'live', updatedAt: new Date().toISOString() },
+        };
+      }
+
+      // 行业板暂无独立 DB 历史表，不回退概念板，如实返回 unavailable
+      return {
+        boards: [],
+        meta: {
+          source: 'unavailable',
+          updatedAt: null,
+          error: upstreamError ?? '腾讯行业板块(hy)接口返回空数据，且无本地历史可回退',
+        },
+      };
+    } finally {
+      inflightIndustry = null;
+    }
+  })();
+  return inflightIndustry;
 }
 
 /**

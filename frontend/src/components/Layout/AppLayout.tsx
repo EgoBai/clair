@@ -160,6 +160,15 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
           flex-direction: column;
         }
 
+        /* 平板 769–1024px：内容区恒定让出 64px icon-rail 宽度。
+           侧栏 hover/固定展开时是浮层覆盖（z-index:1000），margin 不跟着变，
+           这样表格/图表密集页不会因悬停触发整页重排抖动。 */
+        @media (min-width: 769px) and (max-width: 1024px) {
+          .app-content {
+            margin-left: 64px;
+          }
+        }
+
         .global-search-header {
           position: sticky;
           top: 0;
