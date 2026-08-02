@@ -26,7 +26,7 @@ const MAIN_TAB_DEFS = [
 
 // 在 NAV_GROUPS 中按 id 定位子项（id 来自 navGroups.ts，禁止臆造）
 const findItem = (id: string) =>
-  NAV_GROUPS.flatMap((g) => g.items).find((i) => i.id === id)!;
+  NAV_GROUPS.flatMap((g) => g.items).find((i) => i.id === id);
 
 export const TabBar: React.FC = () => {
   const navigate = useNavigate();
@@ -36,9 +36,12 @@ export const TabBar: React.FC = () => {
   // 4 个主 Tab：路径来自 NAV_GROUPS，图标沿用既有 emoji
   const mainTabs = useMemo(
     () =>
-      MAIN_TAB_DEFS.map((d) => {
+      MAIN_TAB_DEFS.flatMap((d) => {
         const src = findItem(d.id);
-        return { id: src.id, label: src.label, path: src.path, icon: d.icon };
+        // 契约兜底（T14）：若 navGroups 中对应 id 被改名/删除，
+        // 跳过该主 Tab 而非让 src 为 undefined 在渲染期崩溃（原非空断言 ! 有此风险）。
+        if (!src) return [];
+        return [{ id: src.id, label: src.label, path: src.path, icon: d.icon }];
       }),
     [],
   );

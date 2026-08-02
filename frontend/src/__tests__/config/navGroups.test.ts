@@ -86,6 +86,15 @@ describe('navGroups 配置', () => {
       expect(duplicated, `重复的 item id: ${duplicated.join(', ')}`).toEqual([]);
     });
 
+    it('移动端 4 个主 Tab id 必须存在于 NAV_GROUPS（TabBar 契约，T14 兜底守卫）', () => {
+      // TabBar.tsx 的 MAIN_TAB_DEFS 依赖这 4 个 id；若 navGroups 改名/删除任一，
+      // T14 兜底会跳过该 Tab（不再崩溃），但导航入口缺失仍属回归，此处显式守卫。
+      const ids = new Set(ALL_ITEMS.map((i) => i.id));
+      const MAIN_TAB_IDS = ['home', 'screener', 'watchlist', 'industry-map'];
+      const missing = MAIN_TAB_IDS.filter((id) => !ids.has(id));
+      expect(missing, `TabBar 主 Tab id 在 navGroups 缺失: ${missing.join(', ')}`).toEqual([]);
+    });
+
     it('每个 item 的 label 都应为非空字符串', () => {
       const offenders = ALL_ITEMS.filter(
         (i) => typeof i.label !== 'string' || i.label.trim().length === 0,
