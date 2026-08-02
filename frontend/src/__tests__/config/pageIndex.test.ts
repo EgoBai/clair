@@ -8,8 +8,9 @@ import { ROUTE_PATHS } from '../../routes/paths';
 /**
  * pageIndex 页面搜索索引回归测试
  *
- * 定位：PAGE_INDEX 驱动全局搜索（⌘K）的「页面」类结果，是导航单一数据源之一；
- * path 写错即产生搜索死链。本测试从配置层做静态防护。
+ * 定位：PAGE_INDEX 由 navGroups 派生（D17 A 方案：navGroups 为导航唯一真源）；
+ * 驱动全局搜索（⌘K）的「页面」类结果，path 写错即产生搜索死链。
+ * 本测试从配置层做静态防护，并对「navGroups ↔ pageIndex 双向一致」做强断言。
  *
  * 断言原则：不对条目总数做全量硬断言（集合会随新页面增长），
  * 改用「每一项都满足某属性」+ 下限断言；失败信息带上具体 path/label。
@@ -158,28 +159,38 @@ describe('pageIndex 配置', () => {
     });
   });
 
-  describe('与 NAV_GROUPS 交叉一致性', () => {
+  describe('与 NAV_GROUPS 交叉一致性（D17 A 方案：navGroups 为唯一真源）', () => {
     /**
-     * 已知缺口（编写本测试时的现状，未改动生产代码）：
-     * 侧栏可见但未进入搜索索引的页面 —— 需主理人判断是否补录。
-     * 此白名单的作用是：今后**新增**的导航项若忘记补搜索索引，本用例会失败并报出具体路径。
-     * 缺口被修复后，请同步删除对应白名单项。
+     * pageIndex 由 navGroups 派生后，二者必须**双向一致、零缺口**：
+     *  - 每个 nav 项都进入搜索索引（无遗漏）；
+     *  - 每个搜索条目的 label 必须等于对应 nav 项的 label（无同名异义）；
+     *  - 搜索索引不得出现 navGroups 之外的路径（如重定向死链 /market、/review）。
+     * 新增页面只需改 navGroups，本用例即守卫「搜索自动同步」。
      */
-    const KNOWN_NAV_PATHS_MISSING_IN_INDEX = new Set<string>([
-      ROUTE_PATHS.KNOWLEDGE, // /knowledge 投资笔记
-      ROUTE_PATHS.JOURNEY, // /journey 成长中心
-    ]);
-
-    it('侧栏导航项缺失搜索索引时，必须落在已知缺口白名单内', () => {
+    it('每个 nav 项都必须进入搜索索引（无遗漏）', () => {
       const indexedPaths = new Set(PAGE_INDEX.map((p) => p.path));
-      const unexpected = NAV_GROUPS.flatMap((g) => g.items)
+      const missing = NAV_GROUPS.flatMap((g) => g.items)
         .filter((item) => !indexedPaths.has(item.path))
-        .filter((item) => !KNOWN_NAV_PATHS_MISSING_IN_INDEX.has(item.path))
         .map((item) => `${item.id} -> ${item.path}`);
-      expect(
-        unexpected,
-        `新增导航项未同步进入搜索索引: ${unexpected.join(' | ')}`,
-      ).toEqual([]);
+      expect(missing, `侧栏项未进入搜索索引: ${missing.join(' | ')}`).toEqual([]);
+    });
+
+    it('每条搜索条目的 label 必须与对应 nav 项完全一致（无同名异义）', () => {
+      const navLabelByPath = new Map<string, string>(
+        NAV_GROUPS.flatMap((g) => g.items).map((item) => [item.path, item.label]),
+      );
+      const mismatched = PAGE_INDEX.filter((p) => navLabelByPath.get(p.path) !== p.label).map(
+        (p) => `${p.path}: index="${p.label}" nav="${navLabelByPath.get(p.path)}"`,
+      );
+      expect(mismatched, `搜索 label 与侧栏不一致: ${mismatched.join(' | ')}`).toEqual([]);
+    });
+
+    it('搜索索引不得包含 navGroups 之外的路径（拦截重定向死链 /market、/review）', () => {
+      const navPaths = new Set(NAV_GROUPS.flatMap((g) => g.items).map((item) => item.path));
+      const extra = PAGE_INDEX.filter((p) => !navPaths.has(p.path)).map(
+        (p) => `${p.label} -> ${p.path}`,
+      );
+      expect(extra, `搜索索引含 navGroups 之外的路径: ${extra.join(' | ')}`).toEqual([]);
     });
   });
 });
