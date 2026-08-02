@@ -84,11 +84,29 @@
 ### 空状态
 - 无数据: Empty + 描述文字
 - 无搜索结果: Empty + "暂无符合条件的..."
+- 后端未接入: Empty + 显式说明"…由后端实时接口提供, 当前后端未接入, 暂无可展示数据"
+
+### 🚫 诚实数据红线 (硬约束, 2026-08-03 立)
+
+**任何情况下, 接口失败 / 返回空 都不得回填演示数据。** 这是产品可信度底线,
+一次违反就会让用户对全站数据失去信任。
+
+- ❌ 禁止: `catch { setData(buildDemoXxx()) }` — 用假数据掩盖后端不可用
+- ❌ 禁止: `setData(list.length > 0 ? list : DEMO_LIST)` — 空即降级演示
+- ❌ 禁止: 用「演示数据」Tag 标注后照常展示假数值 — 标注不等于免责
+- ✅ 正确: `catch { setData([]) }` + 渲染 `<Empty description="…后端未接入…">`
+- ✅ 正确: `resolveDataSource(payload, isEmpty, false)` — 第三参 `demoFallback`
+  必须传 `false`, 让空/失败归为 `unavailable`(红色"数据不可用"横幅), 而非 `demo`
+
+**背景**: F19 专项已逐页清除 12 个页面 + 3 个 utils 生成器的演示兜底
+(详见 `clair-realdata-audit-20260731.md` §11)。新增页面请直接遵循本条,
+不要再引入 demo 兜底后等待事后清理。
 
 ### 错误处理
 - API错误: message.error toast
 - 页面崩溃: ErrorBoundary fallback
 - 网络错误: 重试按钮
+- 数据为空/接口失败: 如实置空 + Empty, 严禁 demo 兜底(见上方红线)
 
 ### 响应式断点
 ```

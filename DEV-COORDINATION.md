@@ -30,28 +30,46 @@
 
 ## 🎯 当前任务 — WorkBuddy主导, Hermes辅助
 
-### 🔴 P0: DiscoverPage逻辑修复 (WorkBuddy)
+### ✅ P0: DiscoverPage逻辑修复 — 已全部解决 (2026-08-03 核对关闭)
 
-**问题诊断 (Hermes 2026-07-24):**
+> ⚠️ 下方 2026-07-24 的诊断已过时, 仅作历史存档保留。三项问题均已解决,
+> 请勿再按此清单排期或重复修复。
+
+**当前实际状态 (2026-08-03 逐项核实):**
+
+| 原诊断项 | 现状 | 证据 |
+|---------|------|------|
+| 概念板块 404 | ✅ 端点已存在 | `backend/src/api/sectors.ts:123` → `services/conceptBoardService.ts` |
+| 二级行业无数据 | ✅ 已接真实源 | `backend/src/api/industries.ts` 支持 `?level=2`, 前端已端到端验证 |
+| 排序/热力图混乱 | ✅ 已解耦对齐 | `displayMode` 收敛为两态, `sortBy` 独立; 热力图 14 维矩阵行序跟随列表 |
+
+**误判溯源**: 原诊断记录的文件名 `backend/src/api/sector.ts` 有误, 实际为
+`sectors.ts`(复数)。按错误路径检索导致误判"缺少 concept 端点"。
+**教训**: 报告"接口不存在"前, 应以路由注册表 / 实际请求验证为准, 而非仅凭文件名检索。
+
+<details>
+<summary>历史诊断存档 (Hermes 2026-07-24, 已失效)</summary>
 
 1. 概念板块无数据: GET /api/sectors/concept → 404
    - backend/src/api/sector.ts 缺少concept端点
-   
+
 2. 二级行业无数据: l2Industries数据源需检查
-   
+
 3. 排序/热力图混乱: displayMode三Tab同时影响列表和热力图
 
-**建议修复方案:**
+**当时的建议修复方案:**
 - 列表固定按totalScore排序(不随热力图切换)
 - 热力图独立展开/折叠 → 内部切景气/拥挤
 - concept API: 按concept_tags聚合daily_quotes
 - 二级行业: /api/sectors/momentum?level=2
 
+</details>
+
 ### Hermes辅助任务
 - [x] 诊断报告完成
 - [x] API数据验证
-- [ ] concept端点创建(如WorkBuddy需要)
-- [ ] 端到端验证
+- [x] concept端点创建 (已存在于 `api/sectors.ts`, 无需新建)
+- [x] 端到端验证 (概念/二级行业真实源均已跑通)
 
 ## 协作约定
 - **Hermes负责**: 后端/API/数据/AI模型/部署

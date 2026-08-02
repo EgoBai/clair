@@ -172,15 +172,36 @@ Observe → Compare(Ideate → Prioritize → Plan) → Execute → Verify → R
 
 ## 九、当前已知问题
 
+> 最近核对：2026-08-03。原 P0 三项已全部解决，详见「已解决」小节，勿再按旧标注排期。
+
 ### 🔴 P0 (阻塞)
-1. 概念板块无数据 — `/api/sectors/concept` 不存在(404)
-2. 二级行业无数据
-3. DiscoverPage排序/热力图逻辑混乱
+
+当前无阻塞项。
 
 ### 🟡 P1 (修复)
 1. 策略回测流程断裂(缺日期选择器)
 2. 产业地图缺少节点下钻(点击→公司列表)
 3. 投资笔记入口可见性低
+
+### 🔵 待后端接入 (前端已就绪, 当前为诚实空态)
+
+以下页面前端已按「诚实数据红线」清除演示兜底, 后端实时接口尚未接入, 页面显示
+`Empty` + 「后端未接入」显式标注; 后端源打通后即自动填充, 前端无需再改:
+
+- 北向资金 (NorthBoundPage) / 港股通 (HKConnectPage)
+- 研报中心 (ReportCenterPage) / 因子实验室 (FactorLabPage)
+- 资金流向的市场级 5 档聚合 (FundFlowPage 市场概览卡)
+
+### 🟢 已解决 (2026-08-03 核对)
+
+1. ~~概念板块无数据 — `/api/sectors/concept` 不存在(404)~~
+   → 端点已存在于 `backend/src/api/sectors.ts:123`, 由 `services/conceptBoardService.ts` 提供。
+   注: 旧诊断记的文件名 `sector.ts` 有误, 实际为 `sectors.ts`, 这是当时误判 404 的原因之一。
+2. ~~二级行业无数据~~
+   → `backend/src/api/industries.ts` 支持 `?level=2`, 前端 DiscoverPage 已接真实源并端到端验证。
+3. ~~DiscoverPage排序/热力图逻辑混乱~~
+   → `displayMode` 已收敛为 `'list' | 'heatmap'` 两态, 排序维度 `sortBy` 独立拆出;
+   热力图展示全部 14 维矩阵且行序跟随 `sortBy`, 与列表完全一致。
 
 ### 🟢 已完成
 - TS: 前端0 后端0 ✅
