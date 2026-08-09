@@ -748,8 +748,16 @@ class InMemoryDatabase {
     const maxTurnover = Math.max(...enhanced.map(s => s.total_turnover), 1);
     const maxLimitUp = Math.max(...enhanced.map(s => s.limit_up_count), 1);
 
+    // 带符号涨跌评分：与 conceptBoardService.computeChangeScore 对齐口径
+    // change 从 [-maxChange, +maxChange] 线性映射到 [0, 50]，避免 abs() 把大跌标为高景气
+    const toChangeScore = (change: number): number => {
+      const span = maxChange > 0 ? maxChange : 1;
+      const ratio = Math.max(-1, Math.min(1, Number(change) / span));
+      return ((ratio + 1) / 2) * 50;
+    };
+
     return enhanced.map(s => {
-      const changeScore = Math.min(100, (Math.abs(s.avg_change_percent) / maxChange) * 50);
+      const changeScore = Math.min(100, toChangeScore(Number(s.avg_change_percent)));
       const volumeScore = Math.min(100, (s.total_turnover / maxTurnover) * 25);
       const breadthScore = Math.min(100, (s.limit_up_count / maxLimitUp) * 25);
       const score = Math.round(changeScore + volumeScore + breadthScore);

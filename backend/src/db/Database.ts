@@ -600,8 +600,17 @@ export class Database {
     const maxTurnover = Math.max(...enhanced.map(s => Number(s.total_turnover)), 1);
     const maxLimitUp = Math.max(...enhanced.map(s => Number(s.limit_up_count)), 1);
 
+    // 带符号涨跌评分：与 conceptBoardService.computeChangeScore 对齐口径
+    // change 从 [-maxChange, +maxChange] 线性映射到 [0, 50]
+    // （涨满→50，0→25，跌满→0），避免大跌行业被 abs() 误标为高景气
+    const toChangeScore = (change: number): number => {
+      const span = maxChange > 0 ? maxChange : 1;
+      const ratio = Math.max(-1, Math.min(1, Number(change) / span));
+      return ((ratio + 1) / 2) * 50;
+    };
+
     return enhanced.map(s => {
-      const changeScore = Math.min(100, (Math.abs(Number(s.avg_change_percent)) / maxChange) * 50);
+      const changeScore = Math.min(100, toChangeScore(Number(s.avg_change_percent)));
       const volumeScore = Math.min(100, (Number(s.total_turnover) / maxTurnover) * 30);
       const breadthScore = Math.min(100, (Number(s.limit_up_count) / maxLimitUp) * 20);
       return {
