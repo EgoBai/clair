@@ -184,29 +184,18 @@ router.get('/fund-flow/industry', validateQuery(schemas.industryFlowQuery), asyn
     let industryFlow = await fetchIndustryFlow();
 
     if (industryFlow.length === 0) {
-      // 从数据库生成模拟行业数据
-      const industries = await db.connection('stocks')
-        .where('is_active', true)
-        .whereNotNull('industry')
-        .groupBy('industry')
-        .select('industry')
-        .count('id as stockCount')
-        .orderBy('stockCount', 'desc')
-        .limit(limit);
-
-      // 确定性演示兜底：以行业名派生种子（DemoProvider LCG），替代原 Math.random
-      industryFlow = await Promise.all(
-        industries.map(async (ind: Record<string, string | number>) => {
-          const f = await demoProvider.fetchStockFlow(`industry:${String(ind.industry)}`);
-          return {
-            industry: String(ind.industry),
-            mainNet: (f?.mainNet ?? 0) * 2.5, // 缩放至 ±25000 量级
-            netInflow: (f?.largeNet ?? 0) * 3.75,
-            stockCount: Number(ind.stockCount),
-            topStocks: [],
-          };
-        })
-      );
+      // 诚实红线：东方财富行业资金流不可用时，不编造数值，如实返回空 + 标记后端未接入。
+      // 前端应据此展示 Empty 状态（"行业资金流：后端未接入"），而非演示数据。
+      return res.json({
+        success: true,
+        data: {
+          industries: [],
+          count: 0,
+          updateTime: new Date().toISOString(),
+          source: 'unavailable',
+          note: '行业资金流：东方财富数据源暂不可用，后端未接入兜底数据',
+        },
+      });
     }
 
     res.json({

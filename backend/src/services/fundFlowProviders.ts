@@ -395,18 +395,58 @@ export function getFundFlowMeta() {
   };
 }
 
-/** 国际资金视角：Alpha Vantage 可用且有真实数据则取真实，否则 DemoProvider 确定性生成 */
+/** 国际资金视角（北向+离岸）：真实源优先，无实时源时诚实置空，不编造 demo */
+/**
+ * 东方财富沪深港通北向资金（真实，免 key）—— 补充国际资金视角的真实北向维度。
+ * 返回当日北向净买入（港股通沪+深合计，单位亿元）；失败返回 null，由调用方诚实置空，不编造。
+ */
+async function fetchNorthBoundReal(): Promise<GlobalIndicator | null> {
+  try {
+    const resp = await axios.get('https://push2.eastmoney.com/api/qt/kamt/get', {
+      params: { fields1: 'f1,f2,f3', fields2: 'f51,f52,f53,f54,f55', ut: 'b2884a393a59ad64002292a3e90d46a5' },
+      timeout: 10000,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com' },
+    });
+    const d = resp.data?.data;
+    if (!d) return null;
+    // 北向资金 = 沪股通(sh2hk) + 深股通(sz2hk)，即外资净买入 A 股
+    const sh = Number(d.sh2hk?.dayNetAmtIn ?? 0);
+    const sz = Number(d.sz2hk?.dayNetAmtIn ?? 0);
+    const total = Number(((sh + sz) / 1e8).toFixed(2));
+    const rawDate = d.sh2hk?.date ?? d.sz2hk?.date ?? d.hk2sh?.date;
+    const date = rawDate ? `2026-${rawDate}` : new Date().toISOString().slice(0, 10);
+    return {
+      key: 'north_bound',
+      label: '北向资金(沪深港通)净买入',
+      unit: '亿元',
+      latest: total,
+      series: [{ date, value: total }],
+    };
+  } catch (e) {
+    console.error('[eastmoney] 北向资金调用失败:', e);
+    return null;
+  }
+}
+
 export async function getGlobalIndicators(): Promise<{
-  dataSource: FundFlowProviderName;
+  dataSource: FundFlowProviderName | 'real' | 'unavailable';
   indicators: GlobalIndicator[];
 }> {
+  const indicators: GlobalIndicator[] = [];
+  // 离岸人民币：优先 Alpha Vantage 真实国际源（需 ALPHAVANTAGE_KEY）
   const alpha = new AlphaVantageProvider();
-  if (alpha.isAvailable() && alpha.fetchGlobalIndicators) {
-    const real = await alpha.fetchGlobalIndicators();
-    if (real.length) return { dataSource: 'alphavantage', indicators: real };
+  if (alpha.isAvailable()) {
+    const offshore = await alpha.fetchGlobalIndicators();
+    if (offshore.length) indicators.push(...offshore);
   }
-  const demo = new DemoProvider();
-  return { dataSource: 'demo', indicators: await demo.fetchGlobalIndicators() };
+  // 北向资金：东方财富真实（免 key，稳定）
+  const north = await fetchNorthBoundReal();
+  if (north) indicators.push(north);
+  // 诚实红线：无任何真实指标时返回空（不编造 demo）
+  return {
+    dataSource: indicators.length ? 'real' : 'unavailable',
+    indicators,
+  };
 }
 
 /** 导出 DemoProvider 实例工厂，供 api 层复用其确定性历史生成（替代 Math.random mock） */
