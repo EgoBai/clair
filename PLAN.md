@@ -299,6 +299,44 @@
 
 已确认已真实（demo 仅兜底）：资金流/北向（D14 东财+Tushare）、行业树（申万真实）、AI grounding（realMarketData+RAG）、breadth（游客公开，push2 真实涨跌分布；沙箱无 egress 时诚实空 dataSource:'unavailable'，板块宽度/历史时序真实源待接入）。
 
+## 七·六、对标分析 + 后续推进计划（2026-08-11，Git push 成功后触发标准循环）
+
+> 触发：本回合修复 GitHub 间歇推送失败（根因=WorkBuddy 代理对 github.com CONNECT 隧道偶发 502/Empty reply，非密钥问题），交付 `scripts/git-push-retry.sh`（凭证助手+代理/直连交替重试退避+bundle 兜底），并修复脚本自身 `set -u` 全角括号误报；推送已验证至 `4f0689aea`。按 CLAIR-STANDARDS 2.3「Git push 成功→延迟触发标准循环」执行 COMPARE→PLAN。
+
+### A. 对标分析（COMPARE：现状 vs CLAIR-STANDARDS 1.1 七维基准）
+
+| 维度 | 基准 | 现状（实测 localhost:3001） | 差距 |
+|------|------|------|------|
+| 市场数据 5541只全量 | 同花顺/东财 | 指数实时**真实**(gtimg，`dataSource:'real'`)，breadth 真实代码就位但沙箱无 egress→诚实空；ETF/港股通/研报/财务仍硬编码/模拟 | ⬜ T3-T7 |
+| 行情延迟 ≤5min | 同花顺 | 指数实时达标；其余页 demo | ⬜ T3-T7 |
+| 行业分类 一级31类>90% | 申万2021+东财 | **真实**(申万) | ✅ |
+| 筛选 10+维度 | 富途 | 筛选举措具备（待核实是否真实后端） | 🟡 |
+| AI分析 引用真实非虚构 | 芝士 | realMarketData+RAG grounding + 诚实空红线 | ✅ |
+| UI/UX 暗色/红涨绿跌 | Linear/Notion | 已实现 | ✅ |
+| 移动端 响应式 | 同花顺 | 响应式 CSS 具备 | ✅ |
+
+**核心差距收敛到一条主线**：除指数/宽度/行业/AI 已真实外，ETF(T3)/港股通(T4)/研报(T5)/财务(T6)/因子轮动(T7) 仍为 demo 或模拟（含 `Math.random`/`Math.sin` 伪造，违反诚实红线）。`MarketIndexPanel.tsx` 首页指数卡仍硬编码 defaultIndices + 正弦波模拟（T1b 未完成）。
+
+### B. 后续推进计划（IDEATE/PRIORITIZE/PLAN — 完整体验版收尾）
+
+按「免key 真实源已验证优先、后端就绪优先、文件域零交集并行」排序：
+
+| 阶段 | Ticket | 范围 | 真实源 | 优先级 |
+|------|--------|------|--------|--------|
+| P0 | **T1b** 首页指数卡接真实 | 前端 `MarketIndexPanel.tsx`/`MarketOverview` 去硬编码+去正弦模拟，fetch `/api/market/realtime`(已真)，诚实空兜底 | 腾讯 gtimg | 立即可做 |
+| P1 | **T3** ETF 真实化 | 后端 `etf.ts` 去 `etfList`硬编码+`Math.random` nav-history，接东财 ETF；前端 `ETFPage` 接真实 | 东财 ETF | 高 |
+| P1 | **T4** 港股通/AH溢价 | 后端接东财港股通/AH；前端 `HKConnectPage` | 东财 | 高 |
+| P2 | **T5** 研报/新闻 | 后端 `news.ts` 接东财/腾讯新闻；前端 `ReportCenterPage` | 东财/腾讯 | 中 |
+| P2 | **T6** 财务三表 | 后端 financials 接真实；前端 `FinancialsPage`+AI解读 | DB/真实源 | 中 |
+| P3 | **T7** 因子/行业轮动 | 若 DB 有真实收益率则去 demo | DB returns | 低 |
+| 暂缓 | 小程序 POC 四件套(D2)、技术债 T2/T3 重构 | 待用户拍板 | — | 阻塞 |
+
+### C. 蜂群/多 Agent + 循环机制（本次落地）
+
+- 遵循 CLAIR-STANDARDS 1.5：Hermes(主)编排不写码，子Agent 一文件一Agent、≤3 并行、文件域零交集。
+- 本回合首批并行：Agent-A(T1b 前端 Market 组件) + Agent-B(T3 后端 `etf.ts`)，文件域不交叠。
+- 执行后主Agent 必做 VERIFY（curl + grep 读改动，不轻信 completion）；验证通过再 `git-push-retry.sh` 推送，触发下一轮循环。
+
 ## 八、技术债清单
 
 | # | 债务 | 优先级 | 处理Sprint |
