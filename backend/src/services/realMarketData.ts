@@ -29,6 +29,12 @@ export interface MarketBreadth {
   limitUp: number;
   limitDown: number;
   turnoverYi: number;
+  /** 上涨成交额（元），由个股 f6 累加（真实） */
+  upVolume: number;
+  /** 下跌成交额（元），由个股 f6 累加（真实） */
+  downVolume: number;
+  /** 量能比 = 上涨成交额 / 下跌成交额（真实派生） */
+  volumeRatio: number;
 }
 
 export interface RealMarketData {
@@ -101,19 +107,39 @@ async function fetchBreadth(): Promise<MarketBreadth> {
     flat = 0,
     limitUp = 0,
     limitDown = 0,
-    turnover = 0;
+    turnover = 0,
+    upVolume = 0,
+    downVolume = 0;
   for (const it of list) {
     const chg = toNum(it.f3);
+    const amt = toNum(it.f6); // 元
     const code = String(it.f12 ?? '');
     const board20 = code.startsWith('30') || code.startsWith('68'); // 创业板/科创板 ±20%
-    if (chg > 0) up++;
-    else if (chg < 0) down++;
-    else flat++;
+    if (chg > 0) {
+      up++;
+      upVolume += amt;
+    } else if (chg < 0) {
+      down++;
+      downVolume += amt;
+    } else {
+      flat++;
+    }
     if (board20 ? chg >= 19.8 : chg >= 9.8) limitUp++;
     if (board20 ? chg <= -19.8 : chg <= -9.8) limitDown++;
-    turnover += toNum(it.f6); // 元
+    turnover += amt; // 元
   }
-  return { up, down, flat, limitUp, limitDown, turnoverYi: +(turnover / 1e8).toFixed(1) };
+  const volumeRatio = downVolume > 0 ? +(upVolume / downVolume).toFixed(3) : upVolume > 0 ? 999 : 0;
+  return {
+    up,
+    down,
+    flat,
+    limitUp,
+    limitDown,
+    turnoverYi: +(turnover / 1e8).toFixed(1),
+    upVolume,
+    downVolume,
+    volumeRatio,
+  };
 }
 
 /** 拉取真实市场数据：三大指数（必返回）+ 全市场涨跌分布（可选，失败为 null） */

@@ -3,18 +3,31 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { marketBreadthService } from '../services/marketBreadth';
+import { marketBreadthService, BreadthUnavailableError } from '../services/marketBreadth';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 
 const router = Router();
 
 /**
  * GET /api/breadth/current
- * 获取当前市场宽度数据
+ * 获取当前市场宽度数据（真实源：东方财富 push2 全市场涨跌分布）
+ * 源不可用时返回诚实空 dataSource:'unavailable'，绝不返回模拟数据。
  */
 router.get('/current', asyncHandler(async (_req: Request, res: Response) => {
-  const data = await marketBreadthService.calculateBreadth();
-  sendSuccess(res, data);
+  try {
+    const data = await marketBreadthService.calculateBreadth();
+    sendSuccess(res, { ...data, dataSource: 'real' });
+  } catch (e) {
+    if (e instanceof BreadthUnavailableError) {
+      sendSuccess(res, {
+        dataSource: 'unavailable',
+        message: e.message,
+        data: null,
+      });
+      return;
+    }
+    throw e;
+  }
 }));
 
 /**

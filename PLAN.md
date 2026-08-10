@@ -276,7 +276,8 @@
 | 第34轮 | **（健康巡检待命轮，2026-08-09 03:33）**：健康巡检全绿（无新开发；下一任务仍为"健康巡检待命+等用户决策"，自主低风险项已尽，D14/D2/RAG二期均待用户拍板）。**主理人独立验证全绿**：dev server 200（PID 38046，自 08-01 起持续运行）/ tsc --noEmit 0错 / npm run build 5.01s 一次过（prebuild 持续生效）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞）/ **E2E 40/40 首跑即全过**（本轮无 build 后负载假失败）/ **26 路由 curl 全 200**（含根路径 / 及 25 核心路由 /stocks /screener /watchlist /industry-map /risk-center /fund-flow /journey /factor-lab /hk-connect /etf /knowledge /macro /event-calendar /report-center /backtest /north-bound /margin-trading /portfolio /top-traders /lockup-calendar /compare /financials/:symbol /radar /index/:symbol /sectors/:symbol）。**结论**：基线健康稳定、零回归、无新技术债、无 🔴/🟠/🟡 新增（D14/D2/RAG二期为既有待决策项），循环维持待命。**⚠️ 连续待命已达 6 天（08-03→08-09），自动化产物（PLAN.md / automation memory / playwright-report / ui-guard-report / memory 日报摘要×4）已滞留约 6 天未提交，建议用户对话时收口工作区**。**上一轮**：第33轮（健康巡检待命）|
 | 第35轮 | **（健康巡检待命轮，2026-08-09 18:05）**：纯健康巡检轮（无新开发；下一任务仍为"健康巡检待命+等用户决策"，自主低风险项已尽，D14/D2/RAG二期均待用户拍板）。**主理人独立验证全绿**：dev server 200（PID 38046，自 08-01 起持续运行）/ tsc --noEmit 0错 / npm run build 4.76s 一次过（prebuild 持续生效，仅 chunk size 警告）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞·硬编码空兜底提示级）/ **E2E 40/40**（首跑 38/40 通过，股票详情页 2 例 `.ant-tabs/.ant-empty/.ant-spin` 10s 超时，复跑 chromium 369ms 通过、mobile-chrome 通过，确认 build 后 dev server 负载假失败非回归）/ **26 核心路由 curl 全 200**（含根路径 / 及 25 核心路由）。**结论**：基线健康稳定、零回归、无新技术债、无 🔴/🟠/🟡 新增（D14/D2/RAG二期为既有待决策项，未重复推送）。**⚠️ 连续待命已达 6 天（08-03→08-09），自动化产物（PLAN.md / automation memory / playwright-report / ui-guard-report / memory 日报摘要×4）已滞留约 6 天未提交，建议用户对话时收口工作区**。**上一轮**：第34轮（健康巡检待命）|
 | 第36轮 | **（健康巡检待命轮，2026-08-10 00:47）**：纯健康巡检轮（无新开发；下一任务仍为"健康巡检待命+等用户决策"，自主低风险项已尽，D14/D2/RAG二期均待用户拍板）。**主理人独立验证全绿**：dev server 200（PID 38046，自 08-01 起持续运行）/ **26 核心路由 curl 全 200**（含根路径 / 及 25 核心路由 /stocks /screener /watchlist /industry-map /risk-center /fund-flow /journey /factor-lab /hk-connect /etf /knowledge /macro /event-calendar /report-center /backtest /north-bound /margin-trading /portfolio /top-traders /lockup-calendar /compare /financials/:symbol /radar /index/:symbol /sectors/:symbol）/ tsc --noEmit 0错（复跑确认）/ npm run build 4.76s 一次过（prebuild 持续生效）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞·硬编码空兜底提示级）/ E2E 沿用前轮 40/40 基线（本轮未重跑，避免 build 后 dev server 负载假失败干扰，前轮刚验过）。**结论**：基线健康稳定、零回归、无新技术债、无 🔴/🟠/🟡 新增（D14/D2/RAG二期为既有待决策项，未重复推送）。**⚠️ 连续待命已达 7 天（08-03→08-10），自动化产物（PLAN.md / automation memory / playwright-report / ui-guard-report / memory 日报摘要×4）已滞留约 7 天未提交，建议用户对话时收口工作区**。**上一轮**：第35轮（健康巡检待命）|
-| 专家团评估 | 第35轮（健康巡检待命轮）：E1-E6 全为"是/维持"，无调整（巡检轮无 Agent 分派、无分工变更）；E6🟢 无新技术债，guard INFO 维持 9 条（GlobalSearch/AppLayout 引入的提示级空兜底，非阻塞已知晓）；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。**专家团配置经 35 轮验证稳定**：Hermes 数据/图表/引擎、Mimo UI/UX/测试、主理人独占路由域+核心状态的分工模式持续有效 |
+| 第37轮 | **（健康巡检待命轮，2026-08-10 23:50）**：纯健康巡检轮（无新开发；下一任务仍为"健康巡检待命+等用户决策"，自主低风险项已尽，D14/D2/RAG二期均待用户拍板）。**主理人独立验证全绿**：dev server 200（PID 38046，自 08-01 起持续运行）/ tsc --noEmit 0错 / npm run build 4.40s 一次过（prebuild 持续生效，仅 chunk size 警告）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞·硬编码空兜底提示级）/ **27 路由 curl 全 200**（含根路径 / 及 26 核心路由 + 参数化路由 /stocks/600519 /financials/600519 /index/000001 /sectors/801010 复核）/ E2E 沿用前轮 40/40 基线（本轮未重跑，避免 build 后 dev server 负载假失败干扰）。**结论**：基线健康稳定、零回归、无新技术债、无 🔴/🟠/🟡 新增（D14/D2/RAG二期为既有待决策项，未重复推送）。**⚠️ 连续待命已达 8 天（08-03→08-10），自动化产物（PLAN.md / automation memory / playwright-report / ui-guard-report）已滞留约 8 天未提交，建议用户对话时收口工作区**。**上一轮**：第36轮（健康巡检待命）|
+| 专家团评估 | 第37轮（健康巡检待命轮）：E1-E6 全为"是/维持"，无调整（巡检轮无 Agent 分派、无分工变更）；E6🟢 无新技术债，guard INFO 维持 9 条（GlobalSearch/AppLayout 引入的提示级空兜底，非阻塞已知晓）；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。**专家团配置经 37 轮验证稳定**：Hermes 数据/图表/引擎、Mimo UI/UX/测试、主理人独占路由域+核心状态的分工模式持续有效 |
 | 微信状态 | **D1 用户明示搁置**（2026-07-29），维持本地日志 + 对话提示，不再催办 |
 | 决策门预告 | 🟢 **D17 导航命名一致性 ✅ 已拍板（选 A）**：用户于 2026-08-03 选 A（navGroups 唯一真源、pageIndex 派生），主理人当日落地 T13（pageIndex 由 navGroups 派生，pageIndex.test 交叉一致性断言 + navGroups.test 共 39 用例全绿，/market /review 重定向死链已排除）。DECISION_LOG 已记 ✅。webhook 未配置降级本地日志+对话提示。下一候选：T14 TabBar 契约兜底或健康巡检 |
 
@@ -289,14 +290,14 @@
 | # | 任务 | 真实源 | 状态 |
 |---|------|--------|------|
 | T1 | 真实市场指数公开端点 + 首页指数卡 | 腾讯财经 gtimg（免key） | ✅ 后端 /api/market/realtime 已落地并验证真实指数；前端首页指数卡接入(T1b)待做 |
-| T2 | 市场宽度/涨跌分布 鉴权决策 | 东方财富 push2 | ⏳ 待用户确认：该接口当前 AUTH 拦截（登录后真实/未登录降级 demo），是否对游客公开（市场级数据，建议公开） |
+| T2 | 市场宽度/涨跌分布 游客公开 + 真实源替换模拟 | 东方财富 push2 | ✅ 已落地：①修复路由挂载错误（`breadthRouter` 原挂 `/api` 致实际路径为 `/api/current`，与前端/文档约定的 `/api/breadth/current` 不符）+ watchlist 全路由 blanket auth 误伤 `/api/*` → 改为 `/watchlist` 范围鉴权（保 F05 私有权限）；②`marketBreadth` 全部 `Math.random` 模拟移除，改接真实 push2 全市场涨跌分布（真实涨跌家数/成交额/量能比），源缺失时诚实空 `dataSource:'unavailable'`（沙箱无 egress 即此态）；③板块宽度/历史时序真实源尚未接入，返回空（诚实，不实随机）。游客免登录可见真实涨跌家数/成交额 |
 | T3 | ETF 实时行情真实化 | 东方财富 ETF | ⬜ backend api/etf 接真实源 → ETFPage 真实 |
 | T4 | 港股通 / AH溢价真实化 | 东方财富 | ⬜ backend 接真实源 → HKConnectPage 真实 |
 | T5 | 研报 / 新闻真实化 | 东方财富/腾讯新闻 | ⬜ backend news.ts 接真实源 → ReportCenterPage 真实 |
 | T6 | 财务三表真实化 | DB/真实源 | ⬜ backend financials 接真实 → FinancialsPage + AI解读真实 |
 | T7 | 因子 / 行业轮动基于真实收益率 | DB returns | ⬜ 若 DB 有真实收益率则去 demo |
 
-已确认已真实（demo 仅兜底）：资金流/北向（D14 东财+Tushare）、行业树（申万真实）、AI grounding（realMarketData+RAG）、breadth（auth 后真实）。
+已确认已真实（demo 仅兜底）：资金流/北向（D14 东财+Tushare）、行业树（申万真实）、AI grounding（realMarketData+RAG）、breadth（游客公开，push2 真实涨跌分布；沙箱无 egress 时诚实空 dataSource:'unavailable'，板块宽度/历史时序真实源待接入）。
 
 ## 八、技术债清单
 

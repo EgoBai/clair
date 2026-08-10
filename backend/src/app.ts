@@ -136,7 +136,11 @@ app.use('/api', dailyBriefingRouter);
 app.use('/api', aiChatRouter);
 app.use('/api', aiStrategyRouter);
 app.use('/api/etf', etfRouter);
-app.use('/api', breadthRouter);
+// 注意：breadthRouter 内部路由定义为 /current /sectors /history /mcclellan /cache-stats
+// （不含 /breadth 前缀）。此前错误地挂在 '/api' 下，导致实际可用路径变成
+// /api/current、/api/sectors，而前端 breadthService 与文档约定调用的是
+// /api/breadth/current。这里改挂 '/api/breadth'，使路径契约一致。
+app.use('/api/breadth', breadthRouter);
 app.use('/api', divergenceRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api', historyRouter);

@@ -4,6 +4,17 @@
  */
 
 import { EventEmitter } from 'events';
+import { getRealMarketData } from './realMarketData';
+
+/**
+ * 真实涨跌分布源不可用时抛出，供路由层降级为「诚实空」（绝不回填模拟数据）。
+ */
+export class BreadthUnavailableError extends Error {
+  constructor(msg = '涨跌分布真实源暂不可用（后端未接入或网络受限）') {
+    super(msg);
+    this.name = 'BreadthUnavailableError';
+  }
+}
 
 export interface BreadthData {
   timestamp: number;
@@ -50,24 +61,26 @@ class MarketBreadthService extends EventEmitter {
       return cached.data;
     }
 
-    // 模拟市场宽度计算 (实际应从数据源获取)
-    const advancing = Math.floor(Math.random() * 2000) + 1000;
-    const declining = Math.floor(Math.random() * 1500) + 500;
-    const unchanged = Math.floor(Math.random() * 200) + 50;
+    // 真实市场宽度：来自东方财富 push2 全市场涨跌分布（见 realMarketData.fetchBreadth）。
+    // 遵守「诚实数据」红线：源不可用时直接抛错，由路由层降级为诚实空，绝不回填模拟数据。
+    const real = await getRealMarketData();
+    const b = real.breadth;
+    if (!b) {
+      throw new BreadthUnavailableError();
+    }
+
+    const advancing = b.up;
+    const declining = b.down;
+    const unchanged = b.flat;
     const totalStocks = advancing + declining + unchanged;
 
-    const advanceDeclineRatio = advancing / Math.max(declining, 1);
-    const newHighs = Math.floor(Math.random() * 100) + 10;
-    const newLows = Math.floor(Math.random() * 50) + 5;
-    const upVolume = Math.random() * 5000000000 + 1000000000;
-    const downVolume = Math.random() * 4000000000 + 800000000;
-    const volumeRatio = upVolume / Math.max(downVolume, 1);
+    const advanceDeclineRatio = declining > 0 ? +(advancing / declining).toFixed(2) : advancing > 0 ? 999 : 0;
+    const volumeRatio = b.volumeRatio || 0;
 
-    // 计算情绪分数
+    // 情绪低落分：仅基于真实可推导的涨跌比 + 量能比（不依赖缺失字段）
     const ratioScore = Math.min(Math.max((advanceDeclineRatio - 1) * 30, -50), 50);
-    const volumeScore = Math.min(Math.max((volumeRatio - 1) * 20, -30), 30);
-    const highLowScore = Math.min(Math.max((newHighs - newLows) / 10, -20), 20);
-    const sentimentScore = Math.round(ratioScore + volumeScore + highLowScore);
+    const volumeScore = volumeRatio ? Math.min(Math.max((volumeRatio - 1) * 20, -30), 30) : 0;
+    const sentimentScore = Math.round(ratioScore + volumeScore);
 
     let marketSentiment: 'bullish' | 'bearish' | 'neutral';
     if (sentimentScore > 20) marketSentiment = 'bullish';
@@ -80,12 +93,14 @@ class MarketBreadthService extends EventEmitter {
       declining,
       unchanged,
       totalStocks,
-      advanceDeclineRatio: Math.round(advanceDeclineRatio * 100) / 100,
-      newHighs,
-      newLows,
-      upVolume,
-      downVolume,
-      volumeRatio: Math.round(volumeRatio * 100) / 100,
+      advanceDeclineRatio,
+      // 免费行情源不提供“新高/新低”统计，诚实置默认值（非“今日无新高”的市场结论，
+      // 仅作为占位，前端风险计算对其不敏感）。
+      newHighs: 0,
+      newLows: 0,
+      upVolume: b.upVolume,
+      downVolume: b.downVolume,
+      volumeRatio: +volumeRatio.toFixed(2),
       marketSentiment,
       sentimentScore: Math.max(-100, Math.min(100, sentimentScore)),
     };
@@ -105,27 +120,9 @@ class MarketBreadthService extends EventEmitter {
       return cached.data;
     }
 
-    const sectors = [
-      '银行', '证券', '保险', '房地产', '医药', '电子', '计算机',
-      '通信', '汽车', '食品饮料', '家电', '建材', '化工', '钢铁',
-      '煤炭', '有色金属', '电力', '新能源', '军工', '传媒',
-    ];
-
-    const data: SectorBreadth[] = sectors.map(sector => {
-      const advancing = Math.floor(Math.random() * 50) + 10;
-      const declining = Math.floor(Math.random() * 40) + 5;
-      const total = advancing + declining;
-      return {
-        sector,
-        advancing,
-        declining,
-        avgChangePercent: Math.round((Math.random() * 6 - 3) * 100) / 100,
-        strength: Math.round((advancing / total) * 100),
-      };
-    });
-
-    // Sort by strength descending
-    data.sort((a, b) => b.strength - a.strength);
+    // 诚实数据：板块宽度需要“申万/东财行业板块实时涨跌家数”真实源，目前尚未接入。
+    // 返回空数组（前端按“未接入”处理），绝不回填随机板块数据。
+    const data: SectorBreadth[] = [];
     this.sectorCache.set(cacheKey, { data, expiry: Date.now() + this.CACHE_TTL });
     return data;
   }
@@ -140,34 +137,9 @@ class MarketBreadthService extends EventEmitter {
       return cached.data;
     }
 
-    const pointCounts: Record<string, number> = { '1d': 24, '5d': 5, '1m': 22, '3m': 66 };
-    const count = pointCounts[period] || 5;
-    const now = Date.now();
-    const interval = period === '1d' ? 3600000 : 86400000;
-
-    const data: BreadthData[] = Array.from({ length: count }, (_, i) => {
-      const advancing = Math.floor(Math.random() * 2000) + 1000;
-      const declining = Math.floor(Math.random() * 1500) + 500;
-      const unchanged = Math.floor(Math.random() * 200) + 50;
-      const ratio = advancing / Math.max(declining, 1);
-      return {
-        timestamp: now - (count - 1 - i) * interval,
-        advancing,
-        declining,
-        unchanged,
-        totalStocks: advancing + declining + unchanged,
-        advanceDeclineRatio: Math.round(ratio * 100) / 100,
-        newHighs: Math.floor(Math.random() * 100) + 10,
-        newLows: Math.floor(Math.random() * 50) + 5,
-        upVolume: Math.random() * 5000000000 + 1000000000,
-        downVolume: Math.random() * 4000000000 + 800000000,
-        volumeRatio: Math.round((Math.random() + 0.5) * 100) / 100,
-        marketSentiment: ratio > 1.2 ? 'bullish' : ratio < 0.8 ? 'bearish' : 'neutral',
-        sentimentScore: Math.round((ratio - 1) * 50),
-      };
-    });
-
-    const result: BreadthHistory = { data, period };
+    // 诚实数据：历史宽度时序需要持久化的盘中快照，目前后端未落库，无法回填真实序列。
+    // 返回空序列（前端按“未接入”处理），绝不生成随机历史曲线。
+    const result: BreadthHistory = { data: [], period };
     this.historyCache.set(cacheKey, { data: result, expiry: Date.now() + this.CACHE_TTL * 2 });
     return result;
   }

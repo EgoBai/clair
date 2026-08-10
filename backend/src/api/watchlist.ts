@@ -12,8 +12,12 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
-// F05: 自选股全部为用户私有数据，整个路由强制 JWT 鉴权
-router.use(authMiddleware);
+// F05: 自选股全部为用户私有数据，强制 JWT 鉴权。
+// 注意：本路由挂在 '/api' 前缀下，若直接用 router.use(authMiddleware)（无路径）
+// 会让 Express 把“所有落入本路由的 /api/* 请求”都先做鉴权——这会误伤所有
+// 挂载在本路由之后的 /api 子路由（如 /api/breadth/*）并返回 401。
+// 因此把鉴权范围收敛到 '/watchlist' 路径，既保住 F05，又不挡其它公开接口。
+router.use('/watchlist', authMiddleware);
 
 /**
  * 从已验证的 JWT 解析出数据库用户ID（F05）
