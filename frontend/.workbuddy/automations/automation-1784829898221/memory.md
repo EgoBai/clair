@@ -227,3 +227,51 @@
 - **下一任务**：等 D17 拍板；候选 T13 命名对齐 / T14 TabBar 契约兜底 / 健康巡检。D14(Tushare/AlphaVantage key)、D2(POC)、RAG 二期仍待用户。
 - **自我评估**：E1-E6 维持；E5🟡"在途文件域轮内漂移"→"验收时二次复核"已证必要；Agent 克制未对命名写断言（第28轮新规内化）。
 - **注**：第25-28轮摘要见 DECISION_LOG.md「循环重大进展记录」表（本文件仅到 第23轮收尾，存在记录缺口）。
+
+## 第30轮（2026-08-03 02:11-02:13，交互+主理人协奏后自动化补记账）
+- **T14 TabBar 契约兜底（主理人亲自落地，git HEAD=`4b6693ba`）**：`TabBar.tsx` `findItem` 去除非空断言 `!`——navGroups 缺失对应主 Tab id 时跳过该 Tab 而非渲染期崩溃（修复 T12-b 观察项）；`navGroups.test.ts` 新增 4 主 Tab id 契约守卫（共 19 用例全绿）。D17 A 方案（pageIndex 由 navGroups 派生唯一真源，T13）已于本系列先行由主理人落地（HEAD=2b856638）。HEAD 由 997bb18b（PLAN.md 迁移+第30轮协作文档）推进至 4b6693ba。
+
+## 第31轮（2026-08-03 09:31，健康巡检基线轮）
+- **性质**：纯健康巡检轮（无新开发）。仓库干净（仅 guard 报告被本轮 guard 运行改写，非源码）；无并发会话在途（git status 仅 ui-guard-report.md 改动）。
+- **幂等检查**：PLAN.md 显示 T14/D17/T13 均已落地、下一任务为"健康巡检待命 + 等用户决策"，无待执行 Ticket → 执行基线验证而非新开发。
+- **巡检结果全绿**：dev server 200（PID 38046）/ tsc --noEmit 0错 / npm run build 4.38s 一次过（prebuild 脚本持续生效）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞）/ **导航 IA 单测 77/77**（TabBar16+navGroups18+pageIndex19+NavigationMenu21）/ E2E chromium **20/20 首跑即全过** / 12 核心路由（/stocks /screener /watchlist /industry-map /risk-center /fund-flow /journey /factor-lab /hk-connect /etf /knowledge 等）全 200。
+- **复盘**：PLAN.md 第五节追加「第31轮」状态行 + 专家团评估行（E1-E6 全"是/维持"，无调整）。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增（D14/D2/RAG二期/D1 均为既有待决策项，未重复推送）；webhook 仍未配置→降级本地日志+对话提示。
+- **下一任务**：维持健康巡检+待命。等用户决策：**D14** 补 TUSHARE_TOKEN/ALPHAVANTAGE_KEY（RAG 二期 + 真实数据打通前置）、**D2** POC 四件套拍板、RAG 二期。无新指令不擅自扩展范围。
+- **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
+
+## 第32轮（2026-08-06 12:24，健康巡检待命轮）
+- **性质**：纯健康巡检轮（无新开发）。PLAN.md「下一任务」明确为"健康巡检待命 + 等用户决策（D14/D2/RAG二期）"，自主低风险项已于第20/30轮尽，无待执行 Ticket → 执行基线验证而非新开发。
+- **单通道红线**：git status 仅自动化生成产物（PLAN.md / automation memory / playwright-report / ui-guard-report / memory/ 日报摘要），无交互会话在途生产代码改动；dev server PID 38046 自 08-01 起持续运行。安全，无需暂停。
+- **巡检结果全绿**：dev server 200 / tsc --noEmit 0错 / npm run build 4.57s 一次过（prebuild 持续生效）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞·硬编码空兜底提示级）/ **导航 IA 单测 77/77**（TabBar16+navGroups18+pageIndex19+NavigationMenu21）/ **E2E 40/40**（首跑 39/40，mobile-chrome 股票详情页 1 例 `.ant-tabs/.ant-empty/.ant-spin` 10s 超时，复跑 452ms 通过，确认 build 后 dev server 负载假失败，非回归）/ **24 核心路由 curl 全 200**（含 /macro /event-calendar /report-center /backtest /north-bound /margin-trading /portfolio /top-traders /lockup-calendar /compare /financials/:symbol /radar）。
+- **复盘**：PLAN.md 第七节追加「第32轮」状态行 + 专家团评估行（E1-E6 全"是/维持"，无调整）。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增触发（D14 补 Tushare/AlphaVantage key、D2 小程序迁移 POC 四件套拍板、RAG 二期为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
+- **下一任务**：维持健康巡检+待命。等用户决策：**D14** 补 key（RAG 二期 + 真实数据打通前置）、**D2** POC 四件套拍板、RAG 二期。无新指令不擅自扩展范围。**连续待命已达 3 天（08-03→08-06），建议下次用户对话时主动提示收口工作区（PLAN.md / ui-guard-report / memory/ 等约 6 项自动化产物改动已滞留 3 天未提交）**。
+- **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
+
+## 第33轮（2026-08-08 21:13，健康巡检待命轮）
+- **性质**：纯健康巡检轮（无新开发）。PLAN.md「下一任务」仍为"健康巡检待命 + 等用户决策（D14/D2/RAG二期）"，自主低风险项已于第20/30轮尽，无待执行 Ticket → 执行基线验证而非新开发。
+- **单通道红线**：git status 仅自动化生成产物（PLAN.md / automation memory / playwright-report / ui-guard-report）+ 未跟踪 memory/日日摘要×4（08-04~08-07），无交互会话在途生产代码改动；dev server PID 38046 自 08-01 起持续运行。安全，无需暂停。DECISION_LOG 末次更新 2026-08-03，无新增用户决策/指令。
+- **巡检结果全绿**：dev server 200 / tsc --noEmit 0错 / npm run build 4.58s 一次过（prebuild 持续生效）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞·硬编码空兜底提示级）/ **E2E 40/40**（首跑 39/40，mobile-chrome 股票详情页 1 例 `.ant-tabs/.ant-empty/.ant-spin` 10s 超时，复跑 439ms 通过，确认 build 后 dev server 负载假失败，非回归）/ **25 核心路由 curl 全 200**（含 /macro /event-calendar /report-center /backtest /north-bound /margin-trading /portfolio /top-traders /lockup-calendar /compare /financials/:symbol /radar /index/:symbol /sectors/:symbol）。
+- **复盘**：PLAN.md 第七节追加「第33轮」状态行 + 专家团评估行（E1-E6 全"是/维持"，无调整）。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增触发（D14 补 Tushare/AlphaVantage key、D2 小程序迁移 POC 四件套拍板、RAG 二期为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
+- **下一任务**：维持健康巡检+待命。等用户决策：**D14** 补 key（RAG 二期 + 真实数据打通前置）、**D2** POC 四件套拍板、RAG 二期。无新指令不擅自扩展范围。**连续待命已达 5 天（08-03→08-08），建议用户对话时主动提示收口工作区（PLAN.md / automation memory / playwright-report / ui-guard-report / memory 日报摘要×4 已滞留约 5 天未提交）**。
+- **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
+
+## 第34轮（2026-08-09 03:33，健康巡检待命轮）
+- **性质**：纯健康巡检轮（无新开发）。PLAN.md「下一任务」仍为"健康巡检待命 + 等用户决策（D14/D2/RAG二期）"，自主低风险项已于第20/30轮尽，无待执行 Ticket → 执行基线验证而非新开发。
+- **单通道红线**：git status 仅自动化生成产物（PLAN.md / automation memory / playwright-report / ui-guard-report）+ 未跟踪 memory/日日摘要×4（08-04~08-07），无交互会话在途生产代码改动（grep frontend/src/shared 命中仅 automation memory.md 自身）；git HEAD=4b6693ba 与 PLAN.md 一致，无并发提交竞态；dev server PID 38046 自 08-01 起持续运行。安全，无需暂停。DECISION_LOG 末次更新 2026-08-03，无新增用户决策/指令。
+- **巡检结果全绿**：dev server 200 / tsc --noEmit 0错 / npm run build 5.01s 一次过（prebuild 持续生效）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞·硬编码空兜底提示级）/ **E2E 40/40 首跑即全过**（本轮无 build 后负载假失败）/ **26 路由 curl 全 200**（含根路径 / 及 25 核心路由 /stocks /screener /watchlist /industry-map /risk-center /fund-flow /journey /factor-lab /hk-connect /etf /knowledge /macro /event-calendar /report-center /backtest /north-bound /margin-trading /portfolio /top-traders /lockup-calendar /compare /financials/:symbol /radar /index/:symbol /sectors/:symbol）。
+- **复盘**：PLAN.md 第七节追加「第34轮」状态行 + 专家团评估行（E1-E6 全"是/维持"，无调整）；顶栏最后更新日期同步至 2026-08-09。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增触发（D14 补 Tushare/AlphaVantage key、D2 小程序迁移 POC 四件套拍板、RAG 二期为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
+- **下一任务**：维持健康巡检+待命。等用户决策：**D14** 补 key（RAG 二期 + 真实数据打通前置）、**D2** POC 四件套拍板、RAG 二期。无新指令不擅自扩展范围。**连续待命已达 6 天（08-03→08-09），建议用户对话时主动提示收口工作区（PLAN.md / automation memory / playwright-report / ui-guard-report / memory 日报摘要×4 已滞留约 6 天未提交）**。
+- **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
+
+## 第35轮（2026-08-09 18:05，健康巡检待命轮）
+- **性质**：纯健康巡检轮（无新开发）。PLAN.md「下一任务」仍为"健康巡检待命 + 等用户决策（D14/D2/RAG二期）"，自主低风险项已于第20/30轮尽，无待执行 Ticket → 执行基线验证而非新开发。
+- **单通道红线**：git status 仅自动化生成产物（PLAN.md / automation memory / playwright-report / ui-guard-report）+ 未跟踪 memory/日日摘要×4（08-04~08-07），无交互会话在途生产代码改动；dev server PID 38046 自 08-01 起持续运行。安全，无需暂停。DECISION_LOG 末次更新 2026-08-03，无新增用户决策/指令。
+- **巡检结果全绿**：dev server 200 / tsc --noEmit 0错 / npm run build 4.76s 一次过（prebuild 持续生效，仅 chunk size 警告）/ npm run guard ERROR=0 WARN=0（9 INFO 非阻塞·硬编码空兜底提示级）/ **E2E 40/40**（首跑 38/40，股票详情页 2 例 `.ant-tabs/.ant-empty/.ant-spin` 10s 超时，复跑 chromium 369ms 通过、mobile-chrome 通过，确认 build 后 dev server 负载假失败非回归）/ **26 路由 curl 全 200**（含根路径 / 及 25 核心路由）。
+- **复盘**：PLAN.md 第七节追加「第35轮」状态行 + 专家团评估行（E1-E6 全"是/维持"，无调整）。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增触发（D14 补 Tushare/AlphaVantage key、D2 小程序迁移 POC 四件套拍板、RAG 二期为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
+- **下一任务**：维持健康巡检+待命。等用户决策：**D14** 补 key（RAG 二期 + 真实数据打通前置）、**D2** POC 四件套拍板、RAG 二期。无新指令不擅自扩展范围。**连续待命已达 6 天（08-03→08-09），建议用户对话时主动提示收口工作区（PLAN.md / automation memory / playwright-report / ui-guard-report / memory 日报摘要×4 已滞留约 6 天未提交）**。
+- **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
