@@ -26,3 +26,4 @@ tmp/
 
 # git filter-repo / 重写历史临时目录（非源码，禁止入库）
 .git-rewrite/
+.git-push-bundles/
