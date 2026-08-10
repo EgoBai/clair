@@ -282,6 +282,22 @@
 
 ---
 
+## 七·五、各页真实数据收尾（完整体验版本主线，用户 2026-08-10 选）
+
+目标：把仍 demo 兜底的页面接通真实源（东财/腾讯免key 已验证、腾讯自选股 westock MCP 已连），缺口处诚实空态。前端 `*Demo.ts` 仅作后端真实数据缺失时的兜底，不得伪装真实。
+
+| # | 任务 | 真实源 | 状态 |
+|---|------|--------|------|
+| T1 | 真实市场指数公开端点 + 首页指数卡 | 腾讯财经 gtimg（免key） | ✅ 后端 /api/market/realtime 已落地并验证真实指数；前端首页指数卡接入(T1b)待做 |
+| T2 | 市场宽度/涨跌分布 鉴权决策 | 东方财富 push2 | ⏳ 待用户确认：该接口当前 AUTH 拦截（登录后真实/未登录降级 demo），是否对游客公开（市场级数据，建议公开） |
+| T3 | ETF 实时行情真实化 | 东方财富 ETF | ⬜ backend api/etf 接真实源 → ETFPage 真实 |
+| T4 | 港股通 / AH溢价真实化 | 东方财富 | ⬜ backend 接真实源 → HKConnectPage 真实 |
+| T5 | 研报 / 新闻真实化 | 东方财富/腾讯新闻 | ⬜ backend news.ts 接真实源 → ReportCenterPage 真实 |
+| T6 | 财务三表真实化 | DB/真实源 | ⬜ backend financials 接真实 → FinancialsPage + AI解读真实 |
+| T7 | 因子 / 行业轮动基于真实收益率 | DB returns | ⬜ 若 DB 有真实收益率则去 demo |
+
+已确认已真实（demo 仅兜底）：资金流/北向（D14 东财+Tushare）、行业树（申万真实）、AI grounding（realMarketData+RAG）、breadth（auth 后真实）。
+
 ## 八、技术债清单
 
 | # | 债务 | 优先级 | 处理Sprint |
