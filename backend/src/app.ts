@@ -47,6 +47,7 @@ import aiStrategyRouter from './api/ai-strategy';
 import etfRouter from './api/etf';
 import apiDocsRouter from './api/api-docs';
 import breadthRouter from './api/breadth';
+import marketRouter from './api/market';
 import divergenceRouter from './api/divergence';
 import notificationsRouter from './api/notifications';
 import historyRouter from './api/history';
@@ -101,6 +102,7 @@ app.use(requestLogger({
 // ==================== API 路由 ====================
 // 首页核心路由 — 添加响应缓存 (市场数据 30s, 新闻 60s)
 app.use('/api/market', apiCache.middleware({ ttl: 30 }) as import('express').RequestHandler);
+app.use('/api/market', marketRouter);
 app.use('/api/news', apiCache.middleware({ ttl: 60, key: 'cache:news' }) as import('express').RequestHandler);
 
 app.use('/api', stockRouter);
