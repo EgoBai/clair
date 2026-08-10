@@ -42,15 +42,19 @@ if [ -z "$(git config --global --get credential.helper)" ]; then
 fi
 
 # ---------- 2) 代理 ----------
-PROXY="${HTTPS_PROXY:-$HTTP_PROXY:-$https_proxy:-$http_proxy}"
-[ -n "$PROXY" ] && log "检测到代理: $PROXY（每次尝试在 代理/直连 间切换）"
+PROXY=""
+for v in HTTPS_PROXY HTTP_PROXY https_proxy http_proxy; do
+  val="${!v:-}"
+  if [ -n "$val" ]; then PROXY="$val"; break; fi
+done
+[ -n "${PROXY:-}" ] && log "检测到代理: ${PROXY:-}（每次尝试在 代理/直连 间切换）"
 
 # 单次推送尝试：$1=use_proxy(0/1)
 try_push() {
   local use_proxy="$1"
   local extra=""
-  if [ "$use_proxy" = "1" ] && [ -n "$PROXY" ]; then
-    extra="-c http.proxy=$PROXY -c https.proxy=$PROXY"
+  if [ "$use_proxy" = "1" ] && [ -n "${PROXY:-}" ]; then
+    extra="-c http.proxy=${PROXY:-} -c https.proxy=${PROXY:-}"
   else
     # 显式置空以覆盖环境代理变量，实现“直连”尝试
     extra="-c http.proxy= -c https.proxy="
@@ -67,7 +71,7 @@ while [ "$attempt" -lt "$MAX_TRIES" ]; do
   mode=$([ "$use_proxy" = "1" ] && [ -n "$PROXY" ] && echo "代理" || echo "直连")
   log "尝试 $attempt/$MAX_TRIES [$mode] 推送 $REMOTE/$BRANCH ..."
   if try_push "$use_proxy"; then
-    log "✅ 推送成功（$REMOTE/$BRANCH）"
+    log "✅ 推送成功（${REMOTE}/${BRANCH}）"
     exit 0
   fi
   # 硬错误：不再重试
@@ -77,7 +81,7 @@ while [ "$attempt" -lt "$MAX_TRIES" ]; do
   fi
   wait=$(( BASE_WAIT * attempt ))
   [ "$wait" -gt "$MAX_WAIT" ] && wait="$MAX_WAIT"
-  log "⏳ 本次失败（代理间歇不可用），$wait"s 后重试 …"
+  log "⏳ 本次失败（代理间歇不可用），${wait}s 后重试 …"
   sleep "$wait"
 done
 
