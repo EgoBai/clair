@@ -24,6 +24,24 @@ tmp/
 .trash-bak/
 .DS_Store
 
+# 密钥 / 证书 / 凭据 —— 任何密钥类文件一律不入库
+# (nginx/ssl 自签名开发证书、SSH key、npm token 等)
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_rsa.*
+*.npmrc
+credentials.json
+*.secret
+
+# 测试产物（Playwright 报告 / 截图 / 视频，体积大且非源码）
+playwright-report/
+test-results/
+
+
 # git filter-repo / 重写历史临时目录（非源码，禁止入库）
 .git-rewrite/
 .git-push-bundles/
