@@ -1,7 +1,12 @@
 /**
- * AI 智能分析引擎
- * AI 选股推荐、智能预警、行业轮动分析
- * 参考同花顺 i问财功能设计
+ * AI 智能分析引擎（真实数据版）
+ * - AI 选股推荐、智能预警、行业轮动分析
+ * - 参考同花顺 i问财功能设计
+ *
+ * 遵守「诚实数据」红线：
+ * - 本模块不再内置任何模拟股票数据或随机数伪造；
+ * - 所有分析函数接受调用方传入的真实 StockData（由路由层从真实源拉取）；
+ * - 资金流入等无真实源字段诚实置 0，绝不回填伪造数据。
  */
 
 // ==================== 类型定义 ====================
@@ -49,7 +54,7 @@ export interface SectorRotation {
   trend: 'up' | 'down' | 'sideways';
   avgChangePercent: number;
   momentum: number;            // 动量指标
-  capitalInflow: number;       // 资金流入
+  capitalInflow: number;       // 资金流入（真实源不可得时诚实置 0）
   topStocks: { symbol: string; name: string; changePercent: number }[];
   analysis: string;
 }
@@ -61,6 +66,25 @@ export interface AIRecommendation {
   marketOutlook: string;
   riskLevel: 'low' | 'medium' | 'high';
   confidence: number;          // 置信度 0-100
+}
+
+/**
+ * 个股输入数据（由路由层从真实源拉取后传入）。
+ * 字段含义同原 MockStockData，但不再含任何模拟生成逻辑。
+ */
+export interface StockData {
+  symbol: string;
+  name: string;
+  industry: string;
+  prices: number[];
+  volumes: number[];
+  pe: number;
+  pb: number;
+  roe: number;
+  revenueGrowth: number;
+  profitGrowth: number;
+  marketCap: number;
+  changePercent: number;
 }
 
 // ==================== 技术指标计算辅助 ====================
@@ -118,75 +142,12 @@ function calculateBollinger(prices: number[], period: number = 20): { upper: num
   };
 }
 
-// ==================== 模拟股票数据 ====================
-
-interface MockStockData {
-  symbol: string;
-  name: string;
-  industry: string;
-  prices: number[];
-  volumes: number[];
-  pe: number;
-  pb: number;
-  roe: number;
-  revenueGrowth: number;
-  profitGrowth: number;
-  marketCap: number;
-  changePercent: number;
-}
-
-function generateMockStocks(): MockStockData[] {
-  const stocks = [
-    { symbol: '600519.SH', name: '贵州茅台', industry: '白酒', basePrice: 1920 },
-    { symbol: '000858.SZ', name: '五粮液', industry: '白酒', basePrice: 158 },
-    { symbol: '300750.SZ', name: '宁德时代', industry: '新能源', basePrice: 215 },
-    { symbol: '002594.SZ', name: '比亚迪', industry: '汽车', basePrice: 285 },
-    { symbol: '601318.SH', name: '中国平安', industry: '保险', basePrice: 52 },
-    { symbol: '600036.SH', name: '招商银行', industry: '银行', basePrice: 38 },
-    { symbol: '000333.SZ', name: '美的集团', industry: '家电', basePrice: 68 },
-    { symbol: '002415.SZ', name: '海康威视', industry: '安防', basePrice: 35 },
-    { symbol: '688981.SH', name: '中芯国际', industry: '半导体', basePrice: 85 },
-    { symbol: '601012.SH', name: '隆基绿能', industry: '光伏', basePrice: 28 },
-    { symbol: '002475.SZ', name: '立讯精密', industry: '电子', basePrice: 42 },
-    { symbol: '603259.SH', name: '药明康德', industry: '医药', basePrice: 62 },
-    { symbol: '601888.SH', name: '中国中免', industry: '商业', basePrice: 88 },
-    { symbol: '300059.SZ', name: '东方财富', industry: '证券', basePrice: 22 },
-    { symbol: '600900.SH', name: '长江电力', industry: '电力', basePrice: 28 },
-  ];
-
-  return stocks.map(s => {
-    const prices: number[] = [];
-    let price = s.basePrice;
-    for (let i = 0; i < 60; i++) {
-      price += (Math.random() - 0.48) * price * 0.02;
-      prices.push(Math.round(price * 100) / 100);
-    }
-
-    return {
-      symbol: s.symbol,
-      name: s.name,
-      industry: s.industry,
-      prices,
-      volumes: Array.from({ length: 60 }, () => Math.floor(Math.random() * 5000000 + 1000000)),
-      pe: Math.round(Math.random() * 40 + 10),
-      pb: Math.round(Math.random() * 8 + 1),
-      roe: Math.round(Math.random() * 30 + 5),
-      revenueGrowth: Math.round((Math.random() * 40 - 10) * 10) / 10,
-      profitGrowth: Math.round((Math.random() * 50 - 15) * 10) / 10,
-      marketCap: Math.round(Math.random() * 20000 + 100),
-      changePercent: Math.round((Math.random() * 10 - 5) * 100) / 100,
-    };
-  });
-}
-
-const mockStocks = generateMockStocks();
-
 // ==================== 核心分析引擎 ====================
 
 /**
- * 对单只股票进行综合评分
+ * 对单只股票进行综合评分（纯函数，接受真实数据）
  */
-export function analyzeStock(stock: MockStockData): StockScore {
+export function analyzeStock(stock: StockData): StockScore {
   const signals: AnalysisSignal[] = [];
   const prices = stock.prices;
   const latestPrice = prices[prices.length - 1];
@@ -380,14 +341,17 @@ function calculateVolatility(prices: number[]): number {
 // ==================== AI 选股推荐 ====================
 
 /**
- * 生成 AI 选股推荐
+ * 生成 AI 选股推荐（基于真实 StockData 列表）
+ * 置信度由平均分派生，绝不使用随机数。
  */
-export function generateRecommendations(): AIRecommendation {
-  const scoredStocks = mockStocks.map(s => analyzeStock(s));
+export function generateRecommendations(stocks: StockData[]): AIRecommendation {
+  const scoredStocks = stocks.map(s => analyzeStock(s));
   scoredStocks.sort((a, b) => b.totalScore - a.totalScore);
 
   const topStocks = scoredStocks.slice(0, 5);
-  const avgScore = scoredStocks.reduce((a, s) => a + s.totalScore, 0) / scoredStocks.length;
+  const avgScore = scoredStocks.length > 0
+    ? scoredStocks.reduce((a, s) => a + s.totalScore, 0) / scoredStocks.length
+    : 0;
 
   let marketOutlook: string;
   let riskLevel: 'low' | 'medium' | 'high';
@@ -403,27 +367,31 @@ export function generateRecommendations(): AIRecommendation {
     riskLevel = 'high';
   }
 
+  // 置信度由平均分推导（40-85 区间），不依赖随机数
+  const confidence = Math.round(Math.max(40, Math.min(85, 40 + (avgScore - 40) * 0.9)));
+
   return {
     date: new Date().toISOString().split('T')[0],
     strategy: 'AI综合评分选股',
     stocks: topStocks,
     marketOutlook,
     riskLevel,
-    confidence: Math.round(60 + Math.random() * 25),
+    confidence,
   };
 }
 
 // ==================== 智能预警 ====================
 
 /**
- * 检测异动并生成预警
+ * 检测异动并生成预警（基于真实 StockData 列表）
  */
-export function detectAbnormalEvents(): SmartAlert[] {
+export function detectAbnormalEvents(stocks: StockData[]): SmartAlert[] {
   const alerts: SmartAlert[] = [];
 
-  for (const stock of mockStocks) {
+  for (const stock of stocks) {
     const latest = stock.prices[stock.prices.length - 1];
     const prev = stock.prices[stock.prices.length - 2];
+    if (!latest || !prev || prev === 0) continue;
     const changePct = ((latest - prev) / prev) * 100;
 
     // 涨停检测
@@ -460,9 +428,12 @@ export function detectAbnormalEvents(): SmartAlert[] {
     }
 
     // 放量突破检测
-    const avgVolume = stock.volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    const latestVolume = stock.volumes[stock.volumes.length - 1];
-    if (latestVolume > avgVolume * 2 && changePct > 3) {
+    const recentVolumes = stock.volumes.slice(-20);
+    const avgVolume = recentVolumes.length > 0
+      ? recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length
+      : 0;
+    const latestVolume = stock.volumes[stock.volumes.length - 1] ?? 0;
+    if (avgVolume > 0 && latestVolume > avgVolume * 2 && changePct > 3) {
       alerts.push({
         id: `alert_${stock.symbol}_breakout`,
         symbol: stock.symbol,
@@ -516,12 +487,13 @@ export function detectAbnormalEvents(): SmartAlert[] {
 // ==================== 行业轮动分析 ====================
 
 /**
- * 分析行业轮动趋势
+ * 分析行业轮动趋势（基于真实 StockData 列表）
+ * 资金流入字段无免费真实源，诚实置 0（前端按"未接入"处理），绝不伪造。
  */
-export function analyzeSectorRotation(): SectorRotation[] {
-  const sectorMap = new Map<string, MockStockData[]>();
+export function analyzeSectorRotation(stocks: StockData[]): SectorRotation[] {
+  const sectorMap = new Map<string, StockData[]>();
 
-  for (const stock of mockStocks) {
+  for (const stock of stocks) {
     const list = sectorMap.get(stock.industry) || [];
     list.push(stock);
     sectorMap.set(stock.industry, list);
@@ -529,12 +501,13 @@ export function analyzeSectorRotation(): SectorRotation[] {
 
   const rotations: SectorRotation[] = [];
 
-  for (const [sector, stocks] of sectorMap) {
-    const avgChange = stocks.reduce((a, s) => a + s.changePercent, 0) / stocks.length;
-    const momentum = stocks.reduce((a, s) => {
+  for (const [sector, sectorStocks] of sectorMap) {
+    const avgChange = sectorStocks.reduce((a, s) => a + s.changePercent, 0) / sectorStocks.length;
+    const momentum = sectorStocks.reduce((a, s) => {
       const p = s.prices;
-      return a + ((p[p.length - 1] / p[p.length - 11]) - 1) * 100;
-    }, 0) / stocks.length;
+      const ref = p[p.length - 11] ?? p[0];
+      return a + (ref ? ((p[p.length - 1] / ref) - 1) * 100 : 0);
+    }, 0) / sectorStocks.length;
 
     let currentPhase: SectorRotation['currentPhase'];
     let trend: SectorRotation['trend'];
@@ -554,9 +527,10 @@ export function analyzeSectorRotation(): SectorRotation[] {
     }
 
     const rotationScore = Math.round(50 + momentum * 3 + avgChange * 5);
-    const capitalInflow = Math.round((Math.random() - 0.4) * 100);
+    // 资金流入无真实源，诚实置 0（非"无资金流入"的市场结论，仅占位）
+    const capitalInflow = 0;
 
-    const topStocks = stocks
+    const topStocks = sectorStocks
       .sort((a, b) => b.changePercent - a.changePercent)
       .slice(0, 3)
       .map(s => ({ symbol: s.symbol, name: s.name, changePercent: s.changePercent }));

@@ -147,9 +147,30 @@ describe('analyzeStock', () => {
   });
 });
 
+// 多只股票构造，用于 generateRecommendations / detectAbnormalEvents / analyzeSectorRotation
+function makeStocks(): ReturnType<typeof makeStock>[] {
+  const industries = ['白酒', '新能源', '半导体', '银行', '医药'];
+  return Array.from({ length: 8 }, (_, i) =>
+    makeStock({
+      symbol: `${600000 + i * 7}.SH`,
+      name: `测试股${i}`,
+      industry: industries[i % industries.length],
+      prices: Array.from({ length: 60 }, (_, j) => 100 + i * 5 + j),
+      volumes: Array.from({ length: 60 }, () => 1000000 + i * 10000),
+      pe: 12 + i * 3,
+      pb: 2 + i * 0.5,
+      roe: 12 + i * 2,
+      revenueGrowth: 10 + i * 3,
+      profitGrowth: 8 + i * 2,
+      marketCap: 5000 + i * 1000,
+      changePercent: (i - 4) * 1.5,
+    })
+  );
+}
+
 describe('generateRecommendations', () => {
   it('should return AIRecommendation with required fields', () => {
-    const rec = generateRecommendations();
+    const rec = generateRecommendations(makeStocks());
     expect(rec).toHaveProperty('date');
     expect(rec).toHaveProperty('strategy');
     expect(rec).toHaveProperty('stocks');
@@ -160,7 +181,7 @@ describe('generateRecommendations', () => {
   });
 
   it('should return top 5 stocks sorted by score', () => {
-    const rec = generateRecommendations();
+    const rec = generateRecommendations(makeStocks());
     expect(rec.stocks.length).toBeLessThanOrEqual(5);
     for (let i = 1; i < rec.stocks.length; i++) {
       expect(rec.stocks[i - 1].totalScore).toBeGreaterThanOrEqual(rec.stocks[i].totalScore);
@@ -170,12 +191,12 @@ describe('generateRecommendations', () => {
 
 describe('detectAbnormalEvents', () => {
   it('should return alerts array (possibly empty)', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeStocks());
     expect(Array.isArray(alerts)).toBe(true);
   });
 
   it('each alert should have required fields', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeStocks());
     for (const alert of alerts) {
       expect(alert).toHaveProperty('id');
       expect(alert).toHaveProperty('symbol');
@@ -195,9 +216,7 @@ describe('detectAbnormalEvents', () => {
   });
 
   it('should set correct type for RSI extreme alerts', () => {
-    // Mock with very high RSI for first stock
-    // Note: the module uses internal mockStocks, so just check types
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeStocks());
     const rsiAlerts = alerts.filter(a => a.type === 'rsi_extreme');
     for (const a of rsiAlerts) {
       expect(a.data).toHaveProperty('rsi');
@@ -207,7 +226,7 @@ describe('detectAbnormalEvents', () => {
 
 describe('analyzeSectorRotation', () => {
   it('should return sector rotation data with required fields', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeStocks());
     expect(rotations.length).toBeGreaterThan(0);
     for (const r of rotations) {
       expect(r).toHaveProperty('sector');
@@ -223,14 +242,14 @@ describe('analyzeSectorRotation', () => {
   });
 
   it('should sort by rotationScore descending', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeStocks());
     for (let i = 1; i < rotations.length; i++) {
       expect(rotations[i - 1].rotationScore).toBeGreaterThanOrEqual(rotations[i].rotationScore);
     }
   });
 
   it('should include top 3 stocks per sector', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeStocks());
     for (const r of rotations) {
       expect(r.topStocks.length).toBeLessThanOrEqual(3);
       for (const stock of r.topStocks) {

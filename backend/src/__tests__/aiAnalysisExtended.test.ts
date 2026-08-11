@@ -6,11 +6,31 @@ import {
   analyzeSectorRotation,
   StockScore,
   AIRecommendation,
+  StockData,
 } from '../utils/aiAnalysis';
+
+// 构造一批真实风格的测试股票数据（无 Math.random），供批量分析函数使用
+function makeTestStocks(): StockData[] {
+  const industries = ['白酒', '新能源', '半导体', '银行', '医药', '汽车', '电子', '保险'];
+  return Array.from({ length: 8 }, (_, i) => ({
+    symbol: `${600000 + i * 7}.SH`,
+    name: `测试股${i}`,
+    industry: industries[i % industries.length],
+    prices: Array.from({ length: 60 }, (_, j) => 100 + i * 5 + j),
+    volumes: Array.from({ length: 60 }, () => 1000000 + i * 10000),
+    pe: 12 + i * 3,
+    pb: 2 + i * 0.5,
+    roe: 12 + i * 2,
+    revenueGrowth: 10 + i * 3,
+    profitGrowth: 8 + i * 2,
+    marketCap: 5000 + i * 1000,
+    changePercent: (i - 4) * 1.5,
+  }));
+}
 
 describe('aiAnalysis - generateRecommendations', () => {
   it('should return AIRecommendation with required fields', () => {
-    const result = generateRecommendations();
+    const result = generateRecommendations(makeTestStocks());
     expect(result).toHaveProperty('date');
     expect(result).toHaveProperty('strategy');
     expect(result).toHaveProperty('stocks');
@@ -19,37 +39,38 @@ describe('aiAnalysis - generateRecommendations', () => {
     expect(result).toHaveProperty('confidence');
   });
 
-  it('should return 5 top stocks sorted by score descending', () => {
-    const result = generateRecommendations();
-    expect(result.stocks).toHaveLength(5);
+  it('should return up to 5 top stocks sorted by score descending', () => {
+    const result = generateRecommendations(makeTestStocks());
+    expect(result.stocks.length).toBeLessThanOrEqual(5);
+    expect(result.stocks.length).toBeGreaterThan(0);
     for (let i = 1; i < result.stocks.length; i++) {
       expect(result.stocks[i - 1].totalScore).toBeGreaterThanOrEqual(result.stocks[i].totalScore);
     }
   });
 
   it('should have valid riskLevel', () => {
-    const result = generateRecommendations();
+    const result = generateRecommendations(makeTestStocks());
     expect(['low', 'medium', 'high']).toContain(result.riskLevel);
   });
 
-  it('should have confidence between 60 and 85', () => {
-    const result = generateRecommendations();
-    expect(result.confidence).toBeGreaterThanOrEqual(60);
+  it('should have confidence between 40 and 85', () => {
+    const result = generateRecommendations(makeTestStocks());
+    expect(result.confidence).toBeGreaterThanOrEqual(40);
     expect(result.confidence).toBeLessThanOrEqual(85);
   });
 
   it('should have date in YYYY-MM-DD format', () => {
-    const result = generateRecommendations();
+    const result = generateRecommendations(makeTestStocks());
     expect(result.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('should include strategy text', () => {
-    const result = generateRecommendations();
+    const result = generateRecommendations(makeTestStocks());
     expect(result.strategy.length).toBeGreaterThan(0);
   });
 
   it('should have stocks with valid stock score structure', () => {
-    const result = generateRecommendations();
+    const result = generateRecommendations(makeTestStocks());
     for (const stock of result.stocks) {
       expect(stock).toHaveProperty('symbol');
       expect(stock).toHaveProperty('name');
@@ -63,7 +84,7 @@ describe('aiAnalysis - generateRecommendations', () => {
   });
 
   it('should always provide at least one reason per stock', () => {
-    const result = generateRecommendations();
+    const result = generateRecommendations(makeTestStocks());
     for (const stock of result.stocks) {
       expect(stock.reasons.length).toBeGreaterThanOrEqual(1);
     }
@@ -72,12 +93,12 @@ describe('aiAnalysis - generateRecommendations', () => {
 
 describe('aiAnalysis - detectAbnormalEvents', () => {
   it('should return an array of SmartAlerts', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     expect(Array.isArray(alerts)).toBe(true);
   });
 
   it('each alert should have required fields', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     for (const alert of alerts) {
       expect(alert).toHaveProperty('id');
       expect(alert).toHaveProperty('symbol');
@@ -93,7 +114,7 @@ describe('aiAnalysis - detectAbnormalEvents', () => {
   });
 
   it('should have valid alert types', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     const validTypes = ['abnormal_volume', 'limit_up', 'limit_down', 'breakout', 'breakdown', 'macd_cross', 'rsi_extreme', 'sector_rotation'];
     for (const alert of alerts) {
       expect(validTypes).toContain(alert.type);
@@ -101,28 +122,28 @@ describe('aiAnalysis - detectAbnormalEvents', () => {
   });
 
   it('should have valid severity levels', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     for (const alert of alerts) {
       expect(['high', 'medium', 'low']).toContain(alert.severity);
     }
   });
 
   it('should include data payload with relevant info', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     for (const alert of alerts) {
       expect(Object.keys(alert.data).length).toBeGreaterThan(0);
     }
   });
 
   it('should have unique alert ids', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     const ids = alerts.map(a => a.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
   });
 
   it('should have ISO date strings for triggeredAt', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     for (const alert of alerts) {
       expect(() => new Date(alert.triggeredAt)).not.toThrow();
       expect(new Date(alert.triggeredAt).toISOString()).toBeTruthy();
@@ -130,14 +151,14 @@ describe('aiAnalysis - detectAbnormalEvents', () => {
   });
 
   it('should have non-empty analysis per alert', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     for (const alert of alerts) {
       expect(alert.analysis.length).toBeGreaterThan(10);
     }
   });
 
   it('should include asset symbol in description', () => {
-    const alerts = detectAbnormalEvents();
+    const alerts = detectAbnormalEvents(makeTestStocks());
     for (const alert of alerts) {
       expect(alert.description).toContain(alert.symbol);
     }
@@ -146,13 +167,13 @@ describe('aiAnalysis - detectAbnormalEvents', () => {
 
 describe('aiAnalysis - analyzeSectorRotation', () => {
   it('should return an array of sector rotations', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     expect(Array.isArray(rotations)).toBe(true);
     expect(rotations.length).toBeGreaterThan(0);
   });
 
   it('each sector rotation should have required fields', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     for (const r of rotations) {
       expect(r).toHaveProperty('sector');
       expect(r).toHaveProperty('currentPhase');
@@ -167,14 +188,14 @@ describe('aiAnalysis - analyzeSectorRotation', () => {
   });
 
   it('should sort by rotationScore descending', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     for (let i = 1; i < rotations.length; i++) {
       expect(rotations[i - 1].rotationScore).toBeGreaterThanOrEqual(rotations[i].rotationScore);
     }
   });
 
   it('should have valid phases', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     const validPhases = ['leading', 'lagging', 'heating', 'cooling'];
     for (const r of rotations) {
       expect(validPhases).toContain(r.currentPhase);
@@ -182,22 +203,22 @@ describe('aiAnalysis - analyzeSectorRotation', () => {
   });
 
   it('should have valid trends', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     for (const r of rotations) {
       expect(['up', 'down', 'sideways']).toContain(r.trend);
     }
   });
 
   it('should have rotationScore in 0-100 range', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     for (const r of rotations) {
       expect(r.rotationScore).toBeGreaterThanOrEqual(0);
       expect(r.rotationScore).toBeLessThanOrEqual(100);
     }
   });
 
-  it('should have topStocks with 3 stocks each', () => {
-    const rotations = analyzeSectorRotation();
+  it('should have topStocks with up to 3 stocks each', () => {
+    const rotations = analyzeSectorRotation(makeTestStocks());
     for (const r of rotations) {
       expect(r.topStocks.length).toBeLessThanOrEqual(3);
       for (const stock of r.topStocks) {
@@ -209,7 +230,7 @@ describe('aiAnalysis - analyzeSectorRotation', () => {
   });
 
   it('should have meaningful analysis text', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     for (const r of rotations) {
       expect(r.analysis.length).toBeGreaterThan(10);
       expect(r.analysis).toContain(r.sector);
@@ -217,11 +238,18 @@ describe('aiAnalysis - analyzeSectorRotation', () => {
   });
 
   it('should have numeric avgChangePercent and momentum', () => {
-    const rotations = analyzeSectorRotation();
+    const rotations = analyzeSectorRotation(makeTestStocks());
     for (const r of rotations) {
       expect(typeof r.avgChangePercent).toBe('number');
       expect(typeof r.momentum).toBe('number');
       expect(typeof r.capitalInflow).toBe('number');
+    }
+  });
+
+  it('capitalInflow 应诚实为 0（无真实资金流源，不 Math.random 伪造）', () => {
+    const rotations = analyzeSectorRotation(makeTestStocks());
+    for (const r of rotations) {
+      expect(r.capitalInflow).toBe(0);
     }
   });
 });
