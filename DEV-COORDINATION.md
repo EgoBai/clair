@@ -77,6 +77,7 @@
 - **共享**: Harness知识库(docs/harness/) + DEV-COORDINATION.md
 - **文件锁**: 修改前检查DEV-COORDINATION.md
 - **Loop**: 每轮SCAN→EVAL→PLAN→EXEC→VERIFY→CAPTURE
+- **🚫 关项必回写**: 关闭 PROJECT-BRIEF §九 任一已知问题(P0/P1/待后端接入), 同一轮内必须同步更新该文档条目(标「已解决」+ 证据); 禁止只改代码不回写, 否则文档漂移致下个 Agent 重复误判(已发生 P0 笔误 + P1 漏标两次)。详见 `docs/harness/DESIGN-KB.md` 文档-代码同步红线。
 
 ---
 
