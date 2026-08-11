@@ -4,7 +4,7 @@
  * 数据依赖后端 /api/etf 接口；接口未接入时如实显示空态，不使用伪造演示数据。
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, Row, Col, Statistic, Table, Tag, Typography, Select, Space } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { THEME, GOLD } from '../styles/theme-constants';
@@ -82,15 +82,45 @@ function toPremiumETF(e: ETFData) {
   };
 }
 
-// ETF 后端数据接口（/api/etf）尚未实现；以空数据呈现，杜绝伪造演示数据
-const etfList: ETFData[] = [];
-
 export default function ETFPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [selectedSymbol, setSelectedSymbol] = useState<string>(etfList[0]?.symbol ?? '');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+
+  // ETF 数据来自后端 /api/etf/list（东方财富真实源）；加载中/不可用均如实呈现，绝不伪造演示数据
+  const [etfList, setEtfList] = useState<ETFData[]>([]);
+  const [dataSource, setDataSource] = useState<'real' | 'unavailable' | 'loading'>('loading');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetch('/api/etf/list')
+      .then((r) => r.json())
+      .then((json) => {
+        if (!alive) return;
+        if (json?.success && json.data && Array.isArray(json.data.data)) {
+          setEtfList(json.data.data as ETFData[]);
+          setDataSource(json.data.dataSource === 'unavailable' ? 'unavailable' : 'real');
+        } else {
+          setEtfList([]);
+          setDataSource('unavailable');
+        }
+      })
+      .catch(() => {
+        if (!alive) return;
+        setEtfList([]);
+        setDataSource('unavailable');
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // ── 引擎封装（全部 try/catch 降级，绝不让页面崩溃） ──
-  const analysisData = useMemo(() => etfList.map(toAnalysisETF), []);
+  const analysisData = useMemo(() => etfList.map(toAnalysisETF), [etfList]);
 
   const arbitrageList: ArbitrageOpportunity[] = useMemo(() => {
     try {
@@ -225,10 +255,20 @@ export default function ETFPage() {
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         ETF 中心
       </Title>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Text style={{ color: THEME.textSec }}>
-          指数 / 行业 / QDII / 商品 / 债券 / 主题 · 后端数据尚未接入
+          指数 / 行业 / QDII / 商品 / 债券 / 主题
         </Text>
+        <Tag color={dataSource === 'real' ? 'blue' : dataSource === 'unavailable' ? 'default' : 'gold'}>
+          {dataSource === 'real'
+            ? '真实数据 · 东方财富'
+            : dataSource === 'unavailable'
+              ? '真实源暂不可达'
+              : '加载中…'}
+        </Tag>
+        {loading && (
+          <Text style={{ color: THEME.textSec, fontSize: 12 }}>正在拉取实时行情与净值…</Text>
+        )}
       </Space>
 
       {/* ① 概览统计 */}
