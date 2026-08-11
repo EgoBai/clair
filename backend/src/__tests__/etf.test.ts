@@ -1,169 +1,240 @@
-import { describe, it, expect } from 'vitest';
-
 /**
- * ETF分析测试
+ * ETF API 测试（诚实数据版）
+ *
+ * 约定（与 marketBreadth.test.ts 对齐）：
+ * - mock etfDataService，验证路由层在真实源可用 / 不可用两种情况下的响应结构。
+ * - 真实源可用 → dataSource:'real'，返回真实结构数据。
+ * - 真实源不可用 → dataSource:'unavailable'，返回诚实空（[] / null），绝不回填模拟。
+ * - 全程不调用 Math.random（避免回归到旧版净值模拟）。
  */
 
-interface ETFData {
-  code: string;
-  name: string;
-  price: number;
-  nav: number;           // 净值
-  premium: number;       // 溢价率
-  discount: number;      // 折价率
-  volume: number;
-  turnover: number;
-  holdings: Array<{ code: string; weight: number; shares: number }>;
-}
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-interface ETFAnalysis {
-  code: string;
-  navDiff: number;       // 价格与净值差异
-  premiumRate: number;
-  arbitrageOpportunity: boolean;
-  trackingError: number;
-  liquidityScore: number;
-  rebalanceNeeded: boolean;
-}
-
-function analyzeETF(etf: ETFData, navHistory: number[], priceHistory: number[]): ETFAnalysis {
-  const navDiff = etf.price - etf.nav;
-  const premiumRate = etf.nav > 0 ? ((etf.price - etf.nav) / etf.nav) * 100 : 0;
-  const arbitrageOpportunity = Math.abs(premiumRate) > 1;
-
-  // Tracking error
-  const minLength = Math.min(navHistory.length, priceHistory.length);
-  let trackingError = 0;
-  if (minLength > 1) {
-    const navReturns: number[] = [];
-    const priceReturns: number[] = [];
-    for (let i = 1; i < minLength; i++) {
-      navReturns.push((navHistory[i] - navHistory[i - 1]) / navHistory[i - 1]);
-      priceReturns.push((priceHistory[i] - priceHistory[i - 1]) / priceHistory[i - 1]);
+// 必须在 import 路由/service 之前 mock，vi.mock 会被 hoist
+vi.mock('../services/etfDataService', () => ({
+  getEtfList: vi.fn(),
+  getEtfDetail: vi.fn(),
+  getEtfNavHistory: vi.fn(),
+  EtfUnavailableError: class EtfUnavailableError extends Error {
+    constructor(msg = 'ETF 真实源暂不可用') {
+      super(msg);
+      this.name = 'EtfUnavailableError';
     }
-    const diffs = navReturns.map((nr, i) => nr - priceReturns[i]);
-    const meanDiff = diffs.reduce((s, d) => s + d, 0) / diffs.length;
-    trackingError = Math.sqrt(diffs.reduce((s, d) => s + Math.pow(d - meanDiff, 2), 0) / diffs.length);
-  }
+  },
+}));
 
-  const liquidityScore = Math.min(100, Math.round(etf.turnover / 1e8));
-  const totalWeight = etf.holdings.reduce((s, h) => s + h.weight, 0);
-  const rebalanceNeeded = Math.abs(totalWeight - 100) > 5;
+import request from 'supertest';
+import express from 'express';
+import etfRouter from '../api/etf';
+import { getEtfList, getEtfDetail, getEtfNavHistory, EtfUnavailableError } from '../services/etfDataService';
 
-  return {
-    code: etf.code,
-    navDiff: Math.round(navDiff * 10000) / 10000,
-    premiumRate: Math.round(premiumRate * 100) / 100,
-    arbitrageOpportunity,
-    trackingError: Math.round(trackingError * 10000) / 10000,
-    liquidityScore,
-    rebalanceNeeded,
-  };
+// 构造一个最小的真实结构 ETF item（字段与生产保持一致）
+const realEtfItem = {
+  symbol: '510300',
+  name: '沪深300ETF',
+  type: 'index',
+  benchmark: '沪深300',
+  nav: 4.7258,
+  preNav: 4.7633,
+  changePercent: -0.65,
+  premiumRate: 0.05,
+  totalAssets: 117543694897,
+  trackingError: 0.03,
+  dividendYield: 2.1,
+  expenseRatio: 0.15,
+  volume: 2541400132,
+  turnover: 12015739824.096,
+  holdings: 300,
+};
+
+const realNavHistory = {
+  symbol: '510300',
+  name: '沪深300ETF',
+  history: [
+    { date: '2026-08-11', nav: 4.7258, accNav: 4.7258, changePercent: -0.79 },
+    { date: '2026-08-08', nav: 4.7633, accNav: 4.7633, changePercent: 0.12 },
+  ],
+};
+
+function buildApp(): express.Express {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/etf', etfRouter);
+  return app;
 }
 
-function calcETFCorrelation(etf1Returns: number[], etf2Returns: number[]): number {
-  if (etf1Returns.length !== etf2Returns.length || etf1Returns.length < 2) return 0;
-  const n = etf1Returns.length;
-  const mean1 = etf1Returns.reduce((s, v) => s + v, 0) / n;
-  const mean2 = etf2Returns.reduce((s, v) => s + v, 0) / n;
-  let num = 0, den1 = 0, den2 = 0;
-  for (let i = 0; i < n; i++) {
-    const d1 = etf1Returns[i] - mean1;
-    const d2 = etf2Returns[i] - mean2;
-    num += d1 * d2;
-    den1 += d1 * d1;
-    den2 += d2 * d2;
-  }
-  const den = Math.sqrt(den1 * den2);
-  return den > 0 ? num / den : 0;
-}
-
-function findArbitrageOpportunities(etfs: ETFData[]): ETFData[] {
-  return etfs.filter(etf => {
-    const premiumRate = etf.nav > 0 ? Math.abs((etf.price - etf.nav) / etf.nav * 100) : 0;
-    return premiumRate > 1 && etf.turnover > 1e8;
-  });
-}
-
-describe('ETF Analysis', () => {
-  const etf: ETFData = {
-    code: '510050',
-    name: '50ETF',
-    price: 3.08,
-    nav: 3.02,
-    premium: 0.99,
-    discount: 0,
-    volume: 100000000,
-    turnover: 3e9,
-    holdings: [
-      { code: '600519', weight: 15, shares: 1000000 },
-      { code: '601318', weight: 12, shares: 2000000 },
-      { code: '000858', weight: 8, shares: 500000 },
-      { code: '000001', weight: 5, shares: 3000000 },
-    ],
-  };
-
-  const navHistory = [3.00, 3.01, 3.02, 3.03, 3.02];
-  const priceHistory = [3.01, 3.02, 3.04, 3.05, 3.08];
-
-  describe('ETF分析', () => {
-    it('应该计算溢价率', () => {
-      const analysis = analyzeETF(etf, navHistory, priceHistory);
-      expect(analysis.premiumRate).toBeGreaterThan(1);
-    });
-
-    it('应该检测套利机会', () => {
-      const analysis = analyzeETF(etf, navHistory, priceHistory);
-      expect(analysis.arbitrageOpportunity).toBe(true);
-    });
-
-    it('应该计算跟踪误差', () => {
-      const analysis = analyzeETF(etf, navHistory, priceHistory);
-      expect(analysis.trackingError).toBeGreaterThanOrEqual(0);
-    });
-
-    it('应该计算流动性评分', () => {
-      const analysis = analyzeETF(etf, navHistory, priceHistory);
-      expect(analysis.liquidityScore).toBeGreaterThan(0);
-      expect(analysis.liquidityScore).toBeLessThanOrEqual(100);
-    });
-
-    it('应该检测再平衡需求', () => {
-      const analysis = analyzeETF(etf, navHistory, priceHistory);
-      expect(typeof analysis.rebalanceNeeded).toBe('boolean');
-    });
+describe('ETF API (honest-data)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  describe('相关性', () => {
-    it('应该计算ETF间相关性', () => {
-      const returns1 = [0.01, 0.02, -0.01, 0.03, 0.01];
-      const returns2 = [0.02, 0.01, -0.02, 0.02, 0.02];
-      const corr = calcETFCorrelation(returns1, returns2);
-      expect(corr).toBeGreaterThan(-1);
-      expect(corr).toBeLessThan(1);
+  describe('GET /api/etf/list', () => {
+    it('真实源可用时返回 dataSource:"real" 与真实结构数据', async () => {
+      (getEtfList as any).mockResolvedValue([realEtfItem]);
+
+      const res = await request(buildApp()).get('/api/etf/list');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.dataSource).toBe('real');
+      expect(res.body.data.count).toBe(1);
+      expect(Array.isArray(res.body.data.data)).toBe(true);
+      expect(res.body.data.data[0]).toMatchObject({
+        symbol: '510300',
+        name: '沪深300ETF',
+        nav: 4.7258,
+        changePercent: -0.65,
+      });
+      // 不含 Math.random 伪造字段
+      expect(res.body.data.data[0]).not.toHaveProperty('mockRandom');
     });
 
-    it('相同序列应该相关系数为1', () => {
-      const returns = [0.01, 0.02, -0.01, 0.03];
-      expect(calcETFCorrelation(returns, returns)).toBe(1);
+    it('真实源缺失时返回 dataSource:"unavailable" 与诚实空数组', async () => {
+      (getEtfList as any).mockRejectedValue(new EtfUnavailableError('网络受限'));
+
+      const res = await request(buildApp()).get('/api/etf/list');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.dataSource).toBe('unavailable');
+      expect(res.body.data.data).toEqual([]);
+      expect(res.body.data.count).toBe(0);
+      expect(res.body.data.message).toBe('网络受限');
+    });
+
+    it('支持 type 筛选与 sortBy 排序', async () => {
+      (getEtfList as any).mockResolvedValue([
+        realEtfItem,
+        { ...realEtfItem, symbol: '518880', name: '黄金ETF', type: 'commodity', totalAssets: 5e10 },
+      ]);
+
+      const res = await request(buildApp()).get('/api/etf/list?type=index&sortBy=totalAssets&sortOrder=desc');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('real');
+      // 只保留 type=index 的项
+      expect(res.body.data.data.every((e: any) => e.type === 'index')).toBe(true);
+      expect(getEtfList).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('套利机会', () => {
-    it('应该找出套利机会', () => {
-      const etfs: ETFData[] = [
-        etf,
-        { ...etf, code: '159919', price: 4.00, nav: 4.01, turnover: 2e9 },
-      ];
-      const opportunities = findArbitrageOpportunities(etfs);
-      expect(opportunities.length).toBe(1);
-      expect(opportunities[0].code).toBe('510050');
+  describe('GET /api/etf/premium/rank', () => {
+    it('真实源可用时返回 premium/discount 两组', async () => {
+      (getEtfList as any).mockResolvedValue([
+        { ...realEtfItem, premiumRate: 2.5 },
+        { ...realEtfItem, premiumRate: -1.5 },
+      ]);
+
+      const res = await request(buildApp()).get('/api/etf/premium/rank');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('real');
+      expect(res.body.data.data).toHaveProperty('premium');
+      expect(res.body.data.data).toHaveProperty('discount');
+      expect(Array.isArray(res.body.data.data.premium)).toBe(true);
     });
 
-    it('低流动性不应该算套利', () => {
-      const lowLiqETF: ETFData = { ...etf, turnover: 1e6 };
-      const opportunities = findArbitrageOpportunities([lowLiqETF]);
-      expect(opportunities.length).toBe(0);
+    it('真实源缺失时返回空 premium/discount + unavailable', async () => {
+      (getEtfList as any).mockRejectedValue(new EtfUnavailableError());
+
+      const res = await request(buildApp()).get('/api/etf/premium/rank');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('unavailable');
+      expect(res.body.data.data.premium).toEqual([]);
+      expect(res.body.data.data.discount).toEqual([]);
+    });
+  });
+
+  describe('GET /api/etf/:symbol', () => {
+    it('真实源可用时返回详情 + topHoldings 诚实空数组', async () => {
+      (getEtfDetail as any).mockResolvedValue(realEtfItem);
+
+      const res = await request(buildApp()).get('/api/etf/510300');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('real');
+      expect(res.body.data.data.symbol).toBe('510300');
+      expect(res.body.data.data.nav).toBe(4.7258);
+      // topHoldings 无真实源 → 诚实空，不编造持仓
+      expect(res.body.data.data.topHoldings).toEqual([]);
+    });
+
+    it('symbol 不在目录时返回 404', async () => {
+      (getEtfDetail as any).mockResolvedValue(null);
+
+      const res = await request(buildApp()).get('/api/etf/000000');
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('真实源缺失时返回 unavailable + data:null', async () => {
+      (getEtfDetail as any).mockRejectedValue(new EtfUnavailableError('行情源不可用'));
+
+      const res = await request(buildApp()).get('/api/etf/510300');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('unavailable');
+      expect(res.body.data.data).toBeNull();
+      expect(res.body.data.message).toBe('行情源不可用');
+    });
+  });
+
+  describe('GET /api/etf/:symbol/nav-history', () => {
+    it('真实源可用时返回真实净值历史（非 Math.random 模拟）', async () => {
+      (getEtfNavHistory as any).mockResolvedValue(realNavHistory);
+
+      const res = await request(buildApp()).get('/api/etf/510300/nav-history?days=30');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('real');
+      expect(res.body.data.data.symbol).toBe('510300');
+      expect(Array.isArray(res.body.data.data.history)).toBe(true);
+      expect(res.body.data.data.history[0]).toMatchObject({
+        date: '2026-08-11',
+        nav: 4.7258,
+      });
+      // 净值应为固定真实值，不应每次调用都变化（即非 Math.random）
+      const res2 = await request(buildApp()).get('/api/etf/510300/nav-history?days=30');
+      expect(res2.body.data.data.history[0].nav).toBe(res.body.data.data.history[0].nav);
+    });
+
+    it('真实源缺失时返回 unavailable + 空 history', async () => {
+      (getEtfNavHistory as any).mockRejectedValue(new EtfUnavailableError('净值源不可用'));
+
+      const res = await request(buildApp()).get('/api/etf/510300/nav-history');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('unavailable');
+      expect(res.body.data.data.history).toEqual([]);
+      expect(res.body.data.message).toBe('净值源不可用');
+    });
+
+    it('symbol 不在目录时返回 404', async () => {
+      (getEtfNavHistory as any).mockResolvedValue(null);
+
+      const res = await request(buildApp()).get('/api/etf/000000/nav-history');
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('Math.random 回归守卫', () => {
+    it('整个 ETF 路由响应中不应出现 Math.random 伪造的随机净值', async () => {
+      // 监视 Math.random，确保路由处理过程中未被调用
+      const spy = vi.spyOn(Math, 'random');
+      (getEtfList as any).mockResolvedValue([realEtfItem]);
+      (getEtfDetail as any).mockResolvedValue(realEtfItem);
+      (getEtfNavHistory as any).mockResolvedValue(realNavHistory);
+
+      const app = buildApp();
+      await request(app).get('/api/etf/list');
+      await request(app).get('/api/etf/510300');
+      await request(app).get('/api/etf/510300/nav-history');
+
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
     });
   });
 });
