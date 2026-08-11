@@ -25,6 +25,17 @@ const stockSymbolSchema = Joi.object({
   symbol: Joi.string().max(20).pattern(/^[a-zA-Z0-9.]+$/).required(),
 });
 
+// --- 财务报表 ---
+const financialsQuerySchema = Joi.object({
+  symbol: Joi.string().max(20).pattern(/^[a-zA-Z0-9.]*$/).optional(),
+  periods: Joi.number().integer().min(1).max(10).default(4),
+});
+const financialsTrendsQuerySchema = Joi.object({
+  symbol: Joi.string().max(20).pattern(/^[a-zA-Z0-9.]*$/).optional(),
+  metric: Joi.string().valid('roe', 'roa', 'netMargin', 'grossMargin', 'currentRatio', 'debtToAssetRatio', 'eps', 'revenueGrowth', 'profitGrowth').default('roe'),
+  periods: Joi.number().integer().min(1).max(12).default(8),
+});
+
 const quoteQuerySchema = Joi.object({
   startDate: Joi.date().iso().optional(),
   endDate: Joi.date().iso().optional(),
@@ -497,6 +508,9 @@ export const schemas = {
   stockSymbol: stockSymbolSchema,
   quoteQuery: quoteQuerySchema,
   batchQuotes: batchQuotesSchema,
+  // 财务报表
+  financialsQuery: financialsQuerySchema,
+  financialsTrendsQuery: financialsTrendsQuerySchema,
   // 市场
   marketQuery: marketQuerySchema,
   sectorQuery: sectorQuerySchema,
