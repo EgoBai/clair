@@ -4,37 +4,39 @@
  */
 
 import { useResolvedTheme } from '../store/useAppStore';
+import { colors } from '../styles/theme';
 
 export function useThemeTokens() {
   const resolvedTheme = useResolvedTheme();
   const isDark = resolvedTheme === 'dark';
 
   if (isDark) {
+    // 暗色分支直接复用 styles/theme.ts 单一令牌源，避免重复硬编码
     return {
       isDark: true,
       // 背景层级
-      bgPage: '#0a0e1a',
-      bgCard: '#111827',
-      bgSurface: '#1e293b',
+      bgPage: colors.page,
+      bgCard: colors.card,
+      bgSurface: colors.surface,
       bgInput: '#0f172a',
       // 边框
-      border: '#2d3748',
-      borderLight: '#374151',
+      border: colors.border,
+      borderLight: colors.borderLight,
       // 文字
-      text: '#f1f5f9',
-      textSecondary: '#94a3b8',
-      textMuted: '#64748b',
+      text: colors.text,
+      textSecondary: colors.textSecondary,
+      textMuted: colors.textMuted,
       // 功能色
-      accent: '#3b82f6',
-      accentLight: '#60a5fa',
-      success: '#22c55e',
-      danger: '#ef4444',
-      warning: '#f59e0b',
-      gold: '#f59e0b',
+      accent: colors.accent,
+      accentLight: colors.accentLight,
+      success: colors.success,
+      danger: colors.danger,
+      warning: colors.warning,
+      gold: colors.gold,
       // A股涨跌色
-      up: '#ef4444',
-      down: '#22c55e',
-      flat: '#6b7280',
+      up: colors.up,
+      down: colors.down,
+      flat: colors.flat,
     } as const;
   }
 

@@ -3,7 +3,10 @@
  * 暗色主题: BG=#0f172a CARD=#1e293b
  */
 
-// === 基础色板 ===
+// === 基础色板（单一字面量来源，MA 色与强调色复用，避免重复硬编码）===
+const CHART_GOLD = '#f59e0b'; // 金色（gold / ma5 共用）
+const CHART_ACCENT = '#3b82f6'; // 主题蓝（accent / ma10 共用）
+
 export const CHART_COLORS = {
   // 涨跌色(中国A股惯例)
   up: '#cf2a2a',        // 红涨
@@ -11,14 +14,14 @@ export const CHART_COLORS = {
   flat: '#64748b',      // 平盘
 
   // 强调色
-  accent: '#3b82f6',    // 蓝色
-  gold: '#f59e0b',      // 金色
+  accent: CHART_ACCENT, // 蓝色
+  gold: CHART_GOLD,     // 金色
   purple: '#8b5cf6',    // 紫色
   pink: '#ec4899',      // 粉色
 
-  // MA均线色
-  ma5: '#f59e0b',
-  ma10: '#3b82f6',
+  // MA均线色（复用强调色，避免重复硬编码）
+  ma5: CHART_GOLD,
+  ma10: CHART_ACCENT,
   ma20: '#8b5cf6',
   ma60: '#ec4899',
 
@@ -70,10 +73,10 @@ export const RADAR_CONFIG = {
 // === K线图配置 ===
 export const KLINE_CONFIG = {
   itemStyle: {
-    color: '#cf2a2a',       // 阳线(涨)
-    color0: '#1db468',      // 阴线(跌)
-    borderColor: '#cf2a2a',
-    borderColor0: '#1db468',
+    color: CHART_COLORS.up,       // 阳线(涨)
+    color0: CHART_COLORS.down,    // 阴线(跌)
+    borderColor: CHART_COLORS.up,
+    borderColor0: CHART_COLORS.down,
   },
   barWidth: '55%',
 } as const;

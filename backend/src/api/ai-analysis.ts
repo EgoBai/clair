@@ -29,6 +29,14 @@ import {
 } from '../services/financialsDataService';
 
 import { aiTiming } from '../middleware/aiTiming';
+import {
+  loadKnowledgeBase,
+  buildKnowledgeSearchPayload,
+  retrieveKnowledge,
+  deriveKnowledgeConfidence,
+  KnowledgeCorpus,
+  RetrievedChunk,
+} from '../utils/knowledgeRetrieval';
 
 const router = Router();
 
@@ -222,6 +230,35 @@ function unavailable(e: unknown) {
   return { dataSource: 'unavailable' as const, message, data: null };
 }
 
+// ==================== RAG 二期：本地知识库语料缓存 ====================
+// 懒加载一次，避免每次请求重复读盘；后续可借 reloadKnowledgeBase 做增量重载，
+// 无需全量重启（对应二期「知识库增量更新机制」项，此处先留钩子）。
+
+let knowledgeCorpusCache: KnowledgeCorpus | null = null;
+
+function getKnowledgeCorpus(): KnowledgeCorpus {
+  if (!knowledgeCorpusCache) {
+    knowledgeCorpusCache = loadKnowledgeBase();
+    console.log(
+      `[ai-analysis] 知识库已加载：available=${knowledgeCorpusCache.available}, chunks=${knowledgeCorpusCache.chunks.length}`,
+    );
+  }
+  return knowledgeCorpusCache;
+}
+
+/** 知识库增量重载钩子（文件变更后调用，局部刷新，无需重启进程） */
+export function reloadKnowledgeBase(): KnowledgeCorpus {
+  knowledgeCorpusCache = loadKnowledgeBase();
+  return knowledgeCorpusCache;
+}
+
+/** 对单只股票附加知识溯源引用（诚实：语料不可用时返回空数组） */
+function knowledgeReferencesFor(industry: string, name: string, limit = 3): RetrievedChunk[] {
+  const corpus = getKnowledgeCorpus();
+  if (!corpus.available) return [];
+  return retrieveKnowledge(`${industry} ${name}`, corpus, { limit });
+}
+
 // ==================== API 路由 ====================
 
 /**
@@ -259,13 +296,19 @@ router.get('/ai/analyze/:symbol', asyncHandler(async (req: Request, res: Respons
   try {
     const stock = await fetchRealStock(symbol, name, industry);
     const analysis = analyzeStock(stock);
-    sendSuccess(res, { ...analysis, dataSource: 'real' });
+    // 二期 RAG：融合知识库溯源（行情可得 → 置信度上限更高）
+    const knowledgeReferences = knowledgeReferencesFor(stock.industry, stock.name, 3);
+    const knowledgeConfidence = deriveKnowledgeConfidence(knowledgeReferences, true);
+    sendSuccess(res, { ...analysis, dataSource: 'real', knowledgeReferences, knowledgeConfidence });
   } catch (e) {
+    // 行情缺失仍尝试返回知识溯源（市场不可得 → 置信度上限下调，绝不编造）
+    const knowledgeReferences = knowledgeReferencesFor(industry, name, 3);
+    const knowledgeConfidence = deriveKnowledgeConfidence(knowledgeReferences, false);
     if (e instanceof FinancialsUnavailableError) {
-      sendSuccess(res, { symbol, ...unavailable(e) });
+      sendSuccess(res, { symbol, knowledgeReferences, knowledgeConfidence, ...unavailable(e) });
       return;
     }
-    sendSuccess(res, { symbol, ...unavailable(e) });
+    sendSuccess(res, { symbol, knowledgeReferences, knowledgeConfidence, ...unavailable(e) });
   }
 }));
 
@@ -405,6 +448,60 @@ router.get('/ai/market-sentiment', asyncHandler(async (_req: Request, res: Respo
       topBullish: [],
       topBearish: [],
       analyzedAt: new Date().toISOString(),
+      ...unavailable(e),
+    });
+  }
+}));
+
+/**
+ * GET /api/ai/knowledge-search
+ * 二期 RAG：本地知识库检索 + 答案溯源 + 置信度标注
+ * - 必填 ?q= 检索词；可选 ?symbol= 联动真实行情（提升置信度上限）、?limit= 截断条数。
+ * - 知识库缺失/为空 → dataSource:'unavailable' + 空结果，绝不回填伪造片段。
+ * - 行情缺失不阻断知识检索，仅降低置信度上限（诚实红线）。
+ */
+const knowledgeSearchQuerySchema = Joi.object({
+  q: Joi.string().min(1).max(200).required(),
+  symbol: Joi.string().optional(),
+  limit: Joi.number().integer().min(1).max(20).default(5),
+});
+
+router.get('/ai/knowledge-search', validateQuery(knowledgeSearchQuerySchema), asyncHandler(async (req: Request, res: Response) => {
+  const { q, symbol, limit } = req.query as Record<string, string | undefined>;
+  const corpus = getKnowledgeCorpus();
+
+  try {
+    let marketContext: { available: boolean } | undefined;
+    if (symbol) {
+      try {
+        const watch = AI_WATCHLIST.find((s) => s.symbol === symbol);
+        const industry = watch?.industry ?? '未知';
+        const name = watch?.name ?? symbol;
+        await fetchRealStock(symbol, name, industry);
+        marketContext = { available: true };
+      } catch {
+        marketContext = { available: false }; // 行情缺失不阻断知识检索
+      }
+    }
+
+    const payload = buildKnowledgeSearchPayload(q as string, {
+      corpus,
+      limit: Number(limit),
+      marketContext,
+    });
+
+    if (!payload.knowledgeBaseAvailable) {
+      sendSuccess(res, { ...payload, dataSource: 'unavailable', message: '知识库暂不可用' });
+      return;
+    }
+    sendSuccess(res, { ...payload, dataSource: 'real' });
+  } catch (e) {
+    sendSuccess(res, {
+      query: q,
+      results: [],
+      confidence: 0,
+      knowledgeBaseAvailable: false,
+      marketData: 'not_requested',
       ...unavailable(e),
     });
   }
