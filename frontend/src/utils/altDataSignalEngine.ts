@@ -89,7 +89,7 @@ export function generateAltDataSignals(
       direction,
       dataSources,
       conflictingSignals,
-      historicalAccuracy: 0.5 + Math.random() * 0.3,
+      historicalAccuracy: Math.round((0.4 + signalStrength * 0.4) * 100) / 100, // 无真实历史准确率基线，以信号强度派生确定性估计（非随机伪造）
     });
   }
 

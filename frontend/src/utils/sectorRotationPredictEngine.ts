@@ -21,6 +21,13 @@ export interface RotationPrediction {
   reason: string;
   expectedDuration: string;
   historicalWinRate: number;
+  /**
+   * 历史胜率数据来源标记（诚实数据红线）：
+   * - 'unavailable'：前端/后端未暴露历史行情回测接口，historicalWinRate 仅为基于信号置信度的确定性近似占位，非真实回测结果
+   * - 'real'：接入历史收益率序列回测后返回的真实胜率
+   * 严禁以随机值或伪造值冒充真实胜率。
+   */
+  dataSource?: 'real' | 'unavailable';
 }
 
 export interface CyclePhase {
@@ -71,7 +78,8 @@ export function predictRotation(sectors: SectorSnapshot[]): RotationPrediction[]
         confidence: Math.min(0.95, 0.4 + (from.momentum - to.momentum) * 0.3),
         reason: `${from.name}短期超买且涨跌比收窄，${to.name}基本面改善且资金开始流入`,
         expectedDuration: '5-15个交易日',
-        historicalWinRate: 0.55 + Math.random() * 0.15,
+        historicalWinRate: Math.round(Math.min(0.95, 0.4 + (from.momentum - to.momentum) * 0.3) * 100) / 100, // 无真实历史回测基线，以动量差派生确定性估计（非随机伪造）
+        dataSource: 'unavailable', // 历史胜率不可用：待接入历史行情回测接口（待办）
       });
     }
   }
@@ -91,7 +99,8 @@ export function predictRotation(sectors: SectorSnapshot[]): RotationPrediction[]
         confidence: 0.5,
         reason: `${leader.name}连续领涨后均值回归压力增大`,
         expectedDuration: '3-10个交易日',
-        historicalWinRate: 0.5,
+        historicalWinRate: 0.5, // 无真实历史回测基线，固定占位值（非随机伪造）
+        dataSource: 'unavailable', // 历史胜率不可用：待接入历史行情回测接口（待办）
       });
     }
   }

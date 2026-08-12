@@ -108,7 +108,7 @@ export class EarningsDriftEngine {
     const confidence = Math.min(1, 0.3 + surprise.surprisePct * 2);
 
     // 衰减率
-    const decayRate = 0.15 + Math.random() * 0.1;
+    const decayRate = 0.15; // 默认确定性基线衰减率；真实校准需后端历史漂移数据（非随机伪造）
 
     return {
       direction,
