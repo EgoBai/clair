@@ -19,6 +19,10 @@ import {
   analyzeEventImpact,
   type CalendarEvent, type EventType, type EventImpact, type EventCluster,
 } from '../utils/eventCalendarEngine';
+import {
+  DataSourceBanner, resolveDataSource,
+  type DataSourceState,
+} from '../components/discover/DataSourceIndicator';
 const { Title, Text } = Typography;
 /** 本地日期格式化 YYYY-MM-DD（避免 toISOString 时区偏移） */
 const fmtDate = (d: Date): string => {
@@ -55,6 +59,7 @@ interface RawEvent {
 const EventCalendarPage: React.FC = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dataSource, setDataSource] = useState<DataSourceState | undefined>(undefined);
   const [range, setRange] = useState<string>('all');      // all | week | 30-90
   const [selectedTypes, setSelectedTypes] = useState<Set<EventType>>(new Set());
   const [minImpact, setMinImpact] = useState<string>('all'); // all | medium | high
@@ -62,14 +67,18 @@ const EventCalendarPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/analytics/events');
+      const res = await fetch('/api/event-calendar/events');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!json.success || !json.data) throw new Error('数据格式异常');
-      setEvents(parseEvents(json.data.raw || []));
+      const raw = parseEvents(json.data.raw || []);
+      setEvents(raw);
+      // 读取后端 meta，驱动诚实数据来源 Banner
+      setDataSource(resolveDataSource(json, raw.length === 0, false));
     } catch (err) {
       logger.warn('事件日历接口不可用（后端未就绪或返回异常），已如实置空:', err);
       setEvents([]);
+      setDataSource({ kind: 'unavailable', updatedAt: null, error: (err as Error).message });
     } finally {
       setLoading(false);
     }
@@ -155,13 +164,19 @@ const EventCalendarPage: React.FC = () => {
             <CalendarOutlined /> 事件日历
           </Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            未来 90 天 A 股事件 · 数据由后端 analytics 接口实时提供
+            未来 90 天 A 股事件 · 数据由后端 event-calendar 接口实时聚合
           </Text>
         </Col>
         <Col>
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()} loading={loading}>刷新</Button>
         </Col>
       </Row>
+      {/* 诚实数据来源 Banner：空数据/不可用须显性告知，禁止静默降级 */}
+      <DataSourceBanner
+        entries={[{ name: '事件日历', state: dataSource ?? { kind: 'loading', updatedAt: null } }]}
+        onRetry={() => fetchData()}
+        retrying={loading}
+      />
       {/* 顶部统计卡 */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>

@@ -48,6 +48,7 @@ import etfRouter from './api/etf';
 import hkConnectRouter from './api/hkConnect';
 import macroRouter from './api/macro';
 import northBoundRouter from './api/northBound';
+import eventCalendarRouter from './api/eventCalendar';
 import apiDocsRouter from './api/api-docs';
 import breadthRouter from './api/breadth';
 import marketRouter from './api/market';
@@ -144,6 +145,7 @@ app.use('/api/etf', etfRouter);
 app.use('/api/hk-connect', hkConnectRouter);
 app.use('/api/macro', macroRouter);
 app.use('/api/north-bound', northBoundRouter);
+app.use('/api', eventCalendarRouter);
 // 注意：breadthRouter 内部路由定义为 /current /sectors /history /mcclellan /cache-stats
 // （不含 /breadth 前缀）。此前错误地挂在 '/api' 下，导致实际可用路径变成
 // /api/current、/api/sectors，而前端 breadthService 与文档约定调用的是
