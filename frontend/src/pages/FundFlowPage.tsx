@@ -24,7 +24,7 @@ import { THEME, GOLD } from '../styles/theme-constants';
 import { formatLargeNumber } from '@/utils/formatters';
 import {
   type FundFlowProviderName, type StockFundFlowResp, type IndustryFlowResp,
-  type GlobalFlowResp, type FundFlowMeta, type GlobalIndicator,
+  type GlobalFlowResp, type FundFlowMeta, type GlobalIndicator, type MarketFundFlowResp,
 } from '../utils/fundFlowPageDemo';
 
 const { Title, Text } = Typography;
@@ -58,8 +58,10 @@ async function apiFetch<T>(path: string, timeoutMs = 12000): Promise<T> {
 }
 
 const FundFlowPage: React.FC = () => {
-  // ── ① 市场概览：后端暂无市场级 5 档聚合端点，以空态呈现，杜绝伪造演示数据 ──
-  const overview = null;
+  // ── ① 市场概览：后端 /api/fund-flow/market（真实广度 + 诚实 5 档）──
+  const [market, setMarket] = useState<MarketFundFlowResp | null>(null);
+  const [marketLoading, setMarketLoading] = useState(true);
+  const marketDs = (market?.source ?? 'unknown') as FundFlowProviderName | 'unknown';
 
   // ── ⑤ /meta 诊断 ──
   const [meta, setMeta] = useState<FundFlowMeta | null>(null);
@@ -81,7 +83,7 @@ const FundFlowPage: React.FC = () => {
   const [globalDs, setGlobalDs] = useState<FundFlowProviderName | 'unknown'>('unknown');
   const [globalLoading, setGlobalLoading] = useState(true);
 
-  // 拉取 meta / industry / global（并行，各自兜底）
+  // 拉取 meta / industry / global / market（并行，各自兜底）
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -93,6 +95,18 @@ const FundFlowPage: React.FC = () => {
         if (alive) setMeta(null);
       } finally {
         if (alive) setMetaLoading(false);
+      }
+    })();
+
+    (async () => {
+      setMarketLoading(true);
+      try {
+        const r = await apiFetch<MarketFundFlowResp>('/api/fund-flow/market');
+        if (alive) setMarket(r);
+      } catch {
+        if (alive) setMarket(null);
+      } finally {
+        if (alive) setMarketLoading(false);
       }
     })();
 
@@ -185,7 +199,7 @@ const FundFlowPage: React.FC = () => {
       <Card size="small" style={{ ...cardStyle, marginTop: 16 }}>
         <Space wrap size={[12, 8]} align="center">
           <Text strong style={titleColor}>数据源：</Text>
-          <span>市场概览 {dsTag('unknown')}</span>
+          <span>市场概览 {dsTag(marketDs)}</span>
           <span>个股 {dsTag(stockDs)}</span>
           <span>行业 {dsTag('unknown')}</span>
           <span>外资 {dsTag(globalDs)}</span>
@@ -217,11 +231,62 @@ const FundFlowPage: React.FC = () => {
       <Card
         size="small"
         style={{ ...cardStyle, marginTop: 16 }}
-        title={<span style={titleColor}>市场主力资金结构</span>}
+        title={<span style={titleColor}>市场资金概览 {dsTag(marketDs)}</span>}
       >
-        <Empty description="市场级 5 档聚合端点后端未提供，暂无可展示数据">
-          <Text type="secondary">后端补齐 /api/fund-flow/market 后将自动呈现主力/超大单/大单/中单/小单净流入结构。</Text>
-        </Empty>
+        {marketLoading ? (
+          <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Spin />
+          </div>
+        ) : market ? (
+          <>
+            {/* 真实市场广度 + 成交额（来自本地行情库） */}
+            <Row gutter={[16, 16]} style={{ marginBottom: 8 }}>
+              {[
+                {
+                  l: '全市场成交额', v: market.market?.totalTurnover
+                    ? (market.market.totalTurnover >= 1e12
+                      ? `${(market.market.totalTurnover / 1e12).toFixed(2)}万亿`
+                      : `${(market.market.totalTurnover / 1e8).toFixed(0)}亿`)
+                    : '—',
+                  c: THEME.text,
+                },
+                { l: '上涨家数', v: String(market.market?.risingStocks ?? 0), c: THEME.up },
+                { l: '下跌家数', v: String(market.market?.fallingStocks ?? 0), c: THEME.down },
+                { l: '涨停', v: String(market.market?.limitUpCount ?? 0), c: THEME.up },
+                { l: '跌停', v: String(market.market?.limitDownCount ?? 0), c: THEME.down },
+              ].map((it) => (
+                <Col xs={12} sm={8} md={4} key={it.l}>
+                  <Statistic title={<span style={{ color: THEME.textSec }}>{it.l}</span>}
+                    value={it.v} valueStyle={{ color: it.c, fontSize: 15 }} />
+                </Col>
+              ))}
+            </Row>
+            {/* 5 档主力资金结构：真实可达则展示，否则诚实空态 */}
+            {market.tiers.main !== null ? (
+              <Row gutter={[16, 16]}>
+                {[
+                  { l: '主力净额', v: market.tiers.main },
+                  { l: '超大单', v: market.tiers.superLarge },
+                  { l: '大单', v: market.tiers.large },
+                  { l: '中单', v: market.tiers.medium },
+                  { l: '小单', v: market.tiers.small },
+                ].map((it) => (
+                  <Col xs={12} sm={8} md={4} key={it.l}>
+                    <Statistic title={<span style={{ color: THEME.textSec }}>{it.l}</span>}
+                      value={fmtSigned(Number(it.v))}
+                      valueStyle={{ color: flowColor(Number(it.v)), fontSize: 15 }} />
+                  </Col>
+                ))}
+              </Row>
+            ) : (
+              <Empty description="5 档主力/超大单/大单/中单/小单净流入：数据源未接入">
+                <Text type="secondary">{market.note}</Text>
+              </Empty>
+            )}
+          </>
+        ) : (
+          <Empty description="暂无数据" />
+        )}
       </Card>
 
       {/* ② 个股资金流查询 */}

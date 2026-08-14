@@ -23,6 +23,23 @@ export interface GlobalFlowResp { indicators: GlobalIndicator[]; dataSource: Fun
 export interface FundFlowMeta { activeProviders: FundFlowProviderName[]; keysConfigured: Record<string, boolean>; }
 export interface MarketOverview { mainNet: number; superLargeNet: number; largeNet: number; mediumNet: number; smallNet: number; }
 
+/** 全市场资金流响应（/api/fund-flow/market） */
+export interface MarketFundFlowResp {
+  tiers: {
+    main: number | null; superLarge: number | null; large: number | null;
+    medium: number | null; small: number | null;
+  };
+  market: {
+    tradeDate: string | null;
+    totalTurnover: number | null;
+    risingStocks: number; fallingStocks: number; unchangedStocks: number;
+    limitUpCount: number; limitDownCount: number; totalStocks: number;
+  } | null;
+  updateTime: string;
+  source: FundFlowProviderName | 'unavailable';
+  note?: string;
+}
+
 // ==================== 确定性随机（FNV-1a + LCG，禁用 Math.random） ====================
 function fnv1a(str: string): number {
   let h = 0x811c9dc5 >>> 0;

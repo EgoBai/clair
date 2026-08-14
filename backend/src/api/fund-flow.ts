@@ -6,7 +6,7 @@
 
 import { Request, Response, Router } from 'express';
 import axios from 'axios';
-import { db } from '../db/dbFactory';
+import { db, getDb } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 import { getDemoProvider, getFundFlowMeta, getGlobalIndicators } from '../services/fundFlowProviders';
@@ -172,6 +172,112 @@ router.get('/fund-flow/global', async (_req: Request, res: Response) => {
     res.status(500).json({ success: false, error: '获取国际资金视角失败' });
   }
 });
+
+/**
+ * 全市场 5 档资金流结构 + 市场广度/成交额
+ * GET /api/fund-flow/market
+ *
+ * 诚实红线：
+ *   - 5 档主力/超大单/大单/中单/小单净流入：真实源为东方财富 push2 全市场聚合
+ *     （沙箱下不可达，请求失败则 tiers 置 null，标注 unavailable，绝不编造数值）。
+ *   - 市场广度（上涨/下跌/平盘家数、涨跌停、全市场成交额）：来自本地真实行情库
+ *     （db.getMarketSummary），为真实数据。
+ */
+router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const summary = await db.getMarketSummary(new Date());
+
+    const market = summary
+      ? {
+          tradeDate: summary.date ? new Date(summary.date).toISOString().slice(0, 10) : null,
+          totalTurnover: Number(summary.totalTurnover) || null,
+          risingStocks: Number(summary.risingStocks) || 0,
+          fallingStocks: Number(summary.fallingStocks) || 0,
+          unchangedStocks: Number(summary.unchangedStocks) || 0,
+          limitUpCount: Number(summary.limitUpCount) || 0,
+          limitDownCount: Number(summary.limitDownCount) || 0,
+          totalStocks: Number(summary.totalStocks) || 0,
+        }
+      : null;
+
+    // 尝试真实 5 档聚合（沙箱下通常不可达）
+    const tiers = await fetchMarketTiers();
+    const tierAvailable = !!tiers;
+    const dataSource = tierAvailable ? 'eastmoney' : market ? 'partial' : 'unavailable';
+
+    res.json({
+      success: true,
+      data: {
+        tiers: tiers ?? { main: null, superLarge: null, large: null, medium: null, small: null },
+        market,
+        updateTime: new Date().toISOString(),
+        source: tierAvailable ? 'eastmoney' : 'unavailable',
+        note: tierAvailable
+          ? undefined
+          : '全市场 5 档资金流：东方财富 push2 聚合在沙箱下不可达；市场广度/成交额来自本地真实行情。',
+      },
+      dataSource,
+      notes: {
+        tiers: tierAvailable ? undefined : '5 档主力/超大单/大单/中单/小单净流入：数据源未接入',
+        market: market ? '市场广度与成交额：本地真实行情' : '本地行情库无当日数据',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('获取全市场资金流失败:', error);
+    res.json({
+      success: false,
+      data: {
+        tiers: { main: null, superLarge: null, large: null, medium: null, small: null },
+        market: null,
+        updateTime: new Date().toISOString(),
+        source: 'unavailable',
+      },
+      dataSource: 'unavailable',
+      error: error instanceof Error ? error.message : 'unknown',
+      timestamp: new Date().toISOString(),
+    });
+  }
+}));
+
+/**
+ * 从东方财富 push2 聚合全市场 5 档资金流（实时）。
+ * 沙箱网络下不可达时返回 null，由调用方诚实降级。
+ */
+async function fetchMarketTiers(): Promise<{
+  main: number; superLarge: number; large: number; medium: number; small: number;
+} | null> {
+  try {
+    const url = 'https://push2.eastmoney.com/api/qt/clist/get';
+    const response = await axios.get(url, {
+      params: {
+        pn: 1,
+        pz: 6000,
+        fs: 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+        fields: 'f62,f184,f66,f72,f78,f84',
+        _: Date.now(),
+      },
+      timeout: 10000,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com' },
+    });
+
+    const items = response.data?.data?.diff || [];
+    if (!items.length) return null;
+
+    const acc = { main: 0, superLarge: 0, large: 0, medium: 0, small: 0 };
+    for (const it of items) {
+      acc.main += Number(it.f184) || 0;
+      acc.superLarge += Number(it.f66) || 0;
+      acc.large += Number(it.f72) || 0;
+      acc.medium += Number(it.f78) || 0;
+      acc.small += Number(it.f84) || 0;
+    }
+    return acc;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 获取行业资金流向排行
