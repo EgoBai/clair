@@ -46,6 +46,7 @@ import aiChatRouter from './api/ai-chat';
 import aiStrategyRouter from './api/ai-strategy';
 import etfRouter from './api/etf';
 import hkConnectRouter from './api/hkConnect';
+import macroRouter from './api/macro';
 import apiDocsRouter from './api/api-docs';
 import breadthRouter from './api/breadth';
 import marketRouter from './api/market';
@@ -59,6 +60,7 @@ import aiGemsRouter from './api/ai-gems';
 import industryChainRouter from './api/industryChain';
 import industryAlertsRouter from './api/industry-alerts';
 import aiInvestmentNoteRouter from './api/ai-investment-note';
+import factorRouter from './api/factors';
 import futureValueRouter from './routes/futureValue';
 import { wsService } from './websocket/server';
 import { dataSyncService } from './data-sync/DataSyncService';
@@ -104,7 +106,7 @@ app.use(requestLogger({
 // 首页核心路由 — 添加响应缓存 (市场数据 30s, 新闻 60s)
 app.use('/api/market', apiCache.middleware({ ttl: 30 }) as import('express').RequestHandler);
 app.use('/api/market', marketRouter);
-app.use('/api/news', apiCache.middleware({ ttl: 60, key: 'cache:news' }) as import('express').RequestHandler);
+app.use('/api/news', apiCache.middleware({ ttl: 60 }) as import('express').RequestHandler);
 
 app.use('/api', stockRouter);
 app.use('/api', indicatorRouter);
@@ -123,6 +125,7 @@ app.use('/api', portfolioRouter);
 app.use('/api', newsRouter);
 app.use('/api', socialRouter);
 app.use('/api', aiAnalysisRouter);
+app.use('/api', factorRouter);
 app.use('/api', financialsRouter);
 app.use('/api', stockCompareRouter);
 app.use('/api', sectorAnalysisRouter);
@@ -138,6 +141,7 @@ app.use('/api', aiChatRouter);
 app.use('/api', aiStrategyRouter);
 app.use('/api/etf', etfRouter);
 app.use('/api/hk-connect', hkConnectRouter);
+app.use('/api/macro', macroRouter);
 // 注意：breadthRouter 内部路由定义为 /current /sectors /history /mcclellan /cache-stats
 // （不含 /breadth 前缀）。此前错误地挂在 '/api' 下，导致实际可用路径变成
 // /api/current、/api/sectors，而前端 breadthService 与文档约定调用的是
