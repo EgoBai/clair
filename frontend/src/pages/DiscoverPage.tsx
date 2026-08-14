@@ -334,14 +334,17 @@ const DiscoverPage: React.FC = () => {
       setRetrying(false);
 
       // AI insight: instant rule-based (0 delay)
-      fetch('/api/ai/market-insight', { signal: ac.signal }).then(r => r.json()).then(d => {
-        if (d?.data) { setInsight(d.data); setInsightLoading(false); }
-      }).catch(() => setInsightLoading(false));
+      fetch('/api/ai/market-insight', { signal: ac.signal })
+        .then(r => { if (!r.ok) throw new Error(`market-insight HTTP ${r.status}`); return r.json(); })
+        .then(d => { if (d?.data) setInsight(d.data); })
+        .catch(() => {})
+        .finally(() => setInsightLoading(false));
 
-      // LLM enhanced insight loads in background
-      fetch('/api/ai/market-insight-llm', { signal: ac.signal }).then(r => r.json()).then(d => {
-        if (d?.data) setInsight(d.data);
-      }).catch(() => {});
+      // LLM enhanced insight loads in background（失败时保留规则引擎结果，不静默置空）
+      fetch('/api/ai/market-insight-llm', { signal: ac.signal })
+        .then(r => { if (!r.ok) throw new Error(`market-insight-llm HTTP ${r.status}`); return r.json(); })
+        .then(d => { if (d?.data) setInsight(d.data); })
+        .catch(() => {});
 
       // News loads in background
       fetch('/api/news?limit=6', { signal: ac.signal }).then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
@@ -1014,7 +1017,9 @@ const DiscoverPage: React.FC = () => {
                 )}
               </div>
             </div>
-          ) : null}
+          ) : (
+            <div style={{ color: TEXT_SEC, fontSize: 13 }}>AI 市场解读暂不可用，请稍后重试</div>
+          )}
         </div>
 
         {/* News */}

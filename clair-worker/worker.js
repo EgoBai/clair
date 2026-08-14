@@ -927,8 +927,30 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
     '',
   ].join('\n');
 
+  // 提取操作建议（policyText 中的最后一段）
+  const adviseMatch = policyText.match(/\*\*操作建议\*\*\n· ([^\n]+)/);
+  const operationAdvice = adviseMatch ? adviseMatch[1] : '多看少动，等待方向选择';
+
   return {
     mood, moodEmoji,
+    // ---- 前端契约字段（DiscoverPage v3 渲染依赖）----
+    summary: `${mood}${moodEmoji}：${upRatio}%个股上涨（${upStocks}涨/${downStocks}跌），平均指数涨幅 ${avgIndexChange > 0 ? '+' : ''}${avgIndexChange.toFixed(2)}%。`,
+    points: [
+      `**指数表现**`,
+      ...indexLines.slice(0, 3),
+      `**涨跌分布**：${upStocks}涨 / ${downStocks}跌 / ${totalStocks - upStocks - downStocks}平`,
+      `**涨停/跌停**：${limitUpStocks.length}只涨停 / ${limitDownStocks.length}只跌停`,
+      breadthAnalysis,
+      `**市场总成交**：${turnoverStr}`,
+      `**操作建议**：${operationAdvice}`,
+    ],
+    metrics: {
+      '上涨家数': String(upStocks),
+      '下跌家数': String(downStocks),
+      '上涨占比': `${upRatio}%`,
+      '涨停': `${limitUpStocks.length} 只`,
+      '成交额': turnoverStr,
+    },
     sections: [
       { title: '一、市场基本面', icon: '📊', text: fundamentalText },
       { title: '二、资金面分析', icon: '💰', text: capitalText },
@@ -970,6 +992,40 @@ async function handleMarketInsight() {
   } catch (e) {
     return error(e.message);
   }
+}
+
+// 市场总览（DiscoverPage 依赖 /api/market/summary）
+async function handleMarketSummary() {
+  try {
+    const { quotes } = await getAllQuotes();
+    const allQuotes = quotes.filter(q => q && q.changePercent !== undefined && isFinite(q.changePercent));
+    const risingStocks = allQuotes.filter(q => q.changePercent > 0).length;
+    const fallingStocks = allQuotes.filter(q => q.changePercent < 0).length;
+    const totalStocks = allQuotes.length;
+    const totalTurnover = allQuotes.reduce((s, q) => s + (q.turnover || 0), 0);
+    const limitUpCount = allQuotes.filter(q => q.changePercent >= 9.9).length;
+    const limitDownCount = allQuotes.filter(q => q.changePercent <= -9.9).length;
+    return json({
+      success: true,
+      data: {
+        date: new Date().toISOString(),
+        totalStocks,
+        risingStocks,
+        fallingStocks,
+        unchangedStocks: Math.max(totalStocks - risingStocks - fallingStocks, 0),
+        limitUpCount,
+        limitDownCount,
+        totalTurnover,
+      },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+// LLM 增强解读：Worker 环境无 LLM 凭据，直接返回规则引擎结果（结构对齐 LLM 端点）
+async function handleMarketInsightLlm() {
+  return handleMarketInsight();
 }
 
 // Extract sector data for reuse
@@ -2479,6 +2535,11 @@ export default {
       return handleMarketIndices();
     }
 
+    // Market summary (DiscoverPage 依赖，缺路由会导致右侧统计全 0)
+    if (path === '/api/market/summary') {
+      return handleMarketSummary();
+    }
+
     // Sector momentum
     if (path === '/api/sectors/momentum') {
       return handleSectorMomentum();
@@ -2535,6 +2596,11 @@ export default {
     // Phase 2: AI market insight
     if (path === '/api/ai/market-insight') {
       return handleMarketInsight();
+    }
+
+    // LLM 增强解读（Worker 无 LLM 凭据 → 规则引擎降级，结构对齐）
+    if (path === '/api/ai/market-insight-llm') {
+      return handleMarketInsightLlm();
     }
 
     // Phase 3: Stock strategy: /api/stocks/:symbol/strategy

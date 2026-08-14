@@ -30,7 +30,8 @@ export default defineConfig(({ mode }) => ({
       '/api': {
         target: 'http://127.0.0.1:3001',
         changeOrigin: true,
-        timeout: 15000,
+        // LLM 网关超时 30s + 重试，代理必须留足余量避免掐断慢请求
+        timeout: 60000,
       },
       '/ws': {
         target: 'ws://127.0.0.1:3001',
