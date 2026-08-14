@@ -4,8 +4,8 @@
  * 数据全部由 src/utils/northboundDemo.ts 确定性兜底，引擎调用均 try/catch 降级。
  */
 
-import React, { useMemo } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress, Empty } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress, Empty, Spin } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FallOutlined,
 } from '@ant-design/icons';
@@ -14,10 +14,7 @@ import {
   Tooltip, ResponsiveContainer, Cell, Legend,
 } from 'recharts';
 import { THEME, GOLD } from '../styles/theme-constants';
-// 北向资金真实数据由后端实时接口提供，当前后端未接入；以下以空数据呈现，杜绝伪造演示数据。
-const northboundFlows: any[] = [];
-const topHoldings: any[] = [];
-const sectorNetFlows: any[] = [];
+import logger from '../utils/logger';
 import {
   summarizeNorthboundFlow, analyzeHoldingsChanges,
   sectorFlowAggregation, generateNorthboundSignals,
@@ -32,6 +29,33 @@ const signArrow = (v: number) =>
   v >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />;
 
 const NorthBoundPage: React.FC = () => {
+  const [northboundFlows, setNorthboundFlows] = useState<any[]>([]);
+  const [topHoldings, setTopHoldings] = useState<any[]>([]);
+  const [sectorNetFlows, setSectorNetFlows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    fetch('/api/north-bound/overview', { signal: ac.signal })
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((json) => {
+        const d = json?.data || {};
+        setNorthboundFlows(Array.isArray(d.flows) ? d.flows : []);
+        setTopHoldings(Array.isArray(d.holdings) ? d.holdings : []);
+        setSectorNetFlows(
+          Array.isArray(d.sectors)
+            ? d.sectors.map((s: any) => ({ sector: s.sector, netInflow: s.dayChange ?? 0 }))
+            : []
+        );
+      })
+      .catch((err) => {
+        if (ac.signal.aborted) return;
+        logger.warn('北向资金接口不可用，已如实置空:', err);
+      })
+      .finally(() => { if (!ac.signal.aborted) setLoading(false); });
+    return () => ac.abort();
+  }, []);
+
   // ── 引擎封装（全部 try/catch 降级，绝不让页面崩溃） ──
   const summary = useMemo(() => {
     try {
@@ -147,19 +171,29 @@ const NorthBoundPage: React.FC = () => {
     return { label: '中性', color: THEME.textSec, bg: 'rgba(148,163,184,0.12)' };
   };
 
-  // 北向资金真实接口未接入时，如实展示空态，不做伪造数据兜底
-  if (northboundFlows.length === 0) {
+  // 加载中：显示加载态
+  if (loading) {
+    return (
+      <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh', textAlign: 'center' }}>
+        <Spin size="large" style={{ marginTop: 80 }} />
+        <div style={{ marginTop: 12, color: THEME.textSec }}>正在加载北向资金数据...</div>
+      </div>
+    );
+  }
+
+  // 数据全部为空：显示诚实空态
+  if (northboundFlows.length === 0 && topHoldings.length === 0 && sectorNetFlows.length === 0) {
     return (
       <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
         <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
           北向资金深度追踪
         </Title>
         <Text style={{ color: THEME.textSec }}>
-          沪股通 / 深股通 资金流向 · 后端数据尚未接入
+          沪股通 / 深股通 资金流向 · 数据源暂不可达
         </Text>
         <Card style={{ marginTop: 16, background: THEME.cardBg, borderColor: THEME.border }}>
-          <Empty description="北向资金数据由后端实时接口提供，当前后端未接入，暂无可展示数据">
-            <Text type="secondary">相关接口就绪后将自动呈现净流入趋势、重仓股与信号面板。</Text>
+          <Empty description="北向资金数据源暂时不可用，请稍后重试">
+            <Text type="secondary">已接入沪/深股通持仓接口（东方财富数据中心），板块净流入与日趋势待后续扩展。</Text>
           </Empty>
         </Card>
       </div>
