@@ -27,8 +27,11 @@ export default defineConfig({
     // 覆盖率配置
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'text-summary', 'json-summary', 'lcov'],
       reportsDirectory: './coverage',
+      include: [
+        'src/**/*.{ts,tsx}',
+      ],
       exclude: [
         '**/node_modules/**',
         '**/dist/**',

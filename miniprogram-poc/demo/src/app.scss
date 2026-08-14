@@ -1,0 +1,78 @@
+/**
+ * 全局样式 —— 深色主题令牌落地
+ * 单一事实来源：frontend/src/styles/theme.ts（映射见 docs/01-design.md §2.1）
+ */
+
+page {
+  /* 背景层级 */
+  --color-page: #0a0e1a;
+  --color-card: #111827;
+  --color-card-hover: #1a2332;
+  --color-surface: #1e293b;
+  --color-border: #2d3748;
+  --color-border-light: #374151;
+
+  /* 文字层级 */
+  --color-text: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* 功能色 */
+  --color-accent: #3b82f6;
+  --color-accent-light: #60a5fa;
+  --color-accent-bg: #1e3a5f;
+  --color-warning: #f59e0b;
+
+  /* A股涨跌（红涨绿跌） */
+  --color-up: #ef4444;
+  --color-down: #22c55e;
+  --color-flat: #6b7280;
+
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+/* 数字统一等宽字体 */
+.num {
+  font-family: 'DIN Alternate', 'SF Mono', Menlo, monospace;
+  font-weight: 600;
+}
+
+/* 涨跌色工具类（与 theme.ts getPriceColor 一致） */
+.up {
+  color: var(--color-up);
+}
+.down {
+  color: var(--color-down);
+}
+.flat {
+  color: var(--color-flat);
+}
+
+/* 通用卡片 */
+.card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 24rpx;
+  padding: 24rpx;
+  margin: 16rpx 24rpx;
+}
+
+/* 诚实空态 */
+.empty-state {
+  padding: 80rpx 0;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 26rpx;
+}
+
+/* 合规免责条 */
+.compliance-footer {
+  padding: 24rpx;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 22rpx;
+}

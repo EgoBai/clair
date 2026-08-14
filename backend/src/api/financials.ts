@@ -9,6 +9,7 @@
 import { Router } from 'express';
 import { validateQuery, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendValidationError } from '../utils/apiResponse';
+import { queryCache } from '../utils/queryCache';
 import {
   getFinancialIndicators,
   getBalanceSheet,
@@ -17,6 +18,7 @@ import {
   getFinancialSummary,
   FinancialsUnavailableError,
 } from '../services/financialsDataService';
+import { getFactorSeries, FactorSeriesUnavailableError } from '../services/factorSeriesService';
 
 const router = Router();
 
@@ -85,6 +87,45 @@ router.get('/financials/summary', validateQuery(schemas.financialsQuery), asyncH
   } catch (e) {
     if (e instanceof FinancialsUnavailableError) {
       sendSuccess(res, { symbol, period: '', balanceSheet: null, incomeStatement: null, cashFlow: null, indicators: null, updatedAt: new Date().toISOString(), ...unavailable(e) });
+      return;
+    }
+    throw e;
+  }
+}));
+
+/**
+ * 财务因子序列（真实源：主要财务指标 + 历史收盘价推导 EP/BP/ROE/成长率）
+ * GET /api/financials/factor-series?symbol=600519&periods=8
+ * 成功：{ symbol, dataSource:'real', periods:[{ date, ep, bp, roe, revenueGrowth, profitGrowth }] }（升序）
+ * 源不可达/无数据：dataSource:'unavailable' + periods:[] + message（诚实空，HTTP 200）
+ */
+router.get('/financials/factor-series', asyncHandler(async (req, res) => {
+  const symbol = (req.query.symbol as string) || '600519';
+  const rawPeriods = parseInt(req.query.periods as string, 10);
+  const periods = Number.isFinite(rawPeriods) && rawPeriods > 0 ? Math.min(rawPeriods, 12) : 8;
+  const cacheKey = `financials:factor-series:${symbol}:${periods}`;
+
+  try {
+    const data = await queryCache.query(
+      cacheKey,
+      () => getFactorSeries(symbol, periods),
+      10 * 60 * 1000, // 年报因子 TTL 10 分钟
+    );
+    sendSuccess(res, {
+      symbol: data.symbol,
+      dataSource: 'real',
+      periods: data.periods,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    if (e instanceof FactorSeriesUnavailableError) {
+      sendSuccess(res, {
+        symbol,
+        dataSource: 'unavailable',
+        periods: [],
+        message: e.message,
+        updatedAt: new Date().toISOString(),
+      });
       return;
     }
     throw e;

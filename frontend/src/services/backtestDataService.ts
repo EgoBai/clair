@@ -64,11 +64,31 @@ export interface CrossSectionalRow {
 /** 价格/成交量可真实推导的因子种类 */
 export type PriceDerivedFactorKind = 'momentum' | 'reversal' | 'volatility' | 'volumeRatio';
 
+/** 财务因子种类（对应 /api/financials/factor-series 字段；growth 取 profitGrowth 净利同比） */
+export type FinancialFactorKind = 'ep' | 'bp' | 'roe' | 'growth';
+
+/** 后端 /api/financials/factor-series 单期数据体 */
+export interface FactorSeriesPeriod {
+  date: string;          // 报告期 YYYY-MM-DD（升序）
+  ep: number;            // EP = EPS / 报告期收盘价
+  bp: number;            // BP = BPS / 报告期收盘价
+  roe: number;           // ROE = 净利润 / 净资产（%）
+  revenueGrowth: number; // 营收同比（%）
+  profitGrowth: number;  // 归母净利同比（%）
+}
+
+/** 个股财务因子序列 */
+export interface FactorSeries {
+  symbol: string;
+  dataSource: KlineDataSource; // 'real' | 'unavailable'
+  periods: FactorSeriesPeriod[];
+}
+
 export interface CrossSectionalOptions {
   lookback?: number;  // 因子回看窗口（交易日），默认 20
   horizon?: number;   // 前向收益窗口（交易日），默认 10
   step?: number;      // 采样间隔（交易日），默认 10
-  kind?: PriceDerivedFactorKind; // 默认 'momentum'
+  kind?: PriceDerivedFactorKind | FinancialFactorKind; // 默认 'momentum'
 }
 
 // ==================== 缓存（TTL 5 分钟） ====================
@@ -163,6 +183,93 @@ export async function getBatchHistory(
     while (queue.length > 0) {
       const symbol = queue.shift()!;
       result[symbol] = await getHistorySeries(symbol, days);
+    }
+  }
+
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, symbols.length)) }, () => worker());
+  await Promise.all(workers);
+  return result;
+}
+
+// ==================== 财务因子序列取数 ====================
+
+interface FactorSeriesCacheEntry {
+  series: FactorSeries;
+  timestamp: number;
+}
+
+const factorSeriesCache = new Map<string, FactorSeriesCacheEntry>();
+
+/** 清空财务因子序列缓存（测试/调试使用） */
+export function clearFactorSeriesCache(): void {
+  factorSeriesCache.clear();
+}
+
+function emptyFactorSeries(symbol: string): FactorSeries {
+  return { symbol, dataSource: 'unavailable', periods: [] };
+}
+
+/** 后端 /api/financials/factor-series 数据体（sendSuccess 包装内的 data） */
+interface FactorSeriesPayload {
+  symbol: string;
+  dataSource: KlineDataSource;
+  periods: FactorSeriesPeriod[];
+  message?: string;
+}
+
+/**
+ * 获取单标的财务因子序列（EP/BP/ROE/成长率）。
+ * 任何不可用情形（接口失败 / dataSource='unavailable' / 空数组）均诚实降级为空序列。
+ */
+export async function getFactorSeries(symbol: string, periods: number = 8): Promise<FactorSeries> {
+  const key = `${symbol}:${periods}`;
+  const cached = factorSeriesCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.series;
+  }
+
+  let series: FactorSeries;
+  try {
+    const resp = await apiService.get<FactorSeriesPayload>('/financials/factor-series', { symbol, periods });
+    const payload = resp.data;
+    if (
+      !payload ||
+      payload.dataSource !== 'real' ||
+      !Array.isArray(payload.periods) ||
+      payload.periods.length === 0
+    ) {
+      series = emptyFactorSeries(symbol);
+    } else {
+      series = {
+        symbol: payload.symbol || symbol,
+        dataSource: 'real',
+        periods: payload.periods,
+      };
+    }
+  } catch (e) {
+    logger.warn(`[backtestDataService] factor-series 不可用，诚实降级: ${symbol}`, e);
+    series = emptyFactorSeries(symbol);
+  }
+
+  factorSeriesCache.set(key, { series, timestamp: Date.now() });
+  return series;
+}
+
+/**
+ * 受限并发批量取财务因子序列。返回 symbol → FactorSeries（不可用标的为诚实空序列）。
+ */
+export async function getBatchFactorSeries(
+  symbols: string[],
+  periods: number = 8,
+  concurrency: number = 4,
+): Promise<Record<string, FactorSeries>> {
+  const result: Record<string, FactorSeries> = {};
+  const queue = [...symbols];
+
+  async function worker(): Promise<void> {
+    while (queue.length > 0) {
+      const symbol = queue.shift()!;
+      result[symbol] = await getFactorSeries(symbol, periods);
     }
   }
 
@@ -328,14 +435,45 @@ function computeFactorValue(kind: PriceDerivedFactorKind, prices: number[], volu
   }
 }
 
+/** 判断 kind 是否为财务因子（EP/BP/ROE/GROWTH），否则为价格/成交量推导因子 */
+function isFinancialKind(kind: PriceDerivedFactorKind | FinancialFactorKind): kind is FinancialFactorKind {
+  return kind === 'ep' || kind === 'bp' || kind === 'roe' || kind === 'growth';
+}
+
+/**
+ * 取某采样日期时点最新可用的年报因子值（报告期 <= date 的最近一期）。
+ * growth 取 profitGrowth（净利同比）；无可用期返回 null（诚实留空）。
+ */
+function financialFactorValue(
+  periods: FactorSeriesPeriod[],
+  kind: FinancialFactorKind,
+  date: string,
+): number | null {
+  let best: number | null = null;
+  for (const p of periods) {
+    if (p.date <= date) {
+      if (kind === 'ep') best = p.ep;
+      else if (kind === 'bp') best = p.bp;
+      else if (kind === 'roe') best = p.roe;
+      else best = p.profitGrowth;
+    } else {
+      break;
+    }
+  }
+  return best;
+}
+
 /**
  * 由批量真实序列构建横截面因子样本（引擎无关中间形状）。
- * 仅使用 dataSource='real' 的序列；每隔 step 个交易日采样一次，
- * factorValue 由 kind 决定（全部为价格/成交量真实推导），forwardReturn 为未来 horizon 日收益。
+ * 仅使用 dataSource='real' 的序列；每隔 step 个交易日采样一次，forwardReturn 为未来 horizon 日收益。
+ * - 价格/成交量因子：factorValue 由 kind 决定（真实行情推导）；
+ * - 财务因子（EP/BP/ROE/GROWTH）：factorValue 取 financialSeries 中最近一期年报值（真实财务因子序列）；
+ *   无财务因子序列或该时点无可用的标的诚实跳过，不虚构。
  */
 export function buildCrossSectionalRows(
   batch: Record<string, HistorySeries>,
   options: CrossSectionalOptions = {},
+  financialSeries: Record<string, FactorSeries> = {},
 ): CrossSectionalRow[] {
   const { lookback = 20, horizon = 10, step = 10, kind = 'momentum' } = options;
   const rows: CrossSectionalRow[] = [];
@@ -343,6 +481,27 @@ export function buildCrossSectionalRows(
   for (const series of Object.values(batch)) {
     if (series.dataSource !== 'real') continue;
     const { dates, prices, volumes } = series;
+
+    if (isFinancialKind(kind)) {
+      // 财务因子：factorValue 来自真实因子序列，forwardReturn 仍由价格推导
+      const fs = financialSeries[series.symbol];
+      if (!fs || fs.dataSource !== 'real' || fs.periods.length === 0) continue;
+      for (let idx = lookback; idx + horizon < prices.length; idx += step) {
+        const factorValue = financialFactorValue(fs.periods, kind, dates[idx]);
+        if (factorValue === null || !Number.isFinite(factorValue)) continue;
+        const base = prices[idx];
+        if (base === 0) continue;
+        rows.push({
+          date: dates[idx],
+          symbol: series.symbol,
+          factorValue,
+          forwardReturn: prices[idx + horizon] / base - 1,
+        });
+      }
+      continue;
+    }
+
+    // 价格/成交量因子（此处 kind 已收窄为 PriceDerivedFactorKind）
     for (let idx = lookback; idx + horizon < prices.length; idx += step) {
       const factorValue = computeFactorValue(kind, prices, volumes, idx, lookback);
       if (factorValue === null || !Number.isFinite(factorValue)) continue;
@@ -364,8 +523,9 @@ export function buildCrossSectionalRows(
 export function buildQuantFactorData(
   batch: Record<string, HistorySeries>,
   options: CrossSectionalOptions = {},
+  financialSeries: Record<string, FactorSeries> = {},
 ): QuantFactorData[] {
-  return buildCrossSectionalRows(batch, options).map((r) => ({
+  return buildCrossSectionalRows(batch, options, financialSeries).map((r) => ({
     date: r.date,
     stock: r.symbol,
     factorValue: r.factorValue,
@@ -377,8 +537,9 @@ export function buildQuantFactorData(
 export function buildICFactorData(
   batch: Record<string, HistorySeries>,
   options: CrossSectionalOptions = {},
+  financialSeries: Record<string, FactorSeries> = {},
 ): ICFactorData[] {
-  return buildCrossSectionalRows(batch, options).map((r) => ({
+  return buildCrossSectionalRows(batch, options, financialSeries).map((r) => ({
     date: r.date,
     ticker: r.symbol,
     factorValue: r.factorValue,

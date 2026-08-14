@@ -1,0 +1,58 @@
+.market-page {
+  min-height: 100vh;
+  background: var(--color-page);
+  padding-bottom: 40rpx;
+}
+
+.index-cards {
+  .index-row {
+    display: flex;
+    justify-content: space-between;
+  }
+  .index-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8rpx;
+  }
+  .index-name {
+    color: var(--color-text-secondary);
+    font-size: 24rpx;
+  }
+  .index-price {
+    color: var(--color-text);
+    font-size: 34rpx;
+  }
+}
+
+.breadth-card {
+  .breadth-stats {
+    display: flex;
+    gap: 24rpx;
+    margin-bottom: 16rpx;
+    font-size: 24rpx;
+  }
+  .breadth-bar {
+    display: flex;
+    height: 16rpx;
+    border-radius: 8rpx;
+    overflow: hidden;
+  }
+  .breadth-up {
+    background: var(--color-up);
+  }
+  .breadth-down {
+    background: var(--color-down);
+  }
+  .breadth-turnover {
+    display: block;
+    margin-top: 12rpx;
+    color: var(--color-text-muted);
+    font-size: 22rpx;
+  }
+}
+
+.chart-card {
+  padding: 12rpx;
+}

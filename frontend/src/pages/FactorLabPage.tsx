@@ -1,9 +1,10 @@
 /**
  * 多因子实验室（Sprint 4 · S4-3）
  * 区块A 因子库总览表 / 区块B 因子详情（IC时序·五分位·衰减）/ 区块C 相关性矩阵 / 区块D 因子合成信号
- * 真实数据优先：通过 backtestDataService 拉取真实 K 线，构建价格/成交量可推导因子
- * （REV1M 反转 / MOM3M 动量 / VOL 波动率 / TURN 量比）；EP/BP/GROWTH/ROE 需财务因子，暂不接入。
- * 真实源不可用时由 factorLabDemo 诚实兜底，所有引擎调用包 try/catch 优雅降级为 Empty。
+ * 真实数据优先：通过 backtestDataService 拉取真实 K 线构建价格/成交量可推导因子
+ * （REV1M 反转 / MOM3M 动量 / VOL 波动率 / TURN 量比），
+ * 并通过 /api/financials/factor-series 拉取真实财务因子序列构建 EP / BP / GROWTH / ROE。
+ * 真实源不可用时由 factorLabDemo 诚实兜底（空态），所有引擎调用包 try/catch 优雅降级为 Empty。
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -20,11 +21,11 @@ import {
 } from '../utils/factorICEngine';
 import { FACTORS, factorLabData, factorDecayData } from '../utils/factorLabDemo';
 import {
-  getBatchHistory, buildICFactorData, DEFAULT_FACTOR_UNIVERSE,
-  type PriceDerivedFactorKind,
+  getBatchHistory, getBatchFactorSeries, buildICFactorData, DEFAULT_FACTOR_UNIVERSE,
+  type PriceDerivedFactorKind, type FinancialFactorKind,
 } from '../services/backtestDataService';
 
-/** 价格/成交量可真实推导的因子 → 构建参数（其余因子需财务数据，诚实留空） */
+/** 价格/成交量可真实推导的因子 → 构建参数 */
 const REAL_FACTOR_KIND: Record<string, PriceDerivedFactorKind> = {
   REV1M: 'reversal',
   MOM3M: 'momentum',
@@ -36,6 +37,14 @@ const REAL_FACTOR_LOOKBACK: Record<string, number> = {
   MOM3M: 63,
   VOL: 21,
   TURN: 21,
+};
+
+/** 财务因子 → factor-series 字段（EP/BP/ROE/GROWTH，真实源） */
+const FINANCIAL_FACTOR_KIND: Record<string, FinancialFactorKind> = {
+  EP: 'ep',
+  BP: 'bp',
+  GROWTH: 'growth',
+  ROE: 'roe',
 };
 
 const { Title, Text } = Typography;
@@ -76,10 +85,11 @@ interface OverviewRow {
 const FactorLabPage: React.FC = () => {
   const [sel, setSel] = useState<string>(FACTORS[0].key);
 
-  // ── 真实数据优先：拉取默认股票池真实 K 线，构建价格/成交量可推导因子 ──
+  // ── 真实数据优先：拉取默认股票池真实 K 线 + 财务因子序列，构建 8 因子 ──
   const [real, setReal] = useState<{
     data: Record<string, FactorData[]>;
     decay: Record<string, Map<number, FactorData[]>>;
+    financialCount: number; // 已接入的财务因子数量（EP/BP/GROWTH/ROE）
   } | null>(null);
 
   useEffect(() => {
@@ -89,6 +99,8 @@ const FactorLabPage: React.FC = () => {
         const batch = await getBatchHistory(DEFAULT_FACTOR_UNIVERSE, 250, 4);
         const realCount = Object.values(batch).filter((s) => s.dataSource === 'real').length;
         if (realCount < 10) return; // 真实数据不足 → 保持演示/空态诚实兜底
+        // 财务因子序列（EP/BP/GROWTH/ROE 真实源，源不可达时每标的高诚实降级为空）
+        const factorSeries = await getBatchFactorSeries(DEFAULT_FACTOR_UNIVERSE, 8, 4);
         const data: Record<string, FactorData[]> = {};
         const decay: Record<string, Map<number, FactorData[]>> = {};
         for (const key of Object.keys(REAL_FACTOR_KIND)) {
@@ -103,7 +115,20 @@ const FactorLabPage: React.FC = () => {
           }
           decay[key] = m;
         }
-        if (!cancelled && Object.keys(data).length > 0) setReal({ data, decay });
+        let financialCount = 0;
+        for (const key of Object.keys(FINANCIAL_FACTOR_KIND)) {
+          const opts = { kind: FINANCIAL_FACTOR_KIND[key], horizon: 21, step: 21 };
+          const rows = buildICFactorData(batch, opts, factorSeries);
+          if (rows.length < 20) continue; // 财务源样本不足则不接入该因子（诚实留空）
+          data[key] = rows;
+          financialCount += 1;
+          const m = new Map<number, FactorData[]>();
+          for (let lag = 1; lag <= 6; lag++) {
+            m.set(lag, buildICFactorData(batch, { ...opts, horizon: lag * 21 }, factorSeries));
+          }
+          decay[key] = m;
+        }
+        if (!cancelled && Object.keys(data).length > 0) setReal({ data, decay, financialCount });
       } catch (e) {
         console.warn('[FactorLab] 真实数据不可用，保持兜底', e);
       }
@@ -266,14 +291,22 @@ const FactorLabPage: React.FC = () => {
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         多因子实验室
         {real ? (
-          <Tag color="green" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>真实行情数据</Tag>
+          <>
+            <Tag color="green" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>真实行情数据</Tag>
+            <Tag color={real.financialCount > 0 ? 'green' : 'default'}
+              style={{ marginLeft: 8, transform: 'translateY(-2px)' }}>
+              {real.financialCount > 0 ? `真实财务因子 ×${real.financialCount}` : '财务因子未接入'}
+            </Tag>
+          </>
         ) : (
           <Tag color="default" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>数据未接入</Tag>
         )}
       </Title>
       <Text style={{ color: THEME.textSec }}>
         {real
-          ? '多因子模型一期 · 动量/反转/波动率/量比因子基于真实 K 线构建；估值/成长/质量因子需财务数据，暂未接入'
+          ? (real.financialCount > 0
+            ? '多因子模型一期 · 动量/反转/波动率/量比基于真实 K 线；估值/成长/质量因子（EP/BP/GROWTH/ROE）基于真实财务因子序列'
+            : '多因子模型一期 · 动量/反转/波动率/量比因子基于真实 K 线构建；估值/成长/质量因子源暂不可用，诚实留空')
           : '多因子模型一期 · 8 经典因子 IC / 分层 / 衰减 / 合成（因子数据由后端提供，当前尚未接入）'}
       </Text>
 
