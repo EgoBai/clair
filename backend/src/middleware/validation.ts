@@ -133,7 +133,7 @@ const marginSymbolSchema = Joi.object({
 });
 
 const marginRankSchema = Joi.object({
-  type: Joi.string().valid('finance', 'securities', 'net').default('finance'),
+  type: Joi.string().valid('financing', 'securities', 'net').default('financing'),
 });
 
 // --- 投资组合 ---

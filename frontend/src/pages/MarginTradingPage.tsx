@@ -9,7 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import {
-  Card, Row, Col, Statistic, Table, Radio, Tag, Typography, Spin,
+  Card, Row, Col, Statistic, Table, Radio, Tag, Typography, Spin, Alert,
 } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined, DollarOutlined, StockOutlined,
@@ -17,7 +17,7 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
 } from 'recharts';
-import { fetchMarginOverviewTyped, fetchMarginRank } from '../services/api';
+import { fetchMarginOverviewTyped, fetchMarginRank, fetchMarginTrend } from '../services/api';
 import type { MarginOverview, MarginRankEntry } from '../../../shared/types';
 
 const { Title, Text } = Typography;
@@ -36,7 +36,7 @@ interface MarginRecord {
 
 
 const MarginTradingPage: React.FC = () => {
-  const [overview, setOverview] = useState<MarginOverview | null>(null);
+  const [overview, setOverview] = useState<(MarginOverview & { dataSource?: string; notes?: string }) | null>(null);
   const [trend, setTrend] = useState<MarginRecord[]>([]);
   const [financingRank, setFinancingRank] = useState<MarginRankEntry[]>([]);
   const [securitiesRank, setSecuritiesRank] = useState<MarginRankEntry[]>([]);
@@ -56,14 +56,15 @@ const MarginTradingPage: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [overviewRes, rankRes] = await Promise.all([
+      const [overviewRes, rankRes, trendRes] = await Promise.all([
         fetchMarginOverviewTyped(),
         fetchMarginRank('financing'),
+        fetchMarginTrend(30),
       ]);
       setOverview(overviewRes);
       setFinancingRank(rankRes);
-      // 趋势暂无独立市场级 API，优先尝试融资排行推导；失败则走兜底
-      if (!rankRes || rankRes.length === 0) throw new Error('empty margin rank');
+      // 真实两融趋势：/api/margin/trend 返回的 records 映射为图表数据；不可达时为空数组（诚实空态）
+      setTrend((trendRes?.records ?? []) as MarginRecord[]);
     } catch (err) {
       logger.error('加载融资融券数据失败（后端未就绪或接口异常），已如实置空:', err);
       // 诚实数据红线：后端不可达时清空展示，绝不回填演示数据
@@ -122,9 +123,20 @@ const MarginTradingPage: React.FC = () => {
         <DollarOutlined /> 融资融券
       </Title>
 
+      {/* 诚实数据来源提示：真实源不可达时显性告知，禁止静默空态 */}
+      {overview?.dataSource === 'unavailable' && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="融资融券数据不可用"
+          description="东方财富融资融券数据中心在沙箱下不可达，当前无真实数据。后端已去除随机演示数据，页面如实留空；数据源恢复后自动填充。"
+        />
+      )}
+
       <Spin spinning={loading}>
-        {/* 概览卡片 */}
-        {overview && (
+        {/* 概览卡片（仅真实数据可用时渲染） */}
+        {overview && overview.totalFinancingBalance != null && (
           <Row gutter={16} style={{ marginBottom: 24 }}>
             <Col span={6}>
               <Card>

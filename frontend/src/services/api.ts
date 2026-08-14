@@ -18,6 +18,7 @@ import type {
   TopTraderOverview,
   SeatRankEntry,
   MarginRankEntry,
+  MarginTradingData,
   DataCategory,
   DataFreshness,
 } from '../../../shared/types';
@@ -570,8 +571,17 @@ export async function fetchMarginRank(type: string, count = 20): Promise<MarginR
   return result.rank;
 }
 
-export async function fetchMarginOverviewTyped(): Promise<MarginOverview> {
-  return rawGet<MarginOverview>('/api/margin/overview');
+export async function fetchMarginOverviewTyped(): Promise<MarginOverview & { dataSource?: string; notes?: string }> {
+  return rawGet<MarginOverview & { dataSource?: string; notes?: string }>('/api/margin/overview');
+}
+
+export interface MarginTrendResp {
+  records: MarginTradingData[];
+  dataSource: string;
+  notes?: string;
+}
+export async function fetchMarginTrend(days = 30): Promise<MarginTrendResp> {
+  return rawGet<MarginTrendResp>(`/api/margin/trend?days=${days}`);
 }
 
 export async function fetchTopTraderOverviewTyped(date?: string): Promise<TopTraderOverview> {
