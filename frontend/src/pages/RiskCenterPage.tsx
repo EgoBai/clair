@@ -285,7 +285,7 @@ function RiskCenterPage() {
           <SafetyCertificateOutlined style={{ marginRight: 8, color: ACCENT }} />
           组合风控中心
         </Title>
-        <Card><div style={{ textAlign: 'center', padding: 40 }}><Spin tip="正在加载持仓与行情…" /></div></Card>
+        <Card><div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /><div style={{ marginTop: 12, color: '#94a3b8' }}>正在加载持仓与行情…</div></div></Card>
       </div>
     );
   }

@@ -559,20 +559,20 @@ export async function fetchTimeShare(symbol: string) {
 // ==================== 融资融券 ====================
 
 export async function fetchMarginOverview() {
-  return rawGet('/api/margin/overview');
+  return rawGet('/margin/overview');
 }
 
 export async function fetchMarginData(symbol: string, days = 30) {
-  return rawGet(`/api/margin/${symbol}?days=${days}`);
+  return rawGet(`/margin/${symbol}?days=${days}`);
 }
 
 export async function fetchMarginRank(type: string, count = 20): Promise<MarginRankEntry[]> {
-  const result = await rawGet<{ rank: MarginRankEntry[] }>(`/api/margin/rank/${type}?count=${count}`);
+  const result = await rawGet<{ rank: MarginRankEntry[] }>(`/margin/rank/${type}?count=${count}`);
   return result.rank;
 }
 
 export async function fetchMarginOverviewTyped(): Promise<MarginOverview & { dataSource?: string; notes?: string }> {
-  return rawGet<MarginOverview & { dataSource?: string; notes?: string }>('/api/margin/overview');
+  return rawGet<MarginOverview & { dataSource?: string; notes?: string }>('/margin/overview');
 }
 
 export interface MarginTrendResp {
@@ -581,7 +581,7 @@ export interface MarginTrendResp {
   notes?: string;
 }
 export async function fetchMarginTrend(days = 30): Promise<MarginTrendResp> {
-  return rawGet<MarginTrendResp>(`/api/margin/trend?days=${days}`);
+  return rawGet<MarginTrendResp>(`/margin/trend?days=${days}`);
 }
 
 export async function fetchTopTraderOverviewTyped(date?: string): Promise<TopTraderOverview> {
