@@ -98,3 +98,22 @@
 6. **I6 诚实红线**：源不可达时页面须展示「数据源暂不可达」空态（F2），**绝不回填演示数据**。
 
 > 备注：`miniprogram-poc/demo/package.json` 已声明 Taro 4 + NutUI + echarts + Zustand（2026-08-14 状态）；`package-lock` 未随 swarm-4 提交同步，I1 会由 npm 重新解析。
+
+---
+
+## J. 沙箱构建验证（2026-08-16，team-lead 实测）
+
+为消除用户本地联调的安装/编译阻断，在沙箱实际跑通了 demo 依赖安装 + 微信小程序构建：
+
+| 步骤 | 命令 | 结果 |
+|------|------|------|
+| J1 装依赖 | `cd miniprogram-poc/demo && npm install` | ✅ `added 1202 packages`（约 2 分钟，npm registry 可达） |
+| J2 类型检查 | `tsc --noEmit`（scope=src，skipLibCheck） | ✅ **demo 自有 `src/` 0 类型错误**（node_modules/@tarojs 的 .d.ts 警告与 demo 无关，skipLibCheck 后归零） |
+| J3 weapp 构建 | `taro build --type weapp` | ✅ `✔ Webpack: Compiled successfully`（3.65s），`dist/` 产出 |
+| J4 依赖修复 | 缺失 `@babel/preset-react` 导致 J3 初始失败 | 🔧 已加入 `demo/package.json` devDependencies 并 commit+push（`840be8563`），用户本地 `npm install` 不再踩坑 |
+
+**已知警告（非阻断）**：
+- `AssetsOverSizeLimitWarning`：`pages/market/index.js` ≈ 546 KiB > 244 KiB 单资源建议值。总主包仍 < 2MB（联调项 **D1**），但 `market` 页体积偏大，建议后续按需分包/懒加载优化。
+- `../../package.json` 重复 `description` 键的 webpack 警告（根仓库 package.json 小瑕疵，不影响构建）。
+
+**结论**：demo 在沙箱已验证「可安装 + 可编译 + 可产出 dist」，I1/I4 的程序性阻断已消除。剩余仅真机勾选（§A–§F）、后端 LLM key 配置（使 `/api/ai/chat` 流出真实 token）、以及将 `BASE_URL` 改为局域网 IP（I3）。
