@@ -1,210 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  AdaptiveChartThemeEngine,
+  type ThemeContext,
+  type AccessibilityOptions,
+  type MarketCondition,
+  type ThemePalette,
+} from '../utils/adaptiveChartTheme';
 
 /**
  * Round 201 — Adaptive Chart Theme Engine
  * Dynamically generates chart themes based on market conditions,
  * time of day, user preferences, and accessibility needs.
+ * (Rewritten to import the real module instead of an inline re-implementation.)
  */
-
-interface ThemePalette {
-  primary: string;
-  secondary: string;
-  background: string;
-  surface: string;
-  text: string;
-  textSecondary: string;
-  bullish: string;
-  bearish: string;
-  neutral: string;
-  volume: string;
-  grid: string;
-  crosshair: string;
-  annotation: string;
-  highlight: string;
-  border: string;
-}
-
-interface AccessibilityOptions {
-  highContrast: boolean;
-  colorBlindMode: 'none' | 'protanopia' | 'deuteranopia' | 'tritanopia';
-  reducedMotion: boolean;
-  fontSize: 'small' | 'medium' | 'large';
-}
-
-interface MarketCondition {
-  trend: 'bullish' | 'bearish' | 'neutral';
-  volatility: 'low' | 'medium' | 'high';
-  sentiment: number; // -1 to 1
-}
-
-interface ThemeContext {
-  timeOfDay: 'morning' | 'day' | 'evening' | 'night';
-  marketCondition: MarketCondition;
-  accessibility: AccessibilityOptions;
-  userPreference: 'auto' | 'light' | 'dark';
-}
-
-class AdaptiveChartThemeEngine {
-  private baseThemes: Map<string, ThemePalette> = new Map();
-
-  constructor() {
-    this.initBaseThemes();
-  }
-
-  private initBaseThemes(): void {
-    this.baseThemes.set('light', {
-      primary: '#1976d2', secondary: '#dc004e', background: '#ffffff',
-      surface: '#f5f5f5', text: '#212121', textSecondary: '#757575',
-      bullish: '#2e7d32', bearish: '#c62828', neutral: '#757575',
-      volume: '#90a4ae', grid: '#e0e0e0', crosshair: '#616161',
-      annotation: '#ff9800', highlight: '#fff59d', border: '#bdbdbd',
-    });
-
-    this.baseThemes.set('dark', {
-      primary: '#90caf9', secondary: '#f48fb1', background: '#121212',
-      surface: '#1e1e1e', text: '#e0e0e0', textSecondary: '#9e9e9e',
-      bullish: '#66bb6a', bearish: '#ef5350', neutral: '#9e9e9e',
-      volume: '#546e7a', grid: '#333333', crosshair: '#bdbdbd',
-      annotation: '#ffa726', highlight: '#f9a825', border: '#424242',
-    });
-
-    this.baseThemes.set('midnight', {
-      primary: '#7c4dff', secondary: '#ff4081', background: '#0a0e27',
-      surface: '#141937', text: '#e8eaf6', textSecondary: '#9fa8da',
-      bullish: '#00e676', bearish: '#ff1744', neutral: '#78909c',
-      volume: '#37474f', grid: '#1a237e', crosshair: '#b388ff',
-      annotation: '#ffab40', highlight: '#ffd740', border: '#283593',
-    });
-  }
-
-  generateTheme(context: ThemeContext): ThemePalette {
-    const baseName = context.userPreference === 'auto'
-      ? this.autoSelectBase(context.timeOfDay)
-      : context.userPreference;
-
-    const base = this.baseThemes.get(baseName) || this.baseThemes.get('light')!;
-
-    let theme = { ...base };
-    theme = this.applyMarketCondition(theme, context.marketCondition);
-    theme = this.applyAccessibility(theme, context.accessibility);
-
-    return theme;
-  }
-
-  private autoSelectBase(timeOfDay: string): string {
-    switch (timeOfDay) {
-      case 'night': return 'dark';
-      case 'evening': return 'midnight';
-      default: return 'light';
-    }
-  }
-
-  private applyMarketCondition(theme: ThemePalette, condition: MarketCondition): ThemePalette {
-    const result = { ...theme };
-
-    if (condition.trend === 'bullish' && condition.sentiment > 0.3) {
-      result.highlight = '#c8e6c9';
-      result.annotation = '#4caf50';
-    } else if (condition.trend === 'bearish' && condition.sentiment < -0.3) {
-      result.highlight = '#ffcdd2';
-      result.annotation = '#f44336';
-    }
-
-    if (condition.volatility === 'high') {
-      result.grid = this.adjustOpacity(result.grid, 0.6);
-      result.crosshair = this.lighten(result.crosshair, 20);
-    }
-
-    return result;
-  }
-
-  private applyAccessibility(theme: ThemePalette, opts: AccessibilityOptions): ThemePalette {
-    let result = { ...theme };
-
-    if (opts.highContrast) {
-      result = this.enforceContrast(result);
-    }
-
-    if (opts.colorBlindMode !== 'none') {
-      result = this.adaptForColorBlind(result, opts.colorBlindMode);
-    }
-
-    return result;
-  }
-
-  private enforceContrast(theme: ThemePalette): ThemePalette {
-    return {
-      ...theme,
-      text: '#000000',
-      textSecondary: '#333333',
-      background: '#ffffff',
-      surface: '#f0f0f0',
-      bullish: '#006400',
-      bearish: '#8b0000',
-    };
-  }
-
-  private adaptForColorBlind(theme: ThemePalette, mode: string): ThemePalette {
-    switch (mode) {
-      case 'protanopia':
-        return { ...theme, bullish: '#0072b2', bearish: '#d55e00' };
-      case 'deuteranopia':
-        return { ...theme, bullish: '#0072b2', bearish: '#cc79a7' };
-      case 'tritanopia':
-        return { ...theme, bullish: '#009e73', bearish: '#d55e00' };
-      default:
-        return theme;
-    }
-  }
-
-  private adjustOpacity(hex: string, factor: number): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r},${g},${b},${factor})`;
-  }
-
-  private lighten(hex: string, amount: number): string {
-    const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + amount);
-    const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + amount);
-    const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + amount);
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-  }
-
-  getAvailableThemes(): string[] {
-    return Array.from(this.baseThemes.keys());
-  }
-
-  registerTheme(name: string, palette: ThemePalette): void {
-    this.baseThemes.set(name, palette);
-  }
-
-  getBaseTheme(name: string): ThemePalette | undefined {
-    return this.baseThemes.get(name);
-  }
-
-  exportThemeCSS(theme: ThemePalette, prefix = 'ast'): string {
-    return Object.entries(theme)
-      .map(([key, val]) => `--${prefix}-${key}: ${val};`)
-      .join('\n');
-  }
-
-  contrastRatio(hex1: string, hex2: string): number {
-    const lum1 = this.relativeLuminance(hex1);
-    const lum2 = this.relativeLuminance(hex2);
-    const lighter = Math.max(lum1, lum2);
-    const darker = Math.min(lum1, lum2);
-    return (lighter + 0.05) / (darker + 0.05);
-  }
-
-  private relativeLuminance(hex: string): number {
-    const r = parseInt(hex.slice(1, 3), 16) / 255;
-    const g = parseInt(hex.slice(3, 5), 16) / 255;
-    const b = parseInt(hex.slice(5, 7), 16) / 255;
-    const toLinear = (c: number) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
-  }
-}
 
 const defaultContext: ThemeContext = {
   timeOfDay: 'day',
@@ -258,7 +66,7 @@ describe('Round 201: Adaptive Chart Theme Engine', () => {
 
   describe('Market Condition Adaptation', () => {
     it('adjusts highlight for bullish sentiment', () => {
-      const ctx = {
+      const ctx: ThemeContext = {
         ...defaultContext,
         marketCondition: { trend: 'bullish' as const, volatility: 'medium' as const, sentiment: 0.6 },
       };
@@ -267,7 +75,7 @@ describe('Round 201: Adaptive Chart Theme Engine', () => {
     });
 
     it('adjusts highlight for bearish sentiment', () => {
-      const ctx = {
+      const ctx: ThemeContext = {
         ...defaultContext,
         marketCondition: { trend: 'bearish' as const, volatility: 'medium' as const, sentiment: -0.6 },
       };
@@ -276,7 +84,7 @@ describe('Round 201: Adaptive Chart Theme Engine', () => {
     });
 
     it('adjusts grid for high volatility', () => {
-      const ctx = {
+      const ctx: ThemeContext = {
         ...defaultContext,
         marketCondition: { trend: 'neutral' as const, volatility: 'high' as const, sentiment: 0 },
       };
@@ -287,7 +95,7 @@ describe('Round 201: Adaptive Chart Theme Engine', () => {
 
   describe('Accessibility', () => {
     it('enforces high contrast', () => {
-      const ctx = {
+      const ctx: ThemeContext = {
         ...defaultContext,
         accessibility: { highContrast: true, colorBlindMode: 'none' as const, reducedMotion: false, fontSize: 'medium' as const },
       };
@@ -297,7 +105,7 @@ describe('Round 201: Adaptive Chart Theme Engine', () => {
     });
 
     it('adapts for protanopia', () => {
-      const ctx = {
+      const ctx: ThemeContext = {
         ...defaultContext,
         accessibility: { highContrast: false, colorBlindMode: 'protanopia' as const, reducedMotion: false, fontSize: 'medium' as const },
       };
@@ -307,7 +115,7 @@ describe('Round 201: Adaptive Chart Theme Engine', () => {
     });
 
     it('adapts for deuteranopia', () => {
-      const ctx = {
+      const ctx: ThemeContext = {
         ...defaultContext,
         accessibility: { highContrast: false, colorBlindMode: 'deuteranopia' as const, reducedMotion: false, fontSize: 'medium' as const },
       };
@@ -316,7 +124,7 @@ describe('Round 201: Adaptive Chart Theme Engine', () => {
     });
 
     it('adapts for tritanopia', () => {
-      const ctx = {
+      const ctx: ThemeContext = {
         ...defaultContext,
         accessibility: { highContrast: false, colorBlindMode: 'tritanopia' as const, reducedMotion: false, fontSize: 'medium' as const },
       };

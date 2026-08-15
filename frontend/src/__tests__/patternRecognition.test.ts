@@ -1,125 +1,127 @@
 import { describe, it, expect } from 'vitest';
+import {
+  findSupportResistance,
+  detectPatterns,
+  analyzeVolumePrice,
+  type OHLCV,
+} from '../utils/patternRecognition';
 
 /**
- * 模式识别 / 图形分析逻辑测试
+ * 技术形态识别引擎测试 —— 直接驱动真实模块
  */
 
-describe('PatternRecognitionEngine', () => {
-  describe('头肩顶/底', () => {
-    const isHeadAndShoulders = (highs: number[]) => {
-      if (highs.length < 5) return false;
-      // 简化检测: 左肩 < 头 > 右肩，左右肩等高
-      const leftShoulder = highs[0];
-      const head = highs[2];
-      const rightShoulder = highs[4];
-      return head > leftShoulder && head > rightShoulder && 
-             Math.abs(leftShoulder - rightShoulder) / leftShoulder < 0.05;
-    };
+function bar(date: string, o: number, h: number, l: number, c: number, v: number): OHLCV {
+  return { date, open: o, high: h, low: l, close: c, volume: v };
+}
 
-    it('应该识别头肩顶', () => {
-      expect(isHeadAndShoulders([100, 95, 110, 95, 100])).toBe(true);
-    });
-
-    it('非头肩顶应返回 false', () => {
-      expect(isHeadAndShoulders([100, 110, 120, 130, 140])).toBe(false);
-    });
+describe('findSupportResistance', () => {
+  it('空数据应返回空数组', () => {
+    expect(findSupportResistance([])).toEqual([]);
   });
 
-  describe('双顶/双底', () => {
-    const isDoubleTop = (highs: number[], tolerance: number = 0.02) => {
-      for (let i = 0; i < highs.length - 1; i++) {
-        for (let j = i + 1; j < highs.length; j++) {
-          if (Math.abs(highs[i] - highs[j]) / highs[i] < tolerance) {
-            return { found: true, points: [i, j] };
-          }
-        }
-      }
-      return { found: false, points: [] };
-    };
-
-    it('应该识别双顶', () => {
-      const result = isDoubleTop([90, 100, 95, 99, 92]);
-      expect(result.found).toBe(true);
-    });
-
-    it('无双顶应该返回 false', () => {
-      const result = isDoubleTop([90, 95, 100, 105, 110]);
-      expect(result.found).toBe(false);
-    });
+  it('应基于价格聚类识别支撑与阻力位', () => {
+    const ohlcv = [
+      bar('1', 50, 60, 50, 55, 1000),
+      bar('2', 50, 60, 50, 55, 1000),
+      bar('3', 50, 60, 50, 55, 1000),
+      bar('4', 90, 140, 90, 95, 1000),
+      bar('5', 90, 140, 90, 95, 1000),
+    ];
+    const levels = findSupportResistance(ohlcv);
+    // 每个价位簇至少被触及 2 次(minTouches 默认 2)
+    expect(levels.length).toBeGreaterThanOrEqual(2);
+    expect(levels.some((l) => l.type === 'support')).toBe(true);
+    expect(levels.some((l) => l.type === 'resistance')).toBe(true);
   });
 
-  describe('三角形整理', () => {
-    const isTrianglePattern = (highs: number[], lows: number[]) => {
-      // 上升三角: 高点持平，低点抬高
-      const highTrend = highs[highs.length - 1] - highs[0];
-      const lowTrend = lows[lows.length - 1] - lows[0];
-      
-      if (Math.abs(highTrend) < 2 && lowTrend > 0) return 'ascending';
-      if (highTrend < 0 && Math.abs(lowTrend) < 2) return 'descending';
-      if (highTrend < 0 && lowTrend > 0) return 'symmetrical';
-      return 'none';
-    };
-
-    it('应该识别上升三角形', () => {
-      expect(isTrianglePattern([100, 100, 100, 100], [90, 92, 94, 96])).toBe('ascending');
-    });
-
-    it('应该识别下降三角形', () => {
-      expect(isTrianglePattern([110, 108, 106, 104], [95, 95, 95, 95])).toBe('descending');
-    });
-
-    it('应该识别对称三角形', () => {
-      expect(isTrianglePattern([110, 108, 106, 104], [90, 92, 94, 96])).toBe('symmetrical');
-    });
+  it('价位应四舍五入到 2 位小数且按触及次数降序排列', () => {
+    const ohlcv = [
+      bar('1', 100, 110, 100, 105, 1000),
+      bar('2', 100, 110, 100, 105, 1000),
+      bar('3', 100, 110, 100, 105, 1000),
+      bar('4', 105, 115, 105, 110, 1000),
+      bar('5', 105, 115, 105, 110, 1000),
+    ];
+    const levels = findSupportResistance(ohlcv);
+    for (const l of levels) {
+      expect(l.level).toBe(Math.round(l.level * 100) / 100);
+      expect(l.strength).toBeGreaterThanOrEqual(2);
+    }
+    for (let i = 1; i < levels.length; i++) {
+      expect(levels[i - 1].strength).toBeGreaterThanOrEqual(levels[i].strength);
+    }
   });
 
-  describe('旗形/楔形', () => {
-    const isFlag = (prices: number[], trendBefore: 'up' | 'down') => {
-      const range = Math.max(...prices) - Math.min(...prices);
-      const avgPrice = prices.reduce((a, b) => a + b) / prices.length;
-      const consolidationRange = range / avgPrice;
-      
-      // 整理区间应该窄幅
-      return consolidationRange < 0.05;
-    };
-
-    it('应该识别窄幅整理', () => {
-      expect(isFlag([100, 101, 99, 100, 101], 'up')).toBe(true);
-    });
-
-    it('宽幅波动不应该识别为旗形', () => {
-      expect(isFlag([90, 100, 95, 110, 92], 'up')).toBe(false);
-    });
+  it('应尊重 minTouches 参数过滤弱价位', () => {
+    const ohlcv = [
+      bar('1', 100, 110, 100, 105, 1000),
+      bar('2', 100, 110, 100, 105, 1000),
+      bar('3', 105, 115, 105, 110, 1000),
+      bar('4', 105, 115, 105, 110, 1000),
+    ];
+    // 每个价位簇只有 2 次触及, 提高阈值后应被过滤
+    const strict = findSupportResistance(ohlcv, 3);
+    expect(strict.every((l) => l.strength >= 3)).toBe(true);
   });
 });
 
-describe('PatternMatching', () => {
-  describe('形态相似度', () => {
-    const calcSimilarity = (pattern1: number[], pattern2: number[]) => {
-      const normalize = (arr: number[]) => {
-        const min = Math.min(...arr);
-        const max = Math.max(...arr);
-        const range = max - min || 1;
-        return arr.map(v => (v - min) / range);
-      };
-      
-      const n1 = normalize(pattern1);
-      const n2 = normalize(pattern2);
-      
-      const diff = n1.reduce((s, v, i) => s + Math.abs(v - n2[i]), 0);
-      return 1 - diff / n1.length;
-    };
+describe('detectPatterns', () => {
+  it('数据不足 20 根时应返回空数组', () => {
+    const ohlcv = Array.from({ length: 10 }, (_, i) =>
+      bar(String(i), 100 + i, 105 + i, 95 + i, 100 + i, 1000)
+    );
+    expect(detectPatterns(ohlcv)).toEqual([]);
+  });
 
-    it('相同模式相似度应该为 1', () => {
-      const p = [100, 110, 105, 115, 120];
-      expect(calcSimilarity(p, p)).toBe(1);
-    });
+  it('明确的上升趋势应识别出"上升趋势"形态', () => {
+    const closes = Array.from({ length: 25 }, (_, i) => 100 + i * 2);
+    const ohlcv = closes.map((c, i) =>
+      bar(`d${i}`, c, c + 2, c - 2, c, 1000)
+    );
+    const patterns = detectPatterns(ohlcv);
+    expect(Array.isArray(patterns)).toBe(true);
+    expect(patterns.some((p) => p.pattern === '上升趋势' && p.direction === 'bullish')).toBe(true);
+  });
 
-    it('相似模式相似度应该较高', () => {
-      const p1 = [100, 110, 105, 115, 120];
-      const p2 = [50, 55, 52, 57, 60];
-      const similarity = calcSimilarity(p1, p2);
-      expect(similarity).toBeGreaterThan(0.8);
-    });
+  it('明确的下降趋势应识别出"下降趋势"形态', () => {
+    const closes = Array.from({ length: 25 }, (_, i) => 200 - i * 2);
+    const ohlcv = closes.map((c, i) =>
+      bar(`d${i}`, c, c + 2, c - 2, c, 1000)
+    );
+    const patterns = detectPatterns(ohlcv);
+    expect(patterns.some((p) => p.pattern === '下降趋势' && p.direction === 'bearish')).toBe(true);
+  });
+});
+
+describe('analyzeVolumePrice', () => {
+  it('数据不足 5 根时应返回空数组', () => {
+    const ohlcv = Array.from({ length: 3 }, (_, i) =>
+      bar(String(i), 100, 110, 90, 100 + i, 1000)
+    );
+    expect(analyzeVolumePrice(ohlcv)).toEqual([]);
+  });
+
+  it('放量上涨应产生 bullish 信号', () => {
+    const ohlcv = [
+      bar('1', 100, 110, 90, 100, 100),
+      bar('2', 100, 110, 90, 100, 100),
+      bar('3', 100, 110, 90, 100, 100),
+      bar('4', 100, 110, 90, 100, 100),
+      bar('5', 100, 110, 90, 101, 1000),
+    ];
+    const signals = analyzeVolumePrice(ohlcv);
+    expect(signals.some((s) => s.type === 'bullish' && s.pattern === '放量上涨')).toBe(true);
+  });
+
+  it('缩量下跌应产生 bullish 信号(回调抛压减弱)', () => {
+    const ohlcv = [
+      bar('1', 100, 110, 90, 100, 1000),
+      bar('2', 100, 110, 90, 100, 1000),
+      bar('3', 100, 110, 90, 100, 1000),
+      bar('4', 100, 110, 90, 100, 1000),
+      bar('5', 100, 110, 90, 99, 100),
+    ];
+    const signals = analyzeVolumePrice(ohlcv);
+    expect(signals.some((s) => s.pattern === '缩量下跌')).toBe(true);
   });
 });

@@ -1,25 +1,27 @@
 import { describe, it, expect } from 'vitest';
+import {
+  BREAKPOINTS,
+  getCurrentBreakpoint,
+  isBelow,
+  isAbove,
+  responsiveValue,
+  getGridConfig,
+  calculateVirtualList,
+  calculateColumns,
+  mediaQuery,
+  filterColumnsByBreakpoint,
+  fluidTypography,
+  fluidSpacing,
+  validateTouchTarget,
+  touchTargetReport,
+  getAdaptiveConfig,
+  containerQuery,
+  safeAreaPadding,
+  TYPOGRAPHY_SCALE,
+  type TableColumn
+} from '../utils/responsiveUtils';
 
-describe('ResponsiveUtils', () => {
-  const BREAKPOINTS = { xs: 0, sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
-
-  function getCurrentBreakpoint(w: number): string {
-    if (w >= 1536) return '2xl';
-    if (w >= 1280) return 'xl';
-    if (w >= 1024) return 'lg';
-    if (w >= 768) return 'md';
-    if (w >= 640) return 'sm';
-    return 'xs';
-  }
-
-  function isBelow(w: number, bp: string): boolean {
-    return w < (BREAKPOINTS as Record<string, number>)[bp];
-  }
-
-  function isAbove(w: number, bp: string): boolean {
-    return w >= (BREAKPOINTS as Record<string, number>)[bp];
-  }
-
+describe('ResponsiveUtils (real module)', () => {
   describe('getCurrentBreakpoint', () => {
     it('should return xs for small screens', () => {
       expect(getCurrentBreakpoint(320)).toBe('xs');
@@ -62,110 +64,151 @@ describe('ResponsiveUtils', () => {
   });
 
   describe('responsiveValue', () => {
-    function rv<T>(w: number, vals: Record<string, T>): T | undefined {
-      const order = ['2xl', 'xl', 'lg', 'md', 'sm', 'xs'];
-      let bp = 'xs';
-      if (w >= 1536) bp = '2xl';
-      else if (w >= 1280) bp = 'xl';
-      else if (w >= 1024) bp = 'lg';
-      else if (w >= 768) bp = 'md';
-      else if (w >= 640) bp = 'sm';
-
-      const bps: Record<string, number> = BREAKPOINTS;
-      for (const key of order) {
-        if (bps[key] <= bps[bp] && vals[key] !== undefined) return vals[key];
-      }
-      return undefined;
-    }
-
     it('should pick correct value per breakpoint', () => {
-      expect(rv(375, { xs: 'mobile', lg: 'desktop' })).toBe('mobile');
-      expect(rv(1200, { xs: 'mobile', lg: 'desktop' })).toBe('desktop');
+      expect(responsiveValue(375, { xs: 'mobile', lg: 'desktop' })).toBe('mobile');
+      expect(responsiveValue(1200, { xs: 'mobile', lg: 'desktop' })).toBe('desktop');
     });
 
     it('should fall back to smaller breakpoints', () => {
-      expect(rv(1200, { xs: 'base', md: 'mid' })).toBe('mid');
+      expect(responsiveValue(1200, { xs: 'base', md: 'mid' })).toBe('mid');
+    });
+
+    it('should return undefined when no matching breakpoint', () => {
+      expect(responsiveValue(375, { lg: 'desktop' } as Record<string, string>)).toBeUndefined();
     });
   });
 
   describe('Grid Config', () => {
-    const GRID: Record<string, { columns: number; gap: number; padding: number }> = {
-      xs: { columns: 1, gap: 8, padding: 12 },
-      sm: { columns: 1, gap: 12, padding: 16 },
-      md: { columns: 2, gap: 16, padding: 20 },
-      lg: { columns: 3, gap: 16, padding: 24 },
-      xl: { columns: 4, gap: 20, padding: 24 },
-      '2xl': { columns: 4, gap: 24, padding: 32 },
-    };
-
     it('should return 1 column on mobile', () => {
-      expect(GRID.xs.columns).toBe(1);
+      expect(getGridConfig(BREAKPOINTS.xs).columns).toBe(1);
+      expect(getGridConfig(320).columns).toBe(1);
     });
 
     it('should return 4 columns on desktop', () => {
-      expect(GRID.xl.columns).toBe(4);
+      expect(getGridConfig(BREAKPOINTS.xl).columns).toBe(4);
     });
 
     it('should have increasing gap with screen size', () => {
-      expect(GRID.xs.gap).toBeLessThan(GRID.lg.gap);
-      expect(GRID.lg.gap).toBeLessThan(GRID['2xl'].gap);
+      expect(getGridConfig(BREAKPOINTS.xs).gap).toBeLessThan(getGridConfig(BREAKPOINTS.lg).gap);
+      expect(getGridConfig(BREAKPOINTS.lg).gap).toBeLessThan(getGridConfig(BREAKPOINTS['2xl']).gap);
+    });
+  });
+
+  describe('calculateColumns', () => {
+    it('should compute columns from available width', () => {
+      expect(calculateColumns(300, 100, 10)).toBe(2);
+    });
+
+    it('should clamp to maxColumns', () => {
+      expect(calculateColumns(5000, 50, 10, 6)).toBe(6);
+    });
+
+    it('should never go below 1', () => {
+      expect(calculateColumns(10, 100, 10)).toBe(1);
     });
   });
 
   describe('Virtual List Calculation', () => {
-    function calcVirtList(
-      containerH: number, itemH: number, total: number, scrollT: number, overscan = 3
-    ) {
-      const totalHeight = total * itemH;
-      const startIndex = Math.max(0, Math.floor(scrollT / itemH) - overscan);
-      const visibleCount = Math.ceil(containerH / itemH);
-      const endIndex = Math.min(total - 1, startIndex + visibleCount + overscan * 2);
-      return { startIndex, endIndex, offsetY: startIndex * itemH, totalHeight };
-    }
-
     it('should calculate correct range at top', () => {
-      const r = calcVirtList(500, 50, 100, 0);
+      const r = calculateVirtualList(500, 50, 100, 0);
       expect(r.startIndex).toBe(0);
       expect(r.endIndex).toBeGreaterThan(0);
       expect(r.totalHeight).toBe(5000);
     });
 
     it('should calculate correct range when scrolled', () => {
-      const r = calcVirtList(500, 50, 100, 1000);
+      const r = calculateVirtualList(500, 50, 100, 1000);
       expect(r.startIndex).toBe(17);
       expect(r.offsetY).toBe(850);
     });
 
     it('should not exceed total items', () => {
-      const r = calcVirtList(500, 50, 10, 0);
+      const r = calculateVirtualList(500, 50, 10, 0);
       expect(r.endIndex).toBeLessThanOrEqual(9);
     });
   });
 
   describe('Media Query String', () => {
-    function mq(bp: string, dir: 'up' | 'down'): string {
-      const bps: Record<string, number> = BREAKPOINTS;
-      const px = bps[bp] ?? 0;
-      return dir === 'up'
-        ? `@media (min-width: ${px}px)`
-        : `@media (max-width: ${px - 1}px)`;
-    }
-
     it('should generate correct min-width', () => {
-      expect(mq('md', 'up')).toBe('@media (min-width: 768px)');
+      expect(mediaQuery('md', 'up')).toBe('@media (min-width: 768px)');
     });
 
     it('should generate correct max-width', () => {
-      expect(mq('lg', 'down')).toBe('@media (max-width: 1023px)');
+      expect(mediaQuery('lg', 'down')).toBe('@media (max-width: 1023px)');
+    });
+  });
+
+  describe('Table Columns', () => {
+    const columns: TableColumn[] = [
+      { key: 'a', title: 'A', dataIndex: 'a', priority: 1 },
+      { key: 'b', title: 'B', dataIndex: 'b', priority: 2 },
+      { key: 'c', title: 'C', dataIndex: 'c', priority: 3 }
+    ];
+
+    it('should keep priority-1 columns always', () => {
+      expect(filterColumnsByBreakpoint(columns, 320)).toHaveLength(1);
+    });
+
+    it('should add tablet columns above md', () => {
+      expect(filterColumnsByBreakpoint(columns, 768)).toHaveLength(2);
+    });
+
+    it('should add desktop columns above lg', () => {
+      expect(filterColumnsByBreakpoint(columns, 1024)).toHaveLength(3);
+    });
+  });
+
+  describe('Fluid Typography & Spacing', () => {
+    it('should produce a clamp() string for px', () => {
+      const css = fluidTypography(TYPOGRAPHY_SCALE.h1);
+      expect(css).toMatch(/^clamp\(/);
+      expect(css).toContain('px');
+    });
+
+    it('should produce a rem-based clamp when unit is rem', () => {
+      const css = fluidTypography({ ...TYPOGRAPHY_SCALE.h1, unit: 'rem' });
+      expect(css).toContain('rem');
+    });
+
+    it('should produce clamp() for fluid spacing', () => {
+      expect(fluidSpacing(4, 8)).toMatch(/^clamp\(/);
     });
   });
 
   describe('Touch Target Validation', () => {
-    const MIN = 44;
-    function valid(w: number, h: number) { return w >= MIN && h >= MIN; }
+    it('should accept 44x44', () => { expect(validateTouchTarget(44, 44)).toBe(true); });
+    it('should reject 32x32', () => { expect(validateTouchTarget(32, 32)).toBe(false); });
+    it('should accept 60x44', () => { expect(validateTouchTarget(60, 44)).toBe(true); });
 
-    it('should accept 44x44', () => { expect(valid(44, 44)).toBe(true); });
-    it('should reject 32x32', () => { expect(valid(32, 32)).toBe(false); });
-    it('should accept 60x44', () => { expect(valid(60, 44)).toBe(true); });
+    it('should report diff and suggestion for small targets', () => {
+      const r = touchTargetReport(32, 32);
+      expect(r.valid).toBe(false);
+      expect(r.widthDiff).toBe(12);
+      expect(r.heightDiff).toBe(12);
+      expect(r.suggestion).toContain('padding');
+    });
+
+    it('should report no suggestion when valid', () => {
+      expect(touchTargetReport(60, 60).suggestion).toBeUndefined();
+    });
+  });
+
+  describe('Adaptive Config & helpers', () => {
+    it('should classify mobile vs desktop', () => {
+      expect(getAdaptiveConfig(375).isMobile).toBe(true);
+      expect(getAdaptiveConfig(375).sidebarVisible).toBe(false);
+      expect(getAdaptiveConfig(1280).isDesktop).toBe(true);
+    });
+
+    it('should generate container query css', () => {
+      expect(containerQuery('main', 400, 'display: grid')).toBe(
+        '@container main (min-width: 400px) { display: grid }'
+      );
+    });
+
+    it('should return safe area padding', () => {
+      const s = safeAreaPadding();
+      expect(s.paddingTop).toContain('safe-area-inset-top');
+    });
   });
 });

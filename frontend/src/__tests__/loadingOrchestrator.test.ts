@@ -1,214 +1,137 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+  LoadingOrchestrator,
+  FirstPaintTimer,
+  FeedbackManager,
+} from '../utils/loadingOrchestrator';
 
 /**
- * 加载编排器测试
+ * 加载编排器测试（导入真实模块）
  */
 
-interface LoadingTask {
-  id: string;
-  name: string;
-  priority: number;
-  status: 'pending' | 'loading' | 'success' | 'error';
-  progress: number;
-  startTime?: number;
-  endTime?: number;
-  error?: string;
-}
-
-interface LoadingGroup {
-  id: string;
-  tasks: LoadingTask[];
-  status: 'pending' | 'loading' | 'success' | 'error' | 'partial';
-  progress: number;
-}
-
-class LoadingOrchestrator {
-  private tasks: Map<string, LoadingTask> = new Map();
-  private groups: Map<string, LoadingGroup> = new Map();
-
-  addTask(id: string, name: string, priority: number = 0): void {
-    this.tasks.set(id, { id, name, priority, status: 'pending', progress: 0 });
-  }
-
-  startTask(id: string): void {
-    const task = this.tasks.get(id);
-    if (task) {
-      task.status = 'loading';
-      task.startTime = Date.now();
-    }
-  }
-
-  updateProgress(id: string, progress: number): void {
-    const task = this.tasks.get(id);
-    if (task) {
-      task.progress = Math.min(100, Math.max(0, progress));
-    }
-  }
-
-  completeTask(id: string): void {
-    const task = this.tasks.get(id);
-    if (task) {
-      task.status = 'success';
-      task.progress = 100;
-      task.endTime = Date.now();
-    }
-  }
-
-  failTask(id: string, error: string): void {
-    const task = this.tasks.get(id);
-    if (task) {
-      task.status = 'error';
-      task.error = error;
-      task.endTime = Date.now();
-    }
-  }
-
-  getTask(id: string): LoadingTask | undefined {
-    return this.tasks.get(id);
-  }
-
-  createGroup(id: string, taskIds: string[]): void {
-    const tasks = taskIds.map(tid => this.tasks.get(tid)).filter(Boolean) as LoadingTask[];
-    this.groups.set(id, { id, tasks, status: 'pending', progress: 0 });
-  }
-
-  getGroupProgress(id: string): number {
-    const group = this.groups.get(id);
-    if (!group || group.tasks.length === 0) return 0;
-    return group.tasks.reduce((s, t) => s + t.progress, 0) / group.tasks.length;
-  }
-
-  getGroupStatus(id: string): LoadingGroup['status'] {
-    const group = this.groups.get(id);
-    if (!group) return 'pending';
-    const statuses = group.tasks.map(t => t.status);
-    if (statuses.every(s => s === 'success')) return 'success';
-    if (statuses.some(s => s === 'error')) {
-      return statuses.some(s => s === 'success') ? 'partial' : 'error';
-    }
-    if (statuses.some(s => s === 'loading')) return 'loading';
-    return 'pending';
-  }
-
-  getOverallProgress(): number {
-    const allTasks = [...this.tasks.values()];
-    if (allTasks.length === 0) return 0;
-    return allTasks.reduce((s, t) => s + t.progress, 0) / allTasks.length;
-  }
-
-  getActiveTasks(): LoadingTask[] {
-    return [...this.tasks.values()].filter(t => t.status === 'loading');
-  }
-
-  reset(): void {
-    this.tasks.clear();
-    this.groups.clear();
-  }
-}
-
-describe('Loading Orchestrator', () => {
-  let orchestrator: LoadingOrchestrator;
+describe('Loading Orchestrator（真实模块）', () => {
+  let orch: LoadingOrchestrator;
 
   beforeEach(() => {
-    orchestrator = new LoadingOrchestrator();
+    orch = new LoadingOrchestrator();
   });
 
-  describe('任务管理', () => {
-    it('应该添加任务', () => {
-      orchestrator.addTask('t1', '加载股票数据', 1);
-      const task = orchestrator.getTask('t1');
-      expect(task?.name).toBe('加载股票数据');
-      expect(task?.status).toBe('pending');
+  describe('任务生命周期', () => {
+    it('register 后应处于 idle', () => {
+      orch.register('t1', '加载股票数据', 'high');
+      const state = orch.getState();
+      expect(state.tasks).toHaveLength(1);
+      expect(state.tasks[0].label).toBe('加载股票数据');
+      expect(state.tasks[0].status).toBe('idle');
+      expect(state.phase).toBe('idle');
     });
 
-    it('应该启动任务', () => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.startTask('t1');
-      expect(orchestrator.getTask('t1')?.status).toBe('loading');
+    it('start 后应处于 loading', () => {
+      orch.register('t1', 'Task 1');
+      orch.start('t1');
+      const state = orch.getState();
+      expect(state.tasks[0].status).toBe('loading');
+      expect(state.phase).toBe('loading');
     });
 
-    it('应该更新进度', () => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.startTask('t1');
-      orchestrator.updateProgress('t1', 50);
-      expect(orchestrator.getTask('t1')?.progress).toBe(50);
+    it('complete 后状态为 success 且进度 100', () => {
+      orch.register('t1', 'Task 1');
+      orch.start('t1');
+      orch.complete('t1');
+      const state = orch.getState();
+      expect(state.tasks[0].status).toBe('success');
+      expect(state.phase).toBe('success');
+      expect(state.progress).toBe(100);
     });
 
-    it('应该完成任务', () => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.startTask('t1');
-      orchestrator.completeTask('t1');
-      expect(orchestrator.getTask('t1')?.status).toBe('success');
-      expect(orchestrator.getTask('t1')?.progress).toBe(100);
-    });
-
-    it('应该标记失败', () => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.failTask('t1', 'Network error');
-      expect(orchestrator.getTask('t1')?.status).toBe('error');
-      expect(orchestrator.getTask('t1')?.error).toBe('Network error');
-    });
-  });
-
-  describe('分组管理', () => {
-    beforeEach(() => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.addTask('t2', 'Task 2');
-      orchestrator.addTask('t3', 'Task 3');
-      orchestrator.createGroup('g1', ['t1', 't2', 't3']);
-    });
-
-    it('应该计算分组进度', () => {
-      orchestrator.startTask('t1');
-      orchestrator.updateProgress('t1', 50);
-      orchestrator.startTask('t2');
-      orchestrator.updateProgress('t2', 100);
-      expect(orchestrator.getGroupProgress('g1')).toBeCloseTo(50, 0);
-    });
-
-    it('全部完成应该返回success', () => {
-      orchestrator.completeTask('t1');
-      orchestrator.completeTask('t2');
-      orchestrator.completeTask('t3');
-      expect(orchestrator.getGroupStatus('g1')).toBe('success');
-    });
-
-    it('有失败应该返回error或partial', () => {
-      orchestrator.completeTask('t1');
-      orchestrator.failTask('t2', 'Error');
-      orchestrator.completeTask('t3');
-      expect(['error', 'partial']).toContain(orchestrator.getGroupStatus('g1'));
-    });
-
-    it('有加载中应该返回loading', () => {
-      orchestrator.startTask('t1');
-      orchestrator.completeTask('t2');
-      expect(orchestrator.getGroupStatus('g1')).toBe('loading');
+    it('fail 后状态为 error', () => {
+      orch.register('t1', 'Task 1');
+      orch.start('t1');
+      orch.fail('t1', 'Network error');
+      const state = orch.getState();
+      expect(state.tasks[0].status).toBe('error');
+      expect(state.tasks[0].error).toBe('Network error');
+      expect(state.phase).toBe('error');
     });
   });
 
-  describe('全局状态', () => {
-    it('应该计算总进度', () => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.addTask('t2', 'Task 2');
-      orchestrator.startTask('t1');
-      orchestrator.updateProgress('t1', 50);
-      orchestrator.startTask('t2');
-      orchestrator.updateProgress('t2', 100);
-      expect(orchestrator.getOverallProgress()).toBe(75);
+  describe('subscribe', () => {
+    it('start 时应通知订阅者', () => {
+      orch.register('t1', 'Task 1');
+      const seen: string[] = [];
+      orch.subscribe(state => seen.push(state.phase));
+      orch.start('t1');
+      expect(seen).toContain('loading');
     });
+  });
 
-    it('应该获取活跃任务', () => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.addTask('t2', 'Task 2');
-      orchestrator.startTask('t1');
-      expect(orchestrator.getActiveTasks().length).toBe(1);
+  describe('reset', () => {
+    it('应清空任务状态', () => {
+      orch.register('t1', 'Task 1');
+      orch.start('t1');
+      orch.reset();
+      const state = orch.getState();
+      expect(state.phase).toBe('idle');
+      expect(state.tasks[0].status).toBe('idle');
     });
+  });
 
-    it('应该重置', () => {
-      orchestrator.addTask('t1', 'Task 1');
-      orchestrator.reset();
-      expect(orchestrator.getTask('t1')).toBeUndefined();
+  describe('critical tasks', () => {
+    it('getCriticalTasks 返回 priority=critical 的任务', () => {
+      orch.register('c1', '关键任务', 'critical');
+      orch.register('n1', '普通任务', 'normal');
+      const critical = orch.getCriticalTasks();
+      expect(critical).toHaveLength(1);
+      expect(critical[0].id).toBe('c1');
     });
+  });
+});
+
+describe('FirstPaintTimer（真实模块）', () => {
+  it('start/mark/getDuration 应记录耗时', () => {
+    const timer = new FirstPaintTimer();
+    timer.start();
+    timer.mark('dataReady');
+    expect(timer.getDuration()).toBeGreaterThanOrEqual(0);
+    expect(timer.getDuration('start', 'dataReady')).toBeGreaterThanOrEqual(0);
+    expect(typeof timer.meetsTarget()).toBe('boolean');
+    expect(timer.getReport()).toHaveProperty('dataReady');
+  });
+});
+
+describe('FeedbackManager（真实模块）', () => {
+  let fm: FeedbackManager;
+  beforeEach(() => {
+    fm = new FeedbackManager();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('show 应返回 id 并加入消息列表', () => {
+    const id = fm.show('success', '完成');
+    expect(typeof id).toBe('string');
+    expect(fm.getMessages()).toHaveLength(1);
+    expect(fm.getMessages()[0].type).toBe('success');
+  });
+
+  it('success/error/warning/info 便捷方法', () => {
+    fm.success('ok');
+    fm.error('err');
+    fm.warning('warn');
+    fm.info('info');
+    expect(fm.getMessages()).toHaveLength(4);
+  });
+
+  it('dismiss / dismissAll', () => {
+    const id = fm.show('info', '临时');
+    expect(fm.getMessages()).toHaveLength(1);
+    fm.dismiss(id);
+    expect(fm.getMessages()).toHaveLength(0);
+    fm.show('info', 'a');
+    fm.show('info', 'b');
+    fm.dismissAll();
+    expect(fm.getMessages()).toHaveLength(0);
   });
 });

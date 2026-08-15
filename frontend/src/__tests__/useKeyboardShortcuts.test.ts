@@ -1,142 +1,122 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { useKeyboardShortcuts, useShortcutHints } from '../hooks/useKeyboardShortcuts';
 
 /**
- * 键盘快捷键Hook测试
- * 测试快捷键逻辑、快捷键提示
+ * 键盘快捷键 Hook 测试（导入真实模块）
  */
 
-describe('useKeyboardShortcuts', () => {
-  describe('快捷键提示数据', () => {
-    it('应该包含所有预设快捷键', () => {
-      const hints = [
-        { keys: ['⌘', 'K'], description: '聚焦搜索' },
-        { keys: ['/'], description: '聚焦搜索' },
-        { keys: ['Esc'], description: '关闭弹窗/取消' },
-        { keys: ['Alt', '1'], description: '首页' },
-        { keys: ['Alt', '2'], description: '股票列表' },
-        { keys: ['Alt', '3'], description: '行情分析' },
-        { keys: ['Alt', '4'], description: '自选股' },
-        { keys: ['Alt', '5'], description: '策略回测' },
-        { keys: ['Alt', '6'], description: 'AI 选股' },
-        { keys: ['Alt', 'T'], description: '切换主题' },
-        { keys: ['Alt', 'S'], description: '切换侧边栏' },
-        { keys: ['⌫'], description: '返回上一页' },
-        { keys: ['g', 'h'], description: '跳转首页' },
-        { keys: ['g', 's'], description: '跳转股票列表' },
-        { keys: ['g', 'm'], description: '跳转行情' },
-        { keys: ['g', 'w'], description: '跳转自选股' },
-        { keys: ['g', 'p'], description: '跳转设置' },
-        { keys: ['j', '↓'], description: '列表下移' },
-        { keys: ['k', '↑'], description: '列表上移' },
-        { keys: ['W'], description: '添加/移除自选' },
-        { keys: ['B'], description: '买入' },
-        { keys: ['S'], description: '卖出' },
-      ];
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => mockNavigate,
+}));
 
-      expect(hints.length).toBe(22);
-      expect(hints.every(h => h.keys.length > 0)).toBe(true);
-      expect(hints.every(h => h.description.length > 0)).toBe(true);
-    });
+function fireKey(opts: Partial<KeyboardEventInit> & { key: string }): void {
+  const evt = new KeyboardEvent('keydown', { bubbles: true, ...opts });
+  document.dispatchEvent(evt);
+}
 
-    it('导航快捷键应该对应正确的路由', () => {
-      const routes: Record<string, string> = {
-        '1': '/',
-        '2': '/stocks',
-        '3': '/market',
-        '4': '/watchlist',
-        '5': '/backtest',
-        '6': '/ai-selection',
-      };
-
-      expect(routes['1']).toBe('/');
-      expect(routes['2']).toBe('/stocks');
-      expect(routes['3']).toBe('/market');
-      expect(routes['4']).toBe('/watchlist');
-      expect(routes['5']).toBe('/backtest');
-      expect(routes['6']).toBe('/ai-selection');
-    });
-
-    it('序列键应该对应正确的路由', () => {
-      const routes: Record<string, string> = {
-        'h': '/',
-        's': '/stocks',
-        'm': '/market',
-        'w': '/watchlist',
-        'p': '/settings',
-      };
-
-      expect(Object.keys(routes).length).toBe(5);
-    });
+describe('useKeyboardShortcuts（真实 hook）', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
   });
 
-  describe('输入框检测逻辑', () => {
-    it('INPUT标签应该被识别为输入框', () => {
-      const target = { tagName: 'INPUT', isContentEditable: false };
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-      expect(isInput).toBe(true);
-    });
-
-    it('TEXTAREA标签应该被识别为输入框', () => {
-      const target = { tagName: 'TEXTAREA', isContentEditable: false };
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-      expect(isInput).toBe(true);
-    });
-
-    it('contentEditable应该被识别为输入框', () => {
-      const target = { tagName: 'DIV', isContentEditable: true };
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-      expect(isInput).toBe(true);
-    });
-
-    it('普通DIV不应该被识别为输入框', () => {
-      const target = { tagName: 'DIV', isContentEditable: false };
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-      expect(isInput).toBe(false);
-    });
+  it('应注册并返回 searchInputRef', () => {
+    const { result } = renderHook(() => useKeyboardShortcuts());
+    expect(result.current.searchInputRef).toBeDefined();
   });
 
-  describe('修饰键组合', () => {
-    it('Ctrl+K应该触发搜索', () => {
-      const isCtrlK = true && true; // ctrlKey && key === 'k'
-      expect(isCtrlK).toBe(true);
-    });
-
-    it('Meta+K应该触发搜索（Mac）', () => {
-      const isMetaK = true && true; // metaKey && key === 'k'
-      expect(isMetaK).toBe(true);
-    });
-
-    it('Alt+数字应该触发导航', () => {
-      const navKeys = ['1', '2', '3', '4', '5', '6'];
-      expect(navKeys.length).toBe(6);
-    });
-
-    it('Alt+T应该切换主题', () => {
-      const isAltT = true && 't' === 't';
-      expect(isAltT).toBe(true);
-    });
-
-    it('Alt+S应该切换侧边栏', () => {
-      const isAltS = true && 's' === 's';
-      expect(isAltS).toBe(true);
-    });
+  it('Ctrl+K 应聚焦搜索', () => {
+    const onSearchFocus = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ onSearchFocus }));
+    act(() => { fireKey({ key: 'k', ctrlKey: true }); });
+    expect(onSearchFocus).toHaveBeenCalled();
   });
 
-  describe('快捷键配置接口', () => {
-    it('应该支持完整的快捷键配置', () => {
-      const config = {
-        key: 'k',
-        ctrl: true,
-        meta: false,
-        shift: false,
-        alt: false,
-        action: () => {},
-        description: '聚焦搜索',
-        preventDefault: true,
-      };
-      expect(config.key).toBe('k');
-      expect(config.ctrl).toBe(true);
-      expect(config.description).toBe('聚焦搜索');
-    });
+  it('Meta+K 应聚焦搜索（Mac）', () => {
+    const onSearchFocus = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ onSearchFocus }));
+    act(() => { fireKey({ key: 'k', metaKey: true }); });
+    expect(onSearchFocus).toHaveBeenCalled();
+  });
+
+  it('/ 应聚焦搜索', () => {
+    const onSearchFocus = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ onSearchFocus }));
+    act(() => { fireKey({ key: '/' }); });
+    expect(onSearchFocus).toHaveBeenCalled();
+  });
+
+  it('Escape 应触发 onEscape', () => {
+    const onEscape = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ onEscape }));
+    act(() => { fireKey({ key: 'Escape' }); });
+    expect(onEscape).toHaveBeenCalled();
+  });
+
+  it('Alt+1..6 应导航到对应路由', () => {
+    renderHook(() => useKeyboardShortcuts());
+    act(() => { fireKey({ key: '1', altKey: true }); });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    act(() => { fireKey({ key: '2', altKey: true }); });
+    expect(mockNavigate).toHaveBeenCalledWith('/stocks');
+    act(() => { fireKey({ key: '3', altKey: true }); });
+    expect(mockNavigate).toHaveBeenCalledWith('/market');
+    act(() => { fireKey({ key: '4', altKey: true }); });
+    expect(mockNavigate).toHaveBeenCalledWith('/watchlist');
+    act(() => { fireKey({ key: '5', altKey: true }); });
+    expect(mockNavigate).toHaveBeenCalledWith('/backtest');
+    act(() => { fireKey({ key: '6', altKey: true }); });
+    expect(mockNavigate).toHaveBeenCalledWith('/screener');
+  });
+
+  it('Alt+T 应切换主题', () => {
+    const onToggleTheme = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ onToggleTheme }));
+    act(() => { fireKey({ key: 't', altKey: true }); });
+    expect(onToggleTheme).toHaveBeenCalled();
+  });
+
+  it('Alt+S 应派发 toggle-sidebar 事件', () => {
+    const handler = vi.fn();
+    document.addEventListener('toggle-sidebar', handler);
+    renderHook(() => useKeyboardShortcuts());
+    act(() => { fireKey({ key: 's', altKey: true }); });
+    expect(handler).toHaveBeenCalled();
+    document.removeEventListener('toggle-sidebar', handler);
+  });
+
+  it('Backspace 应 navigate(-1)', () => {
+    renderHook(() => useKeyboardShortcuts());
+    act(() => { fireKey({ key: 'Backspace' }); });
+    expect(mockNavigate).toHaveBeenCalledWith(-1);
+  });
+
+  it('输入框中的非 Escape 按键应被忽略', () => {
+    const onSearchFocus = vi.fn();
+    const onEscape = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ onSearchFocus, onEscape }));
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    const evt = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true });
+    Object.defineProperty(evt, 'target', { value: input });
+    act(() => { document.dispatchEvent(evt); });
+    expect(onSearchFocus).not.toHaveBeenCalled();
+    document.body.removeChild(input);
+  });
+
+  it('enabled=false 应禁用快捷键', () => {
+    const onSearchFocus = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ onSearchFocus, enabled: false }));
+    act(() => { fireKey({ key: 'k', ctrlKey: true }); });
+    expect(onSearchFocus).not.toHaveBeenCalled();
+  });
+});
+
+describe('useShortcutHints（真实 hook）', () => {
+  it('应返回 22 条快捷键提示', () => {
+    const { result } = renderHook(() => useShortcutHints());
+    expect(result.current).toHaveLength(22);
+    expect(result.current.every(h => h.keys.length > 0 && h.description.length > 0)).toBe(true);
   });
 });

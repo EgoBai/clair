@@ -1,165 +1,106 @@
-import { describe, it, expect } from 'vitest';
-
 /**
- * 业绩归因引擎测试
- * Brinson归因/风险指标/择时技能
+ * 业绩归因引擎测试 —— 直接驱动真实模块
+ * 说明: 原测试内联重实现了 calculateReturns/Sharpe/Sortino/Calmar 及 Map 版 brinson, 与真实模块签名/行为不符, 已删除。
+ *       改为测试真实导出: brinsonAttribution / calculateRiskMetrics / analyzeTimingSkill / analyzeStyleAttribution
  */
+import { describe, it, expect } from 'vitest';
+import {
+  brinsonAttribution,
+  calculateRiskMetrics,
+  analyzeTimingSkill,
+  analyzeStyleAttribution,
+} from '../utils/performanceAttributionEngine';
 
-function calculateReturns(prices: number[]): number[] {
-  const returns: number[] = [];
-  for (let i = 1; i < prices.length; i++) {
-    returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
-  }
-  return returns;
-}
+describe('brinsonAttribution', () => {
+  const portfolio = [
+    { sector: 'tech', weight: 0.6, return: 0.1 },
+    { sector: 'finance', weight: 0.4, return: 0.05 },
+  ];
+  const benchmark = [
+    { sector: 'tech', weight: 0.5, return: 0.08 },
+    { sector: 'finance', weight: 0.5, return: 0.06 },
+  ];
 
-function calculateSharpeRatio(returns: number[], riskFreeRate = 0.03): number {
-  if (returns.length < 2) return 0;
-  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const annualizedReturn = mean * 252;
-  const std = Math.sqrt(returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1));
-  const annualizedVol = std * Math.sqrt(252);
-  return annualizedVol > 0 ? parseFloat(((annualizedReturn - riskFreeRate) / annualizedVol).toFixed(4)) : 0;
-}
-
-function calculateMaxDrawdown(prices: number[]): { maxDrawdown: number; peakDate: number; troughDate: number } {
-  if (prices.length === 0) return { maxDrawdown: 0, peakDate: 0, troughDate: 0 };
-  let peak = prices[0], peakIdx = 0;
-  let maxDD = 0, ddPeakIdx = 0, ddTroughIdx = 0;
-  for (let i = 1; i < prices.length; i++) {
-    if (prices[i] > peak) { peak = prices[i]; peakIdx = i; }
-    const dd = (peak - prices[i]) / peak;
-    if (dd > maxDD) { maxDD = dd; ddPeakIdx = peakIdx; ddTroughIdx = i; }
-  }
-  return { maxDrawdown: parseFloat(maxDD.toFixed(4)), peakDate: ddPeakIdx, troughDate: ddTroughIdx };
-}
-
-function calculateSortinoRatio(returns: number[], riskFreeRate = 0.03): number {
-  if (returns.length < 2) return 0;
-  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const downside = returns.filter(r => r < 0);
-  if (downside.length === 0) return 10;
-  const downsideStd = Math.sqrt(downside.reduce((s, r) => s + r ** 2, 0) / downside.length);
-  const annReturn = mean * 252;
-  const annDownside = downsideStd * Math.sqrt(252);
-  return annDownside > 0 ? parseFloat(((annReturn - riskFreeRate) / annDownside).toFixed(4)) : 0;
-}
-
-function calculateCalmarRatio(returns: number[], prices: number[]): number {
-  if (returns.length < 2 || prices.length < 2) return 0;
-  const annReturn = returns.reduce((a, b) => a + b, 0) / returns.length * 252;
-  const { maxDrawdown } = calculateMaxDrawdown(prices);
-  return maxDrawdown > 0 ? parseFloat((annReturn / maxDrawdown).toFixed(4)) : 0;
-}
-
-function brinsonAttribution(portfolioWeights: Map<string, number>, benchmarkWeights: Map<string, number>, portfolioReturns: Map<string, number>, benchmarkReturns: Map<string, number>): { allocationEffect: number; selectionEffect: number; interactionEffect: number; totalEffect: number } {
-  const sectors = new Set([...portfolioWeights.keys(), ...benchmarkWeights.keys()]);
-  let alloc = 0, select = 0, interact = 0;
-  const benchmarkAvgReturn = Array.from(benchmarkReturns.values()).reduce((a, b) => a + b, 0) / Math.max(1, benchmarkReturns.size);
-  sectors.forEach(s => {
-    const wp = portfolioWeights.get(s) || 0;
-    const wb = benchmarkWeights.get(s) || 0;
-    const rp = portfolioReturns.get(s) || 0;
-    const rb = benchmarkReturns.get(s) || 0;
-    alloc += (wp - wb) * (rb - benchmarkAvgReturn);
-    select += wb * (rp - rb);
-    interact += (wp - wb) * (rp - rb);
-  });
-  return {
-    allocationEffect: parseFloat(alloc.toFixed(6)),
-    selectionEffect: parseFloat(select.toFixed(6)),
-    interactionEffect: parseFloat(interact.toFixed(6)),
-    totalEffect: parseFloat((alloc + select + interact).toFixed(6)),
-  };
-}
-
-function analyzeTimingSkill(returns: number[], benchmarkReturns: number[]): { timingScore: number; skill: 'skilled' | 'average' | 'poor'; alpha: number } {
-  const n = Math.min(returns.length, benchmarkReturns.length);
-  if (n < 5) return { timingScore: 50, skill: 'average', alpha: 0 };
-  let correctCalls = 0;
-  for (let i = 0; i < n; i++) {
-    if ((returns[i] > 0 && benchmarkReturns[i] > 0) || (returns[i] < 0 && benchmarkReturns[i] < 0)) correctCalls++;
-  }
-  const hitRate = correctCalls / n;
-  const avgExcess = returns.slice(0, n).reduce((s, r, i) => s + (r - benchmarkReturns[i]), 0) / n;
-  const alpha = parseFloat((avgExcess * 252).toFixed(4));
-  const timingScore = parseFloat((hitRate * 70 + Math.min(30, Math.abs(alpha) * 100)).toFixed(2));
-  return { timingScore, skill: timingScore > 65 ? 'skilled' : timingScore < 35 ? 'poor' : 'average', alpha };
-}
-
-describe('业绩归因引擎', () => {
-  const prices = [100, 102, 101, 105, 103, 108, 107, 110, 112, 109];
-  const returns = calculateReturns(prices);
-
-  describe('calculateReturns', () => {
-    it('should calculate daily returns', () => {
-      expect(returns).toHaveLength(prices.length - 1);
-      expect(returns[0]).toBeCloseTo(0.02, 4);
-    });
+  it('三类效应之和应等于 totalActiveReturn', () => {
+    const r = brinsonAttribution(portfolio, benchmark);
+    expect(r.totalActiveReturn).toBeCloseTo(
+      r.allocationEffect + r.selectionEffect + r.interactionEffect,
+      5
+    );
   });
 
-  describe('calculateSharpeRatio', () => {
-    it('should return number', () => {
-      const sharpe = calculateSharpeRatio(returns);
-      expect(typeof sharpe).toBe('number');
-    });
+  it('应返回每个行业的分解', () => {
+    const r = brinsonAttribution(portfolio, benchmark);
+    expect(r.sectorBreakdown).toHaveLength(2);
+    for (const s of r.sectorBreakdown) {
+      expect(s.total).toBeCloseTo(s.allocation + s.selection + s.interaction, 5);
+    }
+  });
+});
 
-    it('should return 0 for insufficient data', () => {
-      expect(calculateSharpeRatio([0.01])).toBe(0);
-    });
+describe('calculateRiskMetrics', () => {
+  it('样本不足时应返回零值且 beta 为 1', () => {
+    const r = calculateRiskMetrics([0.01], [0.01]);
+    expect(r.sharpeRatio).toBe(0);
+    expect(r.beta).toBe(1);
+    expect(r.trackingError).toBe(0);
   });
 
-  describe('calculateMaxDrawdown', () => {
-    it('should find max drawdown', () => {
-      const { maxDrawdown } = calculateMaxDrawdown(prices);
-      expect(maxDrawdown).toBeGreaterThan(0);
-      expect(maxDrawdown).toBeLessThanOrEqual(1);
-    });
-
-    it('should return 0 for rising prices', () => {
-      expect(calculateMaxDrawdown([1, 2, 3, 4]).maxDrawdown).toBe(0);
-    });
+  it('应计算完整风险归因', () => {
+    const returns = [0.01, -0.005, 0.02, -0.01, 0.015, -0.008, 0.012, 0.005];
+    const bench = [0.008, -0.004, 0.018, -0.011, 0.013, -0.006, 0.009, 0.004];
+    const r = calculateRiskMetrics(returns, bench);
+    expect(r.totalRisk).toBeGreaterThan(0);
+    expect(typeof r.beta).toBe('number');
+    expect(r.maxDrawdown).toBeGreaterThanOrEqual(0);
+    expect(r.trackingError).toBeGreaterThanOrEqual(0);
+    expect(typeof r.sharpeRatio).toBe('number');
+    expect(typeof r.informationRatio).toBe('number');
   });
 
-  describe('calculateSortinoRatio', () => {
-    it('should use downside deviation', () => {
-      const sortino = calculateSortinoRatio(returns);
-      expect(typeof sortino).toBe('number');
-    });
+  it('单调上涨序列的最大回撤应为 0, Calmar 为 0', () => {
+    const returns = [0.01, 0.01, 0.01, 0.01];
+    const r = calculateRiskMetrics(returns, returns);
+    expect(r.maxDrawdown).toBe(0);
+    expect(r.calmarRatio).toBe(0);
+  });
+});
 
-    it('should return 10 for all positive', () => {
-      expect(calculateSortinoRatio([0.01, 0.02, 0.03])).toBe(10);
-    });
+describe('analyzeTimingSkill', () => {
+  it('样本不足时应返回默认中性结果', () => {
+    const r = analyzeTimingSkill([0.01], [0.01]);
+    expect(r.timingScore).toBe(50);
+    expect(r.stockPickingScore).toBe(50);
+    expect(r.upCapture).toBe(1);
+    expect(r.downCapture).toBe(1);
+    expect(r.winRate).toBe(0.5);
+    expect(r.profitFactor).toBe(1);
   });
 
-  describe('calculateCalmarRatio', () => {
-    it('should be return/maxDrawdown', () => {
-      const calmar = calculateCalmarRatio(returns, prices);
-      expect(typeof calmar).toBe('number');
-    });
+  it('应返回合法范围的能力指标', () => {
+    const returns = [0.02, -0.01, 0.03, -0.005, 0.015];
+    const bench = [0.01, -0.008, 0.02, -0.004, 0.01];
+    const r = analyzeTimingSkill(returns, bench);
+    expect(r.timingScore).toBeGreaterThanOrEqual(0);
+    expect(r.timingScore).toBeLessThanOrEqual(100);
+    expect(r.winRate).toBeGreaterThanOrEqual(0);
+    expect(r.winRate).toBeLessThanOrEqual(1);
+    expect(typeof r.upCapture).toBe('number');
+    expect(typeof r.profitFactor).toBe('number');
+    expect(r.consistency).toBeGreaterThanOrEqual(0);
   });
+});
 
-  describe('brinsonAttribution', () => {
-    it('should calculate three effects', () => {
-      const pw = new Map([['tech', 0.6], ['finance', 0.4]]);
-      const bw = new Map([['tech', 0.5], ['finance', 0.5]]);
-      const pr = new Map([['tech', 0.1], ['finance', 0.05]]);
-      const br = new Map([['tech', 0.08], ['finance', 0.06]]);
-      const result = brinsonAttribution(pw, bw, pr, br);
-      expect(typeof result.totalEffect).toBe('number');
-      expect(result.totalEffect).toBeCloseTo(result.allocationEffect + result.selectionEffect + result.interactionEffect, 5);
-    });
-  });
-
-  describe('analyzeTimingSkill', () => {
-    it('should rate timing skill', () => {
-      const result = analyzeTimingSkill(returns, returns.map(r => r * 0.8));
-      expect(['skilled', 'average', 'poor']).toContain(result.skill);
-    });
-
-    it('should handle insufficient data', () => {
-      const result = analyzeTimingSkill([0.01], [0.01]);
-      expect(result.skill).toBe('average');
-    });
+describe('analyzeStyleAttribution', () => {
+  it('应计算因子暴露并确定主导风格', () => {
+    const holdings = [
+      { code: 'A', weight: 0.5, return: 0.1, marketCap: 1e12, pe: 30, momentum: 0.8 },
+      { code: 'B', weight: 0.5, return: 0.05, marketCap: 1e9, pe: 8, momentum: -0.2 },
+    ];
+    const r = analyzeStyleAttribution(holdings);
+    expect(typeof r.dominantStyle).toBe('string');
+    expect(typeof r.sizeExposure).toBe('number');
+    expect(typeof r.valueExposure).toBe('number');
+    expect(r.styleReturns).toHaveLength(3);
   });
 });

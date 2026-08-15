@@ -1,96 +1,134 @@
 import { describe, it, expect } from 'vitest';
+import {
+  SupplyChainRiskEngine,
+  type SupplyNode,
+  type SupplyChain,
+} from '../utils/supplyChainRiskEngine';
 
 /**
- * 供应链风险引擎测试
+ * 供应链风险引擎测试 (导入真实模块)
  */
 
-interface SupplyNode {
-  id: string;
-  name: string;
-  type: 'upstream' | 'downstream' | 'peer';
-  dependency: number; // 0-1
-  revenue_exposure: number; // 0-1
+const engine = new SupplyChainRiskEngine();
+
+function makeNode(over: Partial<SupplyNode> = {}): SupplyNode {
+  return {
+    id: 'n1',
+    name: 'Node1',
+    type: 'supplier',
+    tier: 1,
+    revenueShare: 30,
+    country: '中国',
+    industry: '电子',
+    isExclusive: false,
+    ...over,
+  };
 }
 
-interface SupplyChainRisk {
-  stockCode: string;
-  totalRisk: number;
-  upstreamRisk: number;
-  downstreamRisk: number;
-  concentrationRisk: number;
-  disruptionRisk: number;
-  riskLevel: 'low' | 'medium' | 'high' | 'critical';
-  recommendations: string[];
+function makeChain(over: Partial<SupplyChain> = {}): SupplyChain {
+  return {
+    companyId: '600519',
+    companyName: '测试公司',
+    suppliers: [],
+    customers: [],
+    createdAt: '2024-01-01',
+    ...over,
+  };
 }
 
-function analyzeSupplyChainRisk(stockCode: string, upstream: SupplyNode[], downstream: SupplyNode[]): SupplyChainRisk {
-  const upstreamExposure = upstream.reduce((s, n) => s + n.revenue_exposure * n.dependency, 0);
-  const downstreamExposure = downstream.reduce((s, n) => s + n.revenue_exposure * n.dependency, 0);
-  const upstreamConc = upstream.length > 0 ? Math.max(...upstream.map(n => n.revenue_exposure)) : 0;
-  const downstreamConc = downstream.length > 0 ? Math.max(...downstream.map(n => n.revenue_exposure)) : 0;
-  const concentrationRisk = Math.max(upstreamConc, downstreamConc);
-  const disruptionRisk = (upstreamExposure + downstreamExposure) / 2;
-  const totalRisk = parseFloat(((upstreamExposure * 0.4 + downstreamExposure * 0.3 + concentrationRisk * 0.3) * 100).toFixed(2));
-  const riskLevel = totalRisk > 60 ? 'critical' : totalRisk > 40 ? 'high' : totalRisk > 20 ? 'medium' : 'low';
-  const recommendations: string[] = [];
-  if (upstreamConc > 0.5) recommendations.push('上游客户集中度过高，建议拓展供应商');
-  if (downstreamConc > 0.5) recommendations.push('下游客户集中度过高，建议拓展销售渠道');
-  if (upstreamExposure > 0.7) recommendations.push('上游依赖度高，存在断供风险');
-  return { stockCode, totalRisk, upstreamRisk: parseFloat((upstreamExposure * 100).toFixed(2)), downstreamRisk: parseFloat((downstreamExposure * 100).toFixed(2)), concentrationRisk: parseFloat((concentrationRisk * 100).toFixed(2)), disruptionRisk: parseFloat((disruptionRisk * 100).toFixed(2)), riskLevel, recommendations };
-}
-
-function calculateCorrelationRisk(nodes: SupplyNode[]): number {
-  if (nodes.length < 2) return 0;
-  const deps = nodes.map(n => n.dependency);
-  const avg = deps.reduce((a, b) => a + b, 0) / deps.length;
-  const variance = deps.reduce((s, d) => s + (d - avg) ** 2, 0) / deps.length;
-  return parseFloat((variance * 100).toFixed(2));
-}
-
-describe('供应链风险引擎', () => {
-  const makeNode = (id: string, exposure = 0.3, dep = 0.5): SupplyNode => ({
-    id, name: `Node${id}`, type: 'upstream', dependency: dep, revenue_exposure: exposure,
+describe('SupplyChainRiskEngine.calculateConcentrationRisk', () => {
+  it('空供应链应为低风险', () => {
+    const r = engine.calculateConcentrationRisk(makeChain());
+    expect(r.supplierHHI).toBe(0);
+    expect(r.customerHHI).toBe(0);
+    expect(r.topSupplierShare).toBe(0);
+    expect(r.singleSourceRisk).toBe(0);
+    expect(r.riskLevel).toBe('low');
   });
 
-  describe('analyzeSupplyChainRisk', () => {
-    it('should return low risk for diversified supply chain', () => {
-      const risk = analyzeSupplyChainRisk('600519',
-        [makeNode('1', 0.1), makeNode('2', 0.1), makeNode('3', 0.1)],
-        [makeNode('4', 0.1), makeNode('5', 0.1)]
-      );
-      expect(risk.riskLevel).toBe('low');
+  it('独家高占比应为极高风险', () => {
+    const chain = makeChain({
+      suppliers: [makeNode({ revenueShare: 100, country: '中国', isExclusive: true })],
     });
-
-    it('should flag high concentration', () => {
-      const risk = analyzeSupplyChainRisk('001', [makeNode('1', 0.8)], []);
-      expect(risk.recommendations.length).toBeGreaterThan(0);
-    });
-
-    it('should calculate total risk 0-100', () => {
-      const risk = analyzeSupplyChainRisk('001', [makeNode('1', 0.5)], [makeNode('2', 0.3)]);
-      expect(risk.totalRisk).toBeGreaterThanOrEqual(0);
-      expect(risk.totalRisk).toBeLessThanOrEqual(100);
-    });
-
-    it('should handle empty nodes', () => {
-      const risk = analyzeSupplyChainRisk('001', [], []);
-      expect(risk.totalRisk).toBe(0);
-      expect(risk.riskLevel).toBe('low');
-    });
+    const r = engine.calculateConcentrationRisk(chain);
+    expect(r.singleSourceRisk).toBe(100);
+    expect(r.riskLevel).toBe('critical');
   });
 
-  describe('calculateCorrelationRisk', () => {
-    it('should return 0 for single node', () => {
-      expect(calculateCorrelationRisk([makeNode('1')])).toBe(0);
+  it('应计算前5大供应商占比', () => {
+    const chain = makeChain({
+      suppliers: [
+        makeNode({ id: 's1', revenueShare: 40 }),
+        makeNode({ id: 's2', revenueShare: 30 }),
+      ],
     });
+    const r = engine.calculateConcentrationRisk(chain);
+    expect(r.topSupplierShare).toBe(70);
+  });
+});
 
-    it('should measure dependency variance', () => {
-      const risk = calculateCorrelationRisk([makeNode('1', 0.5, 0.9), makeNode('2', 0.5, 0.1)]);
-      expect(risk).toBeGreaterThan(0);
-    });
+describe('SupplyChainRiskEngine.assessDisruptionRisk', () => {
+  it('应评估中断影响', () => {
+    const node = makeNode({ id: 's1', name: '供应商A', country: '中国', revenueShare: 40, isExclusive: true });
+    const factors = [{ type: 'geopolitical', probability: 0.5, region: '中国' }];
+    const disruptions = engine.assessDisruptionRisk(node, factors);
+    expect(disruptions).toHaveLength(1);
+    const d = disruptions[0];
+    expect(d.disruptionType).toBe('geopolitical');
+    expect(d.impact).toBeCloseTo(60, 1); // 40 * 1.5
+    expect(d.probability).toBeCloseTo(0.65, 2); // 0.5 * 1.3
+    expect(d.mitigationOptions).toContain('寻找替代供应商');
+    expect(d.timeToRecover).toBe(90);
+  });
 
-    it('should be 0 for equal dependencies', () => {
-      expect(calculateCorrelationRisk([makeNode('1', 0.5, 0.5), makeNode('2', 0.5, 0.5)])).toBe(0);
+  it('非本地区域因子应被忽略', () => {
+    const node = makeNode({ id: 's1', country: '中国' });
+    const factors = [{ type: 'geopolitical', probability: 0.5, region: '美国' }];
+    const disruptions = engine.assessDisruptionRisk(node, factors);
+    expect(disruptions).toHaveLength(0);
+  });
+});
+
+describe('SupplyChainRiskEngine.calculateResilience', () => {
+  it('评分应在 0-100 范围', () => {
+    const chain = makeChain({
+      suppliers: [
+        makeNode({ country: '中国', industry: '电子', tier: 1 }),
+        makeNode({ id: 's2', country: '美国', industry: '机械', tier: 2 }),
+      ],
     });
+    const r = engine.calculateResilience(chain);
+    expect(r.diversificationScore).toBeGreaterThan(0);
+    expect(r.overallScore).toBeGreaterThanOrEqual(0);
+    expect(r.overallScore).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('SupplyChainRiskEngine.stressTest', () => {
+  it('应计算收入影响', () => {
+    const chain = makeChain({
+      suppliers: [
+        makeNode({ id: 's1', revenueShare: 50, tier: 1 }),
+        makeNode({ id: 's2', revenueShare: 50, tier: 2 }),
+      ],
+    });
+    const results = engine.stressTest(chain, [{ name: '断供', affectedNodes: ['s1'], severity: 100 }]);
+    expect(results).toHaveLength(1);
+    expect(results[0].revenueImpact).toBe(50); // 50 * 100 / 100
+    expect(results[0].mitigated).toBe(false);
+  });
+});
+
+describe('SupplyChainRiskEngine.findAlternatives', () => {
+  it('应找到同类替代供应商', () => {
+    const node = makeNode({ id: 's1', type: 'supplier', industry: '电子', country: '中国', tier: 1, revenueShare: 30 });
+    const all = [
+      node,
+      makeNode({ id: 's2', industry: '电子', country: '中国', tier: 1, revenueShare: 20 }),
+      makeNode({ id: 's3', type: 'customer', industry: '电子' }),
+    ];
+    const alternatives = engine.findAlternatives(node, all);
+    expect(alternatives.length).toBeGreaterThanOrEqual(1);
+    expect(alternatives[0].supplier.id).toBe('s2');
   });
 });

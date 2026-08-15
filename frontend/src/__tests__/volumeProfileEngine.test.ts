@@ -1,175 +1,73 @@
 import { describe, it, expect } from 'vitest';
+import { buildVolumeProfile, type VolumeBar } from '../utils/volumeProfileEngine';
 
 /**
- * 成交量分布引擎测试
+ * 成交量分布引擎测试 (导入真实模块)
  */
 
-interface VolumeProfile {
-  price: number;
-  volume: number;
-  buyVolume: number;
-  sellVolume: number;
-  poc: boolean;        // Point of Control
-  valueAreaHigh: number;
-  valueAreaLow: number;
+function bar(price: number, volume: number, buy: number, sell: number, ts: number): VolumeBar {
+  return { price, volume, buyVolume: buy, sellVolume: sell, timestamp: ts };
 }
 
-interface PriceVolumeBar {
-  price: number;
-  high: number;
-  low: number;
-  volume: number;
-  buyVolume: number;
-  sellVolume: number;
-}
-
-function calcVolumeProfile(bars: PriceVolumeBar[], numBins: number = 20): VolumeProfile[] {
-  if (bars.length === 0) return [];
-
-  const minPrice = Math.min(...bars.map(b => b.low));
-  const maxPrice = Math.max(...bars.map(b => b.high));
-  const binSize = (maxPrice - minPrice) / numBins;
-
-  const profile: Map<number, { volume: number; buyVolume: number; sellVolume: number }> = new Map();
-
-  for (const bar of bars) {
-    const binIndex = Math.floor((bar.price - minPrice) / binSize);
-    const binPrice = minPrice + binIndex * binSize + binSize / 2;
-    const existing = profile.get(binPrice) || { volume: 0, buyVolume: 0, sellVolume: 0 };
-    existing.volume += bar.volume;
-    existing.buyVolume += bar.buyVolume;
-    existing.sellVolume += bar.sellVolume;
-    profile.set(binPrice, existing);
-  }
-
-  let pocPrice = 0;
-  let maxVol = 0;
-  for (const [price, data] of profile) {
-    if (data.volume > maxVol) {
-      maxVol = data.volume;
-      pocPrice = price;
-    }
-  }
-
-  const totalVolume = [...profile.values()].reduce((s, v) => s + v.volume, 0);
-  const targetVolume = totalVolume * 0.7;
-  const sorted = [...profile.entries()].sort((a, b) => b[1].volume - a[1].volume);
-
-  let cumVolume = 0;
-  let vaHigh = maxPrice;
-  let vaLow = minPrice;
-  for (const [price] of sorted) {
-    cumVolume += profile.get(price)!.volume;
-    if (cumVolume >= targetVolume) {
-      vaHigh = Math.max(vaHigh, price);
-      vaLow = Math.min(vaLow, price);
-      break;
-    }
-  }
-
-  return [...profile.entries()].map(([price, data]) => ({
-    price,
-    volume: data.volume,
-    buyVolume: data.buyVolume,
-    sellVolume: data.sellVolume,
-    poc: price === pocPrice,
-    valueAreaHigh: vaHigh,
-    valueAreaLow: vaLow,
-  }));
-}
-
-function findSupportResistance(profile: VolumeProfile[]): { support: number[]; resistance: number[] } {
-  const sorted = [...profile].sort((a, b) => b.volume - a.volume);
-  const highVolNodes = sorted.slice(0, Math.ceil(sorted.length * 0.2));
-
-  const support: number[] = [];
-  const resistance: number[] = [];
-
-  for (const node of highVolNodes) {
-    if (node.buyVolume > node.sellVolume * 1.2) {
-      support.push(node.price);
-    } else if (node.sellVolume > node.buyVolume * 1.2) {
-      resistance.push(node.price);
-    }
-  }
-
-  return { support: support.sort((a, b) => a - b), resistance: resistance.sort((a, b) => a - b) };
-}
-
-function calcVolumeImbalance(profile: VolumeProfile[]): number {
-  const totalBuy = profile.reduce((s, p) => s + p.buyVolume, 0);
-  const totalSell = profile.reduce((s, p) => s + p.sellVolume, 0);
-  const total = totalBuy + totalSell;
-  return total > 0 ? (totalBuy - totalSell) / total : 0;
-}
-
-describe('Volume Profile Engine', () => {
-  const sampleBars: PriceVolumeBar[] = [
-    { price: 100, high: 102, low: 98, volume: 10000, buyVolume: 6000, sellVolume: 4000 },
-    { price: 101, high: 103, low: 99, volume: 15000, buyVolume: 9000, sellVolume: 6000 },
-    { price: 102, high: 104, low: 100, volume: 20000, buyVolume: 12000, sellVolume: 8000 },
-    { price: 103, high: 105, low: 101, volume: 8000, buyVolume: 3000, sellVolume: 5000 },
-    { price: 104, high: 106, low: 102, volume: 5000, buyVolume: 2000, sellVolume: 3000 },
+describe('buildVolumeProfile', () => {
+  const sampleBars: VolumeBar[] = [
+    bar(100, 10000, 6000, 4000, 1),
+    bar(101, 15000, 9000, 6000, 2),
+    bar(102, 20000, 12000, 8000, 3),
+    bar(103, 8000, 3000, 5000, 4),
+    bar(104, 5000, 2000, 3000, 5),
   ];
 
-  describe('成交量分布计算', () => {
-    it('应该计算出分布结果', () => {
-      const profile = calcVolumeProfile(sampleBars);
-      expect(profile.length).toBeGreaterThan(0);
-    });
-
-    it('总成交量应该正确', () => {
-      const profile = calcVolumeProfile(sampleBars);
-      const totalVol = profile.reduce((s, p) => s + p.volume, 0);
-      const expectedVol = sampleBars.reduce((s, b) => s + b.volume, 0);
-      expect(totalVol).toBe(expectedVol);
-    });
-
-    it('空数据应该返回空数组', () => {
-      expect(calcVolumeProfile([])).toEqual([]);
-    });
-
-    it('应该标记POC', () => {
-      const profile = calcVolumeProfile(sampleBars);
-      const pocNodes = profile.filter(p => p.poc);
-      expect(pocNodes.length).toBe(1);
-    });
+  it('应计算 POC / VAH / VAL 与总成交量', () => {
+    const r = buildVolumeProfile(sampleBars);
+    expect(r.totalVolume).toBe(58000);
+    expect(r.poc).toBe(102); // 量最大
+    expect(r.vah).toBeGreaterThanOrEqual(r.val);
+    expect(r.valueAreaVolume).toBe(45000);
   });
 
-  describe('支撑阻力', () => {
-    it('应该找到支撑位', () => {
-      const profile = calcVolumeProfile(sampleBars);
-      const { support } = findSupportResistance(profile);
-      expect(Array.isArray(support)).toBe(true);
-    });
-
-    it('应该找到阻力位', () => {
-      const profile = calcVolumeProfile(sampleBars);
-      const { resistance } = findSupportResistance(profile);
-      expect(Array.isArray(resistance)).toBe(true);
-    });
+  it('空数据应抛出异常', () => {
+    expect(() => buildVolumeProfile([])).toThrow();
   });
 
-  describe('成交量不平衡', () => {
-    it('买多应该返回正数', () => {
-      const profile: VolumeProfile[] = [
-        { price: 100, volume: 10000, buyVolume: 8000, sellVolume: 2000, poc: false, valueAreaHigh: 105, valueAreaLow: 95 },
-      ];
-      expect(calcVolumeImbalance(profile)).toBeGreaterThan(0);
-    });
+  it('应识别高/低成交量节点', () => {
+    const spike: VolumeBar[] = [
+      bar(100, 1000, 600, 400, 1),
+      bar(101, 50000, 30000, 20000, 2),
+      bar(102, 1000, 600, 400, 3),
+    ];
+    const r = buildVolumeProfile(spike);
+    expect(r.highNodes).toHaveLength(1);
+    expect(r.highNodes[0].price).toBe(101);
+    expect(r.lowNodes).toHaveLength(2);
+  });
 
-    it('卖多应该返回负数', () => {
-      const profile: VolumeProfile[] = [
-        { price: 100, volume: 10000, buyVolume: 2000, sellVolume: 8000, poc: false, valueAreaHigh: 105, valueAreaLow: 95 },
-      ];
-      expect(calcVolumeImbalance(profile)).toBeLessThan(0);
-    });
+  it('应检测控制权转移', () => {
+    const bars: VolumeBar[] = [
+      ...Array.from({ length: 10 }, (_, i) => bar(100, 10000, 6000, 4000, i)),
+      ...Array.from({ length: 10 }, (_, i) => bar(120, 10000, 4000, 6000, i + 10)),
+    ];
+    const r = buildVolumeProfile(bars);
+    expect(r.controlShift).not.toBeNull();
+    expect(r.controlShift!.to).toBe(120);
+    expect(r.controlShift!.from).toBe(100);
+  });
 
-    it('平衡应该返回0', () => {
-      const profile: VolumeProfile[] = [
-        { price: 100, volume: 10000, buyVolume: 5000, sellVolume: 5000, poc: false, valueAreaHigh: 105, valueAreaLow: 95 },
-      ];
-      expect(calcVolumeImbalance(profile)).toBe(0);
-    });
+  it('应检测成交量缺口(低量节点)', () => {
+    const bars: VolumeBar[] = [
+      bar(100, 10000, 6000, 4000, 1),
+      bar(101, 10000, 6000, 4000, 2),
+      bar(102, 100, 60, 40, 3),
+      bar(103, 10000, 6000, 4000, 4),
+      bar(104, 10000, 6000, 4000, 5),
+    ];
+    const r = buildVolumeProfile(bars);
+    expect(Array.isArray(r.volumeGaps)).toBe(true);
+    expect(r.volumeGaps.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('应给出分布类型', () => {
+    const r = buildVolumeProfile(sampleBars);
+    expect(['normal', 'bimodal', 'uniform', 'skewed']).toContain(r.volumeDistribution);
   });
 });

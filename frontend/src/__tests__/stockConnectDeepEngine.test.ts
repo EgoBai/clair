@@ -1,100 +1,122 @@
 import { describe, it, expect } from 'vitest';
+import { StockConnectEngine, type AHStock } from '../utils/stockConnectDeepEngine';
 
 /**
- * 沪深港通深度分析引擎测试
+ * 沪深港通深度分析引擎测试 (导入真实模块)
  */
 
-interface StockConnectFlow {
-  date: string;
-  northbound: { netBuy: number; buyAmount: number; sellAmount: number; topBuys: string[]; topSells: string[] };
-  southbound: { netBuy: number; buyAmount: number; sellAmount: number; };
+const engine = new StockConnectEngine();
+
+function makeAH(over: Partial<AHStock> = {}): AHStock {
+  return {
+    codeA: '600519',
+    codeH: '00001',
+    name: '测试',
+    priceA: 10,
+    priceH: 8,
+    exchangeRate: 0.9,
+    industry: '白酒',
+    ...over,
+  };
 }
 
-interface FlowAnalysis {
-  trend: 'inflow' | 'outflow' | 'neutral';
-  avgDailyFlow: number;
-  cumulativeFlow: number;
-  volatility: number;
-  consecutiveDays: number;
-  momentum: number;
-}
-
-function analyzeFlow(flows: StockConnectFlow[]): FlowAnalysis {
-  if (flows.length === 0) return { trend: 'neutral', avgDailyFlow: 0, cumulativeFlow: 0, volatility: 0, consecutiveDays: 0, momentum: 0 };
-  const netFlows = flows.map(f => f.northbound.netBuy);
-  const cumulative = netFlows.reduce((s, v) => s + v, 0);
-  const avg = cumulative / netFlows.length;
-  const variance = netFlows.reduce((s, v) => s + (v - avg) ** 2, 0) / netFlows.length;
-  const volatility = Math.sqrt(variance);
-  const trend = avg > 0 ? 'inflow' : avg < 0 ? 'outflow' : 'neutral';
-  let consecutive = 0;
-  const lastSign = netFlows[netFlows.length - 1] > 0;
-  for (let i = netFlows.length - 1; i >= 0; i--) {
-    if ((netFlows[i] > 0) === lastSign) consecutive++;
-    else break;
-  }
-  const recent = netFlows.slice(-5).reduce((s, v) => s + v, 0);
-  const older = netFlows.slice(0, Math.max(1, netFlows.length - 5)).reduce((s, v) => s + v, 0) / Math.max(1, Math.min(5, netFlows.length - 5));
-  const momentum = parseFloat((recent / Math.max(1, Math.abs(older)) - 1).toFixed(4));
-  return { trend, avgDailyFlow: parseFloat(avg.toFixed(2)), cumulativeFlow: parseFloat(cumulative.toFixed(2)), volatility: parseFloat(volatility.toFixed(2)), consecutiveDays: consecutive, momentum };
-}
-
-function identifyHotStocks(flows: StockConnectFlow[]): { buys: Map<string, number>; sells: Map<string, number> } {
-  const buys = new Map<string, number>();
-  const sells = new Map<string, number>();
-  flows.forEach(f => {
-    f.northbound.topBuys.forEach(code => buys.set(code, (buys.get(code) || 0) + 1));
-    f.northbound.topSells.forEach(code => sells.set(code, (sells.get(code) || 0) + 1));
-  });
-  return { buys, sells };
-}
-
-describe('沪深港通深度分析引擎', () => {
-  const makeFlow = (netBuy: number, date = '2024-01-01'): StockConnectFlow => ({
-    date,
-    northbound: { netBuy, buyAmount: Math.abs(netBuy) + 100, sellAmount: 100, topBuys: ['600519'], topSells: ['000858'] },
-    southbound: { netBuy: netBuy * 0.5, buyAmount: 100, sellAmount: 100 },
+describe('StockConnectEngine.calculateAHPremium', () => {
+  it('中位溢价为正且正确计算', () => {
+    const p = engine.calculateAHPremium(makeAH());
+    // priceHInRMB = 8 / 0.9 ≈ 8.8889, premium = (10 - 8.8889) / 8.8889 * 100 ≈ 12.5
+    expect(p.priceHInRMB).toBeCloseTo(8.8889, 3);
+    expect(p.premium).toBeCloseTo(12.5, 1);
+    expect(p.signal).toBe('neutral');
   });
 
-  describe('analyzeFlow', () => {
-    it('should detect inflow trend', () => {
-      const flows = Array.from({ length: 10 }, (_, i) => makeFlow(1000 + i * 100, `2024-01-${String(i+1).padStart(2,'0')}`));
-      const analysis = analyzeFlow(flows);
-      expect(analysis.trend).toBe('inflow');
-      expect(analysis.cumulativeFlow).toBeGreaterThan(0);
-    });
-
-    it('should detect outflow trend', () => {
-      const flows = Array.from({ length: 10 }, (_, i) => makeFlow(-1000, `2024-01-${String(i+1).padStart(2,'0')}`));
-      const analysis = analyzeFlow(flows);
-      expect(analysis.trend).toBe('outflow');
-    });
-
-    it('should count consecutive days', () => {
-      const flows = [makeFlow(100, '1'), makeFlow(200, '2'), makeFlow(150, '3')];
-      const analysis = analyzeFlow(flows);
-      expect(analysis.consecutiveDays).toBe(3);
-    });
-
-    it('should handle empty flows', () => {
-      expect(analyzeFlow([]).trend).toBe('neutral');
-    });
-
-    it('volatility should be non-negative', () => {
-      const flows = [makeFlow(100, '1'), makeFlow(-50, '2'), makeFlow(200, '3')];
-      expect(analyzeFlow(flows).volatility).toBeGreaterThanOrEqual(0);
-    });
+  it('A 显著便宜时给出 buy_A 信号', () => {
+    const p = engine.calculateAHPremium(makeAH({ priceA: 6 }));
+    expect(p.premium).toBeLessThan(0);
+    expect(p.signal).toBe('buy_A');
   });
 
-  describe('identifyHotStocks', () => {
-    it('should count stock appearances', () => {
-      const flows = [
-        { date: '1', northbound: { netBuy: 100, buyAmount: 100, sellAmount: 0, topBuys: ['600519', '000858'], topSells: ['601398'] }, southbound: { netBuy: 0, buyAmount: 0, sellAmount: 0 } },
-        { date: '2', northbound: { netBuy: 200, buyAmount: 200, sellAmount: 0, topBuys: ['600519'], topSells: ['000858'] }, southbound: { netBuy: 0, buyAmount: 0, sellAmount: 0 } },
-      ];
-      const hot = identifyHotStocks(flows);
-      expect(hot.buys.get('600519')).toBe(2);
-      expect(hot.buys.get('000858')).toBe(1);
-    });
+  it('A 显著贵时给出 buy_H 信号', () => {
+    const p = engine.calculateAHPremium(makeAH({ priceA: 16 }));
+    expect(p.premium).toBeGreaterThan(60);
+    expect(p.signal).toBe('buy_H');
+  });
+});
+
+describe('StockConnectEngine.rankAHPremiums', () => {
+  it('应按溢价降序排列', () => {
+    const stocks: AHStock[] = [
+      makeAH({ codeA: 'A', priceA: 10 }),
+      makeAH({ codeA: 'B', priceA: 6 }),
+      makeAH({ codeA: 'C', priceA: 16 }),
+    ];
+    const ranked = engine.rankAHPremiums(stocks, new Map());
+    expect(ranked).toHaveLength(3);
+    expect(ranked[0].codeA).toBe('C'); // 最高溢价
+    expect(ranked[2].codeA).toBe('B'); // 最低溢价
+  });
+});
+
+describe('StockConnectEngine.summarizeStockConnect', () => {
+  it('应汇总并判定市场情绪', () => {
+    const north = [{ date: '2024-01-01', netBuy: 100, volume: 1000 }];
+    const south = [{ date: '2024-01-01', netBuy: -30, volume: 500 }];
+    const summaries = engine.summarizeStockConnect(north, south);
+    expect(summaries).toHaveLength(1);
+    const s = summaries[0];
+    expect(s.totalConnect).toBe(1500); // 1000 + 500
+    expect(s.northBound.netBuy).toBe(100);
+    expect(s.southBound.netBuy).toBe(-30);
+    expect(s.marketSentiment).toBe('risk_on'); // totalNet = 70 > 50
+  });
+
+  it('净流出时应为 risk_off', () => {
+    const north = [{ date: '2024-01-01', netBuy: -100, volume: 1000 }];
+    const south = [{ date: '2024-01-01', netBuy: -30, volume: 500 }];
+    const summaries = engine.summarizeStockConnect(north, south);
+    expect(summaries[0].marketSentiment).toBe('risk_off');
+  });
+});
+
+describe('StockConnectEngine.analyzeCrossBorderFlow', () => {
+  it('应判定累积趋势', () => {
+    const holdings = [
+      { stockCode: '600519', date: '2024-01-01', shares: 100, channel: 'north' as const },
+      { stockCode: '600519', date: '2024-01-02', shares: 150, channel: 'north' as const },
+      { stockCode: '600519', date: '2024-01-03', shares: 200, channel: 'north' as const },
+    ];
+    const flows = engine.analyzeCrossBorderFlow(holdings);
+    expect(flows).toHaveLength(1);
+    const f = flows[0];
+    expect(f.stockCode).toBe('600519');
+    expect(f.trend).toBe('accumulating');
+    expect(f.netBuy).toBe(50); // 200 - 150
+  });
+
+  it('应区分不同通道', () => {
+    const holdings = [
+      { stockCode: '600519', date: '2024-01-01', shares: 100, channel: 'north' as const },
+      { stockCode: '600519', date: '2024-01-01', shares: 50, channel: 'south' as const },
+    ];
+    const flows = engine.analyzeCrossBorderFlow(holdings);
+    expect(flows).toHaveLength(2);
+    const channels = flows.map(f => f.channel).sort();
+    expect(channels).toEqual(['north', 'south']);
+  });
+});
+
+describe('StockConnectEngine.analyzePremiumMeanReversion', () => {
+  it('空数据返回稳定', () => {
+    const r = engine.analyzePremiumMeanReversion([]);
+    expect(r.signal).toBe('stable');
+    expect(r.currentPremium).toBe(0);
+  });
+
+  it('高溢价给出回归信号', () => {
+    const premiums = Array.from({ length: 10 }, (_, i) => ({ date: `d${i}`, premium: 30 }));
+    premiums.push({ date: 'd10', premium: 90 });
+    const r = engine.analyzePremiumMeanReversion(premiums);
+    expect(r.avgPremium).toBeCloseTo(35.45, 1);
+    expect(r.zScore).toBeGreaterThan(1.5);
+    expect(r.signal).toBe('revert_high');
   });
 });

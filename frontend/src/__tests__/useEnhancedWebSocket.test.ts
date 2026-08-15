@@ -1,192 +1,139 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import {
+  useEnhancedWebSocket,
+  useConnectionState,
+  useEnhancedRealtimeQuote,
+  useEnhancedRealtimeQuotes,
+} from '../hooks/useEnhancedWebSocket';
 
 /**
- * 增强WebSocket Hook测试
- * 测试连接管理、重连逻辑、消息处理
+ * 增强 WebSocket Hook 测试（导入真实模块，mock 底层 enhancedWsService）
  */
 
-describe('useEnhancedWebSocket', () => {
-  describe('连接状态管理', () => {
-    const states = ['connecting', 'connected', 'disconnected', 'reconnecting'] as const;
+const h = vi.hoisted(() => {
+  const msgListeners: Record<string, Array<(msg: any) => void>> = {};
+  const stateListeners: Array<(s: any) => void> = [];
+  const mockService = {
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn(),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+    getState: vi.fn().mockReturnValue('disconnected'),
+    getCurrentSource: vi.fn().mockReturnValue('mock-ws'),
+    onStateChange: vi.fn((cb: (s: any) => void) => {
+      stateListeners.push(cb);
+      return () => {};
+    }),
+    on: vi.fn((event: string, cb: (msg: any) => void) => {
+      (msgListeners[event] ||= []).push(cb);
+      return () => {};
+    }),
+  };
+  return { msgListeners, stateListeners, mockService };
+});
 
-    it('应该有4种连接状态', () => {
-      expect(states.length).toBe(4);
-    });
+vi.mock('../services/enhancedWebsocket', async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return { ...actual, enhancedWsService: h.mockService };
+});
 
-    it('初始状态应该是connecting', () => {
-      const initialState = 'connecting';
-      expect(initialState).toBe('connecting');
-    });
+const VALID_STATES = ['connecting', 'connected', 'disconnected', 'reconnecting'] as const;
 
-    it('连接成功后应该是connected', () => {
-      const state = 'connected';
-      expect(state).toBe('connected');
-    });
-
-    it('断开后应该是disconnected', () => {
-      const state = 'disconnected';
-      expect(state).toBe('disconnected');
-    });
+describe('useEnhancedWebSocket（真实 hook）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.msgListeners['*'] = [];
+    h.msgListeners['quote_update'] = [];
+    h.stateListeners.length = 0;
+    h.mockService.getState.mockReturnValue('disconnected');
   });
 
-  describe('重连逻辑', () => {
-    it('应该使用指数退避', () => {
-      const baseDelay = 1000;
-      const attempts = [0, 1, 2, 3, 4];
-      const delays = attempts.map(attempt => baseDelay * Math.pow(2, attempt));
-      expect(delays[0]).toBe(1000);
-      expect(delays[1]).toBe(2000);
-      expect(delays[2]).toBe(4000);
-      expect(delays[3]).toBe(8000);
-      expect(delays[4]).toBe(16000);
-    });
-
-    it('最大重连延迟应该有上限', () => {
-      const maxDelay = 30000;
-      const calculatedDelay = 1000 * Math.pow(2, 10);
-      const actualDelay = Math.min(calculatedDelay, maxDelay);
-      expect(actualDelay).toBe(maxDelay);
-    });
-
-    it('最大重连次数应该有限制', () => {
-      const maxRetries = 10;
-      const currentRetries = 5;
-      expect(currentRetries).toBeLessThan(maxRetries);
-    });
-
-    it('超过最大次数应该停止重连', () => {
-      const maxRetries = 10;
-      const currentRetries = 11;
-      expect(currentRetries).toBeGreaterThan(maxRetries);
-    });
+  it('应返回连接状态与操作函数', () => {
+    const { result } = renderHook(() => useEnhancedWebSocket());
+    expect(VALID_STATES).toContain(result.current.state);
+    expect(result.current.connected).toBe(result.current.state === 'connected');
+    expect(result.current.lastMessage).toBeNull();
+    expect(result.current.reconnectCount).toBe(0);
+    expect(typeof result.current.subscribe).toBe('function');
+    expect(typeof result.current.unsubscribe).toBe('function');
+    expect(typeof result.current.disconnect).toBe('function');
+    expect(typeof result.current.reconnect).toBe('function');
   });
 
-  describe('消息队列', () => {
-    it('断线期间的消息应该入队', () => {
-      const queue: string[] = [];
-      queue.push(JSON.stringify({ type: 'subscribe', channel: 'quotes' }));
-      queue.push(JSON.stringify({ type: 'subscribe', channel: 'trades' }));
-      expect(queue.length).toBe(2);
-    });
-
-    it('重连后应该发送队列中的消息', () => {
-      const queue = [
-        JSON.stringify({ type: 'subscribe', channel: 'quotes' }),
-        JSON.stringify({ type: 'subscribe', channel: 'trades' }),
-      ];
-      const sent: string[] = [];
-      while (queue.length > 0) {
-        sent.push(queue.shift()!);
-      }
-      expect(sent.length).toBe(2);
-      expect(queue.length).toBe(0);
-    });
+  it('subscribe 应调用底层服务', () => {
+    const { result } = renderHook(() => useEnhancedWebSocket());
+    act(() => { result.current.subscribe(['600519']); });
+    expect(h.mockService.subscribe).toHaveBeenCalledWith(['600519']);
   });
 
-  describe('订阅管理', () => {
-    it('应该支持订阅多个频道', () => {
-      const subscriptions = new Set<string>();
-      subscriptions.add('quotes:600519');
-      subscriptions.add('trades:600519');
-      subscriptions.add('depth:600519');
-      expect(subscriptions.size).toBe(3);
-    });
-
-    it('应该支持取消订阅', () => {
-      const subscriptions = new Set<string>();
-      subscriptions.add('quotes:600519');
-      subscriptions.delete('quotes:600519');
-      expect(subscriptions.size).toBe(0);
-    });
-
-    it('重复订阅不应该创建新连接', () => {
-      const subscriptions = new Set<string>();
-      subscriptions.add('quotes:600519');
-      subscriptions.add('quotes:600519');
-      expect(subscriptions.size).toBe(1);
-    });
+  it('onStateChange 回调应更新 state', () => {
+    const { result } = renderHook(() => useEnhancedWebSocket());
+    act(() => { h.stateListeners.forEach(cb => cb('connected')); });
+    expect(result.current.state).toBe('connected');
+    expect(result.current.reconnectCount).toBe(0);
   });
 
-  describe('心跳检测', () => {
-    it('应该定期发送心跳', () => {
-      const heartbeatInterval = 30000;
-      expect(heartbeatInterval).toBe(30000);
-    });
+  it('reconnecting 状态应递增 reconnectCount', () => {
+    const { result } = renderHook(() => useEnhancedWebSocket());
+    act(() => { h.stateListeners.forEach(cb => cb('reconnecting')); });
+    act(() => { h.stateListeners.forEach(cb => cb('reconnecting')); });
+    expect(result.current.reconnectCount).toBe(2);
+  });
+});
 
-    it('超时未响应应该触发重连', () => {
-      const heartbeatTimeout = 10000;
-      const lastHeartbeat = Date.now() - 15000;
-      const isTimeout = Date.now() - lastHeartbeat > heartbeatTimeout;
-      expect(isTimeout).toBe(true);
-    });
+describe('useConnectionState（真实 hook）', () => {
+  it('应返回 state 与 source', () => {
+    const { result } = renderHook(() => useConnectionState());
+    expect(VALID_STATES).toContain(result.current.state);
+    expect(result.current.source).toBe('mock-ws');
+  });
+});
 
-    it('正常响应不应该触发重连', () => {
-      const heartbeatTimeout = 10000;
-      const lastHeartbeat = Date.now() - 5000;
-      const isTimeout = Date.now() - lastHeartbeat > heartbeatTimeout;
-      expect(isTimeout).toBe(false);
-    });
+describe('useEnhancedRealtimeQuote（真实 hook）', () => {
+  it('symbol 未定义时 quote 为 null', () => {
+    const { result } = renderHook(() => useEnhancedRealtimeQuote(undefined));
+    expect(result.current.quote).toBeNull();
   });
 
-  describe('消息处理', () => {
-    it('应该正确解析JSON消息', () => {
-      const raw = '{"type":"quote","data":{"price":1800}}';
-      const parsed = JSON.parse(raw);
-      expect(parsed.type).toBe('quote');
-      expect(parsed.data.price).toBe(1800);
+  it('收到 quote_update 消息应更新 quote', () => {
+    const { result } = renderHook(() => useEnhancedRealtimeQuote('600519'));
+    act(() => {
+      h.msgListeners['quote_update'].forEach(cb =>
+        cb({ type: 'quote_update', data: { symbol: '600519', price: 1800, change: 1.5 } })
+      );
     });
-
-    it('应该处理心跳消息', () => {
-      const msg = { type: 'ping' };
-      const isHeartbeat = msg.type === 'ping' || msg.type === 'pong';
-      expect(isHeartbeat).toBe(true);
-    });
-
-    it('应该根据类型分发消息', () => {
-      const handlers: Record<string, (data: any) => void> = {
-        quote: vi.fn(),
-        trade: vi.fn(),
-        depth: vi.fn(),
-      };
-      const msg = { type: 'quote', data: {} };
-      expect(handlers[msg.type]).toBeDefined();
-    });
+    expect(result.current.quote).not.toBeNull();
+    expect(result.current.quote?.symbol).toBe('600519');
+    expect(result.current.quote?.price).toBe(1800);
+    expect(result.current.stale).toBe(false);
+    expect(result.current.lastUpdate).toBeGreaterThan(0);
   });
 
-  describe('错误处理', () => {
-    it('连接错误应该触发重连', () => {
-      const error = new Error('Connection refused');
-      const shouldReconnect = true;
-      expect(error.message).toBe('Connection refused');
-      expect(shouldReconnect).toBe(true);
+  it('非本 symbol 的消息应被忽略', () => {
+    const { result } = renderHook(() => useEnhancedRealtimeQuote('600519'));
+    act(() => {
+      h.msgListeners['quote_update'].forEach(cb =>
+        cb({ type: 'quote_update', data: { symbol: '000001', price: 10 } })
+      );
     });
-
-    it('认证错误不应该重连', () => {
-      const errorCode = 4001;
-      const shouldReconnect = errorCode !== 4001;
-      expect(shouldReconnect).toBe(false);
-    });
-
-    it('手动关闭不应该重连', () => {
-      const code = 1000; // 正常关闭
-      const shouldReconnect = code !== 1000;
-      expect(shouldReconnect).toBe(false);
-    });
+    expect(result.current.quote).toBeNull();
   });
+});
 
-  describe('性能优化', () => {
-    it('相同数据不应该触发更新', () => {
-      const lastData = JSON.stringify({ price: 1800 });
-      const newData = JSON.stringify({ price: 1800 });
-      const shouldUpdate = lastData !== newData;
-      expect(shouldUpdate).toBe(false);
+describe('useEnhancedRealtimeQuotes（真实 hook）', () => {
+  it('批量行情应写入 quotes Map', () => {
+    const { result } = renderHook(() => useEnhancedRealtimeQuotes(['600519', '000001']));
+    act(() => {
+      h.msgListeners['quote_update'].forEach(cb =>
+        cb({ type: 'quote_update', data: { symbol: '600519', price: 1800 } })
+      );
+      h.msgListeners['quote_update'].forEach(cb =>
+        cb({ type: 'quote_update', data: { symbol: '000001', price: 10 } })
+      );
     });
-
-    it('不同数据应该触发更新', () => {
-      const lastData = JSON.stringify({ price: 1800 });
-      const newData = JSON.stringify({ price: 1810 });
-      const shouldUpdate = lastData !== newData;
-      expect(shouldUpdate).toBe(true);
-    });
+    expect(result.current.size).toBe(2);
+    expect(result.current.get('600519')?.price).toBe(1800);
+    expect(result.current.get('000001')?.price).toBe(10);
   });
 });

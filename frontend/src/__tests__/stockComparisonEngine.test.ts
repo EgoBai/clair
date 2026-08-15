@@ -1,191 +1,111 @@
 import { describe, it, expect } from 'vitest';
+import {
+  compareStocks,
+  industryComparison,
+  type StockProfile,
+} from '../utils/stockComparisonEngine';
 
 /**
- * 股票对比引擎测试
+ * 个股对比分析引擎测试 (导入真实模块)
  */
 
-interface StockMetrics {
-  code: string;
-  name: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  volume: number;
-  turnover: number;
-  marketCap: number;
-  pe: number;
-  pb: number;
-  ps: number;
-  roe: number;
-  grossMargin: number;
-  netMargin: number;
-  debtRatio: number;
-  currentRatio: number;
-  revenueGrowth: number;
-  profitGrowth: number;
-  dividendYield: number;
-  beta: number;
-}
-
-interface ComparisonResult {
-  metrics: Array<{
-    name: string;
-    values: number[];
-    best: number;
-    worst: number;
-    avg: number;
-  }>;
-  scores: number[];
-  ranking: number[];
-  summary: string;
-}
-
-function compareStocks(stocks: StockMetrics[]): ComparisonResult {
-  if (stocks.length === 0) {
-    return { metrics: [], scores: [], ranking: [], summary: '无数据' };
-  }
-
-  const metricDefs = [
-    { name: 'ROE', key: 'roe', higher: true },
-    { name: '毛利率', key: 'grossMargin', higher: true },
-    { name: '净利率', key: 'netMargin', higher: true },
-    { name: 'PE', key: 'pe', higher: false },
-    { name: 'PB', key: 'pb', higher: false },
-    { name: '营收增长', key: 'revenueGrowth', higher: true },
-    { name: '利润增长', key: 'profitGrowth', higher: true },
-    { name: '股息率', key: 'dividendYield', higher: true },
-  ];
-
-  const metrics = metricDefs.map(def => {
-    const values = stocks.map(s => (s as any)[def.key] as number);
-    const sorted = [...values].sort((a, b) => def.higher ? b - a : a - b);
-    return {
-      name: def.name,
-      values,
-      best: sorted[0],
-      worst: sorted[sorted.length - 1],
-      avg: values.reduce((s, v) => s + v, 0) / values.length,
-    };
-  });
-
-  const scores = stocks.map((_, i) => {
-    let score = 0;
-    metrics.forEach(m => {
-      const rank = [...m.values].sort((a, b) => b - a).indexOf(m.values[i]);
-      score += (stocks.length - rank) * (10 / stocks.length);
-    });
-    return Math.round(score * 10) / 10;
-  });
-
-  const ranking = [...scores]
-    .map((score, i) => ({ score, index: i }))
-    .sort((a, b) => b.score - a.score)
-    .map(item => item.index);
-
-  const best = stocks[ranking[0]];
-  const summary = `${best.name}综合评分最高 (${scores[ranking[0]]}分)`;
-
-  return { metrics, scores, ranking, summary };
-}
-
-function normalizeMetrics(stocks: StockMetrics[]): StockMetrics[] {
-  if (stocks.length === 0) return [];
-
-  const fields: (keyof StockMetrics)[] = ['roe', 'grossMargin', 'netMargin', 'revenueGrowth', 'profitGrowth'];
-  const minMax: Record<string, { min: number; max: number }> = {};
-
-  for (const field of fields) {
-    const values = stocks.map(s => s[field] as number);
-    minMax[field as string] = { min: Math.min(...values), max: Math.max(...values) };
-  }
-
-  return stocks.map(s => {
-    const normalized = { ...s };
-    for (const field of fields) {
-      const range = minMax[field as string];
-      if (range.max > range.min) {
-        (normalized as any)[field] = ((s[field] as number) - range.min) / (range.max - range.min);
-      }
-    }
-    return normalized;
-  });
+function makeStock(overrides: Partial<StockProfile> = {}): StockProfile {
+  return {
+    code: '600519',
+    name: '贵州茅台',
+    price: 1800,
+    marketCap: 25000e8,
+    pe: 35,
+    pb: 10,
+    ps: 15,
+    roe: 30,
+    revenueGrowth: 15,
+    profitGrowth: 18,
+    grossMargin: 90,
+    netMargin: 50,
+    debtRatio: 0.2,
+    currentRatio: 3,
+    dividendYield: 1.5,
+    turnoverRate: 0.5,
+    weekReturn: 2,
+    monthReturn: 5,
+    yearReturn: 20,
+    volatility: 0.2,
+    beta: 0.8,
+    industry: '白酒',
+    ...overrides,
+  };
 }
 
 describe('Stock Comparison Engine', () => {
-  const stocks: StockMetrics[] = [
-    {
-      code: '600519', name: '贵州茅台', price: 1800, change: 50, changePercent: 2.8,
-      volume: 1000000, turnover: 5e9, marketCap: 25000e8, pe: 35, pb: 10, ps: 15,
-      roe: 30, grossMargin: 90, netMargin: 50, debtRatio: 0.2, currentRatio: 3,
-      revenueGrowth: 15, profitGrowth: 18, dividendYield: 1.5, beta: 0.8,
-    },
-    {
-      code: '000858', name: '五粮液', price: 150, change: 3, changePercent: 2,
-      volume: 2000000, turnover: 3e9, marketCap: 8000e8, pe: 28, pb: 7, ps: 8,
-      roe: 25, grossMargin: 80, netMargin: 35, debtRatio: 0.25, currentRatio: 2.5,
-      revenueGrowth: 12, profitGrowth: 15, dividendYield: 1.2, beta: 0.9,
-    },
-    {
-      code: '000001', name: '平安银行', price: 12.5, change: -0.2, changePercent: -1.6,
-      volume: 5000000, turnover: 6e9, marketCap: 3000e8, pe: 5.5, pb: 0.7, ps: 1.5,
-      roe: 12, grossMargin: 40, netMargin: 25, debtRatio: 0.9, currentRatio: 1.2,
-      revenueGrowth: 8, profitGrowth: 10, dividendYield: 3, beta: 1.2,
-    },
+  const stocks: StockProfile[] = [
+    makeStock(),
+    makeStock({ code: '000858', name: '五粮液', price: 150, marketCap: 8000e8, pe: 28, pb: 7, ps: 8, roe: 25, revenueGrowth: 12, profitGrowth: 15, grossMargin: 80, netMargin: 35, dividendYield: 1.2, beta: 0.9 }),
+    makeStock({ code: '000001', name: '平安银行', price: 12.5, marketCap: 3000e8, pe: 5.5, pb: 0.7, ps: 1.5, roe: 12, revenueGrowth: 8, profitGrowth: 10, grossMargin: 40, netMargin: 25, debtRatio: 0.9, currentRatio: 1.2, dividendYield: 3, beta: 1.2, industry: '银行' }),
   ];
 
   describe('对比分析', () => {
-    it('应该返回正确数量的指标', () => {
+    it('应该返回 8 个对比维度', () => {
       const result = compareStocks(stocks);
-      expect(result.metrics.length).toBe(8);
+      expect(result.dimensions.length).toBe(8);
     });
 
-    it('每个指标应该有正确的值', () => {
+    it('ROE 维度应包含各股票的真实值', () => {
       const result = compareStocks(stocks);
-      const roeMetric = result.metrics.find(m => m.name === 'ROE');
-      expect(roeMetric).toBeDefined();
-      expect(roeMetric!.values).toEqual([30, 25, 12]);
+      const roeDim = result.dimensions.find(d => d.dimension === 'ROE');
+      expect(roeDim).toBeDefined();
+      expect(roeDim!.values.map(v => v.value)).toEqual([30, 25, 12]);
+      expect(roeDim!.leader).toBe('600519');
     });
 
-    it('应该计算评分', () => {
+    it('应该生成排名且唯一', () => {
       const result = compareStocks(stocks);
-      expect(result.scores.length).toBe(3);
-      expect(result.scores.every(s => s > 0)).toBe(true);
+      expect(result.rankings.length).toBe(3);
+      const ranks = result.rankings.map(r => r.rank);
+      expect(new Set(ranks).size).toBe(3);
     });
 
-    it('应该生成排名', () => {
+    it('应该生成雷达图数据', () => {
       const result = compareStocks(stocks);
-      expect(result.ranking.length).toBe(3);
-      expect(new Set(result.ranking).size).toBe(3);
+      expect(result.radarData.length).toBe(3);
+      for (const rd of result.radarData) {
+        expect(rd.overallScore).toBeGreaterThanOrEqual(0);
+        expect(rd.overallScore).toBeLessThanOrEqual(100);
+      }
     });
 
-    it('应该生成摘要', () => {
+    it('应该生成投资建议', () => {
       const result = compareStocks(stocks);
-      expect(result.summary).toContain('贵州茅台');
-    });
-  });
-
-  describe('归一化', () => {
-    it('应该归一化到0-1范围', () => {
-      const normalized = normalizeMetrics(stocks);
-      expect(normalized.length).toBe(3);
-    });
-
-    it('空数组应该返回空', () => {
-      expect(normalizeMetrics([])).toEqual([]);
+      expect(result.recommendation.length).toBe(3);
+      for (const rec of result.recommendation) {
+        expect(['强烈推荐', '推荐', '中性', '回避']).toContain(rec.verdict);
+      }
     });
   });
 
   describe('边界条件', () => {
-    it('单只股票应该正常工作', () => {
+    it('单只股票应返回空结果', () => {
       const result = compareStocks([stocks[0]]);
-      expect(result.scores.length).toBe(1);
-      expect(result.ranking).toEqual([0]);
+      expect(result.dimensions).toHaveLength(0);
+      expect(result.rankings).toHaveLength(0);
+      expect(result.radarData).toHaveLength(0);
+      expect(result.recommendation).toHaveLength(0);
     });
 
-    it('空数组应该返回空结果', () => {
+    it('空数组应返回空结果', () => {
       const result = compareStocks([]);
-      expect(result.metrics.length).toBe(0);
-      expect(result.scores.length).toBe(0);
+      expect(result.dimensions).toHaveLength(0);
+      expect(result.rankings).toHaveLength(0);
+    });
+  });
+
+  describe('行业对比', () => {
+    it('应按行业聚合', () => {
+      const result = industryComparison(stocks);
+      expect(result.length).toBe(2); // 白酒 + 银行
+      const baijiu = result.find(r => r.industry === '白酒');
+      expect(baijiu?.avgPE).toBeCloseTo(31.5, 1); // (35+28)/2
+      expect(baijiu?.count).toBe(2);
     });
   });
 });

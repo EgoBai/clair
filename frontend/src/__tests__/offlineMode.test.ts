@@ -1,181 +1,128 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import {
+  OfflineManager,
+  useNetworkStatus,
+  useOfflineCache,
+  useOfflineQueue,
+} from '../utils/offlineMode';
 
 /**
- * 离线模式引擎测试
+ * 离线模式引擎测试（导入真实模块）
+ * 注意：jsdom 无 IndexedDB，缓存层降级为内存 no-op，仍覆盖代码路径。
  */
 
-interface OfflineConfig {
-  enabled: boolean;
-  maxCacheAge: number;  // ms
-  maxCacheSize: number; // bytes
-  syncOnReconnect: boolean;
-}
-
-interface CachedRequest {
-  url: string;
-  method: string;
-  response: any;
-  timestamp: number;
-  etag?: string;
-}
-
-interface SyncQueue {
-  id: string;
-  url: string;
-  method: string;
-  body: any;
-  timestamp: number;
-  retries: number;
-  status: 'pending' | 'syncing' | 'synced' | 'failed';
-}
-
-class OfflineManager {
-  private cache: Map<string, CachedRequest> = new Map();
-  private syncQueue: SyncQueue[] = [];
-  private config: OfflineConfig;
-  private isOnline: boolean = true;
-
-  constructor(config: OfflineConfig) {
-    this.config = config;
-  }
-
-  cacheRequest(url: string, method: string, response: any): void {
-    if (!this.config.enabled) return;
-    this.cache.set(url, {
-      url, method, response,
-      timestamp: Date.now(),
-    });
-  }
-
-  getCachedResponse(url: string): any | null {
-    const cached = this.cache.get(url);
-    if (!cached) return null;
-    if (Date.now() - cached.timestamp > this.config.maxCacheAge) {
-      this.cache.delete(url);
-      return null;
-    }
-    return cached.response;
-  }
-
-  addToSyncQueue(url: string, method: string, body: any): string {
-    const id = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    this.syncQueue.push({
-      id, url, method, body,
-      timestamp: Date.now(),
-      retries: 0,
-      status: 'pending',
-    });
-    return id;
-  }
-
-  getSyncQueue(): SyncQueue[] {
-    return [...this.syncQueue];
-  }
-
-  setOnline(online: boolean): void {
-    this.isOnline = online;
-  }
-
-  getOnlineStatus(): boolean {
-    return this.isOnline;
-  }
-
-  clearCache(): void {
-    this.cache.clear();
-  }
-
-  clearSyncQueue(): void {
-    this.syncQueue = [];
-  }
-
-  getCacheSize(): number {
-    return this.cache.size;
-  }
-
-  getPendingSyncCount(): number {
-    return this.syncQueue.filter(s => s.status === 'pending').length;
-  }
-}
-
-describe('Offline Mode Engine', () => {
-  const config: OfflineConfig = {
-    enabled: true,
-    maxCacheAge: 3600000,
-    maxCacheSize: 50 * 1024 * 1024,
-    syncOnReconnect: true,
-  };
-
+describe('OfflineManager（真实模块）', () => {
   let manager: OfflineManager;
 
   beforeEach(() => {
-    manager = new OfflineManager(config);
+    vi.stubGlobal('setInterval', vi.fn(() => 0 as unknown as ReturnType<typeof setInterval>));
+    vi.stubGlobal('clearInterval', vi.fn());
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    manager = new OfflineManager();
   });
 
-  describe('缓存管理', () => {
-    it('应该缓存请求', () => {
-      manager.cacheRequest('/api/stocks', 'GET', { data: 'test' });
-      expect(manager.getCacheSize()).toBe(1);
-    });
-
-    it('应该获取缓存响应', () => {
-      const response = { data: 'test' };
-      manager.cacheRequest('/api/stocks', 'GET', response);
-      expect(manager.getCachedResponse('/api/stocks')).toEqual(response);
-    });
-
-    it('不存在的URL应该返回null', () => {
-      expect(manager.getCachedResponse('/api/unknown')).toBeNull();
-    });
-
-    it('应该清除缓存', () => {
-      manager.cacheRequest('/api/stocks', 'GET', { data: 'test' });
-      manager.clearCache();
-      expect(manager.getCacheSize()).toBe(0);
-    });
+  afterEach(() => {
+    manager.destroy();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  describe('同步队列', () => {
-    it('应该添加到同步队列', () => {
-      const id = manager.addToSyncQueue('/api/orders', 'POST', { stock: '000001' });
-      expect(id).toBeTruthy();
-      expect(manager.getSyncQueue().length).toBe(1);
-    });
-
-    it('应该获取待同步数量', () => {
-      manager.addToSyncQueue('/api/orders', 'POST', {});
-      manager.addToSyncQueue('/api/watchlist', 'PUT', {});
-      expect(manager.getPendingSyncCount()).toBe(2);
-    });
-
-    it('应该清除同步队列', () => {
-      manager.addToSyncQueue('/api/orders', 'POST', {});
-      manager.clearSyncQueue();
-      expect(manager.getSyncQueue().length).toBe(0);
-    });
+  it('status 默认为 online（jsdom navigator.onLine）', () => {
+    expect(manager.status).toBe('online');
   });
 
-  describe('在线状态', () => {
-    it('默认应该在线', () => {
-      expect(manager.getOnlineStatus()).toBe(true);
-    });
-
-    it('应该设置离线', () => {
-      manager.setOnline(false);
-      expect(manager.getOnlineStatus()).toBe(false);
-    });
-
-    it('应该恢复在线', () => {
-      manager.setOnline(false);
-      manager.setOnline(true);
-      expect(manager.getOnlineStatus()).toBe(true);
-    });
+  it('onStatusChange 应在网络事件时通知', () => {
+    const seen: string[] = [];
+    manager.onStatusChange(s => seen.push(s));
+    window.dispatchEvent(new Event('offline'));
+    window.dispatchEvent(new Event('online'));
+    expect(seen).toContain('offline');
+    expect(seen).toContain('online');
   });
 
-  describe('配置', () => {
-    it('禁用时不应该缓存', () => {
-      const disabledManager = new OfflineManager({ ...config, enabled: false });
-      disabledManager.cacheRequest('/api/stocks', 'GET', { data: 'test' });
-      expect(disabledManager.getCacheSize()).toBe(0);
+  it('getCached 在无 IndexedDB 时降级返回 null', async () => {
+    const cached = await manager.getCached('missing');
+    expect(cached).toBeNull();
+  });
+
+  it('setCache 不应抛错', async () => {
+    await expect(manager.setCache('k', { a: 1 })).resolves.toBeUndefined();
+  });
+
+  it('clearCache / cleanupCache 不抛错', async () => {
+    await expect(manager.clearCache()).resolves.toBeUndefined();
+    await expect(manager.cleanupCache()).resolves.toBeDefined();
+  });
+
+  it('enqueueAction / processQueue 在无 DB 时安全', async () => {
+    await expect(manager.enqueueAction('add_watchlist', { symbol: '000001' })).resolves.toBeUndefined();
+    const res = await manager.processQueue();
+    expect(res).toHaveProperty('success');
+    expect(res).toHaveProperty('failed');
+  });
+
+  it('getPendingCount 返回数字', async () => {
+    const n = await manager.getPendingCount();
+    expect(typeof n).toBe('number');
+  });
+});
+
+describe('useNetworkStatus（真实 hook）', () => {
+  beforeEach(() => {
+    vi.stubGlobal('setInterval', vi.fn(() => 0 as unknown as ReturnType<typeof setInterval>));
+    vi.stubGlobal('clearInterval', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('应返回 status 与 isOnline', () => {
+    const { result } = renderHook(() => useNetworkStatus());
+    expect(['online', 'offline', 'reconnecting']).toContain(result.current.status);
+    expect(result.current.isOnline).toBe(result.current.status === 'online');
+  });
+});
+
+describe('useOfflineCache（真实 hook）', () => {
+  beforeEach(() => {
+    vi.stubGlobal('setInterval', vi.fn(() => 0 as unknown as ReturnType<typeof setInterval>));
+    vi.stubGlobal('clearInterval', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('在线时应通过 fetcher 加载数据', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ stocks: [1, 2, 3] });
+    const { result } = renderHook(() => useOfflineCache('key1', fetcher, 1000));
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(fetcher).toHaveBeenCalled();
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ stocks: [1, 2, 3] });
+  });
+});
+
+describe('useOfflineQueue（真实 hook）', () => {
+  beforeEach(() => {
+    vi.stubGlobal('setInterval', vi.fn(() => 0 as unknown as ReturnType<typeof setInterval>));
+    vi.stubGlobal('clearInterval', vi.fn());
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('enqueueAction 与 processQueue 可调用', async () => {
+    const { result } = renderHook(() => useOfflineQueue());
+    await act(async () => {
+      await result.current.enqueueAction('add_watchlist', { symbol: '000001' });
     });
+    const res = await act(async () => result.current.processQueue());
+    expect(res).toHaveProperty('success');
+    expect(res).toHaveProperty('failed');
   });
 });

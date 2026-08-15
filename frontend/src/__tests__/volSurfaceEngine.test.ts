@@ -1,190 +1,104 @@
 import { describe, it, expect } from 'vitest';
+import {
+  buildVolSurface,
+  fitVolSmile,
+  buildTermStructure,
+  analyzeSkew,
+  interpolateIV,
+  type OptionIVData,
+} from '../utils/volSurfaceEngine';
 
 /**
- * 波动率曲面引擎测试
+ * 波动率曲面引擎测试 (导入真实模块)
  */
 
-interface VolSurfacePoint {
-  strike: number;
-  expiry: number; // days to expiry
-  impliedVol: number;
-  delta: number;
-  gamma: number;
-  vega: number;
-  theta: number;
-}
-
-interface VolSurface {
-  underlying: string;
-  spot: number;
-  timestamp: string;
-  points: VolSurfacePoint[];
-  atmVol: number;
-  skew: number;
-  termStructure: number[];
-}
-
-function calcATMVol(surface: VolSurface): number {
-  const nearExpiry = surface.points
-    .filter(p => p.expiry <= 30)
-    .sort((a, b) => Math.abs(a.strike - surface.spot) - Math.abs(b.strike - surface.spot));
-  return nearExpiry.length > 0 ? nearExpiry[0].impliedVol : 0;
-}
-
-function calcSkew(surface: VolSurface, expiry: number = 30): number {
-  const points = surface.points.filter(p => p.expiry === expiry);
-  if (points.length < 3) return 0;
-
-  const sorted = points.sort((a, b) => a.strike - b.strike);
-  const atmIndex = sorted.findIndex(p => p.strike >= surface.spot);
-  if (atmIndex < 1 || atmIndex >= sorted.length - 1) return 0;
-
-  const putVol = sorted[atmIndex - 1].impliedVol;
-  const callVol = sorted[atmIndex + 1].impliedVol;
-  return callVol - putVol; // Positive = call skew, Negative = put skew
-}
-
-function calcTermStructure(surface: VolSurface): number[] {
-  const byExpiry = new Map<number, VolSurfacePoint[]>();
-  for (const point of surface.points) {
-    const existing = byExpiry.get(point.expiry) || [];
-    existing.push(point);
-    byExpiry.set(point.expiry, existing);
-  }
-
-  const result: number[] = [];
-  for (const [expiry, points] of [...byExpiry.entries()].sort((a, b) => a[0] - b[0])) {
-    const atmPoints = points
-      .sort((a, b) => Math.abs(a.strike - surface.spot) - Math.abs(b.strike - surface.spot))
-      .slice(0, 3);
-    const avgVol = atmPoints.reduce((s, p) => s + p.impliedVol, 0) / atmPoints.length;
-    result.push(avgVol);
-  }
-  return result;
-}
-
-function interpolateVol(surface: VolSurface, strike: number, expiry: number): number {
-  // Simple bilinear interpolation
-  const points = surface.points;
-  if (points.length === 0) return 0;
-
-  const nearby = points
-    .map(p => ({ ...p, dist: Math.abs(p.strike - strike) + Math.abs(p.expiry - expiry) * 0.01 }))
-    .sort((a, b) => a.dist - b.dist)
-    .slice(0, 4);
-
-  if (nearby.length === 0) return 0;
-  if (nearby[0].dist === 0) return nearby[0].impliedVol;
-
-  let weightedSum = 0;
-  let totalWeight = 0;
-  for (const p of nearby) {
-    const weight = 1 / (p.dist + 0.001);
-    weightedSum += p.impliedVol * weight;
-    totalWeight += weight;
-  }
-
-  return totalWeight > 0 ? weightedSum / totalWeight : 0;
-}
-
-function detectVolAnomaly(surface: VolSurface, threshold: number = 0.05): VolSurfacePoint[] {
-  const anomalies: VolSurfacePoint[] = [];
-  for (const point of surface.points) {
-    const expected = interpolateVol({ ...surface, points: surface.points.filter(p => p !== point) }, point.strike, point.expiry);
-    if (Math.abs(point.impliedVol - expected) > threshold) {
-      anomalies.push(point);
+function makeOptions(): OptionIVData[] {
+  const strikes = [80, 85, 90, 95, 100, 105, 110, 115, 120];
+  const ivs: Record<number, number> = {
+    80: 0.35, 85: 0.30, 90: 0.27, 95: 0.24, 100: 0.22,
+    105: 0.23, 110: 0.25, 115: 0.28, 120: 0.32,
+  };
+  const shifts: Record<string, number> = { '30': 0, '60': 0.03, '90': 0.06 };
+  const opts: OptionIVData[] = [];
+  for (const expiry of ['30', '60', '90']) {
+    for (const k of strikes) {
+      opts.push({
+        strike: k,
+        expiry,
+        iv: Math.round((ivs[k] + shifts[expiry]) * 1000) / 1000,
+        delta: 0, gamma: 0, vega: 0, theta: 0,
+      });
     }
   }
-  return anomalies;
+  return opts;
 }
 
-describe('Vol Surface Engine', () => {
-  const sampleSurface: VolSurface = {
-    underlying: '510050',
-    spot: 3.0,
-    timestamp: '2024-01-01',
-    points: [
-      { strike: 2.8, expiry: 30, impliedVol: 0.25, delta: -0.3, gamma: 0.5, vega: 0.1, theta: -0.02 },
-      { strike: 2.9, expiry: 30, impliedVol: 0.22, delta: -0.4, gamma: 0.6, vega: 0.12, theta: -0.025 },
-      { strike: 3.0, expiry: 30, impliedVol: 0.20, delta: -0.5, gamma: 0.7, vega: 0.15, theta: -0.03 },
-      { strike: 3.1, expiry: 30, impliedVol: 0.21, delta: -0.6, gamma: 0.6, vega: 0.12, theta: -0.025 },
-      { strike: 3.2, expiry: 30, impliedVol: 0.24, delta: -0.7, gamma: 0.5, vega: 0.1, theta: -0.02 },
-      { strike: 2.8, expiry: 60, impliedVol: 0.26, delta: -0.3, gamma: 0.4, vega: 0.15, theta: -0.015 },
-      { strike: 3.0, expiry: 60, impliedVol: 0.21, delta: -0.5, gamma: 0.5, vega: 0.2, theta: -0.02 },
-      { strike: 3.2, expiry: 60, impliedVol: 0.25, delta: -0.7, gamma: 0.4, vega: 0.15, theta: -0.015 },
-      { strike: 2.8, expiry: 90, impliedVol: 0.27, delta: -0.3, gamma: 0.3, vega: 0.2, theta: -0.01 },
-      { strike: 3.0, expiry: 90, impliedVol: 0.22, delta: -0.5, gamma: 0.4, vega: 0.25, theta: -0.015 },
-      { strike: 3.2, expiry: 90, impliedVol: 0.26, delta: -0.7, gamma: 0.3, vega: 0.2, theta: -0.01 },
-    ],
-    atmVol: 0.20,
-    skew: 0.01,
-    termStructure: [0.20, 0.21, 0.22],
-  };
-
-  describe('ATM波动率', () => {
-    it('应该找到最近到期的ATM波动率', () => {
-      const atmVol = calcATMVol(sampleSurface);
-      expect(atmVol).toBe(0.20);
-    });
-
-    it('空曲面应该返回0', () => {
-      const empty: VolSurface = { ...sampleSurface, points: [] };
-      expect(calcATMVol(empty)).toBe(0);
-    });
+describe('buildVolSurface', () => {
+  it('应构建与输入等长的曲面点', () => {
+    const surface = buildVolSurface(makeOptions(), 100);
+    expect(surface).toHaveLength(27);
   });
 
-  describe('偏斜度', () => {
-    it('应该计算skew', () => {
-      const skew = calcSkew(sampleSurface);
-      expect(typeof skew).toBe('number');
-    });
+  it('应正确标记 ATM 与计算 moneyness', () => {
+    const surface = buildVolSurface(makeOptions(), 100);
+    const atm = surface.find(p => p.strike === 100);
+    expect(atm?.moneyness).toBe(1);
+    expect(atm?.moneynessLabel).toBe('atm');
+  });
+});
 
-    it('数据不足应该返回0', () => {
-      const sparse: VolSurface = { ...sampleSurface, points: sampleSurface.points.slice(0, 2) };
-      expect(calcSkew(sparse)).toBe(0);
-    });
+describe('fitVolSmile', () => {
+  it('应拟合 ATM 波动率与偏度', () => {
+    const surface = buildVolSurface(makeOptions(), 100);
+    const params = fitVolSmile(surface, 30);
+    expect(params.atmVol).toBeCloseTo(0.22, 2);
+    expect(params.skew).toBeGreaterThan(0); // 认沽溢价 (put skew)
+    expect(params.rmse).toBeGreaterThanOrEqual(0);
   });
 
-  describe('期限结构', () => {
-    it('应该按到期日计算波动率', () => {
-      const termStructure = calcTermStructure(sampleSurface);
-      expect(termStructure.length).toBe(3); // 30, 60, 90 days
-    });
+  it('数据不足返回默认值', () => {
+    const sparse = buildVolSurface([
+      { strike: 100, expiry: '30', iv: 0.22, delta: 0, gamma: 0, vega: 0, theta: 0 },
+      { strike: 105, expiry: '30', iv: 0.23, delta: 0, gamma: 0, vega: 0, theta: 0 },
+    ], 100);
+    const params = fitVolSmile(sparse, 30);
+    expect(params.skew).toBe(0);
+    expect(params.rmse).toBe(1);
+  });
+});
 
-    it('应该按到期日排序', () => {
-      const termStructure = calcTermStructure(sampleSurface);
-      for (let i = 1; i < termStructure.length; i++) {
-        expect(termStructure[i]).toBeGreaterThanOrEqual(0);
-      }
-    });
+describe('buildTermStructure', () => {
+  it('应按到期日构建期限结构', () => {
+    const surface = buildVolSurface(makeOptions(), 100);
+    const ts = buildTermStructure(surface, 1.0);
+    expect(ts.tenors).toHaveLength(3);
+    expect(ts.tenors[0].days).toBe(30);
+    expect(ts.contango).toBe(true);
+    expect(ts.expectedVol).toBeGreaterThan(0);
+  });
+});
+
+describe('analyzeSkew', () => {
+  it('应计算偏度百分位与解读', () => {
+    const surface = buildVolSurface(makeOptions(), 100);
+    const params = fitVolSmile(surface, 30);
+    const analysis = analyzeSkew(params, [0.01, 0.02, 0.03]);
+    expect(analysis.putCallSkew).toBe(params.skew);
+    expect(analysis.skewPercentile).toBeGreaterThanOrEqual(0);
+    expect(analysis.skewPercentile).toBeLessThanOrEqual(100);
+    expect(typeof analysis.interpretation).toBe('string');
+    expect(analysis.interpretation.length).toBeGreaterThan(0);
+  });
+});
+
+describe('interpolateIV', () => {
+  it('空曲面返回 0.2', () => {
+    expect(interpolateIV([], 100, 30)).toBe(0.2);
   });
 
-  describe('波动率插值', () => {
-    it('应该插值任意点', () => {
-      const vol = interpolateVol(sampleSurface, 3.05, 45);
-      expect(vol).toBeGreaterThan(0);
-    });
-
-    it('空曲面应该返回0', () => {
-      const empty: VolSurface = { ...sampleSurface, points: [] };
-      expect(interpolateVol(empty, 3.0, 30)).toBe(0);
-    });
-
-    it('已知点应该返回原值', () => {
-      const vol = interpolateVol(sampleSurface, 3.0, 30);
-      expect(vol).toBeCloseTo(0.20, 2);
-    });
-  });
-
-  describe('异常检测', () => {
-    it('应该检测异常波动率', () => {
-      const anomalies = detectVolAnomaly(sampleSurface);
-      expect(Array.isArray(anomalies)).toBe(true);
-    });
-
-    it('正常曲面应该没有明显异常', () => {
-      const anomalies = detectVolAnomaly(sampleSurface, 0.1);
-      expect(anomalies.length).toBeLessThanOrEqual(2);
-    });
+  it('已知点应返回近似原值', () => {
+    const surface = buildVolSurface(makeOptions(), 100);
+    const vol = interpolateIV(surface, 100, 30);
+    expect(vol).toBeCloseTo(0.22, 2);
   });
 });

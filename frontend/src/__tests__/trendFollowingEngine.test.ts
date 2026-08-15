@@ -1,161 +1,164 @@
 import { describe, it, expect } from 'vitest';
+import {
+  calculateMA,
+  calculateAllMAs,
+  detectCrossovers,
+  calculateTrendStrength,
+  identifyTrendPhase,
+  calculateStopLossTakeProfit,
+  analyzeDrawdown,
+  calculateATR,
+  type PriceData,
+  type MAValues,
+} from '../utils/trendFollowingEngine';
 
 /**
- * 趋势跟踪策略引擎测试
+ * 趋势跟踪策略引擎测试 (导入真实模块)
  */
 
-interface PriceData { date: string; open: number; high: number; low: number; close: number; volume: number; }
-interface MAValues { ma5: number; ma10: number; ma20: number; ma60: number; ma120: number; ma250: number; }
-interface TrendSignal { type: string; ma: string; direction: 'bullish' | 'bearish'; strength: number; }
-interface TrendStrength { score: number; level: string; maAlignment: number; }
-
-function calculateMA(data: number[], period: number): number | null {
-  if (data.length < period) return null;
-  return data.slice(-period).reduce((s, v) => s + v, 0) / period;
+function mkPrice(i: number, close: number): PriceData {
+  return { date: `d${i}`, open: close, high: close + 1, low: close - 1, close, volume: 1000 };
 }
 
-function calculateAllMA(prices: number[]): MAValues | null {
-  if (prices.length < 60) return null;
-  return {
-    ma5: calculateMA(prices, 5)!,
-    ma10: calculateMA(prices, 10)!,
-    ma20: calculateMA(prices, 20)!,
-    ma60: calculateMA(prices, 60)!,
-    ma120: prices.length >= 120 ? calculateMA(prices, 120)! : 0,
-    ma250: prices.length >= 250 ? calculateMA(prices, 250)! : 0,
-  };
-}
-
-function detectGoldenCross(prices: number[]): TrendSignal[] {
-  const signals: TrendSignal[] = [];
-  if (prices.length < 20) return signals;
-  const pairs: Array<[string, number, number]> = [
-    ['ma5_ma10', 5, 10], ['ma10_ma20', 10, 20], ['ma20_ma60', 20, 60],
-  ];
-  for (const [name, fast, slow] of pairs) {
-    if (prices.length < slow + 1) continue;
-    const fastPrev = calculateMA(prices.slice(0, -1), fast);
-    const slowPrev = calculateMA(prices.slice(0, -1), slow);
-    const fastCurr = calculateMA(prices, fast);
-    const slowCurr = calculateMA(prices, slow);
-    if (fastPrev && slowPrev && fastCurr && slowCurr) {
-      if (fastPrev <= slowPrev && fastCurr > slowCurr) {
-        signals.push({ type: 'golden_cross', ma: name, direction: 'bullish', strength: 70 });
-      } else if (fastPrev >= slowPrev && fastCurr < slowCurr) {
-        signals.push({ type: 'death_cross', ma: name, direction: 'bearish', strength: 70 });
-      }
-    }
-  }
-  return signals;
-}
-
-function calculateTrendStrength(prices: number[]): TrendStrength {
-  if (prices.length < 60) return { score: 50, level: 'neutral', maAlignment: 0 };
-  const ma = calculateAllMA(prices);
-  if (!ma) return { score: 50, level: 'neutral', maAlignment: 0 };
-  const mas = [ma.ma5, ma.ma10, ma.ma20, ma.ma60];
-  let alignment = 0;
-  const isBullish = mas.every((v, i) => i === 0 || v <= mas[i - 1]);
-  const isBearish = mas.every((v, i) => i === 0 || v >= mas[i - 1]);
-  if (isBullish) alignment = 1;
-  else if (isBearish) alignment = -1;
-  const recentTrend = prices.slice(-20);
-  const slope = (recentTrend[recentTrend.length - 1] - recentTrend[0]) / recentTrend.length;
-  const trendScore = Math.min(50, Math.abs(slope) * 100);
-  const score = Math.min(100, Math.max(0, 50 + alignment * 25 + (slope > 0 ? trendScore : -trendScore)));
-  const level = score > 70 ? 'strong_up' : score > 55 ? 'weak_up' : score < 30 ? 'strong_down' : score < 45 ? 'weak_down' : 'neutral';
-  return { score: parseFloat(score.toFixed(2)), level, maAlignment: parseFloat(Math.abs(alignment).toFixed(2)) };
-}
-
-function calculateStopLoss(entry: number, atr: number, multiplier: number = 2, direction: 'long' | 'short' = 'long'): number {
-  return direction === 'long' ? entry - atr * multiplier : entry + atr * multiplier;
-}
-
-function calculateTrailingStop(prices: number[], lookback: number = 10, offset: number = 0.03): number {
-  if (prices.length < lookback) return prices[prices.length - 1] * (1 - offset);
-  const highest = Math.max(...prices.slice(-lookback));
-  return highest * (1 - offset);
-}
-
-describe('趋势跟踪策略引擎', () => {
-  const generatePrices = (n: number, trend: 'up' | 'down' | 'flat' = 'up'): number[] => {
-    let price = 100;
-    return Array.from({ length: n }, () => {
-      const change = trend === 'up' ? Math.random() * 0.02 : trend === 'down' ? -Math.random() * 0.02 : (Math.random() - 0.5) * 0.01;
-      price *= (1 + change);
-      return parseFloat(price.toFixed(2));
-    });
-  };
-
-  describe('calculateMA', () => {
-    it('should return null for insufficient data', () => {
-      expect(calculateMA([1, 2], 5)).toBeNull();
-    });
-
-    it('should calculate correctly', () => {
-      expect(calculateMA([10, 20, 30], 3)).toBe(20);
-    });
+describe('calculateMA', () => {
+  it('数据不足应返回 NaN 数组', () => {
+    const ma = calculateMA([1, 2], 5);
+    expect(ma).toHaveLength(2);
+    expect(ma.every(v => Number.isNaN(v))).toBe(true);
   });
 
-  describe('calculateAllMA', () => {
-    it('should return null for insufficient data', () => {
-      expect(calculateAllMA([1, 2, 3])).toBeNull();
-    });
+  it('应正确计算移动平均', () => {
+    const ma = calculateMA([10, 20, 30], 3);
+    expect(ma).toHaveLength(3);
+    expect(ma[2]).toBe(20);
+  });
+});
 
-    it('should return all MA values', () => {
-      const ma = calculateAllMA(generatePrices(70));
-      expect(ma).not.toBeNull();
-      expect(ma!.ma5).toBeGreaterThan(0);
-      expect(ma!.ma60).toBeGreaterThan(0);
-    });
+describe('calculateAllMAs', () => {
+  it('返回与输入等长的序列', () => {
+    const data = Array.from({ length: 70 }, (_, i) => mkPrice(i, 100 + i));
+    const mas = calculateAllMAs(data);
+    expect(mas).toHaveLength(70);
+    expect(mas[69].ma5).toBeGreaterThan(0);
+    expect(mas[69].ma60).toBeGreaterThan(0);
+  });
+});
+
+describe('detectCrossovers', () => {
+  it('应检测金叉', () => {
+    const data: (MAValues & { date: string; close: number })[] = [
+      { date: '1', close: 100, ma5: 10, ma10: 11, ma20: 12, ma60: 13, ma120: 14, ma250: 15 },
+      { date: '2', close: 100, ma5: 20, ma10: 11, ma20: 12, ma60: 13, ma120: 14, ma250: 15 },
+    ];
+    const signals = detectCrossovers(data);
+    expect(signals.some(s => s.type === 'golden_cross')).toBe(true);
+    expect(signals.every(s => s.direction === 'bullish')).toBe(true);
   });
 
-  describe('detectGoldenCross', () => {
-    it('should return empty for insufficient data', () => {
-      expect(detectGoldenCross([1, 2, 3])).toHaveLength(0);
-    });
+  it('应检测死叉', () => {
+    const data: (MAValues & { date: string; close: number })[] = [
+      { date: '1', close: 100, ma5: 20, ma10: 11, ma20: 12, ma60: 13, ma120: 14, ma250: 15 },
+      { date: '2', close: 100, ma5: 10, ma10: 11, ma20: 12, ma60: 13, ma120: 14, ma250: 15 },
+    ];
+    const signals = detectCrossovers(data);
+    expect(signals.some(s => s.type === 'death_cross')).toBe(true);
+    expect(signals.every(s => s.direction === 'bearish')).toBe(true);
+  });
+});
 
-    it('should return array of signals', () => {
-      const signals = detectGoldenCross(generatePrices(30));
-      signals.forEach(s => {
-        expect(['golden_cross', 'death_cross']).toContain(s.type);
-        expect(['bullish', 'bearish']).toContain(s.direction);
-      });
-    });
+describe('calculateTrendStrength', () => {
+  it('空数据返回中性', () => {
+    const r = calculateTrendStrength([]);
+    expect(r.score).toBe(50);
+    expect(r.level).toBe('neutral');
+    expect(r.maAlignment).toBe(0);
   });
 
-  describe('calculateTrendStrength', () => {
-    it('should return neutral for short data', () => {
-      const result = calculateTrendStrength([1, 2, 3]);
-      expect(result.level).toBe('neutral');
-    });
-
-    it('should detect uptrend', () => {
-      const result = calculateTrendStrength(generatePrices(70, 'up'));
-      expect(result.score).toBeGreaterThanOrEqual(0);
-      expect(result.score).toBeLessThanOrEqual(100);
-    });
-
-    it('should detect downtrend', () => {
-      const result = calculateTrendStrength(generatePrices(70, 'down'));
-      expect(result.score).toBeGreaterThanOrEqual(0);
-    });
+  it('应识别多头排列(强上涨)', () => {
+    const data: (MAValues & { date: string; close: number })[] = [
+      { date: '1', close: 110, ma5: 120, ma10: 110, ma20: 100, ma60: 90, ma120: 80, ma250: 70 },
+    ];
+    const r = calculateTrendStrength(data);
+    expect(r.level).toBe('strong_up');
+    expect(r.score).toBeGreaterThan(75);
+    expect(r.maAlignment).toBeCloseTo(0.8, 2);
   });
 
-  describe('calculateStopLoss', () => {
-    it('long stop below entry', () => {
-      expect(calculateStopLoss(100, 2)).toBe(96);
-    });
+  it('应识别空头排列(强下跌)', () => {
+    const data: (MAValues & { date: string; close: number })[] = [
+      { date: '1', close: 90, ma5: 80, ma10: 90, ma20: 100, ma60: 110, ma120: 120, ma250: 130 },
+    ];
+    const r = calculateTrendStrength(data);
+    expect(r.level).toBe('strong_down');
+    expect(r.score).toBe(0);
+  });
+});
 
-    it('short stop above entry', () => {
-      expect(calculateStopLoss(100, 2, 2, 'short')).toBe(104);
-    });
+describe('identifyTrendPhase', () => {
+  it('数据不足返回积累阶段', () => {
+    const data = Array.from({ length: 5 }, (_, i) => ({
+      date: `d${i}`, close: 100 + i, ma5: 1, ma10: 2, ma20: 3, ma60: 4, ma120: 5, ma250: 6,
+    }));
+    const phase = identifyTrendPhase(data, Array(5).fill(100));
+    expect(phase.phase).toBe('accumulation');
+    expect(phase.confidence).toBe(0);
+    expect(phase.characteristics).toContain('数据不足');
   });
 
-  describe('calculateTrailingStop', () => {
-    it('should return below highest', () => {
-      const stop = calculateTrailingStop([90, 95, 100, 105, 110], 5, 0.03);
-      expect(stop).toBeCloseTo(106.7, 0);
-    });
+  it('放量上涨识别为主升浪', () => {
+    const mk = () => ({ date: 'x', close: 110, ma5: 120, ma10: 110, ma20: 100, ma60: 90, ma120: 80, ma250: 70 });
+    const data = Array.from({ length: 25 }, (_, i) => ({ ...mk(), date: `d${i}` }));
+    const volumes = Array.from({ length: 25 }, (_, i) => (i >= 20 ? 200 : 100));
+    const phase = identifyTrendPhase(data, volumes);
+    expect(phase.phase).toBe('markup');
+    expect(phase.confidence).toBe(80);
+    expect(phase.characteristics).toContain('放量上涨');
+  });
+});
+
+describe('calculateStopLossTakeProfit', () => {
+  it('ATR 法应正确计算', () => {
+    const r = calculateStopLossTakeProfit(100, 2);
+    expect(r.stopLoss).toBe(96);
+    expect(r.takeProfit).toBe(106);
+    expect(r.riskReward).toBeCloseTo(1.5, 5);
+    expect(r.trailingStop).toBe(98);
+    expect(r.method).toContain('ATR');
+  });
+
+  it('ATR 为 0 时回退百分比法', () => {
+    const r = calculateStopLossTakeProfit(100, 0);
+    expect(r.stopLoss).toBe(95);
+    expect(r.takeProfit).toBeCloseTo(110, 5);
+  });
+
+  it('百分比法', () => {
+    const r = calculateStopLossTakeProfit(100, 2, 'percentage');
+    expect(r.stopLoss).toBe(95);
+    expect(r.takeProfit).toBeCloseTo(110, 5);
+  });
+});
+
+describe('analyzeDrawdown', () => {
+  it('应计算最大回撤', () => {
+    const data: PriceData[] = [
+      mkPrice(0, 100),
+      mkPrice(1, 120),
+      mkPrice(2, 90),
+    ];
+    const r = analyzeDrawdown(data);
+    expect(r.maxDrawdown).toBe(30);
+    expect(r.maxDrawdownPct).toBe(25);
+    expect(r.currentDrawdown).toBe(25);
+  });
+});
+
+describe('calculateATR', () => {
+  it('应返回与输入等长的序列且末值有限', () => {
+    const data: PriceData[] = Array.from({ length: 20 }, (_, i) =>
+      ({ date: `d${i}`, open: 100 + i, high: 102 + i, low: 98 + i, close: 100 + i, volume: 1000 }));
+    const atr = calculateATR(data, 14);
+    expect(atr).toHaveLength(20);
+    expect(Number.isFinite(atr[19])).toBe(true);
   });
 });

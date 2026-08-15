@@ -1,175 +1,108 @@
-import { describe, it, expect } from 'vitest';
-
 /**
- * 仓位管理引擎测试
- * Kelly公式 / 固定比例 / ATR仓位 / 风险预算
+ * 仓位管理引擎测试 —— 直接驱动真实模块
+ * 说明: 原测试内联重实现了 kelly/fixed/atr/riskBudget/calculatePosition, 逻辑与真实模块基本一致,
+ *       但 atrSize 真实签名是 atrSize(params, atrMultiplier) 而非拆分参数, 已修正调用方式。
+ *       改用真实 PositionSizingEngine 类。
  */
+import { describe, it, expect } from 'vitest';
+import { PositionSizingEngine, type PositionParams } from '../utils/positionSizingEngine';
 
-interface PositionParams {
-  capital: number;
-  entryPrice: number;
-  stopLoss: number;
-  winRate: number;
-  avgWin: number;
-  avgLoss: number;
-  atr: number;
-  maxRiskPct: number;
-}
+const engine = new PositionSizingEngine();
 
-function kellySize(params: PositionParams): { shares: number; pct: number; fKelly: number } {
-  const { capital, winRate, avgWin, avgLoss, entryPrice } = params;
-  if (avgLoss <= 0 || entryPrice <= 0) return { shares: 0, pct: 0, fKelly: 0 };
-  const b = avgWin / avgLoss;
-  const fKelly = winRate - (1 - winRate) / b;
-  const halfKelly = Math.max(0, fKelly * 0.5);
-  const position = capital * halfKelly;
-  const shares = Math.floor(position / entryPrice / 100) * 100;
-  return {
-    shares: Math.max(0, shares),
-    pct: Math.round(halfKelly * 10000) / 100,
-    fKelly: Math.round(fKelly * 10000) / 10000,
-  };
-}
+const baseParams: PositionParams = {
+  capital: 1000000,
+  entryPrice: 50,
+  stopLoss: 48,
+  winRate: 0.6,
+  avgWin: 5,
+  avgLoss: 3,
+  atr: 1.5,
+  maxRiskPct: 2,
+};
 
-function fixedPctSize(capital: number, entryPrice: number, riskPct: number = 2): number {
-  const position = capital * riskPct / 100;
-  return Math.floor(position / entryPrice / 100) * 100;
-}
-
-function atrSize(capital: number, entryPrice: number, atr: number, atrMultiplier: number = 2, riskPct: number = 1): number {
-  if (atr <= 0 || entryPrice <= 0) return 0;
-  const riskAmount = capital * riskPct / 100;
-  const stopDistance = atr * atrMultiplier;
-  const shares = Math.floor(riskAmount / stopDistance / 100) * 100;
-  return Math.max(0, shares);
-}
-
-function riskBudgetSize(capital: number, entryPrice: number, stopLoss: number, maxRiskPct: number = 2): number {
-  if (entryPrice <= stopLoss || entryPrice <= 0) return 0;
-  const riskAmount = capital * maxRiskPct / 100;
-  const riskPerShare = entryPrice - stopLoss;
-  const shares = Math.floor(riskAmount / riskPerShare / 100) * 100;
-  return Math.max(0, shares);
-}
-
-function calculatePosition(params: PositionParams) {
-  const kelly = kellySize(params);
-  const fixed = fixedPctSize(params.capital, params.entryPrice, params.maxRiskPct);
-  const atr = atrSize(params.capital, params.entryPrice, params.atr);
-  const risk = riskBudgetSize(params.capital, params.entryPrice, params.stopLoss, params.maxRiskPct);
-  const recommended = Math.min(kelly.shares, fixed, atr, risk);
-  return {
-    kellyShares: kelly.shares,
-    kellyPct: kelly.pct,
-    fixedPctShares: fixed,
-    atrShares: atr,
-    riskBudgetShares: risk,
-    recommendedShares: recommended,
-    recommendedPct: parseFloat(((recommended * params.entryPrice) / params.capital * 100).toFixed(2)),
-    riskAmount: parseFloat((recommended * (params.entryPrice - params.stopLoss)).toFixed(2)),
-    maxLoss: parseFloat((recommended * (params.entryPrice - params.stopLoss)).toFixed(2)),
-  };
-}
-
-describe('仓位管理引擎', () => {
-  const baseParams: PositionParams = {
-    capital: 1000000,
-    entryPrice: 50,
-    stopLoss: 48,
-    winRate: 0.6,
-    avgWin: 5,
-    avgLoss: 3,
-    atr: 1.5,
-    maxRiskPct: 2,
-  };
-
-  describe('kellySize', () => {
-    it('should calculate positive position for favorable odds', () => {
-      const result = kellySize(baseParams);
-      expect(result.shares).toBeGreaterThan(0);
-      expect(result.pct).toBeGreaterThan(0);
-    });
-
-    it('should return 0 for negative edge', () => {
-      const result = kellySize({ ...baseParams, winRate: 0.3, avgWin: 2, avgLoss: 5 });
-      expect(result.shares).toBe(0);
-    });
-
-    it('should return 0 for zero avgLoss', () => {
-      const result = kellySize({ ...baseParams, avgLoss: 0 });
-      expect(result.shares).toBe(0);
-    });
-
-    it('should use half-Kelly for conservative sizing', () => {
-      const result = kellySize(baseParams);
-      expect(result.pct).toBeLessThanOrEqual(50);
-    });
-
-    it('should round to lot size (100 shares)', () => {
-      const result = kellySize(baseParams);
-      expect(result.shares % 100).toBe(0);
-    });
+describe('kellySize', () => {
+  it('有利赔率应输出正仓位', () => {
+    const r = engine.kellySize(baseParams);
+    expect(r.shares).toBeGreaterThan(0);
+    expect(r.pct).toBeGreaterThan(0);
   });
 
-  describe('fixedPctSize', () => {
-    it('should calculate fixed percentage position', () => {
-      const shares = fixedPctSize(1000000, 50, 2);
-      // 1000000 * 0.02 / 50 = 400 shares → floor to 400
-      expect(shares).toBe(400);
-    });
-
-    it('should return 0 for very high price', () => {
-      const shares = fixedPctSize(1000, 100000, 2);
-      expect(shares).toBe(0);
-    });
+  it('不利赔率应返回 0', () => {
+    const r = engine.kellySize({ ...baseParams, winRate: 0.3, avgWin: 2, avgLoss: 5 });
+    expect(r.shares).toBe(0);
   });
 
-  describe('atrSize', () => {
-    it('should calculate ATR-based position', () => {
-      const shares = atrSize(1000000, 50, 1.5, 2, 1);
-      // riskAmount = 10000, stopDistance = 3, shares = floor(10000/3/100)*100 = 3300
-      expect(shares).toBeGreaterThan(0);
-      expect(shares % 100).toBe(0);
-    });
-
-    it('should return 0 for zero ATR', () => {
-      expect(atrSize(1000000, 50, 0)).toBe(0);
-    });
-
-    it('should reduce position with higher ATR multiplier', () => {
-      const small = atrSize(1000000, 50, 1.5, 4, 1);
-      const large = atrSize(1000000, 50, 1.5, 2, 1);
-      expect(small).toBeLessThanOrEqual(large);
-    });
+  it('avgLoss 为 0 时应返回 0', () => {
+    expect(engine.kellySize({ ...baseParams, avgLoss: 0 }).shares).toBe(0);
   });
 
-  describe('riskBudgetSize', () => {
-    it('should calculate risk-budgeted position', () => {
-      const shares = riskBudgetSize(1000000, 50, 48, 2);
-      // riskAmount = 20000, riskPerShare = 2, shares = floor(20000/2/100)*100 = 10000
-      expect(shares).toBe(10000);
-    });
-
-    it('should return 0 when stopLoss >= entry', () => {
-      expect(riskBudgetSize(1000000, 50, 50, 2)).toBe(0);
-      expect(riskBudgetSize(1000000, 50, 52, 2)).toBe(0);
-    });
+  it('应使用半 Kelly(占比不超过 50%)', () => {
+    expect(engine.kellySize(baseParams).pct).toBeLessThanOrEqual(50);
   });
 
-  describe('calculatePosition', () => {
-    it('should return all position methods', () => {
-      const result = calculatePosition(baseParams);
-      expect(result.kellyShares).toBeGreaterThanOrEqual(0);
-      expect(result.fixedPctShares).toBeGreaterThanOrEqual(0);
-      expect(result.atrShares).toBeGreaterThanOrEqual(0);
-      expect(result.riskBudgetShares).toBeGreaterThanOrEqual(0);
-      expect(result.recommendedShares).toBeLessThanOrEqual(result.kellyShares);
-      expect(result.recommendedShares).toBeLessThanOrEqual(result.fixedPctShares);
-    });
+  it('应取整到整手(100 股)', () => {
+    expect(engine.kellySize(baseParams).shares % 100).toBe(0);
+  });
+});
 
-    it('should calculate risk amount', () => {
-      const result = calculatePosition(baseParams);
-      expect(result.riskAmount).toBeGreaterThanOrEqual(0);
-    });
+describe('fixedPctSize', () => {
+  it('应计算固定比例仓位', () => {
+    // 1000000 * 0.02 / 50 = 400 股
+    expect(engine.fixedPctSize(1000000, 50, 2)).toBe(400);
+  });
+
+  it('价格过高应返回 0', () => {
+    expect(engine.fixedPctSize(1000, 100000, 2)).toBe(0);
+  });
+});
+
+describe('atrSize', () => {
+  it('应基于 ATR 计算仓位(整手)', () => {
+    // riskAmount = 1000000*1% = 10000, perShareRisk = 1.5*2 = 3, floor(10000/3/100)*100 = 3300
+    const shares = engine.atrSize(baseParams, 2);
+    expect(shares).toBeGreaterThan(0);
+    expect(shares % 100).toBe(0);
+  });
+
+  it('ATR 为 0 应返回 0', () => {
+    expect(engine.atrSize({ ...baseParams, atr: 0 }, 2)).toBe(0);
+  });
+
+  it('更大的 ATR 乘数应减小仓位', () => {
+    const small = engine.atrSize(baseParams, 4);
+    const large = engine.atrSize(baseParams, 2);
+    expect(small).toBeLessThanOrEqual(large);
+  });
+});
+
+describe('riskBudgetSize', () => {
+  it('应基于止损风险预算计算仓位', () => {
+    // riskAmount = 20000, riskPerShare = 2, floor(20000/2/100)*100 = 10000
+    expect(engine.riskBudgetSize(1000000, 50, 48, 2)).toBe(10000);
+  });
+
+  it('止损价不低于入场价应返回 0', () => {
+    expect(engine.riskBudgetSize(1000000, 50, 50, 2)).toBe(0);
+    expect(engine.riskBudgetSize(1000000, 50, 52, 2)).toBe(0);
+  });
+});
+
+describe('calculatePosition', () => {
+  it('应返回各方法仓位及推荐值(取最保守)', () => {
+    const r = engine.calculatePosition(baseParams);
+    expect(r.kellyShares).toBeGreaterThanOrEqual(0);
+    expect(r.fixedPctShares).toBeGreaterThanOrEqual(0);
+    expect(r.atrShares).toBeGreaterThanOrEqual(0);
+    expect(r.riskBudgetShares).toBeGreaterThanOrEqual(0);
+    expect(r.recommendedShares).toBeLessThanOrEqual(r.kellyShares);
+    expect(r.recommendedShares).toBeLessThanOrEqual(r.fixedPctShares);
+    expect(r.recommendedShares).toBeLessThanOrEqual(r.atrShares);
+    expect(r.recommendedShares).toBeLessThanOrEqual(r.riskBudgetShares);
+  });
+
+  it('应计算风险金额与期望值', () => {
+    const r = engine.calculatePosition(baseParams);
+    expect(r.riskAmount).toBeGreaterThanOrEqual(0);
+    expect(typeof r.expectedValue).toBe('number');
   });
 });

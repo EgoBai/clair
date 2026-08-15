@@ -1,122 +1,94 @@
 import { describe, it, expect } from 'vitest';
+import React from 'react';
+import { renderHook, render, act } from '@testing-library/react';
+import { useVirtualScroll, useDynamicVirtualScroll } from '../hooks/useVirtualScroll';
 
-// Test pure logic from useVirtualScroll without React rendering
+/**
+ * 虚拟滚动 Hook 测试（导入真实模块）
+ */
 
-describe('useVirtualScroll logic', () => {
-  const items = Array.from({ length: 1000 }, (_, i) => ({ id: i, name: `Item ${i}` }));
+const items = Array.from({ length: 1000 }, (_, i) => ({ id: i, name: `Item ${i}` }));
 
-  it('should calculate correct visible range', () => {
-    const itemHeight = 40;
-    const containerHeight = 400;
-    const overscan = 5;
-    const scrollTop = 0;
+/** 让 jsdom 元素表现为可滚动（否则 scrollTop 被钳制为 0） */
+function makeScrollable(el: HTMLElement): void {
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 40000 });
+  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 400 });
+}
 
-    const visibleCount = Math.ceil(containerHeight / itemHeight); // 10
-    const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan); // 0
-    const end = Math.min(items.length - 1, Math.floor(scrollTop / itemHeight) + visibleCount + overscan); // 14
-
-    expect(start).toBe(0);
-    expect(end).toBe(15);
-    expect(end - start + 1).toBe(16); // items with overscan
+describe('useVirtualScroll（真实 hook）', () => {
+  it('初始（scrollTop=0）应渲染顶部 overscan 窗口', () => {
+    const { result } = renderHook(() =>
+      useVirtualScroll(items, { itemHeight: 40, containerHeight: 400, overscan: 5 })
+    );
+    expect(result.current.totalHeight).toBe(40000);
+    expect(result.current.virtualItems).toHaveLength(16); // 0..15
+    expect(result.current.virtualItems[0].index).toBe(0);
+    expect(result.current.virtualItems[0].item.id).toBe(0);
+    expect(result.current.virtualItems[0].style.top).toBe(0);
+    expect(result.current.virtualItems[15].index).toBe(15);
+    expect(result.current.virtualItems[15].style.top).toBe(600);
   });
 
-  it('should calculate range with scroll offset', () => {
-    const itemHeight = 40;
-    const containerHeight = 400;
-    const overscan = 5;
-    const scrollTop = 400; // scrolled 10 items
-
-    const visibleCount = Math.ceil(containerHeight / itemHeight);
-    const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-    const end = Math.min(items.length - 1, Math.floor(scrollTop / itemHeight) + visibleCount + overscan);
-
-    expect(start).toBe(5); // 10 - 5 overscan
-    expect(end).toBe(25); // 10 + 10 visible + 5 overscan
-  });
-
-  it('should calculate total height', () => {
-    const itemHeight = 40;
-    expect(items.length * itemHeight).toBe(40000);
-  });
-
-  it('should generate correct item positions', () => {
-    const itemHeight = 40;
-    const positions = items.map((_, i) => ({
-      top: i * itemHeight,
-      height: itemHeight,
-    }));
-
-    expect(positions[0]).toEqual({ top: 0, height: 40 });
-    expect(positions[999]).toEqual({ top: 39960, height: 40 });
-  });
-
-  it('should handle empty items', () => {
-    const totalHeight = 0 * 40;
-    expect(totalHeight).toBe(0);
-  });
-
-  it('should clamp start index to 0', () => {
-    const scrollTop = 0;
-    const overscan = 10;
-    const start = Math.max(0, Math.floor(scrollTop / 40) - overscan);
-    expect(start).toBe(0);
-  });
-
-  it('should clamp end index to items.length - 1', () => {
-    const scrollTop = 39600; // near end
-    const containerHeight = 400;
-    const itemHeight = 40;
-    const overscan = 5;
-    const visibleCount = Math.ceil(containerHeight / itemHeight);
-    const end = Math.min(items.length - 1, Math.floor(scrollTop / itemHeight) + visibleCount + overscan);
-    expect(end).toBe(999); // clamped to last index
-  });
-
-  it('should generate virtual items with correct styles', () => {
-    const itemHeight = 40;
-    const start = 5;
-    const end = 15;
-
-    const virtualItems = [];
-    for (let i = start; i <= end; i++) {
-      virtualItems.push({
-        index: i,
-        item: items[i],
-        style: {
-          position: 'absolute' as const,
-          top: i * itemHeight,
-          left: 0,
-          right: 0,
-          height: itemHeight,
-        },
-      });
+  it('滚动后应渲染对应窗口', () => {
+    let api: ReturnType<typeof useVirtualScroll<(typeof items)[number]>> | undefined;
+    function Host() {
+      api = useVirtualScroll(items, { itemHeight: 40, containerHeight: 400, overscan: 5 });
+      return React.createElement('div', { ref: api.containerRef as React.RefObject<HTMLDivElement> });
     }
+    const { container } = render(React.createElement(Host));
+    const cdiv = container.querySelector('div') as HTMLDivElement;
+    makeScrollable(cdiv);
 
-    expect(virtualItems).toHaveLength(11);
-    expect(virtualItems[0].index).toBe(5);
-    expect(virtualItems[0].style.top).toBe(200);
-    expect(virtualItems[0].item.id).toBe(5);
+    act(() => {
+      cdiv.scrollTop = 400; // 滚动 10 项
+      cdiv.dispatchEvent(new Event('scroll'));
+    });
+
+    expect(api!.virtualItems[0].index).toBe(5); // floor(400/40)-5
+    expect(api!.virtualItems[api!.virtualItems.length - 1].index).toBe(25);
   });
 
-  describe('dynamic height calculation', () => {
-    it('should sum estimated heights for total', () => {
-      const itemCount = 100;
-      const estimatedHeight = 40;
-      expect(itemCount * estimatedHeight).toBe(4000);
-    });
+  it('scrollToIndex / scrollToTop 应更新容器 scrollTop', () => {
+    let api: ReturnType<typeof useVirtualScroll<(typeof items)[number]>> | undefined;
+    function Host() {
+      api = useVirtualScroll(items, { itemHeight: 40, containerHeight: 400, overscan: 5 });
+      return React.createElement('div', { ref: api.containerRef as React.RefObject<HTMLDivElement> });
+    }
+    const { container } = render(React.createElement(Host));
+    const cdiv = container.querySelector('div') as HTMLDivElement;
+    makeScrollable(cdiv);
 
-    it('should use measured heights when available', () => {
-      const heights = new Map<number, number>();
-      heights.set(0, 50); // measured
-      heights.set(1, 30); // measured
-      // 2 not measured, use estimated
+    act(() => { api!.scrollToIndex(5); });
+    expect(cdiv.scrollTop).toBe(200);
+    act(() => { api!.scrollToTop(); });
+    expect(cdiv.scrollTop).toBe(0);
+  });
 
-      const estimated = 40;
-      const totalHeight = [0, 1, 2].reduce((sum, i) => {
-        return sum + (heights.get(i) ?? estimated);
-      }, 0);
+  it('空列表应返回空 virtualItems 与 0 总高', () => {
+    const { result } = renderHook(() =>
+      useVirtualScroll([], { itemHeight: 40, containerHeight: 400, overscan: 5 })
+    );
+    expect(result.current.virtualItems).toHaveLength(0);
+    expect(result.current.totalHeight).toBe(0);
+  });
+});
 
-      expect(totalHeight).toBe(120); // 50 + 30 + 40
-    });
+describe('useDynamicVirtualScroll（真实 hook）', () => {
+  it('应使用估算高度计算总高与可视项', () => {
+    const { result } = renderHook(() =>
+      useDynamicVirtualScroll(items, { estimatedHeight: 40, containerHeight: 400, overscan: 5 })
+    );
+    expect(result.current.totalHeight).toBe(40000);
+    expect(result.current.virtualItems.length).toBeGreaterThan(0);
+    expect(result.current.virtualItems[0].index).toBe(0);
+    expect(result.current.virtualItems[0].style.top).toBe(0);
+    expect(typeof result.current.virtualItems[0].measureRef).toBe('function');
+  });
+
+  it('空列表总高为 0', () => {
+    const { result } = renderHook(() =>
+      useDynamicVirtualScroll([], { estimatedHeight: 40, containerHeight: 400 })
+    );
+    expect(result.current.totalHeight).toBe(0);
   });
 });

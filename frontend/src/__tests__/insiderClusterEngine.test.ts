@@ -1,155 +1,155 @@
 import { describe, it, expect } from 'vitest';
+import {
+  InsiderClusterEngine,
+  type InsiderTrade,
+} from '../utils/insiderClusterEngine';
 
 /**
- * 内部人集群分析引擎测试
+ * 内部人集群分析引擎测试 —— 导入真实模块 src/utils/insiderClusterEngine.ts
+ *
+ * 旧测试把 detectCluster / analyzeByRole / calculateInsiderSentiment 内联为独立函数，且与真实类存在
+ * 多处行为差异：
+ *  - 真实类构造函数默认 minClusterSize=3（旧默认 2），direction 规则为 buyCount>sellCount*2；
+ *  - analyzeByRole 返回 netShares/signalStrength/weight，无 netDirection；
+ *  - 真实类没有 calculateInsiderSentiment，只有 generateSignal。
+ * 因此改为驱动真实 InsiderClusterEngine 实例。
  */
 
-interface InsiderTrade {
-  insider: string;
-  role: 'ceo' | 'cfo' | 'director' | 'officer' | 'other';
-  date: number;
-  type: 'buy' | 'sell';
-  shares: number;
-  price: number;
-  amount: number;
+const DAY = 86400000;
+
+function makeTrade(overrides: Partial<InsiderTrade> = {}): InsiderTrade {
+  return {
+    insider: 'Zhang',
+    role: 'ceo',
+    date: Date.now(),
+    type: 'buy',
+    shares: 10000,
+    price: 50,
+    amount: 500000,
+    ...overrides,
+  };
 }
 
-interface ClusterDetection {
-  detected: boolean;
-  clusterSize: number;
-  timeWindow: number;
-  direction: 'buy' | 'sell' | 'mixed';
-  avgTradeSize: number;
-  significance: number;
-}
-
-function detectCluster(trades: InsiderTrade[], windowDays = 30): ClusterDetection {
-  if (trades.length < 2) return { detected: false, clusterSize: 0, timeWindow: windowDays, direction: 'mixed', avgTradeSize: 0, significance: 0 };
-  const sorted = [...trades].sort((a, b) => a.date - b.date);
-  const msWindow = windowDays * 86400000;
-  let maxCluster: InsiderTrade[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const cluster = sorted.filter(t => t.date >= sorted[i].date && t.date <= sorted[i].date + msWindow);
-    if (cluster.length > maxCluster.length) maxCluster = cluster;
-  }
-  if (maxCluster.length < 2) return { detected: false, clusterSize: 0, timeWindow: windowDays, direction: 'mixed', avgTradeSize: 0, significance: 0 };
-  const buys = maxCluster.filter(t => t.type === 'buy').length;
-  const sells = maxCluster.filter(t => t.type === 'sell').length;
-  const direction = buys > sells ? 'buy' : sells > buys ? 'sell' : 'mixed';
-  const avgTradeSize = maxCluster.reduce((s, t) => s + t.shares, 0) / maxCluster.length;
-  const significance = Math.min(100, maxCluster.length * 15 + (maxCluster.length >= 3 ? 20 : 0));
-  return { detected: true, clusterSize: maxCluster.length, timeWindow: windowDays, direction, avgTradeSize: parseFloat(avgTradeSize.toFixed(0)), significance };
-}
-
-function analyzeByRole(trades: InsiderTrade[]): Array<{ role: string; buyCount: number; sellCount: number; netDirection: string; totalAmount: number }> {
-  const roles = new Map<string, { buyCount: number; sellCount: number; totalAmount: number }>();
-  trades.forEach(t => {
-    const r = roles.get(t.role) || { buyCount: 0, sellCount: 0, totalAmount: 0 };
-    if (t.type === 'buy') r.buyCount++; else r.sellCount++;
-    r.totalAmount += t.amount;
-    roles.set(t.role, r);
-  });
-  return Array.from(roles.entries()).map(([role, data]) => ({
-    role,
-    buyCount: data.buyCount,
-    sellCount: data.sellCount,
-    netDirection: data.buyCount > data.sellCount ? 'buy' : data.sellCount > data.buyCount ? 'sell' : 'neutral',
-    totalAmount: parseFloat(data.totalAmount.toFixed(2)),
-  }));
-}
-
-function calculateInsiderSentiment(trades: InsiderTrade[]): { score: number; label: string; buyVolume: number; sellVolume: number } {
-  const buys = trades.filter(t => t.type === 'buy');
-  const sells = trades.filter(t => t.type === 'sell');
-  const buyVolume = buys.reduce((s, t) => s + t.amount, 0);
-  const sellVolume = sells.reduce((s, t) => s + t.amount, 0);
-  const total = buyVolume + sellVolume;
-  const score = total > 0 ? ((buyVolume - sellVolume) / total) * 100 : 0;
-  const label = score > 20 ? 'bullish' : score < -20 ? 'bearish' : 'neutral';
-  return { score: parseFloat(score.toFixed(2)), label, buyVolume, sellVolume };
-}
-
-describe('内部人集群分析引擎', () => {
-  const makeTrade = (overrides: Partial<InsiderTrade> = {}): InsiderTrade => ({
-    insider: 'Zhang', role: 'ceo', date: Date.now(), type: 'buy', shares: 10000, price: 50, amount: 500000, ...overrides,
-  });
+describe('内部人集群分析引擎 (InsiderClusterEngine)', () => {
+  const engine = new InsiderClusterEngine(); // clusterWindow=30, minClusterSize=3
 
   describe('detectCluster', () => {
-    it('should detect cluster of trades within window', () => {
+    it('在窗口内检测到集群', () => {
       const now = Date.now();
       const trades = [
         makeTrade({ date: now }),
-        makeTrade({ date: now + 86400000 * 5, insider: 'Li', role: 'director' }),
-        makeTrade({ date: now + 86400000 * 10, insider: 'Wang', role: 'cfo' }),
+        makeTrade({ date: now + DAY * 5, insider: 'Li', role: 'director' }),
+        makeTrade({ date: now + DAY * 10, insider: 'Wang', role: 'cfo' }),
       ];
-      const result = detectCluster(trades, 30);
+      const result = engine.detectCluster(trades);
       expect(result.detected).toBe(true);
       expect(result.clusterSize).toBe(3);
       expect(result.direction).toBe('buy');
+      expect(result.avgTradeSize).toBeGreaterThan(0);
     });
 
-    it('should not detect cluster for single trade', () => {
-      expect(detectCluster([makeTrade()]).detected).toBe(false);
+    it('单笔交易不触发集群', () => {
+      const result = engine.detectCluster([makeTrade()]);
+      expect(result.detected).toBe(false);
+      expect(result.clusterSize).toBe(0);
     });
 
-    it('should handle mixed direction', () => {
+    it('不足 minClusterSize 时 direction 为 mixed', () => {
       const now = Date.now();
       const trades = [
         makeTrade({ date: now, type: 'buy' }),
-        makeTrade({ date: now + 86400000, type: 'sell', insider: 'Li' }),
+        makeTrade({ date: now + DAY, type: 'sell', insider: 'Li' }),
       ];
-      const result = detectCluster(trades, 30);
+      const result = engine.detectCluster(trades);
+      expect(result.detected).toBe(false);
       expect(result.direction).toBe('mixed');
     });
 
-    it('significance should increase with cluster size', () => {
+    it('显著性随集群规模增大而提高', () => {
       const now = Date.now();
-      const small = detectCluster([
+      const small = engine.detectCluster([
         makeTrade({ date: now }),
-        makeTrade({ date: now + 86400000, insider: 'Li' }),
-      ], 30);
-      const large = detectCluster([
+        makeTrade({ date: now + DAY, insider: 'Li' }),
+      ]);
+      const large = engine.detectCluster([
         makeTrade({ date: now }),
-        makeTrade({ date: now + 86400000, insider: 'Li' }),
-        makeTrade({ date: now + 86400000 * 2, insider: 'Wang' }),
-        makeTrade({ date: now + 86400000 * 3, insider: 'Zhao' }),
-      ], 30);
+        makeTrade({ date: now + DAY, insider: 'Li' }),
+        makeTrade({ date: now + DAY * 2, insider: 'Wang' }),
+        makeTrade({ date: now + DAY * 3, insider: 'Zhao' }),
+      ]);
       expect(large.significance).toBeGreaterThan(small.significance);
+      expect(large.detected).toBe(true);
+    });
+  });
+
+  describe('detectTimingPattern', () => {
+    it('空输入返回 normal', () => {
+      const pattern = engine.detectTimingPattern([], []);
+      expect(pattern.pattern).toBe('normal');
+      expect(pattern.confidence).toBe(0);
+    });
+
+    it('公告前交易识别为 pre_announcement', () => {
+      const now = Date.now();
+      const announcement = now + DAY * 10;
+      const pattern = engine.detectTimingPattern(
+        [makeTrade({ date: now })],
+        [announcement]
+      );
+      expect(pattern.pattern).toBe('pre_announcement');
+      expect(pattern.daysBeforeEvent).toBeCloseTo(10, 1);
+      expect(pattern.confidence).toBeGreaterThan(0);
     });
   });
 
   describe('analyzeByRole', () => {
-    it('should group trades by role', () => {
+    it('按角色分组并计算净股数与信号强度', () => {
       const trades = [
         makeTrade({ role: 'ceo', type: 'buy' }),
-        makeTrade({ role: 'ceo', type: 'sell' }),
-        makeTrade({ role: 'cfo', type: 'buy', insider: 'Li' }),
+        makeTrade({ role: 'ceo', type: 'sell', insider: 'Li' }),
+        makeTrade({ role: 'cfo', type: 'buy', insider: 'Wang' }),
       ];
-      const result = analyzeByRole(trades);
-      expect(result.find(r => r.role === 'ceo')?.buyCount).toBe(1);
-      expect(result.find(r => r.role === 'ceo')?.sellCount).toBe(1);
-      expect(result.find(r => r.role === 'cfo')?.netDirection).toBe('buy');
+      const result = engine.analyzeByRole(trades);
+      const ceo = result.find(r => r.role === 'ceo');
+      const cfo = result.find(r => r.role === 'cfo');
+      expect(ceo?.buyCount).toBe(1);
+      expect(ceo?.sellCount).toBe(1);
+      expect(ceo?.netShares).toBe(0);
+      expect(ceo?.signalStrength).toBe(0);
+      expect(ceo?.weight).toBe(3);
+      expect(cfo?.buyCount).toBe(1);
+      expect(cfo?.netShares).toBe(10000);
+      expect(cfo?.signalStrength).toBe(250);
+      expect(cfo?.weight).toBe(2.5);
     });
   });
 
-  describe('calculateInsiderSentiment', () => {
-    it('should return bullish for more buys', () => {
-      const trades = [makeTrade({ type: 'buy', amount: 1000000 }), makeTrade({ type: 'sell', amount: 100000, insider: 'Li' })];
-      const result = calculateInsiderSentiment(trades);
-      expect(result.label).toBe('bullish');
-      expect(result.score).toBeGreaterThan(0);
+  describe('generateSignal', () => {
+    it('集中增持生成 strong_buy 信号', () => {
+      const now = Date.now();
+      const trades = [
+        makeTrade({ date: now }),
+        makeTrade({ date: now + DAY, insider: 'Li', role: 'director' }),
+        makeTrade({ date: now + DAY * 2, insider: 'Wang', role: 'cfo' }),
+      ];
+      const signal = engine.generateSignal(trades);
+      expect(signal.signal).toContain('buy');
+      expect(signal.clusterDetected).toBe(true);
+      expect(signal.score).toBeGreaterThan(0);
+      expect(signal.score).toBeLessThanOrEqual(100);
+      expect(signal.reliability).toBeGreaterThanOrEqual(0);
+      expect(signal.reliability).toBeLessThanOrEqual(1);
+      expect(signal.recommendation).toContain('买入');
     });
 
-    it('should return bearish for more sells', () => {
-      const trades = [makeTrade({ type: 'sell', amount: 1000000 }), makeTrade({ type: 'buy', amount: 100000, insider: 'Li' })];
-      const result = calculateInsiderSentiment(trades);
-      expect(result.label).toBe('bearish');
-    });
-
-    it('should return neutral for balanced trades', () => {
-      const trades = [makeTrade({ type: 'buy', amount: 500000 }), makeTrade({ type: 'sell', amount: 500000, insider: 'Li' })];
-      const result = calculateInsiderSentiment(trades);
-      expect(result.label).toBe('neutral');
+    it('未达集群规模时信号不明确', () => {
+      const trades = [
+        makeTrade({ type: 'buy' }),
+        makeTrade({ type: 'sell', insider: 'Li' }),
+      ];
+      const signal = engine.generateSignal(trades);
+      expect(signal.clusterDetected).toBe(false);
+      expect(signal.signal).toBe('neutral');
     });
   });
 });

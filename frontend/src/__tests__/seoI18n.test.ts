@@ -1,73 +1,49 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  generateHreflangTags,
+  generateLanguageStructuredData,
+  updateSEOMetaTags,
+  default as seo,
+} from '../utils/seoI18n';
 
 /**
- * SEO 多语言元标签管理逻辑测试
+ * SEO 多语言元标签管理测试（导入真实模块）
  */
 
 describe('SEOI18n', () => {
   describe('HREFLANG_MAP', () => {
-    const HREFLANG_MAP: Record<string, string> = {
-      'zh-CN': 'zh-CN',
-      'en-US': 'en-US',
-      'ja-JP': 'ja-JP',
-      'ko-KR': 'ko-KR',
-    };
-
     it('应该包含所有支持的语言', () => {
-      expect(Object.keys(HREFLANG_MAP)).toHaveLength(4);
-      expect(HREFLANG_MAP).toHaveProperty('zh-CN');
-      expect(HREFLANG_MAP).toHaveProperty('en-US');
-      expect(HREFLANG_MAP).toHaveProperty('ja-JP');
-      expect(HREFLANG_MAP).toHaveProperty('ko-KR');
+      expect(Object.keys(seo.HREFLANG_MAP)).toHaveLength(4);
+      expect(seo.HREFLANG_MAP).toHaveProperty('zh-CN');
+      expect(seo.HREFLANG_MAP).toHaveProperty('en-US');
+      expect(seo.HREFLANG_MAP).toHaveProperty('ja-JP');
+      expect(seo.HREFLANG_MAP).toHaveProperty('ko-KR');
     });
 
     it('hreflang值应正确映射', () => {
-      expect(HREFLANG_MAP['zh-CN']).toBe('zh-CN');
-      expect(HREFLANG_MAP['en-US']).toBe('en-US');
-      expect(HREFLANG_MAP['ja-JP']).toBe('ja-JP');
-      expect(HREFLANG_MAP['ko-KR']).toBe('ko-KR');
+      expect(seo.HREFLANG_MAP['zh-CN']).toBe('zh-CN');
+      expect(seo.HREFLANG_MAP['en-US']).toBe('en-US');
+      expect(seo.HREFLANG_MAP['ja-JP']).toBe('ja-JP');
+      expect(seo.HREFLANG_MAP['ko-KR']).toBe('ko-KR');
     });
   });
 
   describe('OG_LOCALE_MAP', () => {
-    const OG_LOCALE_MAP: Record<string, string> = {
-      'zh-CN': 'zh_CN',
-      'en-US': 'en_US',
-      'ja-JP': 'ja_JP',
-      'ko-KR': 'ko_KR',
-    };
-
     it('OG locale应该用下划线分隔', () => {
-      Object.values(OG_LOCALE_MAP).forEach(locale => {
+      Object.values(seo.OG_LOCALE_MAP).forEach(locale => {
         expect(locale).toMatch(/^[a-z]{2}_[A-Z]{2}$/);
       });
     });
 
     it('应该正确映射到OG格式', () => {
-      expect(OG_LOCALE_MAP['zh-CN']).toBe('zh_CN');
-      expect(OG_LOCALE_MAP['en-US']).toBe('en_US');
+      expect(seo.OG_LOCALE_MAP['zh-CN']).toBe('zh_CN');
+      expect(seo.OG_LOCALE_MAP['en-US']).toBe('en_US');
     });
   });
 
-  describe('generateHreflangTags', () => {
-    const generateHreflangTags = (alternateUrls: Record<string, string>): string => {
-      const HREFLANG_MAP: Record<string, string> = {
-        'zh-CN': 'zh-CN', 'en-US': 'en-US', 'ja-JP': 'ja-JP', 'ko-KR': 'ko-KR',
-      };
-      const tags: string[] = [];
-      Object.entries(alternateUrls).forEach(([loc, url]) => {
-        tags.push(`<link rel="alternate" hreflang="${HREFLANG_MAP[loc] || loc}" href="${url}" />`);
-      });
-      const defaultUrl = alternateUrls['en-US'] || Object.values(alternateUrls)[0] || '';
-      tags.push(`<link rel="alternate" hreflang="x-default" href="${defaultUrl}" />`);
-      return tags.join('\n');
-    };
-
+  describe('generateHreflangTags（真实模块）', () => {
     it('应该为每个语言生成link标签', () => {
-      const urls = {
-        'zh-CN': 'https://example.com/zh',
-        'en-US': 'https://example.com/en',
-      };
+      const urls = { 'zh-CN': 'https://example.com/zh', 'en-US': 'https://example.com/en' };
       const result = generateHreflangTags(urls);
       expect(result).toContain('hreflang="zh-CN"');
       expect(result).toContain('hreflang="en-US"');
@@ -105,97 +81,65 @@ describe('SEOI18n', () => {
     });
   });
 
-  describe('SEOConfig 类型验证', () => {
-    interface SEOConfig {
-      title: string;
-      description: string;
-      keywords?: string[];
-      canonicalUrl?: string;
-      locale: string;
-      alternateUrls?: Record<string, string>;
-      ogImage?: string;
-      ogType?: string;
-    }
-
-    it('应该接受最小配置', () => {
-      const config: SEOConfig = {
-        title: 'A股行情分析',
-        description: '实时A股行情数据',
-        locale: 'zh-CN',
-      };
-      expect(config.title).toBe('A股行情分析');
-      expect(config.locale).toBe('zh-CN');
-    });
-
-    it('应该接受完整配置', () => {
-      const config: SEOConfig = {
-        title: 'Stock Analysis',
-        description: 'Real-time stock data',
-        keywords: ['stock', 'analysis', 'A-share'],
-        canonicalUrl: 'https://example.com',
-        locale: 'en-US',
-        alternateUrls: { 'zh-CN': 'https://example.com/zh', 'en-US': 'https://example.com/en' },
-        ogImage: 'https://example.com/og.png',
-        ogType: 'website',
-      };
-      expect(config.keywords).toHaveLength(3);
-      expect(config.ogType).toBe('website');
-    });
-  });
-
-  describe('generateLanguageStructuredData', () => {
-    const generateLanguageStructuredData = (
-      locale: string,
-      pageTitle: string,
-      pageUrl: string,
-      origin: string = 'https://example.com'
-    ): string => {
-      const data = {
-        '@context': 'https://schema.org',
-        '@type': 'WebPage',
-        name: pageTitle,
-        url: pageUrl,
-        inLanguage: locale,
-        isPartOf: {
-          '@type': 'WebSite',
-          name: 'A股行情分析',
-          url: origin,
-        },
-      };
-      return JSON.stringify(data);
-    };
-
+  describe('generateLanguageStructuredData（真实模块）', () => {
     it('应该生成有效的JSON', () => {
       const result = generateLanguageStructuredData('zh-CN', '首页', 'https://example.com');
-      const parsed = JSON.parse(result);
-      expect(parsed).toBeDefined();
+      expect(JSON.parse(result)).toBeDefined();
     });
 
     it('应该包含正确的schema.org上下文', () => {
-      const result = generateLanguageStructuredData('zh-CN', '首页', 'https://example.com');
-      const parsed = JSON.parse(result);
+      const parsed = JSON.parse(generateLanguageStructuredData('zh-CN', '首页', 'https://example.com'));
       expect(parsed['@context']).toBe('https://schema.org');
       expect(parsed['@type']).toBe('WebPage');
     });
 
     it('应该包含语言信息', () => {
-      const result = generateLanguageStructuredData('ja-JP', 'ホーム', 'https://example.com/ja');
-      const parsed = JSON.parse(result);
+      const parsed = JSON.parse(generateLanguageStructuredData('ja-JP', 'ホーム', 'https://example.com/ja'));
       expect(parsed.inLanguage).toBe('ja-JP');
     });
 
     it('应该包含页面标题和URL', () => {
-      const result = generateLanguageStructuredData('en-US', 'Dashboard', 'https://example.com/dashboard');
-      const parsed = JSON.parse(result);
+      const parsed = JSON.parse(generateLanguageStructuredData('en-US', 'Dashboard', 'https://example.com/dashboard'));
       expect(parsed.name).toBe('Dashboard');
       expect(parsed.url).toBe('https://example.com/dashboard');
     });
 
     it('应该包含父级网站信息', () => {
-      const result = generateLanguageStructuredData('zh-CN', '首页', 'https://example.com');
-      const parsed = JSON.parse(result);
+      const parsed = JSON.parse(generateLanguageStructuredData('zh-CN', '首页', 'https://example.com'));
       expect(parsed.isPartOf['@type']).toBe('WebSite');
       expect(parsed.isPartOf.name).toBe('A股行情分析');
+      expect(parsed.isPartOf.url).toBe(window.location.origin);
+    });
+  });
+
+  describe('updateSEOMetaTags（真实模块，操作 DOM）', () => {
+    beforeEach(() => {
+      document.head.innerHTML = '';
+      document.title = '';
+    });
+
+    it('应更新 title、lang 与 description', () => {
+      updateSEOMetaTags({
+        title: 'A股行情分析',
+        description: '实时A股行情数据',
+        locale: 'zh-CN',
+      });
+      expect(document.title).toBe('A股行情分析');
+      expect(document.documentElement.lang).toBe('zh-CN');
+      expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe('实时A股行情数据');
+    });
+
+    it('应生成 hreflang 与 x-default 链接', () => {
+      updateSEOMetaTags({
+        title: 'Stock',
+        description: 'data',
+        locale: 'en-US',
+        alternateUrls: { 'zh-CN': 'https://example.com/zh', 'en-US': 'https://example.com/en' },
+      });
+      const hreflangs = Array.from(document.querySelectorAll('link[hreflang]')).map(l => l.getAttribute('hreflang'));
+      expect(hreflangs).toContain('zh-CN');
+      expect(hreflangs).toContain('en-US');
+      expect(hreflangs).toContain('x-default');
     });
   });
 });

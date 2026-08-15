@@ -1,163 +1,146 @@
 /**
- * 性能优化工具测试
+ * 前端性能优化工具测试 —— 直接驱动真实模块
+ * 说明: 原测试中"虚拟列表/数据降采样/分批渲染"为内联重实现, 真实模块不含这些能力, 已删除。
+ *       保留并映射到真实导出: useDebounce / useBatchUpdate / ExpiringMap / ObjectPool / memoizeWithDeepCompare
  */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import {
+  useDebounce,
+  useBatchUpdate,
+  ExpiringMap,
+  ObjectPool,
+  memoizeWithDeepCompare,
+} from '../utils/performance';
 
-import { describe, it, expect } from 'vitest';
-
-describe('React 性能优化', () => {
-  describe('虚拟列表计算', () => {
-    it('应该正确计算可视区域范围', () => {
-      const itemHeight = 50;
-      const containerHeight = 500;
-      const totalItems = 100;
-      const overscan = 3;
-
-      // 滚动到第10项
-      const scrollTop = 10 * itemHeight;
-      const visibleCount = Math.ceil(containerHeight / itemHeight); // 10
-      const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan); // 7
-      const end = Math.min(totalItems, start + visibleCount + overscan * 2); // 23
-      const offsetY = start * itemHeight; // 350
-
-      expect(start).toBe(7);
-      expect(end).toBe(23);
-      expect(offsetY).toBe(350);
-    });
-
-    it('滚动到顶部时start应该为0', () => {
-      const scrollTop = 0;
-      const itemHeight = 50;
-      const overscan = 3;
-
-      const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-      expect(start).toBe(0);
-    });
-
-    it('滚动到底部时end不应该超过totalItems', () => {
-      const scrollTop = 95 * 50;
-      const itemHeight = 50;
-      const totalItems = 100;
-      const containerHeight = 500;
-      const overscan = 3;
-
-      const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-      const end = Math.min(totalItems, start + Math.ceil(containerHeight / itemHeight) + overscan * 2);
-      expect(end).toBeLessThanOrEqual(totalItems);
-    });
+describe('ExpiringMap', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  describe('防抖', () => {
-    it('防抖应该延迟执行', async () => {
-      let count = 0;
-      const fn = () => count++;
-
-      // 模拟防抖逻辑
-      let timer: ReturnType<typeof setTimeout>;
-      const debouncedFn = () => {
-        clearTimeout(timer);
-        timer = setTimeout(fn, 100);
-      };
-
-      // 快速调用3次
-      debouncedFn();
-      debouncedFn();
-      debouncedFn();
-
-      // 立即检查应该还没有执行
-      expect(count).toBe(0);
-
-      // 等待防抖完成
-      await new Promise((r) => setTimeout(r, 150));
-      expect(count).toBe(1);
-    });
+  it('应能写入并读取缓存', () => {
+    const map = new ExpiringMap<number, string>(60000);
+    map.set(1, 'a');
+    expect(map.get(1)).toBe('a');
+    expect(map.has(1)).toBe(true);
   });
 
-  describe('批量更新', () => {
-    it('应该合并多次更新为一次', () => {
-      const updates: (() => void)[] = [];
-      const pendingUpdates: (() => void)[] = [];
-
-      const batchUpdate = (update: () => void) => {
-        pendingUpdates.push(update);
-      };
-
-      // 模拟批量添加更新
-      batchUpdate(() => updates.push(() => 'update1'));
-      batchUpdate(() => updates.push(() => 'update2'));
-      batchUpdate(() => updates.push(() => 'update3'));
-
-      // 在一个帧内执行所有更新
-      const batch = pendingUpdates.splice(0);
-      batch.forEach((fn) => fn());
-
-      expect(updates.length).toBe(3);
-      expect(pendingUpdates.length).toBe(0);
-    });
+  it('过期后读取应返回 undefined 并自动清理', () => {
+    const map = new ExpiringMap<number, string>(60000);
+    map.set(1, 'a', 100);
+    expect(map.get(1)).toBe('a');
+    vi.advanceTimersByTime(150);
+    expect(map.get(1)).toBeUndefined();
+    expect(map.has(1)).toBe(false);
   });
 
-  describe('图片懒加载', () => {
-    it('应该使用 IntersectionObserver', () => {
-      // 检查API存在性
-      const hasIntersectionObserver = typeof IntersectionObserver !== 'undefined';
-      // 在测试环境中可能不存在，但逻辑应该处理
-      expect(typeof hasIntersectionObserver).toBe('boolean');
-    });
+  it('delete / clear / size 应正常工作', () => {
+    const map = new ExpiringMap<string, number>(60000);
+    map.set('x', 10);
+    map.set('y', 20);
+    expect(map.size).toBe(2);
+    expect(map.delete('x')).toBe(true);
+    expect(map.size).toBe(1);
+    map.clear();
+    expect(map.size).toBe(0);
+  });
+});
+
+describe('ObjectPool', () => {
+  it('acquire 应在池空时创建新对象', () => {
+    const pool = new ObjectPool(() => ({}), () => {});
+    const obj = pool.acquire();
+    expect(typeof obj).toBe('object');
+    expect(pool.size).toBe(0);
   });
 
-  describe('渲染性能', () => {
-    it('大量数据应该分批渲染', () => {
-      const totalItems = 10000;
-      const batchSize = 100;
-      const batches = Math.ceil(totalItems / batchSize);
-
-      expect(batches).toBe(100);
-
-      // 第一批
-      const firstBatchStart = 0;
-      const firstBatchEnd = Math.min(totalItems, batchSize);
-      expect(firstBatchEnd).toBe(100);
-    });
-
-    it('数据降采样应该减少数据点', () => {
-      const totalPoints = 500;
-      const maxPoints = 200;
-      const step = Math.max(1, Math.ceil(totalPoints / maxPoints)); // ceil ensures enough reduction
-
-      const data = Array.from({ length: totalPoints }, (_, i) => i);
-      const sampled = data.filter((_, i) => i % step === 0);
-
-      // With step=3: 500/3 ≈ 167 points (index 0,3,6,...,498)
-      expect(sampled.length).toBeLessThan(totalPoints);
-      expect(step).toBeGreaterThanOrEqual(2);
-    });
+  it('release 后再次 acquire 应复用同一对象', () => {
+    let resetCalled = false;
+    const pool = new ObjectPool(() => ({ v: 1 }), () => { resetCalled = true; });
+    const obj = pool.acquire();
+    pool.release(obj);
+    expect(pool.size).toBe(1);
+    expect(pool.acquire()).toBe(obj);
+    expect(resetCalled).toBe(true);
   });
 
-  describe('缓存策略', () => {
-    it('内存缓存应该有过期机制', () => {
-      interface CacheEntry<T> {
-        data: T;
-        timestamp: number;
-        ttl: number;
-      }
+  it('超过 maxSize 的 release 不应入池', () => {
+    const pool = new ObjectPool(() => ({}), () => {}, 2);
+    pool.release({});
+    pool.release({});
+    pool.release({});
+    expect(pool.size).toBe(2);
+  });
+});
 
-      const cache = new Map<string, CacheEntry<any>>();
+describe('memoizeWithDeepCompare', () => {
+  it('对深相等的参数应复用缓存, 不重复计算', () => {
+    let calls = 0;
+    const fn = (x: { a: number }) => {
+      calls++;
+      return x.a + 1;
+    };
+    const memo = memoizeWithDeepCompare(fn);
+    expect(memo({ a: 1 })).toBe(2);
+    expect(memo({ a: 1 })).toBe(2); // 深相等, 命中缓存
+    expect(calls).toBe(1);
+    expect(memo({ a: 2 })).toBe(3);
+    expect(calls).toBe(2);
+  });
+});
 
-      const set = (key: string, data: any, ttl: number) => {
-        cache.set(key, { data, timestamp: Date.now(), ttl });
-      };
+describe('useDebounce', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-      const get = (key: string) => {
-        const entry = cache.get(key);
-        if (!entry) return null;
-        if (Date.now() - entry.timestamp > entry.ttl) {
-          cache.delete(key);
-          return null;
-        }
-        return entry.data;
-      };
-
-      set('test', { value: 42 }, 100);
-      expect(get('test')).toEqual({ value: 42 });
+  it('快速连续调用只应在延迟后执行一次', () => {
+    const cb = vi.fn();
+    const { result } = renderHook(() => useDebounce(cb, 100));
+    act(() => {
+      result.current();
+      result.current();
+      result.current();
     });
+    expect(cb).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useBatchUpdate', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) =>
+      setTimeout(() => cb(Date.now()), 16) as unknown as number
+    );
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('多次调度应在下一帧内合并执行', () => {
+    const update = vi.fn();
+    const { result } = renderHook(() => useBatchUpdate());
+    act(() => {
+      result.current(update);
+      result.current(update);
+      result.current(update);
+    });
+    expect(update).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(20);
+    });
+    expect(update).toHaveBeenCalledTimes(3);
   });
 });

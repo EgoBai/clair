@@ -1,117 +1,169 @@
 import { describe, it, expect } from 'vitest';
+import {
+  ResearchReportEngine,
+  type ResearchReport
+} from '../utils/researchReportAnalysisEngine';
 
 /**
- * 研究报告分析引擎测试
+ * 研究报告分析引擎测试（导入真实模块）
  */
 
-interface ResearchReport {
-  id: string;
-  title: string;
-  author: string;
-  institution: string;
-  publishDate: string;
-  stockCode: string;
-  stockName: string;
-  rating: 'buy' | 'hold' | 'sell' | 'strong_buy' | 'strong_sell';
-  targetPrice: number;
-  currentPrice: number;
-  summary: string;
-}
+describe('ResearchReportEngine', () => {
+  const engine = new ResearchReportEngine();
 
-interface ReportAnalysis {
-  consensusRating: string;
-  avgTargetPrice: number;
-  targetUpside: number;
-  ratingDistribution: Record<string, number>;
-  mostCitedAuthor: string;
-  reportCount: number;
-  bullishPct: number;
-  recommendation: string;
-}
-
-function analyzeReports(reports: ResearchReport[]): ReportAnalysis {
-  if (reports.length === 0) {
-    return { consensusRating: 'neutral', avgTargetPrice: 0, targetUpside: 0, ratingDistribution: {}, mostCitedAuthor: '', reportCount: 0, bullishPct: 0, recommendation: '无数据' };
-  }
-  const dist: Record<string, number> = {};
-  reports.forEach(r => { dist[r.rating] = (dist[r.rating] || 0) + 1; });
-  const avgTarget = reports.reduce((s, r) => s + r.targetPrice, 0) / reports.length;
-  const avgCurrent = reports.reduce((s, r) => s + r.currentPrice, 0) / reports.length;
-  const upside = avgCurrent > 0 ? ((avgTarget - avgCurrent) / avgCurrent) * 100 : 0;
-  const bullish = (dist['buy'] || 0) + (dist['strong_buy'] || 0);
-  const bullishPct = (bullish / reports.length) * 100;
-  const authorCount = new Map<string, number>();
-  reports.forEach(r => authorCount.set(r.author, (authorCount.get(r.author) || 0) + 1));
-  const mostCited = Array.from(authorCount.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-  const consensusRating = bullishPct > 60 ? 'bullish' : bullishPct < 40 ? 'bearish' : 'neutral';
-  const recommendation = upside > 20 && bullishPct > 60 ? '强烈推荐关注' : upside > 10 ? '可适当关注' : '观望为主';
-  return {
-    consensusRating,
-    avgTargetPrice: parseFloat(avgTarget.toFixed(2)),
-    targetUpside: parseFloat(upside.toFixed(2)),
-    ratingDistribution: dist,
-    mostCitedAuthor: mostCited,
-    reportCount: reports.length,
-    bullishPct: parseFloat(bullishPct.toFixed(2)),
-    recommendation,
-  };
-}
-
-function calculateConsensusAccuracy(reports: ResearchReport[]): { accuracy: number; avgBias: number; overestimatePct: number } {
-  if (reports.length === 0) return { accuracy: 0, avgBias: 0, overestimatePct: 0 };
-  const biases = reports.map(r => r.targetPrice - r.currentPrice);
-  const avgBias = biases.reduce((a, b) => a + b, 0) / biases.length;
-  const overestimate = biases.filter(b => b > 0).length;
-  return {
-    accuracy: parseFloat((100 - Math.abs(avgBias / (reports[0].currentPrice || 1)) * 10).toFixed(2)),
-    avgBias: parseFloat(avgBias.toFixed(2)),
-    overestimatePct: parseFloat(((overestimate / reports.length) * 100).toFixed(2)),
-  };
-}
-
-describe('研究报告分析引擎', () => {
-  const makeReport = (rating: ResearchReport['rating'], target = 100, current = 80, author = 'A'): ResearchReport => ({
-    id: '1', title: 'Report', author, institution: 'CICC', publishDate: '2024-01-01',
-    stockCode: '600519', stockName: '茅台', rating, targetPrice: target, currentPrice: current, summary: '',
+  const makeReport = (
+    rating: ResearchReport['rating'],
+    opts: Partial<ResearchReport> = {}
+  ): ResearchReport => ({
+    stockCode: '600519',
+    stockName: '茅台',
+    brokerName: 'CICC',
+    analystName: '张三',
+    rating,
+    previousRating: 'hold',
+    targetPrice: 100,
+    currentPrice: 80,
+    publishDate: '2024-01-01',
+    industry: '白酒',
+    ...opts
   });
 
-  describe('analyzeReports', () => {
-    it('should calculate consensus', () => {
-      const reports = [makeReport('buy'), makeReport('buy'), makeReport('hold')];
-      const analysis = analyzeReports(reports);
-      expect(analysis.consensusRating).toBe('bullish');
-      expect(analysis.reportCount).toBe(3);
+  describe('calculateConsensus', () => {
+    it('should compute a strong_buy consensus for all-buy reports', () => {
+      const reports = [makeReport('buy'), makeReport('buy'), makeReport('buy')];
+      const c = engine.calculateConsensus(reports);
+      expect(c.stockCode).toBe('600519');
+      expect(c.consensusRating).toBe('strong_buy');
+      expect(c.buyCount).toBe(3);
+      expect(c.holdCount).toBe(0);
+      expect(c.sellCount).toBe(0);
+      expect(c.coverageDepth).toBe(3);
     });
 
-    it('should calculate upside', () => {
-      const analysis = analyzeReports([makeReport('buy', 100, 80)]);
-      expect(analysis.targetUpside).toBeCloseTo(25, 0);
+    it('should calculate upside potential from target vs current price', () => {
+      const c = engine.calculateConsensus([makeReport('buy', { targetPrice: 100, currentPrice: 80 })]);
+      expect(c.avgTargetPrice).toBeCloseTo(100, 5);
+      expect(c.upsidePotential).toBeCloseTo(25, 5);
     });
 
-    it('should handle empty reports', () => {
-      const analysis = analyzeReports([]);
-      expect(analysis.reportCount).toBe(0);
+    it('should handle empty reports with zeroed consensus', () => {
+      const c = engine.calculateConsensus([]);
+      expect(c.avgTargetPrice).toBe(0);
+      expect(c.medianTargetPrice).toBe(0);
+      expect(c.upsidePotential).toBe(0);
+      expect(c.consensusRating).toBe('hold');
+      expect(c.coverageDepth).toBe(0);
+      expect(c.ratingChanges).toEqual({ upgrades: 0, downgrades: 0 });
     });
 
-    it('should count rating distribution', () => {
-      const reports = [makeReport('buy'), makeReport('buy'), makeReport('sell')];
-      const analysis = analyzeReports(reports);
-      expect(analysis.ratingDistribution['buy']).toBe(2);
-      expect(analysis.ratingDistribution['sell']).toBe(1);
+    it('should count rating distribution across buy/hold/sell', () => {
+      const reports = [makeReport('buy'), makeReport('overweight'), makeReport('sell')];
+      const c = engine.calculateConsensus(reports);
+      expect(c.buyCount).toBe(2); // buy + overweight
+      expect(c.holdCount).toBe(0);
+      expect(c.sellCount).toBe(1);
     });
 
-    it('bullishPct should be 0-100', () => {
-      const analysis = analyzeReports([makeReport('buy'), makeReport('sell')]);
-      expect(analysis.bullishPct).toBe(50);
+    it('should compute median target price and dispersion', () => {
+      const reports = [
+        makeReport('buy', { targetPrice: 100 }),
+        makeReport('buy', { targetPrice: 100 }),
+        makeReport('buy', { targetPrice: 100 })
+      ];
+      const c = engine.calculateConsensus(reports);
+      expect(c.medianTargetPrice).toBe(100);
+      expect(c.priceDispersion).toBe(0); // no variance when all equal
+    });
+
+    it('should measure dispersion for spread targets', () => {
+      const reports = [
+        makeReport('buy', { targetPrice: 90 }),
+        makeReport('buy', { targetPrice: 100 }),
+        makeReport('buy', { targetPrice: 110 })
+      ];
+      const c = engine.calculateConsensus(reports);
+      expect(c.medianTargetPrice).toBe(100);
+      expect(c.priceDispersion).toBeCloseTo(8.16497, 4);
+    });
+
+    it('should count upgrades and downgrades from previousRating', () => {
+      const reports = [
+        makeReport('buy', { previousRating: 'hold' }),     // upgrade
+        makeReport('sell', { previousRating: 'hold' }),    // downgrade
+        makeReport('hold', { previousRating: 'hold' })      // unchanged
+      ];
+      const c = engine.calculateConsensus(reports);
+      expect(c.ratingChanges).toEqual({ upgrades: 1, downgrades: 1 });
     });
   });
 
-  describe('calculateConsensusAccuracy', () => {
-    it('should return accuracy metrics', () => {
-      const reports = [makeReport('buy', 100, 80), makeReport('buy', 110, 80)];
-      const acc = calculateConsensusAccuracy(reports);
-      expect(acc.overestimatePct).toBe(100);
-      expect(acc.avgBias).toBeGreaterThan(0);
+  describe('evaluateAnalystAccuracy', () => {
+    it('should return neutral/50 score for empty reports', () => {
+      const a = engine.evaluateAnalystAccuracy('张三', 'CICC', []);
+      expect(a.totalReports).toBe(0);
+      expect(a.score).toBe(50);
+      expect(a.bias).toBe('neutral');
+    });
+
+    it('should compute hit rate and optimistic bias for overshooting targets', () => {
+      const a = engine.evaluateAnalystAccuracy('张三', 'CICC', [
+        { targetPrice: 115, actualPrice: 100, publishDate: '2024-01-01' },
+        { targetPrice: 120, actualPrice: 100, publishDate: '2024-01-02' }
+      ]);
+      expect(a.totalReports).toBe(2);
+      expect(a.hitRate).toBe(0); // both overshoot >10%
+      expect(a.avgError).toBeCloseTo(17.5, 5);
+      expect(a.bias).toBe('optimistic');
+      expect(a.score).toBeCloseTo(41.25, 4);
+    });
+
+    it('should detect pessimistic bias when targets fall short', () => {
+      const a = engine.evaluateAnalystAccuracy('李四', 'HTSC', [
+        { targetPrice: 80, actualPrice: 100, publishDate: '2024-01-01' }
+      ]);
+      expect(a.avgError).toBeCloseTo(-20, 5);
+      expect(a.bias).toBe('pessimistic');
+    });
+  });
+
+  describe('calculateSentimentIndex', () => {
+    it('should aggregate sentiment by publish date', () => {
+      const reports = [
+        makeReport('buy', { publishDate: '2024-01-01' }),
+        makeReport('buy', { publishDate: '2024-01-01' }),
+        makeReport('sell', { publishDate: '2024-01-02' })
+      ];
+      const idx = engine.calculateSentimentIndex(reports);
+      expect(idx).toHaveLength(2);
+      expect(idx[0].date).toBe('2024-01-01');
+      expect(idx[0].sentimentScore).toBe(100); // two buys
+      expect(idx[0].signal).toBe('bullish');
+      expect(idx[0].breadth).toBe(1);
+      expect(idx[1].sentimentScore).toBe(-100);
+      expect(idx[1].signal).toBe('bearish');
+    });
+  });
+
+  describe('analyzeRatingChanges', () => {
+    it('should report per-stock rating changes and net impact', () => {
+      const reports = [
+        makeReport('buy', { previousRating: 'hold', publishDate: '2024-01-01' }),
+        makeReport('sell', { previousRating: 'hold', brokerName: 'CICC' })
+      ];
+      const result = engine.analyzeRatingChanges(reports);
+      expect(result).toHaveLength(1);
+      const stock = result[0];
+      expect(stock.stockCode).toBe('600519');
+      expect(stock.changes).toHaveLength(2);
+      expect(stock.changes[0]).toMatchObject({ broker: 'CICC', from: 'hold', to: 'buy', impact: 'positive' });
+      expect(stock.changes[1].impact).toBe('negative');
+      expect(stock.netImpact).toBe(0); // +1 -1
+    });
+
+    it('should skip reports without a previous rating', () => {
+      const reports = [makeReport('buy', { previousRating: '' })];
+      const result = engine.analyzeRatingChanges(reports);
+      expect(result[0].changes).toHaveLength(0);
     });
   });
 });

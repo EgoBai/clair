@@ -1,138 +1,156 @@
 import { describe, it, expect } from 'vitest';
+import {
+  analyzeMonthEffect,
+  analyzeDayOfWeekEffect,
+  analyzeTurnOfMonthEffect,
+  analyzeHolidayEffect,
+  generateCalendarAnomalyReport,
+  checkCalendarPersistence,
+  type DailyReturn,
+} from '../utils/calendarAnomalyEngine';
 
 /**
  * 日历异象引擎测试
+ * 月份效应 / 星期效应 / 月初月末效应 / 节假日效应 / 报告 / 持续性
+ * (Rewritten to import the real module functions; deterministic data, no Math.random.)
  */
 
-interface DailyReturn {
-  date: string;
-  return: number;
-  volume: number;
-}
-
-interface CalendarEffect {
-  name: string;
-  avgReturn: number;
-  winRate: number;
-  sampleSize: number;
-  significance: 'high' | 'medium' | 'low' | 'none';
-}
-
-function calculateEffect(returns: number[]): { avgReturn: number; winRate: number; tStat: number } {
-  if (returns.length === 0) return { avgReturn: 0, winRate: 0, tStat: 0 };
-  const avg = returns.reduce((s, v) => s + v, 0) / returns.length;
-  const wins = returns.filter(r => r > 0).length;
-  const winRate = wins / returns.length;
-  const variance = returns.reduce((s, v) => s + (v - avg) ** 2, 0) / Math.max(1, returns.length - 1);
-  const std = Math.sqrt(variance);
-  const tStat = std > 0 ? avg / (std / Math.sqrt(returns.length)) : 0;
-  return { avgReturn: parseFloat(avg.toFixed(6)), winRate: parseFloat(winRate.toFixed(4)), tStat: parseFloat(tStat.toFixed(4)) };
-}
-
-function dayOfWeekEffect(returns: DailyReturn[]): Array<{ day: number; name: string; avgReturn: number; winRate: number }> {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const grouped: Record<number, number[]> = { 0: [], 1: [], 2: [], 3: [], 4: [] };
-  returns.forEach(r => {
-    const d = new Date(r.date).getDay();
-    if (d >= 1 && d <= 5) grouped[d - 1].push(r.return);
-  });
-  return Object.entries(grouped).map(([day, rets]) => {
-    const eff = calculateEffect(rets);
-    return { day: Number(day), name: days[Number(day)], avgReturn: eff.avgReturn, winRate: eff.winRate };
-  });
-}
-
-function monthEffect(returns: DailyReturn[]): Array<{ month: number; avgReturn: number; winRate: number }> {
-  const grouped: Record<number, number[]> = {};
-  returns.forEach(r => {
-    const m = new Date(r.date).getMonth();
-    if (!grouped[m]) grouped[m] = [];
-    grouped[m].push(r.return);
-  });
-  return Array.from({ length: 12 }, (_, i) => {
-    const rets = grouped[i] || [];
-    const eff = calculateEffect(rets);
-    return { month: i + 1, avgReturn: eff.avgReturn, winRate: eff.winRate };
-  });
-}
-
-function turnOfMonthEffect(returns: DailyReturn[]): { start: number; mid: number; end: number } {
-  const start: number[] = [], mid: number[] = [], end: number[] = [];
-  returns.forEach(r => {
-    const day = new Date(r.date).getDate();
-    if (day <= 5) start.push(r.return);
-    else if (day <= 20) mid.push(r.return);
-    else end.push(r.return);
-  });
-  return {
-    start: calculateEffect(start).avgReturn,
-    mid: calculateEffect(mid).avgReturn,
-    end: calculateEffect(end).avgReturn,
-  };
+function makeReturns(n: number): DailyReturn[] {
+  const out: DailyReturn[] = [];
+  for (let i = 0; i < n; i++) {
+    const dayOfYear = i % 365;
+    const year = 2022 + Math.floor(i / 365);
+    const month = (dayOfYear % 12) + 1;
+    const day = (dayOfYear % 28) + 1;
+    out.push({
+      date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      return: ((i * 7) % 11) / 1000 - 0.003,
+      volume: 1_000_000 + (i * 13) % 500_000,
+    });
+  }
+  return out;
 }
 
 describe('日历异象引擎', () => {
-  const generateReturns = (n: number): DailyReturn[] =>
-    Array.from({ length: n }, (_, i) => ({
-      date: `2024-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
-      return: (Math.random() - 0.48) * 0.03,
-      volume: Math.floor(Math.random() * 10000000),
-    }));
-
-  describe('calculateEffect', () => {
-    it('should handle empty array', () => {
-      expect(calculateEffect([])).toEqual({ avgReturn: 0, winRate: 0, tStat: 0 });
-    });
-
-    it('should calculate average return', () => {
-      expect(calculateEffect([0.01, 0.02, -0.01]).avgReturn).toBeCloseTo(0.0067, 3);
-    });
-
-    it('should calculate win rate', () => {
-      expect(calculateEffect([0.01, -0.01, 0.02, -0.02]).winRate).toBe(0.5);
-    });
-
-    it('should return 100% win rate for all positive', () => {
-      expect(calculateEffect([0.01, 0.02, 0.03]).winRate).toBe(1);
-    });
-  });
-
-  describe('dayOfWeekEffect', () => {
-    it('should return 5 days', () => {
-      const effect = dayOfWeekEffect(generateReturns(100));
-      expect(effect).toHaveLength(5);
-    });
-
-    it('each day should have valid metrics', () => {
-      const effect = dayOfWeekEffect(generateReturns(200));
-      effect.forEach(d => {
-        expect(d.winRate).toBeGreaterThanOrEqual(0);
-        expect(d.winRate).toBeLessThanOrEqual(1);
-        expect(d.name).toBeTruthy();
-      });
-    });
-  });
-
-  describe('monthEffect', () => {
-    it('should return 12 months', () => {
-      const effect = monthEffect(generateReturns(365));
-      expect(effect).toHaveLength(12);
-    });
-
-    it('months should be numbered 1-12', () => {
-      const effect = monthEffect(generateReturns(365));
-      effect.forEach((m, i) => {
+  describe('analyzeMonthEffect', () => {
+    it('returns 12 month effects numbered 1-12', () => {
+      const effects = analyzeMonthEffect(makeReturns(400));
+      expect(effects).toHaveLength(12);
+      effects.forEach((m, i) => {
         expect(m.month).toBe(i + 1);
+        expect(m.monthName).toBeTruthy();
+        expect(m.winRate).toBeGreaterThanOrEqual(0);
+        expect(m.winRate).toBeLessThanOrEqual(100);
+      });
+    });
+
+    it('handles empty input without crashing', () => {
+      const effects = analyzeMonthEffect([]);
+      expect(effects).toHaveLength(12);
+      expect(effects.every(m => m.avgReturn === 0)).toBe(true);
+    });
+  });
+
+  describe('analyzeDayOfWeekEffect', () => {
+    it('returns 5 weekday effects (Mon-Fri)', () => {
+      const effects = analyzeDayOfWeekEffect(makeReturns(400));
+      expect(effects).toHaveLength(5);
+      effects.forEach((d, i) => {
+        expect(d.dayOfWeek).toBe(i);
+        expect(d.dayName).toBeTruthy();
+        expect(d.winRate).toBeGreaterThanOrEqual(0);
+        expect(d.winRate).toBeLessThanOrEqual(100);
+        expect(d.volumeRatio).toBeGreaterThan(0);
+      });
+    });
+
+    it('skips weekend dates', () => {
+      const weekendOnly: DailyReturn[] = [
+        { date: '2024-01-06', return: 0.01, volume: 100 }, // Saturday
+        { date: '2024-01-07', return: 0.02, volume: 100 }, // Sunday
+      ];
+      const effects = analyzeDayOfWeekEffect(weekendOnly);
+      expect(effects.every(d => d.avgReturn === 0)).toBe(true);
+    });
+  });
+
+  describe('analyzeTurnOfMonthEffect', () => {
+    it('returns start/mid/end periods', () => {
+      const effects = analyzeTurnOfMonthEffect(makeReturns(400));
+      expect(effects.map(e => e.period)).toEqual(['start', 'mid', 'end']);
+      effects.forEach(e => {
+        expect(typeof e.avgReturn).toBe('number');
+        expect(e.winRate).toBeGreaterThanOrEqual(0);
+        expect(e.winRate).toBeLessThanOrEqual(100);
+      });
+    });
+
+    it('only start period is populated when all dates are <=5', () => {
+      const onlyStart: DailyReturn[] = Array.from({ length: 5 }, (_, i) => ({
+        date: `2024-03-${String(i + 1).padStart(2, '0')}`,
+        return: 0.02,
+        volume: 100,
+      }));
+      const effects = analyzeTurnOfMonthEffect(onlyStart);
+      const start = effects.find(e => e.period === 'start')!;
+      const mid = effects.find(e => e.period === 'mid')!;
+      const end = effects.find(e => e.period === 'end')!;
+      expect(start.avgReturn).toBeGreaterThan(0);
+      expect(mid.avgReturn).toBe(0);
+      expect(end.avgReturn).toBe(0);
+    });
+  });
+
+  describe('analyzeHolidayEffect', () => {
+    it('returns an effect for each Chinese holiday', () => {
+      const effects = analyzeHolidayEffect(makeReturns(400));
+      expect(effects.length).toBe(6); // CN_HOLIDAYS has 6 entries
+      effects.forEach(e => {
+        expect(e.holiday).toBeTruthy();
+        expect(typeof e.beforeAvgReturn).toBe('number');
+        expect(typeof e.afterAvgReturn).toBe('number');
+        expect(typeof e.sampleSize).toBe('number');
       });
     });
   });
 
-  describe('turnOfMonthEffect', () => {
-    it('should return start/mid/end periods', () => {
-      const effect = turnOfMonthEffect(generateReturns(300));
-      expect(typeof effect.start).toBe('number');
-      expect(typeof effect.mid).toBe('number');
-      expect(typeof effect.end).toBe('number');
+  describe('generateCalendarAnomalyReport', () => {
+    it('returns a structured report', () => {
+      const report = generateCalendarAnomalyReport(makeReturns(400));
+      expect(report.monthEffects).toHaveLength(12);
+      expect(report.dayOfWeekEffects).toHaveLength(5);
+      expect(report.turnOfMonthEffects).toHaveLength(3);
+      expect(report.holidayEffects).toHaveLength(6);
+      expect(report.topAnomalies.length).toBeLessThanOrEqual(10);
+      expect(['bullish', 'bearish', 'neutral']).toContain(report.marketPhase);
+      expect(typeof report.currentSignal).toBe('string');
+    });
+
+    it('detects bullish market phase from recent positive returns', () => {
+      const data = makeReturns(100);
+      for (let i = data.length - 20; i < data.length; i++) data[i].return = 0.01;
+      const report = generateCalendarAnomalyReport(data);
+      expect(report.marketPhase).toBe('bullish');
+    });
+
+    it('detects bearish market phase from recent negative returns', () => {
+      const data = makeReturns(100);
+      for (let i = data.length - 20; i < data.length; i++) data[i].return = -0.01;
+      const report = generateCalendarAnomalyReport(data);
+      expect(report.marketPhase).toBe('bearish');
+    });
+  });
+
+  describe('checkCalendarPersistence', () => {
+    it('computes month and weekday persistence', () => {
+      const result = checkCalendarPersistence(makeReturns(200), 60);
+      expect(result.monthPersistence).toHaveLength(12);
+      expect(result.dowPersistence).toHaveLength(5);
+      result.monthPersistence.forEach(p => {
+        expect(p.month).toBeGreaterThanOrEqual(1);
+        expect(p.month).toBeLessThanOrEqual(12);
+        expect(typeof p.diverging).toBe('boolean');
+      });
     });
   });
 });

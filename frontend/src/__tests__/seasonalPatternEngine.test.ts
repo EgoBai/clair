@@ -1,123 +1,202 @@
 import { describe, it, expect } from 'vitest';
+import {
+  analyzeMonthlyEffects,
+  analyzeHolidayEffects,
+  analyzeDayOfWeekEffect,
+  analyzeEarningsSeasonEffect,
+  identifySeasonalPatterns,
+  calculateSeasonalityScore,
+  generateSeasonalForecast,
+  runSeasonalAnalysis,
+  CHINESE_HOLIDAYS,
+  SOLAR_TERMS,
+  type MonthlyReturn,
+  type HolidayEffect
+} from '../utils/seasonalPatternEngine';
 
 /**
- * 季节性模式引擎测试
+ * 季节性模式引擎测试（导入真实模块）
+ * 使用确定性数据驱动真实逻辑，不依赖 Math.random 假数据。
  */
 
-interface DailyReturn {
-  date: string;
-  return: number;
-  volume: number;
+// 固定的 12 个月收益（每年相同），用于可预测的断言
+const MONTH_RETURNS = [
+  0.05, 0.03, -0.02, 0.01, -0.04, -0.03, 0.06, 0.02, 0.04, 0.03, -0.01, 0.02,
+];
+
+function makeMonthlyReturns(years: number[]): MonthlyReturn[] {
+  const arr: MonthlyReturn[] = [];
+  for (const year of years) {
+    for (let m = 1; m <= 12; m++) {
+      arr.push({ year, month: m, return: MONTH_RETURNS[m - 1], volume: 1000, volatility: 0.1 });
+    }
+  }
+  return arr;
 }
 
-function analyzeMonthlyEffects(returns: DailyReturn[]): Array<{ month: number; avgReturn: number; winRate: number; bestYear: number; worstYear: number }> {
-  const grouped: Record<number, number[]> = {};
-  const yearGroups: Record<number, Record<number, number[]>> = {};
-  returns.forEach(r => {
-    const d = new Date(r.date);
-    const m = d.getMonth();
-    const y = d.getFullYear();
-    if (!grouped[m]) grouped[m] = [];
-    grouped[m].push(r.return);
-    if (!yearGroups[y]) yearGroups[y] = {};
-    if (!yearGroups[y][m]) yearGroups[y][m] = [];
-    yearGroups[y][m].push(r.return);
-  });
-  return Array.from({ length: 12 }, (_, m) => {
-    const rets = grouped[m] || [];
-    const avg = rets.length > 0 ? rets.reduce((s, v) => s + v, 0) / rets.length : 0;
-    const wins = rets.filter(r => r > 0).length;
-    const yearlyAvgs = Object.entries(yearGroups).map(([y, months]) => {
-      const mr = months[m] || [];
-      return mr.length > 0 ? mr.reduce((s, v) => s + v, 0) / mr.length : 0;
+describe('SeasonalPatternEngine (real module)', () => {
+  describe('constants', () => {
+    it('should define 7 Chinese holidays', () => {
+      expect(CHINESE_HOLIDAYS).toHaveLength(7);
     });
-    return {
-      month: m + 1,
-      avgReturn: parseFloat(avg.toFixed(6)),
-      winRate: rets.length > 0 ? parseFloat((wins / rets.length).toFixed(4)) : 0,
-      bestYear: yearlyAvgs.length > 0 ? Math.max(...yearlyAvgs) : 0,
-      worstYear: yearlyAvgs.length > 0 ? Math.min(...yearlyAvgs) : 0,
-    };
-  });
-}
-
-function analyzeDayOfWeekEffect(returns: DailyReturn[]): Array<{ day: number; name: string; avgReturn: number; winRate: number }> {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const grouped: Record<number, number[]> = { 0: [], 1: [], 2: [], 3: [], 4: [] };
-  returns.forEach(r => {
-    const d = new Date(r.date).getDay();
-    if (d >= 1 && d <= 5) grouped[d - 1].push(r.return);
-  });
-  return Object.entries(grouped).map(([day, rets]) => {
-    const avg = rets.length > 0 ? rets.reduce((s, v) => s + v, 0) / rets.length : 0;
-    const wins = rets.filter(r => r > 0).length;
-    return { day: Number(day), name: days[Number(day)], avgReturn: parseFloat(avg.toFixed(6)), winRate: rets.length > 0 ? parseFloat((wins / rets.length).toFixed(4)) : 0 };
-  });
-}
-
-function calculateSeasonalityScore(monthlyEffects: Array<{ month: number; avgReturn: number; winRate: number }>): number {
-  if (monthlyEffects.length === 0) return 0;
-  const consistency = monthlyEffects.reduce((s, m) => s + (m.winRate > 0.5 ? 1 : 0), 0) / monthlyEffects.length;
-  const magnitude = monthlyEffects.reduce((s, m) => s + Math.abs(m.avgReturn), 0) / monthlyEffects.length;
-  return parseFloat((consistency * 50 + Math.min(50, magnitude * 10000)).toFixed(2));
-}
-
-describe('季节性模式引擎', () => {
-  const generateReturns = (n: number): DailyReturn[] =>
-    Array.from({ length: n }, (_, i) => {
-      const d = new Date(2024, 0, 1 + i);
-      return { date: d.toISOString().split('T')[0], return: (Math.random() - 0.48) * 0.03, volume: 1000000 };
+    it('should define 24 solar terms', () => {
+      expect(SOLAR_TERMS).toHaveLength(24);
     });
+  });
 
   describe('analyzeMonthlyEffects', () => {
-    it('should return 12 months', () => {
-      const effects = analyzeMonthlyEffects(generateReturns(365));
+    it('should return one entry per month with data', () => {
+      const effects = analyzeMonthlyEffects(makeMonthlyReturns([2020, 2021, 2022, 2023, 2024]));
       expect(effects).toHaveLength(12);
     });
 
-    it('should have valid win rates', () => {
-      const effects = analyzeMonthlyEffects(generateReturns(365));
+    it('should compute valid win rates', () => {
+      const effects = analyzeMonthlyEffects(makeMonthlyReturns([2020, 2021, 2022]));
       effects.forEach(m => {
         expect(m.winRate).toBeGreaterThanOrEqual(0);
         expect(m.winRate).toBeLessThanOrEqual(1);
+        expect(m.monthName).toBeTruthy();
+        expect(m.rank).toBeGreaterThanOrEqual(1);
       });
     });
 
-    it('should handle empty returns', () => {
-      const effects = analyzeMonthlyEffects([]);
-      expect(effects).toHaveLength(12);
-      effects.forEach(m => expect(m.avgReturn).toBe(0));
+    it('should compute predictable avgReturn for January', () => {
+      const effects = analyzeMonthlyEffects(makeMonthlyReturns([2020, 2021, 2022, 2023, 2024]));
+      const jan = effects.find(m => m.month === 1)!;
+      expect(jan.avgReturn).toBeCloseTo(0.05, 4);
+      expect(jan.isPositive).toBe(true);
+    });
+
+    it('should return empty for no returns', () => {
+      expect(analyzeMonthlyEffects([])).toHaveLength(0);
     });
   });
 
   describe('analyzeDayOfWeekEffect', () => {
-    it('should return 5 weekdays', () => {
-      const effects = analyzeDayOfWeekEffect(generateReturns(100));
-      expect(effects).toHaveLength(5);
+    const daily = (dayOfWeek: number, ret: number) => ({
+      date: '2024-01-01', return: ret, volume: 100, dayOfWeek,
     });
 
-    it('should skip weekends', () => {
-      const returns: DailyReturn[] = [
-        { date: '2024-01-01', return: 0.01, volume: 100 }, // Mon
-        { date: '2024-01-06', return: 0.02, volume: 100 }, // Sat
-        { date: '2024-01-07', return: 0.03, volume: 100 }, // Sun
+    it('should return 5 weekdays when all provided', () => {
+      const data = [1, 2, 3, 4, 5].map(d => daily(d, 0.01 * d));
+      expect(analyzeDayOfWeekEffect(data)).toHaveLength(5);
+    });
+
+    it('should skip weekends (dayOfWeek 0 and 6)', () => {
+      const data = [daily(1, 0.01), daily(6, 0.99), daily(0, 0.99)];
+      const effects = analyzeDayOfWeekEffect(data);
+      expect(effects).toHaveLength(1);
+      expect(effects[0].dayOfWeek).toBe(1);
+      expect(effects[0].avgReturn).toBeCloseTo(0.01, 4);
+      expect(effects[0].dayName).toBe('周一');
+    });
+  });
+
+  describe('analyzeHolidayEffects', () => {
+    it('should aggregate before/after returns per holiday', () => {
+      const data = [
+        { date: '2024-02-01', return: 0.02, isBeforeHoliday: true, isAfterHoliday: false, holidayName: '春节' },
+        { date: '2024-02-02', return: 0.03, isBeforeHoliday: true, isAfterHoliday: false, holidayName: '春节' },
+        { date: '2024-02-15', return: 0.01, isBeforeHoliday: false, isAfterHoliday: true, holidayName: '春节' },
       ];
-      const effects = analyzeDayOfWeekEffect(returns);
-      expect(effects[0].avgReturn).toBe(0.01); // Monday only
-      expect(effects[4].avgReturn).toBe(0); // Friday has no data
+      const effects: HolidayEffect[] = analyzeHolidayEffects(data);
+      expect(effects).toHaveLength(1);
+      expect(effects[0].name).toBe('春节');
+      expect(effects[0].avgReturnBefore).toBeCloseTo(0.025, 4);
+      expect(effects[0].avgReturnAfter).toBeCloseTo(0.01, 4);
+      expect(effects[0].bestEntryDay).toBe(1);
+    });
+
+    it('should ignore entries without a holiday name', () => {
+      const data = [{ date: '2024-02-01', return: 0.02, isBeforeHoliday: true, isAfterHoliday: false, holidayName: '' }];
+      expect(analyzeHolidayEffects(data)).toHaveLength(0);
+    });
+  });
+
+  describe('analyzeEarningsSeasonEffect', () => {
+    const earnings = [
+      { period: 'Q1' as const, preReturn: 0.03, postReturn: 0.05, actualEPS: 1.2, expectedEPS: 1.0 },
+      { period: 'Q2' as const, preReturn: -0.01, postReturn: 0.005, actualEPS: 0.9, expectedEPS: 1.0 },
+      { period: 'Q3' as const, preReturn: 0.02, postReturn: 0.04, actualEPS: 1.1, expectedEPS: 1.0 },
+    ];
+
+    it('should produce one result per quarter', () => {
+      const res = analyzeEarningsSeasonEffect(earnings);
+      expect(res.map(r => r.period)).toEqual(['Q1', 'Q2', 'Q3', 'Q4']);
+    });
+
+    it('should recommend pre-earnings layout for beats', () => {
+      const res = analyzeEarningsSeasonEffect(earnings);
+      expect(res[0].beatRate).toBe(1);
+      expect(res[0].optimalStrategy).toBe('财报前布局超预期个股');
+    });
+
+    it('should mark missing quarters as insufficient', () => {
+      const res = analyzeEarningsSeasonEffect(earnings);
+      expect(res[3].optimalStrategy).toBe('数据不足');
+    });
+  });
+
+  describe('identifySeasonalPatterns', () => {
+    it('should detect the classic monthly patterns', () => {
+      const patterns = identifySeasonalPatterns(makeMonthlyReturns([2020, 2021, 2022, 2023, 2024]));
+      const names = patterns.map(p => p.name);
+      expect(names).toContain('一月效应');
+      expect(names).toContain('五穷六绝七翻身');
+      expect(names).toContain('金九银十');
+      expect(names).toContain('年末效应');
+      expect(names).toContain('春季躁动');
+    });
+
+    it('should mark May-July turn and January as significant', () => {
+      const patterns = identifySeasonalPatterns(makeMonthlyReturns([2020, 2021, 2022, 2023, 2024]));
+      const mayJul = patterns.find(p => p.name === '五穷六绝七翻身')!;
+      expect(mayJul.isSignificant).toBe(true);
+      const jan = patterns.find(p => p.name === '一月效应')!;
+      expect(jan.isSignificant).toBe(true);
     });
   });
 
   describe('calculateSeasonalityScore', () => {
-    it('should return 0 for empty', () => {
-      expect(calculateSeasonalityScore([])).toBe(0);
+    it('should produce a clamped 0-100 score and recommendation', () => {
+      const monthly = analyzeMonthlyEffects(makeMonthlyReturns([2020, 2021, 2022, 2023, 2024]));
+      const holiday = analyzeHolidayEffects([
+        { date: '2024-02-01', return: 0.025, isBeforeHoliday: true, isAfterHoliday: false, holidayName: '春节' },
+      ]);
+      const score = calculateSeasonalityScore(monthly, holiday, 1, 5);
+      expect(score.overall).toBeGreaterThanOrEqual(0);
+      expect(score.overall).toBeLessThanOrEqual(100);
+      expect(score.monthly).toBeLessThanOrEqual(100);
+      expect(score.holiday).toBeLessThanOrEqual(100);
+      expect(score.recommendation).toBe('strong_buy');
     });
+  });
 
-    it('should be between 0 and 100', () => {
-      const effects = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, avgReturn: Math.random() * 0.01, winRate: 0.5 + Math.random() * 0.3 }));
-      const score = calculateSeasonalityScore(effects);
-      expect(score).toBeGreaterThanOrEqual(0);
-      expect(score).toBeLessThanOrEqual(100);
+  describe('generateSeasonalForecast', () => {
+    it('should forecast for the current month using relevant patterns', () => {
+      const patterns = identifySeasonalPatterns(makeMonthlyReturns([2020, 2021, 2022, 2023, 2024]));
+      const forecast = generateSeasonalForecast(patterns, 1, []);
+      expect(forecast.forecastPeriod).toBe('1月');
+      expect(forecast.expectedReturn).toBeCloseTo(0.05, 4);
+      expect(forecast.patterns).toHaveLength(1); // only 一月效应 relevant in Jan
+      expect(forecast.recommendedAction).toBe('积极做多，适当加仓');
+    });
+  });
+
+  describe('runSeasonalAnalysis (integration)', () => {
+    it('should return a full analysis with summary', () => {
+      const monthly = makeMonthlyReturns([2020, 2021, 2022, 2023, 2024]);
+      const daily = [
+        { date: '2024-02-01', return: 0.02, volume: 100, dayOfWeek: 1, isBeforeHoliday: true, isAfterHoliday: false, holidayName: '春节' },
+        { date: '2024-02-15', return: 0.01, volume: 100, dayOfWeek: 5, isBeforeHoliday: false, isAfterHoliday: true, holidayName: '春节' },
+      ];
+      const result = runSeasonalAnalysis(monthly, daily, 1, 5);
+      expect(result.monthlyEffects).toHaveLength(12);
+      expect(result.dayOfWeekEffects.length).toBeGreaterThan(0);
+      expect(result.holidayEffects).toHaveLength(1);
+      expect(result.summary.bestMonth.month).toBe(7); // July has the highest fixed return
+      expect(result.summary.significantPatterns.length).toBeGreaterThan(0);
+      expect(result.score.overall).toBeGreaterThanOrEqual(0);
     });
   });
 });

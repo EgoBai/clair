@@ -1,146 +1,152 @@
 import { describe, it, expect } from 'vitest';
+import { AnomalyDetectionEngine } from '../utils/anomalyDetectionEngine';
 
 /**
  * 异常检测引擎测试
- * Z-score/IQR/移动窗口/聚类异常
+ * Z-score / IQR / 移动平均 / EWMA / 综合投票 / 时间序列 / 多维 / 趋势
+ * (Rewritten to import the real AnomalyDetectionEngine class.)
  */
 
-interface DataPoint { timestamp: number; value: number; }
-
-function zScoreAnomalies(data: number[], threshold = 3): number[] {
-  if (data.length < 2) return [];
-  const mean = data.reduce((a, b) => a + b, 0) / data.length;
-  const std = Math.sqrt(data.reduce((s, v) => s + (v - mean) ** 2, 0) / data.length);
-  if (std === 0) return [];
-  return data.map((v, i) => Math.abs((v - mean) / std) > threshold ? i : -1).filter(i => i >= 0);
-}
-
-function iqrAnomalies(data: number[]): number[] {
-  const sorted = [...data].sort((a, b) => a - b);
-  const q1 = sorted[Math.floor(sorted.length * 0.25)];
-  const q3 = sorted[Math.floor(sorted.length * 0.75)];
-  const iqr = q3 - q1;
-  const lower = q1 - 1.5 * iqr;
-  const upper = q3 + 1.5 * iqr;
-  return data.map((v, i) => (v < lower || v > upper) ? i : -1).filter(i => i >= 0);
-}
-
-function movingWindowAnomalies(data: number[], windowSize = 10, threshold = 2): Array<{ index: number; expected: number; actual: number; deviation: number }> {
-  if (data.length < windowSize + 1) return [];
-  const anomalies: Array<{ index: number; expected: number; actual: number; deviation: number }> = [];
-  for (let i = windowSize; i < data.length; i++) {
-    const window = data.slice(i - windowSize, i);
-    const mean = window.reduce((a, b) => a + b, 0) / window.length;
-    const std = Math.sqrt(window.reduce((s, v) => s + (v - mean) ** 2, 0) / window.length);
-    if (std > 0 && Math.abs(data[i] - mean) / std > threshold) {
-      anomalies.push({ index: i, expected: parseFloat(mean.toFixed(4)), actual: data[i], deviation: parseFloat(((data[i] - mean) / std).toFixed(4)) });
-    }
-  }
-  return anomalies;
-}
-
-function detectTrendBreak(data: number[], window = 5): Array<{ index: number; beforeTrend: number; afterTrend: number; magnitude: number }> {
-  if (data.length < window * 2) return [];
-  const breaks: Array<{ index: number; beforeTrend: number; afterTrend: number; magnitude: number }> = [];
-  for (let i = window; i < data.length - window; i++) {
-    const before = data.slice(i - window, i);
-    const after = data.slice(i, i + window);
-    const slopeBefore = (before[before.length - 1] - before[0]) / before.length;
-    const slopeAfter = (after[after.length - 1] - after[0]) / after.length;
-    if (Math.sign(slopeBefore) !== Math.sign(slopeAfter) && Math.abs(slopeBefore - slopeAfter) > 0.1) {
-      breaks.push({ index: i, beforeTrend: parseFloat(slopeBefore.toFixed(4)), afterTrend: parseFloat(slopeAfter.toFixed(4)), magnitude: parseFloat(Math.abs(slopeBefore - slopeAfter).toFixed(4)) });
-    }
-  }
-  return breaks;
-}
-
-function seasonalDecompose(data: number[], period: number): { trend: number[]; seasonal: number[]; residual: number[] } {
-  if (data.length < period * 2) return { trend: [], seasonal: [], residual: [] };
-  const trend: number[] = [];
-  const half = Math.floor(period / 2);
-  for (let i = 0; i < data.length; i++) {
-    const start = Math.max(0, i - half);
-    const end = Math.min(data.length, i + half + 1);
-    trend.push(data.slice(start, end).reduce((a, b) => a + b, 0) / (end - start));
-  }
-  const seasonal = new Array(data.length).fill(0);
-  const detrended = data.map((v, i) => v - trend[i]);
-  for (let j = 0; j < period; j++) {
-    const values = [];
-    for (let i = j; i < data.length; i += period) values.push(detrended[i]);
-    const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    for (let i = j; i < data.length; i += period) seasonal[i] = avg;
-  }
-  const residual = data.map((v, i) => v - trend[i] - seasonal[i]);
-  return { trend, seasonal, residual };
-}
+const engine = new AnomalyDetectionEngine();
 
 describe('异常检测引擎', () => {
-  const normalData = Array.from({ length: 100 }, () => 50 + (Math.random() - 0.5) * 10);
-  const dataWithAnomaly = [...normalData, 200, ...normalData];
+  describe('detectZScoreAnomalies', () => {
+    it('returns empty for short data (length < 3)', () => {
+      expect(engine.detectZScoreAnomalies([1], 3)).toHaveLength(0);
+      expect(engine.detectZScoreAnomalies([1, 2], 3)).toHaveLength(0);
+    });
 
-  describe('zScoreAnomalies', () => {
-    it('should detect outliers', () => {
-      const anomalies = zScoreAnomalies(dataWithAnomaly, 3);
+    it('returns empty for uniform data (zero std)', () => {
+      expect(engine.detectZScoreAnomalies([5, 5, 5, 5, 5])).toHaveLength(0);
+    });
+
+    it('detects extreme outliers', () => {
+      const data = Array.from({ length: 50 }, (_, i) => 50 + (i % 2));
+      data.push(500); // huge outlier
+      const anomalies = engine.detectZScoreAnomalies(data, 3);
       expect(anomalies.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('should return empty for uniform data', () => {
-      expect(zScoreAnomalies([5, 5, 5, 5, 5])).toHaveLength(0);
-    });
-
-    it('should return empty for short data', () => {
-      expect(zScoreAnomalies([1])).toHaveLength(0);
+      const a = anomalies[anomalies.length - 1];
+      expect(a.method).toBe('z-score');
+      expect(a.value).toBe(500);
+      expect(a).toHaveProperty('deviation');
+      expect(a.score).toBeGreaterThan(0);
     });
   });
 
-  describe('iqrAnomalies', () => {
-    it('should detect outliers', () => {
-      const anomalies = iqrAnomalies(dataWithAnomaly);
-      expect(anomalies.length).toBeGreaterThanOrEqual(0);
+  describe('detectIQRAnomalies', () => {
+    it('returns empty for short data (length < 4)', () => {
+      expect(engine.detectIQRAnomalies([1, 2, 3])).toHaveLength(0);
     });
-  });
 
-  describe('movingWindowAnomalies', () => {
-    it('should detect sudden jumps', () => {
-      const data = Array.from({ length: 20 }, (_, i) => 50 + i * 0.01);
-      data.push(200);
-      const anomalies = movingWindowAnomalies(data, 5, 2);
+    it('detects outliers', () => {
+      const data = Array.from({ length: 50 }, () => 50);
+      data.push(500);
+      const anomalies = engine.detectIQRAnomalies(data);
       expect(anomalies.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('should return empty for short data', () => {
-      expect(movingWindowAnomalies([1, 2, 3], 10)).toHaveLength(0);
+      expect(anomalies[0].method).toBe('iqr');
     });
   });
 
-  describe('detectTrendBreak', () => {
-    it('should detect trend reversal', () => {
-      const up = Array.from({ length: 10 }, (_, i) => i);
-      const down = Array.from({ length: 10 }, (_, i) => 10 - i);
-      const data = [...up, ...down];
-      const breaks = detectTrendBreak(data, 5);
-      expect(breaks.length).toBeGreaterThanOrEqual(1);
+  describe('detectMovingAverageAnomalies', () => {
+    it('returns empty for short data', () => {
+      expect(engine.detectMovingAverageAnomalies([1, 2, 3], 10)).toHaveLength(0);
     });
 
-    it('should return empty for monotonic data', () => {
-      const data = Array.from({ length: 20 }, (_, i) => i);
-      expect(detectTrendBreak(data, 5)).toHaveLength(0);
+    it('detects sudden jumps', () => {
+      const data = Array.from({ length: 30 }, (_, i) => 50 + i * 0.01);
+      data.push(500);
+      const anomalies = engine.detectMovingAverageAnomalies(data, 10, 2);
+      expect(anomalies.length).toBeGreaterThanOrEqual(1);
+      expect(anomalies[0].method).toBe('moving-average');
     });
   });
 
-  describe('seasonalDecompose', () => {
-    it('should return three components', () => {
-      const data = Array.from({ length: 48 }, (_, i) => 100 + Math.sin(i * Math.PI / 6) * 20 + i * 0.5);
-      const result = seasonalDecompose(data, 12);
-      expect(result.trend.length).toBe(data.length);
-      expect(result.seasonal.length).toBe(data.length);
-      expect(result.residual.length).toBe(data.length);
+  describe('detectEWMAAnomalies', () => {
+    it('returns empty for short data (length < 5)', () => {
+      expect(engine.detectEWMAAnomalies([1, 2, 3, 4])).toHaveLength(0);
     });
 
-    it('should handle short data', () => {
-      const result = seasonalDecompose([1, 2, 3], 12);
-      expect(result.trend).toHaveLength(0);
+    it('detects outliers', () => {
+      // EWMA deviation for a single step is bounded by 1/sqrt(alpha) ≈ 2.236,
+      // so a default threshold of 3 never fires on one outlier; use threshold 2 to exercise the detection path.
+      const data = Array.from({ length: 30 }, () => 50);
+      data.push(500);
+      const anomalies = engine.detectEWMAAnomalies(data, 0.2, 2);
+      expect(anomalies.length).toBeGreaterThanOrEqual(1);
+      expect(anomalies[0].method).toBe('ewma');
+    });
+  });
+
+  describe('detectAnomalies (combined voting)', () => {
+    it('returns a structured result', () => {
+      const data = Array.from({ length: 40 }, (_, i) => 50 + (i % 2));
+      data.push(500);
+      const result = engine.detectAnomalies(data);
+      expect(result.methods).toEqual(['z-score', 'iqr', 'moving-average']);
+      expect(result.anomalies.length).toBeGreaterThanOrEqual(1);
+      expect(result.normalRange).toHaveProperty('lower');
+      expect(result.normalRange).toHaveProperty('upper');
+      expect(result.anomalyRate).toBeGreaterThanOrEqual(0);
+      expect(result.anomalyRate).toBeLessThanOrEqual(1);
+    });
+
+    it('detects consensus anomalies via multi-method voting', () => {
+      const data = Array.from({ length: 60 }, () => 50);
+      data.push(999);
+      const result = engine.detectAnomalies(data, 3, 1.5, 20, 2);
+      expect(result.consensusAnomalies.length).toBeGreaterThanOrEqual(1);
+      expect(result.consensusAnomalies[0].method).toBeTruthy();
+    });
+  });
+
+  describe('detectTimeSeriesAnomalies', () => {
+    it('returns empty for short data', () => {
+      expect(engine.detectTimeSeriesAnomalies([1, 2, 3], [1, 2, 3])).toHaveLength(0);
+    });
+
+    it('detects point anomalies', () => {
+      const values = Array.from({ length: 60 }, (_, i) => 50 + (i % 5));
+      const timestamps = values.map((_, i) => i);
+      values[40] = 500; // in-range index (i < length - 1)
+      const anomalies = engine.detectTimeSeriesAnomalies(values, timestamps, 20);
+      expect(anomalies.length).toBeGreaterThanOrEqual(1);
+      expect(anomalies.some(a => a.type === 'point')).toBe(true);
+    });
+  });
+
+  describe('detectMultivariateAnomalies', () => {
+    it('returns empty for short data (length < 5)', () => {
+      const dims = new Map([['a', [1, 2, 3, 4]], ['b', [1, 2, 3, 4]]]);
+      expect(engine.detectMultivariateAnomalies(dims)).toHaveLength(0);
+    });
+
+    it('computes composite scores and flags anomalies', () => {
+      const dimA = Array.from({ length: 20 }, () => 10);
+      dimA[19] = 1000;
+      const dimB = Array.from({ length: 20 }, () => 10);
+      dimB[19] = 1000;
+      const dims = new Map([['a', dimA], ['b', dimB]]);
+      const results = engine.detectMultivariateAnomalies(dims);
+      expect(results).toHaveLength(20);
+      expect(results[19].isAnomaly).toBe(true);
+      expect(results[19].topContributors).toContain('a');
+      expect(results[19].compositeScore).toBeGreaterThan(0.7);
+    });
+  });
+
+  describe('analyzeAnomalyTrend', () => {
+    it('returns stable trend and empty rates for short data', () => {
+      const result = engine.analyzeAnomalyTrend([1, 2, 3], 50);
+      expect(result.trend).toBe('stable');
+      expect(result.windowAnomalyRate).toHaveLength(0);
+      expect(result.currentRisk).toBe('low');
+    });
+
+    it('computes window anomaly rates over a long series', () => {
+      const data = Array.from({ length: 100 }, () => 50);
+      const result = engine.analyzeAnomalyTrend(data, 50, 10);
+      expect(result.windowAnomalyRate.length).toBeGreaterThan(0);
+      expect(['increasing', 'decreasing', 'stable']).toContain(result.trend);
     });
   });
 });

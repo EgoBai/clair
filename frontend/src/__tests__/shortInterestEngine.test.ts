@@ -1,76 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { analyzeShortInterest, type ShortInterestData } from '../utils/shortInterestEngine';
 
 /**
- * 融券/做空兴趣引擎测试
+ * 融券/做空兴趣引擎测试 (导入真实模块)
  */
-
-interface ShortInterestData {
-  symbol: string;
-  shortShares: number;
-  totalShares: number;
-  avgDailyVolume: number;
-  shortRatioHistory: { date: string; ratio: number }[];
-  priceHistory: { date: string; close: number }[];
-  borrowCost: number;
-  availableShares: number;
-}
-
-interface ShortInterestResult {
-  symbol: string;
-  shortRatio: number;
-  daysToCover: number;
-  shortTrend: 'increasing' | 'stable' | 'decreasing';
-  squeezeRisk: 'low' | 'moderate' | 'high' | 'extreme';
-  borrowCostLevel: 'low' | 'moderate' | 'high';
-  shortSqueezeSignal: boolean;
-  sentiment: 'bearish' | 'neutral' | 'bullish';
-  riskScore: number;
-  insights: string[];
-}
-
-function analyzeShortInterest(data: ShortInterestData): ShortInterestResult {
-  const insights: string[] = [];
-  const shortRatio = data.totalShares > 0 ? data.shortShares / data.totalShares : 0;
-  if (shortRatio > 0.15) insights.push('融券比例超过15%');
-  else if (shortRatio > 0.1) insights.push('融券比例超过10%');
-
-  const daysToCover = data.avgDailyVolume > 0 ? data.shortShares / data.avgDailyVolume : 0;
-  if (daysToCover > 10) insights.push(`覆盖天数${Math.round(daysToCover)}`);
-
-  const ratios = data.shortRatioHistory.map(h => h.ratio);
-  let shortTrend: ShortInterestResult['shortTrend'] = 'stable';
-  if (ratios.length >= 2) {
-    const recent = ratios.slice(-3).reduce((s, v) => s + v, 0) / Math.min(3, ratios.length);
-    const older = ratios.slice(0, Math.min(3, ratios.length)).reduce((s, v) => s + v, 0) / Math.min(3, ratios.length);
-    if (recent > older * 1.1) shortTrend = 'increasing';
-    else if (recent < older * 0.9) shortTrend = 'decreasing';
-  }
-
-  let squeezeRisk: ShortInterestResult['squeezeRisk'] = 'low';
-  const squeezeScore = shortRatio * 100 + daysToCover * 2 + (shortTrend === 'increasing' ? 10 : 0);
-  if (squeezeScore > 50) squeezeRisk = 'extreme';
-  else if (squeezeScore > 30) squeezeRisk = 'high';
-  else if (squeezeScore > 15) squeezeRisk = 'moderate';
-
-  const borrowCostLevel = data.borrowCost > 10 ? 'high' : data.borrowCost > 5 ? 'moderate' : 'low';
-  const shortSqueezeSignal = squeezeRisk === 'high' || squeezeRisk === 'extreme';
-  const sentiment = shortRatio > 0.15 ? 'bearish' : shortRatio > 0.05 ? 'neutral' : 'bullish';
-
-  const riskScore = Math.min(100, Math.round(shortRatio * 300 + daysToCover * 3 + (shortTrend === 'increasing' ? 15 : 0) + (data.borrowCost > 10 ? 15 : 0)));
-
-  return {
-    symbol: data.symbol,
-    shortRatio: parseFloat(shortRatio.toFixed(4)),
-    daysToCover: parseFloat(daysToCover.toFixed(2)),
-    shortTrend,
-    squeezeRisk,
-    borrowCostLevel,
-    shortSqueezeSignal,
-    sentiment,
-    riskScore,
-    insights,
-  };
-}
 
 describe('融券做空兴趣引擎', () => {
   const baseData: ShortInterestData = {
@@ -148,12 +81,19 @@ describe('融券做空兴趣引擎', () => {
     it('should generate insights for high ratios', () => {
       const data = { ...baseData, shortShares: 2000000, totalShares: 10000000 };
       const result = analyzeShortInterest(data);
-      expect(result.insights.length).toBeGreaterThanOrEqual(0);
+      expect(result.insights.length).toBeGreaterThan(0);
+      expect(result.insights[0]).toContain('融券比例');
     });
 
     it('risk score should be 0-100', () => {
-      expect(analyzeShortInterest(baseData).riskScore).toBeGreaterThanOrEqual(0);
-      expect(analyzeShortInterest(baseData).riskScore).toBeLessThanOrEqual(100);
+      const r = analyzeShortInterest(baseData).riskScore;
+      expect(r).toBeGreaterThanOrEqual(0);
+      expect(r).toBeLessThanOrEqual(100);
+    });
+
+    it('squeeze signal requires high ratio, long cover and rising price', () => {
+      // 不满足条件时信号为 false
+      expect(analyzeShortInterest(baseData).shortSqueezeSignal).toBe(false);
     });
   });
 });
