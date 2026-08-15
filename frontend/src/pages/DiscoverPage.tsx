@@ -185,6 +185,9 @@ const DiscoverPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [insight, setInsight] = useState<any>(null);
   const [insightLoading, setInsightLoading] = useState(false);
+  // AI 行情诊脉（原生高浓度 AI 能力）：组合真实信号 + 可选 LLM 观点
+  const [pulse, setPulse] = useState<any>(null);
+  const [pulseLoading, setPulseLoading] = useState(false);
   const [sectorType, setSectorType] = useState<'industry' | 'concept'>('industry');
   const [industryLevel, setIndustryLevel] = useState<1 | 2>(1);
   const [l2Industries, setL2Industries] = useState<Array<{parent?: string; name: string; stock_count: number; avg_change: string; avg_turnover: string; total_cap: string}>>([]);
@@ -345,6 +348,14 @@ const DiscoverPage: React.FC = () => {
         .then(r => { if (!r.ok) throw new Error(`market-insight-llm HTTP ${r.status}`); return r.json(); })
         .then(d => { if (d?.data) setInsight(d.data); })
         .catch(() => {});
+
+      // AI 行情诊脉：组合真实信号（LLM 不可用时自动降级为规则结论，绝不 500）
+      setPulseLoading(true);
+      fetch('/api/ai/market-pulse', { signal: ac.signal })
+        .then(r => { if (!r.ok) throw new Error(`market-pulse HTTP ${r.status}`); return r.json(); })
+        .then(d => { if (d?.data?.data) setPulse(d.data.data); })
+        .catch(() => {})
+        .finally(() => setPulseLoading(false));
 
       // News loads in background
       fetch('/api/news?limit=6', { signal: ac.signal }).then(r => r.json()).then(d => setNews(d.data || [])).catch(() => {});
@@ -1020,6 +1031,98 @@ const DiscoverPage: React.FC = () => {
           ) : (
             <div style={{ color: TEXT_SEC, fontSize: 13 }}>AI 市场解读暂不可用，请稍后重试</div>
           )}
+        </div>
+
+        {/* AI 行情诊脉（原生高浓度 AI 能力） */}
+        <div style={{
+          borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+          background: 'linear-gradient(135deg, rgba(102,122,234,0.08), rgba(236,72,153,0.06))',
+          border: '1px solid var(--border-subtle)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 22 }}>🩺</span>
+            <Title level={5} style={{ color: TEXT, margin: 0 }}>AI 行情诊脉</Title>
+            <Tag color="purple" style={{ fontSize: 10 }}>信号诊断</Tag>
+            {pulse?.llmUsed ? (
+              <Tag color="green" style={{ fontSize: 10 }}>LLM 观点</Tag>
+            ) : pulse?.dataSource === 'real' ? (
+              <Tag color="blue" style={{ fontSize: 10 }}>规则结论</Tag>
+            ) : null}
+            {pulseLoading && <span style={{ fontSize: 12, color: TEXT_SEC }}>正在诊脉…</span>}
+          </div>
+
+          {pulse ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,0.9fr) minmax(0,1.1fr)', gap: 20, alignItems: 'start' }}>
+              {/* 左：市场温度 + 主线行业 */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                  <Progress
+                    type="dashboard"
+                    percent={pulse.temperature?.score ?? 0}
+                    size={104}
+                    strokeColor={pulse.temperature?.score >= 60 ? '#22c55e' : pulse.temperature?.score >= 45 ? ACCENT : '#ef4444'}
+                    format={(p) => <span style={{ color: TEXT, fontSize: 13 }}>{p}<br/>{pulse.temperature?.label}</span>}
+                  />
+                  <div style={{ fontSize: 12, color: TEXT_SEC, lineHeight: 1.8 }}>
+                    <div>上涨 <b style={{ color: COLOR_UP }}>{pulse.breadth?.rising}</b> / 下跌 <b style={{ color: COLOR_DOWN }}>{pulse.breadth?.falling}</b>（占比 {pulse.breadth?.risingRatio}%）</div>
+                    <div>涨停 <b style={{ color: '#f59e0b' }}>{pulse.limitUp}</b> 只</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 6 }}>资金主线行业</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {pulse.themes?.map((t: any) => (
+                    <div key={t.industry} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ width: 72, fontSize: 12, color: TEXT }}>{t.industry}</span>
+                      <Progress percent={Math.min(100, t.score)} size="small" showInfo={false}
+                        strokeColor="#667eea" style={{ flex: 1 }} />
+                      <span style={{ width: 96, textAlign: 'right', fontSize: 12, fontFamily: 'monospace',
+                        color: t.avgChangePercent >= 0 ? COLOR_UP : COLOR_DOWN }}>
+                        {t.avgChangePercent >= 0 ? '+' : ''}{t.avgChangePercent?.toFixed(2)}%
+                      </span>
+                    </div>
+                  ))}
+                  {(!pulse.themes || pulse.themes.length === 0) && (
+                    <div style={{ fontSize: 12, color: TEXT_SEC }}>暂无清晰主线</div>
+                  )}
+                </div>
+              </div>
+
+              {/* 右：风险信号 + AI 观点 + 候选标的 */}
+              <div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                  {pulse.risks?.map((r: any, i: number) => (
+                    <Tag key={i} color={r.level === 'high' ? 'red' : r.level === 'medium' ? 'orange' : 'default'}
+                      style={{ fontSize: 11 }}>
+                      {r.label}
+                    </Tag>
+                  ))}
+                </div>
+                <Paragraph style={{ color: TEXT, fontSize: 13, whiteSpace: 'pre-wrap', marginBottom: 12,
+                  background: 'rgba(255,255,255,0.03)', padding: '10px 12px', borderRadius: 8 }}>
+                  {pulse.narrative}
+                </Paragraph>
+                <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 6 }}>主线领涨候选（点击查看个股）</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {pulse.candidates?.map((c: any) => (
+                    <Tooltip key={c.symbol} title={`${c.industry} · 换手 ${c.turnoverRate?.toFixed(2)}%${c.peRatio != null ? ` · PE ${c.peRatio.toFixed(1)}` : ''}`}>
+                      <Tag
+                        style={{ cursor: 'pointer', fontSize: 12, padding: '2px 8px' }}
+                        color="geekblue"
+                        onClick={() => navigate(`/stocks/${c.symbol}`)}
+                      >
+                        {c.name} <span style={{ fontFamily: 'monospace', opacity: 0.8 }}>{c.changePercent >= 0 ? '+' : ''}{c.changePercent.toFixed(2)}%</span>
+                      </Tag>
+                    </Tooltip>
+                  ))}
+                  {(!pulse.candidates || pulse.candidates.length === 0) && (
+                    <span style={{ fontSize: 12, color: TEXT_SEC }}>暂无候选标的</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : !pulseLoading ? (
+            <div style={{ color: TEXT_SEC, fontSize: 13 }}>行情诊脉暂不可用，请稍后重试</div>
+          ) : null}
         </div>
 
         {/* News */}

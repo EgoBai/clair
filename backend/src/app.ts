@@ -49,6 +49,7 @@ import hkConnectRouter from './api/hkConnect';
 import macroRouter from './api/macro';
 import northBoundRouter from './api/northBound';
 import eventCalendarRouter from './api/eventCalendar';
+import riskCenterRouter from './api/risk-center';
 import apiDocsRouter from './api/api-docs';
 import breadthRouter from './api/breadth';
 import marketRouter from './api/market';
@@ -62,6 +63,7 @@ import aiGemsRouter from './api/ai-gems';
 import industryChainRouter from './api/industryChain';
 import industryAlertsRouter from './api/industry-alerts';
 import aiInvestmentNoteRouter from './api/ai-investment-note';
+import aiMarketPulseRouter from './api/ai-market-pulse';
 import factorRouter from './api/factors';
 import futureValueRouter from './routes/futureValue';
 import { wsService } from './websocket/server';
@@ -146,6 +148,7 @@ app.use('/api/hk-connect', hkConnectRouter);
 app.use('/api/macro', macroRouter);
 app.use('/api/north-bound', northBoundRouter);
 app.use('/api', eventCalendarRouter);
+app.use('/api', riskCenterRouter);
 // 注意：breadthRouter 内部路由定义为 /current /sectors /history /mcclellan /cache-stats
 // （不含 /breadth 前缀）。此前错误地挂在 '/api' 下，导致实际可用路径变成
 // /api/current、/api/sectors，而前端 breadthService 与文档约定调用的是
@@ -161,6 +164,7 @@ app.use('/api', aiGemsRouter);
 app.use('/api/industry-chains', industryChainRouter);
 app.use('/api', industryAlertsRouter);
 app.use('/api', aiInvestmentNoteRouter);
+app.use('/api/ai', aiMarketPulseRouter);
 app.use('/api', futureValueRouter);
 
 // ==================== API 文档 ====================
