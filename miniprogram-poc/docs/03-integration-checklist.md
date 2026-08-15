@@ -60,3 +60,41 @@
 - [ ] **G4 Taro 编译**：`npm run build:weapp` 无报错，产出 `dist/` 可被开发者工具预览。
 
 > 验收口径：A1–A6、B1–B6、F1–F5 全部勾选，且 C3 产出真实复用率、D1 主包 < 2MB，即判定「3 个技术未知」已被消灭。
+
+---
+
+## H. 后端契约独立复核（2026-08-14，team-lead 复核）
+
+> 结论：**阶段 0 全部端点后端真实存在、路径/方法/契约与 `02-api-contract.md` 一致，无需后端改造**。下列证据来自 `backend/src` 真实源码 Grep，非编造。
+
+| # | 端点 | 后端真实位置 | 复核 |
+|---|---|---|---|
+| H1 | `GET /api/market/realtime` | `api/market.ts:18`（`router.get('/realtime')`，挂 `/api/market`） | ✅ 一致 |
+| H2 | `GET /api/market/kline` | `api/market.ts:38`（`router.get('/kline')`，queryCache TTL 10min） | ✅ 一致 |
+| H3 | `POST /api/ai/chat`（SSE） | `api/ai-chat.ts:25`（`router.post('/ai/chat')`，`text/event-stream` 流式，`stream` 默认 true） | ✅ 一致 |
+| H4 | `GET /api/notifications/user/:userId/unread-count` | `api/notifications.ts:176` | ✅ 一致 |
+| H5 | `POST /api/user/login` | `api/user.ts:263`（返回 accessToken/refreshToken/expiresIn:900） | ✅ 一致 |
+| H6 | `POST /api/auth/refresh` / `POST /api/auth/logout` | `app.ts:173` / `app.ts:174` | ✅ 一致 |
+| H7 | `GET /api/financials/factor-series`（swarm-4 新增） | `api/financials.ts:102` | ✅ 一致（阶段 1 可用） |
+
+**前端 Demo 侧调用一致性（Grep `miniprogram-poc/demo/src`）**：
+- `services/api.ts` → `/api/market/realtime` `:36`、 `/api/market/kline` `:56`、 `/api/notifications/user/:userId/unread-count` `:70`、 `/api/user/login` `:98` —— 与 H1/H2/H4/H5 一一对应。
+- `services/sse.ts` → `Taro.request({ enableChunked:true })` 至 `/api/ai/chat` + `onChunkReceived` 累积解析 `:62–73` —— 与 H3 一致，后端零改造。
+- `services/request.ts` → 401 静默刷新 `/api/auth/refresh` 重放 `:42–53` —— 与 H6 一致。
+
+**诚实结论**：沙箱无法运行微信开发者工具/模拟器，A1–A6、B1–B6、F1–F5、C1–C4、D1–D4 的真机勾选须用户本地执行（见 §I）。后端契约层面已无阻塞。
+
+---
+
+## I. 联调启动步骤（用户本地执行，沙箱无法代跑）
+
+完成下列前置后，按 §A–§F 真机逐项勾选：
+
+1. **I1 装依赖**：`cd miniprogram-poc/demo && npm install`（需真实网络；沙箱 npm 外网受限，已中断未同步，务必本地完整安装）。
+2. **I2 起后端**：`cd backend && npm run dev`，确认 `http://<本机LAN_IP>:3001` 在局域网内可达（手机与电脑同网）。
+3. **I3 改 BASE_URL**：`miniprogram-poc/demo/src/services/request.ts:10` 默认 `http://127.0.0.1:3001`；**真机调试须改为电脑局域网 IP**（如 `http://192.168.x.x:3001`），开发者工具勾选「不校验合法域名」（联调清单 E2）。
+4. **I4 编译预览**：微信开发者工具导入 `miniprogram-poc/demo`，`npm run build:weapp` 产出 `dist/`，预览/真机扫码。
+5. **I5 走查**：依次勾选 §A（SSE 分块）、§B（鉴权）、§F（页面）、§C（复用率）、§D（体积）。
+6. **I6 诚实红线**：源不可达时页面须展示「数据源暂不可达」空态（F2），**绝不回填演示数据**。
+
+> 备注：`miniprogram-poc/demo/package.json` 已声明 Taro 4 + NutUI + echarts + Zustand（2026-08-14 状态）；`package-lock` 未随 swarm-4 提交同步，I1 会由 npm 重新解析。
