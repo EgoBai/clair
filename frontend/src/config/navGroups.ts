@@ -66,11 +66,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '市场总览',
     items: [
       { id: 'home', label: '市场洞察', path: ROUTE_PATHS.HOME, icon: DashboardOutlined },
-      { id: 'macro', label: '宏观仪表盘', path: ROUTE_PATHS.MACRO, icon: GlobalOutlined },
       { id: 'industry-map', label: '产业地图', path: ROUTE_PATHS.INDUSTRY_MAP, icon: NodeIndexOutlined },
       { id: 'radar', label: '潜力雷达', path: ROUTE_PATHS.RADAR, icon: RadarChartOutlined },
-      { id: 'fund-flow', label: '资金流向', path: ROUTE_PATHS.FUND_FLOW, icon: FundOutlined },
-      { id: 'event-calendar', label: '事件日历', path: ROUTE_PATHS.EVENT_CALENDAR, icon: CalendarOutlined },
     ],
   },
   {
@@ -91,13 +88,21 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: 'capital',
-    label: '资金面',
+    id: 'macro-capital',
+    label: '宏观资金',
+    // #1 聚合（做减法）：原散落在「市场总览 / 资金面 / 组合与风控」3 个分组里的
+    // 宏观与资金面辅助模块统一收束到本组，并以「宏观资金全景」作为一键聚合入口，
+    // 降低侧栏认知负担、避免与核心循环争抢注意力；各详情页仍可达，便于下钻。
     items: [
+      { id: 'macro-hub', label: '宏观资金全景', path: ROUTE_PATHS.MACRO_HUB, icon: DashboardOutlined },
+      { id: 'macro', label: '宏观仪表盘', path: ROUTE_PATHS.MACRO, icon: GlobalOutlined },
+      { id: 'fund-flow', label: '资金流向', path: ROUTE_PATHS.FUND_FLOW, icon: FundOutlined },
       { id: 'north-bound', label: '北向资金', path: ROUTE_PATHS.NORTH_BOUND, icon: ArrowLeftOutlined },
       { id: 'margin-trading', label: '融资融券', path: ROUTE_PATHS.MARGIN_TRADING, icon: BankOutlined },
-      { id: 'hk-connect', label: '港股通', path: ROUTE_PATHS.HK_CONNECT, icon: LinkOutlined },
       { id: 'etf', label: 'ETF中心', path: ROUTE_PATHS.ETF, icon: PieChartOutlined },
+      { id: 'event-calendar', label: '事件日历', path: ROUTE_PATHS.EVENT_CALENDAR, icon: CalendarOutlined },
+      { id: 'hk-connect', label: '港股通', path: ROUTE_PATHS.HK_CONNECT, icon: LinkOutlined },
+      { id: 'risk-center', label: '组合风控', path: ROUTE_PATHS.RISK_CENTER, icon: SafetyCertificateOutlined },
     ],
   },
   {
@@ -106,7 +111,6 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'watchlist', label: '自选组合', path: ROUTE_PATHS.WATCHLIST, icon: StarOutlined },
       { id: 'portfolio', label: '投资组合', path: ROUTE_PATHS.PORTFOLIO, icon: WalletOutlined },
-      { id: 'risk-center', label: '组合风控', path: ROUTE_PATHS.RISK_CENTER, icon: SafetyCertificateOutlined },
     ],
   },
   {
