@@ -1,14 +1,21 @@
 /**
- * 研报 AI 摘要中心页（Ticket S3-4）
+ * 研报 AI 摘要中心页（Ticket S3-4，T5 真实化升级）
  * 接入已有引擎：researchReportEngine（trackRatingChanges / analyzeConsensus /
  *   analyzeReportSentiment / findMostDivided）与 newsEventEngine（runNewsAnalysis /
  *   analyzeSentiment / analyzeNewsHeat）。
- * 后端 API 缺失（技术债 T6）：数据用确定性演示数据兜底（reportDemoData，种子 20260725）。
- * 所有结论均从引擎输出动态生成，不写死文案。
+ *
+ * T5 真实化（2026-08-12）：原 `getReportDemoData()` 已于前序轮次改为诚实空返回，
+ * 本页现直接消费后端真实接口（东方财富 7×24 快讯 / 个股公告 / 研报列表）：
+ *   - GET /api/news/research/reports  → 真实研报
+ *   - GET /api/news                    → 真实全市场快讯
+ * 后端不可达时返回 dataSource:'unavailable'，本页如实展示空态，绝不回填伪造数据。
+ * 诚实红线：东方财富研报源不提供「目标价 / 现价」，故一致目标价上行空间不可计算，
+ * 相关列守显示为「—」，不编造数字。
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Select, Space, Tooltip, Empty,
+  Spin,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -18,10 +25,9 @@ import {
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts-for-react';
 import echarts from '../utils/echarts';
-import { getReportDemoData } from '../utils/reportDemoData';
 import {
   trackRatingChanges, analyzeConsensus, analyzeReportSentiment, findMostDivided,
-  type ConsensusAnalysis, type RatingChange,
+  type ConsensusAnalysis, type RatingChange, type ResearchReport,
 } from '../utils/researchReportEngine';
 import {
   runNewsAnalysis, analyzeSentiment,
@@ -31,6 +37,62 @@ import { getColorByChange } from '../utils/formatters';
 
 const { Title, Text } = Typography;
 const ACCENT = '#3B82F6';
+
+// ── 后端响应结构（与 backend newsDataService 对齐，避免跨端类型耦合）──
+interface BackendReport {
+  id: string; title: string; stockName: string; stockCode: string;
+  orgName: string; publishDate: string; rating: string;
+  predictThisYearEps?: number; predictThisYearPe?: number;
+  predictNextYearEps?: number; predictNextYearPe?: number;
+  industryName?: string; url?: string;
+}
+interface BackendNewsItem {
+  id: string; title: string; summary: string; source: string; url: string;
+  publishTime: string; category?: string; sentiment?: string;
+  sentimentScore?: number; relatedSymbols?: string[]; tags?: string[]; viewCount?: number;
+}
+
+/** 后端中文评级 → 引擎枚举（诚实映射，未知归入 none）*/
+function mapRating(rating: string): ResearchReport['rating'] {
+  switch (rating) {
+    case '买入': return 'buy';
+    case '增持': return 'overweight';
+    case '中性': return 'hold';
+    case '减持': return 'underweight';
+    case '卖出': return 'sell';
+    default: return 'none';
+  }
+}
+
+/** 后端研报 → 引擎可消费结构。目标价/现价真实源未提供 → 置 0，UI 守显示「—」。*/
+function mapReport(r: BackendReport): ResearchReport {
+  return {
+    id: r.id,
+    ticker: r.stockCode,
+    broker: r.orgName,
+    analyst: '',
+    date: r.publishDate,
+    type: 'update',
+    rating: mapRating(r.rating),
+    targetPrice: 0,
+    currentPrice: 0,
+    title: r.title,
+    summary: r.title,
+    keyPoints: [],
+  };
+}
+
+/** 后端新闻 → 引擎 NewsEvent。省略 category（前端分类体系不同），交由 classifyNews 推导。*/
+function mapNews(n: BackendNewsItem): NewsEvent {
+  return {
+    id: n.id,
+    title: n.title,
+    content: n.summary,
+    publishTime: n.publishTime,
+    source: n.source,
+    relatedStocks: n.relatedSymbols ?? [],
+  };
+}
 
 // ── 评级 / 共识 / 趋势 的中文标签与配色 ──
 const RATING_LABEL: Record<string, string> = {
@@ -62,13 +124,53 @@ const SENTI_LABEL: Record<string, string> = {
   very_positive: '强烈正面', positive: '正面', neutral: '中性', negative: '负面', very_negative: '强烈负面',
 };
 
+type DataSource = 'idle' | 'real' | 'unavailable' | 'empty';
+
 function ReportCenterPage() {
-  // ── 演示数据（确定性，可复现）──
-  const { reports, news, currentPrices, stockNameMap } = useMemo(() => getReportDemoData(), []);
+  // ── 真实数据（来自后端东方财富接口）──
+  const [reports, setReports] = useState<ResearchReport[]>([]);
+  const [news, setNews] = useState<NewsEvent[]>([]);
+  const [stockNameMap, setStockNameMap] = useState<Record<string, string>>({});
+  const [dataSource, setDataSource] = useState<DataSource>('idle');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    Promise.all([
+      fetch('/api/news/research/reports?limit=50').then((r) => r.json()).catch(() => null),
+      fetch('/api/news?pageSize=50').then((r) => r.json()).catch(() => null),
+    ]).then(([repJson, newsJson]) => {
+      if (!alive) return;
+      const repData = repJson?.data;
+      const newsData = newsJson?.data;
+      const repItems: BackendReport[] = Array.isArray(repData?.items) ? repData.items : [];
+      const newsItems: BackendNewsItem[] = Array.isArray(newsData?.items) ? newsData.items : [];
+
+      const mappedReports = repItems.map(mapReport);
+      const mappedNews = newsItems.map(mapNews);
+      const nameMap: Record<string, string> = {};
+      repItems.forEach((r) => { if (r.stockCode) nameMap[r.stockCode] = r.stockName; });
+
+      setReports(mappedReports);
+      setNews(mappedNews);
+      setStockNameMap(nameMap);
+
+      const repUnavailable = repData?.dataSource === 'unavailable' || repJson == null;
+      const newsUnavailable = newsData?.dataSource === 'unavailable' || newsJson == null;
+
+      let ds: DataSource = 'empty';
+      if (mappedReports.length > 0 || mappedNews.length > 0) ds = 'real';
+      else if (repUnavailable && newsUnavailable) ds = 'unavailable';
+      setDataSource(ds);
+      setLoading(false);
+    });
+    return () => { alive = false; };
+  }, []);
 
   // ── 按股票聚合研报 ──
   const reportsByTicker = useMemo(() => {
-    const m = new Map<string, typeof reports>();
+    const m = new Map<string, ResearchReport[]>();
     reports.forEach((r) => {
       const arr = m.get(r.ticker) ?? [];
       arr.push(r);
@@ -97,7 +199,7 @@ function ReportCenterPage() {
   const ratingChanges = useMemo<RatingChange[]>(() => trackRatingChanges(reports), [reports]);
 
   // ── 新闻综合分析 ──
-  const newsAnalysis = useMemo(() => runNewsAnalysis(news, currentPrices), [news, currentPrices]);
+  const newsAnalysis = useMemo(() => runNewsAnalysis(news, {}), [news]);
   const sentimentDist = useMemo(() => {
     const dist = { positive: 0, neutral: 0, negative: 0 };
     news.forEach((n) => {
@@ -117,12 +219,17 @@ function ReportCenterPage() {
     const buy = rated.filter((r) => r.rating === 'buy' || r.rating === 'overweight').length;
     return rated.length ? buy / rated.length : 0;
   }, [reports]);
-  const topUpside = consensusList[0];
+  // 目标价真实源未提供（targetPrice=0）→ 取首个有真实目标价的共识，否则 null（显示「—」）
+  const topUpside = useMemo(
+    () => consensusList.find((c) => c.avgTargetPrice > 0) ?? null,
+    [consensusList],
+  );
 
   // ── 选中股票（默认第一只）──
-  const [selectedTicker, setSelectedTicker] = useState<string>(() => consensusList[0]?.ticker ?? '');
-  const selectedReports = reportsByTicker.get(selectedTicker) ?? [];
-  const selectedConsensus = consensusList.find((c) => c.ticker === selectedTicker);
+  const [selectedTicker, setSelectedTicker] = useState<string>('');
+  const activeTicker = selectedTicker || consensusList[0]?.ticker || '';
+  const selectedReports = reportsByTicker.get(activeTicker) ?? [];
+  const selectedConsensus = consensusList.find((c) => c.ticker === activeTicker);
 
   // ── AI 研报摘要：逐报告 analyzeReportSentiment 后聚合 ──
   const sentimentAgg = useMemo(() => {
@@ -140,6 +247,13 @@ function ReportCenterPage() {
   }, [selectedReports]);
 
   const sign = (x: number) => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%';
+  // 目标价真实源未提供时守显示「—」，不编造上行空间
+  const renderUpside = (c: ConsensusAnalysis) =>
+    c.avgTargetPrice > 0
+      ? <Text style={{ color: getColorByChange(c.avgUpside), fontFamily: 'var(--font-mono)' }}>{sign(c.avgUpside)}</Text>
+      : <Text type="secondary">—</Text>;
+  const renderTarget = (v: number) =>
+    v > 0 ? <Text style={{ fontFamily: 'var(--font-mono)' }}>{v.toFixed(2)}</Text> : <Text type="secondary">—</Text>;
 
   // ── 图表：选中股票综合情绪分仪表 ──
   const gaugeOption: EChartsOption = {
@@ -211,11 +325,11 @@ function ReportCenterPage() {
     },
     {
       title: '一致目标价', dataIndex: 'avgTargetPrice', key: 'avgTargetPrice', width: 120, align: 'right',
-      render: (v: number) => <Text style={{ fontFamily: 'var(--font-mono)' }}>{v.toFixed(2)}</Text>,
+      render: (v: number) => renderTarget(v),
     },
     {
       title: '上行空间', dataIndex: 'avgUpside', key: 'avgUpside', width: 110, align: 'right',
-      render: (v: number) => <Text style={{ color: getColorByChange(v), fontFamily: 'var(--font-mono)' }}>{sign(v)}</Text>,
+      render: (_: unknown, r) => renderUpside(r),
     },
     {
       title: '分歧度', dataIndex: 'consensusStrength', key: 'consensusStrength', width: 120,
@@ -259,7 +373,7 @@ function ReportCenterPage() {
     },
     {
       title: '目标价', dataIndex: 'targetPrice', key: 'targetPrice', width: 100, align: 'right',
-      render: (v: number) => <Text style={{ fontFamily: 'var(--font-mono)' }}>{v.toFixed(2)}</Text>,
+      render: (v: number) => renderTarget(v),
     },
     {
       title: '上行空间', dataIndex: 'upside', key: 'upside', width: 100, align: 'right',
@@ -267,8 +381,23 @@ function ReportCenterPage() {
     },
   ];
 
-  // 后端研报/新闻接口未接入时如实展示空态，不做伪造数据兜底
-  if (reports.length === 0) {
+  // ── 空态 / 加载态 ──
+  if (loading && dataSource === 'idle') {
+    return (
+      <div style={{ padding: 24 }}>
+        <Title level={3}>
+          <FileTextOutlined style={{ marginRight: 8, color: ACCENT }} />
+          研报 AI 摘要中心
+        </Title>
+        <Card style={{ marginTop: 16 }}><Spin tip="正在加载真实研报与新闻数据…"><div style={{ height: 120 }} /></Spin></Card>
+      </div>
+    );
+  }
+
+  if (reports.length === 0 && news.length === 0) {
+    const emptyText = dataSource === 'unavailable'
+      ? '真实新闻/研报源（东方财富）暂不可用（网络受限或后端未接入），稍后重试。'
+      : '暂无研报与新闻数据（真实源返回为空）。';
     return (
       <div style={{ padding: 24 }}>
         <Title level={3}>
@@ -276,7 +405,7 @@ function ReportCenterPage() {
           研报 AI 摘要中心
         </Title>
         <Card style={{ marginTop: 16 }}>
-          <Empty description="研报与新闻数据由后端实时接口提供，当前后端未接入，暂无可展示数据">
+          <Empty description={emptyText}>
             <Text type="secondary">分析引擎已就绪，接口接入后将自动呈现机构共识、评级变动与新闻情绪。</Text>
           </Empty>
         </Card>
@@ -292,9 +421,13 @@ function ReportCenterPage() {
       </Title>
 
       <Alert
-        type="info"
+        type={dataSource === 'real' ? 'success' : 'info'}
         showIcon
-        message="研报与新闻数据由后端实时接口提供，当前后端未接入，暂无可展示数据；分析引擎已就绪，接入后自动呈现"
+        message={
+          dataSource === 'real'
+            ? `数据由东方财富实时接口提供（真实源）：${totalReports} 份研报 / ${news.length} 条快讯`
+            : '正在加载真实数据…'
+        }
         style={{ marginBottom: 16 }}
       />
 
@@ -321,13 +454,13 @@ function ReportCenterPage() {
           <Card>
             <div style={{ marginBottom: 4 }}><Text type="secondary">一致目标价上行空间最大</Text></div>
             {topUpside ? (
-              <Tooltip title={`一致目标价 ${topUpside.avgTargetPrice.toFixed(2)} · 现价 ${topUpside.currentPrice.toFixed(2)}`}>
+              <Tooltip title={`一致目标价 ${topUpside.avgTargetPrice.toFixed(2)}`}>
                 <div>
                   <Text strong style={{ fontSize: 16 }}>{stockNameMap[topUpside.ticker]}</Text>
                   <Text style={{ color: '#ef4444', marginLeft: 8, fontWeight: 600 }}>{sign(topUpside.avgUpside)}</Text>
                 </div>
               </Tooltip>
-            ) : <Text type="secondary">—</Text>}
+            ) : <Text type="secondary">—（真实源未提供目标价）</Text>}
           </Card>
         </Col>
       </Row>
@@ -348,7 +481,7 @@ function ReportCenterPage() {
           scroll={{ x: 860 }}
         />
         <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-          边框高亮为分歧最大个股（findMostDivided 输出）；上行空间 =（一致目标价 − 现价）/ 现价。
+          边框高亮为分歧最大个股（findMostDivided 输出）；上行空间 =（一致目标价 − 现价）/ 现价。东方财富研报源不提供目标价/现价，上行空间列守显示「—」。
         </Text>
       </Card>
 
@@ -377,7 +510,7 @@ function ReportCenterPage() {
         style={{ marginBottom: 16 }}
         extra={
           <Select
-            value={selectedTicker}
+            value={activeTicker}
             onChange={setSelectedTicker}
             style={{ width: 180 }}
             options={consensusList.map((c) => ({ value: c.ticker, label: `${stockNameMap[c.ticker] ?? c.ticker} ${c.ticker}` }))}
@@ -395,10 +528,10 @@ function ReportCenterPage() {
                   <Statistic title="综合情绪分" value={sentimentAgg.avg.toFixed(2)} valueStyle={{ color: getColorByChange(sentimentAgg.avg) }} />
                 </Col>
                 <Col span={8}>
-                  <Statistic title="一致目标价" value={selectedConsensus.avgTargetPrice.toFixed(2)} />
+                  <Statistic title="一致目标价" value={selectedConsensus.avgTargetPrice > 0 ? selectedConsensus.avgTargetPrice.toFixed(2) : '—'} />
                 </Col>
                 <Col span={8}>
-                  <Statistic title="上行空间" value={sign(selectedConsensus.avgUpside)} valueStyle={{ color: getColorByChange(selectedConsensus.avgUpside) }} />
+                  <Statistic title="上行空间" value={selectedConsensus.avgTargetPrice > 0 ? sign(selectedConsensus.avgUpside) : '—'} valueStyle={{ color: getColorByChange(selectedConsensus.avgUpside) }} />
                 </Col>
               </Row>
               <Space direction="vertical" size={8} style={{ width: '100%' }}>

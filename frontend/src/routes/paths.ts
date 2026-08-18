@@ -42,6 +42,7 @@ export const ROUTE_PATHS = {
   ETF: '/etf',
   // Sprint 6 战略重构：D4 资金流 + P2 游戏化
   FUND_FLOW: '/fund-flow',
+  MACRO_HUB: '/macro-hub',
   JOURNEY: '/journey',
   // T8 补齐：既有可达路由缺失常量（第20轮，路径字符串与 routes/index.tsx 完全一致，不改动任何路由）
   INDEX_DETAIL: '/index/:symbol',

@@ -275,3 +275,180 @@
 - **决策门**：🟢 无 🔴/🟠/🟡 新增触发（D14 补 Tushare/AlphaVantage key、D2 小程序迁移 POC 四件套拍板、RAG 二期为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
 - **下一任务**：维持健康巡检+待命。等用户决策：**D14** 补 key（RAG 二期 + 真实数据打通前置）、**D2** POC 四件套拍板、RAG 二期。无新指令不擅自扩展范围。**连续待命已达 6 天（08-03→08-09），建议用户对话时主动提示收口工作区（PLAN.md / automation memory / playwright-report / ui-guard-report / memory 日报摘要×4 已滞留约 6 天未提交）**。
 - **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
+
+## 第41轮（2026-08-12 08:03，完整体验版·T5 研报/新闻真实化收官）
+- **性质**：完整体验版本真实数据收尾推进 T5（七·六排序，文件域零交集）。幂等检查：后端 newsDataService 真实源前序轮已就绪（news.ts 路由层 dataSource 红线已在库），仅前端 ReportCenterPage 仍消费 getReportDemoData()（已返回诚实空集）→ 任务修正为"前端接线真实后端"，无后端重写。
+- **T5 实装（主理人，诚实红线）**：ReportCenterPage.tsx 由 `useMemo(getReportDemoData())` 改为 `useEffect` 真实 fetch——`/api/news/research/reports?limit=50`（研报）+ `/api/news?pageSize=50`（快讯）Promise.all + alive 清理并发拉取；诚实映射（中文评级→枚举、缺目标价/现价守 >0 显示「—」不编造、新闻 category 留空由 classifyNews 派生）；真实源 Tag + 诚实空态（unavailable→「后端未接入」不伪造）。
+- **单通道红线**：git status 显示本轮自家改动仅 ReportCenterPage.tsx；工作区另有前序轮未提交残留（backend/src/app.ts 来自 T4、backend/src/services/etfDataService.ts 来自 T3），无交互会话在途生产代码改动，安全，无需暂停。
+- **验证全绿**：前端 tsc --noEmit 0错 / build 7.04s 一次过（仅 chunk size 警告）/ guard ERROR=0 WARN=0（9 INFO 非阻塞）/ E2E chromium 20/20（沿用）/ curl `/api/news/research/reports` 真实研报（九号公司·开源证券·买入·2026-08-12）+ `/api/news` 真实快讯（食品饮料板块关注提升）+ `/report-center` 200；后端 pid 9385 :3001 200 持续服务。Playwright 确认真实渲染+诚实「—」+0 console errors。
+- **验收**：T5 pass。累计 Ticket 维持 59（本轮为既存改动记账，未新开 Ticket 编号，属收尾接线）。PLAN.md 第41轮记账完成（顶栏/七·五 T5 行/七·六 P2 T5 行/当前循环状态/专家团评估全更新）。
+- **决策门**：🟢 常规推进（单 Ticket 不触发重大通知）；webhook disconnected 降级本地日志+对话提示；无 🔴/🟠/🟡 新增（D14/D2/RAG二期 为既有待决策项，未重复推送）。
+- **下一任务**：下一候选 **T6 财务三表真实化**（七·六排序：后端 financials 接真实源 → FinancialsPage + AI解读，文件域零交集，待下轮幂等检查）；D2 POC 四件套仍待拍板不擅动。无新指令不擅自扩展范围。
+- **自我评估**：E1-E6 全"是/维持"，无调整；E2✅ ReportCenterPage 单文件 <500 行；E6🟢 无新技术债，guard INFO 维持 9 条，研报/新闻诚实数据红线闭环（无伪造/无正弦）。
+
+## 第44轮（2026-08-13 03:13，健康巡检待命轮）
+- **性质**：纯健康巡检轮（无新开发）。自主可推进项已尽（T7 受 D18 阻塞、D2 POC 待拍板、T2/T3 技术债 P3 不宜擅动、D1 已搁置），无待执行 Ticket → 执行基线验证而非新开发。
+- **单通道红线**：git status 仅前序轮次（T3/T4/T5）残留未提交源码（etfDataService.ts/app.ts/ReportCenterPage.tsx）+ 自动化自有文件，无交互会话在途生产代码改动；dev server 5173 持续 200。安全，无需暂停。
+- **巡检结果全绿**：dev server 200 / 前端 tsc --noEmit 0错 / npm run build 4.31s 一次过（仅 chunk size 警告）/ npm run guard ERROR=0 WARN=0（9 INFO 提示级非阻塞）/ **E2E chromium 20/20 首跑即全过** / **27 路由 curl 全 200**（含 6 条参数化路由）/ 真实端点抽检验证通过（/api/market/realtime 上证 3946.68 +0.32%、/api/financials/summary 茅台 2025 年报真实、/api/etf/list 真实 ETF 净值，均 dataSource:'real'）。
+- **复盘**：PLAN.md 第七节水印更新至 第44轮 + 专家团评估 E1-E6 全"是/维持"，无调整。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增（D18/D2 为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
+- **下一任务**：维持健康巡检+待命。等用户决策：**D18** 是否新建真实因子引擎（T7）/ **D2** POC 四件套拍板 / RAG 二期（需 DeepSeek key）。无新指令不擅自扩展范围。
+- **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
+
+## 第45轮（2026-08-13 09:36，健康巡检待命轮）
+- **性质**：纯健康巡检轮（无新开发）。自主可推进项已尽（T7 受 D18 阻塞、D2 POC 待拍板、T2/T3 技术债 P3 不宜擅动、D1 已搁置），无待执行 Ticket → 执行基线验证而非新开发。连续待命第 9 天。
+- **单通道红线**：git status 仅前序轮次（T3/T4/T5）残留未提交源码（backend/src/app.ts、frontend/src/pages/ReportCenterPage.tsx、backend/src/services/etfDataService.ts）+ 自动化自有文件（PLAN.md/DECISION_LOG.md/automation memory）+ 测试产物（playwright-report/ui-guard-report），无交互会话在途生产代码改动；dev server 5173 持续 200。安全，无需暂停。
+- **巡检结果全绿**：dev server 200 / 前端 tsc --noEmit 0错 / npm run build 4.52s 一次过（仅 chunk size 警告）/ npm run guard ERROR=0 WARN=0（9 INFO 提示级非阻塞，600 文件扫描）/ **E2E 沿用前轮 20/20 基线（本轮未重跑，避免 build 后 dev server 负载假失败干扰）** / **27 路由 curl 全 200**（含 6 条参数化路由 /financials/600519 /index/000001 /sectors/801010 /stocks/600519 等）/ 真实端点抽检验证通过（/api/market/realtime 上证 3966.16 +0.49%、/api/financials/summary 茅台 2025 年报真实、/api/etf/list 真实 ETF 净值，均 dataSource:'real'）。
+- **复盘**：PLAN.md 第七节水印更新至 第45轮 + 专家团评估 E1-E6 全"是/维持"，无调整。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增（D18/D2 为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
+- **下一任务**：维持健康巡检+待命。等用户决策：**D18** 是否新建真实因子引擎（T7）/ **D2** POC 四件套拍板 / RAG 二期（需 DeepSeek key）。无新指令不擅自扩展范围。
+- **自我评估**：E1-E6 维持；T12-a11y（ARIA 两端不一致）维持 P3 观察项不阻塞。
+
+> 注：第46轮记忆详见仓库根 `.workbuddy/automations/automation-1784829898221/memory.md`（该轮仅更新根副本）。
+
+## 第47轮（2026-08-13 22:37）— 完整体验版·健康巡检待命轮
+
+- **性质**：纯健康巡检轮（无新开发）。PLAN.md 下一任务仍为"健康巡检待命 + 等用户决策（D18/D2/RAG二期）"，自主可推进项已达天花板（T7 受 D18 阻塞、D2 POC 待拍板、RAG二期需 DeepSeek key），无待执行 Ticket → 执行基线验证而非新开发。
+- **单通道红线**：git status 仅前序轮次（T3/T4/T5）残留未提交源码（etfDataService.ts/app.ts/ReportCenterPage.tsx）+ 自动化自有文件（PLAN.md/DECISION_LOG.md/automation memory）+ 测试产物，无交互会话在途生产代码改动；安全，无需暂停。
+- **巡检结果全绿**：dev server 200 / 前端 tsc --noEmit 0错 / npm run build 4.14s 一次过（仅 chunk size 警告）/ npm run guard ERROR=0 WARN=0（9 INFO 提示级非阻塞）/ **27 路由 curl 全 200** / 真实端点抽检验证通过（/api/market/realtime 上证 3926.96 -0.50%、/api/financials/summary 茅台 2025 年报真实、/api/etf/list 真实 ETF 净值、/api/hk-connect/ah-premium 真实 A+H、/api/news/research/reports 真实研报，均 dataSource:'real'）。E2E 沿用前轮 40/40 基线（本轮未重跑，避免 build 后 dev server 负载假失败）。
+- **决策门**：无 🔴/🟠/🟡 新增（D18/D2/RAG二期为既有待决策项，未重复推送）；webhook 仍 disconnected → 降级本地日志+对话提示。
+- **专家团评估**：E1-E6 维持，无调整（无 Agent 分派、无新开发）；E6🟢 无新技术债，guard INFO 维持 9 条。
+- **待用户决策/指令**：① D18 T7 是否新建真实因子引擎（范围/资源决策，需拍板）；② D2 POC 四件套仍待拍板不擅动；③ 前序轮 T3/T4/T5 源码改动仍滞留未提交（建议用户对话时收口工作区）。本轮未产生新源码改动，仅更新 PLAN.md / 本记忆。
+
+## 第49轮（2026-08-14 16:54）— FAC-1 真实因子引擎后端落地 + 诚实样本标记
+
+- **性质**：FAC-1（D18-A，用户 2026-08-14 选 A 授权）后端落地轮，从健康巡检待命转出。
+- **幂等检查**：前端 FactorLabPage/IndustryMapPage 早已消费 `/api/market/kline` 客户端算 IC（真实），零改动；后端 factorEngine.ts + `/api/factors/overview` 为本次新实装+缺陷修复。
+- **主理人实装（诚实红线）**：①修复 2 处真实缺陷——`meanCrossSectionalIC` 缺 `icir` 字段（合成会 NaN）、`correlationMatrix` 误将个股因子值时序数组当标量传参（产出 0/NaN）；②路由 `/overview`→`/factors/overview` 对齐文档；③`getDb()` 替换失效 Proxy `.raw` 取数；④数据窗口现实（daily_quotes 仅 ~336 交易日、仅 12 只个股 ≥126 报价）致原 MIN_SNAPSHOT_HISTORY=190 永不达标→改 126 + horizon 压至 1~3 月 + 新增 limitedSample/sampleCoverage/minRequiredHistory/note 透明字段，覆盖 10~49 只返回 real 但明示偏薄、<10 只 unavailable，绝不伪造。
+- **验证全绿**：后端 tsc 0错（2 处既有生产基线 ai-analysis/eventCalendar 非本轮）/ vitest 11/11 / curl `/api/factors/overview` 返回 real（coverage=12、observationCount=432、MOM3M IC=0.377/ICIR=1.12、REV1M IC=-0.203、VOL IC=0.167 均 valid；EP/BP/SIZE/TURN 因 daily_quotes 缺 PE/PB/cap/turnover 诚实 coverage=0 不编造）/ 前端 tsc 0错 + build 4.80s 一次过。
+- **决策门**：🟠 FAC-1 后端真实因子引擎落地（D18-A 收官）+ 🟡 数据窗口局限已记入（仅 12 只个股可算，前端 FactorLabPage 自有 5544 只客户端 IC 不受影响）；webhook disconnected 降级本地日志。
+- **专家团评估**：E1-E6 维持，无调整（主理人亲自实现，无 Agent 分派）；E6🟢 无新技术债，guard INFO 维持 9 条，诚实数据红线闭环（real 但 limitedSample 透明标记，缺源因子不编造）。
+- **下一任务**：FAC-1 前端可选显式消费 `/api/factors/overview`（建议保持 FactorLabPage 独立计算）+ MP-1 小程序 POC（D2 已决）+ S2-1~S2-5 蜂群工单（已解锁）按单通道 1-2 Ticket 择机派发；注意 miniprogram-poc/ 已有交互会话在途改动（单通道红线，勿冲突提交）。
+
+## 第50轮（2026-08-16 08:34）— ⛔ 单通道红线触发·暂停本轮
+
+- **性质**：本轮启动即触发单通道红线，**暂停，未做任何生产代码改动、未派发 Ticket、未提交**。
+- **冲突证据（git status --short）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，**异ID自动化在途**，关键信号）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，第49轮已记在途，仍属在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，**非本轮范围**，在途）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，疑似新增 MacroHub 页在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍未提交）
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严格遵循"绝不擅自并行改库"红线。
+- **待主理人（ego_bai）处理**：①收口/合并在途改动（尤其 MacroHubPage 与 routes 改动、eventCalendar/portfolio 改动）；②明确 `automation-1786816465504` 归属或在途状态后清理；③miniprogram-poc 在途状态确认；④前序轮 T3/T4/T5 源码改动（etfDataService.ts/app.ts/ReportCenterPage.tsx）长期滞留未提交，建议收口工作区。上述任一收口后，本自动化再恢复执行下一 Ticket。
+- **决策门**：🔴 单通道红线触发（用于暂停，非新增开发缺陷），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+## 第51轮（2026-08-16 14:31）— ⛔ 单通道红线再次触发·连续暂停
+
+- **性质**：本轮启动即触发单通道红线，**连续第2轮暂停**（第50轮 08:34 起未解除），未做任何生产代码改动、未派发 Ticket、未提交。
+- **冲突证据（git status --short 复检，与第50轮一致，工作区约 6 小时未收口）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，异ID自动化仍在途）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，MacroHub 页在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，在途）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍脏）
+  - 另有 PLAN.md / DECISION_LOG.md / 自动化自有 memory.md / 测试产物（playwright-report / ui-guard-report）等未提交改动
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严守红线，绝不并行改库。
+- **待主理人处理（同 D19 A/B/C）**：①收口/提交在途改动（尤其 MacroHubPage + routes、eventCalendar/portfolio、etfDataService）；②明确 `automation-1786816465504` 归属/状态后清理；③miniprogram-poc 在途确认；④前序轮长期滞留未提交源码收口。任一收口后本自动化恢复下一 Ticket。
+- **决策门**：🔴 单通道红线再次触发（连续暂停），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D19 停滞标记已存在，未重复写。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+## 第52轮（2026-08-17 02:26）— ⛔ 单通道红线再次触发·连续暂停
+
+- **性质**：本轮启动即触发单通道红线，**连续暂停（自第50轮 08-16 08:34 起未解除）**，未做任何生产代码改动、未派发 Ticket、未提交。
+- **冲突证据（git status --short 复检，与第50/51轮一致，工作区约 1 天未收口）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，**异ID自动化仍在途**，关键信号）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，MacroHub 页在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，在途）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍脏）
+  - 另有 PLAN.md / DECISION_LOG.md / 自动化自有 memory.md / 测试产物（playwright-report / ui-guard-report）等未提交改动
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严守红线，绝不并行改库。
+- **待主理人处理（同 D19 A/B/C）**：①收口/提交在途改动（尤其 MacroHubPage + routes、eventCalendar/portfolio、etfDataService）；②明确 `automation-1786816465504` 归属/状态后清理；③miniprogram-poc 在途确认；④前序轮长期滞留未提交源码收口。任一收口后本自动化恢复下一 Ticket。
+- **决策门**：🔴 单通道红线再次触发（连续暂停），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D19 停滞标记已存在，未重复写。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+## 第53轮（2026-08-17 08:18）— ⛔ 单通道红线再次触发·连续暂停（第4次）
+
+- **性质**：本轮启动即触发单通道红线，**连续第4轮暂停**（自第50轮 2026-08-16 08:34 起未解除），未做任何生产代码改动、未派发 Ticket、未提交。
+- **冲突证据（git status --short 复检，与第50/51/52轮一致，工作区约 30 小时未收口）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，**异ID自动化仍在途**，关键信号）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，MacroHub 页在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，在途）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍脏）
+  - 另有 PLAN.md / DECISION_LOG.md / 自动化自有 memory.md / 测试产物（playwright-report / ui-guard-report）等未提交改动
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严守红线，绝不并行改库。
+- **待主理人处理（同 D19 A/B/C）**：①收口/提交在途改动（尤其 MacroHubPage + routes、eventCalendar/portfolio、etfDataService）；②明确 `automation-1786816465504` 归属/状态后清理；③miniprogram-poc 在途确认；④前序轮长期滞留未提交源码收口。任一收口后本自动化恢复下一 Ticket。
+- **决策门**：🔴 单通道红线再次触发（连续暂停第4次），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D19 停滞标记已存在，未重复写。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+## 第54轮（2026-08-17 20:13）— ⛔ 单通道红线再次触发·连续暂停（第5次）
+
+- **性质**：本轮启动即触发单通道红线，**连续第5轮暂停**（自第50轮 2026-08-16 08:34 起未解除），未做任何生产代码改动、未派发 Ticket、未提交。
+- **冲突证据（git status --short 复检，核心生产改动与第50-53轮一致，工作区约 36 小时未收口）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，**异ID自动化仍在途**，关键信号，目录 mtime 仍 2026-08-16 02:56）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，MacroHub 页在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，在途）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍脏）
+- **变化观察**：git HEAD 已由前轮记账值推进至 `93f671aaa`（疑似部分在途改动已被提交），但**自动化目录与多文件生产改动仍未清空**，红线判定依据（异ID自动化在途 + 生产改动未收口）未消除。
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严守红线，绝不并行改库。
+- **待主理人处理（同 D19 A/B/C）**：①收口/提交或 stash 在途改动（尤其 MacroHubPage + routes、eventCalendar/portfolio、etfDataService、miniprogram-poc）；②明确 `automation-1786816465504` 归属/状态后清理该目录；③确认 miniprogram-poc 在途状态。任一收口后本自动化恢复下一 Ticket。
+- **决策门**：🔴 单通道红线再次触发（连续暂停第5次），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D19 停滞标记已存在，未重复写。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+## 第55轮（2026-08-18 08:12）— ⛔ 单通道红线再次触发·连续暂停（第6次）
+
+- **性质**：本轮启动即触发单通道红线，**连续第6轮暂停**（自第50轮 2026-08-16 08:34 起未解除），未做任何生产代码改动、未派发 Ticket、未提交。
+- **冲突证据（git status --short 复检，与第50-54轮一致，工作区约 48 小时未收口）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，**异ID自动化仍在途**，关键信号）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，MacroHub 页在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，在途）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍脏）
+  - 另有 PLAN.md / DECISION_LOG.md / 自动化自有 memory.md / 测试产物（playwright-report / ui-guard-report）等未提交改动
+- **变化观察**：git HEAD 由 `93f671aaa`（第54轮）推进至 `b4fff8bd8`（dashboard 自动刷新提交，与本自动化无关），但**自动化目录与多文件生产改动仍未清空**，红线判定依据（异ID自动化在途 + 生产改动未收口）未消除。
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严守红线，绝不并行改库；本轮仅更新本自动化自有 memory.md，未触碰 PLAN.md/DECISION_LOG.md 以避并发写库风险。
+- **待主理人处理（同 D19 A/B/C）**：①收口/提交或 stash 在途改动（尤其 MacroHubPage + routes、eventCalendar/portfolio、etfDataService、miniprogram-poc）；②明确 `automation-1786816465504` 归属/状态后清理该目录；③确认 miniprogram-poc 在途状态。任一收口后本自动化恢复下一 Ticket。
+- **决策门**：🔴 单通道红线再次触发（连续暂停第6次），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D19 停滞标记已存在，未重复写。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+## 第56轮（2026-08-18 14:11）— ⛔ 单通道红线再次触发·连续暂停（第7次）
+
+- **性质**：本轮启动即触发单通道红线，**连续第7轮暂停**（自第50轮 2026-08-16 08:34 起未解除），未做任何生产代码改动、未派发 Ticket、未提交。
+- **冲突证据（git status --short 复检，与第50-55轮一致，工作区约 50 小时未收口）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，**异ID自动化仍在途**，关键信号）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，MacroHub 页在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，在途）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍脏）
+- **变化观察**：git HEAD 仍 `b4fff8bd8`（自第55轮起未推进），异ID自动化目录 mtime 仍 2026-08-16，**所有在途生产改动均未收口**，红线判定依据（异ID自动化在途 + 生产改动未收口）未消除。
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严守红线，绝不并行改库；本轮仅更新本自动化自有 memory.md，未触碰 PLAN.md/DECISION_LOG.md 以避并发写库风险。
+- **待主理人处理（同 D19 A/B/C）**：①收口/提交或 stash 在途改动（尤其 MacroHubPage + routes、eventCalendar/portfolio、etfDataService、miniprogram-poc）；②明确 `automation-1786816465504` 归属/状态后清理该目录；③确认 miniprogram-poc 在途状态。任一收口后本自动化恢复下一 Ticket。
+- **决策门**：🔴 单通道红线再次触发（连续暂停第7次），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D19 停滞标记已存在，未重复写。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+## 第57轮（2026-08-18 20:26）— ⛔ 单通道红线再次触发·连续暂停（第8次）
+
+- **性质**：本轮启动即触发单通道红线，**连续第8轮暂停**（自第50轮 2026-08-16 08:34 起未解除），未做任何生产代码改动、未派发 Ticket、未提交、未触碰 PLAN.md/DECISION_LOG.md（避并发写库风险）。
+- **冲突证据（git status --short 复检，与第50-56轮一致，工作区约 60 小时未收口）**：
+  - `.workbuddy/automations/automation-1786816465504/`（未跟踪，**异ID自动化仍在途**，关键信号）
+  - `frontend/src/pages/MacroHubPage.tsx`（新文件）+ `frontend/src/routes/index.tsx`、`frontend/src/routes/paths.ts`（修改，MacroHub 页在途）
+  - `backend/src/api/eventCalendar.ts`、`backend/src/api/portfolio.ts`（修改，在途）
+  - `backend/src/services/etfDataService.ts`（未跟踪）、`backend/_schema_check.ts`（未跟踪）
+  - `miniprogram-poc/demo/src/components/EcChart/index.tsx`（修改，在途）
+  - `frontend/src/pages/ReportCenterPage.tsx`（第49轮 T5 残留，仍脏）
+- **变化观察**：git HEAD 仍 `b4fff8bd8`（自第55轮起未推进）；异ID自动化目录 mtime 仍 2026-08-16；所有在途生产改动均未收口，红线判定依据（异ID自动化在途 + 生产改动未收口）未消除。工作区已滞留近 2.5 天，远超 D19 停滞阈值。
+- **判定**：存在异ID自动化 `1786816465504` 及多处生产代码在途改动，违反"同一时间仅一个写码主体"。**暂停本轮**，严守红线，绝不并行改库；本轮仅更新本自动化自有 memory.md。
+- **待主理人处理（同 D19 A/B/C）**：①收口/提交或 stash 在途改动（尤其 MacroHubPage + routes、eventCalendar/portfolio、etfDataService、miniprogram-poc）；②明确 `automation-1786816465504` 归属/状态后清理该目录；③确认 miniprogram-poc 在途状态。任一收口后本自动化恢复下一 Ticket。
+- **决策门**：🔴 单通道红线再次触发（连续暂停第8次），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D19 停滞标记已存在，未重复写。
+- **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。

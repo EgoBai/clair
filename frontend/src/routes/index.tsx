@@ -54,6 +54,9 @@ const ETFPage = lazy(() => import('../pages/ETFPage'));
 const FundFlowPage = lazy(() => import('../pages/FundFlowPage'));
 const JourneyPage = lazy(() => import('../pages/JourneyPage'));
 
+// #1 聚合：宏观/资金全景入口（做减法 — 收束辅助模块，守住核心循环）
+const MacroHubPage = lazy(() => import('../pages/MacroHubPage'));
+
 // 404
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
 
@@ -106,6 +109,7 @@ export const AppRoutes = () => {
 
         {/* Sprint 6 战略重构：D4 资金流 + P2 游戏化 */}
         <Route path="fund-flow" element={<LazyPage component={FundFlowPage} name="资金流向" />} />
+        <Route path="macro-hub" element={<LazyPage component={MacroHubPage} name="宏观资金全景" />} />
         <Route path="journey" element={<LazyPage component={JourneyPage} name="成长中心" />} />
 
         <Route path="knowledge" element={<LazyPage component={KnowledgeBase} name="投资笔记" />} />

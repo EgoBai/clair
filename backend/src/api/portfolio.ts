@@ -349,6 +349,13 @@ async function enrichPositionsWithQuotes(positions: RawPosition[]): Promise<Port
   });
 }
 
+/** 供组合风控中心复用：返回默认组合（id=1）的持仓（已 enrich 实时行情） */
+export async function getDefaultPortfolio() {
+  const pf = portfolios.get(1);
+  if (!pf) return [];
+  return enrichPositionsWithQuotes(pf.positions);
+}
+
 function calculateAllocation(positions: PortfolioPosition[], cashBalance: number) {
   const totalMarketValue = positions.reduce((s, p) => s + p.marketValue, 0);
   const totalValue = totalMarketValue + cashBalance;

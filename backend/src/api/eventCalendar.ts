@@ -88,7 +88,7 @@ async function collectEvents(): Promise<{ raw: RawEventInput[]; pending: EventTy
       const evs = await src.fetch!();
       raw.push(...evs);
     } catch (e) {
-      log.warn(`事件源 ${key} 拉取失败，按待接入处理:`, (e as Error).message);
+      log.warn(`事件源 ${key} 拉取失败，按待接入处理:`, { error: (e as Error).message });
       pending.add(key);
     }
   }
