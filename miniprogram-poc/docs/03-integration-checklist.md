@@ -117,3 +117,20 @@
 - `../../package.json` 重复 `description` 键的 webpack 警告（根仓库 package.json 小瑕疵，不影响构建）。
 
 **结论**：demo 在沙箱已验证「可安装 + 可编译 + 可产出 dist」，I1/I4 的程序性阻断已消除。剩余仅真机勾选（§A–§F）、后端 LLM key 配置（使 `/api/ai/chat` 流出真实 token）、以及将 `BASE_URL` 改为局域网 IP（I3）。
+
+---
+
+## K. market 页体积优化（2026-08-19，team-lead 实测）
+
+联调项 **D2** 体积优化落地：`src/components/EcChart/index.tsx` 改为仅注册市场页 K 线真正用到的模块。
+
+| 版本 | `pages/market/index.js` | 说明 |
+|------|------------------------|------|
+| 初版（7 模块 + 含未用 LineChart/DataZoom/Legend） | ≈ 546 KiB | J4 实测基线 |
+| **优化后**（仅 CandlestickChart/BarChart/Grid/Tooltip/CanvasRenderer） | **≈ 470 KiB** | ✅ 删 3 个未用模块，省 ~76 KiB |
+| 误试：动态 `import('echarts/core')` | ≈ 1.05 MiB（恶化） | ❌ Taro weapp 把动态 import 降级为同步 `require`，破坏 tree-shaking，整包 echarts 内联 |
+
+**关键结论（避坑）**：
+- Taro/weapp 目标**不支持异步分包 chunk**（构建报 `NoAsyncChunksWarning`），动态 `import()` 反而让 webpack 内联完整 echarts（~1MiB）。故**静态 `echarts/core` 按需引入 + 保持 tree-shaking 是唯一正确杠杆**。
+- `market` 是 **tabBar 页，必须留在主包，无法分包**；candlestick 自身较重，470 KiB 已接近该特性在「主包内」的体积下限。
+- 244 KiB 仅是 webpack **软建议**；WeChat 主包**硬上限 2MiB** 仍满足（D1 通过）。若要进一步压到 <244KiB，需放弃 candlestick（UX 损失）或将图表移出 tab 页（架构改动），非单纯优化范畴。
