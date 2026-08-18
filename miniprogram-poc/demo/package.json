@@ -12,7 +12,8 @@
     "build:weapp": "taro build --type weapp",
     "dev:weapp": "npm run build:weapp -- --watch",
     "build:h5": "taro build --type h5",
-    "dev:h5": "npm run build:h5 -- --watch"
+    "dev:h5": "npm run build:h5 -- --watch",
+    "test": "vitest run --pool=forks"
   },
   "browserslist": [
     "last 3 versions",
@@ -46,6 +47,7 @@
     "@types/webpack-env": "^1.18.0",
     "babel-preset-taro": "^4.0.0",
     "sass": "^1.69.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
   }
 }

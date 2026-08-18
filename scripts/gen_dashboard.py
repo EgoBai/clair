@@ -330,6 +330,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .p-gray{background:rgba(139,152,169,.16);color:var(--muted)}
   .muted{color:var(--muted)}
   .alert{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.4);border-radius:10px;padding:12px 16px;color:#ffb4b0}
+  .stagnation-banner{display:none;position:sticky;top:0;z-index:50;margin:0 0 18px;padding:14px 18px;
+    background:linear-gradient(90deg,#f85149,#9e1b1b);color:#fff;border:1px solid #ff8a85;border-radius:10px;
+    box-shadow:0 6px 18px rgba(248,81,73,.35);align-items:center;gap:12px}
+  .stagnation-banner.show{display:flex;animation:pulseRed 2.2s ease-in-out infinite}
+  .stagnation-banner .ic{font-size:26px;line-height:1}
+  .stagnation-banner .bt{font-weight:700;font-size:15px}
+  .stagnation-banner .det{font-weight:400;font-size:12px;opacity:.95;margin-top:2px}
+  @keyframes pulseRed{0%,100%{box-shadow:0 6px 18px rgba(248,81,73,.35)}50%{box-shadow:0 6px 26px rgba(248,81,73,.7)}}
   .tl{position:relative;border-left:2px solid var(--line);padding-left:16px;margin-left:6px}
   .tl .it{position:relative;margin-bottom:14px}
   .tl .it::before{content:"";position:absolute;left:-22px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
@@ -340,6 +348,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
+  <div id="stagnationBanner" class="stagnation-banner"><span class="ic">🛑</span><div><div id="stagnationTitle" class="bt"></div><div class="det" id="stagnationDetail"></div></div></div>
   <header class="top">
     <h1>Clair 澄观 · 工程进度看板<span class="sub">a-stock-website · 真实数据优先</span></h1>
     <div id="srcBadge" class="badge">加载中…</div>
@@ -450,10 +459,15 @@ function render(d, mode){
   el("tl").innerHTML=(d.timeline||[]).map(t=>
     `<div class="it"><div><span class="r">第${t.round}轮</span> · <span class="muted">${t.tag}</span></div><div class="muted" style="font-size:12px">${t.summary}</div></div>`).join("");
 
-  // Stagnation alert
-  let alert="";
-  if(ov.stagnation){alert=`<div class="alert" style="margin:0 0 22px">⚠️ <b>工作区停滞</b>：${ov.stagnationDetail||"automation 严守红线 PAUSE，待用户拍板收口在途改动后恢复开发。"}</div>`;}
-  el("kpis").insertAdjacentHTML("beforebegin",alert);
+  // Stagnation prominent banner (顶部醒目红色横幅)
+  const sb=el("stagnationBanner");
+  if(ov.stagnation){
+    sb.classList.add("show");
+    el("stagnationTitle").textContent="⚠️ 工程进度停滞告警（PAUSE 红线已触发）";
+    el("stagnationDetail").textContent=(ov.stagnationDetail||"工作区存在未提交在途改动，automation 严守红线暂停开发，待用户收口后自动恢复。")+" · 公开看板将随收口与下一轮循环自动更新。";
+  } else {
+    sb.classList.remove("show");
+  }
 
   // Badge + footer
   const b=el("srcBadge");

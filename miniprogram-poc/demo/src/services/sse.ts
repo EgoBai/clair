@@ -20,9 +20,11 @@ export interface StreamHandlers {
   onError?: (message: string) => void
 }
 
-/** 简易 UTF-8 字节解码（避免依赖 TextDecoder 在旧基础库的兼容问题） */
-function utf8Decode(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
+/**
+ * 解码「完整」UTF-8 字节序列为字符串（输入保证是整字符边界，不含半截多字节）。
+ * 不依赖 TextDecoder，规避旧基础库兼容问题。
+ */
+function decodeUtf8(bytes: number[]): string {
   let out = ''
   let i = 0
   while (i < bytes.length) {
@@ -56,7 +58,8 @@ export function streamChat(
   handlers: StreamHandlers,
   context: Array<{ role: string; content: string }> = [],
 ) {
-  let buffer = '' // 跨 chunk 的半包累积缓冲
+  let bytesBuf: number[] = [] // 跨 chunk 的原始字节累积（防止多字节字符被分片截断）
+  let textBuf = '' // 已解码文本累积（用于按 \n\n 切分事件帧）
   let fullText = ''
 
   const task = Taro.request({
@@ -71,14 +74,33 @@ export function streamChat(
   })
 
   task.onChunkReceived((chunk) => {
-    // chunk.data 为 ArrayBuffer
-    buffer += utf8Decode(chunk.data as ArrayBuffer)
+    // 1) 累积原始字节，仅解码「完整」UTF-8 序列，半截多字节留到下次（修复跨 chunk 中文乱码）
+    const incoming = new Uint8Array(chunk.data as ArrayBuffer)
+    for (let k = 0; k < incoming.length; k++) bytesBuf.push(incoming[k])
 
-    // 按 \n\n 切分完整事件帧
-    let idx = buffer.indexOf('\n\n')
+    let i = 0
+    let lastComplete = -1
+    while (i < bytesBuf.length) {
+      const b = bytesBuf[i]
+      const len = b < 0x80 ? 1 : b < 0xe0 ? 2 : b < 0xf0 ? 3 : 4
+      if (i + len <= bytesBuf.length) {
+        i += len
+        lastComplete = i
+      } else {
+        break // 末尾是不完整的多字节序列，等待后续字节
+      }
+    }
+    if (lastComplete < 0) return // 当前仅有半截多字节，不解码
+
+    const decoded = decodeUtf8(bytesBuf.slice(0, lastComplete))
+    bytesBuf = bytesBuf.slice(lastComplete)
+    textBuf += decoded
+
+    // 2) 按 \n\n 切分完整事件帧（半包帧留到下次）
+    let idx = textBuf.indexOf('\n\n')
     while (idx !== -1) {
-      const rawEvent = buffer.slice(0, idx)
-      buffer = buffer.slice(idx + 2)
+      const rawEvent = textBuf.slice(0, idx)
+      textBuf = textBuf.slice(idx + 2)
 
       const lines = rawEvent.split('\n')
       for (const line of lines) {
@@ -99,7 +121,7 @@ export function streamChat(
           // 半包 JSON 忽略，等待下一个 chunk 补齐
         }
       }
-      idx = buffer.indexOf('\n\n')
+      idx = textBuf.indexOf('\n\n')
     }
   })
 
