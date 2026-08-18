@@ -35,10 +35,10 @@ describe('request — 鉴权拦截器（联调清单 §B）', () => {
     mockRequest.mockClear()
   })
 
-  it('200 成功返回 body.data', async () => {
+  it('200 成功返回完整响应包（envelope，由 api 层解包 data）', async () => {
     requestImplRef.current = () => ({ statusCode: 200, data: { success: true, data: { a: 1 } } })
     const r = await request('/x')
-    expect(r).toEqual({ a: 1 })
+    expect(r).toEqual({ success: true, data: { a: 1 } })
   })
 
   it('存在 token 时注入 Authorization 头', async () => {
@@ -63,7 +63,7 @@ describe('request — 鉴权拦截器（联调清单 §B）', () => {
     }
     setTokens('oldAcc', 'oldRef')
     const r = await request('/x')
-    expect(r).toBe('final')
+    expect(r).toEqual({ success: true, data: 'final' })
     expect(calls).toBe(3) // 原请求 + refresh + 重放
     expect(getAccessToken()).toBe('newAcc')
   })
@@ -109,6 +109,6 @@ describe('request — 鉴权拦截器（联调清单 §B）', () => {
     setTokens('a', 'r')
     await Promise.all([request('/1').catch(() => {}), request('/2').catch(() => {})])
     expect(refreshCalls).toBe(1) // 单飞
-    expect(reqCalls).toBe(2)
+    expect(reqCalls).toBe(4) // 2 原始 + 2 重放
   })
 })
