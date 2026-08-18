@@ -17,6 +17,7 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
+import { getMacroCpiPpi, MacroUnavailableError } from '../services/macroDataService';
 
 const router = Router();
 
@@ -114,12 +115,17 @@ async function buildCoreCards(db: any) {
 }
 
 /**
- * 趋势：CPI vs PPI 近 24 月（数据源未接入）
+ * 趋势：CPI vs PPI 近 N 月（真实源：东方财富 datacenter-web RPT_ECONOMY_CPI / RPT_ECONOMY_PPI）
+ * 已在本环境 egress 验证可达。源失败时诚实返回空（不向上抛，避免拖垮 /overview 的 core 真实数据）。
  */
-async function buildTrend24(): Promise<{ month: string; cpi: number; ppi: number }[]> {
-  // 数据源占位：东方财富 datacenter-web RPT_ECONOMICDATA_CPI / RPT_ECONOMICDATA_PPI
-  // 当前未配置可用 client，诚实返回空（前端图表会显示空态）
-  return [];
+async function buildTrend24(limit = 24): Promise<{ month: string; cpi: number; ppi: number }[]> {
+  try {
+    return await getMacroCpiPpi(limit);
+  } catch (e) {
+    // 数据源不可用（网络受限 / 报表名变更 / 解析失败）→ 诚实空，不编造 CPI/PPI 数字
+    if (e instanceof MacroUnavailableError) return [];
+    return [];
+  }
 }
 
 /**
