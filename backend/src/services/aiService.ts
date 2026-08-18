@@ -188,7 +188,15 @@ export async function* chatStream(request: AIRequest): AsyncGenerator<AIStreamCh
     }
   } catch (error: unknown) {
     logger.error('AI Stream error:', error instanceof Error ? error : new Error(String(error)));
-    yield { content: `\n\n⚠️ AI服务暂时不可用，请稍后重试。错误: ${error}`, done: true };
+    // 诚实降级：区分可诊断的上游错误，避免把所有失败笼统报成“服务暂时不可用”
+    const status = (error as { status?: number })?.status;
+    const errContent =
+      status === 402
+        ? '\n\n⚠️ DeepSeek 账户余额不足，请在 platform.deepseek.com 充值后重试（API 返回 402 Insufficient Balance）。'
+        : status === 401
+          ? '\n\n⚠️ DeepSeek API Key 无效或已失效，请检查 DEEPSEEK_API_KEY 配置。'
+          : `\n\n⚠️ AI服务暂时不可用，请稍后重试。错误: ${error}`;
+    yield { content: errContent, done: true };
   }
 }
 

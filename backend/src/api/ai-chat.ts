@@ -95,10 +95,13 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
       const stream = aiService.chatStream({ messages });
 
       for await (const chunk of stream) {
+        // 先发内容（错误帧也带 content，必须在其 done 之前写出，否则被 [DONE] 吞掉）
+        if (chunk.content) {
+          res.write(`data: ${JSON.stringify({ content: chunk.content })}\n\n`);
+        }
         if (chunk.done) {
           res.write('data: [DONE]\n\n');
-        } else {
-          res.write(`data: ${JSON.stringify({ content: chunk.content })}\n\n`);
+          break;
         }
       }
 
