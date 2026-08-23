@@ -20,7 +20,6 @@ const pathMetadata: Record<string, { tag: string; summary: string; description?:
   'GET /api/stocks/:symbol/quotes': { tag: '股票', summary: '获取行情数据' },
   'GET /api/market': { tag: '股票', summary: '获取大盘行情' },
   'GET /api/market/stats': { tag: '股票', summary: '获取市场统计数据' },
-  'GET /api/market/overview': { tag: '股票', summary: '获取市场概览' },
   'GET /api/stocks/:symbol/dividend': { tag: '股票', summary: '获取分红送配' },
   'GET /api/stocks/:symbol/shareholder': { tag: '股票', summary: '获取股东信息' },
 
@@ -41,8 +40,6 @@ const pathMetadata: Record<string, { tag: string; summary: string; description?:
   'GET /api/sectors/analysis': { tag: '板块', summary: '板块分析', description: '板块涨跌分布、领涨股' },
   'GET /api/sectors/:name': { tag: '板块', summary: '获取板块详情' },
   'GET /api/sectors/:name/stocks': { tag: '板块', summary: '获取板块成分股' },
-  'GET /api/sector-analysis/rotation': { tag: '板块', summary: '板块轮动分析' },
-  'GET /api/sector-analysis/heatmap': { tag: '板块', summary: '板块热力图' },
 
   // 资金流向
   'GET /api/fund-flow/:symbol': { tag: '资金流向', summary: '个股资金流向' },
