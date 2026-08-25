@@ -53,3 +53,9 @@
 - **提交+推送**：✅ 仅 `git add docs/dashboard-data.json docs/clair-dashboard.html`，commit `0870162e0`（"chore(dashboard): 自动刷新进度数据"）。`git-push-retry.sh` 前 3 次直连因沙箱 github 出网间歇失败（Couldn't connect to server），第 4 次命中网络窗口推送成功到 origin/main（7b436bae7..0870162e0）。在途文件未触碰。
 - **重导入+发布**：✅ connect_open_platform(skill_id=library) 取 token → import_html.py `--node-block-id eogGNOjY0dIWxTpPibPgvj` 原地更新成功（KS_IMPORT_OK，url https://www.workbuddy.cn/space/d/eogGNOjY0dIWxTpPibPgvj）→ publish_page.py 发布公开成功（publishUrl https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）。
 - 备注：全链路成功；推送靠 retry 窗口重试（4/8 命中），无降级；轮次计数较前次（63）更新至 67。
+
+## 2026-08-25 03:00 (GMT+8) — 第十次执行
+- **重新生成**：✅ `scripts/gen_dashboard.py` 输出 docs/dashboard-data.json + docs/clair-dashboard.html（generatedAt 2026-08-25T03:00:16+08:00；round=76 tickets=59 realSrc=6 sprints=6 decisions=19 debts=11 swarm=5 orch=5 timeline=8）。轮次由 72 升至 76，进度持续推进。
+- **提交+推送**：✅ 仅 `git add docs/dashboard-data.json docs/clair-dashboard.html`，commit `321902351`（"chore(dashboard): 自动刷新进度数据"）。`git-push-retry.sh` 前 2 次直连因沙箱 github 出网间歇失败（Empty reply / Couldn't connect to server），第 3 次命中网络窗口推送成功到 origin/main（cae59f9af..321902351）。在途文件未触碰。
+- **重导入+发布**：✅ connect_open_platform(skill_id=library) 取 token → import_html.py `--node-block-id eogGNOjY0dIWxTpPibPgvj` 原地更新成功（KS_IMPORT_OK，url https://www.workbuddy.cn/space/d/eogGNOjY0dIWxTpPibPgvj）→ publish_page.py 发布公开成功（publishUrl https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）。
+- 备注：全链路一次成功，无降级；token 经 `--token-stdin` 正确注入（echo <token> | script --token-stdin <path>），轮次计数较前次（72）更新至 76。
