@@ -273,3 +273,16 @@
 - **待主理人（ego_bai）处置（同 D20，仍根治）**：①**推荐 A（根治）**：停用/删除重复自动化实例 `1786816465504`，全仓库仅保留一个"澄观自主推进循环"（建议保留本循环 `1784829898221`）。您可在自动化管理面板停用该实例，或确认后由我调用 `automation_update(mode=delete)` 删除它以根除隐患；②或 B：让 `1786816465504` 提交其 PLAN.md/自身 memory 改动后，本循环下轮恢复（历史证明此法反复复发，不推荐）；③本循环自有 memory/guard 产物可随下一轮一并提交。任一收口后，本自动化下轮恢复开发/巡检（重读 PLAN.md「当前Sprint/下一任务」取任务，先幂等复查再执行）。
 - **决策门**：🔴 单通道红线触发（用于暂停，非新增开发缺陷），仅对话提示 + 本记忆记录；webhook disconnected 降级本地日志。D20（兄弟自动化抢写共享中枢）已于第78轮写入 DECISION_LOG，本次为同一阻塞项第4次复发，未重复写 DECISION_LOG。
 - **专家团评估**：E1-E6 不适用（本轮无 Agent 分派、无开发）。
+
+---
+
+## 第81轮（2026-08-27 09:01）— 健康巡检待命轮（红线满足·全绿）
+
+- **单通道红线（满足 ✅）**：`git -C /Users/ego_bai/.openclaw/workspace/a-stock-website status --short` = 仅 `M .workbuddy/automations/automation-1786816465504/memory.md`（兄弟自动化**私有**文件，非共享 PLAN 中枢、非生产源码）。**PLAN.md 干净、无生产源码在途改动**——与第80/81/82轮（PLAN.md 被兄弟自动化脏写触发 PAUSE）不同构，本次无并行写码分叉风险，安全无需 PAUSE。本循环自有 memory/guard 产物随本轮更新并提交以终结长期脏树。
+- **模式**：健康巡检待命轮（无新开发；PLAN「下一任务」仍 await 用户明确下一授权工单，自主可推进项仍达天花板：MP-1 用户主导完成 / S2-1 受东财 push2 网络出口约束 / D2·RAG二期·D14 待用户拍板），不擅自扩展范围。
+- **幂等确认**：无新用户授权工单入栈，无待执行 Ticket。
+- **主理人独立验证全绿**：dev 5173=200 / 后端 3001=200 / 前端 tsc --noEmit 0错 / npm run build 5m46s 一次过（仅 chunk size 警告，vite:terser 环境负载态非回归）/ npm run guard EXIT=0（ERROR=0 WARN=0 INFO=9 与基线一致）/ **31 路由 curl 全 200（FAIL=0）**（含 4 条参数化路由 /financials/600519 /index/000001 /sectors/801010 /stocks/600519）；真实端点：/api/market/realtime 上证 3912.52 +0.59%（real）、/api/financials/summary 茅台 2025 年报 real、/api/etf/list 真实 ETF、/api/factors/overview coverage=12 real；/api/hk-connect/ah-premium 诚实 unavailable（沙箱无东财 push2 egress，符合 S2-1 既有约束，非代码回归）。
+- **决策门**：🟢 无 🔴/🟠/🟡 新增（D14/D2/RAG二期/MP-1 既存待决策或用户独占项，未重复推送）；webhook disconnected → 降级本地日志+对话提示。
+- **专家团评估**：E1-E6 维持，无调整（巡检轮无 Agent 分派、无源码改动）；E6🟢 无新技术债，guard INFO 维持 9 条。
+- **下一任务**：维持健康巡检+待命，await 用户明确下一授权工单（MP-1 收尾授权 / S2-x 蜂群工单 / RAG二期向量化）；无新指令不擅自扩展范围。
+- ⚠️ 提示主理人：兄弟自动化 `1786816465504` 仍遗留私有 `memory.md` 未提交（非阻塞，但建议停用/合并该重复实例以消除双实例抢写 PLAN.md 隐患）；本循环已提交自有 PLAN.md/memory/guard 产物以收口长期脏树。
