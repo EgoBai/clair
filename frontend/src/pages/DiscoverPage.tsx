@@ -574,7 +574,8 @@ const DiscoverPage: React.FC = () => {
           const val = data[2];
           const industry = rows[rowIdx].industry;
           const dimName = xLabels[colIdx];
-          const detail = hoverDetail[`${industry}__${dimName}`] || '';
+          const detailKey = `${industry}__${dimName}`;
+          const detail = hoverDetail[detailKey] || '';
           return `<div style="font-weight:700;margin-bottom:4px">${industry}</div>
             <div style="color:#94a3b8">${dimName}: <span style="color:${getDimColor(val, DIM_BY_KEY[dimName]?.polarity)};font-weight:700;font-size:16px">${val}分</span></div>
             <div style="color:#64748b;font-size:11px;margin-top:2px;max-width:260px;white-space:pre-line">${detail}</div>

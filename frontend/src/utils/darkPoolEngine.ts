@@ -114,7 +114,9 @@ export function analyzeDarkPool(trades: DarkPoolTrade[]): DarkPoolAnalysis {
   const confidence = Math.min(1, trades.length / 20 * 0.5 + Math.abs(buyPressure - 0.5) * 2);
 
   const dates = trades.map(t => t.date).sort();
-  const period = dates.length >= 2 ? `${dates[0]} ~ ${dates[dates.length - 1]}` : dates[0] || '';
+  const period = dates.length >= 2
+    ? `${dates[0]} ~ ${dates[dates.length - 1]}`
+    : dates[0] || '';
 
   return {
     ticker,

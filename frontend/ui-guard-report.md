@@ -1,6 +1,6 @@
 # 澄观 Clair 前端 UI 质量守卫 · 扫描报告
 
-> 生成时间: 2026-08-27T13:18:44.238Z
+> 生成时间: 2026-08-27T19:07:34.524Z
 > 层级: **轻量静态层（S6-1 / D6 决策）** —— 仅静态 AST + 正则/数据基线，**不含** Playwright 运行时截图（属第二阶段）。
 
 ## 1. 守卫设计概览
@@ -41,42 +41,16 @@ _未发现该层相关的问题。_
 
 ### baseline-scan（扫描 602 个文件）
 
-错误: 0 · 警告: 0 · 提示: 9
+错误: 0 · 警告: 0 · 提示: 0
 
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/DiscoverPage.tsx:577`
-  - 代码: `const detail = hoverDetail['${industry}__${dimName}'] || '';`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/StockDetailPage.tsx:303`
-  - 代码: `onClick={() => navigate('/industry-map?industry=${encodeURIComponent(stockInfo.industry || '')}')}`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/pages/WatchlistPage.tsx:651`
-  - 代码: `return '${sym}(${q?.name || ''}, ${q?.industry || ''}, PE:${q?.peRatio ?? 'N/A'}, PB:${q?.pbRatio ?? 'N/A'})';`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/utils/aiModelExplainer.ts:175`
-  - 代码: `const topFactors = exp?.factors.slice(0, 3).map(f => '${f.factor}(${f.score}分)').join('; ') || '';`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/utils/darkPoolEngine.ts:117`
-  - 代码: `const period = dates.length >= 2 ? '${dates[0]} ~ ${dates[dates.length - 1]}' : dates[0] || '';`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/utils/insiderTradeEngine.ts:175`
-  - 代码: `const period = dates.length >= 2 ? '${dates[0]} ~ ${dates[dates.length - 1]}' : dates[0] || '';`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/utils/stateEngine.ts:192`
-  - 代码: `logger.debug('[${name}] Action: ${action}', payload ?? '');`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/components/Charts/ResponsiveChart.tsx:100`
-  - 代码: `className={'responsive-chart ${className || ''}'}`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
-- **[INFO]** (hardcoded-empty-fallback) 检测到硬编码空兜底 (|| '' / ?? '')，可能掩盖缺失数据。 `./src/components/Market/CapitalFlowPanel.tsx:67`
-  - 代码: `<div className={'capital-flow-panel ${className || ''}'} data-testid="capital-flow-panel">`
-  - 建议: 确认该兜底是否为预期；缺失数据建议显式提示而非静默隐藏。
+_未发现该层相关的问题。_
 
 
 ## 5. 汇总
 
 - 错误(ERROR): 0
 - 警告(WARN): 0
-- 提示(INFO): 9
+- 提示(INFO): 0
 - 总文件扫描: AST 602 + 基线 602
 
 **结论: ✅ PASS（无 ERROR 级问题）**

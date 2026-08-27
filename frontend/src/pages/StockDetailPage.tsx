@@ -300,7 +300,10 @@ const StockDetailPage: React.FC = () => {
                       size="small"
                       icon={<CompassOutlined />}
                       style={{ fontSize: 12, padding: 0, color: '#1890ff' }}
-                      onClick={() => navigate(`/industry-map?industry=${encodeURIComponent(stockInfo.industry || '')}`)}
+                      onClick={() => {
+                        const industryParam = encodeURIComponent(stockInfo.industry ?? '');
+                        navigate(`/industry-map?industry=${industryParam}`);
+                      }}
                     >
                       查看产业链
                     </Button>

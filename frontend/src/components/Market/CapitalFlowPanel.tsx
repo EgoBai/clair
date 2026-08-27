@@ -64,7 +64,7 @@ export const CapitalFlowPanel: React.FC<CapitalFlowPanelProps> = ({
     : '#666';
 
   return (
-    <div className={`capital-flow-panel ${className || ''}`} data-testid="capital-flow-panel">
+    <div className={['capital-flow-panel', className].filter(Boolean).join(' ')} data-testid="capital-flow-panel">
       <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>💰 资金流向</h3>
         {fundFlowScore != null && (

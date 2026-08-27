@@ -172,7 +172,9 @@ export function analyzeInsiderTrades(trades: InsiderTrade[], currentPrice: numbe
   else recommendation = '内部人交易信号中性';
 
   const dates = trades.map(t => t.date).sort();
-  const period = dates.length >= 2 ? `${dates[0]} ~ ${dates[dates.length - 1]}` : dates[0] || '';
+  const period = dates.length >= 2
+    ? `${dates[0]} ~ ${dates[dates.length - 1]}`
+    : dates[0] || '';
 
   return {
     ticker,

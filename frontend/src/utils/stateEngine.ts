@@ -189,7 +189,7 @@ export function createComputed<T, R>(
  */
 export function loggingMiddleware<T>(name: string = 'Store'): Middleware<T> {
   return (state, action, payload) => {
-    logger.debug(`[${name}] Action: ${action}`, payload ?? '');
+    logger.debug(`[${name}] Action: ${action}`, payload);
     return state;
   };
 }

@@ -648,7 +648,11 @@ const WatchlistPage: React.FC = () => {
     try {
       const stockList = symbols.map(sym => {
         const q = quotes[sym];
-        return `${sym}(${q?.name || ''}, ${q?.industry || ''}, PE:${q?.peRatio ?? 'N/A'}, PB:${q?.pbRatio ?? 'N/A'})`;
+        const namePart = q?.name ?? '';
+        const industryPart = q?.industry ?? '';
+        const pePart = q?.peRatio ?? 'N/A';
+        const pbPart = q?.pbRatio ?? 'N/A';
+        return `${sym}(${namePart}, ${industryPart}, PE:${pePart}, PB:${pbPart})`;
       }).join('、');
 
       const resp = await apiFetch('/api/ai/chat', {

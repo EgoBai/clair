@@ -97,7 +97,7 @@ export const ResponsiveChart: React.FC<ResponsiveChartProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`responsive-chart ${className || ''}`}
+      className={['responsive-chart', className].filter(Boolean).join(' ')}
       style={{
         width: '100%',
         height: currentHeight,

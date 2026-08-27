@@ -172,7 +172,9 @@ export function exportReportToCSV(
   for (const rec of recommendations) {
     for (const stock of rec.stocks) {
       const exp = explanations.get(stock.symbol);
-      const topFactors = exp?.factors.slice(0, 3).map(f => `${f.factor}(${f.score}分)`).join('; ') || '';
+      const topFactors = exp?.factors
+        ? exp.factors.slice(0, 3).map(f => `${f.factor}(${f.score}分)`).join('; ')
+        : '';
       const risks = exp?.riskFactors.join('; ') || '';
       rows.push([
         rec.name,
