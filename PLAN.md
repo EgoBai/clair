@@ -457,3 +457,20 @@
 | T10 | ~~NavigationMenu.test.tsx 全量 button 计数断言锁死侧栏按钮总数为 6~~ **✅ 第28轮已清零**：改为对 NAV_GROUPS 逐组语义定位（`getByText(group.label).closest('button')`）断言 aria-expanded，不再全局计数；同轮补齐 T7 rail 开关 4 用例（此前零覆盖），单测 17→21 全绿。**实证危害**：清零前已导致第27轮 T7 实现选 `role="switch"` 时需在注释中说明"避免与 6 个分组 button 混在同一 role"——脆弱断言曾反向约束生产代码语义 | ✅ 已清 | 第28轮 |
 | T11-cov | ~~D15 导航 IA 交付物测试覆盖不均~~（第28轮盘点发现：NavigationMenu 21 用例，而 TabBar/navGroups/pageIndex 各 0 用例）**✅ 第29轮已清零**：新增 53 用例（TabBar 16 / navGroups 18 / pageIndex 19），导航 IA 四件交付物合计 **74 用例**全绿。核心价值=配置层双重死链防护（path ∈ ROUTE_PATHS 且已在 routes/index.tsx 真实注册），与 D6 guard 静态扫描互补——guard 查代码里的死导航，单测查配置源的死路径 | ✅ 已清 | 第29轮 |
 | T8 | ~~4条既有路由缺 ROUTE_PATHS 常量~~（第19轮 IA 审计发现）**✅ 第20轮已清零**：paths.ts 补 INDEX_DETAIL(/index/:symbol)/SECTOR_DETAIL(/sectors/:symbol)/RADAR(/radar)/KNOWLEDGE(/knowledge)，路径与 index.tsx 完全一致，零行为变更；亦为导航 IA 实施 T10 的前置 | ✅ 已清 | 第20轮 |
+
+## 九、自主改进池（2026-08-27 设立·防空转机制）
+
+> **用途**：当「下一任务」为空或 await 用户拍板时，自主循环从本池取项推进，**禁止纯待命空跑**（用户 2026-08-27 指令）。每轮最多 1 项，最小侵入，走完整测试验收流程后销号。重大决策仍需用户拍板，不入池。
+
+| # | 改进项 | 来源 | 优先级 | 状态 |
+|---|--------|------|--------|------|
+| IP-1 | guard INFO 9 条逐条评估：可消除的消除，需保留的注明理由，目标 INFO→≤3 | E6 技术债 | P2 | 待做 |
+| IP-2 | GlobalSearch 组件零挂载处置：评估挂载到布局或显式归档（技术债 T1 附带发现的业务缺失） | 死代码 | P2 | 待做 |
+| IP-3 | app_v4.js 8223 行占位模块清理（技术债 T3）：确认无引用后移除或归档 | 技术债 T3 | P3 | 待做 |
+| IP-4 | exportScheduler.ts 类型漂移修复（技术债 T5）：复现 tsc 偶发 2 错误并根治 | 技术债 T5 | P3 | 待做 |
+| IP-5 | 低覆盖核心模块补契约测试：对照 COVERAGE-BASELINE.md，为覆盖率 <50% 的核心 service/hook 补测 | 质量基建 | P2 | 待做 |
+| IP-6 | 文档-代码同步巡检：README/PERFORMANCE_OPTIMIZATION_GUIDE 等与实际代码一致性校验，清死文档 | 文档漂移红线 | P3 | 待做 |
+| IP-7 | utils/ 93K 行拆分一期（技术债 T2）：按域（行情/因子/回测/AI）拆目录，先拆最大的 3 个文件 | 技术债 T2 | P3 | 待做 |
+| IP-8 | 空态/加载态/错误提示体验完善：巡检 24 激活页，统一 loading/error/empty 三态规范 | 体验 | P3 | 待做 |
+
+**销号记录**：（每完成一项在此追加：日期/轮次/验证结果）
