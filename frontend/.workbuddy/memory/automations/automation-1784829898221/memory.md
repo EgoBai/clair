@@ -31,3 +31,14 @@
 
 ## 历史轮次摘要（最近）
 - 第57轮（08-19）D19 停滞解除恢复；第67轮（08-21）恢复后端 :3001 宕机；第69/70轮 build 16-17min 异长（terser 负载）第71轮自愈回 8.65s；第80-86轮 防空转改进池推进；第87轮 当前。
+
+## 第88轮（2026-08-29 03:18 · IP-5 低覆盖核心模块契约测试轮）
+
+**单通道红线**：git status 仅 `.workbuddy/memory/` 未跟踪（记账产物，非生产源码在途），PLAN.md 干净，安全无 PAUSE。
+**取项**：PLAN「下一任务」仍 await 用户明确下一授权工单，按防空转纪律取自主改进池 IP-5。
+**实装（主理人，最小侵入）**：为 `src/utils/deterministic.ts`（确定性随机工具，被 industryRotationPredictEngine 等核心引擎依赖，§7.2 记 17.6% 覆盖、无专属测试）新增 `src/__tests__/deterministic.test.ts` 18 例契约测试——断言「区间约束 + 确定性复述 + 置换不变性 + 纯函数」，不硬编浮点值。
+**验证全绿**：vitest 18/18 / tsc 0错 / build 4.71s / guard 0/0/0 / 12 路由全 200 / 真实端点 dataSource:'real' 诚实标记完好。
+**决策门**：🟢 无 🔴/🟠/🟡 新增；webhook 仍 disconnected → 已落盘 summaries/loop-20260829-0318.md，推送通道待开通。
+**专家团评估**：E1✅ 单文件小改动主理人自实现 / E2✅ 1 测试文件 / E3🟢 / E4✅ / E5✅ / E6🟢 质量基建收敛（核心引擎底层依赖补契约防护网）。
+**改进池进度**：IP-1~IP-5 已完成；剩 IP-6~IP-8。
+**推送通道**：wechat webhook 空 → agent-mail 仅暴露附件上传、无 SendMessage → 全部通道不可用，已落盘 summaries 兜底。
