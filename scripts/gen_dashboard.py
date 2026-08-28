@@ -109,14 +109,27 @@ def parse_overview(plan: str, log: str = "") -> dict:
     m = re.search(r"Sprint 5 完成率\s*\|\s*(\d+%)", plan)
     if m:
         ov["sprint5Progress"] = m.group(1)
-    # 健康 / 停滞：D19 红线 PAUSE（可能写在 DECISION_LOG）
-    if "PAUSE" in both or "停滞" in both or "红线连续" in both:
+    # 健康 / 停滞：以「最近一轮」行（当前状态快照）为准做否定感知判定，
+    # 全文关键词匹配会误报历史记录（如「安全无需 PAUSE」「D19 已解除」），曾与 D20 自污染误判同源
+    m_latest = re.search(r"\|\s*最近一轮\s*\|\s*(.+)", plan)
+    signal = m_latest.group(1) if m_latest else both
+
+    def _pause_signal(text: str) -> bool:
+        for kw in ("PAUSE", "停滞", "红线连续"):
+            for km in re.finditer(kw, text):
+                ctx = text[max(0, km.start() - 16):km.end() + 16]
+                if re.search(r"无需|未触发|不触发|已解除|非停滞|无风险|已恢复|已收口", ctx):
+                    continue
+                return True
+        return False
+
+    if _pause_signal(signal):
         ov["stagnation"] = True
         m = re.search(r"D19[^\n]*?(红线连续\d+轮触发[^\n]*)", plan)
         ov["stagnationDetail"] = (m.group(1).strip() if m else "工作区停滞，automation 严守红线 PAUSE")
         ov["health"] = "🟠 暂停（PAUSE 红线·工作区停滞）"
     else:
-        ov["health"] = "🟢 全绿"
+        ov["health"] = "🟢 全绿（待命）" if "待命" in signal else "🟢 全绿"
     # 真实数据源计数：§七·六 B 表中 已落地 + 进行中 的条数
     bt = parse_tables(plan)
     btab = find_table(btab_all(bt, plan), "Ticket", "真实源")
