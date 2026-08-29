@@ -106,6 +106,9 @@
   - 选项：A. **停掉/合并重复自动化实例**（推荐）——全仓库仅保留一个"澄观自主推进循环"自动化（建议保留 `1784829898221`），彻底消除双实例抢写 PLAN.md 的隐患；B. 让 `1786816465504` 先 `git add -A && git commit` 收口其 PLAN.md/自身 memory 改动，本循环下轮恢复；C. 为两实例划分互斥文件域（本循环只读写 frontend 侧、兄弟实例只写根 PLAN 由主理人手动同步）——成本高且易错，不推荐。
   - 状态：🔴 **待用户协调**。webhook disconnected → 降级本地日志 + 对话提示。D19 停滞标记已解除，本次非本循环开发停滞，而是**兄弟自动化抢写共享中枢导致的循环暂停**；请优先选 A/B 收口，本循环方能在下一轮安全恢复开发/巡检。
 
+- **D21（2026-08-30 04:28）🔴 单通道红线触发·交互会话生产源码在途·本轮 PAUSE**：`git status` 检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11）。经 diff 核实：将北向资金页自定义加载态/诚实空态替换为共享组件 `LoadingStateDetail`/`EmptyState`（`src/components/Common/StateComponents.tsx`，grep 确认两组件均已导出），属「三态规范」UI 一致性重构，引用一致、非破坏改动。本循环严守红线纪律：**暂停本轮全部源码推进，绝不并行改库**。只读校验：tsc --noEmit 0 错（在途改动可编译）、dev 5173=200，在途改动当前健康。
+  - 状态：🔴 **待用户协调 / 或声明互斥文件域**。选项：A. 交互会话完成并 `git commit` 收口 NorthBoundPage.tsx，本循环下轮安全恢复开发/改进池推进（推荐）；B. 用户声明 automation 可接管的互斥安全文件域（与 NorthBoundPage.tsx 零交集），沿用 D16/T7 零交集规则继续推进；C. 维持现状：automation 持续 PAUSE 健康巡检待命，直至工作区清空。注：本红线触发与 D20（兄弟自动化抢写共享中枢）性质不同——本次为单一交互会话正常在途源码改动，属预期内、低风险的协调暂停；automation 本轮默认 = C（仅健康巡检+记账，不碰源码），待用户选 A/B 后恢复。
+
 ## 2026-08-27 用户授权干预（D20 根治 + 防空转机制）
 
 - **🟢 D20 已根治（2026-08-27 用户授权复盘优化，团队 clair-loop-review 执行）**：根因查明——PLAN.md 脏写并非兄弟自动化抢写（`gen_dashboard.py` 对 PLAN.md 纯只读，看板自动化 12 次执行均只 add docs 文件），实为**自主循环自身未及时 commit 的记账改动 + 框架自动追加的 automation memory.md 未被 prompt 涵盖收口**，被时序误判为"兄弟抢写"。处置：①两自动化 prompt 均已注入「每轮结束强制收口」纪律（逐文件 add+commit 自身产物，严禁遗留脏树）；②自主循环单通道红线精细化——记账类脏文件（PLAN/DECISION_LOG/automation memory/guard/docs 看板产物）**容忍不暂停**，仅生产源码（frontend/src、backend/src、miniprogram、shared）在途才触发红线，D20 类误暂停不再复发。**状态：✅ 已决，无需用户再选 A/B/C。**

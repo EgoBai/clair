@@ -70,3 +70,21 @@
 **待用户明确（未重复推送）**：MP-1 收尾授权 / 指定 S2-x 蜂群工单 / RAG 二期向量化（DeepSeek key 已通电，用户独占）/ D2 POC 四件套延后至完整体验版后。
 
 **推送通道**：wechat webhook 空 → agent-mail 仅暴露附件上传、无 SendMessage → 全部通道不可用，已落盘 summaries（loop-20260829-0927.md）兜底，标记「推送通道待开通」。
+
+## 第90轮（2026-08-30 04:28 · 单通道红线触发·PAUSE 轮）
+
+**单通道红线**：git status 检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11）→ **红线触发，源码在途**。
+- diff 核实：北向资金页自定义加载态/诚实空态 → 替换为共享 `LoadingStateDetail`/`EmptyState`（`src/components/Common/StateComponents.tsx`，grep 确认两组件已导出），属「三态规范」UI 一致性重构，引用一致。
+- 只读校验：tsc --noEmit 0错（在途改动可编译）/ dev 5173=200 → 在途改动健康、非破坏。
+- **处置**：严守红线纪律，**暂停本轮全部源码推进，绝不并行改库**。未取 PLAN「下一任务」、未推进改进池（IP-7~IP-8 顺延），无源码/文档改动。
+- 记账动作：DECISION_LOG.md 新增 D21（🔴 红线·生产源码在途·待用户协调 A 收口/B 声明互斥域/C 维持巡检）；本 memory 落本轮记录；summary 落盘 summaries/loop-20260830-0428.md 兜底（通道仍不可用）。
+
+**决策门**：🔴 新增 D21（红线协调暂停，非产品缺陷/非停滞，性质异于 D20 双实例抢写）。
+
+**专家团评估**：E1✅ 无需分派（红线暂停）/ E2✅ 零改动 / E3🟢 / E4✅ / E5✅ / E6🟢 无新技术债（在途改动健康）。
+
+**改进池进度**：IP-1~IP-6 已完成；IP-7~IP-8 顺延至工作区清空后（D21-A 收口 / 或 D21-B 声明互斥域）。
+
+**待用户明确（未重复推送）**：D21 红线协调（A 收口 NorthBoundPage / B 声明互斥文件域 / C 维持巡检）；MP-1 收尾授权 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat webhook 空 → agent-mail 仅附件上传无 SendMessage → 全部通道不可用，summary 落盘 summaries/loop-20260830-0428.md 兜底，标记「推送通道待开通」。
