@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-08-28T16:11:14+08:00",
+  "generatedAt": "2026-08-30T03:00:14+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
-    "round": 86,
+    "round": 89,
     "totalTickets": 59,
     "pagesActive": "24·24",
     "realDataSources": 6,
@@ -56,9 +56,9 @@
     {
       "id": "Sprint6",
       "title": "战略重构程序（AI-native + 游戏化 + 内外资资金流）— 用户 2026-07-27 战略转向",
-      "done": 9,
-      "total": 53,
-      "pct": 17,
+      "done": 11,
+      "total": 55,
+      "pct": 20,
       "status": "⏳ 进行中"
     }
   ],
@@ -268,9 +268,9 @@
     },
     {
       "id": "T5",
-      "desc": "exportScheduler.ts 类型漂移（bloombergExportEngine，首轮 tsc 偶现2错误后消",
-      "priority": "P3",
-      "status": "🔧 在管"
+      "desc": "：grep 确认 bloombergExportEngine.ts 已正确导出 ExportFormat/ExportR",
+      "priority": "✅ 已清",
+      "status": "✅ 已清"
     },
     {
       "id": "T6",
@@ -363,6 +363,16 @@
   ],
   "timeline": [
     {
+      "round": 88,
+      "tag": "IP-5 低覆盖核心模块契约测试轮，2026-08-29 03:18",
+      "summary": "防空转机制取自主改进池 IP-5（下一任务仍 await 用户明确授权，自主可推进项达天花板）。**单通道红线**：git status 仅 `.workbuddy/memory/"
+    },
+    {
+      "round": 87,
+      "tag": "IP-4 T5 类型漂移核实轮，2026-08-28 21:00",
+      "summary": "防空转机制取 IP-4（技术债 T5 exportScheduler 类型漂移）。**独立验证（先验证再采信·证伪漂移）**：`grep` 确认 `src/utils/bloomb"
+    },
+    {
       "round": 86,
       "tag": "IP-3 占位模块清理·漂移核实轮，2026-08-28 15:04",
       "summary": "单通道红线满足——git status 仅 `frontend/.workbuddy/memory/2026-08-27.md` 未跟踪（非生产源码），PLAN.md 干净、无生产"
@@ -390,16 +400,6 @@
     {
       "round": 76,
       "tag": "健康巡检待命轮，2026-08-24 21:00",
-      "summary": "纯健康巡检轮（无新开发；下一任务仍为\"健康巡检待命+await 用户明确下一授权工单\"，自主可推进项已达天花板：MP-1 用户主导已完成、T7 行业轮动已无 demo 残留、S2-"
-    },
-    {
-      "round": 75,
-      "tag": "健康巡检待命轮，2026-08-24 15:00",
-      "summary": "纯健康巡检轮（无新开发；下一任务仍为\"健康巡检待命+await 用户明确下一授权工单\"，自主可推进项已达天花板：MP-1 用户主导已完成、T7 行业轮动已无 demo 残留、S2-"
-    },
-    {
-      "round": 74,
-      "tag": "健康巡检待命轮，2026-08-24 09:01",
       "summary": "纯健康巡检轮（无新开发；下一任务仍为\"健康巡检待命+await 用户明确下一授权工单\"，自主可推进项已达天花板：MP-1 用户主导已完成、T7 行业轮动已无 demo 残留、S2-"
     }
   ]
