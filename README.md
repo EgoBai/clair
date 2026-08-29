@@ -93,7 +93,7 @@
 | Zustand | 状态管理 |
 | React Router 6 | 路由 |
 | Axios | HTTP 请求 |
-| Vite 6 | 构建工具 |
+| Vite 8 | 构建工具（当前 ^8.0.10） |
 
 ### 后端技术栈
 | 技术 | 用途 |
@@ -141,7 +141,7 @@ a-stock-website/
 │   │   │   ├── Market/       # 市场组件
 │   │   │   ├── Mobile/       # 移动端组件
 │   │   │   └── Stock/        # 股票组件
-│   │   ├── pages/            # 页面组件 (14个)
+│   │   ├── pages/            # 页面组件 (24+，含 _archived 归档页)
 │   │   ├── hooks/            # 自定义 Hooks (8个)
 │   │   ├── services/         # API/WS 服务
 │   │   ├── store/            # Zustand Store
@@ -223,7 +223,7 @@ a-stock-website/
 | 用户系统 | `user.test.ts` | 15 |
 | 性能监控 | `performanceMonitor.test.ts` | 10 |
 | 数据源 | `dataSource.test.ts` | 10 |
-| **合计** | **36 个测试文件** | **439+ 用例** |
+| **合计（早期快照·已过时）** | **36 个测试文件** | **439+ 用例（实际 857 文件）** |
 
 ## 📖 知识库
 

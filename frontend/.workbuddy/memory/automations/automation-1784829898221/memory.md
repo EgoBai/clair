@@ -42,3 +42,31 @@
 **专家团评估**：E1✅ 单文件小改动主理人自实现 / E2✅ 1 测试文件 / E3🟢 / E4✅ / E5✅ / E6🟢 质量基建收敛（核心引擎底层依赖补契约防护网）。
 **改进池进度**：IP-1~IP-5 已完成；剩 IP-6~IP-8。
 **推送通道**：wechat webhook 空 → agent-mail 仅暴露附件上传、无 SendMessage → 全部通道不可用，已落盘 summaries 兜底。
+
+## 第89轮（2026-08-29 09:27 · IP-6 文档-代码同步巡检轮）
+
+**单通道红线**：git status 仅 `.workbuddy/memory/` 未跟踪（记账产物，非生产源码在途），PLAN.md 此前干净、本轮仅文档改动，安全无 PAUSE。
+
+**取项**：PLAN「下一任务」仍 await 用户明确下一授权工单（MP-1 收尾 / S2-x 蜂群 / RAG二期向量化），按防空转纪律取自主改进池 IP-6（文档-代码同步巡检）。
+
+**独立验证（先验证再采信）**：
+- grep 确认 `PERFORMANCE_OPTIMIZATION_GUIDE.md` 所述 6 个性能组件（PerformanceProfiler/withPerformanceProfiler、LazyImage/withLazyImage、ResponsiveImage/withResponsiveImage、LazyComponentWrapper/createLazyComponent、PerformanceDashboard/PerformanceToggle）均真实存在于 `src/components/`，导出契约与文档一致。
+- grep 源码确认上述组件**仅被 `src/pages/_archived/` 演示页引用**，未被 App 全局挂载 → 「集成到应用」为示例非现状（真实漂移）。
+- README 所述 `Vite 6`（实际 `^8.0.10`）、`pages (14个)`（实际 32 文件/24 导航页）、测试覆盖表「36 文件/439+ 用例」（实际 857 测试文件）均为过时快照。被引子文档（COMPONENT-API/DEPLOYMENT/CONTRIBUTING/USER-MANUAL/CHANGELOG/design docs）均存在，无文档级死文档。
+
+**处置**：IP-6 实装（主理人，最小侵入，仅文档改动）：
+- README.md：Vite 6→8、`pages (14个)`→`(24+)`、测试覆盖表标注「早期快照·已过时」并指向 COVERAGE-BASELINE.md。
+- PERFORMANCE_OPTIMIZATION_GUIDE.md：补「文档同步校验」段，明示 demo-only 集成状态 + 清死文档评估（性能组件归 IP-7 代码级候选）。
+- 无生产源码改动；IP-6 销号至第九节表格 + 销号记录。
+
+**验证全绿**：tsc 0错 / build 4.74s / guard ERROR=0 WARN=0 INFO=0（维持 IP-1 基线）/ 27 路由 curl 全 200（FAIL=0）/ dev 5173=200 / 后端 3001=200 / 真实端点 `dataSource:'real'` 诚实标记完好。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-6 为常规文档同步，非用户待决策项；D14/D2/RAG二期/MP-1/S2-1 既存待决策或用户独占项未重复推送）。
+
+**专家团评估**：E1✅ 文档同步巡检无需分派 Agent / E2✅ 仅 2 文档改动远低于 500 行 / E3🟢 无需新技能 / E4✅ 主理人自执行 / E5✅ 无跨成员传递 / E6🟢 文档-代码一致性提升（消除 README 版本/pages/测试数快照漂移 + 标注性能组件 demo-only），无新技术债。
+
+**改进池进度**：IP-1~IP-6 已完成；剩 IP-7~IP-8。
+
+**待用户明确（未重复推送）**：MP-1 收尾授权 / 指定 S2-x 蜂群工单 / RAG 二期向量化（DeepSeek key 已通电，用户独占）/ D2 POC 四件套延后至完整体验版后。
+
+**推送通道**：wechat webhook 空 → agent-mail 仅暴露附件上传、无 SendMessage → 全部通道不可用，已落盘 summaries（loop-20260829-0927.md）兜底，标记「推送通道待开通」。

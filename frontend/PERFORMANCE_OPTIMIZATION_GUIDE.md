@@ -528,3 +528,13 @@ const checkMemoryUsage = () => {
 4. **改善开发体验**：通过实时性能监控和调试工具
 
 建议在开发过程中持续使用这些工具，建立性能优化的开发习惯，确保应用始终保持良好的性能表现。
+
+---
+
+## 文档同步校验（2026-08-29 · 第89轮）
+
+> **巡检结论**：本文档所述的 6 个性能组件——`PerformanceProfiler` / `withPerformanceProfiler`、`LazyImage` / `withLazyImage`、`ResponsiveImage` / `withResponsiveImage`、`LazyComponentWrapper` / `createLazyComponent`、`PerformanceDashboard` / `PerformanceToggle`——均真实存在于 `src/components/`，导出契约与本文档示例一致（已 grep 验证）。
+>
+> ⚠️ **集成状态偏差**：经源码 grep 确认，上述组件**当前仅被 `src/pages/_archived/` 下的演示页（`PerformanceDemoPage.tsx`、`PerformanceDashboardPage.tsx`）引用**，并未在 App 根节点挂载。因此「集成到应用」段落（`<PerformanceDashboard />` 开发环境注入、`PerformanceToggle` 全局添加）为**示例性说明，并非当前生产挂载状态**。若需真正启用全局性能监控面板，需在 App 中挂载 `<PerformanceDashboard />`（开发环境）并接入路由。
+>
+> 「清死文档」评估：本次未发现完全无用的独立文档（被引用子文档 COMPONENT-API / DEPLOYMENT / CONTRIBUTING / USER-MANUAL / CHANGELOG 等均存在）；性能组件本身未被生产消费、仅 demo 引用，属「代码级死代码」而非文档级死文档，建议后续作为 IP-7 拆分或清理候选评估，本轮回账不改码。
