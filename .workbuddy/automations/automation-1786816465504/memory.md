@@ -78,3 +78,10 @@
 - **重导入+发布**：✅ connect_open_platform(skill_id=library) 取 token → import_html.py `--node-block-id eogGNOjY0dIWxTpPibPgvj` 原地更新成功（KS_IMPORT_OK，url https://www.workbuddy.cn/space/d/eogGNOjY0dIWxTpPibPgvj）→ publish_page.py 发布公开成功（publishUrl https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）。
 - **收口**：✅ 追加本轮执行记录至 memory.md 并 git add + commit + push（仅本轮产物，未触碰 frontend/ 在途文件）。
 - 备注：全链路一次成功，无降级；token 经 `--token-stdin` 正确注入，轮次计数较前次（79）更新至 83。
+
+## 2026-08-30 03:00 (GMT+8) — 第十四次执行
+- **重新生成**：✅ `scripts/gen_dashboard.py` 输出 docs/dashboard-data.json + docs/clair-dashboard.html（generatedAt 2026-08-30T03:00:14+08:00；round=89 tickets=59 realSrc=6 sprints=6 decisions=19 debts=11 swarm=5 orch=5 timeline=8）。轮次由 83 升至 89，进度持续推进。
+- **提交+推送**：✅ 仅 `git add docs/dashboard-data.json docs/clair-dashboard.html`，commit `3d3ee488e`（"chore(dashboard): 自动刷新进度数据"）。`git-push-retry.sh` 首试直连即推送成功到 origin/main（aab7ef6fc..3d3ee488e）。在途文件未触碰。
+- **重导入+发布**：✅ connect_open_platform(skill_id=library) 取 token → import_html.py `--node-block-id eogGNOjY0dIWxTpPibPgvj` 原地更新成功（KS_IMPORT_OK，url https://www.workbuddy.cn/space/d/eogGNOjY0dIWxTpPibPgvj）→ publish_page.py 发布公开成功（publishUrl https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）。
+- **收口**：✅ 追加本轮执行记录至 memory.md 并 git add + commit + push（仅本轮产物，未触碰 frontend/ 在途文件）。
+- 备注：全链路一次成功，无降级；token 经 `--token-stdin` 正确注入，轮次计数较前次（83）更新至 89。
