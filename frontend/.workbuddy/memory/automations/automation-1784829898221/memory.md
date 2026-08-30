@@ -129,3 +129,24 @@
 **待用户明确（未重复推送新项）**：D21 红线协调（A 收口 NorthBoundPage / B 互斥域 / C 维持巡检）；MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat webhook 空 → agent-mail 仅附件上传无 SendMessage → 全部通道不可用，summary 落盘 summaries/loop-20260830-2315.md 兜底，标记「推送通道待开通」。
+
+## 第93轮（2026-08-31 05:18 · 单通道红线连续4轮暂停·升级轮）
+
+**单通道红线**：git status 仍检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11）→ **红线触发（连续第4轮：90/91/92/93）**。另两类为记账类容忍脏（`.workbuddy/memory/automations/.../memory.md` M、`.workbuddy/memory/2026-08-31.md` ??），不触发。严守红线默认=C，未碰任何源码、未推进改进池（IP-7/utils拆分/IP-8/三态体验均因触碰 frontend/src 顺延）。
+
+**独立验证（先验证再采信·证伪破坏）**：
+- `git diff --stat` 复核：NorthBoundPage +15/-11（26 行变动），与第90/91/92轮记载完全吻合。
+- `grep` 确认 `NorthBoundPage.tsx:23` 导入 `LoadingStateDetail, EmptyState` 自 `StateComponents.tsx`，`:179`/`:198` 实际引用；`StateComponents.tsx:52`(`EmptyState`)/`:339`(`LoadingStateDetail`) 两导出均存在 → 在途改动引用一致、自包含、非破坏。
+- 只读健康校验：`./node_modules/.bin/tsc --noEmit` exit 0（TSC_OK，在途改动可编译）/ dev 5173=200 / 后端 3001=200 → 在途改动健康、非破坏。
+
+**处置**：本轮默认=C（健康巡检+记账），不并行改库。源码推进（IP-7/IP-8）顺延，待 D21-A 收口 / D21-B 互斥域声明后恢复。
+
+**决策门**：🔴 升级 D21 —— 连续4轮(90/91/92/93)红线暂停，automation 无源码进展；已向 DECISION_LOG D21 追加「连续4轮暂停升级」段（第93轮 05:18），请用户尽快选 A（收口 NorthBoundPage.tsx）/ B（声明互斥域），否则持续 C 待命。非开发停滞、非产品缺陷，性质异于 D19/D20。
+
+**专家团评估**：E1✅ 无需分派（红线暂停+只读验证）/ E2✅ 零源码改动、仅 D21 文本升级 / E3🟢 / E4✅ / E5✅ / E6🟢 无新技术债（在途改动健康）。
+
+**改进池进度**：IP-1~IP-6 已完成；IP-7~IP-8 顺延（触碰 frontend/src，红线期间不可推进）。
+
+**待用户明确（未重复推送新项）**：D21 红线协调（A 收口 NorthBoundPage / B 互斥域 / C 维持巡检）；MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat webhook 空 → agent-mail 仅附件上传无 SendMessage → 全部通道不可用，summary 落盘 summaries/loop-20260831-0518.md 兜底，标记「推送通道待开通」。
