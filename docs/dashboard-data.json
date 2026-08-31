@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-08-31T03:00:43+08:00",
+  "generatedAt": "2026-09-01T03:00:37+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
-    "round": 92,
+    "round": 96,
     "totalTickets": 59,
     "pagesActive": "24·24",
     "realDataSources": 6,
@@ -363,6 +363,11 @@
   ],
   "timeline": [
     {
+      "round": 94,
+      "tag": "单通道红线连续5轮暂停·升级轮，2026-08-31 11:27",
+      "summary": "单通道红线第5次触发（git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx +15/-11，与第90-93轮完全吻合），au"
+    },
+    {
       "round": 88,
       "tag": "IP-5 低覆盖核心模块契约测试轮，2026-08-29 03:18",
       "summary": "防空转机制取自主改进池 IP-5（下一任务仍 await 用户明确授权，自主可推进项达天花板）。**单通道红线**：git status 仅 `.workbuddy/memory/"
@@ -396,11 +401,6 @@
       "round": 77,
       "tag": "健康巡检待命轮，2026-08-25 03:00",
       "summary": "纯健康巡检轮（无新开发；下一任务仍为\"健康巡检待命+await 用户明确下一授权工单\"，自主可推进项已达天花板：MP-1 用户主导已完成、S2-1 待东财 push2 网络出口可行"
-    },
-    {
-      "round": 76,
-      "tag": "健康巡检待命轮，2026-08-24 21:00",
-      "summary": "纯健康巡检轮（无新开发；下一任务仍为\"健康巡检待命+await 用户明确下一授权工单\"，自主可推进项已达天花板：MP-1 用户主导已完成、T7 行业轮动已无 demo 残留、S2-"
     }
   ]
 }
