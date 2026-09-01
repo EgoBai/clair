@@ -1,16 +1,16 @@
 {
-  "generatedAt": "2026-09-01T03:00:37+08:00",
+  "generatedAt": "2026-09-02T03:03:11+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
-    "round": 96,
+    "round": 98,
     "totalTickets": 59,
     "pagesActive": "24·24",
     "realDataSources": 6,
-    "health": "🟢 全绿（待命）",
+    "health": "🟠 暂停（PAUSE 红线·工作区停滞）",
     "sprint5Progress": "67%",
-    "stagnation": false,
-    "stagnationDetail": ""
+    "stagnation": true,
+    "stagnationDetail": "工作区停滞，automation 严守红线 PAUSE"
   },
   "sprints": [
     {
