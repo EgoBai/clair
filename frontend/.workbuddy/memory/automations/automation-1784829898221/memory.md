@@ -234,3 +234,39 @@
 **待用户明确（未重复推送新项）**：D21 红线协调（A 收口 NorthBoundPage / B 互斥域 / C 维持巡检）；MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat webhook 空 → agent-mail 仅附件上传无 SendMessage → 全部通道不可用，summary 落盘 summaries/loop-20260901-0542.md 兜底，标记「推送通道待开通」。
+
+## 第98轮（2026-09-01 12:00 · 单通道红线连续9轮暂停·升级轮 + IP-8 准备）
+
+**单通道红线**：git status 仍检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11）→ **红线触发（连续第9轮：90/91/92/93/94/95/96/97/98）**。仅此 1 个生产源码脏文件，无其它源码/记账类脏。严守红线默认=C，未碰任何源码、未推进改进池（IP-7/utils拆分/IP-8/三态体验均因触碰 frontend/src 顺延）。
+
+**独立验证（先验证再采信·证伪破坏）**：
+- `git diff --stat` 复核：NorthBoundPage +15/-11（26 行变动），与第90~97轮记载完全吻合；`git diff` 细读确认改动为「自定义 `<Spin>`/`<Empty>` 加载/空态 → 共享 `LoadingStateDetail`/`EmptyState` + 移除未用 antd `Empty`/`Spin` 导入」，属三态规范一致性重构、自包含、非破坏。
+- `grep` 确认 `NorthBoundPage.tsx:23` 导入 `LoadingStateDetail, EmptyState` 自 `StateComponents.tsx`，`:179`/`:198` 实际引用；`StateComponents.tsx:52`(`EmptyState`)/`:339`(`LoadingStateDetail`) 两导出均存在 → 在途改动引用一致、非破坏。
+- 只读健康校验：`./node_modules/.bin/tsc --noEmit` exit 0（TSC_OK）/ dev 5173=200 / 后端 3001=200 / `/north-bound` 路由 200 → 在途改动健康、可编译、非破坏。
+
+**本轮附加价值（红线内安全动作·打破纯空转）**：为 IP-8（三态体验统一）做**只读执行准备**——grep 枚举仍用内联 antd `<Spin>`/`<Empty>` 的活跃页，形成红线解除后即可执行的精确工单清单（file:line）：
+- HKConnectPage.tsx:253/284/313（Empty 当加载态+空态）
+- StockComparePage.tsx:199/201（Spin+Empty）
+- PortfolioPage.tsx:261/279/365/416（Spin+Empty）
+- FundFlowPage.tsx:206/225/238/282/288/322/362/374/392/416/446（大量 Spin/Empty）
+- EventCalendarPage.tsx:235/300/323（Empty）
+- TopTradersPage.tsx:120/122（Spin+Empty）
+- RadarPage.tsx:620（Empty）
+- WatchlistPage.tsx:370/414/417/1250/1429/1495/1548（Spin+Empty 混合）
+- MarginTradingPage.tsx:137（Spin）
+- KnowledgeBase.tsx:514（Empty）
+- MacroPage.tsx:195（Spin）
+- MacroHubPage.tsx:280（Spin）
+- 注：StockDetailPage(247/498 已用 EmptyState/LoadingState)、IndexDetailPage(76 已用 EmptyState)、BacktestPage(487 已用 EmptyState)、WatchlistPage(417 已用 EmptyState) 已统一，无需返工；`_archived/` 与 `.bak-*` 不计。共 **12 页待统一**，红线解除后每轮推进 1-2 页（最小侵入，复用 NorthBoundPage 同款替换模式）。
+
+**处置**：本轮默认=C（健康巡检+记账+IP-8 只读准备），不并行改库。源码推进（IP-7/IP-8）顺延，待 D21-A 收口 / D21-B 互斥域声明后恢复。
+
+**决策门**：🔴 升级 D21 —— 连续9轮(90~98)红线暂停，automation 无源码进展；已向 DECISION_LOG D21 追加「连续9轮暂停升级」段（第98轮 12:00），请用户尽快选 A（收口 NorthBoundPage.tsx）/ B（声明互斥域），否则持续 C 待命。非开发停滞、非产品缺陷，性质异于 D19/D20。
+
+**专家团评估**：E1✅ 无需分派（红线暂停+只读验证+IP-8 准备）/ E2✅ 零源码改动、仅 D21 文本升级 + memory 准备清单 / E3🟢 / E4✅ / E5✅ / E6🟢 无新技术债（在途改动健康）。
+
+**改进池进度**：IP-1~IP-6 已完成；IP-7~IP-8 顺延（触碰 frontend/src，红线期间不可推进）；IP-8 已备只读执行清单。
+
+**待用户明确（未重复推送新项）**：D21 红线协调（A 收口 NorthBoundPage / B 互斥域 / C 维持巡检）；MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat webhook 空 → agent-mail 仅附件上传无 SendMessage → 全部通道不可用，summary 落盘 summaries/loop-20260901-1200.md 兜底，标记「推送通道待开通」。
