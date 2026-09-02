@@ -26,3 +26,20 @@
 - 本轮纠正一处外部误判：兄弟日报称「PLAN.md 记录至第 29 轮」不实——PLAN.md 第七节实记至第 89 轮，仅第 90-92 轮未回账（现记于 DECISION_LOG D21 + 循环 memory）。另如实标注 `.workbuddy/memory/2026-08-30.md` 不存在（当日无开发日志）。
 - 落盘：`.workbuddy/memory/2026-08-31.md`（新建，含「## 每日日报」7 段式），已 present_files 交付。
 - 推送仍不可用（与第 1 次同因：无 webhook 配置 + agent-mail 仅附件能力），已再次 ToolSearch 复核确认无 send_mail/微信推送工具。
+
+### 2026-09-02 00:0x（第 3 次）
+- 数据源：git log（09-01 共 4 提交，全 chore：看板 2 + 循环记账 2，HEAD=8a3e3c091）+ PLAN.md 第七/九节 + DECISION_LOG.md D21（连续9轮）+ 循环记忆（第97/98轮）+ 本轮全量实测（tsc/build/guard/15 路由/4 真实端点）。
+- 结论主题：昨日零源码零功能产出；**新发现 R1 循环静默**——09-01 12:21:31 后 11h40m 全仓无任何写入（`find -newermt` 核实），循环(18:00/00:00)、看板(15:00)、每日总结(23:00) 全部缺席，而 automation 列表显示全部 ACTIVE；本报链路 09-01 一档亦缺失（上次成功 08-31）。
+- 健康实测全绿：tsc 0 错 / build 4.61s / guard 0-0-0（602 文件）/ 15 路由全 200 / dev 5173 + 后端 3001 在线。红线仍触发（NorthBoundPage.tsx +15/-11，连续 9 轮）。
+- **R1 已定位并更正**：初判「静默」有误——查 `/Users/ego_bai/.workbuddy/logs/automation.log` 证实自动化**均正常触发，但中途失败**，统一报错 `[UNKNOWN] Conversation ended before automation request completed`。09-01 三处失败：主循环第99轮(18:22-18:40)、每日总结(23:00-23:16)、本日报(00:11)。近 7 天 9 次失败横跨 4 条自动化。
+- 真实链路退化（诚实未伪造）：行业资金流 `unavailable`、因子引擎 asOf 停在 2026-06-05（coverage=12）、`/api/fund-flow/600519` 报「股票未找到」。
+- 落盘：`.workbuddy/memory/2026-09-02.md`（新建，7 段式日报 + 验证明细 + 调度日志诊断表），已 present_files 交付。
+- 推送仍不可用（第三次同因复核：无 `.wechat_push.json`、agent-mail 仅附件上传/下载、无 send_mail）。
+
+### 2026-09-02 补充：取数路径与诊断方法（重要，后续沿用）
+- 循环总结 `summaries/` 实际落在 **`/Users/ego_bai/WorkBuddy/20260318120110/summaries/`**，不在 `frontend/.workbuddy/summaries/`（后者不存在）。第 2 次记录里的路径需按此修正。
+- **判断「自动化是否真的跑了」必须查调度日志**：`/Users/ego_bai/.workbuddy/logs/automation.log`（UTC 时间，+8=CST），`grep "run start|run finished|success=false"`。仅凭「仓库无新提交/无文件写入」会误判为静默，实际多为 `Conversation ended before automation request completed` 中途失败。
+- 本自动化近 4 次成功率约 50%（08-30 ❌ / 08-31 ✅ / 09-01 ❌ / 09-02 运行中），失败时不落盘 → 出现「某天日报缺失」应先查日志确认是失败还是未触发。
+
+### 2026-09-02 补充：取数路径勘误
+- 循环总结 `summaries/` 实际落在 **`/Users/ego_bai/WorkBuddy/20260318120110/summaries/`**，不在 `frontend/.workbuddy/summaries/`（后者不存在）。第 2 次记录里的路径需按此修正。

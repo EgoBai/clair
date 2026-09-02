@@ -1,7 +1,7 @@
 # 澄观 Clair 项目记忆（a-stock-website）
 
 > 仓库：~/.openclaw/workspace/a-stock-website/ （GitHub: EgoBai/clair）
-> 主理人：WorkBuddy。自动化：automation-1784829898221（HOURLY;INTERVAL=6，当前 PAUSED）。
+> 主理人：WorkBuddy。自动化：automation-1784829898221（HOURLY;INTERVAL=6，**ACTIVE**——2026-09-02 经 automation 列表核实，此前记「PAUSED」已过期）。
 
 ## 真实数据源架构（关键结论，2026-08-10 实测）
 
@@ -20,6 +20,14 @@
 - **沙箱有本地代理**：node/axios 调公网会 400（host→127.0.0.1）。验证真实可达性需 `env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy HTTPS_PROXY= HTTP_PROXY= node ...`（curl 不受影响，可直接验证接口）。
 - vitest 配置坑：`vitest.config.ts` 的 `include:['src/**/*.test.ts']` + root=backend/src 会双重 `src/` 扫描不到。临时解决：在 `backend/src/` 内建临时 config（`include:['__tests__/**/*.test.ts']`），`npx vitest run --config <tmp>.config.ts <filter>`，跑完即删（/tmp 放 config 解析不到 vitest/config）。
 - 沙箱全量 `tsc --noEmit` 偶发 OOM 假错，用 esbuild 转译 + 定向验证替代。
+
+## 自动化可靠性诊断（2026-09-02 实测新增）
+
+- **调度日志是唯一真相源**：`/Users/ego_bai/.workbuddy/logs/automation.log`（**UTC 时间，+8=CST**）。查法：`grep "run start|run finished|success=false" automation.log`。
+- **「仓库无新提交」≠ 自动化没跑**。2026-09-02 初判「09-01 12:21 后 11h40m 静默」即误判——日志证实自动化全部正常触发，但**中途失败**，统一报错 `[UNKNOWN] Conversation ended before automation request completed`。近 7 天 9 次失败，横跨主循环/日报/每日总结/测评蜂群 4 条自动化，属系统性中断（疑似会话超时、应用退出或并发上限），非单条配置问题。
+- 排查顺序：先查日志确认「失败 vs 未触发」，再定位根因；不要只看 git log。
+- 各自动化产物落点：主循环总结 → `/Users/ego_bai/WorkBuddy/20260318120110/summaries/`；看板 → `docs/dashboard-data.json`；日报 → `.workbuddy/memory/<日期>.md`。
+- **微信推送仍不可用**（第三次复核）：无 `.wechat_push.json`；agent-mail connector 仅暴露附件上传/下载，无 send_mail。只能「对话输出 + 落盘 + present_files」三通道触达。
 
 ## 进度
 
