@@ -312,3 +312,32 @@
 **待用户明确（未重复推送新项）**：D21 红线协调（A 收口 NorthBoundPage / B 互斥域 / C 维持巡检）；MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat webhook 空 → agent-mail 仅附件上传无 SendMessage → 全部通道不可用，summary 落盘 summaries/loop-20260902-1324.md 兜底，标记「推送通道待开通」。
+
+## 第101轮（2026-09-03 02:12 · 红线判定精细化 D22 + IP-9 循环验证体系失效修复·终结连续11轮空转）
+
+**单通道红线（判定精细化·D22）**：git status 仍检出 `M frontend/src/pages/NorthBoundPage.tsx`。**但本轮新增关键证据**：该文件 `mtime=2026-08-29 16:00:22`（**已静止 4.4 天**），`git diff --stat` 跨第90~100轮 11 次完全一致（+15/-11 不变）→ 判定为**陈旧遗留改动，非活跃并行写码**。依「防空转·最高优先级纪律」（连续11轮零产出已实质等于空转），改采「**零交集域推进**」：作业范围严格限定 `frontend/e2e/`，与在途文件及整个 `frontend/src` 零文件交集，守红线本意（不并行改库）同时恢复产出。已立 D22 🟡 请用户追认此二级判定规则。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-7/IP-8 触碰 `frontend/src` 仍被红线阻塞 → 现场挖掘并登记 **IP-9**（P1，优先级高于 IP-7/IP-8），恰好落在 `e2e/` 零交集域，可立即执行。
+
+**本轮核心发现（证伪循环自身验收·约百轮未被发现）**：`curl -o /dev/null -w "%{http_code}" http://127.0.0.1:5173/definitely-not-a-route-xyz123` → **200**。本项目为 Vite SPA，任意路径均命中 index.html fallback，故循环近百轮写进验收报告的「N 路由 curl 全 200（FAIL=0）」**对渲染健康零信息量**，白屏/抛错/路由未注册均可假绿 = 自欺型验收。
+
+**执行（团队协作 mimo + 主理人独立复核 + 探针补强）**：
+- 分派 mimo 新建 `frontend/e2e/route-render-smoke.spec.ts`，**下达文件域硬锁**（只许写 e2e/，禁改 src/、package.json、playwright.config.ts、禁 git 操作）。
+- 交付：32 例 = 31 条 ROUTE_PATHS 路由（27 静态 + 4 参数化，:symbol→600519/000001/801010）× 四重断言（`.app-content` 可见 / `.content-wrapper` 非空防白屏 / 无 `pageerror` / 未落入 `UnifiedErrorBoundary` 兜底文案）+ 1 反向用例（不存在路由须渲染 `.not-found-page`，直接证伪 curl 假绿）。
+- **独立验证（未轻信自报）**：grep 复核 4 选择器均真实存在（`NotFoundPage.tsx:9`、`UnifiedErrorBoundary.tsx:135` `渲染失败`、`AppLayout.tsx:76/80`）；主理人**亲自复跑** playwright 32/32（6.8s）。
+- **主理人探针补强（本轮最高价值动作）**：写临时探针 `__probe.spec.ts` 实测 → **404 页同样满足「content-wrapper 非空 + 无错误边界文案」**，即原用例对「路由静默退化为 404 死链」会漏网；遂为每条路由补 `.not-found-page` `toHaveCount(0)` **反 404 退化守卫**，探针用后即删。补强后复跑仍 32/32。
+
+**验证全绿**：主理人复跑 route-render-smoke 32/32 / **全量 e2e chromium 52/52（既有20+新增32，零回归）** / tsc --noEmit 0错 / guard ERROR=0 WARN=0 INFO=0（维持基线）/ build 6.33s 一次过 / dev 5173=200 / 后端 3001=200 / `/api/market/realtime` 上证 3941.39 -0.97% `dataSource:'real'` 诚实标记完好。
+**结论（首次有证据支撑）**：31 条路由确证真实渲染，零死链、零白屏、零崩溃。
+
+**文件域自检**：仅新增 `frontend/e2e/route-render-smoke.spec.ts`，**`frontend/src` 未改一字**，`NorthBoundPage.tsx` 保持原样（探针已删除）。
+
+**决策门**：🟠 D23 重大进展（验证体系失效已修复，仅告知无需决策）+ 🟡 D22（红线二级判定规则，待用户追认/否决）。
+
+**专家团评估**：E1✅ 渲染/UI 域派 mimo 匹配 / E2✅ 单文件 141 行 <500 / **E3🟡 触发**——playwright 渲染冒烟正式升为每轮常规守卫（替代 curl 作渲染证据），登记 IP-10 补 e2e 静态类型守卫 / E4✅ 单 Agent 够用 / **E5🟡 新纪律固化**——独立验证不止于「复跑子智能体的测试」，须**构造反例探针证伪其断言甄别力**（本轮据此捕获 404 漏网缺口）/ E6🟢 清偿一项此前未识别的「验证体系债」，无新增技术债。
+
+**改进池进度**：IP-1~IP-6 已完成；**IP-9 本轮完成**；新登记 IP-10（e2e 不在 tsc 覆盖）/ IP-11（PLAN 历史失效验收话术清理）；IP-7/IP-8 仍因触碰 `frontend/src` 被红线阻塞，待 D21-A 收口或 D22 追认后恢复。
+
+**待用户明确**：**D22 红线二级判定追认（新）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7/IP-8 即解锁）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` type/webhook 仍空；agent-mail 经 ToolSearch 复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260903-0212.md 兜底，标记「推送通道待开通」。
