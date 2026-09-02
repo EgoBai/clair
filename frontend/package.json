@@ -18,7 +18,8 @@
     "test:performance:ci": "node scripts/performance-test.js --ci",
     "analyze:bundle": "npx vite-bundle-analyzer",
     "check:performance": "node scripts/check-performance.js",
-    "guard": "tsx scripts/ui-guard/ast-scan.mts && tsx scripts/ui-guard/baseline-scan.mts"
+    "guard": "tsx scripts/ui-guard/ast-scan.mts && tsx scripts/ui-guard/baseline-scan.mts",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"
   },
   "dependencies": {
     "@ant-design/icons": "^5.2.6",
