@@ -6,7 +6,8 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress, Empty } from 'antd';
+import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress } from 'antd';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import {
   ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FallOutlined,
 } from '@ant-design/icons';
@@ -250,7 +251,7 @@ const HKConnectPage: React.FC = () => {
             </Col>
           </Row>
         ) : (
-          <Empty description={loading ? '加载中…' : '今日沪深港通实时额度暂不可用（真实源未返回）'} />
+          loading ? <LoadingStateDetail /> : <EmptyState title="今日沪深港通实时额度暂不可用" description="真实源未返回数据" />
         )}
         <Text style={{ color: THEME.textSec, fontSize: 12 }}>
           红=净流入 / 绿=净流出（中国习惯）；额度使用率 = (总额度 − 余额) / 总额度。收盘后北向净额东方财富归零为正常现象。
@@ -281,7 +282,7 @@ const HKConnectPage: React.FC = () => {
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (
-              <Empty description={loading ? '加载中…' : 'A-H 溢价真实数据暂不可用'} />
+              loading ? <LoadingStateDetail /> : <EmptyState title="A-H 溢价真实数据暂不可用" />
             )}
           </Card>
         </Col>
@@ -310,7 +311,7 @@ const HKConnectPage: React.FC = () => {
         size="small"
         style={{ background: THEME.cardBg, borderColor: THEME.border, marginTop: 16 }}
       >
-        <Empty description="北向重仓股、资金风格与持仓信号暂未接入真实数据源（东方财富对应接口需进一步对接），为避免伪造演示数据，相关模块暂缓呈现。A-H 溢价与今日沪深港通已实时接通。" />
+        <EmptyState title="部分模块暂未接入真实数据源" description="北向重仓股、资金风格与持仓信号需进一步对接（东方财富对应接口），为避免伪造演示数据暂缓呈现。A-H 溢价与今日沪深港通已实时接通。" />
       </Card>
 
       <Text style={{ color: THEME.textSec, fontSize: 12, display: 'block', marginTop: 12 }}>

@@ -422,3 +422,31 @@
 **待用户明确（未重复推送）**：**D24 龙虎榜后端路由未注册（新·🟡 待决策）** / **D22 红线二级判定追认（已连续4轮验证有效）** / D21-A 收口 NorthBoundPage.tsx（26行低风险）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260903-XXXX.md 兜底，标记「推送通道待开通」。
+
+## 第105轮（2026-09-03 21:28 · IP-8 第2批·零交集域·三态统一）
+
+**单通道红线（沿用 D22 二级判定）**：git status 仍检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11，陈旧遗留，mtime 2026-08-29 静止 5+天，跨 90~104 轮 diff 一致）→ 非活跃并行写码。本轮作业域 HKConnectPage.tsx + StockComparePage.tsx 与在途文件零交集，续推 IP-8。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-7/utils拆分 仍因触碰 frontend/src 被红线阻塞（与 NorthBoundPage 零交集但纪律保守，待 D22 追认解锁）→ 取 IP-8 第2批（2页）。
+
+**实装（mimo 协作 + 主理人独立复核 + 独占写权防并发）**：
+- 派 mimo 单原子 Ticket（文件域硬锁：仅 HKConnectPage.tsx / StockComparePage.tsx，独占写权，禁改 src/components/package.json/e2e/、禁 git），规避 R104 并发写冲突。
+- HKConnectPage.tsx：移除 antd `Empty`，挂 `LoadingStateDetail`/`EmptyState`（今日沪深港通额度、A-H 溢价 loading-空态二选一 + 北向重仓股模块永久诚实空态「部分模块暂未接入真实数据源」）。
+- StockComparePage.tsx：移除 antd `Spin`/`Empty`，加载态→`LoadingStateDetail`、空态→`EmptyState title="暂无对比数据"`。
+
+**独立验证（E5 反例探针·先验证再采信·未轻信自报）**：
+- git diff 复核 2 文件净改动 9+7 行，antd Spin/Empty 移除、共享组件挂载，与在途 NorthBoundPage.tsx 零交集、零越界。
+- `tsc --noEmit` 0错 / `npm run build` 8.47s 一次过 / `npx playwright test e2e/route-render-smoke.spec.ts` **32/32**。
+- E5 反例探针 `__probe_tristate2.spec.ts`：`/hk-connect` 无条件 EmptyState「部分模块暂未接入真实数据源」可见（证伪重构静默退化）；`/stock-compare` 路由渲染健康（route-render-smoke 已覆盖）。探针用后即删。
+
+**文件域自检**：仅改 2 个 pages 文件（HKConnect/StockCompare），**`frontend/src` 其余文件及在途 NorthBoundPage.tsx 未触碰**，红线零交集纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增——IP-8 为常规三态体验收敛，非用户待决策项；D22（已连续5轮验证有效）/ D21-A / D24 仍既存待用户动作，未重复推送。
+
+**专家团评估**：E1✅ UI/UX 域派 mimo 匹配 / E2✅ 2页 9+7 行远低于 500 / E3🟢 复用 playwright 渲染守卫（R101 已纳常规）/ E4✅ 单 Agent 单 Ticket / **E5🟡 纪律固化**——派发显式「单原子 Ticket+独占写权+仅2文件」杜绝 R104 并发冲突，git diff 独立复核证零越界 / E6🟢 三态体验一致性收敛（共享组件复用面扩大，诚实空态保留），无新技术债。
+
+**改进池进度**：IP-1~IP-6 已完成；IP-9~IP-11 已完成；**IP-8 第1批(2页)+第2批(2页)已完成，剩8页**（Portfolio/FundFlow/EventCalendar/Radar/Watchlist/KnowledgeBase/Macro/MacroHub）待后续轮次逐页统一；IP-7/utils拆分 仍因触碰 frontend/src 被红线阻塞（待 D22 追认后恢复）。
+
+**待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续5轮验证有效·新紧迫）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7 即解锁）/ **D24 龙虎榜后端路由未注册（🟡 待决策）** / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 经 ToolSearch 复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260903-2128.md 兜底，标记「推送通道待开通」。

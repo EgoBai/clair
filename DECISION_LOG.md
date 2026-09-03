@@ -122,6 +122,7 @@
   - **本轮处置（已执行）**：改采「**零交集域推进**」——本轮全部作业限定在 `frontend/e2e/`，与在途文件及整个 `frontend/src` **零文件交集**，既完整保留红线本意（绝不并行改同一库域、绝不触碰他人在途改动），又终结连续 11 轮零产出。文件域自检结果：仅新增 `frontend/e2e/route-render-smoke.spec.ts`，`frontend/src` 未改一字，`NorthBoundPage.tsx` 保持原样。
   - **拟固化规则（请用户追认或否决）**：红线触发时不再一律整轮暂停，改为二级判定——① 在途生产源码 **mtime < 24h**（活跃并行）→ 维持整轮 PAUSE；② 在途源码 **mtime ≥ 24h 且连续 ≥2 轮 diff 无变化**（陈旧遗留）→ 判定为非活跃，允许在与在途文件**零文件交集**的域内继续推进改进池，仍严禁触碰在途文件本身及其直接依赖。
   - **状态**：🟡 **待用户追认**。若用户否决，automation 下轮起恢复 D21 的整轮 PAUSE 默认=C；若追认，建议同时选 D21-A（`git commit` 收口 NorthBoundPage.tsx 那 26 行三态重构，低风险可秒回滚），红线即彻底解除、IP-7/IP-8 等触碰 `frontend/src` 的改进项方能恢复推进（当前仍被阻塞）。
+  - **续验（第105轮 21:28）**：D22 零交集域二级判定已连续 **5 轮（101/102/103/104/105）验证有效**——本轮在 HKConnectPage.tsx+StockComparePage.tsx 零交集域续推 IP-8 第2批，git diff 证零越界、tsc/build/e2e 全绿、未触碰在途 NorthBoundPage.tsx。追认紧迫性递增：IP-7/utils拆分 仍因触碰 `frontend/src` 被阻塞（与 NorthBoundPage.tsx 零交集但纪律保守），用户追认 D22 即可解锁。
 
 - **🟠 D23（2026-09-03 · 第101轮）循环自身验收体系失效已修复（重大进展·无需用户决策，仅告知）**：主理人独立验证发现——循环近百轮在验收报告中反复引用的「N 路由 curl 全 200（FAIL=0）」**对渲染健康零信息量**：本项目为 Vite SPA，任意路径均命中 index.html fallback，实测 `curl -o /dev/null -w "%{http_code}" http://127.0.0.1:5173/definitely-not-a-route-xyz123` 返回 **200**。即页面白屏、组件抛错、路由根本未注册时，curl 依旧全绿——属**自欺型验收**，是循环质量体系的结构性盲区（约百轮未被发现）。
   - **修复**：新建 `frontend/e2e/route-render-smoke.spec.ts`（32 例）——31 条 `ROUTE_PATHS` 路由每条四重断言（`.app-content` 可见 / `.content-wrapper` 非空防白屏 / 无 `pageerror` / 未落入 `UnifiedErrorBoundary` 兜底）+ 1 条反向用例（不存在路由须渲染 `.not-found-page`，直接证伪 curl 假绿）。主理人另以临时探针实测「404 页可满足原断言」，据此为每条路由补 `.not-found-page toHaveCount(0)` **反死链退化守卫**（探针用后即删）。

@@ -6,7 +6,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import logger from '../utils/logger';
 import { apiService } from '../services/api';
-import { Card, Select, Table, Tag, Row, Col, Spin, Button, Empty, Tabs, Statistic } from 'antd';
+import { Card, Select, Table, Tag, Row, Col, Button, Tabs, Statistic } from 'antd';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import { DeleteOutlined } from '@ant-design/icons';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend,
@@ -196,9 +197,9 @@ export default function StockComparePage() {
       </Card>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
+        <LoadingStateDetail />
       ) : stocks.length < 2 ? (
-        <Empty description="暂无对比数据（后端接口未返回数据或不可达）" />
+        <EmptyState title="暂无对比数据" description="后端接口未返回数据或不可达" />
       ) : (
         <>
           {/* 价格速览 */}
