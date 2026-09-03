@@ -8,8 +8,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import logger from '../utils/logger';
 import {
   Card, Tag, Row, Col, Statistic, Segmented, Space, Typography,
-  Button, Badge, Empty, Tooltip, Modal, Descriptions,
+  Button, Badge, Tooltip, Modal, Descriptions,
 } from 'antd';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import {
   CalendarOutlined, ReloadOutlined, FireOutlined, ExclamationCircleOutlined,
   WarningOutlined, RiseOutlined, FallOutlined,
@@ -232,7 +233,7 @@ const EventCalendarPage: React.FC = () => {
         <Col xs={24} lg={16}>
           <Card title="事件列表" loading={loading} style={{ minHeight: 480 }}>
             {groups.length === 0 ? (
-              <Empty description="当前筛选条件下暂无事件" />
+              <EmptyState title="当前筛选条件下暂无事件" />
             ) : (
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 {groups.map(g => {
@@ -297,7 +298,7 @@ const EventCalendarPage: React.FC = () => {
         <Col xs={24} lg={8}>
           <Card title="事件聚集预警" style={{ marginBottom: 16 }} loading={loading}>
             {clusters.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无聚集" />
+              <EmptyState title="无聚集" />
             ) : (
               <Space direction="vertical" size={10} style={{ width: '100%' }}>
                 {clusters.slice(0, 6).map(c => (
@@ -320,7 +321,7 @@ const EventCalendarPage: React.FC = () => {
           </Card>
           <Card title="未来高风险日" loading={loading}>
             {topRiskDays.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无风险日" />
+              <EmptyState title="无风险日" />
             ) : (
               <Space direction="vertical" size={10} style={{ width: '100%' }}>
                 {topRiskDays.map(d => (

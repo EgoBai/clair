@@ -11,9 +11,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Card, Tag, Empty, Input, Typography, Space, Button, Modal, Select,
+  Card, Tag, Input, Typography, Space, Button, Modal, Select,
   Statistic, Tooltip, Row, Col, message, Alert,
 } from 'antd';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import {
   SearchOutlined,
   DeleteOutlined,
@@ -510,66 +511,13 @@ const KnowledgeBase: React.FC = () => {
         {/* 笔记列表 / 空状态                                              */}
         {/* ============================================================ */}
         {entries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '80px 20px' }}>
-            <Empty
-              image={
-                <div style={{
-                  width: 120, height: 120, margin: '0 auto 24px',
-                  borderRadius: 60, background: 'rgba(59,130,246,0.06)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <BookOutlined style={{ fontSize: 48, color: THEME.textMuted }} />
-                </div>
-              }
-              description={null}
-            >
-              <div style={{ marginBottom: 24 }}>
-                <div style={{
-                  fontSize: 18, fontWeight: 700, color: TEXT, marginBottom: 8,
-                }}>
-                  还没有投资笔记
-                </div>
-                <div style={{ fontSize: 14, color: TEXT_SEC, lineHeight: 1.8 }}>
-                  <div style={{ marginBottom: 4 }}>
-                    在 <Tag color="purple" style={{ borderRadius: 4 }}>AI 对话</Tag> 中，
-                    点击每条 AI 回复下方的
-                  </div>
-                  <Tag
-                    color="blue"
-                    style={{
-                      borderRadius: 4, fontSize: 13, padding: '2px 10px',
-                      margin: '4px 0',
-                    }}
-                  >
-                    📝 保存到投资笔记
-                  </Tag>
-                  <div style={{ marginTop: 4 }}>
-                    按钮即可自动记录研究内容
-                  </div>
-                </div>
-              </div>
-              <Space direction="vertical" size={12} style={{ width: '100%', maxWidth: 320 }}>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={openModal}
-                  block
-                  size="large"
-                  style={{ borderRadius: 10 }}
-                >
-                  手动写第一条笔记
-                </Button>
-                <Button
-                  icon={<BulbOutlined />}
-                  onClick={() => navigate('/')}
-                  block
-                  style={{ borderRadius: 10 }}
-                >
-                  去 AI 对话中提问
-                </Button>
-              </Space>
-            </Empty>
-          </div>
+          <EmptyState
+            icon={<BookOutlined style={{ fontSize: 48, color: THEME.textMuted }} />}
+            title="还没有投资笔记"
+            description="在 AI 对话中点击「保存到投资笔记」即可自动记录研究内容；或手动创建第一条笔记。"
+            action={{ text: '手动写第一条笔记', onClick: openModal, type: 'primary' }}
+            secondaryAction={{ text: '去 AI 对话中提问', onClick: () => navigate('/') }}
+          />
         ) : (
           <div>
             {entries.map(entry => (
