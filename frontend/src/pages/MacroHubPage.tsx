@@ -19,7 +19,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Tag, Typography, Spin, Space } from 'antd';
+import { Card, Row, Col, Tag, Typography, Space } from 'antd';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import {
   GlobalOutlined,
   ArrowLeftOutlined,
@@ -277,7 +278,7 @@ const MacroHubPage: React.FC = () => {
         辅助 / 环境类模块已聚合于此，核心循环（市场洞察 · 潜力雷达 · 产业地图 · 策略选股 · 自选组合 · 投资笔记）保持独立且靠前。
       </Paragraph>
 
-      <Spin spinning={loading}>
+      {loading ? <LoadingStateDetail /> : (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           {MODULES.map((mod) => {
             const st = states[mod.id];
@@ -332,7 +333,7 @@ const MacroHubPage: React.FC = () => {
             );
           })}
         </Row>
-      </Spin>
+      )}
     </div>
   );
 };

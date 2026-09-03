@@ -12,8 +12,9 @@
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import {
-  Card, Row, Col, Table, Tag, Typography, Spin,
+  Card, Row, Col, Table, Tag, Typography,
 } from 'antd';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import {
   ArrowUpOutlined, ArrowDownOutlined, LineChartOutlined,
   CalendarOutlined, FundOutlined, BankOutlined,
@@ -192,9 +193,10 @@ const MacroPage: React.FC = () => {
         </Col>
       </Row>
 
-      <Spin spinning={loading}>
-        {/* 1. 核心指标卡片区 */}
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+      {loading ? <LoadingStateDetail /> : (
+        <>
+          {/* 1. 核心指标卡片区 */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           {core.map((c) => {
             const color = c.direction === 'up' ? UP : c.direction === 'down' ? DOWN : BLUE;
             return (
@@ -268,7 +270,8 @@ const MacroPage: React.FC = () => {
             </Card>
           </Col>
         </Row>
-      </Spin>
+        </>
+      )}
     </div>
   );
 };
