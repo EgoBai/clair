@@ -43,3 +43,12 @@
 
 ### 2026-09-02 补充：取数路径勘误
 - 循环总结 `summaries/` 实际落在 **`/Users/ego_bai/WorkBuddy/20260318120110/summaries/`**，不在 `frontend/.workbuddy/summaries/`（后者不存在）。第 2 次记录里的路径需按此修正。
+
+### 2026-09-03 00:0x（第 4 次，覆盖 09-02）
+- 数据源：git log（09-02 共 4 提交：`06fc6a55f` 看板 / `51b49fc02` 第99轮 / `f41908f21` 第100轮 / `8b31d908f` 收尾4文档，HEAD=8b31d908f，**全 chore、零功能源码**）+ PLAN.md 第七节（最近轮次记至第100轮，行 345）+ 第九节改进池（IP-1~IP-6 ✅、IP-7/IP-8 待做）+ DECISION_LOG D21（连续11轮）+ 循环 memory（第99/100轮）+ 调度日志 + 本轮实测。
+- 本轮实测全绿：tsc 0 错 / guard 0-0-0 / 7 路由全 200 / realtime+indices 真实 / fund-flow/global real。退化如实标注：industry `unavailable`、factors asOf 仍 2026-06-05 coverage=12。
+- **调度日志新发现**：09-02 19:38 主循环第101轮 `success=false`（无产物），看板 03:03 亦 false（但有提交）；近 7 天累计失败已达 9 次，稳定性风险升为日报第 2 风险项。
+- **踩坑/纪律**：本轮跑 `npm run guard` 会把 `frontend/ui-guard-report.md` 弄脏（tracked 文件），**跑完必须 `git checkout -- frontend/ui-guard-report.md` 还原**，否则给单通道红线增加脏文件。已即时还原，工作区维持仅 `M frontend/src/pages/NorthBoundPage.tsx`。
+- 未跑 `npm run build`（会写 dist 且可能触发 safe-delete 钩子），健康结论以 tsc+guard+路由+真实端点为准——后续沿用此轻量组合即可。
+- 落盘：`.workbuddy/memory/2026-09-03.md`（新建，7 段式 + 验证明细 + 调度日志核对表），已 present_files。
+- 推送仍不可用（**第 4 次复核**：无 `.wechat_push.json`；ToolSearch 仅返回 agent_mail_upload/download_attachment，无 send_mail / 微信工具）。
