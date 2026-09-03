@@ -9,7 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import {
-  Card, Row, Col, Statistic, Table, Radio, Tag, Typography, Spin, Alert,
+  Card, Row, Col, Statistic, Table, Radio, Tag, Typography, Alert,
 } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined, DollarOutlined, StockOutlined,
@@ -19,6 +19,7 @@ import {
 } from 'recharts';
 import { fetchMarginOverviewTyped, fetchMarginRank, fetchMarginTrend } from '../services/api';
 import type { MarginOverview, MarginRankEntry } from '../../../shared/types';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 
 const { Title, Text } = Typography;
 
@@ -117,6 +118,28 @@ const MarginTradingPage: React.FC = () => {
     },
   ];
 
+  // 诚实空态判定：无任何可展示的真实数据（不伪造兜底值，如实留空）
+  const hasNoData =
+    (!overview || overview.totalFinancingBalance == null) &&
+    trend.length === 0 &&
+    financingRank.length === 0 &&
+    securitiesRank.length === 0;
+
+  // 加载态：早返回
+  if (loading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Title level={3}>
+          <DollarOutlined /> 融资融券
+        </Title>
+        <LoadingStateDetail
+          title="正在加载融资融券数据..."
+          description="两融余额与标的明细获取中"
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 24 }}>
       <Title level={3}>
@@ -134,112 +157,125 @@ const MarginTradingPage: React.FC = () => {
         />
       )}
 
-      <Spin spinning={loading}>
-        {/* 概览卡片（仅真实数据可用时渲染） */}
-        {overview && overview.totalFinancingBalance != null && (
-          <Row gutter={16} style={{ marginBottom: 24 }}>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="市场融资余额"
-                  value={formatAmountShort(overview.totalFinancingBalance)}
-                  prefix={<DollarOutlined style={{ color: '#cf1322' }} />}
-                  valueStyle={{ color: '#cf1322' }}
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="市场融券余量"
-                  value={formatAmountShort(overview.totalSecuritiesBalance)}
-                  prefix={<StockOutlined style={{ color: '#3f8600' }} />}
-                  valueStyle={{ color: '#3f8600' }}
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="融资标的数"
-                  value={overview.financingStockCount}
-                  suffix="只"
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="融券标的数"
-                  value={overview.securitiesStockCount}
-                  suffix="只"
-                />
-              </Card>
-            </Col>
-          </Row>
-        )}
+      {/* 空态：真实数据源不可达时如实占位，不掩盖数据源问题（与上方 Alert 并存说明原因） */}
+      {hasNoData ? (
+        <EmptyState
+          title="暂无融资融券数据"
+          description={
+            overview?.dataSource === 'unavailable'
+              ? '数据源恢复后自动填充。'
+              : '真实数据源当前不可达，页面如实留空（未使用任何演示数据）；数据源恢复后自动填充。'
+          }
+        />
+      ) : (
+        <>
 
-        {/* 两融余额趋势 */}
-        {trend.length > 0 && (
-          <Card title="两融余额趋势（近30个交易日）" style={{ marginBottom: 24 }}>
-            <div style={{ width: '100%', height: 300 }}>
-              <ResponsiveContainer>
-                <LineChart data={trend} margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="tradeDate" tick={{ fontSize: 12 }} />
-                  <YAxis
-                    tickFormatter={(v: number) => formatAmountShort(v)}
-                    tick={{ fontSize: 12 }}
+          {/* 概览卡片（仅真实数据可用时渲染） */}
+          {overview && overview.totalFinancingBalance != null && (
+            <Row gutter={16} style={{ marginBottom: 24 }}>
+              <Col span={6}>
+                <Card>
+                  <Statistic
+                    title="市场融资余额"
+                    value={formatAmountShort(overview.totalFinancingBalance)}
+                    prefix={<DollarOutlined style={{ color: '#cf1322' }} />}
+                    valueStyle={{ color: '#cf1322' }}
                   />
-                  <Tooltip
-                    formatter={(value, name) => [
-                      name === '融券余量(股)'
-                        ? Number(value).toLocaleString() + ' 股'
-                        : formatAmount(Number(value)),
-                      name as string,
-                    ]}
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card>
+                  <Statistic
+                    title="市场融券余量"
+                    value={formatAmountShort(overview.totalSecuritiesBalance)}
+                    prefix={<StockOutlined style={{ color: '#3f8600' }} />}
+                    valueStyle={{ color: '#3f8600' }}
                   />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="financingBalance"
-                    name="融资余额"
-                    stroke="#cf1322"
-                    dot={false}
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card>
+                  <Statistic
+                    title="融资标的数"
+                    value={overview.financingStockCount}
+                    suffix="只"
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="securitiesBalance"
-                    name="融券余量(股)"
-                    stroke="#3f8600"
-                    dot={false}
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card>
+                  <Statistic
+                    title="融券标的数"
+                    value={overview.securitiesStockCount}
+                    suffix="只"
                   />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+                </Card>
+              </Col>
+            </Row>
+          )}
+
+          {/* 两融余额趋势 */}
+          {trend.length > 0 && (
+            <Card title="两融余额趋势（近30个交易日）" style={{ marginBottom: 24 }}>
+              <div style={{ width: '100%', height: 300 }}>
+                <ResponsiveContainer>
+                  <LineChart data={trend} margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="tradeDate" tick={{ fontSize: 12 }} />
+                    <YAxis
+                      tickFormatter={(v: number) => formatAmountShort(v)}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <Tooltip
+                      formatter={(value, name) => [
+                        name === '融券余量(股)'
+                          ? Number(value).toLocaleString() + ' 股'
+                          : formatAmount(Number(value)),
+                        name as string,
+                      ]}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="financingBalance"
+                      name="融资余额"
+                      stroke="#cf1322"
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="securitiesBalance"
+                      name="融券余量(股)"
+                      stroke="#3f8600"
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          )}
+
+          {/* 排行榜 */}
+          <Card title="融资融券排行">
+            <Radio.Group
+              value={rankType}
+              onChange={e => setRankType(e.target.value)}
+              style={{ marginBottom: 16 }}
+            >
+              <Radio.Button value="financing">融资余额排行</Radio.Button>
+              <Radio.Button value="securities">融券余量排行</Radio.Button>
+            </Radio.Group>
+
+            <Table
+              dataSource={rankData}
+              columns={rankColumns}
+              rowKey="symbol"
+              pagination={false}
+              size="small"
+            />
           </Card>
-        )}
-
-        {/* 排行榜 */}
-        <Card title="融资融券排行">
-          <Radio.Group
-            value={rankType}
-            onChange={e => setRankType(e.target.value)}
-            style={{ marginBottom: 16 }}
-          >
-            <Radio.Button value="financing">融资余额排行</Radio.Button>
-            <Radio.Button value="securities">融券余量排行</Radio.Button>
-          </Radio.Group>
-
-          <Table
-            dataSource={rankData}
-            columns={rankColumns}
-            rowKey="symbol"
-            pagination={false}
-            size="small"
-          />
-        </Card>
-      </Spin>
+        </>
+      )}
     </div>
   );
 };

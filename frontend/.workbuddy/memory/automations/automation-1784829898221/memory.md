@@ -395,3 +395,30 @@
 **待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续3轮验证有效·新）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7/IP-8 即解锁）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` 仍空（本轮核查）；agent-mail 经历史复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260903-0833.md 兜底，标记「推送通道待开通」。
+
+## 第104轮（2026-09-03 14:55 · IP-8 三态体验统一第1批·零交集域恢复推进 + D24 龙虎榜死链待决策）
+
+**单通道红线（沿用 D22 二级判定）**：git status 仍检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11，陈旧遗留，mtime 2026-08-29 静止 5+天，跨90~103轮 diff 一致）→ 非活跃并行写码。本轮作业域为 `frontend/src/pages/TopTradersPage.tsx` + `MarginTradingPage.tsx`，**两文件与 NorthBoundPage.tsx 零文件交集**，依 D22 零交集域判定恢复真实产出（打破第103轮记录的「连续5轮无可做项」观察窗口起点）。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-7/utils拆分 仍触碰 frontend/src 被红线阻塞；IP-8 三态体验目标页（TopTraders/MarginTrading）与在途文件零交集 → 取 IP-8 第1批（2页）推进。
+
+**实装（mimo 协作 + 主理人独立复核 + 缺陷修复收敛）**：
+- `TopTradersPage.tsx`：移除 antd `Spin`/`Empty`，import 共享 `LoadingStateDetail`/`EmptyState`；早返回加载态；原三元简化为 `!overview && seatRank.length === 0` → 要么空态「暂无龙虎榜数据」要么正文（严格二选一）。
+- `MarginTradingPage.tsx`：移除 `Spin`，import 共享组件；早返回加载态；新增 `hasNoData` 布尔（概览不可达 + 趋势/两排行榜均空）；将概览卡片+趋势图+排行 Card 整体入 `!hasNoData` 分支，避免无数据时 Alert+空态+antd Table 空表三重叠加；Alert（dataSource='unavailable'）保留在 hasNoData 判断外。
+
+**独立验证（E5 反例探针·先验证再采信）**：
+- 主理人新建临时 `e2e/__probe_tristate.spec.ts`，实测 `/margin-trading` 渲染「暂无融资融券数据」可见、排行榜 Card 计数=0、Alert「融资融券数据不可用」可见；`/top-traders` 渲染「暂无龙虎榜数据」可见 → **2/2 通过**，探针用后即删。
+- 全量复核：`tsc --noEmit` 0错 / `npm run build` 4.30s / `npx playwright test e2e/route-render-smoke.spec.ts` **32/32**（含两页）。
+- **重要发现**：探测后端 API——①`/api/margin/overview` 实测 `dataSource:'unavailable'`、各字段 null → 空态是**生产实跑路径**（修复避免了用户真看到三重空态）；②`/api/top-traders/overview`+`/seat-rank` 均 404，后端实现仅存 `backend/src/api/_archived/top-traders.ts` 从未注册 → `/top-traders` 是导航入口指向的**永久空页真实产品缺陷**。
+
+**并发写冲突教训（E5 固化）**：mimo 首版漏报 MarginTrading 三重空态回归（自报绿灯）；派 mimo 修复未落地，主理人亲自修复后 mimo 又并发写入重复声明 `hasNoData` → TS2451 编译失败；主理人立即 STOP mimo、收敛为唯一版本。根因：派发修复时未明确「修复执行独占权」。已记入复盘，下轮派发须显式声明独占权归属。
+
+**决策门**：🟡 **D24 新增**（龙虎榜后端路由未注册，真实产品缺陷，待用户决策 A 注册路由/B 隔离入口/C 维持）——源自本轮独立探测；D22 红线二级判定仍待用户追认（已连续4轮验证有效）。
+
+**专家团评估**：E1✅ 渲染/UI 域派 mimo 匹配 / E2✅ 2 页改动远低于 500 行 / E3🟢 无需新技能 / E4✅ 单协作轮 / **E5🟡 新纪律固化**——独立验证须构造反例探针证伪断言甄别力（本轮据此捕获三重空态回归 + 并发写冲突）+ 反例探针用后即删 / E6🟢 无新技术债（IP-8 为体验一致性收敛，并已暴露 D24 真实产品缺陷）。
+
+**改进池进度**：IP-1~IP-6 已完成；IP-9~IP-11 已完成；**IP-8 第1批（2页）本轮完成，剩10页**（HKConnect/StockCompare/Portfolio/FundFlow/EventCalendar/Radar/Watchlist/KnowledgeBase/Macro/MacroHub）待后续轮次逐页统一；IP-7/utils拆分 仍因触碰 frontend/src 被红线阻塞（待 D21-A 收口或 D22 追认后恢复）。
+
+**待用户明确（未重复推送）**：**D24 龙虎榜后端路由未注册（新·🟡 待决策）** / **D22 红线二级判定追认（已连续4轮验证有效）** / D21-A 收口 NorthBoundPage.tsx（26行低风险）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260903-XXXX.md 兜底，标记「推送通道待开通」。

@@ -7,7 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import {
-  Card, Row, Col, Statistic, Table, Tag, Typography, Spin, Space, Empty,
+  Card, Row, Col, Statistic, Table, Tag, Typography, Space,
 } from 'antd';
 import { Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons';
 import { fetchTopTraderOverviewTyped, fetchTopTraderSeatRank } from '../services/api';
 import type { TopTraderOverview, SeatRankEntry } from '../../../shared/types';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 
 const { Title, Text } = Typography;
 
@@ -111,130 +112,143 @@ const TopTradersPage: React.FC = () => {
     ? Object.entries(overview.industryDistribution).map(([name, value]) => ({ name, value }))
     : [];
 
+  // 加载态：早返回，保留页面标题避免加载时闪失
+  if (loading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Title level={3}>
+          <TrophyOutlined /> 龙虎榜
+        </Title>
+        <LoadingStateDetail
+          title="正在加载龙虎榜数据..."
+          description="席位资金流向与上榜个股统计计算中"
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 24 }}>
       <Title level={3}>
         <TrophyOutlined /> 龙虎榜
       </Title>
 
-      <Spin spinning={loading}>
-        {!loading && !overview && seatRank.length === 0 ? (
-          <Empty
-            style={{ padding: '48px 0' }}
-            description="暂无龙虎榜数据（后端接口未接入或暂无可展示数据）"
-          />
-        ) : (
-          <>
-            {overview && (
-          <>
-            {/* 概览 */}
-            <Row gutter={16} style={{ marginBottom: 24 }}>
-              <Col span={6}>
-                <Card>
-                  <Statistic
-                    title="上榜股票数"
-                    value={overview.totalStocks}
-                    suffix="只"
-                    prefix={<TrophyOutlined />}
-                  />
-                </Card>
-              </Col>
-              <Col span={6}>
-                <Card>
-                  <Statistic
-                    title="买入席位占优"
-                    value={overview.buyDominantCount}
-                    suffix="只"
-                    valueStyle={{ color: '#cf1322' }}
-                    prefix={<ArrowUpOutlined />}
-                  />
-                </Card>
-              </Col>
-              <Col span={6}>
-                <Card>
-                  <Statistic
-                    title="卖出席位占优"
-                    value={overview.sellDominantCount}
-                    suffix="只"
-                    valueStyle={{ color: '#3f8600' }}
-                    prefix={<ArrowDownOutlined />}
-                  />
-                </Card>
-              </Col>
-              <Col span={6}>
-                <Card>
-                  <Statistic
-                    title="净买入总额"
-                    value={formatAmount(overview.totalNetAmount)}
-                    valueStyle={{ color: overview.totalNetAmount > 0 ? '#cf1322' : '#3f8600' }}
-                  />
-                </Card>
-              </Col>
-            </Row>
+      {!overview && seatRank.length === 0 ? (
+        <EmptyState
+          title="暂无龙虎榜数据"
+          description="后端龙虎榜接口暂未接入或当前无可展示数据，数据源恢复后将自动填充。"
+        />
+      ) : (
+        <>
+          {overview && (
+            <>
+              {/* 概览 */}
+              <Row gutter={16} style={{ marginBottom: 24 }}>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="上榜股票数"
+                      value={overview.totalStocks}
+                      suffix="只"
+                      prefix={<TrophyOutlined />}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="买入席位占优"
+                      value={overview.buyDominantCount}
+                      suffix="只"
+                      valueStyle={{ color: '#cf1322' }}
+                      prefix={<ArrowUpOutlined />}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="卖出席位占优"
+                      value={overview.sellDominantCount}
+                      suffix="只"
+                      valueStyle={{ color: '#3f8600' }}
+                      prefix={<ArrowDownOutlined />}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="净买入总额"
+                      value={formatAmount(overview.totalNetAmount)}
+                      valueStyle={{ color: overview.totalNetAmount > 0 ? '#cf1322' : '#3f8600' }}
+                    />
+                  </Card>
+                </Col>
+              </Row>
 
-            <Row gutter={16} style={{ marginBottom: 24 }}>
-              <Col span={12}>
-                <Card title="净买入 TOP" size="small">
-                  <Table
-                    dataSource={overview.topBuyStocks}
-                    columns={stockColumns}
-                    rowKey="symbol"
-                    pagination={false}
-                    size="small"
-                  />
-                </Card>
-              </Col>
-              <Col span={12}>
-                <Card title="净卖出 TOP" size="small">
-                  <Table
-                    dataSource={overview.topSellStocks}
-                    columns={stockColumns}
-                    rowKey="symbol"
-                    pagination={false}
-                    size="small"
-                  />
-                </Card>
-              </Col>
-            </Row>
-          </>
-        )}
+              <Row gutter={16} style={{ marginBottom: 24 }}>
+                <Col span={12}>
+                  <Card title="净买入 TOP" size="small">
+                    <Table
+                      dataSource={overview.topBuyStocks}
+                      columns={stockColumns}
+                      rowKey="symbol"
+                      pagination={false}
+                      size="small"
+                    />
+                  </Card>
+                </Col>
+                <Col span={12}>
+                  <Card title="净卖出 TOP" size="small">
+                    <Table
+                      dataSource={overview.topSellStocks}
+                      columns={stockColumns}
+                      rowKey="symbol"
+                      pagination={false}
+                      size="small"
+                    />
+                  </Card>
+                </Col>
+              </Row>
+            </>
+          )}
 
-        {/* 营业部排行 */}
-        <Card title={<><BankOutlined /> 营业部/机构排行</>} style={{ marginBottom: 24 }}>
-          <Table
-            dataSource={seatRank}
-            columns={seatColumns}
-            rowKey="seatName"
-            pagination={{ pageSize: 10 }}
-            size="small"
-          />
-        </Card>
-
-        {/* 行业分布 */}
-        {industryData.length > 0 && (
-          <Card title="上榜行业分布" size="small">
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={industryData}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  dataKey="value"
-                  label={({ name, percent }: { name?: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                >
-                  {industryData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+          {/* 营业部排行 */}
+          <Card title={<><BankOutlined /> 营业部/机构排行</>} style={{ marginBottom: 24 }}>
+            <Table
+              dataSource={seatRank}
+              columns={seatColumns}
+              rowKey="seatName"
+              pagination={{ pageSize: 10 }}
+              size="small"
+            />
           </Card>
-        )}
+
+          {/* 行业分布 */}
+          {industryData.length > 0 && (
+            <Card title="上榜行业分布" size="small">
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={industryData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    dataKey="value"
+                    label={({ name, percent }: { name?: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  >
+                    {industryData.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
         </>
       )}
-      </Spin>
     </div>
   );
 };
