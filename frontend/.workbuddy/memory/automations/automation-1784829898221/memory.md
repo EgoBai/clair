@@ -367,3 +367,31 @@
 **待用户明确（未重复推送）**：**D22 红线二级判定追认（新·已连续2轮验证有效）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7/IP-8 即解锁）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` type/webhook 仍空；agent-mail 经 ToolSearch 复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260903-XXXX.md 兜底，标记「推送通道待开通」。
+
+## 第103轮（2026-09-03 08:33 · IP-11 验收话术纠偏·零交集域）
+
+**单通道红线（沿用 D22 二级判定）**：git status 仍检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11，陈旧遗留，mtime 2026-08-29 静止 5 天，非活跃并行写码）。本轮作业域锁定 PLAN.md（文档，与 `frontend/src` 零交集），守红线本意（不并行改库）同时延续第101轮终结的空转。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-7/IP-8 触碰 `frontend/src` 仍被红线阻塞 → 取第101轮登记的 **IP-11**（P3，文档-事实一致性，恰好零交集于 PLAN.md），闭环 IP-9/IP-10 验证体系修复三部曲。
+
+**实装（主理人，最小侵入·纯文档）**：在 PLAN.md 第七节「当前循环状态」顶部新增「⚠️ 验收口径变更说明」永久告示块——明确自第101轮起路由健康以 `e2e/route-render-smoke.spec.ts`（32 例真实浏览器渲染冒烟）为准、`curl` 仅作服务存活探测、禁止后续轮次复用「N 路由 curl 全 200（FAIL=0）」失效口径；并更新第九节 IP-11 状态行（待做→已完成）+ 销号记录 + 第七节「最近一轮」行。
+
+**独立验证（E5 先验证再采信·未轻信绿跑）**：
+- grep 确认 PLAN.md 新增块落位（callout/最近一轮/IP-11行/销号记录 4 处引用）。
+- grep + ls 确认 `frontend/e2e/route-render-smoke.spec.ts` 真实存在（6426B，R101 落地，本轮未改）。
+- **主理人亲跑 e2e 渲染冒烟**：`npx playwright test e2e/route-render-smoke.spec.ts` → **64 passed（13.6s，32 用例 × chromium+mobile-chrome 两 project）**，确证新验收标准有效、零死链零白屏零崩溃。
+- curl 存活探测：dev 5173=200 / 后端 3001=200（仅作服务存活，不作渲染证据）。
+- 无探针残留（`__probe.spec.ts`/`__typecheck_probe.spec.ts` 均不存在）。
+- git status 确认本轮**仅 M PLAN.md**，未触碰 `frontend/src` 一字（NorthBoundPage.tsx 为既有在途、非本轮改动）。
+
+**文件域自检**：仅改 PLAN.md，**`frontend/src` 零交集**，红线纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增——IP-11 为第101轮已规划的低风险文档闭环项，非用户待决策项；**D22 红线二级判定仍待用户追认**（本轮沿用并再次验证有效，已连续3轮）。
+
+**专家团评估**：E1✅ IP-11 纯文档纠偏主理人自实现 / E2✅ 仅 PLAN.md 文档改动远低于 500 行 / E3🟢 playwright 渲染守卫已于 R101 升为常规，本轮仅引用不新增 / E4✅ 单人轮 / E5✅ 零交集域（PLAN.md ∩ NorthBoundPage.tsx = ∅）+ 独立验证（grep + 亲跑 e2e 64/64）/ E6🟢 无新技术债，反而闭环 IP-11 衍生的「验收话术自我安慰」文档债——自此「静态(tsc:e2e)+动态(playwright)+文档口径」三层验证一致网成形，验证体系债彻底清偿。
+
+**改进池进度**：IP-1~IP-6 已完成；**IP-9（R101）、IP-10（R102）、IP-11（本轮）已完成**；剩 IP-7/utils拆分、IP-8/三态体验（均触碰 `frontend/src`，仍被红线阻塞，待 D21-A 收口或 D22 追认后恢复）。**⚠️ 改进池可用零交集项已耗尽**：IP-7/IP-8 均触碰 `frontend/src`，下轮起若无用户授权工单、且不触碰 src 的零交集项已无（除非现场挖掘 e2e/ 域新项），将触发「连续5轮无可做项→DECISION_LOG 标记停滞」观察窗口起点。
+
+**待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续3轮验证有效·新）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7/IP-8 即解锁）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空（本轮核查）；agent-mail 经历史复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260903-0833.md 兜底，标记「推送通道待开通」。
