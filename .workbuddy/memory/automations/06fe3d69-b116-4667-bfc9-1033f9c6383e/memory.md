@@ -52,3 +52,19 @@
 - 未跑 `npm run build`（会写 dist 且可能触发 safe-delete 钩子），健康结论以 tsc+guard+路由+真实端点为准——后续沿用此轻量组合即可。
 - 落盘：`.workbuddy/memory/2026-09-03.md`（新建，7 段式 + 验证明细 + 调度日志核对表），已 present_files。
 - 推送仍不可用（**第 4 次复核**：无 `.wechat_push.json`；ToolSearch 仅返回 agent_mail_upload/download_attachment，无 send_mail / 微信工具）。
+
+### 2026-09-04 00:0x（第 5 次，覆盖 09-03）
+- 数据源：git log（09-03 共 10 提交，HEAD=e652b53b4，**首次出现真实源码产出**：`c45f89f9c` 第101轮 IP-9 route-render-smoke.spec.ts、`b71cabda4` 第102轮 IP-10 tsconfig.e2e.json、`ef92a9483`/`d42f94faf`/`ee30bbc21`/`b7dbf6ffb` 第104-107轮 IP-8 三态统一 8 页；余为记账/看板/收尾文档）+ PLAN.md 第七节（第101/102/106轮）+ 第九节（IP-1~IP-6 ✅、IP-9~IP-11 ✅、IP-8 剩 4 页、IP-7 阻塞）+ DECISION_LOG D22（续验至7轮）/D23/D24 + 循环 memory（第105-107轮）+ 调度日志 + 本轮实测。
+- 本轮实测全绿：tsc 0 错 / guard EXIT 0 / **e2e route-render-smoke 64/64**（双 project）/ dev 5173 + 后端 3001 200 / realtime+fund-flow/global real。退化如实：industry `unavailable`、factors asOf 2026-06-05 coverage=12（observationCount 501）、**top-traders/overview 404 复验仍死链（D24）**。
+- 调度日志：09-03 主循环第108轮（21:28 CST 起）+ 两条总结推送（23:03 CST 起）**success=false**；近 3 天累计失败 5 次 → 稳定性升为日报第 1 风险。
+- **踩坑（沿用并强化第 4 次纪律）**：① `npm run guard` 会弄脏 tracked 的 `frontend/ui-guard-report.md`，跑完必 `git checkout --` 还原（本轮已做）；② e2e 改用 `--reporter=line` 避免重写 tracked 的 `frontend/playwright-report/index.html`（比跑完还原更省事）；③ 后端有速率限制，连续 curl ≥6 个 `/api/*` 会 429（retryAfter 25s），抽查端点须 `sleep 28` 间隔。
+- 工作树维持仅 `M frontend/src/pages/NorthBoundPage.tsx`（红线第 15 轮）。
+- 落盘：`.workbuddy/memory/2026-09-04.md`（新建，7 段式 + 验证明细表 + 调度日志核对表），已 present_files。
+- 推送仍不可用（**第 5 次复核**：无 `.wechat_push.json`；agent-mail 仅附件上传/下载，无 send_mail / 微信工具）。
+
+### 2026-09-04 补充：推送阻塞出现破局候选（重要，后续沿用）
+- 前 5 次均只查 ToolSearch（deferred tools），结论恒为「无 send_mail/无微信工具」。本轮改查 **`search_plugins`（连接器市场发现，只读）**，首次拿到两个可用候选：
+  1. **`wecom`（企业微信）** — 官方 CLI 套件，**支持机器人主动通知 + 邮件读取与发送**，最贴近「微信推送」诉求（用户在腾讯研究院，企微账号大概率可用）。
+  2. **`qq-mail`（QQ邮箱）** — 收发/搜索/整理 QQ 邮件，可直发用户已授权地址 `374070139@qq.com`，比 agent-mail（仅附件上传/下载）更完整。
+- 处置：已通过 `suggest_plugin_install` 向用户推荐卡片（未擅自安装，automation 无人值守不得代装）。**下轮先查两连接器是否已 connected**；若已连，日报即可走「企微机器人 / QQ 邮件」真实推送，结束 5 轮「三通道兜底」局面。
+- 方法论修正：**工具缺口先查 `search_plugins`（连接器市场）再查 ToolSearch（能力工具）**，两者不是同一层；此前 5 次只查后者是排查盲区。
