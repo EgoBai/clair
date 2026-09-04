@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Card, Row, Col, Table, Tag, Button, Statistic, Space, Typography,
   Modal, Form, Input, InputNumber, Select, Popconfirm, Tooltip,
-  Empty, Spin, Alert, Divider,
+  Alert, Divider,
 } from 'antd';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
 import { formatNumber, formatChangePercent, formatTurnover } from '../utils/formatters';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -256,11 +257,7 @@ function PortfolioPage() {
   }, [portfolio?.allocation]);
 
   if (loading) {
-    return (
-      <div style={{ padding: 24, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
-    );
+    return <LoadingStateDetail />;
   }
 
   return (
@@ -276,9 +273,7 @@ function PortfolioPage() {
 
       {!portfolio ? (
         <Card>
-          <Empty description="暂无投资组合">
-            <Text type="secondary">持仓后端接口尚未接入，暂无数据可展示。</Text>
-          </Empty>
+          <EmptyState title="暂无投资组合" description="持仓后端接口尚未接入，暂无数据可展示。" />
         </Card>
       ) : (
         <>
@@ -362,7 +357,7 @@ function PortfolioPage() {
                   rowKey="symbol"
                   size="small"
                   pagination={false}
-                  locale={{ emptyText: <Empty description="暂无持仓" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                  locale={{ emptyText: <EmptyState title="暂无持仓" /> }}
                 />
               </Card>
             </Col>
@@ -413,7 +408,7 @@ function PortfolioPage() {
                     ))}
                   </>
                 ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无配置数据" />
+                  <EmptyState title="暂无配置数据" />
                 )}
               </Card>
             </Col>
