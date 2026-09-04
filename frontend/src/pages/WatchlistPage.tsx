@@ -12,9 +12,9 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Input, Modal, message, Tag, Space, Typography,
-  Popconfirm, Empty, Card, Row, Col, Statistic, Badge, Tooltip, Spin,
+  Popconfirm, Card, Row, Col, Statistic, Badge, Tooltip,
 } from 'antd';
-import { EmptyState, EmptySearch } from '../components/Common/StateComponents';
+import { LoadingStateDetail, EmptyState, EmptySearch } from '../components/Common/StateComponents';
 import {
   PlusOutlined, SearchOutlined, FolderOutlined, StarFilled,
   CloseOutlined, ReloadOutlined, LineChartOutlined, EyeOutlined,
@@ -367,7 +367,7 @@ const AddStockModal: React.FC<{
       />
       {searching && (
         <div style={{ textAlign: 'center', padding: 20, color: TEXT_SEC }}>
-          <Spin size="small" /> 搜索中...
+          <LoadingStateDetail title="搜索中..." />
         </div>
       )}
       {!searching && results.length > 0 && (
@@ -1247,7 +1247,7 @@ const WatchlistPage: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
               <AlertOutlined style={{ color: GOLD, fontSize: 16, marginTop: 2 }} />
               <Text strong style={{ color: GOLD, fontSize: 14 }}>异动提醒</Text>
-              {alertsLoading && <Spin size="small" style={{ marginLeft: 8 }} />}
+              {alertsLoading && <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>加载中…</Text>}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {alerts.map(stock =>
@@ -1426,29 +1426,12 @@ const WatchlistPage: React.FC = () => {
 
           {/* Stock Table */}
           {symbols.length === 0 ? (
-            <Empty
-              image={<ThunderboltOutlined style={{ fontSize: 48, color: ACCENT, opacity: 0.4 }} />}
-              imageStyle={{ height: 60 }}
-              description={
-                <div style={{ color: TEXT_SEC }}>
-                  <Text style={{ color: TEXT_SEC, fontSize: 15, display: 'block', marginBottom: 6 }}>
-                    追踪列表为空
-                  </Text>
-                  <Text style={{ color: TEXT_SEC, fontSize: 13, opacity: 0.7 }}>
-                    点击「添加股票」开始追踪您关注的 A 股
-                  </Text>
-                </div>
-              }
-            >
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setAddModalOpen(true)}
-                style={{ borderRadius: 8, height: 38 }}
-              >
-                添加第一只股票
-              </Button>
-            </Empty>
+            <EmptyState
+              icon={<ThunderboltOutlined style={{ fontSize: 48, color: ACCENT, opacity: 0.4 }} />}
+              title="追踪列表为空"
+              description="点击「添加股票」开始追踪您关注的 A 股"
+              action={{ text: '添加第一只股票', onClick: () => setAddModalOpen(true), type: 'primary' }}
+            />
           ) : (
             <Table
               dataSource={currentGroup?.stocks || []}
@@ -1492,7 +1475,6 @@ const WatchlistPage: React.FC = () => {
                 </Text>
               ) : aiSummaryLoading ? (
                 <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.6 }}>
-                  <Spin size="small" style={{ marginRight: 8 }} />
                   AI 正在分析您的自选股组合...
                 </div>
               ) : aiSummary ? (
@@ -1545,7 +1527,6 @@ const WatchlistPage: React.FC = () => {
               </div>
               {aiRecommendationsLoading ? (
                 <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.6 }}>
-                  <Spin size="small" style={{ marginRight: 8 }} />
                   AI 正在分析您的关注偏好...
                 </div>
               ) : aiRecommendations ? (

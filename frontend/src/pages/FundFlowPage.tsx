@@ -13,8 +13,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Card, Row, Col, Statistic, Table, Tag, Typography, Input, Button, Space, Collapse, Spin, Empty, Alert,
+  Card, Row, Col, Statistic, Table, Tag, Typography, Input, Button, Space, Collapse, Alert,
 } from 'antd';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import { SearchOutlined } from '@ant-design/icons';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
@@ -26,7 +27,6 @@ import {
   type FundFlowProviderName, type StockFundFlowResp, type IndustryFlowResp,
   type GlobalFlowResp, type FundFlowMeta, type GlobalIndicator, type MarketFundFlowResp,
 } from '../utils/fundFlowPageDemo';
-
 const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -203,7 +203,7 @@ const FundFlowPage: React.FC = () => {
           <span>个股 {dsTag(stockDs)}</span>
           <span>行业 {dsTag('unknown')}</span>
           <span>外资 {dsTag(globalDs)}</span>
-          <Spin spinning={metaLoading} size="small" />
+          {metaLoading && <Text type="secondary" style={{ fontSize: 12 }}>诊断加载中…</Text>}
         </Space>
         <Collapse ghost size="small" style={{ marginTop: 8 }}>
           <Collapse.Panel key="meta" header="provider 链诊断（/api/fund-flow/meta）">
@@ -222,7 +222,7 @@ const FundFlowPage: React.FC = () => {
                   </span>
                 </div>
               </div>
-            ) : <Empty description="暂无诊断信息" />}
+            ) : <EmptyState title="暂无诊断信息" />}
           </Collapse.Panel>
         </Collapse>
       </Card>
@@ -234,9 +234,7 @@ const FundFlowPage: React.FC = () => {
         title={<span style={titleColor}>市场资金概览 {dsTag(marketDs)}</span>}
       >
         {marketLoading ? (
-          <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Spin />
-          </div>
+          <LoadingStateDetail />
         ) : market ? (
           <>
             {/* 真实市场广度 + 成交额（来自本地行情库） */}
@@ -279,13 +277,14 @@ const FundFlowPage: React.FC = () => {
                 ))}
               </Row>
             ) : (
-              <Empty description="5 档主力/超大单/大单/中单/小单净流入：数据源未接入">
-                <Text type="secondary">{market.note}</Text>
-              </Empty>
+              <EmptyState
+                title="5 档主力/超大单/大单/中单/小单净流入：数据源未接入"
+                description={market.note}
+              />
             )}
           </>
         ) : (
-          <Empty description="暂无数据" />
+          <EmptyState title="暂无数据" />
         )}
       </Card>
 
@@ -318,9 +317,7 @@ const FundFlowPage: React.FC = () => {
         {stockNote && <Alert type="warning" showIcon message={stockNote} style={{ marginBottom: 12 }} />}
 
         {stockLoading ? (
-          <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Spin />
-          </div>
+          <LoadingStateDetail />
         ) : stockCurrent ? (
           <>
             <Row gutter={[16, 16]} style={{ marginBottom: 8 }}>
@@ -359,7 +356,7 @@ const FundFlowPage: React.FC = () => {
               </ComposedChart>
             </ResponsiveContainer>
           </>
-        ) : <Empty description="暂无数据" />}
+        ) : <EmptyState title="暂无数据" />}
       </Card>
 
       {/* ③ 行业资金流排行 */}
@@ -370,9 +367,7 @@ const FundFlowPage: React.FC = () => {
             title={<span style={titleColor}>行业主力净流入排行 <Tag color="default">未标注</Tag></span>}
           >
             {industryLoading ? (
-              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Spin />
-              </div>
+              <LoadingStateDetail />
             ) : industryBar.length ? (
               <ResponsiveContainer width="100%" height={Math.max(320, industryBar.length * 22)}>
                 <ComposedChart layout="vertical" data={industryBar} margin={{ top: 8, right: 24, left: 8, bottom: 0 }}>
@@ -389,7 +384,7 @@ const FundFlowPage: React.FC = () => {
                   </Bar>
                 </ComposedChart>
               </ResponsiveContainer>
-            ) : <Empty description="暂无数据" />}
+            ) : <EmptyState title="暂无数据" />}
           </Card>
         </Col>
         <Col xs={24} lg={11}>
@@ -412,9 +407,7 @@ const FundFlowPage: React.FC = () => {
         title={<span style={titleColor}>外资 / 全球资金视角 {dsTag(globalDs)}</span>}
       >
         {globalLoading ? (
-          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Spin />
-          </div>
+          <LoadingStateDetail />
         ) : global ? (
           <Row gutter={[16, 16]}>
             {global.indicators.map((ind: GlobalIndicator) => (
@@ -443,7 +436,7 @@ const FundFlowPage: React.FC = () => {
               </Col>
             ))}
           </Row>
-        ) : <Empty description="暂无数据" />}
+        ) : <EmptyState title="暂无数据" />}
       </Card>
 
       <div style={{ height: 24 }} />

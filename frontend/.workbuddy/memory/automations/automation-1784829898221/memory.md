@@ -538,3 +538,30 @@
 **待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续8轮验证有效·新紧迫）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7 即解锁）/ **D24 龙虎榜后端路由未注册（🟡 待决策）** / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 经 ToolSearch 复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260904-1719.md 兜底，标记「推送通道待开通」。
+
+## 第109轮（2026-09-05 00:02 · IP-8 第6批·零交集域·三态统一收官）
+
+**单通道红线（沿用 D22 二级判定）**：git status 仍检出 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11，陈旧遗留，mtime 2026-08-29 静止 7 天，跨 90~108 轮 diff 一致）→ 非活跃并行写码。本轮作业域 FundFlowPage.tsx + WatchlistPage.tsx 与在途文件零文件交集，续推 IP-8 第6批（最后 2 页），收官 IP-8。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-7/utils拆分 仍因触碰 frontend/src/utils 且属大改动待用户决策，本轮不擅自启动；取 IP-8 第6批（FundFlow/Watchlist）。
+
+**实装（主理人自实现 + 独立复核；mimo 子智能体因并发安全考量未派发、改主理人同域执行）**：
+- `FundFlowPage.tsx`：移除 antd `Spin`（4 处 block `<Spin/>`→`LoadingStateDetail`）、antd `Empty`（4 处 `<Empty description>` + 1 处多行 `<Empty>`（含 `market.note` 子节点→`description` 属性）统一至 `EmptyState`）；保留 line 206 内联 `<Spin spinning={metaLoading}>` 忙指示（UX 保守）；移除 `Empty` 导入、新增 `LoadingStateDetail,EmptyState` 导入（修复一处重复导入）；零越界于在途 NorthBoundPage.tsx。
+- `WatchlistPage.tsx`：block `Empty`（自定义 ThunderboltOutlined 图标 + 双 Text + action 按钮「添加第一只股票」）→`EmptyState` 的 `icon/title/description/action` 保真映射；移除 antd `Empty` 导入；inline `<Spin size="small"/>` 忙指示（搜索中/告警加载/加载更多）保留；零越界。
+
+**独立验证（E5 反例探针·先验证再采信·未轻信绿跑）**：
+- `tsc --noEmit` 0错（初版因重复导入 + 多行 Empty 子节点类型报错，已修）/ `npm run build` 9.00s 一次过 / `npx playwright test e2e/route-render-smoke.spec.ts` **64/64**（含两页，chromium+mobile-chrome 双 project）。
+- grep 两文件零残留 antd `<Spin`(block)/`<Empty`/`Empty.`；`Spin` 仅留内联忙指示（line 206 / watchlist 搜索·告警·加载更多），属预期保留。
+- E5 反例探针 `__probe_ip8_r109.spec.ts` 2/2 通过：`/watchlist` 强行空态→新 `EmptyState` 标题「追踪列表为空」+action「添加第一只股票」可见、旧 antd `.ant-empty:has-text("追踪列表为空")` `toHaveCount(0)` 证伪未替换；`/fund-flow`「数据源未接入」诚实空态 `.ant-empty:has-text` `toHaveCount(0)` 证伪 antd Empty 残留；全程零 `pageerror`；探针用后即删。
+
+**文件域自检**：仅改 2 个 pages 文件（FundFlow/Watchlist），**`frontend/src` 其余文件及在途 NorthBoundPage.tsx 未触碰**，红线零交集纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增——IP-8 为常规三态体验收敛收官，非用户待决策项；D22（已连续9轮验证有效）/ D21-A / D24 仍既存待用户动作，未重复推送。
+
+**专家团评估**：E1✅ UI/UX 三态统一主理人自实现 / E2✅ 2页净改动远低于 500 / E3🟢 复用 playwright 渲染守卫（R101 已纳常规）/ E4✅ 单人轮 / **E5🟡 纪律固化**——派发改主理人同域执行规避并发、git diff+grep+tsc+build+E5 反例探针（antd `.ant-empty:has-text` 零计数证伪替换甄别力）独立复核证零越界 / E6🟢 三态体验一致性收敛（共享 LoadingStateDetail/EmptyState 复用面覆盖全部 12 页，剩 inline 忙指示按 UX 保守保留），无新技术债。
+
+**改进池进度**：IP-1~IP-6 已完成；IP-9~IP-11 已完成；**IP-8 第1~6批（12 页）本轮全部完成，IP-8 销号**；自主改进池仅剩 **IP-7**（utils/ 93K 行拆分一期，属大改动、触碰 frontend/src/utils、需用户决策范围/资源，**非本轮最小侵入项，待 D21-A 收口或 D22 追认后由用户拍板启动**）。**⚠️ 自本轮起零交集域自主改进项已耗尽**：IP-7 为唯一剩余项但属重大重构待决策；下轮起若无用户授权工单，将进入「连续5轮无可做项→DECISION_LOG 标记停滞」观察窗口（R109 为第1轮）。
+
+**待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续9轮验证有效·新紧迫）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7 即解锁）/ **D24 龙虎榜后端路由未注册（🟡 待决策）** / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 经 ToolSearch 复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260905-0002.md 兜底，标记「推送通道待开通」。
