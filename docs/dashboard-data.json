@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-03T03:17:49+08:00",
+  "generatedAt": "2026-09-06T03:06:50+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
-    "round": 102,
+    "round": 114,
     "totalTickets": 59,
     "pagesActive": "24·24",
     "realDataSources": 6,
@@ -363,6 +363,11 @@
   ],
   "timeline": [
     {
+      "round": 106,
+      "tag": "IP-8 第3批·三态统一·零交集域，2026-09-03 21:28",
+      "summary": "单通道红线沿用 D22 二级判定——git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx（+15/-11，陈旧遗留，跨 90"
+    },
+    {
       "round": 102,
       "tag": "IP-10 e2e 静态类型守卫闭环·零交集域，2026-09-03",
       "summary": "取第101轮衍生的 IP-10（e2e/ 脱离 tsc 覆盖）在零交集域执行。新建 `frontend/tsconfig.e2e.json`（extends tsconfig.js"
@@ -396,11 +401,6 @@
       "round": 87,
       "tag": "IP-4 T5 类型漂移核实轮，2026-08-28 21:00",
       "summary": "防空转机制取 IP-4（技术债 T5 exportScheduler 类型漂移）。**独立验证（先验证再采信·证伪漂移）**：`grep` 确认 `src/utils/bloomb"
-    },
-    {
-      "round": 86,
-      "tag": "IP-3 占位模块清理·漂移核实轮，2026-08-28 15:04",
-      "summary": "单通道红线满足——git status 仅 `frontend/.workbuddy/memory/2026-08-27.md` 未跟踪（非生产源码），PLAN.md 干净、无生产"
     }
   ]
 }
