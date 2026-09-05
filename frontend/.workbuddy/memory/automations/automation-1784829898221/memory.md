@@ -565,3 +565,26 @@
 **待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续9轮验证有效·新紧迫）** / D21-A 收口 NorthBoundPage.tsx（26行低风险，收口后 IP-7 即解锁）/ **D24 龙虎榜后端路由未注册（🟡 待决策）** / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 经 ToolSearch 复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260905-0002.md 兜底，标记「推送通道待开通」。
+
+## 第110轮（2026-09-06 01:29 · 单通道红线·活跃在途文件升级 + IP-12 目标冲突）
+
+**单通道红线（判定精细化·D22）**：git status 检出 **2 个生产源码在途**——①`M frontend/src/pages/NorthBoundPage.tsx`（+15/-11，陈旧遗留，mtime 2026-08-29 静止 8 天，跨 90~109 轮 diff 一致）；②**NEW `M backend/src/api/lockup-shares.ts`（+152/-146，mtime 2026-09-05 19:13，约 6h 前活跃改动）**。另 `M PLAN.md`/`M docs/*`/`M frontend/playwright-report/index.html`/`M .workbuddy/memory/automations/06fe3d69-.../memory.md`/`?? .workbuddy/memory/2026-09-06.md` 均为记账类容忍脏，不触发。
+
+**关键发现（本轮核心价值·目标冲突）**：PLAN 第九节 QA 蜂群新登记 **IP-12~IP-20**（P0/P1 红线收口/安全/真实数据项），其中 **IP-12（第110轮首选任务·lockup 解禁伪数据下线）目标文件恰为 `backend/src/api/lockup-shares.ts`**——即自动化本轮最想推进的 QA 任务，其目标文件正被交互会话活跃编辑 → **目标冲突，IP-12 直接受阻**。
+
+**独立验证（先验证再采信·证伪破坏）**：
+- `git diff --stat` 复核：NorthBoundPage +15/-11（26 行）不变；lockup-shares +152/-146（298 行）活跃变动。
+- grep 确认 `NorthBoundPage.tsx:23` 导入 `LoadingStateDetail, EmptyState` 自 `StateComponents.tsx`（`:179`/`:198` 实际引用）、`:52`(`EmptyState`)/`:339`(`LoadingStateDetail`) 两导出均存在 → 在途改动引用一致、自包含、非破坏。
+- 只读健康校验：`./node_modules/.bin/tsc --noEmit` exit 0（TSC_OK，在途改动可编译）/ dev 5173=200 / 后端 3001=200 / `/api/market/realtime` 上证 3930.12 -0.30% `dataSource:'real'` 诚实标记完好 → 在途改动健康、非破坏。
+
+**处置**：依 D22 二级判定——NorthBoundPage 属 stale（允许零交集域），但 **lockup-shares.ts mtime<24h 属活跃并行写码 → 触发完整 PAUSE（默认 C）**，本轮不碰任何源码（含未改 lockup-shares.ts 一字）、未推进改进池（IP-12 受阻 / IP-7 仍待决策）。仅做只读健康巡检+记账。
+
+**决策门**：🔴 升级 D21 —— 在途文件由 1→2，新增活跃后端写码（lockup-shares.ts 正是 IP-12 目标），IP-12 等后端改进项被迫阻塞；已向 DECISION_LOG D21 追加「活跃在途文件升级（第110轮）」段，请用户 `git commit` 收口 lockup-shares.ts（低风险 298 行）解锁。性质异于 D19/D20，非开发停滞、非无可做项。
+
+**专家团评估**：E1✅ 无需分派（红线暂停+只读验证+记账）/ E2✅ 零源码改动、仅 D21 文本升级 + PLAN 最近一轮行 + 本 memory / E3🟢 / E4✅ / E5✅ / E6🟢 无新技术债（在途改动健康）。
+
+**改进池进度**：IP-1~IP-11 已完成（IP-8 销号 12 页）；QA 蜂群新登记 **IP-12~IP-20 待做**但 **IP-12 阻塞**（目标=活跃在途 lockup-shares.ts）；IP-7（utils 拆分）仍待用户决策。
+
+**待用户明确（未重复推送）**：**NEW 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D22 红线二级判定追认（已连续 9 轮验证有效·新紧迫）/ D21-A 收口 NorthBoundPage.tsx（26行低风险）/ D24 龙虎榜后端路由未注册（🟡 待决策）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后**。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260906-0129.md 兜底，标记「推送通道待开通」。
