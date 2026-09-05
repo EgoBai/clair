@@ -27,7 +27,8 @@
 - **「仓库无新提交」≠ 自动化没跑**。2026-09-02 初判「09-01 12:21 后 11h40m 静默」即误判——日志证实自动化全部正常触发，但**中途失败**，统一报错 `[UNKNOWN] Conversation ended before automation request completed`。近 7 天 9 次失败，横跨主循环/日报/每日总结/测评蜂群 4 条自动化，属系统性中断（疑似会话超时、应用退出或并发上限），非单条配置问题。
 - 排查顺序：先查日志确认「失败 vs 未触发」，再定位根因；不要只看 git log。
 - 各自动化产物落点：主循环总结 → `/Users/ego_bai/WorkBuddy/20260318120110/summaries/`；看板 → `docs/dashboard-data.json`；日报 → `.workbuddy/memory/<日期>.md`。
-- **微信推送仍不可用**（第三次复核）：无 `.wechat_push.json`；agent-mail connector 仅暴露附件上传/下载，无 send_mail。只能「对话输出 + 落盘 + present_files」三通道触达。
+- **微信推送仍不可用**（第六次复核 2026-09-05）：无 `.wechat_push.json`；agent-mail connector 仅暴露附件上传/下载，无 send_mail。只能「对话输出 + 落盘 + present_files」三通道触达。
+- **破局候选（未安装）**：连接器市场 `search_plugins` 返回 `wecom`（企业微信：机器人主动通知 + 邮件收发）与 `qq-mail`（QQ 邮箱收发，可直发 374070139@qq.com）。**排查工具缺口须先查 `search_plugins`（连接器层）再查 ToolSearch（能力层）**。截至 2026-09-05 两者仍未 connected。
 
 ## 进度
 

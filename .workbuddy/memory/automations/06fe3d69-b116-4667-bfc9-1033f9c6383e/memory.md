@@ -68,3 +68,21 @@
   2. **`qq-mail`（QQ邮箱）** — 收发/搜索/整理 QQ 邮件，可直发用户已授权地址 `374070139@qq.com`，比 agent-mail（仅附件上传/下载）更完整。
 - 处置：已通过 `suggest_plugin_install` 向用户推荐卡片（未擅自安装，automation 无人值守不得代装）。**下轮先查两连接器是否已 connected**；若已连，日报即可走「企微机器人 / QQ 邮件」真实推送，结束 5 轮「三通道兜底」局面。
 - 方法论修正：**工具缺口先查 `search_plugins`（连接器市场）再查 ToolSearch（能力工具）**，两者不是同一层；此前 5 次只查后者是排查盲区。
+
+### 2026-09-05 00:0x（第 6 次，覆盖 09-04）
+- 数据源：git log（09-04 共 2 提交：`5c166675d` 第108轮 IP-8 第5批 Portfolio/Radar 真实源码、`3867219bf` 收尾 3 文档，HEAD=3867219bf）+ PLAN.md 第七节（记至第108轮）/ 第九节（IP-8 剩 2 页）+ 循环 memory（`frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md`，540 行，最新第108轮）+ 调度日志 + 本轮全量实测。
+- 本轮实测全绿：tsc 0 错（6s）/ guard 0-0-0（602 文件，已 `git checkout` 还原）/ **e2e 64/64（双 project 14.7s）** / dev 5173+后端 3001 200 / realtime `real`（上证 3930.12 -0.30%）。退化如实：fund-flow/industry `unavailable`、factors asOf 仍 2026-06-05（coverage=12、501 观测）。未跑 build（沿用轻量组合）。
+- **本轮最重要发现**：09-05 00:04-00:05 有会话正在改 `FundFlowPage.tsx`(+19/-10) 与 `WatchlistPage.tsx`(+31/-26)（IP-8 第6批，内容已 diff 核实为 antd Empty→共享 EmptyState）——**单通道红线自第101轮以来首次出现真实并行写码**，此前 15 轮「NorthBoundPage 陈旧遗留」前提失效，D22 二级判定需重新评估。循环记忆仍停在「第108轮」，第109轮未回账（记账漂移风险）。
+- 调度日志：09-04 主循环仅 2 轮（11:18 ❌ / 17:19 ✅），**21:00 缺席**；看板 03:00 ❌、**15:00 缺席**（自 09-03 起无成功）。缺席（无 start 记录）与失败（success=false）已在日报中区分列示。
+- **踩坑新增（重要）**：`frontend/playwright-report/index.html` 是 tracked 文件，本轮 00:08:36 被**并发会话**改写（非本报告产生——本报告用 `--reporter=line`）。**判断归属看 mtime 与自身命令完成时间是否吻合，不吻合则不要 `git checkout` 还原，否则会抹掉并发会话的验证产物**。ui-guard-report.md 同理需先确认归属。
+- 后端速率限制依旧：连续 curl `/api/*` 需 ≥30s 间隔（本轮 retryAfter 达 39s），抽查 3 个端点分 3 批执行。
+- 落盘：`.workbuddy/memory/2026-09-05.md`（新建，7 段式 + 验证明细表 + 调度核对表），已 present_files。
+- 推送仍不可用（**第 6 次复核**）：无 `.wechat_push.json`；agent-mail 仅附件上传/下载；`search_plugins` 候选 `wecom`（企微，支持机器人主动通知+邮件收发）与 `qq-mail`（QQ 邮箱收发）**仍未 connected**（上一轮推荐后用户未安装）。本轮未重复弹推荐卡片，改为正文一句话提示。
+
+### 2026-09-05 补充复核（00:10-00:14，日报落盘后追加）
+- **关键教训（务必沿用）**：本轮 e2e 64/64 跑于 00:03:43，而并发会话的 FundFlow/Watchlist 改动 00:04:54 / 00:09:24 才落盘——**健康结论验证的是改动前的树**。并发会话活跃时，日报的实测结论必须注明「跑于改动前」，并在改动定型后补跑一次，否则会把陈旧全绿当成当日健康度。
+- **捕捉到一次瞬时回归**：00:10 复跑 tsc → exit 2、`WatchlistPage.tsx` 370/1250/1478/1531 行 4 处 `TS2304: Cannot find name 'Spin'`（移除 antd Spin 导入后残留用法）。00:11:08 并发会话自行修复，复跑 exit 0、`grep Spin` 零命中。**未越界处置**（该文件属第109轮作业域），仅如实记录。价值：证明「改动后复跑 tsc」这一步能抓到真问题，不可省。
+- **第109轮 00:11 提交 `45b5ddb6e`**，PLAN.md 第九节 IP-8 标记 **✅ 已完成**（第104~109轮 6 批 **12 页**全统一）。改进池 **仅剩 IP-7**（utils/ 93K 行拆分）待做，仍因触碰 `frontend/src` 被红线阻塞。
+- 改动后终验：tsc 0 错 / e2e **64/64**（1.3m，含 /fund-flow、/watchlist）。
+- **mtime 归属法得到第二次验证**：`playwright-report/index.html`（00:08:36，第109轮产物，其提交未带上）与我的 playwright 完成时间（00:03 / 00:13）不吻合 → 判为他方，**未还原**。本轮用 `--reporter=line` 后 HTML mtime 前后均为 00:08:36，反证 line reporter 确实不写 HTML，00:08:36 那次改动来自并发会话的默认 html reporter 跑。
+- 落盘：`.workbuddy/memory/2026-09-05.md` 追加「## 补充复核（00:10-00:14）」小节（5 点：瞬时回归 / IP-8 销号 / 终验表 / 工作树归属 / 对上文日报的影响），已 present_files。
