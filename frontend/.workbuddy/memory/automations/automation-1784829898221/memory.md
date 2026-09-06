@@ -588,3 +588,24 @@
 **待用户明确（未重复推送）**：**NEW 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D22 红线二级判定追认（已连续 9 轮验证有效·新紧迫）/ D21-A 收口 NorthBoundPage.tsx（26行低风险）/ D24 龙虎榜后端路由未注册（🟡 待决策）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后**。
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260906-0129.md 兜底，标记「推送通道待开通」。
+
+## 第111轮（2026-09-06 07:40 · IP-13 ai/diagnose 诚实评分·零交集域恢复推进）
+
+**单通道红线（D22 二级判定）**：在途集 {`M backend/src/api/lockup-shares.ts`(mtime 2026-09-05 19:13 活跃) + `M frontend/src/pages/NorthBoundPage.tsx`(陈旧遗留)}。IP-13 目标文件（`ai-stock-selection.ts` + 新建 `aiDiagnosisEngine.ts` + `StockDetailPage.tsx`）与在途集**零文件交集** → 合法推进，不碰任何在途文件。
+
+**实装（主理人，最小侵入）**：
+- `backend/src/api/ai-stock-selection.ts`：删除 `fundamental/technical/momentum/valuation/sentiment` 五处 `Math.floor(Math.random()*40)+60` 伪造评分 + 硬编码 strengths/risks/suggestion，`/api/ai/diagnose/:symbol` 改调新建 `buildRealDiagnosis(symbol)`（queryCache 10min 缓存）。
+- `backend/src/services/aiDiagnosisEngine.ts`（新建）：诚实诊断引擎。四真实因子归一化加权——动量(近20日收益 mapRange(-15,15,0,100))/技术面(RSI14 clamp)/基本面(ROE mapRange(0,25,0,100))/估值(PB mapRange(1,8,100,0))；`toDbSymbol` 归一化库存 `600519.SH` 格式；`fetchQuotes` 内部 try-catch 优雅降级（DB 未初始化不抛500）；维度缺失不伪造、全缺失→`dataSource:'unavailable',totalScore:null`。
+- `frontend/src/pages/StockDetailPage.tsx`：总分 `totalScore!=null` 守卫（null 显「—」灰色边框）+ `dataSource` 标签（◆真实数据/○数据不足）。
+
+**独立验证（端到端·非仅自报）**：
+- 独立 tsx 进程 + 真实 `initDatabase`：`buildRealDiagnosis('600519')` → 4 真实维度（动量35/技术面52/基本面100 ROE32.5%/估值22 PB6.46「估值偏高」）`totalScore:59`(中性)·**DETERMINISTIC:true**·`dataSource:'real'`。
+- `buildRealDiagnosis('ZZ9999')` → `dataSource:'unavailable',totalScore:null`（诚实降级、零伪造）。
+- `grep Math.random` 两文件全空；后端 tsc 仅 `ai-analysis.ts(89,5)` 既有基线错（非本轮引入）、前端 tsc 0错、`npm run build` 45.86s 一次过、`npx playwright test e2e/route-render-smoke.spec.ts` **64/64**（含 /stock-detail null 守卫无回归）。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-13 常规红线收口；D21 收口 lockup 活跃在途 / D22 红线二级判定追认 / D24 龙虎榜死链 仍待用户拍板，未重复推送）。
+**专家团评估**：E1✅ / E2✅ 净改动有限 / E3🟢 / E4✅ 单 Agent / E5✅ 端到端双路径验证 / E6🟢 红线实质收敛（AI 诊断首达诚实数据源）。
+**改进池进度**：IP-13 ✅ 本轮销号；IP-1~IP-13 完成（IP-8 销号 12 页）；IP-12（lockup 活跃在途阻塞）/IP-14~IP-20 待做；IP-7 仍待用户决策。
+**待用户明确（未重复推送）**：收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D22 红线二级判定追认（已连续 11 轮验证有效）/ D21-A NorthBoundPage 收口 / D24 龙虎榜后端路由未注册 / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/ 兜底，标记「推送通道待开通」。

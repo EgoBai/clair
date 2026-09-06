@@ -650,19 +650,24 @@ const StockDetailPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
                 <div style={{
                   width: 64, height: 64, borderRadius: 32,
-                  background: aiDiagnosis.totalScore >= 70 ? '#22c55e20' : aiDiagnosis.totalScore >= 50 ? '#f59e0b20' : '#ef444420',
-                  border: `2px solid ${aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444'}`,
+                  background: aiDiagnosis.totalScore != null ? (aiDiagnosis.totalScore >= 70 ? '#22c55e20' : aiDiagnosis.totalScore >= 50 ? '#f59e0b20' : '#ef444420') : '#64748b20',
+                  border: `2px solid ${aiDiagnosis.totalScore != null ? (aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444') : '#64748b'}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   flexDirection: 'column',
                 }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444', fontFamily: 'monospace' }}>
-                    {aiDiagnosis.totalScore}
+                  <div style={{ fontSize: 20, fontWeight: 800, color: aiDiagnosis.totalScore != null ? (aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444') : '#94a3b8', fontFamily: 'monospace' }}>
+                    {aiDiagnosis.totalScore != null ? aiDiagnosis.totalScore : '—'}
                   </div>
                   <div style={{ fontSize: 9, color: TEXT_SECONDARY }}>分</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: TEXT_PRIMARY }}>{aiDiagnosis.rating}</div>
                   <div style={{ fontSize: 12, color: TEXT_SECONDARY }}>综合评级</div>
+                  {aiDiagnosis.dataSource && (
+                    <div style={{ fontSize: 11, marginTop: 4, color: aiDiagnosis.dataSource === 'real' ? '#22c55e' : '#f59e0b' }}>
+                      {aiDiagnosis.dataSource === 'real' ? '● 真实数据' : '○ 数据不足'}
+                    </div>
+                  )}
                 </div>
               </div>
 

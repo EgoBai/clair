@@ -9,6 +9,7 @@ import { validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 
 import { aiTiming } from '../middleware/aiTiming';
+import { buildRealDiagnosis } from '../services/aiDiagnosisEngine';
 
 const router = Router();
 
@@ -113,50 +114,14 @@ router.get('/ai/recommendations', asyncHandler(async (req: Request, res: Respons
   });
 }));
 
-// AI 个股诊断
+// AI 个股诊断（诚实数据版：评分来自真实行情/财务，无真实数据则标注 unavailable，绝不随机伪造）
 router.get('/ai/diagnose/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
 
   const cacheKey = `ai:diagnose:${symbol}`;
   const diagnosis = await queryCache.query(
     cacheKey,
-    () => {
-      const scores = {
-        fundamental: Math.floor(Math.random() * 40) + 60,
-        technical: Math.floor(Math.random() * 40) + 60,
-        momentum: Math.floor(Math.random() * 40) + 60,
-        valuation: Math.floor(Math.random() * 40) + 60,
-        sentiment: Math.floor(Math.random() * 40) + 60,
-      };
-      const total = Math.round(Object.values(scores).reduce((s, v) => s + v, 0) / 5);
-
-      return {
-        symbol,
-        totalScore: total,
-        rating: total >= 85 ? '强烈推荐' : total >= 70 ? '推荐' : total >= 55 ? '中性' : '谨慎',
-        dimensions: [
-          { name: '基本面', score: scores.fundamental, weight: 0.3 },
-          { name: '技术面', score: scores.technical, weight: 0.25 },
-          { name: '动量', score: scores.momentum, weight: 0.2 },
-          { name: '估值', score: scores.valuation, weight: 0.15 },
-          { name: '情绪', score: scores.sentiment, weight: 0.1 },
-        ],
-        strengths: [
-          '行业龙头地位稳固',
-          'ROE连续3年提升',
-          '机构持仓比例上升',
-        ],
-        risks: [
-          '估值偏高，安全边际不足',
-          '行业竞争加剧',
-          '宏观政策不确定性',
-        ],
-        suggestion: total >= 70
-          ? '综合评分较高，可适当配置，注意控制仓位'
-          : '综合评分中等，建议观望或小仓位参与',
-        updatedAt: new Date().toISOString(),
-      };
-    },
+    () => buildRealDiagnosis(symbol),
     600000
   );
 
