@@ -609,3 +609,29 @@
 **待用户明确（未重复推送）**：收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D22 红线二级判定追认（已连续 11 轮验证有效）/ D21-A NorthBoundPage 收口 / D24 龙虎榜后端路由未注册 / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/ 兜底，标记「推送通道待开通」。
+
+## 第112轮（2026-09-06 14:30 · IP-14 portfolio 游客越权读闭环·零交集域）
+
+**单通道红线（D22 二级判定）**：在途集 {`M backend/src/api/lockup-shares.ts`(mtime 2026-09-05 19:13 活跃 <24h) + `M frontend/src/pages/NorthBoundPage.tsx`(陈旧遗留)}。IP-14 目标文件 `backend/src/api/portfolio.ts` 与在途集零文件交集 → 合法推进，不碰任何在途文件。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-12（lockup 活跃在途阻塞）；取 QA 蜂群 IP-14（P0 安全·portfolio 游客越权读持仓）。
+
+**实装（主理人，最小侵入）**：`backend/src/api/portfolio.ts` 加 `import { authMiddleware } from '../middleware/auth'` + `router.use('/portfolio', authMiddleware)`（+2 行），对齐 watchlist.ts:20 401 口径，关闭游客未登录直读默认组合（¥27万成本/浮亏/现金）越权信息泄露。risk-center 经 `getDefaultPortfolio()` 函数直连、不经路由，不受影响。
+
+**独立验证（E5 反例探针·先验证再采信）**：
+- supertest 集成测（`__probe_portfolio_auth.test.ts`，用后即删）3/3：无 token→401 / 带有效 Bearer→通过中间件（非401，handler 内部因测试环境 DB 未初始化返回 500 与鉴权无关）/ 无 token POST→401。
+- 前端依赖链路：PortfolioPage.loadPortfolio 对 `success:false` 与 throw 均 catch→`setPortfolio(null)`+`loading=false`，401 下渲染空态零崩溃；api.ts:193 响应拦截器对 `success:false` 统一 reject，前端优雅兜底。
+- 后端 tsc 仅既有基线 `ai-analysis.ts(89,5)` 0 新增错；前端 tsc 0错 / `npm run build` 9.33s 一次过 / `npx playwright test e2e/route-render-smoke.spec.ts` **64/64**（含 /portfolio，零白屏零崩溃零404退化）。
+- grep 确认 portfolio.ts 仅 +2 行、零越界于在途文件；探针已删除。
+
+**文件域自检**：仅改 `backend/src/api/portfolio.ts`（与在途 lockup-shares.ts/NorthBoundPage.tsx 零交集），红线零交集纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增——IP-14 为常规红线收口（同 R111 IP-13 不立决策项）；D22 红线二级判定仍待用户追认（已连续 12 轮验证有效）/ D21-A 收口 NorthBoundPage / 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D24 龙虎榜死链 仍既存待用户动作，未重复推送。
+
+**专家团评估**：E1✅ 主理人自实现（单文件安全改动）/ E2✅ +2 行远低于 500 / E3🟢 / E4✅ 单人轮 / E5✅ 反例探针双路径证伪（401 拦截+放行）/ E6🟢 红线实质收敛（组合越权读消除），无新技术债。
+
+**改进池进度**：IP-1~IP-14 已完成（IP-13 R111 销号）；剩 IP-12（lockup 活跃在途阻塞）/IP-15~IP-20 待做；IP-7 仍待决策。
+
+**待用户明确（未重复推送）**：D22 红线二级判定追认（已连续 12 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜后端路由未注册（🟡 待决策）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/ 兜底，标记「推送通道待开通」。

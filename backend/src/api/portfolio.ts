@@ -9,8 +9,16 @@ import { db } from '../db/dbFactory';
 import { queryCache } from '../utils/queryCache';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
+import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
+
+// F05（对齐 watchlist）：投资组合为私有数据，强制 JWT 鉴权。
+// 未登录游客此前可 GET /api/portfolio 直接读取默认组合（¥27万成本/浮亏/现金等），
+// 属越权信息泄露；现统一返回 401，与 watchlist 口径对齐。
+// 仅收敛到 '/portfolio' 路径，避免误伤挂载于本路由之后的其它 /api 子路由
+// （如风险中心 risk-center 通过 getDefaultPortfolio() 函数直连、不经路由，不受影响）。
+router.use('/portfolio', authMiddleware);
 
 // ==================== 类型 ====================
 
