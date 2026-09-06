@@ -662,3 +662,29 @@
 **待用户明确（未重复推送）**：D22 红线二级判定追认（已连续 13 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜后端路由未注册（🟡 待决策）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/ 兜底，标记「推送通道待开通」。
+
+## 第114轮（2026-09-07 03:32 · IP-16 screener 伪空态收口·零交集域）
+
+**单通道红线（D22 二级判定）**：在途集 {`M backend/src/api/lockup-shares.ts`(mtime 2026-09-05 19:13，距本轮 ~32h，**已陈旧 stale**，跨 110~113 轮 diff 一致 +152/-146 不变) + `M frontend/src/pages/NorthBoundPage.tsx`(陈旧遗留 mtime 2026-08-29)}。IP-16 目标 `backend/src/api/screener.ts` 与在途集**零文件交集** → 合法推进，不碰任何在途文件。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-12（lockup 活跃在途阻塞，目标=lockup-shares.ts 本身即在途集，严守「不触碰在途文件本身」仍阻塞）；取 QA 蜂群 **IP-16（P1·连续 8 次最痛·screener 伪空态收口）**。
+
+**实装（主理人，最小侵入·+2 行）**：`backend/src/api/screener.ts` `POST /screener/filter` catch 块（:582-595）原静默返回 `success:true, stocks:[]` 冒充「无匹配」（InMemoryDatabase 不支持复杂 knex 联合查询 / `process.env.DATABASE_URL===undefined` 时）→ 违反诚实数据红线；改为：① 失败分支返 `dataSource:'unavailable'`+`notes:'筛选引擎当前不可用：底层数据库暂不支持复杂联合查询'`；② 成功分支补 `dataSource:'real'`（对齐 margin.ts 范式）。grep 确认同文件 `/screener/templates/:id/run`(返 500/success:false) 与 `/screener/quick`(返 500/success:false) 原已诚实失败，仅 filter 端点一处违规已收口。
+
+**独立验证（E5 反例探针·先验证再采信·未轻信绿跑）**：
+- 重启后端（PID 88789→95023）后 `curl -X POST /api/screener/filter` 实测返回 `{"success":true,"data":{"stocks":[],"dataSource":"unavailable","notes":"筛选引擎当前不可用：底层数据库暂不支持复杂联合查询",...}}`；修复前同请求返回 `{"success":true,"data":{"stocks":[]}}` 无 dataSource（用户无法区分失败/无匹配）→ **证伪静默空态**（E5 反例实证：同一请求修复前后形态变化可观测）。
+- 前端 `ScreenerPage` 实际走 `/api/stocks` 客户端过滤 + `/api/stocks/top` 兜底（grep 确认 `runScreener` 在 api.ts 定义但未被任何组件消费），故 IP-16 处置所述的「前端兜底接口」实质已由现有客户端过滤+top 兜底覆盖，无需新增伪造端点。
+- 后端 tsc 仅既有基线 `ai-analysis.ts(89,5)` 0 新增错；前端 tsc 0错 / `npm run build` 18.45s 一次过 / `npx playwright test e2e/route-render-smoke.spec.ts` **64/64**（含 /screener，零白屏零崩溃零404退化）。
+- git status 确认本轮**仅 M backend/src/api/screener.ts**，未触碰 `lockup-shares.ts`/`NorthBoundPage.tsx` 一字，红线零交集纪律严守。
+
+**文件域自检**：仅改 `backend/src/api/screener.ts`，与在途 {lockup-shares.ts(陈旧), NorthBoundPage.tsx(陈旧)} 零交集，红线零交集纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-16 常规红线收口，同 R111~R113 不立决策项）；D22 红线二级判定仍待用户追认（已连续 14 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜死链 仍既存待用户动作，未重复推送。
+
+**专家团评估**：E1✅ 主理人自实现（单文件诚实数据修复）/ E2✅ 净 +2 行远低于 500 / E3🟢 / E4✅ 单人轮 / **E5✅ 反例探针证伪**——curl 实证修复前后响应形态变化（静默空→unavailable），杜绝自报绿 / E6🟢 红线实质收敛（screener 不再冒充「无匹配」），无新技术债。
+
+**改进池进度**：IP-1~IP-16 已完成（IP-13 R111、IP-14 R112、IP-15 R113、IP-16 R114 销号）；剩 IP-12（lockup 活跃在途阻塞，目标=在途文件本身，严守不触碰仍阻塞）/IP-17~IP-20 待做；IP-7 仍待决策。
+
+**待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续 14 轮验证有效·新紧迫）** / 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / **D24 龙虎榜后端路由未注册（🟡 待决策）** / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260907-0332.md 兜底，标记「推送通道待开通」。

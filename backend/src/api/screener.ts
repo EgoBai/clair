@@ -577,17 +577,22 @@ router.post('/screener/filter', validateBody(schemas.screenerFilter), async (req
 
     res.json({
       success: true,
-      data: result,
+      data: {
+        ...result,
+        dataSource: 'real',
+      },
     });
   } catch (error) {
     console.error('选股筛选失败:', error);
     const msg = (error as Error).message || '';
-    // InMemoryDatabase doesn't support complex knex joins — return empty gracefully
+    // 真实查询失败（InMemoryDatabase 不支持复杂 knex 联合查询 / 未配置真实库）→ 诚实标注 unavailable，绝不冒充「无匹配」
     if (msg.includes('not a function') || process.env.DATABASE_URL === undefined) {
       return res.json({
         success: true,
         data: {
           stocks: [],
+          dataSource: 'unavailable',
+          notes: '筛选引擎当前不可用：底层数据库暂不支持复杂联合查询',
           pagination: { page: 1, pageSize: 50, totalCount: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
           sortConfig: { sortBy: 'change_percent', sortOrder: 'desc' },
         },
