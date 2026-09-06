@@ -27,7 +27,7 @@ export interface StrategyParams {
   bollPeriod?: number;    // 默认20
   bollStdDev?: number;    // 默认2
   // 通用参数
-  initialCapital?: number; // 默认100000
+  initialCapital?: number; // 默认1000000
   commission?: number;     // 默认0.0003 (万分之三)
   slippage?: number;       // 默认0.001 (千分之一)
 }
@@ -93,6 +93,7 @@ export interface BacktestResult {
   dailyPortfolio: DailyPortfolio[];
   equityCurve: { date: string; value: number }[];
   drawdownCurve: { date: string; drawdown: number }[];
+  warnings: string[]; // 告警信息（如资金不足无法建仓）
 }
 
 // ==================== 技术指标计算 ====================
@@ -313,7 +314,7 @@ export function runBacktest(
   }
 
   const strategy = params.type;
-  const initialCapital = params.initialCapital || 100000;
+  const initialCapital = params.initialCapital || 1000000;
   const commission = params.commission || 0.0003;
   const slippage = params.slippage || 0.001;
 
@@ -331,6 +332,7 @@ export function runBacktest(
   const dailyPortfolio: DailyPortfolio[] = [];
   let prevTotalValue = initialCapital;
   let lastBuyDate = ''; // A股T+1: 记录买入日期
+  let capitalInsufficient = false; // 资金不足以买入1手（100股）
   const stampDuty = 0.001; // A股印花税 0.1% (卖出时收取)
 
   for (let i = 0; i < klineData.length; i++) {
@@ -373,6 +375,8 @@ export function runBacktest(
           reason: signal.reason,
           signal: `${strategy}:${signal.type}`,
         });
+      } else {
+        capitalInsufficient = true; // 资金不足以买入1手（100股）
       }
     } else if (signal.type === 'sell' && position > 0 && bar.tradeDate !== lastBuyDate) {
       // T+1: 不允许当天买入后当天卖出
@@ -438,6 +442,12 @@ export function runBacktest(
   const totalReturn = (finalValue - initialCapital) / initialCapital * 100;
   const annualizedReturn = calculateAnnualizedReturn(initialCapital, finalValue, startDate, endDate);
 
+  // 资金不足告警
+  const warnings: string[] = [];
+  if (capitalInsufficient) {
+    warnings.push('策略产生了买入信号，但初始资金不足以买入1手（100股）。请提高 initialCapital 后重试。');
+  }
+
   // 基准收益（买入持有）
   const benchmarkReturn = (lastPrice - closes[0]) / closes[0] * 100;
 
@@ -479,6 +489,7 @@ export function runBacktest(
     dailyPortfolio,
     equityCurve,
     drawdownCurve,
+    warnings,
   };
 }
 
@@ -608,31 +619,31 @@ export const STRATEGY_PRESETS: { name: string; description: string; type: Strate
     name: '双均线交叉',
     description: '短期均线上穿长期均线买入，下穿卖出。经典趋势跟踪策略。',
     type: 'ma_cross',
-    params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 20, initialCapital: 100000 },
+    params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 20, initialCapital: 1000000 },
   },
   {
     name: 'RSI超买超卖',
     description: 'RSI低于超卖线买入，高于超买线卖出。适合震荡行情。',
     type: 'rsi',
-    params: { type: 'rsi', rsiPeriod: 14, rsiOversold: 30, rsiOverbought: 70, initialCapital: 100000 },
+    params: { type: 'rsi', rsiPeriod: 14, rsiOversold: 30, rsiOverbought: 70, initialCapital: 1000000 },
   },
   {
     name: 'MACD金叉死叉',
     description: 'MACD指标DIF上穿DEA买入，下穿卖出。趋势确认策略。',
     type: 'macd',
-    params: { type: 'macd', macdFast: 12, macdSlow: 26, macdSignal: 9, initialCapital: 100000 },
+    params: { type: 'macd', macdFast: 12, macdSlow: 26, macdSignal: 9, initialCapital: 1000000 },
   },
   {
     name: '三均线系统',
     description: 'MA5/MA10/MA20三均线组合，多重确认信号。',
     type: 'ma_cross',
-    params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 10, initialCapital: 100000 },
+    params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 10, initialCapital: 1000000 },
   },
   {
     name: '保守RSI',
     description: '更严格的RSI阈值，减少交易频率。',
     type: 'rsi',
-    params: { type: 'rsi', rsiPeriod: 21, rsiOversold: 25, rsiOverbought: 75, initialCapital: 100000 },
+    params: { type: 'rsi', rsiPeriod: 21, rsiOversold: 25, rsiOverbought: 75, initialCapital: 1000000 },
   },
 ];
 

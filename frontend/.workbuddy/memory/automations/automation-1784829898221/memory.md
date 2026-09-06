@@ -635,3 +635,30 @@
 **待用户明确（未重复推送）**：D22 红线二级判定追认（已连续 12 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜后端路由未注册（🟡 待决策）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/ 兜底，标记「推送通道待开通」。
+
+## 第113轮（2026-09-06 20:42 · IP-15 backtest 信号引擎归零攻坚）
+
+**单通道红线（D22 二级判定）**：在途集 {`M backend/src/api/lockup-shares.ts`(mtime 2026-09-05 19:13 活跃 <24h) + `M frontend/src/pages/NorthBoundPage.tsx`(陈旧遗留)}。IP-15 目标文件 `backend/src/utils/backtestEngine.ts` 与在途集**零文件交集** → 合法推进，不碰任何在途文件。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-12（lockup 活跃在途阻塞）；取 QA 蜂群 **IP-15（P1·连续 11 日最痛项·backtest 信号引擎归零）**。
+
+**实装（主理人，最小侵入）**：
+- `backend/src/utils/backtestEngine.ts`：根因修复——默认初始本金 `params.initialCapital || 100000` 在高价股（茅台 ~1474/股）下 `buyAmount = floor(100000/(1474*100))*100 = 0` → 永不买入 → 全策略 `totalTrades:0`（静默归零）。改动：① 默认本金 100000→1000000（行 317）；② `BacktestResult` 接口新增 `warnings: string[]`（行 96）；③ 买入逻辑 `if (buyAmount>=100){...}else{capitalInsufficient=true}`（行 379）+ 告警收集（行 446-449）「初始资金不足以买入1手（100股）」；④ `STRATEGY_PRESETS` 五条预设 `initialCapital:100000`→`1000000`（行 622/628/634/640/646）。
+- `backend/src/__tests__/backtest.test.ts`：行 203 `toBe(100000)`→`toBe(1000000)`；新增 IP-15 回归测试——`generateKlineData(120,1500,'volatile')` 高价股 + 不传 initialCapital，断言 `totalTrades>0` 且 `Array.isArray(result.warnings)`；若 `totalTrades===0` 则 warnings 必须非空（杜绝静默归零）。
+
+**独立验证（端到端·非仅自报）**：
+- 重启后端（PID 24792→88789）后实接口 600519：`ma_cross=4`、`rsi_reversal=2`、`macd_trend=2` 笔真实成交（修复前全 0）；`breakout=0` 为真实无信号非资金故障；`warnings` 字段已上线（资本充足时为空数组）。
+- `vitest 61/61` 全绿；前端 tsc 0错；`npm run build` 8.35s 一次过；后端 tsc 仅既有基线 `ai-analysis.ts(89,5)` 错（非本轮引入）；pg 直连独立复算 MA(5,20) 金叉=4/死叉=4（信号层正常，排除信号层、锁定资金门槛）。
+- grep 复核 11 处修复全部落地（行 30/96/317/335/379/446/622/628/634/640/646）。
+
+**文件域自检**：仅改 `backend/src/utils/backtestEngine.ts` + 测试文件 + PLAN.md，与在途 {lockup-shares.ts(活跃), NorthBoundPage.tsx(陈旧)} 零交集，红线零交集纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-15 常规引擎 bug 修复，不立决策项）；D22 红线二级判定仍待用户追认（已连续 13 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜死链 仍既存待用户动作，未重复推送。
+
+**专家团评估**：E1✅ 主理人自实现（单文件安全改动 + 测试）/ E2✅ 净改动有限 / E3🟢 / E4✅ 单人轮 / E5✅ 端到端实接口三策略验证 / E6🟢 红线实质收敛（backtest 摆脱静默归零），无新技术债。
+
+**改进池进度**：IP-1~IP-15 已完成（IP-15 本轮销号）；剩 IP-12（lockup 活跃在途阻塞）/IP-16~IP-20 待做；IP-7 仍待决策。
+
+**待用户明确（未重复推送）**：D22 红线二级判定追认（已连续 13 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜后端路由未注册（🟡 待决策）/ MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/ 兜底，标记「推送通道待开通」。

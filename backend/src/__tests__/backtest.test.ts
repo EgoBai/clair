@@ -200,8 +200,22 @@ describe('回测引擎', () => {
       const data = generateKlineData(100);
       const result = runBacktest(data, { type: 'ma_cross' });
 
-      expect(result.initialCapital).toBe(100000); // 默认值
+      expect(result.initialCapital).toBe(1000000); // 默认值
       expect(result.strategy).toBe('ma_cross');
+    });
+
+    it('IP-15 回归：高价股在默认本金下应产生成交（杜绝静默归零）', () => {
+      // 茅台等高价股单价~1500，旧默认本金10万无法买入1手(100股)导致 totalTrades=0
+      const data = generateKlineData(120, 1500, 'volatile');
+      const result = runBacktest(data, { type: 'ma_cross' }); // 不传 initialCapital，走默认
+      expect(result.initialCapital).toBe(1000000); // 新默认本金
+      // 关键断言：不应再静默归零
+      expect(result.totalTrades).toBeGreaterThan(0);
+      expect(Array.isArray(result.warnings)).toBe(true);
+      // 兜底：即便极端情况无法建仓，也必须给出明确告警而非静默0成交
+      if (result.totalTrades === 0) {
+        expect(result.warnings.length).toBeGreaterThan(0);
+      }
     });
 
     it('上涨趋势应该产生正收益（MA策略）', () => {
