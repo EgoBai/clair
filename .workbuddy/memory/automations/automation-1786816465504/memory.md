@@ -30,5 +30,11 @@
 - 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token → import_html.py --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj。
 - 收口：✅ 仅提交本轮产物 automation memory.md；工作树遗留 06fe3d69 自动化 memory.md、backend/src/api/lockup-shares.ts、frontend/playwright-report/index.html、frontend/src/pages/NorthBoundPage.tsx、.workbuddy/memory/2026-09-06.md、.workbuddy/memory/2026-09-07.md、frontend/.workbuddy/.../loop-20260906-0740.md 均为他人在途改动，按单通道红线未触碰。
 
+## 2026-09-08 03:04 第 N+5 轮
+- 重新生成：✅ `python3 scripts/gen_dashboard.py` 成功（generatedAt=2026-09-08T03:04:56+08:00，round=116，tickets=59，realSrc=6，sprints=6，decisions=19，debts=11，swarm=5，orch=5，timeline=8），产物 docs/dashboard-data.json + docs/clair-dashboard.html（round 由 114→116）。
+- 提交推送：✅ 仅 add 两个 docs 产物 + commit `ac90bfe7d`「chore(dashboard): 自动刷新进度数据」，git-push-retry.sh 直连推送成功（dc3d1dc53..ac90bfe7d）。
+- 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token → import_html.py --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj。
+- 收口：✅ 仅提交本轮产物 automation memory.md；工作树遗留 frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md、frontend/playwright-report/index.html、CI_FIX_REPORT.md 均为他人在途改动，按单通道红线未触碰。
+
 ## 结论
-最近一轮（2026-09-07）：重新生成=是；推送=成功；重导入并发布=成功；收口=干净（仅本轮产物已提交，未触碰他人在途文件）。
+最近一轮（2026-09-08）：重新生成=是；推送=成功；重导入并发布=成功；收口=干净（仅本轮产物已提交，未触碰他人在途文件）。
