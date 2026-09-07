@@ -2180,6 +2180,393 @@ async function handleBacktest(symbol) {
   }
 }
 
+// ==================== Backtest v2: POST /api/backtest/run ====================
+// 对齐前端 BacktestPage：4 策略 + 自定义日期区间 + 完整绩效指标。
+// 数据全部来自真实日K（fetchDailyKLine 三源降级），无任何模拟/随机/演示数据；
+// 区间无法覆盖时如实返回原因并给出实际可用区间，绝不回填假结果。
+
+const BACKTEST_STRATEGIES = new Set(['ma_cross', 'rsi_reversal', 'macd_trend', 'breakout']);
+const BT_MIN_RANGE_DAYS = 30;    // 与前端一致
+const BT_MAX_RANGE_DAYS = 3650;  // 与前端一致
+const BT_WARMUP_DAYS = 120;      // 指标预热（MACD EMA26 + DEA9 需要足够样本）
+const BT_DEFAULT_CAPITAL = 1000000; // A股1手=100股，高价股（如茅台1手≈15万）需要足够本金才有意义
+
+/**
+ * 一次性预计算全部指标序列（滚动算法，O(n)）。
+ * 索引与 closes 对齐，样本不足处置 null —— 对应位置不产生信号。
+ */
+function precomputeIndicators(closes) {
+  const n = closes.length;
+  const ma5 = new Array(n).fill(null);
+  const ma20 = new Array(n).fill(null);
+  const rsi = new Array(n).fill(null);
+  const dif = new Array(n).fill(null);
+  const dea = new Array(n).fill(null);
+  const bollUp = new Array(n).fill(null);
+  const bollLow = new Array(n).fill(null);
+
+  // MA5 / MA20（滚动和）
+  let s5 = 0, s20 = 0;
+  for (let i = 0; i < n; i++) {
+    s5 += closes[i]; s20 += closes[i];
+    if (i >= 5) s5 -= closes[i - 5];
+    if (i >= 20) s20 -= closes[i - 20];
+    if (i >= 4) ma5[i] = s5 / 5;
+    if (i >= 19) ma20[i] = s20 / 20;
+  }
+
+  // BOLL(20, 2)
+  for (let i = 19; i < n; i++) {
+    const m = ma20[i];
+    let v = 0;
+    for (let j = i - 19; j <= i; j++) v += (closes[j] - m) * (closes[j] - m);
+    const sd = Math.sqrt(v / 20);
+    bollUp[i] = m + 2 * sd;
+    bollLow[i] = m - 2 * sd;
+  }
+
+  // RSI(14) — Wilder 平滑
+  if (n > 14) {
+    let gains = 0, losses = 0;
+    for (let i = 1; i <= 14; i++) {
+      const d = closes[i] - closes[i - 1];
+      if (d >= 0) gains += d; else losses += -d;
+    }
+    let ag = gains / 14, al = losses / 14;
+    rsi[14] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+    for (let i = 15; i < n; i++) {
+      const d = closes[i] - closes[i - 1];
+      ag = (ag * 13 + (d > 0 ? d : 0)) / 14;
+      al = (al * 13 + (d < 0 ? -d : 0)) / 14;
+      rsi[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+    }
+  }
+
+  // MACD(12, 26, 9)
+  if (n > 1) {
+    const k12 = 2 / 13, k26 = 2 / 27, k9 = 2 / 10;
+    let e12 = closes[0], e26 = closes[0], dPrev = 0;
+    dif[0] = 0; dea[0] = 0;
+    for (let i = 1; i < n; i++) {
+      e12 = closes[i] * k12 + e12 * (1 - k12);
+      e26 = closes[i] * k26 + e26 * (1 - k26);
+      const d = e12 - e26;
+      dPrev = d * k9 + dPrev * (1 - k9);
+      dif[i] = d; dea[i] = dPrev;
+    }
+  }
+
+  return { ma5, ma20, rsi, dif, dea, bollUp, bollLow };
+}
+
+/**
+ * 在第 i 根K线收盘后，按策略给出信号。
+ * 只用 i 及之前的数据，杜绝未来函数。
+ */
+function signalAt(strategy, ind, i, closes) {
+  const { ma5, ma20, rsi, dif, dea, bollUp, bollLow } = ind;
+  if (i < 1) return 'hold';
+  switch (strategy) {
+    case 'ma_cross': {
+      if (ma5[i] == null || ma20[i] == null || ma5[i - 1] == null || ma20[i - 1] == null) return 'hold';
+      if (ma5[i - 1] <= ma20[i - 1] && ma5[i] > ma20[i]) return 'buy';   // 金叉
+      if (ma5[i - 1] >= ma20[i - 1] && ma5[i] < ma20[i]) return 'sell';  // 死叉
+      return 'hold';
+    }
+    case 'rsi_reversal': {
+      if (rsi[i] == null) return 'hold';
+      if (rsi[i] < 30) return 'buy';   // 超卖
+      if (rsi[i] > 70) return 'sell';  // 超买
+      return 'hold';
+    }
+    case 'macd_trend': {
+      if (dif[i] == null || dea[i] == null || dif[i - 1] == null || dea[i - 1] == null) return 'hold';
+      if (dif[i - 1] <= dea[i - 1] && dif[i] > dea[i]) return 'buy';   // 金叉
+      if (dif[i - 1] >= dea[i - 1] && dif[i] < dea[i]) return 'sell';  // 死叉
+      return 'hold';
+    }
+    case 'breakout': {
+      if (bollUp[i] == null || bollUp[i - 1] == null || bollLow[i] == null || bollLow[i - 1] == null) return 'hold';
+      const mid = (bollUp[i] + bollLow[i]) / 2;
+      if (closes[i - 1] <= bollUp[i - 1] && closes[i] > bollUp[i]) return 'buy'; // 放量突破上轨
+      if (closes[i - 1] >= mid && closes[i] < mid) return 'sell';                // 跌破中轨
+      return 'hold';
+    }
+    default:
+      return 'hold';
+  }
+}
+
+/** 交易原因文案 —— 让用户看得懂每笔交易为什么发生 */
+function sigReason(strategy, ind, i) {
+  const { ma5, ma20, rsi, dif, dea, bollUp, bollLow } = ind;
+  const r2 = (v) => (v == null ? '—' : v.toFixed(2));
+  switch (strategy) {
+    case 'ma_cross':
+      return `MA5(${r2(ma5[i])}) 与 MA20(${r2(ma20[i])}) 交叉`;
+    case 'rsi_reversal':
+      return `RSI14 = ${r2(rsi[i])}`;
+    case 'macd_trend':
+      return `DIF(${r2(dif[i])}) 与 DEA(${r2(dea[i])}) 交叉`;
+    case 'breakout':
+      return bollUp[i] == null ? '布林带样本不足' : `布林上轨 ${r2(bollUp[i])} / 中轨 ${r2((bollUp[i] + bollLow[i]) / 2)}`;
+    default:
+      return '—';
+  }
+}
+
+async function handleBacktestRun(request) {
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ success: false, error: '请求体不是合法 JSON', details: '请求体不是合法 JSON' }, 400);
+  }
+
+  const symbol = String(body.symbol || '').trim();
+  const strategy = String(body.strategy || '').trim();
+  const startDate = String(body.startDate || '').trim();
+  const endDate = String(body.endDate || '').trim();
+
+  // ── 参数校验（与前端 BacktestPage.validateRange 同一套规则）──
+  if (!/^\d{6}$/.test(symbol)) {
+    return json({ success: false, error: '股票代码格式不正确（应为 6 位数字）', details: '股票代码格式不正确（应为 6 位数字）' }, 400);
+  }
+  if (!BACKTEST_STRATEGIES.has(strategy)) {
+    return json({ success: false, error: `不支持的策略：${strategy}`, details: `不支持的策略：${strategy}` }, 400);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return json({ success: false, error: '日期格式应为 YYYY-MM-DD', details: '日期格式应为 YYYY-MM-DD' }, 400);
+  }
+  const startMs = Date.parse(startDate + 'T00:00:00Z');
+  const endMs = Date.parse(endDate + 'T00:00:00Z');
+  if (!isFinite(startMs) || !isFinite(endMs)) {
+    return json({ success: false, error: '日期无效', details: '日期无效' }, 400);
+  }
+  if (startMs > endMs) {
+    return json({ success: false, error: '起始日期不能晚于结束日期', details: '起始日期不能晚于结束日期' }, 400);
+  }
+  const spanDays = Math.floor((endMs - startMs) / 86400000);
+  if (spanDays < BT_MIN_RANGE_DAYS) {
+    const msg = `回测区间过短（${spanDays} 天），至少需要 ${BT_MIN_RANGE_DAYS} 个自然日`;
+    return json({ success: false, error: msg, details: msg }, 400);
+  }
+  if (spanDays > BT_MAX_RANGE_DAYS) {
+    const msg = `回测区间过长（${spanDays} 天），单次最多支持 ${BT_MAX_RANGE_DAYS} 天`;
+    return json({ success: false, error: msg, details: msg }, 400);
+  }
+  const todayIso = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // Asia/Shanghai
+  if (endDate > todayIso) {
+    const msg = `结束日期（${endDate}）不能晚于今天，回测只能基于已发生的历史行情`;
+    return json({ success: false, error: msg, details: msg }, 400);
+  }
+
+  // 初始资金：可传，默认 100 万（clamp 到 1 万 ~ 1000 亿）
+  const rawCapital = Number(body.initialCapital);
+  const INITIAL_CAPITAL = Number.isFinite(rawCapital) && rawCapital > 0
+    ? Math.min(1e11, Math.max(1e4, rawCapital))
+    : BT_DEFAULT_CAPITAL;
+
+  try {
+    const stocks = await getStockList();
+    const stock = stocks.find(s => s.symbol === symbol);
+    if (!stock) {
+      return json({ success: false, error: `未找到股票 ${symbol}`, details: `未找到股票 ${symbol}` }, 404);
+    }
+
+    // 需要的K线根数：区间交易日估算 + 预热 + 余量
+    const needBars = Math.min(3000, Math.ceil(spanDays * 0.72) + BT_WARMUP_DAYS + 60);
+    const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+    const kl = await fetchDailyKLine(tencentSymbol, symbol, stock.market, needBars)
+      .catch(() => ({ quotes: [] }));
+    const all = (kl?.quotes || [])
+      .filter(q => q && q.tradeDate && q.closePrice > 0)
+      .sort((a, b) => (a.tradeDate < b.tradeDate ? -1 : 1));
+
+    if (all.length < BT_WARMUP_DAYS + 20) {
+      const msg = `历史K线数据不足（仅 ${all.length} 个交易日，至少需要 ${BT_WARMUP_DAYS + 20} 个），无法回测`;
+      return json({ success: false, error: msg, details: msg, data: null });
+    }
+
+    // 截断到结束日
+    const uptoEnd = all.filter(q => q.tradeDate <= endDate);
+    const lastDate = all[all.length - 1].tradeDate;
+    if (uptoEnd.length < BT_WARMUP_DAYS + 20) {
+      const msg = `所选结束日（${endDate}）早于可用历史数据起点，无法回测`;
+      return json({ success: false, error: msg, details: msg, data: null });
+    }
+
+    // 实际回测起点：不早于用户所选起始日，且必须留出预热窗口
+    let startIdx = uptoEnd.findIndex(q => q.tradeDate >= startDate);
+    if (startIdx < 0) startIdx = uptoEnd.length - 1;
+    const actualIdx = Math.max(startIdx, BT_WARMUP_DAYS);
+    if (actualIdx >= uptoEnd.length - 1) {
+      const msg = '所选区间内没有足够的交易日，请扩大回测区间';
+      return json({ success: false, error: msg, details: msg, data: null });
+    }
+
+    const closesAll = uptoEnd.map(q => q.closePrice);
+    const ind = precomputeIndicators(closesAll);
+
+    // ── 模拟交易 ──
+    let cash = INITIAL_CAPITAL;
+    let shares = 0;
+    const trades = [];
+    const equityCurve = [];
+    let peak = INITIAL_CAPITAL;
+    let maxDrawdown = 0;
+    const drawdownCurve = [];
+    let skippedBuyForCapital = 0; // 因本金买不起 1 手而放弃的买入信号
+    let buySignals = 0;
+
+    for (let i = actualIdx; i < uptoEnd.length; i++) {
+      const price = closesAll[i];
+      const sig = signalAt(strategy, ind, i, closesAll);
+
+      if (sig === 'buy' && shares === 0) {
+        buySignals++;
+        const qty = Math.floor(cash / (price * 100)) * 100;
+        if (qty > 0) {
+          const amount = qty * price;
+          cash -= amount;
+          shares = qty;
+          trades.push({
+            date: uptoEnd[i].tradeDate, type: 'buy', price, quantity: qty,
+            amount: Math.round(amount * 100) / 100, reason: sigReason(strategy, ind, i),
+          });
+        } else {
+          skippedBuyForCapital++;
+        }
+      } else if (sig === 'sell' && shares > 0) {
+        const amount = shares * price;
+        cash += amount;
+        trades.push({
+          date: uptoEnd[i].tradeDate, type: 'sell', price, quantity: shares,
+          amount: Math.round(amount * 100) / 100, reason: sigReason(strategy, ind, i),
+        });
+        shares = 0;
+      }
+
+      const value = cash + shares * price;
+      equityCurve.push({ date: uptoEnd[i].tradeDate, value: Math.round(value * 100) / 100 });
+      peak = Math.max(peak, value);
+      const dd = peak > 0 ? (peak - value) / peak : 0;
+      maxDrawdown = Math.max(maxDrawdown, dd);
+      drawdownCurve.push({ date: uptoEnd[i].tradeDate, drawdown: Math.round(-dd * 10000) / 100 });
+    }
+
+    // 期末强制平仓，保证绩效指标基于已实现盈亏
+    const lastPrice = closesAll[uptoEnd.length - 1];
+    if (shares > 0) {
+      const amount = shares * lastPrice;
+      cash += amount;
+      trades.push({
+        date: uptoEnd[uptoEnd.length - 1].tradeDate, type: 'sell', price: lastPrice,
+        quantity: shares, amount: Math.round(amount * 100) / 100, reason: '期末平仓（结算）',
+      });
+      shares = 0;
+    }
+
+    const finalValue = Math.round(cash * 100) / 100;
+    const totalReturn = (finalValue / INITIAL_CAPITAL - 1) * 100;
+    const actualStartDate = uptoEnd[actualIdx].tradeDate;
+    const actualEndDate = uptoEnd[uptoEnd.length - 1].tradeDate;
+    const tradingDays = uptoEnd.length - actualIdx;
+
+    // 基准：同一区间买入持有
+    const benchmarkReturn = (closesAll[uptoEnd.length - 1] / closesAll[actualIdx] - 1) * 100;
+
+    // 年化：按自然年折算
+    const years = (Date.parse(actualEndDate + 'T00:00:00Z') - Date.parse(actualStartDate + 'T00:00:00Z')) / 86400000 / 365;
+    let annualizedReturn = null;
+    if (years > 0 && finalValue > 0) {
+      annualizedReturn = (Math.pow(finalValue / INITIAL_CAPITAL, 1 / years) - 1) * 100;
+    }
+
+    // 夏普：权益日收益的年化夏普（无风险利率取 0）
+    let sharpeRatio = null;
+    if (equityCurve.length > 2) {
+      const rets = [];
+      for (let i = 1; i < equityCurve.length; i++) {
+        const prev = equityCurve[i - 1].value;
+        if (prev > 0) rets.push(equityCurve[i].value / prev - 1);
+      }
+      if (rets.length > 1) {
+        const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+        const variance = rets.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (rets.length - 1);
+        const sd = Math.sqrt(variance);
+        if (sd > 0) sharpeRatio = (mean / sd) * Math.sqrt(244);
+      }
+    }
+
+    // 配对交易，统计胜率与盈亏比
+    const pairs = [];
+    for (let i = 0; i < trades.length; i++) {
+      if (trades[i].type !== 'buy') continue;
+      for (let j = i + 1; j < trades.length; j++) {
+        if (trades[j].type === 'sell') { pairs.push([trades[i], trades[j]]); break; }
+      }
+    }
+    const winningTrades = pairs.filter(([b, s]) => s.amount > b.amount).length;
+    const totalTrades = pairs.length;
+    const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+    const winSum = pairs.filter(([b, s]) => s.amount > b.amount).reduce((a, [b, s]) => a + (s.amount - b.amount), 0);
+    const lossSum = pairs.filter(([b, s]) => s.amount <= b.amount).reduce((a, [b, s]) => a + Math.abs(s.amount - b.amount), 0);
+    // 无亏损交易时盈亏比在数学上无定义 → 如实返回 null，由前端显示「—」
+    const profitFactor = totalTrades === 0 ? null : (lossSum > 0 ? winSum / lossSum : null);
+
+    const warnings = [];
+    const minBuyCost = Math.min(...closesAll.slice(actualIdx)) * 100;
+    if (skippedBuyForCapital > 0) {
+      warnings.push(`有 ${skippedBuyForCapital} 次买入信号因本金不足以买入 1 手（需约 ¥${Math.round(minBuyCost).toLocaleString('zh-CN')}）而被放弃，建议提高初始资金`);
+    }
+    if (buySignals > 0 && totalTrades === 0) {
+      warnings.push('所选区间内未产生任何完整买卖回合，绩效指标不具统计意义');
+    }
+    if (buySignals === 0) {
+      warnings.push('所选区间内该策略未触发任何买入信号，可尝试更换策略或扩大区间');
+    }
+
+    const note = actualStartDate > startDate
+      ? `历史K线最早仅到 ${uptoEnd[0].tradeDate}，已自动将回测起点调整为 ${actualStartDate}（保证 ${BT_WARMUP_DAYS} 日指标预热）`
+      : (lastDate < endDate ? `行情数据最新仅到 ${lastDate}` : null);
+
+    return json({
+      success: true,
+      data: {
+        strategy,
+        strategyName: { ma_cross: '均线交叉', rsi_reversal: 'RSI策略', macd_trend: 'MACD策略', breakout: '布林带策略' }[strategy],
+        symbol,
+        name: stock.name,
+        startDate: actualStartDate,
+        endDate: actualEndDate,
+        requestedRange: { startDate, endDate },
+        totalDays: tradingDays,
+        initialCapital: INITIAL_CAPITAL,
+        finalValue,
+        totalReturn: Math.round(totalReturn * 100) / 100,
+        annualizedReturn: annualizedReturn == null ? null : Math.round(annualizedReturn * 100) / 100,
+        benchmarkReturn: Math.round(benchmarkReturn * 100) / 100,
+        maxDrawdown: Math.round(maxDrawdown * 10000) / 100,
+        sharpeRatio: sharpeRatio == null ? null : Math.round(sharpeRatio * 100) / 100,
+        winRate: Math.round(winRate * 100) / 100,
+        totalTrades,
+        winningTrades,
+        losingTrades: totalTrades - winningTrades,
+        profitFactor: profitFactor == null ? null : Math.round(profitFactor * 100) / 100,
+        trades,
+        equityCurve,
+        drawdownCurve,
+        source: kl?.source || 'unknown',
+        note,
+        warnings,
+      },
+    });
+  } catch (e) {
+    return json({ success: false, error: e.message, details: e.message, data: null });
+  }
+}
+
 async function handleDebug() {
   const results = {};
 
@@ -3442,6 +3829,11 @@ export default {
     // Watchlist alerts: /api/alerts?symbols=600519,000001
     if (path === '/api/alerts') {
       return handleAlerts(url);
+    }
+
+    // Backtest v2: POST /api/backtest/run（4 策略 + 自定义区间，对齐前端 BacktestPage）
+    if (path === '/api/backtest/run' && request.method === 'POST') {
+      return handleBacktestRun(request);
     }
 
     // Backtest: /api/backtest/:symbol

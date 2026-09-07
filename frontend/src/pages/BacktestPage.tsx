@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { 
-  Input, Button, Card, Tag, Typography, Table, 
+  Input, InputNumber, Button, Card, Tag, Typography, Table, 
   Select, Tooltip, message, Row, Col, Statistic, DatePicker, Alert
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -69,15 +69,21 @@ export interface BacktestResult {
   initialCapital: number;
   finalValue: number;
   totalReturn: number;
-  annualizedReturn: number;
-  benchmarkReturn: number;
+  // 以下三项在数学上可能无定义（无交易 / 收益无波动 / 区间过短），
+  // 后端如实返回 null，前端显示「—」，不用 0 冒充
+  annualizedReturn: number | null;
+  benchmarkReturn: number | null;
   maxDrawdown: number;
-  sharpeRatio: number;
+  sharpeRatio: number | null;
   winRate: number;
   totalTrades: number;
   winningTrades: number;
   losingTrades: number;
-  profitFactor: number;
+  profitFactor: number | null;
+  name?: string;
+  note?: string | null;
+  warnings?: string[];
+  source?: string;
   trades: Array<{
     date: string;
     type: 'buy' | 'sell';
@@ -94,6 +100,8 @@ const BacktestPage: React.FC = () => {
   const [symbol, setSymbol] = useState('');
   const [strategy, setStrategy] = useState<string>('ma_cross');
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>(DEFAULT_RANGE);
+  // A股1手=100股，高价股（如茅台1手≈15万）需要足够本金，默认 100 万
+  const [initialCapital, setInitialCapital] = useState<number>(1000000);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState('');
@@ -151,6 +159,7 @@ const BacktestPage: React.FC = () => {
           strategy: strategy,
           startDate,
           endDate,
+          initialCapital,
         })
       });
       const data = await resp.json();
@@ -273,6 +282,18 @@ const BacktestPage: React.FC = () => {
               popupClassName="clair-dark-picker"
               style={{ flex: '0 1 280px', background: BG, borderColor: BORDER }}
             />
+            <Tooltip title="A股最小交易单位为 1 手（100 股），本金需至少够买 1 手，否则买入信号会被放弃">
+              <InputNumber
+                value={initialCapital}
+                onChange={(v) => setInitialCapital(Number(v) || 1000000)}
+                min={10000}
+                max={100000000000}
+                step={100000}
+                formatter={(v) => `¥ ${v ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                parser={(v) => Number(String(v ?? '').replace(/[^\d]/g, ''))}
+                style={{ flex: '0 1 170px', background: BG, borderColor: BORDER, color: TEXT }}
+              />
+            </Tooltip>
             <Button 
               type="primary" 
               onClick={runBacktest} 
@@ -341,7 +362,7 @@ const BacktestPage: React.FC = () => {
               </div>
             </Card>
 
-            {/* 核心指标卡片 */}
+            {/* 收益对比：策略 vs 基准 —— 回测的核心价值是能否跑赢买入持有 */}
             <Row gutter={16} style={{ marginBottom: 16 }}>
               <Col span={6}>
                 <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
@@ -357,21 +378,25 @@ const BacktestPage: React.FC = () => {
               <Col span={6}>
                 <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
                   <Statistic
-                    title={<span style={{ color: TEXT_SEC }}>年化收益</span>}
-                    value={result.annualizedReturn}
+                    title={<span style={{ color: TEXT_SEC }}>基准收益（买入持有）</span>}
+                    value={result.benchmarkReturn ?? '—'}
                     precision={2}
                     suffix="%"
-                    valueStyle={{ color: result.annualizedReturn >= 0 ? COLOR_UP : COLOR_DOWN, fontSize: 28 }}
+                    valueStyle={{ color: (result.benchmarkReturn ?? 0) >= 0 ? COLOR_UP : COLOR_DOWN, fontSize: 28 }}
                   />
                 </Card>
               </Col>
               <Col span={6}>
                 <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
                   <Statistic
-                    title={<span style={{ color: TEXT_SEC }}>夏普比率</span>}
-                    value={result.sharpeRatio}
+                    title={<span style={{ color: TEXT_SEC }}>超额收益</span>}
+                    value={result.benchmarkReturn == null ? '—' : result.totalReturn - result.benchmarkReturn}
                     precision={2}
-                    valueStyle={{ color: result.sharpeRatio >= 1 ? COLOR_UP : COLOR_DOWN, fontSize: 28 }}
+                    suffix="%"
+                    valueStyle={{
+                      color: result.benchmarkReturn == null ? TEXT : (result.totalReturn - result.benchmarkReturn >= 0 ? COLOR_UP : COLOR_DOWN),
+                      fontSize: 28,
+                    }}
                   />
                 </Card>
               </Col>
@@ -388,8 +413,29 @@ const BacktestPage: React.FC = () => {
               </Col>
             </Row>
 
-            {/* 交易统计 */}
+            {/* 风险调整与交易质量 */}
             <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={6}>
+                <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
+                  <Statistic
+                    title={<span style={{ color: TEXT_SEC }}>年化收益</span>}
+                    value={result.annualizedReturn ?? '—'}
+                    precision={2}
+                    suffix="%"
+                    valueStyle={{ color: (result.annualizedReturn ?? 0) >= 0 ? COLOR_UP : COLOR_DOWN, fontSize: 24 }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
+                  <Statistic
+                    title={<Tooltip title="按权益日收益年化计算，无风险利率取 0">夏普比率</Tooltip>}
+                    value={result.sharpeRatio ?? '—'}
+                    precision={2}
+                    valueStyle={{ color: (result.sharpeRatio ?? 0) >= 1 ? COLOR_UP : COLOR_DOWN, fontSize: 24 }}
+                  />
+                </Card>
+              </Col>
               <Col span={6}>
                 <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
                   <Statistic
@@ -407,13 +453,17 @@ const BacktestPage: React.FC = () => {
               <Col span={6}>
                 <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
                   <Statistic
-                    title={<span style={{ color: TEXT_SEC }}>盈亏比</span>}
-                    value={result.profitFactor}
+                    title={<Tooltip title="总盈利 / 总亏损；无亏损交易时数学上无定义，显示 —">盈亏比</Tooltip>}
+                    value={result.profitFactor ?? '—'}
                     precision={2}
-                    valueStyle={{ color: result.profitFactor >= 1.5 ? COLOR_UP : COLOR_DOWN, fontSize: 24 }}
+                    valueStyle={{ color: (result.profitFactor ?? 0) >= 1.5 ? COLOR_UP : COLOR_DOWN, fontSize: 24 }}
                   />
                 </Card>
               </Col>
+            </Row>
+
+            {/* 资金与样本 */}
+            <Row gutter={16} style={{ marginBottom: 16 }}>
               <Col span={6}>
                 <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
                   <Statistic
@@ -436,7 +486,44 @@ const BacktestPage: React.FC = () => {
                   />
                 </Card>
               </Col>
+              <Col span={6}>
+                <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
+                  <Statistic
+                    title={<span style={{ color: TEXT_SEC }}>盈亏笔数</span>}
+                    value={`${result.winningTrades} / ${result.losingTrades}`}
+                    valueStyle={{ color: TEXT, fontSize: 20 }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card style={{ background: CARD_BG, border: `1px solid ${BORDER}`, textAlign: 'center' }}>
+                  <Statistic
+                    title={<span style={{ color: TEXT_SEC }}>回测交易日</span>}
+                    value={result.totalDays}
+                    suffix="天"
+                    valueStyle={{ color: TEXT, fontSize: 20 }}
+                  />
+                </Card>
+              </Col>
             </Row>
+
+            {/* 数据源 / 口径说明 / 告警 —— 诚实披露，不让用户误读 */}
+            {(result.note || (result.warnings && result.warnings.length > 0) || result.source) && (
+              <Alert
+                type={result.warnings && result.warnings.length > 0 ? 'warning' : 'info'}
+                showIcon
+                message="回测口径说明"
+                description={
+                  <div style={{ color: TEXT_SEC, fontSize: 12 }}>
+                    {result.note && <div>· {result.note}</div>}
+                    {(result.warnings || []).map((w, i) => <div key={i}>· {w}</div>)}
+                    {result.source && <div>· 行情数据源：{result.source}（真实历史日K，前复权）</div>}
+                    <div>· 交易规则：收盘价成交、整手买入、全仓进出、期末强制平仓；未计入手续费与滑点</div>
+                  </div>
+                }
+                style={{ background: CARD_BG, border: `1px solid ${BORDER}`, marginBottom: 16 }}
+              />
+            )}
 
             {/* 权益曲线 */}
             <Card 
