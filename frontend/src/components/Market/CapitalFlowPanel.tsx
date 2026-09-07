@@ -69,7 +69,7 @@ export const CapitalFlowPanel: React.FC<CapitalFlowPanelProps> = ({
         <h3 style={{ margin: 0, fontSize: 16 }}>💰 资金流向</h3>
         {fundFlowScore != null && (
           <div className="flow-score" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888' }}>资金面评分</span>
+            <span style={{ fontSize: 12, color: '#94a3b8' }}>资金面评分</span>
             <span style={{ fontSize: 24, fontWeight: 'bold', color: scoreColor }}>{fundFlowScore}</span>
           </div>
         )}
@@ -99,13 +99,13 @@ export const CapitalFlowPanel: React.FC<CapitalFlowPanelProps> = ({
         <div className="overview" data-testid="flow-overview">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
             <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8 }}>
-              <div style={{ fontSize: 12, color: '#888' }}>主力净流入</div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>主力净流入</div>
               <div style={{ fontSize: 20, fontWeight: 'bold', color: latest.netMainFlow >= 0 ? '#e74c3c' : '#2ecc71' }}>
                 {latest.netMainFlow >= 0 ? '+' : ''}{formatAmount(latest.netMainFlow)}
               </div>
             </div>
             <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8 }}>
-              <div style={{ fontSize: 12, color: '#888' }}>散户净流入</div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>散户净流入</div>
               <div style={{ fontSize: 20, fontWeight: 'bold', color: '#f39c12' }}>
                 {formatAmount(latest.retailInflow - latest.retailOutflow)}
               </div>
@@ -113,16 +113,12 @@ export const CapitalFlowPanel: React.FC<CapitalFlowPanelProps> = ({
           </div>
 
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>主力资金流入</div>
-            <FlowBar inflow={latest.mainInflow} outflow={0} max={maxAmount} />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>主力资金流出</div>
-            <FlowBar inflow={0} outflow={latest.mainOutflow} max={maxAmount} />
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>主力净额方向（红=净流入 / 绿=净流出，按净额绝对值渲染，东财无买卖拆分口径）</div>
+            <FlowBar inflow={latest.mainInflow} outflow={latest.mainOutflow} max={maxAmount} />
           </div>
 
           <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8 }}>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>累计主力净流入</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>累计主力净流入</div>
             <div style={{ fontSize: 16, color: netMainTotal >= 0 ? '#e74c3c' : '#2ecc71' }}>
               {netMainTotal >= 0 ? '+' : ''}{formatAmount(netMainTotal)}
             </div>
@@ -133,12 +129,12 @@ export const CapitalFlowPanel: React.FC<CapitalFlowPanelProps> = ({
       {selectedTab === 'sectors' && (
         <div className="sectors" data-testid="flow-sectors">
           {sectorFlows.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#888', padding: 20 }}>暂无板块数据</div>
+            <div style={{ textAlign: 'center', color: '#94a3b8', padding: 20 }}>暂无板块数据</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sectorFlows.map((s, i) => (
                 <div key={s.sector} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: '#1a1a2e', borderRadius: 8 }}>
-                  <span style={{ width: 20, textAlign: 'center', color: '#888', fontSize: 12 }}>{i + 1}</span>
+                  <span style={{ width: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>{i + 1}</span>
                   <span style={{ flex: 1, fontWeight: 500 }}>{s.sector}</span>
                   <TrendIcon trend={s.flowTrend} />
                   <span style={{ color: s.netFlow >= 0 ? '#e74c3c' : '#2ecc71', fontWeight: 'bold', minWidth: 80, textAlign: 'right' }}>

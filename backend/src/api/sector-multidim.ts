@@ -32,13 +32,17 @@ interface StockQuote {
 
 interface MultidimResult {
   industry: string;
-  totalScore: number;
+  /** 五维齐全时为 0-100 整数；任一维缺失时为 null（不再用虚构分凑数） */
+  totalScore: number | null;
+  /** 实际有效的维度数量，供前端判断「维度不全」 */
+  availableDimCount: number;
+  totalDimCount: number;
   dimensions: {
-    crowding:      { score: number; label: string; detail: string };
-    diffusion:     { score: number; label: string; detail: string };
-    concentration: { score: number; label: string; detail: string };
-    retail:        { score: number; label: string; detail: string };
-    recovery:      { score: number; label: string; detail: string };
+    crowding:      { score: number | null; label: string; detail: string };
+    diffusion:     { score: number | null; label: string; detail: string };
+    concentration: { score: number | null; label: string; detail: string };
+    retail:        { score: number | null; label: string; detail: string };
+    recovery:      { score: number | null; label: string; detail: string };
   };
   metadata: {
     stockCount: number;
@@ -69,9 +73,9 @@ function percentile(arr: number[], p: number): number {
 }
 
 // ============= 1. 拥挤度 (PE分位数法) =============
-function calcCrowding(stocks: StockQuote[], allSectorPEs: number[]): { score: number; label: string; detail: string } {
+function calcCrowding(stocks: StockQuote[], allSectorPEs: number[]): { score: number | null; label: string; detail: string } {
   const pes = stocks.filter(s => s.pe_ratio > 0 && s.pe_ratio < 1000).map(s => s.pe_ratio);
-  if (pes.length === 0) return { score: 10, label: '数据不足', detail: 'PE数据缺失,默认中性分' };
+  if (pes.length === 0) return { score: null, label: '数据不足', detail: 'PE数据缺失，不参与评分' };
 
   const medianPE = percentile(pes, 50);
   const avgPE = pes.reduce((a, b) => a + b, 0) / pes.length;
@@ -100,8 +104,8 @@ function calcCrowding(stocks: StockQuote[], allSectorPEs: number[]): { score: nu
 function calcDiffusion(
   stocks: StockQuote[],
   aboveMA20Map: Map<number, boolean>
-): { score: number; label: string; detail: string } {
-  if (stocks.length === 0) return { score: 10, label: '数据不足', detail: '无个股数据' };
+): { score: number | null; label: string; detail: string } {
+  if (stocks.length === 0) return { score: null, label: '数据不足', detail: '无个股数据，不参与评分' };
 
   let aboveCount = 0;
   for (const s of stocks) {
@@ -124,12 +128,12 @@ function calcDiffusion(
 }
 
 // ============= 3. 资金集中度 (Top5成交占比) =============
-function calcConcentration(stocks: StockQuote[]): { score: number; label: string; detail: string } {
-  if (stocks.length < 3) return { score: 10, label: '样本不足', detail: `仅${stocks.length}只个股` };
+function calcConcentration(stocks: StockQuote[]): { score: number | null; label: string; detail: string } {
+  if (stocks.length < 3) return { score: null, label: '样本不足', detail: `仅${stocks.length}只个股，不参与评分` };
 
   const sorted = [...stocks].sort((a, b) => b.turnover - a.turnover);
   const totalTurnover = stocks.reduce((s, st) => s + st.turnover, 0);
-  if (totalTurnover === 0) return { score: 10, label: '无成交', detail: '成交额为0' };
+  if (totalTurnover === 0) return { score: null, label: '无成交', detail: '成交额为0，不参与评分' };
 
   const top5Turnover = sorted.slice(0, Math.min(5, sorted.length))
     .reduce((s, st) => s + st.turnover, 0);
@@ -161,9 +165,9 @@ function calcConcentration(stocks: StockQuote[]): { score: number; label: string
 function calcRetailIndex(
   stocks: StockQuote[],
   prevTurnoverMap: Map<number, number> // stock_id → 上月换手率
-): { score: number; label: string; detail: string } {
+): { score: number | null; label: string; detail: string } {
   const smallCaps = stocks.filter(s => s.market_cap > 0 && s.market_cap < 100 * 1e8); // <100亿
-  if (smallCaps.length === 0) return { score: 10, label: '无小盘股', detail: '板块内无<100亿市值个股' };
+  if (smallCaps.length === 0) return { score: null, label: '无小盘股', detail: '板块内无<100亿市值个股，不参与评分' };
 
   let surgeCount = 0;
   let totalChange = 0;
@@ -205,7 +209,7 @@ function calcRetailIndex(
 function calcRecovery(
   ma5Change: number,
   ma20Change: number
-): { score: number; label: string; detail: string } {
+): { score: number | null; label: string; detail: string } {
   // 短期反弹力度 vs 中期趋势
   const diff = ma5Change - ma20Change;
 
@@ -380,14 +384,26 @@ router.get('/sectors/:code/multidim', asyncHandler(async (req, res) => {
   const ma5 = toNum(momentumResult.rows[0]?.ma5);
   const ma20 = toNum(momentumResult.rows[0]?.ma20);
 
-  // 7. 计算五个维度
+  // 7. 计算五个维度（任一维缺失时 score 为 null，绝不回退成虚构的「中性分」）
   const crowding = calcCrowding(stockQuotes, allSectorPEs);
   const diffusion = calcDiffusion(stockQuotes, aboveMA20Map);
   const concentration = calcConcentration(stockQuotes);
   const retail = calcRetailIndex(stockQuotes, prevTurnoverMap);
   const recovery = calcRecovery(ma5, ma20);
 
-  const totalScore = crowding.score + diffusion.score + concentration.score + retail.score + recovery.score;
+  const dims = [crowding, diffusion, concentration, retail, recovery];
+  const validDims = dims.filter(d => typeof d.score === 'number');
+
+  /**
+   * 总分口径：仅在五个维度全部有效时给出 0-100 总分。
+   * 此前缺失维度被注入硬编码 10 分并计入总分，与真实算出的 10 分在 UI 上无法区分，
+   * 且会污染板块排序 —— 违反「不接受虚构数据」红线。
+   * 维度不全时返回 null，由前端渲染「维度不全，仅供参考」。
+   */
+  const totalScore = validDims.length === dims.length
+    ? validDims.reduce((sum, d) => sum + (d.score as number), 0)
+    : null;
+  const availableDimCount = validDims.length;
 
   // 8. 聚合元数据
   const pes = stockQuotes.filter(s => s.pe_ratio > 0).map(s => s.pe_ratio);
@@ -416,6 +432,8 @@ router.get('/sectors/:code/multidim', asyncHandler(async (req, res) => {
   const result: MultidimResult = {
     industry: decodedIndustry,
     totalScore,
+    availableDimCount,
+    totalDimCount: dims.length,
     dimensions: { crowding, diffusion, concentration, retail, recovery },
     metadata: {
       stockCount: stockQuotes.length,

@@ -140,7 +140,7 @@ const LockupCalendarPage: React.FC = () => {
       width: 140,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <a href={`/stock/${record.symbol}`} style={{ fontWeight: 600 }}>{record.name}</a>
+          <a href={`/stocks/${record.symbol}`} style={{ fontWeight: 600 }}>{record.name}</a>
           <Text type="secondary" style={{ fontSize: 12 }}>{record.symbol}</Text>
         </Space>
       ),

@@ -22,6 +22,7 @@ import { analyze } from '../utils/strategy';
 import { computeIndicatorSeries } from '../utils/indicatorCalc';
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 import ValuationPanel from '../components/valuation/ValuationPanel';
+import CapitalFlowPanel from '../components/Market/CapitalFlowPanel';
 import { useGamificationStore } from '../store/useGamificationStore';
 
 const { Title, Text } = Typography;
@@ -198,6 +199,19 @@ const StockDetailPage: React.FC = () => {
   useEffect(() => { fetchStockData(); }, [fetchStockData]);
   useEffect(() => { fetchKlineData(); }, [fetchKlineData]);
 
+  // 资金流向（CapitalFlowPanel）：上游不可用时 data 为 null，面板整体隐藏
+  const [fundFlow, setFundFlow] = useState<any>(null);
+  useEffect(() => {
+    if (!symbol) return;
+    setFundFlow(null);
+    const ac = new AbortController();
+    fetch(`/api/fund-flow/${symbol}`, { signal: ac.signal })
+      .then(r => r.json())
+      .then(d => { if (!ac.signal.aborted && d?.data) setFundFlow(d.data); })
+      .catch(() => { /* 诚实红线：失败即无面板，不注入演示数据 */ });
+    return () => ac.abort();
+  }, [symbol]);
+
   // 游戏化埋点：查看个股详情事件（stock_viewed）
   useEffect(() => {
     if (symbol && !VIEWED_STOCKS.has(symbol)) {
@@ -368,6 +382,27 @@ const StockDetailPage: React.FC = () => {
               <Col xs={12} sm={8} md={4}><StatItem label="换手率" value={`${Number(latestQuote.turnoverRate || 0).toFixed(2)}%`} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="总市值" value={formatLargeNumber(latestQuote.marketCap)} /></Col>
             </Row>
+          </Card>
+        )}
+
+        {/* ===== 资金流向（CapitalFlowPanel，上游不可用时整体隐藏）===== */}
+        {fundFlow && fundFlow.latest && (
+          <Card
+            size="small"
+            title={<span style={{ fontWeight: 700, color: TEXT_PRIMARY, fontSize: 14 }}>资金流向 <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 400 }}>当日主力/散户净额（东财口径）</span></span>}
+            style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
+          >
+            <CapitalFlowPanel
+              flowData={[{
+                timestamp: Date.now(),
+                mainInflow: Math.max(fundFlow.latest.mainNet, 0),
+                mainOutflow: Math.max(-fundFlow.latest.mainNet, 0),
+                retailInflow: Math.max((fundFlow.latest.midNet || 0) + (fundFlow.latest.smallNet || 0), 0),
+                retailOutflow: Math.max(-((fundFlow.latest.midNet || 0) + (fundFlow.latest.smallNet || 0)), 0),
+                netMainFlow: fundFlow.latest.mainNet,
+              }]}
+              sectorFlows={fundFlow.sectorFlows || []}
+            />
           </Card>
         )}
 
@@ -650,24 +685,19 @@ const StockDetailPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
                 <div style={{
                   width: 64, height: 64, borderRadius: 32,
-                  background: aiDiagnosis.totalScore != null ? (aiDiagnosis.totalScore >= 70 ? '#22c55e20' : aiDiagnosis.totalScore >= 50 ? '#f59e0b20' : '#ef444420') : '#64748b20',
-                  border: `2px solid ${aiDiagnosis.totalScore != null ? (aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444') : '#64748b'}`,
+                  background: aiDiagnosis.totalScore >= 70 ? '#22c55e20' : aiDiagnosis.totalScore >= 50 ? '#f59e0b20' : '#ef444420',
+                  border: `2px solid ${aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444'}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   flexDirection: 'column',
                 }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: aiDiagnosis.totalScore != null ? (aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444') : '#94a3b8', fontFamily: 'monospace' }}>
-                    {aiDiagnosis.totalScore != null ? aiDiagnosis.totalScore : '—'}
+                  <div style={{ fontSize: 20, fontWeight: 800, color: aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444', fontFamily: 'monospace' }}>
+                    {aiDiagnosis.totalScore}
                   </div>
                   <div style={{ fontSize: 9, color: TEXT_SECONDARY }}>分</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: TEXT_PRIMARY }}>{aiDiagnosis.rating}</div>
                   <div style={{ fontSize: 12, color: TEXT_SECONDARY }}>综合评级</div>
-                  {aiDiagnosis.dataSource && (
-                    <div style={{ fontSize: 11, marginTop: 4, color: aiDiagnosis.dataSource === 'real' ? '#22c55e' : '#f59e0b' }}>
-                      {aiDiagnosis.dataSource === 'real' ? '● 真实数据' : '○ 数据不足'}
-                    </div>
-                  )}
                 </div>
               </div>
 

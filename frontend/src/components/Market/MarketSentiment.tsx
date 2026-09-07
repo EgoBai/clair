@@ -105,7 +105,7 @@ const MarketSentiment = React.memo(function MarketSentiment({
         </div>
         <div style={{
           display: 'flex', height: 24, borderRadius: 4, overflow: 'hidden',
-          background: '#f0f0f0',
+          background: 'rgba(255,255,255,0.08)',
         }}>
           <Tooltip title={`上涨: ${riseCount} 只 (${risePercent.toFixed(1)}%)`}>
             <div style={{
@@ -122,7 +122,7 @@ const MarketSentiment = React.memo(function MarketSentiment({
           <Tooltip title={`平盘: ${flatCount} 只`}>
             <div style={{
               width: `${flatPercent}%`,
-              background: '#d9d9d9',
+              background: 'rgba(255,255,255,0.22)',
               minWidth: flatPercent > 5 ? undefined : 0,
             }} />
           </Tooltip>
@@ -155,28 +155,28 @@ const MarketSentiment = React.memo(function MarketSentiment({
       {/* 核心指标 */}
       <Row gutter={[8, 8]}>
         <Col span={12}>
-          <div style={{ background: '#fff1f0', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#666' }}>涨停</div>
+          <div style={{ background: 'rgba(239,68,68,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>涨停</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#f5222d' }}>{limitUp}</div>
           </div>
         </Col>
         <Col span={12}>
-          <div style={{ background: '#f6ffed', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#666' }}>跌停</div>
+          <div style={{ background: 'rgba(34,197,94,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>跌停</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>{limitDown}</div>
           </div>
         </Col>
         <Col span={12}>
-          <div style={{ background: '#e6f7ff', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#666' }}>成交额</div>
+          <div style={{ background: 'rgba(102,126,234,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>成交额</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#1890ff' }}>
               {(totalTurnover / 1e12).toFixed(2)}万亿
             </div>
           </div>
         </Col>
         <Col span={12}>
-          <div style={{ background: '#fff7e6', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#666' }}>平均涨跌</div>
+          <div style={{ background: 'rgba(245,158,11,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>平均涨跌</div>
             <div style={{
               fontSize: 16, fontWeight: 600,
               color: avgChangePercent > 0 ? '#f5222d' : avgChangePercent < 0 ? '#52c41a' : '#666',

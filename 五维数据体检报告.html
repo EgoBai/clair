@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>澄观 Clair · 五维数据体检报告</title>
+<style>
+:root{
+  --bg:#0f172a; --card:#1a2332; --card2:#141d2e; --border:#243044;
+  --text:#e2e8f0; --sec:#94a3b8; --dim:#64748b;
+  --up:#ef4444; --down:#22c55e; --warn:#f59e0b; --info:#3b82f6; --accent:#667eea; --gold:#f59e0b;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.6;padding:24px}
+.wrap{max-width:1180px;margin:0 auto}
+header{border-bottom:1px solid var(--border);padding-bottom:18px;margin-bottom:24px}
+h1{font-size:24px;font-weight:800;letter-spacing:-0.3px}
+h1 .sub{font-size:13px;color:var(--sec);font-weight:500;margin-left:10px}
+.meta{font-size:12px;color:var(--dim);margin-top:6px}
+h2{font-size:15px;font-weight:700;margin:28px 0 12px;display:flex;align-items:center;gap:8px}
+h2::before{content:'';width:3px;height:14px;background:var(--accent);border-radius:2px}
+h3{font-size:13px;font-weight:700;color:var(--sec);margin:16px 0 8px}
+
+/* 五维体检卡 */
+.dims{display:grid;grid-template-columns:repeat(auto-fit,minmax(212px,1fr));gap:12px}
+.dim{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;position:relative;overflow:hidden}
+.dim::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.dim.ok::before{background:var(--down)}
+.dim.partial::before{background:var(--warn)}
+.dim.bad::before{background:var(--up)}
+.dim-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.dim-name{font-size:14px;font-weight:700}
+.badge{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;letter-spacing:.3px}
+.b-ok{background:rgba(34,197,94,.16);color:var(--down)}
+.b-partial{background:rgba(245,158,11,.16);color:var(--warn)}
+.b-bad{background:rgba(239,68,68,.16);color:var(--up)}
+.dim-src{font-size:11px;color:var(--dim);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-bottom:8px;word-break:break-all}
+.dim-row{display:flex;gap:6px;font-size:11px;margin-bottom:3px;align-items:flex-start}
+.tag{flex-shrink:0;width:34px;color:var(--dim)}
+.dim-row .before{color:#f87171;text-decoration:line-through;opacity:.75}
+.dim-row .after{color:var(--text)}
+.dim-note{font-size:11px;color:var(--sec);margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
+
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:12px;background:var(--card);border-radius:10px;overflow:hidden}
+th{background:var(--card2);color:var(--sec);font-weight:600;text-align:left;padding:9px 11px;font-size:11px;letter-spacing:.3px;border-bottom:1px solid var(--border)}
+td{padding:8px 11px;border-bottom:1px solid rgba(36,48,68,.6);vertical-align:top}
+tr:last-child td{border-bottom:none}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:rgba(102,126,234,.12);color:#a5b4fc;padding:1px 5px;border-radius:4px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
+.ok{color:var(--down)} .bad{color:var(--up)} .warn{color:var(--warn)} .dim-c{color:var(--dim)}
+
+/* 证据块 */
+.evidence{background:var(--card2);border:1px solid var(--border);border-left:3px solid var(--down);border-radius:8px;padding:10px 12px;margin:8px 0;font-size:11.5px}
+.evidence .t{color:var(--sec);font-size:10.5px;letter-spacing:.4px;margin-bottom:4px;font-weight:700}
+.evidence pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.65}
+
+/* 路线图 */
+.road{display:flex;flex-direction:column;gap:0}
+.phase{display:grid;grid-template-columns:118px 1fr;gap:14px;padding:13px 0;border-bottom:1px solid var(--border)}
+.phase:last-child{border-bottom:none}
+.ph-l{font-size:11px;font-weight:700;letter-spacing:.3px}
+.ph-done .ph-l{color:var(--down)} .ph-now .ph-l{color:var(--warn)} .ph-next .ph-l{color:var(--dim)}
+.ph-t{font-size:13px;font-weight:600;margin-bottom:5px}
+.ph-items{font-size:12px;color:var(--sec);line-height:1.75}
+.ph-items li{margin-left:16px}
+
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:20px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center}
+.stat .n{font-size:24px;font-weight:800;font-family:ui-monospace,Menlo,monospace}
+.stat .l{font-size:11px;color:var(--sec);margin-top:2px}
+footer{margin-top:32px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--dim)}
+@media(max-width:640px){
+  body{padding:14px}
+  .phase{grid-template-columns:1fr;gap:5px}
+  table{font-size:11px} th,td{padding:6px 7px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>澄观 Clair · 五维数据体检报告<span class="sub">技术面 / 市场面 / 资金面 / 基本面 / 舆情面</span></h1>
+  <div class="meta">审计对象：<code>clair-worker</code>（线上真实数据源）+ <code>frontend/src</code> + <code>backend/src</code> ｜ 线上 API：clair-api.pages.dev ｜ 2026-09-05</div>
+</header>
+
+<div class="stat-row">
+  <div class="stat"><div class="n warn">5</div><div class="l">P0 阻塞问题</div></div>
+  <div class="stat"><div class="n" style="color:var(--info)">6</div><div class="l">P1 体验缺陷</div></div>
+  <div class="stat"><div class="n ok">11</div><div class="l">已完成修复</div></div>
+  <div class="stat"><div class="n ok">0</div><div class="l">新增编译错误</div></div>
+</div>
+
+<h2>一、五维体检总览</h2>
+<div class="dims">
+
+  <div class="dim ok">
+    <div class="dim-h"><span class="dim-name">技术面</span><span class="badge b-ok">已修复</span></div>
+    <div class="dim-src">/api/stocks/:id/kline</div>
+    <div class="dim-row"><span class="tag">修复前</span><span class="before">HTTP 500 · 全站 K 线不可用</span></div>
+    <div class="dim-row"><span class="tag">修复后</span><span class="after">三源降级：腾讯 641 根 / 新浪 1023 根</span></div>
+    <div class="dim-note">根因：腾讯 WAF 按出口 IP <b>间歇性</b>封禁，返回 501 HTML 页，而原代码直接 <code>resp.json()</code> 抛错。已改为多源容错 + HTML 探测。</div>
+  </div>
+
+  <div class="dim partial">
+    <div class="dim-h"><span class="dim-name">市场面</span><span class="badge b-partial">待部署</span></div>
+    <div class="dim-src">/api/market/summary</div>
+    <div class="dim-row"><span class="tag">修复前</span><span class="before">线上 404（市场总览全 0）</span></div>
+    <div class="dim-row"><span class="tag">现状</span><span class="after">仓库代码已实现，线上部署落后</span></div>
+    <div class="dim-note">板块景气度 <code>/api/sectors/momentum</code> 正常（31 行业真实数据）。市场总览需重新部署 Worker 后恢复。</div>
+  </div>
+
+  <div class="dim ok">
+    <div class="dim-h"><span class="dim-name">资金面</span><span class="badge b-ok">标签已正名</span></div>
+    <div class="dim-src">sectors/momentum · volumeScore</div>
+    <div class="dim-row"><span class="tag">修复前</span><span class="before">标为「资金面」，实为成交量对数</span></div>
+    <div class="dim-row"><span class="tag">修复后</span><span class="after">改为「量能活跃度」+ 如实 Tooltip</span></div>
+    <div class="dim-note">该字段<b>不含任何资金净流入</b>，真正的资金流在 FundFlowPage。此前误导性命名已全站统一。</div>
+  </div>
+
+  <div class="dim ok">
+    <div class="dim-h"><span class="dim-name">基本面</span><span class="badge b-ok">已修复</span></div>
+    <div class="dim-src">/api/stocks/:id · marketCap</div>
+    <div class="dim-row"><span class="tag">修复前</span><span class="before">marketCap 硬编码 0 · PB 缺失</span></div>
+    <div class="dim-row"><span class="tag">修复后</span><span class="after">茅台 16236.18 亿 · PB 6.46</span></div>
+    <div class="dim-note">个股详情把市值<b>写死为 0</b>，而解析层本已能取到真实值。已接通并补上 PB / 流通市值。</div>
+  </div>
+
+  <div class="dim ok">
+    <div class="dim-h"><span class="dim-name">舆情面</span><span class="badge b-ok">从 0 到 1</span></div>
+    <div class="dim-src">/api/news · /api/news/:symbol</div>
+    <div class="dim-row"><span class="tag">修复前</span><span class="before">全空 []（东财接口已 404）</span></div>
+    <div class="dim-row"><span class="tag">修复后</span><span class="after">A股新闻流 + 个股定向检索 20 条</span></div>
+    <div class="dim-note">此前「舆情面」<b>根本不存在</b>：板块维度里叫「搜索热度=百度指数」，实际算的是概念标签数。现已正名并接入真实新闻源。</div>
+  </div>
+
+</div>
+
+<h2>二、数据源稳定性矩阵</h2>
+<table>
+<thead><tr><th style="width:230px">端点</th><th style="width:96px">修复前</th><th style="width:96px">修复后</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>/api/stocks/:id/kline</code></td><td class="bad">500</td><td class="ok">200 · 641 根</td><td>腾讯 WAF 间歇封禁 → 三源降级（腾讯→新浪→东财），HTML 拦截页自动识别</td></tr>
+<tr><td><code>/api/index/:sym/kline</code></td><td class="bad">500</td><td class="ok">200 · 2000 根</td><td>指数 K 线同链路，一并接入多源容错</td></tr>
+<tr><td><code>/api/backtest/:symbol</code></td><td class="bad">500</td><td class="ok">随 K 线恢复</td><td>回测依赖 K 线，上游修好后自动恢复</td></tr>
+<tr><td><code>/api/stocks/:id</code> 市值</td><td class="bad">0（硬编码）</td><td class="ok">16236.18 亿</td><td>补齐总市值 / 流通市值 / 市净率 PB</td></tr>
+<tr><td><code>/api/news?limit=N</code></td><td class="bad">[] 空</td><td class="ok">A股新闻 · 情感可分</td><td>东财 headline 已 404 下线 → 改用 A 股新闻流，附情感分布与口径声明</td></tr>
+<tr><td><code>/api/news/:symbol</code></td><td class="bad">[] 空</td><td class="ok">20 条真实新闻</td><td>快讯流个股命中为 0 → 改用东财资讯搜索定向检索</td></tr>
+<tr><td><code>/api/market/summary</code></td><td class="bad">404</td><td class="warn">待部署</td><td>仓库已有实现，线上版本落后，需重新部署 Worker</td></tr>
+<tr><td><code>/api/sectors/:code/multidim</code></td><td class="bad">404</td><td class="warn">架构受限</td><td>Worker 无历史数据，无法算 MA20 / 20日动量；已改前端诚实空态</td></tr>
+<tr><td><code>/api/sectors/momentum</code></td><td class="ok">200</td><td class="ok">200</td><td>31 个申万行业景气度，数据真实稳定</td></tr>
+<tr><td><code>/api/tech/batch</code></td><td class="warn">{} 空</td><td class="ok">已修复</td><td><b>审计更正</b>：复盘页/选股页实际在用。原为腾讯 K 线单源直连，WAF 封禁时静默返回空 → 已接入多源降级，本地实测返回真实指标（RSI/MA20/区间涨跌幅）</td></tr>
+</tbody>
+</table>
+
+<h2>三、展示准确性：口径与实现对齐</h2>
+
+<h3>P0 · 虚构口径（已修正）</h3>
+<table>
+<thead><tr><th style="width:150px">位置</th><th style="width:180px">修正前</th><th style="width:180px">后端真实实现</th><th>处理</th></tr></thead>
+<tbody>
+<tr><td>板块「搜索热度」</td><td class="bad">搜索热度=百度搜索指数归一化×20</td><td class="dim-c">板块涉及的概念标签数量分档</td><td class="ok">改名「概念广度」，公式改为真实口径</td></tr>
+<tr><td>板块「传播度」</td><td class="bad">传播度=舆情扩散速率×20</td><td class="dim-c">板块内涨停股占比分档</td><td class="ok">改名「涨停扩散」，公式改为真实口径</td></tr>
+<tr><td>综合评分权重</td><td class="bad">50% / 30% / 20%（虚构）</td><td class="dim-c">35% / 25% / 25% / 15%</td><td class="ok">改为真实权重，并补出从未展示的 momentumScore</td></tr>
+<tr><td>「板块热度」Tooltip</td><td class="bad">平均涨跌幅的<b>绝对值</b></td><td class="dim-c">50+涨跌幅×6，带方向</td><td class="ok">改为「价格强度」，说明跌得越多分越低</td></tr>
+<tr><td>「成交活跃」Tooltip</td><td class="bad">总成交<b>金额</b></td><td class="dim-c">平均成交<b>量（手）</b>对数</td><td class="ok">改为「量能活跃度」，注明非资金净流入</td></tr>
+<tr><td>「赚钱效应」Tooltip</td><td class="bad">涨停<b>家数</b></td><td class="dim-c"><b>上涨</b>家数占比</td><td class="ok">改为「上涨广度」，与涨停家数解绑</td></tr>
+<tr><td>板块详情标签</td><td class="bad">技术面 / 资金面</td><td class="dim-c">不含 MA/MACD，不含资金流</td><td class="ok">统一为 价格强度 / 量能活跃 / 上涨广度</td></tr>
+</tbody>
+</table>
+
+<div class="evidence">
+  <div class="t">根因证据 · 后端真实评分口径（clair-worker/worker.js buildSectorScores）</div>
+<pre>const breadthScore  = (upCount / count) * 100;                        // 上涨家数占比
+const changeScore   = clamp(50 + avgChange * 6);                      // 带方向的涨跌幅变换
+const volumeScore   = clamp(Math.log10(totalVolume / count + 1) * 8); // 成交量对数
+const momentumScore = clamp(50 + avgChange * 5);
+let score = momentum*0.35 + change*0.25 + breadth*0.25 + volume*0.15;  // 真实权重</pre>
+</div>
+
+<h3>P0 · 虚构数据（已修正）</h3>
+<table>
+<thead><tr><th style="width:150px">位置</th><th style="width:200px">原行为</th><th>处理</th></tr></thead>
+<tbody>
+<tr><td>板块多维缺失维度</td><td class="bad">数据缺失时返回硬编码 <code>score: 10</code>，并计入总分</td><td class="ok">改为 <code>null</code>；总分仅在五维齐全时计算，否则返回 <code>null</code> 并回传 <code>availableDimCount</code></td></tr>
+<tr><td>个股详情市值</td><td class="bad"><code>marketCap: 0</code> 硬编码</td><td class="ok">解析真实字段；缺失返回 <code>null</code> 而非 0（0 会被误判为有效值）</td></tr>
+<tr><td>板块多维接口 404</td><td class="bad"><code>) : null</code> —— 整块静默消失</td><td class="ok">诚实空态卡片，说明「依赖历史行情，实时环境无法计算」</td></tr>
+</tbody>
+</table>
+
+<h2>四、展示合理性修正</h2>
+<table>
+<thead><tr><th style="width:170px">问题</th><th style="width:210px">修正前</th><th>影响与处理</th></tr></thead>
+<tbody>
+<tr><td>RadarPage 坐标轴</td><td class="bad">六轴 max 合计 120</td><td>后端满分合计 <b>100</b>，每轴被系统性压缩约 17%，所有个股"看起来更瘦"。已改为 20/20/15/15/15/15</td></tr>
+<tr><td>雷达图缺失维度</td><td class="bad">null 直接参与运算</td><td>改为按 0 画轴 + <code>—/20 数据不足</code> 标签，与真实低分区分</td></tr>
+<tr><td>综合评级</td><td class="bad">维度不全仍给「良好/一般」</td><td>改为 <code>维度不全 N/5 · 综合得分暂不计算</code></td></tr>
+</tbody>
+</table>
+
+<h2>五、验证证据</h2>
+<div class="evidence">
+  <div class="t">K 线故障注入测试（模拟腾讯源不可用）</div>
+<pre>$ curl /api/stocks/600519/kline
+{"success":true,"data":{"source":"tencent","count":641}}        ← 正常路径：腾讯 641 根
+
+# 将腾讯域名替换为不可达地址后重启：
+{"success":true,"data":{"source":"sina","count":1023}}          ← 自动降级新浪，HTTP 200（原为 500）
+   2026-09-01  open 1295.00  close 1299.56  volume 3266402</pre>
+</div>
+<div class="evidence">
+  <div class="t">基本面字段</div>
+<pre>修复前: marketCap = 0          pbRatio = undefined
+修复后: marketCap = 16236.18   circulatingMarketCap = 16236.18   pbRatio = 6.46
+        （贵州茅台总市值约 1.62 万亿，与公开数据一致）</pre>
+</div>
+<div class="evidence">
+  <div class="t">舆情面（个股定向检索）</div>
+<pre>/api/news/600519  → count=20  source=eastmoney-search  sentiment={positive:4, neutral:16}
+   · 贵州茅台，市值反超宁德时代
+   · 从贵州茅台到泡泡玛特："老登股"退回原点
+/api/news/000001  → count=20  sentiment={positive:13, neutral:7}
+   · 【调研快报】平安银行接待境内外投资者等3家机构调研</pre>
+</div>
+<div class="evidence">
+  <div class="t">编译与类型检查</div>
+<pre>frontend : npx tsc --noEmit     → 0 error
+backend  : npx tsc --noEmit     → 改动文件 sector-multidim.ts 0 error
+                                  （其余 38 项为仓库既有 knex/隐式 any 问题，与本次改动无关）
+worker   : node --check         → SYNTAX OK
+运行时   : wrangler dev --local 端到端验证 6 个端点全部通过</pre>
+</div>
+
+<h2>六、开发计划</h2>
+<div class="road">
+  <div class="phase ph-done">
+    <div class="ph-l">P0 · 已完成</div>
+    <div>
+      <div class="ph-t">数据链路修复与口径正名</div>
+      <ul class="ph-items">
+        <li>K 线三源降级（腾讯→新浪→东财），HTML 拦截页自动识别，杜绝 500</li>
+        <li>市值 / PB / 流通市值真实化，缺失返回 null 而非 0</li>
+        <li>舆情面从无到有：A股新闻流 + 个股定向检索 + 情感分布 + 口径声明</li>
+        <li>清除 5 处「数据缺失返回 10 分」虚构分，总分改为维度不全则不给分</li>
+        <li>全站统一板块三字段命名与真实权重，删除虚构权重与错误公式文案</li>
+      </ul>
+    </div>
+  </div>
+  <div class="phase ph-now">
+    <div class="ph-l">下一步 · 待部署</div>
+    <div>
+      <div class="ph-t">重新部署 Worker（当前线上落后于仓库）</div>
+      <ul class="ph-items">
+        <li>以上全部数据层修复<b>需部署后才在线上生效</b>（沙箱已端到端验证通过）</li>
+        <li>部署后可恢复：<code>/api/market/summary</code> 市场总览、新闻/舆情、真实市值</li>
+        <li>触发方式：推送 <code>clair-worker/</code> 至 main，GitHub Actions 自动部署</li>
+      </ul>
+    </div>
+  </div>
+  <div class="phase ph-next">
+    <div class="ph-l">P1 · 架构建议</div>
+    <div>
+      <div class="ph-t">补齐多维矩阵的历史数据底座</div>
+      <ul class="ph-items">
+        <li>现状：Worker 只有实时行情快照，无法计算 MA20 / 5日·20日动量，14 维矩阵线上恒为 404</li>
+        <li>建议：向 KV（<code>STOCK_DATA</code>）写入日线收盘序列，每日收盘后增量落盘，Worker 即可本地计算全部 14 维</li>
+        <li>收益：DiscoverPage 14 维热力图、SectorDetailPage 五维雷达从「空壳」变为真实可用</li>
+      </ul>
+    </div>
+  </div>
+  <div class="phase ph-next">
+    <div class="ph-l">P1 · 去冗余</div>
+    <div>
+      <div class="ph-t">清理空壳组件与冗余端点</div>
+      <ul class="ph-items">
+        <li><code>CapitalFlowPanel</code> / <code>MarketSentiment</code> / <code>ModelExplanationViz</code> / <code>StrategyComparison</code>：实现与单测齐全，但<b>生产引用为 0</b> —— 要么接入个股详情/资金流页，要么删除</li>
+        <li>✅ 路由笔误已修：<code>SectorDetailPage</code> / <code>LockupCalendarPage</code> 跳转 <code>/stock/:id</code>（单数）落到 404 → 已统一为 <code>/stocks/:id</code></li>
+        <li>✅ <code>/api/tech/batch</code> 已接入多源降级（审计初判"无生产调用"有误，实为复盘/选股页核心依赖，不能下线）</li>
+      </ul>
+    </div>
+  </div>
+  <div class="phase ph-next">
+    <div class="ph-l">P2 · 体验打磨</div>
+    <div>
+      <div class="ph-t">量纲解释与图形语义</div>
+      <ul class="ph-items">
+        <li>所有评分补「量纲解释」：让用户知道 52 分意味着什么（分位/区间/对比基准）</li>
+        <li>SectorDetailPage 雷达图混合正负极性维度，「面积大」被误读为「更好」—— 负极性维度入图前反转或改横向条形图</li>
+        <li>RadarPage「优质推荐」计数在切换筛选模式时口径会变（全市场数 ↔ Top50 内数），需拆分为两个独立指标</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<footer>
+  本报告基于对线上 API 的实测、本地 Worker（wrangler dev --local）端到端复现，以及前后端源码逐行核对生成。所有"修复后"数据均为真实接口返回，非估算。
+</footer>
+
+</div>
+</body>
+</html>

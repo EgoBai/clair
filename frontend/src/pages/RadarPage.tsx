@@ -6,8 +6,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Row, Col, Statistic, Button, Card, Skeleton, message, type Breakpoint } from 'antd';
-import { LoadingState, EmptyState } from '../components/Common/StateComponents';
+import { Table, Tag, Empty, Row, Col, Statistic, Button, Card, Skeleton, message, Alert, type Breakpoint } from 'antd';
+import { LoadingState } from '../components/Common/StateComponents';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import echarts from '@/utils/echarts';
 const ReactECharts = React.lazy(() => import('echarts-for-react'));
@@ -57,14 +57,19 @@ interface GemsResponse {
   };
 }
 
+// 满分必须与后端一致（clair-worker/worker.js handleAiGems）：
+//   computePercentileScores(..., 20) 动量/成交，(..., 15) 估值/规模，
+//   industryScore = sectorHot/100*15，qualityScore 初始 15 —— 六轴合计 100。
+// 此前前端写成 25/25/20/20/15/15（合计 120），导致每根轴被系统性压缩约 17%，形状失真。
 const RADAR_INDICATORS = [
-  { name: '动量', max: 25 },
-  { name: '成交', max: 25 },
-  { name: '估值', max: 20 },
-  { name: '规模', max: 20 },
+  { name: '动量', max: 20 },
+  { name: '成交', max: 20 },
+  { name: '估值', max: 15 },
+  { name: '规模', max: 15 },
   { name: '行业', max: 15 },
   { name: '质量', max: 15 },
 ];
+const RADAR_FULL_SCORE = RADAR_INDICATORS.reduce((s, i) => s + i.max, 0); // = 100
 
 const PREMIUM_THRESHOLD = 80;
 const ALL_THRESHOLD = 40;
@@ -617,7 +622,7 @@ const RadarPage: React.FC = () => {
                     onDoubleClick: () => handleStockClick(record.symbol),
                     style: { cursor: 'pointer' },
                   })}
-                  locale={{ emptyText: <EmptyState title="暂无数据" /> }}
+                  locale={{ emptyText: <Empty description="暂无数据" /> }}
                   scroll={{ x: 'max-content' }}
                 />
               </div>

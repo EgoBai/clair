@@ -281,7 +281,11 @@ async function fetchTencentQuotes(tencentSymbols) {
       turnover: v(37) * 10000, // 腾讯返回万元 → 元
       turnoverRate: v(38),
       peRatio: (() => { const n = parseFloat(parts[39]); return isFinite(n) && n > 0 ? n : undefined; })(),
-      marketCap: (() => { const n = parseFloat(parts[45]); return isFinite(n) && n > 0 ? n : 0; })(), // 总市值(亿元) — 供 AI gems/filter 复用
+      // 腾讯字段: [44]=流通市值(亿) [45]=总市值(亿) [46]=市净率PB
+      // 缺失时统一返回 undefined（前端渲染为 —），绝不用 0 冒充有效值（0 会被误判为真实数值）
+      marketCap: (() => { const n = parseFloat(parts[45]); return isFinite(n) && n > 0 ? n : undefined; })(),
+      circulatingMarketCap: (() => { const n = parseFloat(parts[44]); return isFinite(n) && n > 0 ? n : undefined; })(),
+      pbRatio: (() => { const n = parseFloat(parts[46]); return isFinite(n) && n > 0 ? n : undefined; })(),
     });
   }
   return results;
@@ -455,30 +459,73 @@ function buildSectorScores(sectorMap) {
 // ==================== 概念板块 ====================
 
 async function handleConceptMomentum() {
+  // 东财概念板块直拉（fs=m:90+t:3），替换旧的"按股票名正则猜标签再聚合"实现。
+  // 旧实现两大问题：①概念标签由 generateConcepts 正则生成，属猜测数据；②全市场 O(n²) 聚合导致线上超时。
+  // 新实现与 /api/fund-flow 板块排行同源同构：单请求级数据、真实东财口径、诚实降级。
+  const HOSTS = ['https://push2delay.eastmoney.com', 'https://push2.eastmoney.com'];
+  const attempts = [];
   try {
-    const { quotes } = await getAllQuotes();
-    const stocks = await getStockList();
-
-    const conceptMap = {};
-    for (const stock of stocks) {
-      const q = quotes.find(qu => qu.symbol === stock.symbol);
-      if (!q) continue;
-      const concepts = stock.concepts || [];
-      if (concepts.length === 0) continue;
-      for (const concept of concepts) {
-        if (!conceptMap[concept]) {
-          conceptMap[concept] = { stocks: [], totalChange: 0, totalVolume: 0, totalTurnover: 0, limitUpCount: 0 };
+    let rows = [];
+    for (const host of HOSTS) {
+      try {
+        // 概念板块约 500 个，pz=100 翻页，封顶 8 页防失控
+        const pages = [];
+        for (let pn = 1; pn <= 8; pn++) {
+          const u = `${host}/api/qt/clist/get?pn=${pn}&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f12,f14,f3,f6,f104,f105,f128,f136,f140`;
+          const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/' } });
+          const t = (await resp.text()).trim();
+          if (!t.startsWith('{')) { attempts.push(`${host.slice(8, 20)}:p${pn}-non-json`); break; }
+          const d = JSON.parse(t);
+          const diff = (d && d.data && d.data.diff) || [];
+          pages.push(...diff);
+          const total = (d && d.data && d.data.total) || 0;
+          if (pages.length >= total || diff.length === 0) break;
         }
-        conceptMap[concept].stocks.push({ ...stock, quote: q });
-        conceptMap[concept].totalChange += q.changePercent;
-        conceptMap[concept].totalVolume += q.volume;
-        conceptMap[concept].totalTurnover += q.turnover;
-        if (q.changePercent >= 9.9) conceptMap[concept].limitUpCount++;
-      }
+        if (pages.length) { rows = pages; break; }
+      } catch (e) { attempts.push(`${host.slice(8, 20)}:${String(e.message || 'e').slice(0, 24)}`); }
     }
 
-    const sectors = buildSectorScores(conceptMap);
-    return json({ data: { sectors, type: 'concept', total_stocks: stocks.length }, success: true });
+    if (!rows.length) {
+      return json({ success: true, data: { sectors: [], type: 'concept', total: 0 }, source: null, attempts, note: '概念板块上游暂不可用，已如实返回空' });
+    }
+
+    const sectors = rows
+      .filter(r => r.f12 && r.f14 && r.f3 != null && r.f3 !== '-')
+      .map(r => {
+        const up = Number(r.f104) || 0, down = Number(r.f105) || 0;
+        const count = up + down;
+        const avgChg = Number(r.f3) || 0;
+        const turnover = Number(r.f6) || 0;
+        // 与 buildSectorScores 同权重：动量0.35/涨跌0.25/广度0.25/量能0.15，全部基于东财真实字段
+        const breadthScore = count > 0 ? Math.round((up / count) * 100) : 0;
+        const changeScore = Math.min(100, Math.max(0, Math.round(50 + avgChg * 6)));
+        const volumeScore = Math.min(100, Math.max(0, Math.round(Math.log10(turnover + 1) * 8)));
+        const momentumScore = Math.min(100, Math.max(0, Math.round(50 + avgChg * 5)));
+        const score = Math.round(momentumScore * 0.35 + changeScore * 0.25 + breadthScore * 0.25 + volumeScore * 0.15);
+        return {
+          industry: r.f14,
+          code: r.f12,
+          score,
+          changeScore, volumeScore, breadthScore, momentumScore,
+          stock_count: count,
+          avg_change_percent: avgChg,
+          total_turnover: turnover,
+          limit_up_count: null,   // 东财板块清单无涨停家数字段，诚实置 null（前端 null 时自动隐藏）
+          up_count: up,
+          down_count: down,
+          leaderStock: r.f128 || null,
+          leaderChangePercent: (r.f136 != null && r.f136 !== '-') ? r.f136 : null,
+          leaderSymbol: r.f140 || null,
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    return json({
+      data: { sectors, type: 'concept', total: sectors.length },
+      success: true,
+      source: 'eastmoney',
+      note: '数据源：东方财富概念板块实时行情；评分基于涨幅/上涨家数占比/成交额真实计算',
+    });
   } catch (e) {
     return error(e.message);
   }
@@ -773,10 +820,11 @@ async function handleStockDetail(symbol) {
           volume: q.volume,
           turnover: q.turnover,
           turnoverRate: q.turnoverRate,
-          peRatio: q.peRatio,
-          pbRatio: q.pbRatio,
-          marketCap: 0,
-          circulatingMarketCap: 0,
+          peRatio: q.peRatio ?? null,
+          pbRatio: q.pbRatio ?? null,
+          // 单位：亿元。缺失返回 null（前端显示 —），不再硬编码 0
+          marketCap: q.marketCap ?? null,
+          circulatingMarketCap: q.circulatingMarketCap ?? null,
           amplitude: q.high > 0 && q.low > 0 ? ((q.high - q.low) / q.prevClose * 100) : 0,
         },
       },
@@ -927,8 +975,30 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
     '',
   ].join('\n');
 
+  // 提取操作建议（policyText 中的最后一段）
+  const adviseMatch = policyText.match(/\*\*操作建议\*\*\n· ([^\n]+)/);
+  const operationAdvice = adviseMatch ? adviseMatch[1] : '多看少动，等待方向选择';
+
   return {
     mood, moodEmoji,
+    // ---- 前端契约字段（DiscoverPage v3 渲染依赖）----
+    summary: `${mood}${moodEmoji}：${upRatio}%个股上涨（${upStocks}涨/${downStocks}跌），平均指数涨幅 ${avgIndexChange > 0 ? '+' : ''}${avgIndexChange.toFixed(2)}%。`,
+    points: [
+      `**指数表现**`,
+      ...indexLines.slice(0, 3),
+      `**涨跌分布**：${upStocks}涨 / ${downStocks}跌 / ${totalStocks - upStocks - downStocks}平`,
+      `**涨停/跌停**：${limitUpStocks.length}只涨停 / ${limitDownStocks.length}只跌停`,
+      breadthAnalysis,
+      `**市场总成交**：${turnoverStr}`,
+      `**操作建议**：${operationAdvice}`,
+    ],
+    metrics: {
+      '上涨家数': String(upStocks),
+      '下跌家数': String(downStocks),
+      '上涨占比': `${upRatio}%`,
+      '涨停': `${limitUpStocks.length} 只`,
+      '成交额': turnoverStr,
+    },
     sections: [
       { title: '一、市场基本面', icon: '📊', text: fundamentalText },
       { title: '二、资金面分析', icon: '💰', text: capitalText },
@@ -970,6 +1040,44 @@ async function handleMarketInsight() {
   } catch (e) {
     return error(e.message);
   }
+}
+
+// 市场总览（DiscoverPage 依赖 /api/market/summary）
+async function handleMarketSummary() {
+  try {
+    const { quotes } = await getAllQuotes();
+    const allQuotes = quotes.filter(q => q && q.changePercent !== undefined && isFinite(q.changePercent));
+    const risingStocks = allQuotes.filter(q => q.changePercent > 0).length;
+    const fallingStocks = allQuotes.filter(q => q.changePercent < 0).length;
+    const totalStocks = allQuotes.length;
+    const totalTurnover = allQuotes.reduce((s, q) => s + (q.turnover || 0), 0);
+    const limitUpCount = allQuotes.filter(q => q.changePercent >= 9.9).length;
+    const limitDownCount = allQuotes.filter(q => q.changePercent <= -9.9).length;
+    const avgChangePercent = allQuotes.length
+      ? Math.round(allQuotes.reduce((s, q) => s + q.changePercent, 0) / allQuotes.length * 100) / 100
+      : null;
+    return json({
+      success: true,
+      data: {
+        date: new Date().toISOString(),
+        totalStocks,
+        risingStocks,
+        fallingStocks,
+        unchangedStocks: Math.max(totalStocks - risingStocks - fallingStocks, 0),
+        limitUpCount,
+        limitDownCount,
+        totalTurnover,
+        avgChangePercent,
+      },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+// LLM 增强解读：Worker 环境无 LLM 凭据，直接返回规则引擎结果（结构对齐 LLM 端点）
+async function handleMarketInsightLlm() {
+  return handleMarketInsight();
 }
 
 // Extract sector data for reuse
@@ -1020,7 +1128,125 @@ async function getSectorData() {
 // ==================== Phase 3: K线数据 ====================
 
 /**
- * 从腾讯 K 线 API 获取格式化数据
+ * 多源日K线获取（腾讯 → 新浪 → 东财）
+ *
+ * 背景：腾讯 web.ifzq.gtimg.cn 会对 Cloudflare 出口 IP 返回 WAF 501 HTML 拦截页，
+ *       原实现直接 resp.json()，HTML 触发 "Unexpected token '<'" 抛错，
+ *       导致个股K线/指数K线/回测整条链路 500（技术面根基崩塌）。
+ *
+ * 策略：串行降级，任一源返回有效数据即采用，并在 data.source 标注真实来源，
+ *       全部失败时返回空数组 + attempts 明细，由前端诚实展示"暂不可用"，
+ *       绝不用假数据填充。
+ *
+ * 统一输出契约:
+ *   { quotes: [{tradeDate, openPrice, closePrice, highPrice, lowPrice, volume, turnover}], source, attempts? }
+ */
+async function fetchDailyKLine(tencentSymbol, symbol, market, limit) {
+  const attempts = [];
+
+  // ── 源1: 腾讯（前复权，历史最长）──
+  try {
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
+    });
+    const text = (await resp.text()).trim();
+    // WAF 拦截页是 HTML（以 '<' 开头），必须先识别再降级，不能直接 JSON.parse
+    if (text.startsWith('<')) {
+      attempts.push('tencent:waf-blocked');
+    } else {
+      const data = JSON.parse(text);
+      const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
+      if (Array.isArray(dayData) && dayData.length > 0) {
+        // 腾讯: [date, open, close, high, low, volume, ...]（注意 3/4 位是 close/high）
+        const quotes = dayData.map(d => ({
+          tradeDate: String(d[0] || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3'),
+          openPrice: parseFloat(d[1]) || 0,
+          closePrice: parseFloat(d[2]) || 0,
+          highPrice: parseFloat(d[3]) || 0,
+          lowPrice: parseFloat(d[4]) || 0,
+          volume: parseFloat(d[5]) || 0,
+          turnover: 0,
+        })).filter(q => q.openPrice > 0 && q.closePrice > 0);
+        if (quotes.length > 0) return { quotes, source: 'tencent' };
+      }
+      attempts.push('tencent:empty');
+    }
+  } catch (e) {
+    attempts.push('tencent:' + String(e.message || 'error').slice(0, 60));
+  }
+
+  // ── 源2: 新浪（不复权，最多约 1023 根）──
+  try {
+    const sinaLen = Math.min(limit, 1023);
+    const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${tencentSymbol}&scale=240&ma=no&datalen=${sinaLen}`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn' },
+    });
+    const text = (await resp.text()).trim();
+    if (text.startsWith('<')) {
+      attempts.push('sina:blocked');
+    } else {
+      const arr = JSON.parse(text);
+      if (Array.isArray(arr) && arr.length > 0) {
+        // 新浪: {day, open, high, low, close, volume}（顺序与腾讯不同，勿混用）
+        const quotes = arr.map(d => ({
+          tradeDate: d.day,
+          openPrice: parseFloat(d.open) || 0,
+          highPrice: parseFloat(d.high) || 0,
+          lowPrice: parseFloat(d.low) || 0,
+          closePrice: parseFloat(d.close) || 0,
+          volume: parseFloat(d.volume) || 0,
+          turnover: 0,
+        })).filter(q => q.openPrice > 0 && q.closePrice > 0);
+        if (quotes.length > 0) return { quotes, source: 'sina' };
+      }
+      attempts.push('sina:empty');
+    }
+  } catch (e) {
+    attempts.push('sina:' + String(e.message || 'error').slice(0, 60));
+  }
+
+  // ── 源3: 东财（klt=101 日线, fqt=1 前复权）──
+  try {
+    const secid = (market === 'SH' ? '1.' : '0.') + symbol;
+    const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=1&beg=0&end=20500101`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com' },
+    });
+    const text = (await resp.text()).trim();
+    if (text.startsWith('<')) {
+      attempts.push('eastmoney:blocked');
+    } else {
+      const data = JSON.parse(text);
+      const klines = data?.data?.klines;
+      if (Array.isArray(klines) && klines.length > 0) {
+        // 东财: "日期,开,收,高,低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
+        const quotes = klines.map(line => {
+          const p = String(line).split(',');
+          return {
+            tradeDate: p[0],
+            openPrice: parseFloat(p[1]) || 0,
+            closePrice: parseFloat(p[2]) || 0,
+            highPrice: parseFloat(p[3]) || 0,
+            lowPrice: parseFloat(p[4]) || 0,
+            volume: parseFloat(p[5]) || 0,
+            turnover: parseFloat(p[6]) || 0,
+          };
+        }).filter(q => q.openPrice > 0 && q.closePrice > 0);
+        if (quotes.length > 0) return { quotes: quotes.slice(-limit), source: 'eastmoney' };
+      }
+      attempts.push('eastmoney:empty');
+    }
+  } catch (e) {
+    attempts.push('eastmoney:' + String(e.message || 'error').slice(0, 60));
+  }
+
+  return { quotes: [], source: null, attempts };
+}
+
+/**
+ * 个股日K线 —— 走多源降级，绝不再因单一上游 WAF 而整条 500
  */
 async function handleStockKLine(symbol) {
   try {
@@ -1029,35 +1255,21 @@ async function handleStockKLine(symbol) {
     if (!stock) return error('Stock not found', 404);
 
     const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
-    const limit = 2000; // 全部可用历史（~10年）
-    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
+    const { quotes, source, attempts } = await fetchDailyKLine(tencentSymbol, symbol, stock.market, 2000);
 
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
-    });
-    const data = await resp.json();
-    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
-    
-    if (!dayData || !Array.isArray(dayData) || dayData.length === 0) {
+    if (!quotes || quotes.length === 0) {
       return json({
-        data: { quotes: [], symbol, note: 'K线数据暂不可用' },
+        data: {
+          quotes: [], symbol, count: 0, source: null,
+          note: 'K线数据暂不可用：上游数据源全部不可用',
+          attempts: attempts || [],
+        },
         success: true,
       });
     }
 
-    // Tencent K-line format: [date, open, close, high, low, volume, ...]
-    const quotes = dayData.map(d => ({
-      tradeDate: d[0],
-      openPrice: parseFloat(d[1]) || 0,
-      closePrice: parseFloat(d[2]) || 0,
-      highPrice: parseFloat(d[3]) || 0,
-      lowPrice: parseFloat(d[4]) || 0,
-      volume: parseFloat(d[5]) || 0,
-      turnover: 0,
-    })).filter(q => q.openPrice > 0);
-
     return json({
-      data: { quotes, symbol, count: quotes.length },
+      data: { quotes, symbol, count: quotes.length, source },
       success: true,
     });
   } catch (e) {
@@ -1123,30 +1335,26 @@ async function handleIndexKLine(tencentSymbol) {
     const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentSymbol);
     if (!idxConfig) return error('Index not found', 404);
 
-    const limit = 2000; // 全部历史
-    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
+    // 指数代码：sh000001 → 000001，市场由前缀推导（东财 secid 需要 1./0. 前缀）
+    const code = tencentSymbol.replace(/^(sh|sz)/, '');
+    const market = tencentSymbol.startsWith('sh') ? 'SH' : 'SZ';
+    const { quotes, source, attempts } = await fetchDailyKLine(tencentSymbol, code, market, 2000);
 
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
-    });
-    const data = await resp.json();
-    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
-
-    if (!dayData || !Array.isArray(dayData) || dayData.length === 0) {
-      return json({ data: { quotes: [], symbol: tencentSymbol, note: 'K线数据暂不可用' }, success: true });
+    if (!quotes || quotes.length === 0) {
+      return json({
+        data: {
+          quotes: [], symbol: tencentSymbol, count: 0, source: null,
+          note: 'K线数据暂不可用：上游数据源全部不可用',
+          attempts: attempts || [],
+        },
+        success: true,
+      });
     }
 
-    const quotes = dayData.map(d => ({
-      tradeDate: d[0],
-      openPrice: parseFloat(d[1]) || 0,
-      closePrice: parseFloat(d[2]) || 0,
-      highPrice: parseFloat(d[3]) || 0,
-      lowPrice: parseFloat(d[4]) || 0,
-      volume: parseFloat(d[5]) || 0,
-      turnover: 0,
-    })).filter(q => q.openPrice > 0);
-
-    return json({ data: { quotes, symbol: tencentSymbol, count: quotes.length }, success: true });
+    return json({
+      data: { quotes, symbol: tencentSymbol, count: quotes.length, source },
+      success: true,
+    });
   } catch (e) {
     return error(e.message);
   }
@@ -1176,13 +1384,10 @@ async function handleIndexStrategy(tencentSymbol) {
       changePercent = parseFloat(parts[32]) || 0;
     }
 
-    // 获取 K 线数据用于计算指标
-    const limit = 2000; // 全部历史
-    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,${limit},qfq`;
-
-    const resp = await fetch(url);
-    const data = await resp.json();
-    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
+    // 获取 K 线数据用于计算指标（多源降级：腾讯→新浪→东财）
+    const dayData = await fetchDailyKLine(tencentSymbol, tencentSymbol.replace(/^[a-z]{2}/, ''), tencentSymbol.slice(0, 2).toUpperCase(), 2000)
+      .then(kl => (kl?.quotes || []).map(q => [q.tradeDate, String(q.openPrice), String(q.closePrice), String(q.highPrice), String(q.lowPrice), String(q.volume)]))
+      .catch(() => []);
 
     if (!dayData || dayData.length < 30) {
       return json({
@@ -1474,21 +1679,11 @@ async function fetchKLine(symbol) {
   const stock = stocks.find(s => s.symbol === symbol);
   if (!stock) return null;
   const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
-  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,120,qfq`;
 
   try {
-    const resp = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://finance.qq.com',
-      },
-    });
-    const data = await resp.json();
-    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
-    if (!dayData || !Array.isArray(dayData)) return null;
-
-    // Extract close prices: dayData is [date, open, close, high, low, volume]
-    return dayData.map(d => parseFloat(d[2])).filter(p => isFinite(p) && p > 0);
+    // 多源降级：与个股 K 线同链路，腾讯 WAF 时自动切换
+    const kl = await fetchDailyKLine(tencentSymbol, symbol, stock.market, 120);
+    return (kl?.quotes || []).map(q => q.closePrice).filter(p => isFinite(p) && p > 0);
   } catch {
     return null;
   }
@@ -1529,44 +1724,8 @@ async function handleStockStrategy(symbol) {
 // ==================== News API ====================
 
 /**
- * Fetch financial news from EastMoney API
- * GET /api/news?limit=20
+ * 东财 headline 条目解析（源1 复用；该接口当前已 404，保留以便其恢复时自动生效）
  */
-async function handleNews(url) {
-  try {
-    const params = new URL(url).searchParams;
-    const limit = parseInt(params.get('limit') || '20');
-    
-    // EastMoney news API — A股重要新闻
-    const emUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f3,f12,f14&secids=1.000001,0.399001,0.399006&pn=1&pz=${Math.min(limit, 50)}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281`;
-    
-    // Try financial news headlines instead
-    const newsUrl = 'https://np-listapi.eastmoney.com/comm/headline/getNewsList?cb=jQuery&client=web&biz=N06&classify=0&pageIndex=1&pageSize=' + Math.min(limit, 30);
-    
-    const resp = await fetch(newsUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.eastmoney.com' },
-    });
-    const text = await resp.text();
-    
-    // Extract JSON from jQuery callback
-    const jsonMatch = text.match(/jQuery\((\{.*\})\)/);
-    if (!jsonMatch) {
-      // Fallback: try direct JSON
-      try {
-        const data = JSON.parse(text);
-        return json({ data: parseNewsItems(data, limit) });
-      } catch {
-        return json({ data: [], source: 'eastmoney', note: 'News API format changed' });
-      }
-    }
-    
-    const data = JSON.parse(jsonMatch[1]);
-    return json({ data: parseNewsItems(data, limit), source: 'eastmoney' });
-  } catch (e) {
-    return json({ data: [], source: 'eastmoney', error: e.message });
-  }
-}
-
 function parseNewsItems(data, limit) {
   const items = [];
   const list = data?.Data || data?.data?.list || data?.result?.data || [];
@@ -1584,42 +1743,246 @@ function parseNewsItems(data, limit) {
 }
 
 /**
- * Simple sentiment analysis based on keywords
+ * 新闻快讯情感倾向（关键词规则）
+ * 说明：这是**文本关键词规则**，不是真实舆情指数，前端必须如实标注口径。
  */
 function analyzeSentiment(title) {
   if (!title) return 'neutral';
-  const positive = /利好|大涨|突破|涨停|增长|盈利|分红|回购|增持|中标|签约/;
-  const negative = /利空|大跌|跌停|亏损|减持|处罚|调查|退市|暴雷|违约|诉讼/;
+  const positive = /利好|大涨|突破|涨停|增长|盈利|分红|回购|增持|中标|签约|创新高|超预期|复苏|回暖/;
+  const negative = /利空|大跌|跌停|亏损|减持|处罚|调查|退市|暴雷|违约|诉讼|下滑|预警|裁员|降价|萎缩/;
   if (positive.test(title)) return 'positive';
   if (negative.test(title)) return 'negative';
   return 'neutral';
 }
 
 /**
- * Stock-specific news
- * GET /api/news/:symbol
+ * 财经快讯多源获取（东财 headline → 新浪 7x24）
+ *
+ * 背景：东财 np-listapi headline 接口已 404 下线，原实现静默返回空数组，
+ *       导致「舆情/消息面」长期无数据却无任何报错 —— 典型静默失败。
+ *
+ * 统一输出契约:
+ *   { items: [{ id, title, summary, url, source, time, sentiment }], source, note? }
+ *   全部源失败时 items 为空 + note 说明，绝不用假新闻填充。
  */
-async function handleStockNews(symbol) {
+async function fetchNewsFeed(limit) {
+  const attempts = [];
+
+  // ── 源1: 东财 A股新闻流（column=347，内容聚焦 A股/板块/政策）──
   try {
-    // EastMoney stock news API
-    const market = symbol.startsWith('6') ? 'SH' : 'SZ';
-    const stockCode = `${market}${symbol}`;
-    const url = `https://np-listapi.eastmoney.com/comm/headline/getNewsList?cb=jQuery&client=web&biz=N06&classify=0&stockCode=${stockCode}&pageIndex=1&pageSize=10`;
-    
+    const url = `https://np-listapi.eastmoney.com/comm/web/getNewsByColumns?client=web&biz=web_724&column=347&pageSize=${Math.min(limit, 50)}&req_trace=1`;
     const resp = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.eastmoney.com' },
     });
-    const text = await resp.text();
-    const jsonMatch = text.match(/jQuery\((\{.*\})\)/);
-    
-    if (!jsonMatch) {
-      return json({ data: [], symbol, note: 'No news available' });
+    const text = (await resp.text() || '').trim();
+    if (!text.startsWith('<')) {
+      const data = JSON.parse(text);
+      const list = data?.data?.list;
+      if (Array.isArray(list) && list.length > 0) {
+        const items = list.slice(0, limit).map(it => ({
+          id: String(it.code || ''),
+          title: String(it.title || '').trim(),
+          summary: String(it.summary || '').trim(),
+          url: it.uniqueUrl || it.url || '',
+          source: it.mediaName || '东方财富',
+          time: it.showTime || '',
+          sentiment: analyzeSentiment(`${it.title || ''} ${it.summary || ''}`),
+        })).filter(i => i.title);
+        if (items.length > 0) return { items, source: 'eastmoney', attempts };
+      }
+      attempts.push('eastmoney:empty');
+    } else {
+      attempts.push('eastmoney:blocked');
     }
-    
-    const data = JSON.parse(jsonMatch[1]);
-    return json({ data: parseNewsItems(data, 10), symbol });
   } catch (e) {
-    return json({ data: [], symbol, error: e.message });
+    attempts.push('eastmoney:' + String(e.message || 'error').slice(0, 60));
+  }
+
+  // ── 源2: 新浪财经 7x24 快讯（兜底；内容含全球资讯，A股相关性弱于源1）──
+  try {
+    const url = `https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size=${Math.min(limit, 50)}&zhibo_id=152&tag_id=0&dire=f&dpc=1`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn' },
+    });
+    const text = (await resp.text() || '').trim();
+    if (!text.startsWith('<')) {
+      const data = JSON.parse(text);
+      const list = data?.result?.data?.feed?.list;
+      if (Array.isArray(list) && list.length > 0) {
+        const items = list.slice(0, limit).map(it => {
+          const raw = String(it.rich_text || '').replace(/\s+/g, ' ').trim();
+          // 首句作标题，其余作摘要；无句号时整段即标题
+          const dotIdx = raw.indexOf('。');
+          const title = dotIdx > 10 ? raw.slice(0, dotIdx + 1) : raw;
+          const summary = dotIdx > 10 ? raw.slice(dotIdx + 1) : '';
+          return {
+            id: String(it.id || ''),
+            title,
+            summary,
+            url: it.docurl || `https://zhibo.sina.com.cn/detail?id=${it.id}`,
+            source: '新浪财经',
+            time: it.create_time || '',
+            sentiment: analyzeSentiment(raw),
+          };
+        }).filter(i => i.title);
+        if (items.length > 0) return { items, source: 'sina', attempts };
+      }
+      attempts.push('sina:empty');
+    } else {
+      attempts.push('sina:blocked');
+    }
+  } catch (e) {
+    attempts.push('sina:' + String(e.message || 'error').slice(0, 60));
+  }
+
+  return { items: [], source: null, attempts, note: '新闻源暂不可用：上游全部返回空' };
+}
+
+/**
+ * 市场快讯
+ * GET /api/news?limit=20
+ */
+async function handleNews(url) {
+  try {
+    const params = new URL(url).searchParams;
+    const limit = parseInt(params.get('limit') || '20');
+    const { items, source, attempts, note } = await fetchNewsFeed(limit);
+
+    // 基于真实快讯文本统计情感分布 —— 如实标注为「快讯情感倾向（关键词规则）」
+    const dist = { positive: 0, negative: 0, neutral: 0 };
+    items.forEach(i => { dist[i.sentiment] = (dist[i.sentiment] || 0) + 1; });
+
+    return json({
+      data: items,
+      count: items.length,
+      source,
+      sentimentDistribution: dist,
+      note: items.length === 0 ? (note || '暂无快讯数据') : undefined,
+      attempts: items.length === 0 ? attempts : undefined,
+      // 口径声明：前端必须展示，避免把规则打分误读为真实舆情指数
+      disclaimer: '情感倾向基于快讯标题关键词规则统计，非真实舆情指数',
+    });
+  } catch (e) {
+    return json({ data: [], count: 0, source: null, error: e.message });
+  }
+}
+
+/**
+ * 个股新闻定向检索：东财资讯搜索（按股票名称/代码）
+ *
+ * 背景：全市场快讯流（fetchNewsFeed）里个股命中极稀疏 —— 茅台/平安/工行实测命中 0 条。
+ * 若只用快讯流过滤，个股舆情等于长期空白。这里改用东财搜索接口做定向检索，
+ * 检索不到时仍如实返回空，绝不伪造。
+ */
+async function fetchStockNewsBySearch(keyword, limit) {
+  try {
+    const param = {
+      uid: '',
+      keyword,
+      type: ['cmsArticleWebOld'],
+      client: 'web',
+      clientType: 'web',
+      clientVersion: 'curr',
+      param: {
+        cmsArticleWebOld: {
+          searchScope: 'default',
+          sort: 'default',
+          pageIndex: 1,
+          pageSize: Math.min(limit, 20),
+          preTag: '<em>',
+          postTag: '</em>',
+        },
+      },
+    };
+    const url = `https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery&param=${encodeURIComponent(JSON.stringify(param))}`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://so.eastmoney.com' },
+    });
+    const text = (await resp.text() || '').trim();
+    if (text.startsWith('<')) return { items: [], source: null, note: 'eastmoney-search:blocked' };
+
+    const m = text.match(/jQuery\(([\s\S]*)\)\s*$/);
+    const data = JSON.parse(m ? m[1] : text);
+    const list = data?.result?.cmsArticleWebOld;
+    if (!Array.isArray(list) || list.length === 0) {
+      return { items: [], source: null, note: 'eastmoney-search:empty' };
+    }
+
+    const strip = s => String(s || '').replace(/<\/?em>/g, '').replace(/\s+/g, ' ').trim();
+    const items = list.slice(0, limit).map(it => {
+      const title = strip(it.title);
+      const content = strip(it.content);
+      return {
+        id: String(it.code || ''),
+        title,
+        summary: content.length > 120 ? content.slice(0, 120) + '…' : content,
+        url: it.url || '',
+        source: it.mediaName || '东方财富',
+        time: it.date || '',
+        sentiment: analyzeSentiment(`${title} ${content}`),
+      };
+    }).filter(i => i.title);
+
+    if (items.length === 0) return { items: [], source: null, note: 'eastmoney-search:empty' };
+    return { items, source: 'eastmoney-search' };
+  } catch (e) {
+    return { items: [], source: null, note: 'eastmoney-search:' + String(e.message || 'error').slice(0, 60) };
+  }
+}
+
+/**
+ * 个股相关快讯
+ * GET /api/news/:symbol
+ *
+ * 两级策略：① 东财资讯搜索定向检索（命中率高）→ ② 全市场快讯流关键词过滤（兜底）
+ * 两者都无结果时如实返回空 + 说明，绝不伪造个股新闻。
+ */
+async function handleStockNews(symbol) {
+  try {
+    const stocks = await getStockList();
+    const stock = stocks.find(s => s.symbol === symbol);
+    const name = stock ? stock.name : '';
+
+    let items = [];
+    let source = null;
+    const notes = [];
+
+    // ① 定向搜索
+    const searched = await fetchStockNewsBySearch(name || symbol, 20);
+    if (searched.items.length > 0) {
+      items = searched.items;
+      source = searched.source;
+    } else {
+      if (searched.note) notes.push(searched.note);
+
+      // ② 兜底：全市场快讯流关键词过滤
+      const feed = await fetchNewsFeed(100);
+      if (feed.note) notes.push(feed.note);
+      items = (feed.items || []).filter(it => {
+        const text = `${it.title} ${it.summary || ''}`;
+        if (name && name.length >= 2 && text.includes(name)) return true;
+        return text.includes(symbol);
+      });
+      source = feed.source;
+    }
+
+    const dist = { positive: 0, negative: 0, neutral: 0 };
+    items.forEach(i => { dist[i.sentiment] = (dist[i.sentiment] || 0) + 1; });
+
+    return json({
+      data: items.slice(0, 20),
+      count: items.length,
+      symbol,
+      stockName: name || undefined,
+      source,
+      sentimentDistribution: dist,
+      note: items.length === 0
+        ? (notes.length ? `${notes.join('；')}；` : '') + `未检索到与「${name || symbol}」相关的新闻`
+        : undefined,
+      disclaimer: '情感倾向基于新闻关键词规则统计，非真实舆情指数',
+    });
+  } catch (e) {
+    return json({ data: [], count: 0, symbol, error: e.message });
   }
 }
 
@@ -1696,13 +2059,10 @@ async function handleBacktest(symbol) {
     if (!stock) return error('Stock not found', 404);
 
     const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
-    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tencentSymbol},day,,,250,qfq`;
-    
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
-    });
-    const data = await resp.json();
-    const dayData = data?.data?.[tencentSymbol]?.day || data?.data?.[tencentSymbol]?.qfqday;
+    // 多源降级：与个股 K 线同链路
+    const kl = await fetchDailyKLine(tencentSymbol, symbol, stock.market, 250).catch(() => ({ quotes: [] }));
+    const dayData = (kl?.quotes || []).map(q => [q.tradeDate, String(q.openPrice), String(q.closePrice), String(q.highPrice), String(q.lowPrice), String(q.volume)]);
+
     
     if (!dayData || !Array.isArray(dayData) || dayData.length < 60) {
       return json({ data: null, note: '历史K线数据不足(需≥60日)' });
@@ -2370,6 +2730,476 @@ ${stockSummary}
   }
 }
 
+// ==================== 多维矩阵 v3-lite：板块指数历史 + 实时快照 ====================
+// 数据底座设计（对齐 backend/src/api/sector-multidim-v3.ts 契约）：
+//   1) 东财行业板块日K（现行命名与申万一级 1:1 同名，BK1200-BK1217 系列即申万2021分类）
+//   2) KV(STOCK_DATA) 每日积累板块K线与板块PE中位数历史（由 /api/cron/collect-history 驱动）
+//   3) 实时成分股快照（getAllQuotes）提供当日截面维度
+//   4) 任何维度缺数据一律 score:null + 原因，绝不用虚构分填充
+const SW_BOARD_CODES = {
+  '电力设备': 'BK1200', '电子': 'BK1201', '房地产': 'BK1202', '非银金融': 'BK1203', '国防军工': 'BK1204',
+  '机械设备': 'BK1205', '基础化工': 'BK1206', '计算机': 'BK1207', '建筑材料': 'BK1208', '建筑装饰': 'BK1209',
+  '交通运输': 'BK1210', '汽车': 'BK1211', '轻工制造': 'BK1212', '商贸零售': 'BK1213', '社会服务': 'BK1214',
+  '通信': 'BK1215', '医药生物': 'BK1216', '综合': 'BK1217', '农林牧渔': 'BK0433', '食品饮料': 'BK0438',
+  '煤炭': 'BK0437', '石油石化': 'BK0464', '有色金属': 'BK0478', '钢铁': 'BK0479', '公用事业': 'BK0427',
+  '家用电器': 'BK0456', '纺织服饰': 'BK0436', '传媒': 'BK0486', '环保': 'BK0728', '美容护理': 'BK1035',
+  '银行': 'BK1283',
+};
+const BOARD_KLINE_HOSTS = [
+  'https://push2his.eastmoney.com',
+  'https://1.push2his.eastmoney.com',
+  'https://21.push2his.eastmoney.com',
+  'https://92.push2his.eastmoney.com',
+];
+const boardKlineMem = new Map(); // isolate 级缓存
+const BOARD_MEM_TTL = 600_000;   // 10 分钟
+
+function beijingToday() {
+  return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+}
+
+/**
+ * 板块指数日K线：[[date, close, amount], ...] 升序
+ * KV 优先（当日新鲜）→ 实时多主机 → 陈旧 KV（标注 stale）→ 空数组
+ */
+async function fetchBoardKline(industry, lmt) {
+  const limit = lmt || 60;
+  const bk = SW_BOARD_CODES[industry];
+  if (!bk) return { days: [], source: null, attempts: ['no-board-mapping'] };
+
+  const attempts = [];
+  const kvKey = `bkk:${bk}`;
+  const env = globalThis.__env;
+  let kvRec = null;
+  if (env && env.STOCK_DATA) {
+    try { kvRec = await env.STOCK_DATA.get(kvKey, 'json'); } catch (e) { attempts.push('kv:read-err'); }
+  }
+
+  const mem = boardKlineMem.get(bk);
+  if (mem && Date.now() - mem.t < BOARD_MEM_TTL) {
+    return { days: mem.d, source: mem.s, attempts };
+  }
+
+  const fresh = rec => rec && Array.isArray(rec.d) && rec.d.length > 0 && rec.d[rec.d.length - 1][0] === beijingToday();
+  if (fresh(kvRec)) {
+    boardKlineMem.set(bk, { t: Date.now(), d: kvRec.d, s: 'kv' });
+    return { days: kvRec.d, source: 'kv', attempts };
+  }
+
+  for (const host of BOARD_KLINE_HOSTS) {
+    try {
+      const url = `${host}/api/qt/stock/kline/get?secid=90.${bk}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=1&lmt=${limit}&end=20500101`;
+      const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/' } });
+      const text = (await resp.text()).trim();
+      if (!text.startsWith('{')) { attempts.push(`${host.slice(8, 24)}:non-json`); continue; }
+      const data = JSON.parse(text);
+      const klines = data && data.data && data.data.klines;
+      if (!Array.isArray(klines) || klines.length < 20) { attempts.push(`${host.slice(8, 24)}:empty`); continue; }
+      // kline 格式: date,open,close,high,low,volume,amount
+      const days = klines.map(s => {
+        const p = s.split(',');
+        return [p[0], parseFloat(p[2]) || 0, parseFloat(p[6]) || parseFloat(p[5]) || 0];
+      }).filter(x => x[1] > 0 && x[0]);
+      if (days.length < 20) { attempts.push(`${host.slice(8, 24)}:short`); continue; }
+
+      if (env && env.STOCK_DATA) {
+        try { await env.STOCK_DATA.put(kvKey, JSON.stringify({ d: days, t: Date.now() })); } catch (e) { attempts.push('kv:write-err'); }
+      }
+      boardKlineMem.set(bk, { t: Date.now(), d: days, s: 'em-board' });
+      return { days, source: 'em-board', attempts };
+    } catch (e) {
+      attempts.push(`${host.slice(8, 24)}:${String(e.message || 'err').slice(0, 30)}`);
+    }
+  }
+
+  // 全部主机失败：KV 有陈旧历史则如实降级使用（响应中标注，绝不冒充新鲜数据）
+  if (kvRec && Array.isArray(kvRec.d) && kvRec.d.length >= 20) {
+    boardKlineMem.set(bk, { t: Date.now(), d: kvRec.d, s: 'stale-kv' });
+    return { days: kvRec.d, source: 'stale-kv', attempts };
+  }
+  return { days: [], source: null, attempts };
+}
+
+// 线性插值分位数（与 backend sector-multidim-v3 同口径）
+function pctile(arr, p) {
+  if (!arr || !arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const idx = (p / 100) * (s.length - 1);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  return lo === hi ? s[lo] : s[lo] + (s[hi] - s[lo]) * (idx - lo);
+}
+const clampScore = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const dimOf = (score, label, detail) => ({ score, label, detail });
+
+async function buildSectorContext() {
+  const { quotes } = await getAllQuotes();
+  const stocks = await getStockList();
+  const indBySym = new Map(stocks.map(s => [s.symbol, normalizeIndustry(s.industry)]));
+  const byIndustry = new Map();
+  for (const q of quotes) {
+    if (!q || q.changePercent === undefined || !isFinite(q.changePercent)) continue;
+    const ind = indBySym.get(q.symbol);
+    if (!ind) continue;
+    if (!byIndustry.has(ind)) byIndustry.set(ind, []);
+    byIndustry.get(ind).push(q);
+  }
+  // 各板块 PE 中位数（crowding 的行业间分位基准）
+  const peMed = new Map();
+  for (const [ind, qs] of byIndustry) {
+    const pes = qs.map(q => q.peRatio).filter(p => p > 0 && p < 1000);
+    peMed.set(ind, pes.length >= 3 ? pctile(pes, 50) : null);
+  }
+  return { quotes, byIndustry, peMed };
+}
+
+async function getSectorPeHistory(industry) {
+  const env = globalThis.__env;
+  if (!env || !env.STOCK_DATA) return [];
+  try {
+    const rec = await env.STOCK_DATA.get(`pehist:${industry}`, 'json');
+    return rec && Array.isArray(rec.pts) ? rec.pts : [];
+  } catch (e) { return []; }
+}
+
+/** v3-lite 14 维计算。契约对齐 MultidimV3Result（score 可为 null）。 */
+function computeV3Lite(industry, ctx, kline, peHist) {
+  const qs = ctx.byIndustry.get(industry) || [];
+  const dims = {};
+
+  if (qs.length >= 3) {
+    // crowding 拥挤度：板块PE中位数在全部板块中的分位（越便宜分越高）
+    const myPe = ctx.peMed.get(industry);
+    const ranked = [...ctx.peMed.entries()].filter(([, v]) => v != null).sort((a, b) => a[1] - b[1]);
+    if (myPe != null && ranked.length >= 5) {
+      const pos = ranked.findIndex(([k]) => k === industry);
+      const rank = pos / (ranked.length - 1);
+      dims.crowding = dimOf(Math.round(20 * (1 - rank)), rank > 0.7 ? '估值偏高' : rank < 0.3 ? '估值偏低' : '估值中位',
+        `板块PE中位数 ${myPe.toFixed(1)}，${ranked.length} 个板块中第 ${pos + 1} 低（实时截面口径）`);
+    } else {
+      dims.crowding = dimOf(null, '数据不足', '板块PE样本不足，不参与评分');
+    }
+
+    // concentration 资金集中度：Top5 成交占比
+    const tos = qs.map(q => q.turnover || 0).sort((a, b) => b - a);
+    const totalTo = tos.reduce((a, b) => a + b, 0);
+    if (totalTo > 0) {
+      const top5 = tos.slice(0, 5).reduce((a, b) => a + b, 0) / totalTo;
+      let sc;
+      if (top5 >= 0.4 && top5 <= 0.6) sc = 20;
+      else if (top5 < 0.4) sc = Math.round(20 * top5 / 0.4);
+      else sc = Math.round(20 * (1 - (top5 - 0.6) / 0.4));
+      dims.concentration = dimOf(clampScore(sc, 0, 20), `Top5 占 ${(top5 * 100).toFixed(1)}%`,
+        `头部5只个股占板块成交 ${(top5 * 100).toFixed(1)}%，40%-60% 区间为健康`);
+    } else {
+      dims.concentration = dimOf(null, '无成交', '板块成交额为0，不参与评分');
+    }
+
+    // panic 恐慌度：跌幅>5% 占比
+    const downCnt = qs.filter(q => q.changePercent <= -5).length;
+    const dnRatio = downCnt / qs.length;
+    dims.panic = dimOf(dnRatio >= 0.2 ? 0 : dnRatio >= 0.15 ? 5 : dnRatio >= 0.1 ? 10 : dnRatio >= 0.05 ? 15 : 20,
+      `跌>5% 占 ${(dnRatio * 100).toFixed(1)}%`, `板块内 ${downCnt}/${qs.length} 只个股当日跌幅超过 5%`);
+
+    // volatility 摇摆度：个股振幅 (high-low)/close 的截面标准差
+    const amps = qs.map(q => (q.high != null && q.low != null && q.price > 0) ? (q.high - q.low) / q.price : null).filter(a => a != null);
+    if (amps.length >= 3) {
+      const m = amps.reduce((a, b) => a + b, 0) / amps.length;
+      const sd = Math.sqrt(amps.reduce((a, b) => a + (b - m) ** 2, 0) / amps.length);
+      dims.volatility = dimOf(sd < 0.01 ? 20 : sd < 0.02 ? 15 : sd < 0.03 ? 10 : sd < 0.04 ? 5 : 0,
+        `振幅标准差 ${(sd * 100).toFixed(2)}%`, '板块内个股当日振幅离散度，衡量多空分歧（截面口径）');
+    } else {
+      dims.volatility = dimOf(null, '数据不足', '振幅数据缺失，不参与评分');
+    }
+
+    // spreadDegree 涨停扩散：当日涨停占比
+    const lu = qs.filter(q => q.changePercent >= 9.9).length;
+    const luRatio = lu / qs.length;
+    dims.spreadDegree = dimOf(luRatio > 0.1 ? 20 : luRatio > 0.05 ? 15 : luRatio > 0.02 ? 10 : luRatio > 0 ? 5 : 0,
+      `涨停占比 ${(luRatio * 100).toFixed(1)}%`, `板块内 ${lu}/${qs.length} 只个股涨停（≥9.9%）`);
+  } else {
+    for (const k of ['crowding', 'concentration', 'panic', 'volatility', 'spreadDegree']) {
+      dims[k] = dimOf(null, '样本不足', `板块内仅 ${qs.length} 只个股，不参与评分`);
+    }
+  }
+
+  // —— 板块指数日K可算（指数口径，detail 中如实标注）——
+  if (kline.days.length >= 21) {
+    const closes = kline.days.map(d => d[1]);
+    const chg = [];
+    for (let i = 1; i < closes.length; i++) chg.push((closes[i] - closes[i - 1]) / closes[i - 1] * 100);
+    const ma5 = chg.slice(-5).reduce((a, b) => a + b, 0) / Math.min(5, chg.length);
+    const ma20 = chg.slice(-20).reduce((a, b) => a + b, 0) / Math.min(20, chg.length);
+    const diff = ma5 - ma20;
+    dims.recovery = dimOf(diff > 0.3 ? 20 : diff > 0.1 ? 15 : diff > -0.1 ? 10 : diff > -0.3 ? 5 : 0,
+      `5日均涨 ${ma5.toFixed(2)}% / 20日 ${ma20.toFixed(2)}%`, '板块指数近5日日均涨幅较20日均值差，衡量修复动能（指数口径，非个股回补）');
+
+    const amounts = kline.days.map(d => d[2]);
+    const avg20 = amounts.slice(-20).reduce((a, b) => a + b, 0) / Math.min(20, amounts.length);
+    const todayAmt = amounts[amounts.length - 1];
+    if (avg20 > 0 && todayAmt > 0) {
+      const dev = Math.abs(todayAmt / avg20 - 1);
+      dims.leverage = dimOf(dev < 0.1 ? 20 : dev < 0.2 ? 15 : dev < 0.3 ? 10 : dev < 0.5 ? 5 : 0,
+        `成交为20日均值的 ${(todayAmt / avg20 * 100).toFixed(0)}%`, '板块指数成交额偏离度，衡量杠杆资金活跃度（指数口径）');
+    } else {
+      dims.leverage = dimOf(null, '无成交', '板块指数历史成交额缺失');
+    }
+
+    const last5 = chg.slice(-5);
+    const upDays = last5.filter(c => c > 0).length;
+    const dnDays = last5.filter(c => c < 0).length;
+    const ratio = dnDays === 0 ? (upDays > 0 ? 2.1 : 1) : upDays / dnDays;
+    dims.fundFlow = dimOf(ratio > 2 ? 20 : ratio > 1.5 ? 15 : ratio > 1 ? 10 : ratio > 0.5 ? 5 : 0,
+      `近5日 ${upDays}涨/${dnDays}跌`, '板块指数近5日上涨/下跌天数比（基金持仓代理，指数口径）');
+  } else {
+    const why = kline.source === 'stale-kv'
+      ? '实时源不可用，KV 历史样本不足20日'
+      : kline.attempts && kline.attempts.length
+        ? `板块指数K线不可用（${kline.attempts.slice(0, 2).join('; ')}）`
+        : '板块指数历史K线不可用（KV 尚未积累）';
+    for (const k of ['recovery', 'leverage', 'fundFlow']) {
+      dims[k] = dimOf(null, '历史缺失', why);
+    }
+  }
+
+  // —— 需个股历史K线，底座积累中（如实 null）——
+  dims.diffusion = dimOf(null, '历史缺失', '需个股MA20站上比例，个股日K底座积累中');
+  dims.retail = dimOf(null, '历史缺失', '需小盘股换手21日环比，个股日K底座积累中');
+  dims.momIndex = dimOf(null, '历史缺失', '需低价股成交额前值，个股日K底座积累中');
+  dims.momentumPosition = dimOf(null, '历史缺失', '需个股近5日涨幅分布，个股日K底座积累中');
+
+  // zScore：板块PE中位数历史 ≥20 点后可算（KV 每日 cron 积累）
+  if (peHist.length >= 20 && ctx.peMed.get(industry) != null) {
+    const pes = peHist.slice(-20).map(p => p[1]).filter(v => v > 0);
+    const m = pes.reduce((a, b) => a + b, 0) / pes.length;
+    const sd = Math.sqrt(pes.reduce((a, b) => a + (b - m) ** 2, 0) / pes.length);
+    const cur = ctx.peMed.get(industry);
+    if (sd > 0) {
+      const z = Math.abs(cur - m) / sd;
+      dims.zScore = dimOf(z < 0.5 ? 20 : z < 1 ? 15 : z < 2 ? 10 : z < 3 ? 5 : 0,
+        `|Z|=${z.toFixed(2)}`, `当前PE中位数 ${cur.toFixed(1)} 相对近20日均值的偏离`);
+    } else {
+      dims.zScore = dimOf(20, 'PE 持平', '近20日PE中位数无波动');
+    }
+  } else {
+    dims.zScore = dimOf(null, '历史缺失', `板块PE历史仅 ${peHist.length}/20 日，KV 每日积累中`);
+  }
+
+  // searchHeat(概念广度)：worker 无 sub_industry 数据，如实 null
+  dims.searchHeat = dimOf(null, '历史缺失', 'worker 无子行业分类数据，不参与评分');
+
+  const dimKeys = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery', 'panic', 'volatility',
+    'momIndex', 'searchHeat', 'spreadDegree', 'momentumPosition', 'zScore', 'leverage', 'fundFlow'];
+  const available = dimKeys.filter(k => dims[k].score != null);
+  const availableDimCount = available.length;
+  const totalScore = availableDimCount > 0 ? available.reduce((s, k) => s + dims[k].score, 0) : null;
+
+  // 组合分：仅在成分维齐全时给出（与 backend 口径一致，缺失时不给部分分）
+  const boomKeys = ['diffusion', 'recovery', 'momentumPosition', 'searchHeat', 'spreadDegree'];
+  const boomOk = boomKeys.every(k => dims[k].score != null);
+  const boomScore = boomOk ? boomKeys.reduce((s, k) => s + dims[k].score, 0) : null;
+  const crowdKeys = ['crowding', 'concentration', 'zScore', 'leverage', 'panic', 'fundFlow'];
+  const crowdOk = crowdKeys.every(k => dims[k].score != null);
+  const crowdingScore = crowdOk ? Math.min(100, Math.round(crowdKeys.reduce((s, k) => s + dims[k].score, 0) / 120 * 100)) : null;
+
+  return {
+    industry,
+    totalScore,
+    maxScore: 280,
+    availableDimCount,
+    nullDimCount: dimKeys.length - availableDimCount,
+    boomScore,
+    crowdingScore,
+    dimensions: dims,
+    metadata: {
+      stockCount: qs.length,
+      medianPE: ctx.peMed.get(industry) ?? null,
+      boardKlineSource: kline.source,
+      boardKlineDays: kline.days.length,
+      computedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function handleMultidimV3(industry) {
+  try {
+    if (!SW_BOARD_CODES[industry]) return error('Sector not found', 404);
+    const ctx = await buildSectorContext();
+    const kline = await fetchBoardKline(industry);
+    const peHist = await getSectorPeHistory(industry);
+    const result = computeV3Lite(industry, ctx, kline, peHist);
+    return json({ success: true, data: result });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+/** SectorDetailPage 消费的 v2 形状投影（5 维）。任一维度缺失 → totalScore=null。 */
+async function handleMultidimV1(industry) {
+  try {
+    if (!SW_BOARD_CODES[industry]) return error('Sector not found', 404);
+    const ctx = await buildSectorContext();
+    const kline = await fetchBoardKline(industry);
+    const peHist = await getSectorPeHistory(industry);
+    const v3 = computeV3Lite(industry, ctx, kline, peHist);
+    const map = {
+      crowding: v3.dimensions.crowding,
+      diffusion: v3.dimensions.diffusion,
+      concentration: v3.dimensions.concentration,
+      retail: v3.dimensions.retail,
+      recovery: v3.dimensions.recovery,
+    };
+    const vals = Object.values(map);
+    const allAvail = vals.every(d => d.score != null);
+    return json({
+      success: true,
+      data: {
+        industry,
+        totalScore: allAvail ? vals.reduce((s, d) => s + d.score, 0) : null,
+        availableDimCount: vals.filter(d => d.score != null).length,
+        totalDimCount: 5,
+        dimensions: map,
+      },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+async function handleMultidimV3Batch(request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const codes = Array.isArray(body.codes) ? body.codes : [];
+    if (!codes.length) return json({ success: true, data: { sectors: [], meta: { note: 'codes 为空' } } });
+
+    const ctx = await buildSectorContext();
+    const sectors = [];
+    const failed = [];
+    // 并发拉取板块K线（限 6 并发，控制上游压力）
+    const uniq = [...new Set(codes)].slice(0, 40);
+    const results = await Promise.all(uniq.map(async ind => {
+      if (!SW_BOARD_CODES[ind]) return { ind, kline: null, peHist: [], skipped: true };
+      const [kline, peHist] = [await fetchBoardKline(ind), await getSectorPeHistory(ind)];
+      return { ind, kline, peHist, skipped: false };
+    }));
+    for (const r of results) {
+      if (r.skipped || !r.kline) { failed.push(r.ind); continue; }
+      try {
+        sectors.push(computeV3Lite(r.ind, ctx, r.kline, r.peHist));
+      } catch (e) { failed.push(r.ind); }
+    }
+    return json({
+      success: true,
+      data: { sectors, meta: { requested: uniq.length, computed: sectors.length, failed, source: 'v3-lite' } },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+/** 每日收盘后由 GitHub Actions cron 调用：刷新31板块K线 + 追加板块PE中位数历史 */
+async function handleCronCollectHistory(url) {
+  try {
+    const env = globalThis.__env;
+    const token = url.searchParams.get('token');
+    if (env && env.CRON_TOKEN && token !== env.CRON_TOKEN) return error('Unauthorized', 401);
+
+    const ctx = await buildSectorContext();
+    const today = beijingToday();
+    const collected = [];
+    for (const industry of Object.keys(SW_BOARD_CODES)) {
+      const kline = await fetchBoardKline(industry, 60);
+      const pe = ctx.peMed.get(industry);
+      if (pe != null && env && env.STOCK_DATA) {
+        try {
+          const rec = (await env.STOCK_DATA.get(`pehist:${industry}`, 'json')) || { pts: [] };
+          const pts = (rec.pts || []).filter(p => p[0] !== today);
+          pts.push([today, Math.round(pe * 100) / 100]);
+          await env.STOCK_DATA.put(`pehist:${industry}`, JSON.stringify({ pts: pts.slice(-90) }));
+        } catch (e) { /* 尽力而为 */ }
+      }
+      collected.push({ industry, days: kline.days.length, source: kline.source });
+    }
+    return json({ success: true, data: { date: today, sectors: collected.length, ok: collected.filter(c => c.days > 0).length, detail: collected } });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+// ==================== 资金流向（东财 push2 主力/散户净额）====================
+// 供前端 CapitalFlowPanel 消费；上游不可用时返回 data:null，前端隐藏面板，绝不返回 0 充数
+async function handleFundFlow(symbol) {
+  try {
+    const pure = String(symbol || '').replace(/\.(SH|SZ|BJ)$/i, '');
+    if (!/^\d{6}$/.test(pure)) return error('Invalid symbol', 400);
+    const market = pure.startsWith('6') ? 1 : (pure.startsWith('4') || pure.startsWith('8') ? 2 : 0);
+    const secid = `${market}.${pure}`;
+    const attempts = [];
+    const FLOW_HOSTS = ['https://push2delay.eastmoney.com', 'https://push2.eastmoney.com'];
+
+    // 个股实时主力/散户净额（单位：元）。字段：f62主力净 f184主力净占比 f66超大 f72大 f78中 f84小
+    let latest = null;
+    for (const host of FLOW_HOSTS) {
+      try {
+        const u = `${host}/api/qt/stock/get?secid=${secid}&fields=f62,f184,f66,f72,f78,f84&ut=fa5fd1943c7b386f172d6893dbfba10b`;
+        const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/' } });
+        const t = (await resp.text()).trim();
+        if (!t.startsWith('{')) { attempts.push(`${host.slice(8, 20)}:non-json`); continue; }
+        const d = JSON.parse(t);
+        const dd = d && d.data;
+        if (dd && dd.f62 != null && dd.f62 !== '-') {
+          latest = {
+            mainNet: dd.f62, mainNetPct: dd.f184 != null && dd.f184 !== '-' ? dd.f184 : null,
+            superNet: dd.f66, bigNet: dd.f72, midNet: dd.f78, smallNet: dd.f84,
+          };
+          break;
+        }
+        attempts.push(`${host.slice(8, 20)}:empty`);
+      } catch (e) { attempts.push(`${host.slice(8, 20)}:${String(e.message || 'e').slice(0, 24)}`); }
+    }
+
+    // 申万31行业板块主力净额排行（单请求取全量后按 SW_BOARD_CODES 过滤）
+    let sectorFlows = [];
+    for (const host of FLOW_HOSTS) {
+      try {
+        const u = `${host}/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f62`;
+        const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/' } });
+        const t = (await resp.text()).trim();
+        if (!t.startsWith('{')) { attempts.push(`${host.slice(8, 20)}:bk-non-json`); continue; }
+        const d = JSON.parse(t);
+        const rows = (d && d.data && d.data.diff) || [];
+        const codeSet = new Set(Object.values(SW_BOARD_CODES));
+        const nameByCode = {};
+        for (const [ind, code] of Object.entries(SW_BOARD_CODES)) nameByCode[code] = ind;
+        sectorFlows = rows
+          .filter(r => codeSet.has(r.f12) && r.f62 != null && r.f62 !== '-')
+          .map(r => ({ sector: nameByCode[r.f12] || r.f14, netFlow: r.f62, flowTrend: 'steady' }))
+          .sort((a, b) => b.netFlow - a.netFlow)
+          .slice(0, 10);
+        if (sectorFlows.length) break;
+        attempts.push(`${host.slice(8, 20)}:bk-empty`);
+      } catch (e) { attempts.push(`${host.slice(8, 20)}:bk-${String(e.message || 'e').slice(0, 20)}`); }
+    }
+
+    if (!latest && sectorFlows.length === 0) {
+      return json({ success: true, data: null, source: null, attempts, note: '资金流上游暂不可用，已如实返回空' });
+    }
+    return json({
+      success: true,
+      data: {
+        symbol: pure,
+        latest,   // { mainNet, mainNetPct, superNet, bigNet, midNet, smallNet } 单位：元
+        sectorFlows,
+        date: beijingToday(),
+      },
+      source: latest ? 'eastmoney' : 'eastmoney-boards-only',
+      attempts,
+      note: latest ? undefined : '个股资金流暂缺，仅返回板块资金流',
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
 export default {
   // ==================== 批量技术指标 ====================
 
@@ -2398,18 +3228,12 @@ export default {
             if (!stock) return { symbol };
             // ts 优先用请求市场（权威）；缺失时回退 stockList 的 market。
             const ts = tencentKey || `${stock.market === 'SH' ? 'sh' : 'sz'}${pureSymbol}`;
-            const resp = await fetch(
-              `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${ts},day,,,${days + 5},qfq`,
-              { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' } }
-            );
-            const data = await resp.json();
-            const dd = data?.data?.[ts]?.day || data?.data?.[ts]?.qfqday;
-            if (!dd || !Array.isArray(dd) || dd.length < 5) return { symbol };
-
-            const closes = dd.map(d => parseFloat(d[2]) || 0).filter(c => c > 0);
+            // 多源降级：与个股 K 线共用 fetchDailyKLine（腾讯→新浪→东财），WAF 封禁不再导致指标整体缺失
+            const kl = await fetchDailyKLine(ts, pureSymbol, reqMarket, days + 5);
+            const closes = (kl?.quotes || []).map(d => d.closePrice).filter(c => c > 0);
             if (closes.length < 5) return { symbol };
             const latest = closes[closes.length - 1];
-            
+
             const change5d = closes.length >= 5 ? Math.round(((latest - closes[closes.length - 5]) / closes[closes.length - 5] * 100) * 100) / 100 : null;
             const change20d = closes.length >= 20 ? Math.round(((latest - closes[closes.length - 20]) / closes[closes.length - 20] * 100) * 100) / 100 : null;
             // 区间涨跌幅：按传入 days 算 (latest 相对 days 个交易日前的收盘)；样本不足返回 null
@@ -2479,9 +3303,35 @@ export default {
       return handleMarketIndices();
     }
 
+    // Market summary (DiscoverPage 依赖，缺路由会导致右侧统计全 0)
+    if (path === '/api/market/summary') {
+      return handleMarketSummary();
+    }
+
     // Sector momentum
     if (path === '/api/sectors/momentum') {
       return handleSectorMomentum();
+    }
+
+    // ── 多维矩阵 v3-lite（板块指数历史 + 实时快照，历史缺失的维度如实 null）──
+    if (path === '/api/sectors/multidim-v3/batch' && request.method === 'POST') {
+      return handleMultidimV3Batch(request);
+    }
+    if (path === '/api/cron/collect-history') {
+      return handleCronCollectHistory(url);
+    }
+    // 个股/板块资金流向（CapitalFlowPanel 数据源）
+    const fundFlowMatch = path.match(/^\/api\/fund-flow\/(\d{6})$/);
+    if (fundFlowMatch) {
+      return handleFundFlow(fundFlowMatch[1]);
+    }
+    const mdV3Match = path.match(/^\/api\/sectors\/(.+)\/multidim-v3$/);
+    if (mdV3Match) {
+      return handleMultidimV3(decodeURIComponent(mdV3Match[1]));
+    }
+    const mdV1Match = path.match(/^\/api\/sectors\/(.+)\/multidim$/);
+    if (mdV1Match) {
+      return handleMultidimV1(decodeURIComponent(mdV1Match[1]));
     }
 
     // Concept momentum
@@ -2535,6 +3385,11 @@ export default {
     // Phase 2: AI market insight
     if (path === '/api/ai/market-insight') {
       return handleMarketInsight();
+    }
+
+    // LLM 增强解读（Worker 无 LLM 凭据 → 规则引擎降级，结构对齐）
+    if (path === '/api/ai/market-insight-llm') {
+      return handleMarketInsightLlm();
     }
 
     // Phase 3: Stock strategy: /api/stocks/:symbol/strategy

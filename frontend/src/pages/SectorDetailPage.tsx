@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Breadcrumb, Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip, Skeleton } from 'antd';
+import { Breadcrumb, Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip, Skeleton, Empty } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
 import { ArrowUpOutlined, ArrowDownOutlined, CompassOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
@@ -48,14 +48,18 @@ interface SectorDetail extends SectorSummary {
 
 // 多维分析 API 返回类型
 interface MultidimDim {
-  score: number;
+  /** 数据缺失时为 null —— 后端已停止用硬编码「中性分 10」冒充有效得分 */
+  score: number | null;
   label: string;
   detail: string;
 }
 
 interface MultidimResult {
   industry: string;
-  totalScore: number;
+  /** 五维齐全时为 0-100；任一维缺失时为 null（维度不全，不予计算） */
+  totalScore: number | null;
+  availableDimCount?: number;
+  totalDimCount?: number;
   dimensions: {
     crowding: MultidimDim;
     diffusion: MultidimDim;
@@ -119,6 +123,7 @@ export default function SectorDetailPage() {
   const [activeCode, setActiveCode] = useState(symbol || '');
   const [multidimData, setMultidimData] = useState<MultidimResult | null>(null);
   const [multidimLoading, setMultidimLoading] = useState(false);
+  const [multidimError, setMultidimError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSectorList();
@@ -161,23 +166,32 @@ export default function SectorDetailPage() {
 
   const loadMultidimAnalysis = async (sectorCode: string) => {
     setMultidimLoading(true);
+    setMultidimError(null);
     try {
       const res = await fetch(`/api/sectors/${encodeURIComponent(sectorCode)}/multidim`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.data) {
         setMultidimData(data.data);
       } else {
         setMultidimData(null);
+        setMultidimError(
+          res.status === 404
+            ? '多维分析接口不存在（404）：当前 API 环境未提供 /api/sectors/:code/multidim'
+            : (data.error || '接口未返回有效数据')
+        );
       }
     } catch (e) {
       logger.error('加载多维分析失败:', e);
       setMultidimData(null);
+      setMultidimError('网络请求失败，无法获取多维分析数据');
     } finally {
       setMultidimLoading(false);
     }
   };
 
   // ============== 雷达图配置 ==============
+  // 说明：维度缺失时后端现在返回 score: null（此前是硬编码 10 分，与真实 10 分在图上无法区分，
+  //       且被计入总分污染排序）。此处 null 按 0 画在圆心，并在 tooltip/标签上明示「数据不足」。
   const buildRadarOption = () => {
     if (!multidimData) return {};
 
@@ -189,7 +203,10 @@ export default function SectorDetailPage() {
       max: 20,
     }));
 
-    const values = keys.map((k) => dims[k].score);
+    const values = keys.map((k) => {
+      const s = dims[k]?.score;
+      return typeof s === 'number' ? s : 0;
+    });
 
     return {
       radar: {
@@ -351,9 +368,19 @@ export default function SectorDetailPage() {
           title={
             <Space>
               <span>🎯 板块多维雷达图</span>
-              <Tag color={getTotalRank(multidimData.totalScore).color}>
-                综合得分: {multidimData.totalScore}/100 ({getTotalRank(multidimData.totalScore).label})
-              </Tag>
+              {/* totalScore 为 null = 维度不全（后端已停止用硬编码 10 分凑数）。
+                  此时必须明示「维度不全」，不能拿残缺分数给出「良好/一般」评级。 */}
+              {multidimData.totalScore == null ? (
+                <Tooltip title="该板块存在数据缺失的维度，综合得分不予计算（缺失维度不参与评分）">
+                  <Tag color="default" style={{ margin: 0 }}>
+                    维度不全 {multidimData.availableDimCount ?? '—'}/{multidimData.totalDimCount ?? 5} · 综合得分暂不计算
+                  </Tag>
+                </Tooltip>
+              ) : (
+                <Tag color={getTotalRank(multidimData.totalScore).color}>
+                  综合得分: {multidimData.totalScore}/100 ({getTotalRank(multidimData.totalScore).label})
+                </Tag>
+              )}
             </Space>
           }
         >
@@ -376,7 +403,9 @@ export default function SectorDetailPage() {
                   const color = RADAR_COLORS[key];
                   const icon = DIM_ICONS[key];
                   const name = DIM_NAMES[key];
-                  const scorePct = (dim.score / 20) * 100;
+                  // 数据缺失维度：score 为 null，进度条置空并显示「—」，不伪装成 0 分或 10 分
+                  const unavailable = dim?.score == null;
+                  const scorePct = unavailable ? 0 : ((dim.score as number) / 20) * 100;
 
                   return (
                     <div key={key} style={{
@@ -403,9 +432,17 @@ export default function SectorDetailPage() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                           <span style={{ fontWeight: 600, fontSize: 14, color: '#e2e8f0' }}>{name}</span>
-                          <Tag color={dim.score >= 14 ? 'green' : dim.score >= 9 ? 'orange' : 'red'} style={{ margin: 0, fontSize: 11 }}>
-                            {dim.score}/20
-                          </Tag>
+                          {unavailable ? (
+                            <Tooltip title={dim?.detail || '该维度数据缺失，不参与评分'}>
+                              <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
+                                —/20 数据不足
+                              </Tag>
+                            </Tooltip>
+                          ) : (
+                            <Tag color={(dim.score as number) >= 14 ? 'green' : (dim.score as number) >= 9 ? 'orange' : 'red'} style={{ margin: 0, fontSize: 11 }}>
+                              {dim.score}/20
+                            </Tag>
+                          )}
                           <span style={{ fontSize: 12, color: color, fontWeight: 500 }}>{dim.label}</span>
                         </div>
 
@@ -443,7 +480,27 @@ export default function SectorDetailPage() {
             </Col>
           </Row>
         </Card>
-      ) : null}
+      ) : (
+        /* 此前这里是 `null`：接口不可用时（线上 Worker 尚未提供 /api/sectors/:code/multidim）
+           整个多维区会静默消失，用户完全不知道有此功能。改为诚实空态并说明原因。 */
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Empty
+            image={null}
+            description={
+              <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.8 }}>
+                <div style={{ fontSize: 13, color: '#e2e8f0', marginBottom: 4 }}>
+                  🎯 板块多维雷达图暂不可用
+                </div>
+                <div>{multidimError || '多维分析接口未返回数据'}</div>
+                <div style={{ marginTop: 6, opacity: 0.75 }}>
+                  该能力依赖后端多维计算服务（需历史行情，如 MA20 / 20日动量）。
+                  在纯实时行情环境下无法计算，故不做降级估算——宁可留白，不用假数据填充。
+                </div>
+              </div>
+            }
+          />
+        </Card>
+      )}
 
       {selectedSector && (
         <>
@@ -512,7 +569,7 @@ export default function SectorDetailPage() {
               pagination={false}
               size="small"
               onRow={(record) => ({
-                onClick: () => navigate(`/stock/${record.symbol}`),
+                onClick: () => navigate(`/stocks/${record.symbol}`),
                 style: { cursor: 'pointer' },
               })}
             />

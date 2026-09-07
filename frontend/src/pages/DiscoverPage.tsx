@@ -21,6 +21,7 @@ import {
   type DataSourceState,
 } from '../components/discover/DataSourceIndicator';
 import { loadMultidimAll } from '../components/discover/loadMultidimBatched';
+import MarketSentiment from '../components/Market/MarketSentiment';
 const EChartsWrapper = React.lazy(() => import('../components/Charts/EChartsWrapper'));
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
@@ -34,7 +35,7 @@ const ACCENT = THEME.accent;
 
 interface IndexData { name: string; symbol: string; closePrice: number; changePercent: number; volume: number; category?: string; }
 interface SectorScore { industry: string;
- score: number; changeScore: number; volumeScore: number; breadthScore: number; momentumScore?: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number; avgChange?: number; }
+ score: number; changeScore: number; volumeScore: number; breadthScore: number; momentumScore?: number; stock_count: number; avg_change_percent: number; total_turnover: number; limit_up_count: number | null; avgChange?: number; code?: string; leaderStock?: string | null; leaderChangePercent?: number | null; leaderSymbol?: string | null; }
 
 interface MultidimData {
   industry: string;
@@ -110,8 +111,11 @@ const DIM_REGISTRY: DimMeta[] = [
   { key: 'diffusion', label: '扩散度', short: '扩散', group: 'boom', polarity: 'positive', formula: '扩散程度=站上MA20的股票占比×20' },
   { key: 'recovery', label: '回补动能', short: '回补', group: 'boom', polarity: 'positive', formula: '回补动能=MACD金叉股票占比×20' },
   { key: 'momentumPosition', label: '动量仓位', short: '动量', group: 'boom', polarity: 'positive', formula: '动量仓位=机构仓位变化率×20' },
-  { key: 'searchHeat', label: '搜索热度', short: '搜索', group: 'boom', polarity: 'positive', formula: '搜索热度=百度搜索指数归一化×20' },
-  { key: 'spreadDegree', label: '传播度', short: '传播', group: 'boom', polarity: 'positive', formula: '传播度=舆情扩散速率×20' },
+  // ⚠️ 命名必须与后端真实算法一致。此处曾写着「搜索热度=百度搜索指数归一化」「传播度=舆情扩散速率」，
+  //    而后端 calcSearchHeat 实际统计的是板块涉及的概念标签数量、calcSpreadDegree 是涨停股占比，
+  //    全仓并无任何舆情数据源 —— 属虚构口径。现已改为如实命名（后端 label/detail 本就是诚实的）。
+  { key: 'searchHeat', label: '概念广度', short: '概念', group: 'boom', polarity: 'positive', formula: '概念广度=板块涉及细分领域/概念标签数量分档 (0-20)' },
+  { key: 'spreadDegree', label: '涨停扩散', short: '涨停', group: 'boom', polarity: 'positive', formula: '涨停扩散=板块内涨停股占比分档 (0-20)' },
   { key: 'crowding', label: '拥挤度', short: '拥挤', group: 'crowding', polarity: 'negative', formula: '拥挤度=PE分位数×15+资金集中度×5 (越高越拥挤)' },
   { key: 'concentration', label: '集中度', short: '集中', group: 'crowding', polarity: 'negative', formula: '集中度=前5大权重股成交占比×20' },
   { key: 'zScore', label: 'Z值', short: 'Z值', group: 'crowding', polarity: 'negative', formula: 'Z值=(PE-均值)/标准差×20归一化' },
@@ -408,10 +412,7 @@ const DiscoverPage: React.FC = () => {
   const scoreColor = (s: number) => s >= 70 ? '#22c55e' : s >= 45 ? '#f59e0b' : s >= 25 ? '#f97316' : '#6b7280';
   const scoreLabel = (s: number) => s >= 70 ? '高景气' : s >= 45 ? '较活跃' : s >= 25 ? '一般' : '冷门';
 
-  // 板块涨跌口径
-  const upCount = scores.filter(s => Number(s.avg_change_percent) > 0).length;
-  const downCount = scores.filter(s => Number(s.avg_change_percent) < 0).length;
-  const upPct = scores.length > 0 ? Math.round((upCount / scores.length) * 100) : 0;
+  // 板块涨跌口径（原「板块宽度」卡已升级为 MarketSentiment 个股情绪卡）
   const topScores = scores.slice(0, 3);
 
   // 真实市场涨跌家数
@@ -769,21 +770,24 @@ const DiscoverPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Text strong style={{ color: TEXT, fontSize: 13 }}>{s.industry}</Text>
             <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>{s.stock_count}只</Tag>
-            {s.limit_up_count > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
+            {(s.limit_up_count ?? 0) > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
             <Button
               type="link" size="small" icon={<ApartmentOutlined />}
               style={{ fontSize: 10, padding: 0, color: '#1890ff' }}
               onClick={(e) => { e.stopPropagation(); navigate(`/industry-map?industry=${encodeURIComponent(s.industry)}`); }}
             >产业链</Button>
           </div>
+          {/* 口径与后端 buildSectorScores 严格对齐。此处曾标注「绝对值」「总成交金额」「涨停家数」三处
+              与实现不符的描述，且权重 50/30/20 为虚构。后端实际：带方向的涨跌幅线性变换 /
+              成交量(手)对数 / 上涨家数占比，权重 25/15/25（另 momentumScore 占 35%，此处未展示）。 */}
           <div style={{ display: 'flex', gap: 16, fontSize: 11, color: TEXT_SEC, flexWrap: 'wrap' }}>
-            <Tooltip title="板块热度 (50%)：平均涨跌幅的绝对值，涨得越猛得分越高">
-              <span>🔥 {s.changeScore}</span>
+            <Tooltip title="价格强度（权重25%）：50 + 板块平均涨跌幅×6，截断至 0-100。带方向，下跌越多分越低">
+              <span>📈 {s.changeScore}</span>
             </Tooltip>
-            <Tooltip title="成交活跃 (30%)：总成交金额，成交越大说明市场越关注">
+            <Tooltip title="量能活跃度（权重15%）：log10(板块平均成交量(手)+1)×8，截断至 0-100。衡量成交活跃度，非资金净流入">
               <span>💰 {s.volumeScore}</span>
             </Tooltip>
-            <Tooltip title="赚钱效应 (20%)：涨停家数，涨停越多说明板块内更容易赚钱">
+            <Tooltip title="上涨广度（权重25%）：板块内上涨个股数 ÷ 总个股数 ×100。衡量普涨程度，与涨停家数无关">
               <span>🎯 {s.breadthScore}</span>
             </Tooltip>
             <span style={{ color: Number(s.avg_change_percent) >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
@@ -1174,18 +1178,24 @@ const DiscoverPage: React.FC = () => {
           </div>
           <div style={{ background: CARD_BG, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '14px 16px' }}>
             <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              板块宽度<DataSourceBadge state={sectorSource} compact />
+              市场情绪<DataSourceBadge state={summarySource} compact />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-              <span style={{ color: COLOR_UP }}>{upCount} 涨</span>
-              <span style={{ color: COLOR_DOWN }}>{downCount} 跌</span>
-              <span style={{ color: TEXT_SEC }}>{upPct}%</span>
-            </div>
-            <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginBottom: 12 }}>
-              <div style={{ width: `${upPct}%`, background: COLOR_UP }} />
-              <div style={{ width: `${100 - upPct}%`, background: COLOR_DOWN }} />
-            </div>
-            <div style={{ fontSize: 11, color: TEXT_SEC, lineHeight: 1.6 }}>
+            {marketSummary ? (
+              <MarketSentiment
+                riseCount={marketSummary.risingStocks}
+                fallCount={marketSummary.fallingStocks}
+                flatCount={marketSummary.unchangedStocks}
+                limitUp={marketSummary.limitUpCount}
+                limitDown={marketSummary.limitDownCount}
+                totalTurnover={marketSummary.totalTurnover}
+                avgChangePercent={marketSummary.avgChangePercent ?? 0}
+              />
+            ) : (
+              <div style={{ fontSize: 12, color: TEXT_SEC, padding: '20px 0', textAlign: 'center' }}>
+                市场总览暂不可用，情绪指标无法计算
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: TEXT_SEC, lineHeight: 1.6, marginTop: 8 }}>
               {topScores.slice(0, 2).map(s => (
                 <div key={s.industry}>🏆 {s.industry} 景气度 <span style={{ color: scoreColor(s.score), fontWeight: 600 }}>{s.score}分</span></div>
               ))}
@@ -1245,8 +1255,10 @@ const DiscoverPage: React.FC = () => {
                   <DataSourceBadge state={isL2 ? l2Source : sectorSource} />
                 </div>
                 <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-                  综合评分 = 板块热度×50% + 成交活跃×30% + 赚钱效应×20%
-                  {sortBy === 'boom' && ' · 景气度 = 扩散+回补+动量仓位+搜索+传播 (0-100)'}
+                  {/* 权重与后端 buildSectorScores 严格对齐：动量35% + 价格25% + 广度25% + 量能15%。
+                      此处曾写「板块热度50% + 成交活跃30% + 赚钱效应20%」，为虚构权重。 */}
+                  综合评分 = 价格动量×35% + 价格强度×25% + 上涨广度×25% + 量能活跃×15%
+                  {sortBy === 'boom' && ' · 景气度 = 扩散+回补+动量仓位+概念广度+涨停扩散 (0-100)'}
                   {multidimLoading && sortBy === 'boom' && ` · 多因子加载中 ${multidimResolved.size}/${multidimTotal}，未加载板块暂列末尾`}
                 </div>
               </div>
@@ -1380,14 +1392,23 @@ const DiscoverPage: React.FC = () => {
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
                       <span style={{ fontSize: 12, color: TEXT_SEC }}>涨跌幅: <span style={{ color: selectedSector.avg_change_percent >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>{selectedSector.avg_change_percent >= 0 ? '+' : ''}{selectedSector.avg_change_percent.toFixed(2)}%</span></span>
                       <span style={{ fontSize: 12, color: TEXT_SEC }}>成交额: {formatBig(selectedSector.total_turnover)}</span>
-                      <span style={{ fontSize: 12, color: TEXT_SEC }}>{selectedSector.stock_count}只 · {selectedSector.limit_up_count}涨停</span>
+                      <span style={{ fontSize: 12, color: TEXT_SEC }}>{selectedSector.stock_count}只{selectedSector.limit_up_count != null ? ` · ${selectedSector.limit_up_count}涨停` : ''}{selectedSector.leaderStock ? ` · 领涨: ${selectedSector.leaderStock}` : ''}</span>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, fontSize: 11, color: TEXT_SEC }}>
-                      <span>技术面 {selectedSector.changeScore}分</span>
+                    {/* 与列表项、后端 buildSectorScores 统一命名。此处曾称「技术面/资金面」，
+                        但 changeScore 不含任何 MA/MACD/RSI，volumeScore 不含任何资金净流入，
+                        属名不副实（真正的资金流在 FundFlowPage）。 */}
+                    <div style={{ display: 'flex', gap: 8, fontSize: 11, color: TEXT_SEC, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <Tooltip title="价格强度（权重25%）：50 + 平均涨跌幅×6，带方向">
+                        <span>价格强度 {selectedSector.changeScore}分</span>
+                      </Tooltip>
                       <Progress percent={selectedSector.changeScore} showInfo={false} size="small" strokeColor={COLOR_UP} style={{ width: 60 }} />
-                      <span>资金面 {selectedSector.volumeScore}分</span>
+                      <Tooltip title="量能活跃度（权重15%）：平均成交量(手)对数，非资金流向">
+                        <span>量能活跃 {selectedSector.volumeScore}分</span>
+                      </Tooltip>
                       <Progress percent={selectedSector.volumeScore} showInfo={false} size="small" strokeColor={ACCENT} style={{ width: 60 }} />
-                      <span>宽度 {selectedSector.breadthScore}分</span>
+                      <Tooltip title="上涨广度（权重25%）：上涨个股数 ÷ 总个股数 ×100">
+                        <span>上涨广度 {selectedSector.breadthScore}分</span>
+                      </Tooltip>
                       <Progress percent={selectedSector.breadthScore} showInfo={false} size="small" strokeColor={GOLD} style={{ width: 60 }} />
                     </div>
                   </div>
