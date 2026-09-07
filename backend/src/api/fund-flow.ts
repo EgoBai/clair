@@ -9,12 +9,9 @@ import axios from 'axios';
 import { db, getDb } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
-import { getDemoProvider, getFundFlowMeta, getGlobalIndicators } from '../services/fundFlowProviders';
+import { getFundFlowMeta, getGlobalIndicators } from '../services/fundFlowProviders';
 
 const router = Router();
-
-/** DemoProvider 实例：用于确定性历史兜底（替代原 Math.random mock） */
-const demoProvider = getDemoProvider();
 
 export interface FundFlowData {
   symbol: string;
@@ -113,25 +110,6 @@ async function fetchIndustryFlow(): Promise<IndustryFlowData[]> {
     console.error('获取行业资金流向失败:', error);
     return [];
   }
-}
-
-/**
- * 生成历史资金流向数据（确定性兜底）。
- * 改用 DemoProvider 的 LCG 确定性历史，替代原 Math.random 非确定性 mock；
- * 返回结构与旧实现一致，同一 symbol 每次结果相同。
- */
-async function generateMockHistory(symbol: string, days: number = 10): Promise<FundFlowData[]> {
-  const history = await demoProvider.fetchFlowHistory(symbol, days);
-  return history.map((h) => ({
-    symbol: h.symbol,
-    name: '',
-    mainNet: h.mainNet,
-    superLargeNet: h.superLargeNet,
-    largeNet: h.largeNet,
-    mediumNet: h.mediumNet,
-    smallNet: h.smallNet,
-    tradeDate: h.tradeDate,
-  }));
 }
 
 // ==================== API 路由 ====================
@@ -372,33 +350,29 @@ router.get('/fund-flow/:symbol', validateParams(schemas.stockSymbol), validateQu
       return res.status(404).json({ success: false, error: '股票未找到' });
     }
 
-    let flowData = await fetchFundFlow(symbol);
+    const flowData = await fetchFundFlow(symbol);
 
     if (!flowData) {
-      // 返回模拟数据
-      flowData = {
-        symbol: stock.symbol,
-        name: stock.name,
-        mainNet: 0,
-        superLargeNet: 0,
-        largeNet: 0,
-        mediumNet: 0,
-        smallNet: 0,
-        tradeDate: new Date().toISOString().split('T')[0],
-      };
+      // 诚实红线：东方财富个股资金流不可达时，不编造零值，如实返回空数据 + 标记 unavailable。
+      // 前端据此展示 EmptyState（"暂无数据"），而非伪装的零净流入误导用户。
+      return res.json({
+        success: true,
+        data: {
+          current: null,
+          history: [],
+          dataSource: 'unavailable' as const,
+          note: '个股资金流：东方财富数据源暂不可达，后端未接入兜底数据',
+        },
+      });
     }
 
     flowData.name = stock.name;
-
-    // 获取历史资金流向（确定性兜底，替代原 Math.random mock）
-    const days = parseInt(req.query.days as string) || 10;
-    const history = await generateMockHistory(symbol, days);
 
     res.json({
       success: true,
       data: {
         current: flowData,
-        history,
+        history: [],
         dataSource: 'eastmoney' as const,
       },
     });

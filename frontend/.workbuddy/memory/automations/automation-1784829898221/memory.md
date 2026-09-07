@@ -721,4 +721,34 @@
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260907-1002.md 兜底，标记「推送通道待开通」。
 
-**本轮收口**：commit 待执行（4 文件：PLAN.md / backend/src/api/stock-compare.ts / backend/src/middleware/validation.ts / 自身 automation memory.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
+**本轮收口**：commit `e9caad7ce`（5 文件：PLAN.md / backend/src/api/stock-compare.ts / backend/src/middleware/validation.ts / 自身 automation memory.md / summaries/loop-20260907-1002.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
+
+## 第116轮（2026-09-07 22:34 · IP-20 fund-flow 五档诚实数据收口·零交集域）
+
+**单通道红线（D22 二级判定）**：在途集 {`M backend/src/api/lockup-shares.ts`(mtime 2026-09-05 19:13，陈旧 stale，跨 110~115 轮 diff 一致 +152/-146 不变) + `M frontend/src/pages/NorthBoundPage.tsx`(陈旧遗留 mtime 2026-08-29)}。IP-20 目标 `backend/src/api/fund-flow.ts` 与在途集**零文件交集** → 合法推进，不碰任何在途文件。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-12（lockup 活跃在途阻塞，目标=在途文件本身，严守不触碰仍阻塞）；取 QA 蜂群 **IP-20（P1·累计 6 次·fund-flow 五档诚实数据收口）**。
+
+**根因（独立验证实证）**：`/api/fund-flow/:symbol` 当东方财富真实调用失败时，原返回**全 0 零填充五档净流入** + **伪造 `dataSource:'eastmoney'`**（fund-flow.ts 原 lines 377-404），且 history 走 `DemoProvider` LCG 确定性伪历史（替代 Math.random，仍属伪数据兜底）。前端 `fundFlowPageDemo.ts` 亦存 demo 序列。
+
+**实装（主理人，最小侵入·净约 -60 行）**：移除 `getDemoProvider` 导入 + `demoProvider` 实例 + `generateMockHistory` 函数（~60 行）+ 失败零填充分支，改为真实调用失败时返回 `current:null`+`history:[]`+`dataSource:'unavailable'`+诚实 note；`/fund-flow/market` 与 `/fund-flow/industry` 原已诚实未动。
+
+**独立验证（E5 反例 curl 实证·先验证再采信）**：
+- 重启后端（PID 10092）后 `curl /api/fund-flow/600519.SH?days=10` 实测返回 `{"current":null,"history":[],"dataSource":"unavailable","note":"个股资金流：东方财富数据源暂不可达，后端未接入兜底数据"}`；修复前同请求返回 `{"current":{mainNet:0,...},"history":[...LCG...],"dataSource":"eastmoney"}` 伪数据 → 证伪。
+- grep 确认 `getDemoProvider/generateMockHistory/demoProvider` 在 api 内零残留（fundFlowProviders.ts 仍导出 getDemoProvider 但无引用、两测试文件各自定义本地同名 helper 不冲突）。
+- 前端 `FundFlowPage.tsx` 原生支持 `current:null→EmptyState`+`history:[]→[]` 且 `dsTag('unavailable')` 不崩，纯后端改动零前端回归。
+- 后端 tsc 仅既有基线 `ai-analysis.ts(89,5)` 0 新增错；前端 tsc 0错 / `npm run build` 一次过 / `npx playwright test e2e/route-render-smoke.spec.ts` **64/64** 零回归（/fund-flow 真实渲染诚实空态）；fund-flow 单测 34/34 全绿。
+
+**文件域自检**：仅改 `backend/src/api/fund-flow.ts`，与在途 {lockup-shares.ts(陈旧), NorthBoundPage.tsx(陈旧)} 零交集，红线零交集纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-20 常规红线收口，同 R111~R115 不立决策项）；D22 红线二级判定仍待用户追认（已连续 16 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜死链 仍既存待用户动作，未重复推送。
+
+**专家团评估**：E1✅ 主理人自实现（单文件诚实数据修复）/ E2✅ 净约 -60 行（净减）/ E3🟢 / E4✅ 单人轮 / **E5✅ 反例 curl 实证**——修复前后响应形态变化可观测（伪 eastmoney→unavailable）/ E6🟢 红线实质收敛（fund-flow 单股端不再伪造五档与数据源标签），无新技术债。
+
+**改进池进度**：IP-1~IP-17、IP-20 已完成（IP-20 本轮销号）；剩 IP-12（lockup 活跃在途阻塞，目标=在途文件本身，严守不触碰仍阻塞）/IP-18~IP-19 待做；IP-7 仍待决策。
+
+**待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续 16 轮验证有效·新紧迫）** / 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / **D24 龙虎榜后端路由未注册（🟡 待决策）** / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仍仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260907-2234.md 兜底，标记「推送通道待开通」。
+
+**本轮收口**：commit `<sha>`（3 文件：PLAN.md / backend/src/api/fund-flow.ts / 自身 automation memory.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
