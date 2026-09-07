@@ -751,4 +751,4 @@
 
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仍仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260907-2234.md 兜底，标记「推送通道待开通」。
 
-**本轮收口**：commit `<sha>`（3 文件：PLAN.md / backend/src/api/fund-flow.ts / 自身 automation memory.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
+**本轮收口**：commit `41723b782`（3 文件：PLAN.md / backend/src/api/fund-flow.ts / 自身 automation memory.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。

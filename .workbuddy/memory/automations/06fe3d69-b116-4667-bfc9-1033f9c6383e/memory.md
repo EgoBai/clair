@@ -86,3 +86,23 @@
 - 改动后终验：tsc 0 错 / e2e **64/64**（1.3m，含 /fund-flow、/watchlist）。
 - **mtime 归属法得到第二次验证**：`playwright-report/index.html`（00:08:36，第109轮产物，其提交未带上）与我的 playwright 完成时间（00:03 / 00:13）不吻合 → 判为他方，**未还原**。本轮用 `--reporter=line` 后 HTML mtime 前后均为 00:08:36，反证 line reporter 确实不写 HTML，00:08:36 那次改动来自并发会话的默认 html reporter 跑。
 - 落盘：`.workbuddy/memory/2026-09-05.md` 追加「## 补充复核（00:10-00:14）」小节（5 点：瞬时回归 / IP-8 销号 / 终验表 / 工作树归属 / 对上文日报的影响），已 present_files。
+
+### 2026-09-06 00:15（第 7 次，覆盖 09-05）
+- 数据源：git log（09-05 仅 2 提交：`45b5ddb6e` 00:11 第109轮记账 / `fd6dc5ccc` 23:17 收尾4文档，HEAD=fd6dc5ccc，**源码零提交**）+ 工作树未提交作业（`backend/src/api/lockup-shares.ts` 09-05 19:13 IP-12 诚实重写 298 行、`PLAN.md` 09-05 14:20 +9 行登记 IP-12~IP-20）+ 循环 memory（停在**第109轮**）+ 调度日志 + summaries/2026-09-05-daily-summary.md + 本轮实测。
+- 本轮实测：前端 tsc 0 错 / 后端 tsc 仅 `ai-analysis.ts:89` 既有基线错（lockup 重写零错）/ guard 0-0-0（602 文件，**跑后已 `git checkout -- frontend/ui-guard-report.md` 还原**）/ **e2e 64/64（13.0s，双 project，跑后已还原 `frontend/test-results/.last-run.json`**）/ 5173+3001 200 / realtime `real`。退化如实：`/api/lockup/calendar` 仍返旧随机数据（磁盘重写未上线）、`/api/ai/diagnose/600519` 随机五维评分（81/78·71·75·91·88）、`/api/portfolio` 无鉴权直返 ¥27 万持仓；`/api/factors/overview` 遇 429 未复测。
+- **本轮最重要发现（优先级倒挂）**：QA 蜂群 09-01/09-02 已报的 3 个 P0（IP-12 解禁伪数据 / IP-13 AI 诊断随机评分 / IP-14 组合越权）直到 09-05 14:20 才入 PLAN 池、**至今零修复**；而循环 6 轮 12 页全花在 IP-8（P2 级三态 UI）。日报已明确建议「取项排序由零交集域优先改为严重级优先」。
+- **第110轮作业滞留**：09-05 18:50 主循环做 IP-12（lockup 重写），19:28 该轮失败 → 产物未提交未验证未上线，列为日报第 1 风险（误 checkout 即归零）。**本轮严守只读，未还原也未提交任何他方文件**。
+- 调度：09-05 主循环 4 触发仅 1 成功（06:30/12:49/18:50 三连败，12:49 仅 4 秒）；看板 03:00 失败（03:00:53 仍有产物落盘）、**15:00 连续第 3 天缺席**；测评蜂群 21:00 ✅、每日总结 23:08 ✅、23点汇报 ❌。
+- **踩坑沿用并新增**：① guard 跑完必还原 `ui-guard-report.md`（第 4 次起纪律，本轮照做）；② **playwright 跑完会脏 `frontend/test-results/.last-run.json`（tracked）**——用 `--reporter=line` 只能避开 `playwright-report/index.html`，**避不开 test-results，跑完必须 `git checkout --` 还原**；③ 后端限流加剧，retryAfter 达 19-51s，抽查端点需 ≥40s 间隔。
+- 落盘：`.workbuddy/memory/2026-09-06.md`（新建：7 段式日报 + 验证明细表 + 调度核对表 + 工作树归属表），已 present_files。
+- 推送仍不可用（**第 7 次复核**）：连接器状态仅 `agent-mail` connected（仅附件上传/下载）；`wecom` / `qq-mail` 仍未 connected（第 5 次推荐后用户未安装）。
+- **方法论校验**：上一轮「并发会话 → 实测跑于改动前」的教训本轮反向成立——本轮实测**跑于 09-05 改动之后**，故「lockup 重写未生效」为真实结论。判断归属仍看 mtime 与自身命令完成时间是否吻合。
+
+### 2026-09-07 00:0x（第 8 次，覆盖 09-06）
+- 数据源：git log（09-06 共 6 提交：`5de20f33e` 第110轮 / `7116cbec6`+`47aed4917` 看板 / `836ee4b86` 第111轮 IP-13 / `efa6acf6c` 第112轮 IP-14 / `d237f955c` 第113轮 IP-15，HEAD=d237f955c，**3 个提交含真实源码**）+ PLAN.md 第七节（记至第113轮）/ 第九节（IP-1~IP-15 完成，剩 IP-12、IP-16~IP-20）+ DECISION_LOG D21/D22/D24 + 循环 memory（664 行，第111/112/113轮）+ 调度日志 + `frontend/.workbuddy/memory/2026-09-06.md` + 本轮实测。
+- 本轮实测全绿：前端 tsc 0 错 / 后端 tsc 仅基线 `ai-analysis.ts(89,5)` / guard 0-0-0（602 文件，跑后已 `git checkout -- frontend/ui-guard-report.md`）/ **e2e 64/64（35.9s 双 project，跑后已还原 `frontend/test-results/.last-run.json`**）/ 5173+3001 200 / realtime `real`。三处昨修端点**线上生效**：`/api/ai/diagnose/600519` 总分 64 四真实维度、`/api/portfolio` 无 token→401、backtest ma_cross initialCapital=100 万且有真实成交。
+- **本轮最重要发现（反转昨日结论）**：昨日判「lockup 重写未上线」→ 今日实测 `/api/lockup/calendar` **已返 `dataSource:'unavailable'`+空数组**（第113轮 21:31 重启后端时把磁盘重写载入了进程），`Math.random` 仅剩第 4 行注释。**即 IP-12 实质完成且线上生效，但既未 commit、PLAN 第九节仍标「待做（第110轮首选）」→ 记账漂移 + 误 checkout 归零风险，列为日报第 1 风险。**教训：判断「改了没生效」不能只看 git，还要看**运行进程是否在改动后重启过**（tsx 无 watch，改磁盘不自动生效）。
+- 调度：09-06 主循环 3 触发 1 成功（08:30 ✅ / 14:30 ❌ / 20:42 ❌，**后两轮失败但均有提交落盘**——延续「success=false ≠ 无产物」规律）；看板 03:00 ✅、**15:00 连续第 4 天缺席**；每日总结 23:00 ❌、23 点汇报 ❌、测评蜂群 21:00 ✅。
+- 踩坑沿用：guard/playwright 跑完必还原（本轮照做）；后端限流仍在，抽查 4 端点用 ≥32s 间隔分批执行；`/api/lockup/calendar` 与 `/api/top-traders/overview`（404，D24 死链）同批复核。
+- 落盘：`.workbuddy/memory/2026-09-07.md`（新建，7 段式日报），已 present_files。
+- 推送仍不可用（**第 8 次复核**）：连接器仅 `agent-mail` connected（仅附件上传/下载）；`wecom` / `qq-mail` 仍未 connected。
