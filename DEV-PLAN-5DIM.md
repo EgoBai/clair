@@ -87,6 +87,16 @@ curl -X POST "$B/api/sectors/multidim-v3/batch" -H 'Content-Type: application/js
 curl "$B/api/sectors/银行/multidim"          # 期望 200，维度缺失时 totalScore=null
 curl "$B/api/fund-flow/600519"               # 期望 source=eastmoney
 curl "$B/api/cron/collect-history"           # 期望 sectors=31（需 push2his 可达，首次 ok 可能偏低属正常）
+# —— 回测链路回归（2026-09-08 新增）——
+curl -X POST "$B/api/backtest/run" -H 'Content-Type: application/json' \
+  -d '{"symbol":"600519","strategy":"ma_cross","startDate":"2025-01-01","endDate":"2025-12-31"}'
+  # 期望 200，data.totalTrades>0，data.source=tencent，data.benchmarkReturn 非 null
+curl -X POST "$B/api/backtest/run" -H 'Content-Type: application/json' \
+  -d '{"symbol":"600519","strategy":"ma_cross","startDate":"2025-01-01","endDate":"2025-01-10"}'
+  # 期望 400「回测区间过短」
+curl -X POST "$B/api/backtest/run" -H 'Content-Type: application/json' \
+  -d '{"symbol":"600519","strategy":"martingale","startDate":"2024-01-01","endDate":"2024-12-31"}'
+  # 期望 400「不支持的策略」
 ```
 
 ---
