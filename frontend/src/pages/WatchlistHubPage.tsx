@@ -10,12 +10,11 @@
  *          然后通过 WatchlistDataProvider Context 分发给两个 Tab。
  */
 
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Tabs, Typography, Space } from 'antd';
 import {
   StarFilled,
-  LineChartOutlined,
   RobotOutlined,
   LoadingOutlined,
 } from '@ant-design/icons';

@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Card, Row, Col, Statistic, Table, Tag, Typography, Select, Space } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import { THEME, GOLD } from '../styles/theme-constants';
 import logger from '../utils/logger';
 import { type ETFData } from '../utils/etfDemo';

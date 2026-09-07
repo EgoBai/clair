@@ -11,10 +11,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Card, Tag, Input, Typography, Space, Button, Modal, Select,
-  Statistic, Tooltip, Row, Col, message, Alert,
+  Card, Tag, Input, Typography, Space, Button, Modal, Select, Tooltip, Row, Col, message,
 } from 'antd';
-import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
+import { EmptyState } from '../components/Common/StateComponents';
 import {
   SearchOutlined,
   DeleteOutlined,
@@ -28,7 +27,6 @@ import {
   RiseOutlined,
   MessageOutlined,
   ExclamationCircleOutlined,
-  BulbOutlined,
   HighlightOutlined,
 } from '@ant-design/icons';
 import {

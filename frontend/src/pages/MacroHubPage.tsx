@@ -20,7 +20,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Row, Col, Tag, Typography, Space } from 'antd';
-import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
+import { LoadingStateDetail } from '../components/Common/StateComponents';
 import {
   GlobalOutlined,
   ArrowLeftOutlined,

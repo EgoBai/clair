@@ -19,11 +19,10 @@ import {
   type TableColumnsType,
 } from 'antd';
 import {
-  FileTextOutlined, FundOutlined, RiseOutlined, FallOutlined,
+  FileTextOutlined, FundOutlined, RiseOutlined,
   ApartmentOutlined, AlertOutlined, RadarChartOutlined,
 } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
-import type { EChartsOption } from 'echarts-for-react';
+import ReactECharts, { type EChartsOption } from 'echarts-for-react';
 import echarts from '../utils/echarts';
 import {
   trackRatingChanges, analyzeConsensus, analyzeReportSentiment, findMostDivided,

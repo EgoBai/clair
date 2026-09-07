@@ -6,8 +6,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Row, Col, Statistic, Button, Card, Skeleton, message, Alert, type Breakpoint } from 'antd';
-import { LoadingState, LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
+import { Table, Tag, Row, Col, Statistic, Button, Card, Skeleton, message, type Breakpoint } from 'antd';
+import { LoadingState, EmptyState } from '../components/Common/StateComponents';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import echarts from '@/utils/echarts';
 const ReactECharts = React.lazy(() => import('echarts-for-react'));

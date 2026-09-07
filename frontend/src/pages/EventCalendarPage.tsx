@@ -10,7 +10,7 @@ import {
   Card, Tag, Row, Col, Statistic, Segmented, Space, Typography,
   Button, Badge, Tooltip, Modal, Descriptions,
 } from 'antd';
-import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
+import { EmptyState } from '../components/Common/StateComponents';
 import {
   CalendarOutlined, ReloadOutlined, FireOutlined, ExclamationCircleOutlined,
   WarningOutlined, RiseOutlined, FallOutlined,

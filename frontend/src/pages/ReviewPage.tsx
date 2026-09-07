@@ -13,7 +13,6 @@ import {
   Skeleton,
   message,
 } from 'antd';
-import { LoadingState } from '../components/Common/StateComponents';
 import {
   ArrowDownOutlined,
   TrophyOutlined,

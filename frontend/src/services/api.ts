@@ -5,24 +5,24 @@
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import logger from '../utils/logger';
-import type {
-  ApiResponse,
-  StockWithQuote,
-  MarketSummary,
-  DailyQuote,
-  IndustryPerformance,
-  StockSearchParams,
-  QuoteParams,
-  PaginatedData,
-  MarginOverview,
-  TopTraderOverview,
-  SeatRankEntry,
-  MarginRankEntry,
-  MarginTradingData,
-  DataCategory,
-  DataFreshness,
+import {
+  type ApiResponse,
+  type StockWithQuote,
+  type MarketSummary,
+  type DailyQuote,
+  type IndustryPerformance,
+  type StockSearchParams,
+  type QuoteParams,
+  type PaginatedData,
+  type MarginOverview,
+  type TopTraderOverview,
+  type SeatRankEntry,
+  type MarginRankEntry,
+  type MarginTradingData,
+  type DataCategory,
+  type DataFreshness,
+  CACHE_TTL,
 } from '../../../shared/types';
-import { CACHE_TTL } from '../../../shared/types';
 
 // Re-export shared types for consumers
 export type {

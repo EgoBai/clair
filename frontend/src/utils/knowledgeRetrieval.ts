@@ -8,8 +8,7 @@
  * 纯函数，可测试。数据来自 knowledgeStore.getEntries()。
  */
 
-import { getEntries } from './knowledgeStore';
-import type { KnowledgeCategory } from './knowledgeStore';
+import { getEntries, type KnowledgeCategory } from './knowledgeStore';
 
 // ============================================================
 // 类型

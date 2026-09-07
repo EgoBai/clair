@@ -5,8 +5,7 @@
  */
 
 import React, { createContext, useContext } from 'react';
-import type { WatchlistDataState } from '../hooks/useWatchlistData';
-import { EMPTY_WATCHLIST_DATA } from '../hooks/useWatchlistData';
+import { type WatchlistDataState, EMPTY_WATCHLIST_DATA } from '../hooks/useWatchlistData';
 
 const WatchlistDataContext = createContext<WatchlistDataState>(EMPTY_WATCHLIST_DATA);
 

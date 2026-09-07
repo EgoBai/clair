@@ -18,7 +18,7 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'prefer-const': 'warn',
       'no-var': 'error',
-      'eqeqeq': ['error', 'always'],
+      'eqeqeq': ['error', 'always', { null: 'ignore' }],
       'no-duplicate-imports': 'error',
       // no-useless-assignment 对'声明初始化+分支赋值'防御性模式误报,且与TS明确赋值检查冲突,设warn
       'no-useless-assignment': 'warn',

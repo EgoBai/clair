@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Breadcrumb, Tag, Typography, Card, Statistic, Skeleton } from 'antd';
-import { LoadingState, EmptyState } from '../components/Common/StateComponents';
+import { EmptyState } from '../components/Common/StateComponents';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined, CompassOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';

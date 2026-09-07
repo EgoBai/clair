@@ -10,8 +10,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MessageOutlined, CloseOutlined, BulbOutlined } from '@ant-design/icons';
-import ChatPanel from './ChatPanel';
-import type { DataSourceRef } from './ChatPanel';
+import ChatPanel, { type DataSourceRef } from './ChatPanel';
 import { message } from 'antd';
 import { NOTE_SAVED_EVENT, type NoteSavedEventDetail } from '../../utils/knowledgeStore';
 

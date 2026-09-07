@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress, Empty, Spin } from 'antd';
+import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FallOutlined,
 } from '@ant-design/icons';
@@ -20,6 +20,7 @@ import {
   sectorFlowAggregation, generateNorthboundSignals,
   type NorthboundSignal,
 } from '../utils/northboundFlow';
+import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 
 const { Title, Text } = Typography;
 
@@ -171,17 +172,19 @@ const NorthBoundPage: React.FC = () => {
     return { label: '中性', color: THEME.textSec, bg: 'rgba(148,163,184,0.12)' };
   };
 
-  // 加载中：显示加载态
+  // 加载中：统一加载态（共享组件，暗色主题一致）
   if (loading) {
     return (
-      <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh', textAlign: 'center' }}>
-        <Spin size="large" style={{ marginTop: 80 }} />
-        <div style={{ marginTop: 12, color: THEME.textSec }}>正在加载北向资金数据...</div>
+      <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
+        <LoadingStateDetail
+          title="正在加载北向资金数据..."
+          description="沪股通 / 深股通 实时资金流向计算中"
+        />
       </div>
     );
   }
 
-  // 数据全部为空：显示诚实空态
+  // 数据全部为空：统一诚实空态（共享组件，与全站三态规范一致）
   if (northboundFlows.length === 0 && topHoldings.length === 0 && sectorNetFlows.length === 0) {
     return (
       <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
@@ -191,11 +194,12 @@ const NorthBoundPage: React.FC = () => {
         <Text style={{ color: THEME.textSec }}>
           沪股通 / 深股通 资金流向 · 数据源暂不可达
         </Text>
-        <Card style={{ marginTop: 16, background: THEME.cardBg, borderColor: THEME.border }}>
-          <Empty description="北向资金数据源暂时不可用，请稍后重试">
-            <Text type="secondary">已接入沪/深股通持仓接口（东方财富数据中心），板块净流入与日趋势待后续扩展。</Text>
-          </Empty>
-        </Card>
+        <div style={{ marginTop: 16 }}>
+          <EmptyState
+            title="北向资金数据源暂时不可用"
+            description="已接入沪/深股通持仓接口（东方财富数据中心），板块净流入与日趋势待后续扩展。请稍后重试。"
+          />
+        </div>
       </div>
     );
   }

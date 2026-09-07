@@ -14,7 +14,7 @@ import logger from '../utils/logger';
 import {
   Card, Row, Col, Table, Tag, Typography,
 } from 'antd';
-import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
+import { LoadingStateDetail } from '../components/Common/StateComponents';
 import {
   ArrowUpOutlined, ArrowDownOutlined, LineChartOutlined,
   CalendarOutlined, FundOutlined, BankOutlined,
@@ -22,7 +22,6 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
 } from 'recharts';
-import { analyzeMacroTrend, type MacroIndicator as EngineMacroIndicator } from '../utils/macroEconomicEngine';
 import type { EconomicEvent } from '../utils/macroCalendarEngine';
 
 const { Title, Text } = Typography;

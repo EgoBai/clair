@@ -7,7 +7,7 @@
 
 import { useMemo, useEffect, useState } from 'react';
 import {
-  Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Tooltip, Empty, Spin, Button,
+  Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Empty, Spin, Button,
   type TableColumnsType,
 } from 'antd';
 import {

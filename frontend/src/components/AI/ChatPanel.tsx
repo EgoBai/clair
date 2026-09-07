@@ -19,8 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { chatStream } from '../../services/aiClient';
-import type { ChatMessage } from '../../services/aiClient';
+import { chatStream, type ChatMessage } from '../../services/aiClient';
 import { Tag } from 'antd';
 import { renderMarkdown } from '../../utils/markdown';
 import { saveEntry, CATEGORIES } from '../../utils/knowledgeStore';

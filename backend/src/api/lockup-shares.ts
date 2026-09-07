@@ -1,14 +1,45 @@
 /**
- * 限售股解禁 API
- * 参考东方财富限售股解禁数据
+ * 限售股解禁 API（诚实重写版）
+ *
+ * 红线：原实现全量 Math.random 伪数据（解禁日期/股数/市值/比例/股东/个股历史），
+ * 违反「诚实数据」要求，已彻底移除。详见 IP-12（P0 诚实数据红线）。
+ *
+ * 真实数据源：东方财富数据中心限售股解禁报表。
+ *   - 解禁明细/日历：RPT_LCX_XFXJMX（按月限售股解禁明细；报表名以生产环境实测为准）
+ *   - 解禁排行：同上按解禁市值排序
+ *
+ * 沙箱实测：东方财富事件/解禁类报表多返回 9501「报表配置不存在」或网络不可达，
+ * 故真实拉取统一降级为 null，端点返回 dataSource: 'unavailable' + notes 显性标注，
+ * 绝不编造数值。数据源恢复（生产环境可达）时，fetch*Real 返回真实数据，端点自动切换为 live。
  */
 
-import { Router, Request, Response } from 'express';
-import { queryCache } from '../utils/queryCache';
+import { Request, Response, Router } from 'express';
 import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 
 const router = Router();
+
+const EM_DATA = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
+
+/** 带超时与异常兜底的东方财富数据中心请求；任何失败返回 null（诚实降级，禁止抛错/编造） */
+async function emGet(reportName: string, params: Record<string, string>, timeoutMs = 8000): Promise<any[] | null> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const qs = new URLSearchParams({ reportName, columns: 'ALL', ...params }).toString();
+    const resp = await fetch(`${EM_DATA}?${qs}`, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com/dxfj/' },
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const json = await resp.json();
+    if (!json?.success || !json?.result) return null;
+    return json.result.data ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface LockupExpiry {
   id: number;
@@ -25,104 +56,97 @@ interface LockupExpiry {
   actualCirculating: number;
 }
 
-// 模拟限售股解禁数据
-function generateLockupExpiries(month?: number, year?: number): LockupExpiry[] {
-  const now = new Date();
-  const targetYear = year || now.getFullYear();
-  const targetMonth = month || now.getMonth() + 1;
-
-  const stocks = [
-    { symbol: '600519', name: '贵州茅台', price: 1800 },
-    { symbol: '000858', name: '五粮液', price: 150 },
-    { symbol: '601318', name: '中国平安', price: 50 },
-    { symbol: '000333', name: '美的集团', price: 65 },
-    { symbol: '600036', name: '招商银行', price: 35 },
-    { symbol: '002594', name: '比亚迪', price: 260 },
-    { symbol: '300750', name: '宁德时代', price: 200 },
-    { symbol: '601899', name: '紫金矿业', price: 18 },
-    { symbol: '002475', name: '立讯精密', price: 35 },
-    { symbol: '600276', name: '恒瑞医药', price: 48 },
-    { symbol: '601012', name: '隆基绿能', price: 25 },
-    { symbol: '002714', name: '牧原股份', price: 42 },
-  ];
-
-  const lockupTypes = ['首发原股东限售', '定向增发机构配售', '股权激励限售', '追加承诺限售'];
-  const shareholders = [
-    '控股股东', '实际控制人', '高管团队', '核心员工',
-    '战略投资者', '财务投资者', '私募基金', '员工持股计划',
-  ];
-
-  const expiries = [];
-  const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
-  const count = Math.floor(Math.random() * 12) + 5;
-
-  for (let i = 0; i < count; i++) {
-    const stock = stocks[Math.floor(Math.random() * stocks.length)];
-    const day = Math.floor(Math.random() * daysInMonth) + 1;
-    const expiryDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const totalShares = Math.floor(Math.random() * 500000000) + 10000000;
-    const circulatingBefore = Math.floor(Math.random() * 2000000000) + 500000000;
-    const ratio = Math.round(totalShares / circulatingBefore * 10000) / 100;
-    const marketValue = Math.round(totalShares * stock.price);
-
-    expiries.push({
+/**
+ * 真实解禁明细拉取（东方财富 RPT_LCX_XFXJMX）。
+ * 字段名随报表版本可能变动，这里做宽松兜底；拉取失败/报表不可用返回 null。
+ * 注意：报表名 RPT_LCX_XFXJMX 为东方财富限售股解禁明细常用报表，
+ * 生产环境需以实测字段为准；沙箱下统一降级为 null（诚实不可用）。
+ */
+async function fetchLockupExpiriesReal(year: number, month: number): Promise<LockupExpiry[] | null> {
+  const rows = await emGet('RPT_LCX_XFXJMX', {
+    pageSize: '100',
+    sortColumns: 'FHD_DATE',
+    sortTypes: '-1',
+    filter: `(TODAY_DATE='${year}-${String(month).padStart(2, '0')}')`,
+  });
+  if (!rows || !rows.length) return null;
+  const list = rows
+    .map((r, i): LockupExpiry => ({
       id: i + 1,
-      symbol: stock.symbol,
-      name: stock.name,
-      expiryDate,
-      lockupType: lockupTypes[Math.floor(Math.random() * lockupTypes.length)],
-      shareholder: shareholders[Math.floor(Math.random() * shareholders.length)],
-      totalShares,
-      circulatingBefore,
-      unlockRatio: ratio,
-      marketValue,
-      price: stock.price,
-      actualCirculating: circulatingBefore + totalShares,
-    });
-  }
-
-  return expiries.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
+      symbol: String(r.SECURITY_CODE ?? r.CODE ?? ''),
+      name: String(r.SECURITY_NAME_ABBR ?? r.NAME ?? ''),
+      expiryDate: String(r.FHD_DATE ?? r.UNLOCK_DATE ?? '').slice(0, 10),
+      lockupType: String(r.LB_TYPE_NAME ?? r.TYPE ?? ''),
+      shareholder: String(r.SHAREHOLDER ?? r.HOLDER ?? '未知'),
+      totalShares: Number(r.UNLOCK_SHARES ?? r.SHARES ?? 0),
+      circulatingBefore: Number(r.CIRCULATION_BEFORE ?? 0),
+      unlockRatio: Number(r.UNLOCK_RATIO ?? 0),
+      marketValue: Number(r.UNLOCK_MARKET_CAP ?? r.MARKET_VALUE ?? 0),
+      price: Number(r.CLOSE_PRICE ?? r.PRICE ?? 0),
+      actualCirculating: Number(r.CIRCULATION_AFTER ?? 0),
+    }))
+    .filter((d) => d.expiryDate && d.symbol);
+  return list.length ? list : null;
 }
 
-// 月度解禁概览
+const UNAVAILABLE_NOTE =
+  '限售股解禁：东方财富数据中心解禁报表在沙箱下返回 9501（报表配置不存在）或网络不可达，后端未接入兜底/随机数据';
+
+/** 空日历骨架（保持与前端 LockupCalendarPage 契约一致：expiries / byDate / summary） */
+function emptyCalendar(year: number, month: number) {
+  return {
+    year,
+    month,
+    expiries: [] as LockupExpiry[],
+    byDate: {} as Record<string, LockupExpiry[]>,
+    summary: {
+      totalStocks: 0,
+      totalEvents: 0,
+      totalMarketValue: 0,
+      totalShares: 0,
+      avgUnlockRatio: 0,
+    },
+    dataSource: 'unavailable' as const,
+    notes: UNAVAILABLE_NOTE,
+  };
+}
+
+// 月度解禁日历
 router.get('/lockup/calendar', validateQuery(schemas.lockupCalendar), asyncHandler(async (req: Request, res: Response) => {
   const year = parseInt(req.query.year as string) || new Date().getFullYear();
   const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
 
-  const cacheKey = `lockup:calendar:${year}-${month}`;
-  const data = await queryCache.query(
-    cacheKey,
-    () => generateLockupExpiries(month, year),
-    600000
-  );
-
-  // 按日期分组
-  const byDate: Record<string, typeof data> = {};
-  let totalMarketValue = 0;
-  let totalShares = 0;
-
-  data.forEach(item => {
-    if (!byDate[item.expiryDate]) byDate[item.expiryDate] = [];
-    byDate[item.expiryDate].push(item);
-    totalMarketValue += item.marketValue;
-    totalShares += item.totalShares;
-  });
-
-  sendSuccess(res, {
-    year,
-    month,
-    expiries: data,
-    byDate,
-    summary: {
-      totalStocks: new Set(data.map(d => d.symbol)).size,
-      totalEvents: data.length,
-      totalMarketValue,
-      totalShares,
-      avgUnlockRatio: data.length
-        ? Math.round(data.reduce((s, d) => s + d.unlockRatio, 0) / data.length * 100) / 100
-        : 0,
-    },
-  });
+  const real = await fetchLockupExpiriesReal(year, month);
+  if (real) {
+    const byDate: Record<string, LockupExpiry[]> = {};
+    let totalMarketValue = 0;
+    let totalShares = 0;
+    real.forEach((item) => {
+      if (!byDate[item.expiryDate]) byDate[item.expiryDate] = [];
+      byDate[item.expiryDate].push(item);
+      totalMarketValue += item.marketValue;
+      totalShares += item.totalShares;
+    });
+    sendSuccess(res, {
+      year,
+      month,
+      expiries: real,
+      byDate,
+      summary: {
+        totalStocks: new Set(real.map((d) => d.symbol)).size,
+        totalEvents: real.length,
+        totalMarketValue,
+        totalShares,
+        avgUnlockRatio: real.length
+          ? Math.round((real.reduce((s, d) => s + d.unlockRatio, 0) / real.length) * 100) / 100
+          : 0,
+      },
+      dataSource: 'eastmoney',
+      notes: undefined,
+    });
+  } else {
+    sendSuccess(res, emptyCalendar(year, month));
+  }
 }));
 
 // 解禁排行（按解禁市值）
@@ -130,64 +154,46 @@ router.get('/lockup/rank', validateQuery(schemas.lockupRank), asyncHandler(async
   const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
   const year = parseInt(req.query.year as string) || new Date().getFullYear();
 
-  const cacheKey = `lockup:rank:${year}-${month}`;
-  const data = await queryCache.query(
-    cacheKey,
-    () => {
-      const allExpiries = generateLockupExpiries(month, year);
-      return allExpiries.sort((a, b) => b.marketValue - a.marketValue).slice(0, 20);
-    },
-    600000
-  );
-
-  sendSuccess(res, data);
+  const real = await fetchLockupExpiriesReal(year, month);
+  if (real) {
+    const rank = real.sort((a, b) => b.marketValue - a.marketValue).slice(0, 20);
+    sendSuccess(res, { rank, dataSource: 'eastmoney', notes: undefined });
+  } else {
+    sendSuccess(res, { rank: [], dataSource: 'unavailable', notes: UNAVAILABLE_NOTE });
+  }
 }));
 
 // 个股解禁历史
 router.get('/lockup/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
-  const months = parseInt(req.query.months as string) || 12;
+  const months = Math.min(parseInt(req.query.months as string) || 12, 36);
 
-  const cacheKey = `lockup:stock:${symbol}:${months}`;
-  const history = await queryCache.query(
-    cacheKey,
-    () => {
-      const now = new Date();
-      const all: LockupExpiry[] = [];
-      for (let m = 0; m < months; m++) {
-        const d = new Date(now);
-        d.setMonth(d.getMonth() + m);
-        const monthData = generateLockupExpiries(d.getMonth() + 1, d.getFullYear());
-        const filtered = monthData.filter(e => e.symbol === symbol);
-        all.push(...filtered);
-      }
-      if (all.length === 0) {
-        for (let m = 0; m < Math.min(months, 3); m++) {
-          const d = new Date(now);
-          d.setMonth(d.getMonth() + m);
-          const day = Math.floor(Math.random() * 28) + 1;
-          all.push({
-            id: m + 1,
-            symbol,
-            name: symbol,
-            expiryDate: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-            lockupType: ['首发原股东限售', '定向增发机构配售'][Math.floor(Math.random() * 2)],
-            shareholder: '控股股东',
-            totalShares: Math.floor(Math.random() * 200000000) + 10000000,
-            circulatingBefore: 1000000000,
-            unlockRatio: Math.round(Math.random() * 10 * 100) / 100,
-            marketValue: Math.floor(Math.random() * 5000000000) + 100000000,
-            price: 50,
-            actualCirculating: Math.floor(Math.random() * 500000000) + 100000000,
-          });
-        }
-      }
-      return all.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
-    },
-    600000
-  );
+  // 真实源：逐月拉取并筛选该标的（沙箱下统一降级为 unavailable）
+  const real: LockupExpiry[] = [];
+  const now = new Date();
+  for (let m = 0; m < months; m++) {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() + m);
+    const batch = await fetchLockupExpiriesReal(d.getFullYear(), d.getMonth() + 1);
+    if (batch) real.push(...batch.filter((e) => e.symbol === symbol));
+  }
 
-  sendSuccess(res, { symbol, expiries: history, total: history.length });
+  if (real.length) {
+    sendSuccess(res, {
+      symbol,
+      expiries: real.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate)),
+      total: real.length,
+      dataSource: 'eastmoney',
+    });
+  } else {
+    sendSuccess(res, {
+      symbol,
+      expiries: [],
+      total: 0,
+      dataSource: 'unavailable',
+      notes: UNAVAILABLE_NOTE,
+    });
+  }
 }));
 
 export default router;

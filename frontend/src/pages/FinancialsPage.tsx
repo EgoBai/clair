@@ -10,8 +10,7 @@ import { apiService } from '../services/api';
 import { useParams } from 'react-router-dom';
 import { Breadcrumb, Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Progress, Descriptions, List, Divider } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined, RobotOutlined, CompassOutlined, StockOutlined } from '@ant-design/icons';
-import { computeFinancialInsight } from '../utils/financialInsightDemo';
-import type { FinancialInsight } from '../utils/financialInsightDemo';
+import { computeFinancialInsight, type FinancialInsight } from '../utils/financialInsightDemo';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,

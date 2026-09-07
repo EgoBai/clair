@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Row, Col, Statistic, Table, Tag, Typography, Progress } from 'antd';
 import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
 import {
-  ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FallOutlined,
+  ArrowUpOutlined, ArrowDownOutlined, RiseOutlined,
 } from '@ant-design/icons';
 import {
   ComposedChart, Bar, XAxis, YAxis, CartesianGrid,

@@ -21,7 +21,7 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer, Cell, Legend, LineChart,
 } from 'recharts';
-import { THEME, GOLD } from '../styles/theme-constants';
+import { THEME } from '../styles/theme-constants';
 import { formatLargeNumber } from '@/utils/formatters';
 import {
   type FundFlowProviderName, type StockFundFlowResp, type IndustryFlowResp,
@@ -156,7 +156,7 @@ const FundFlowPage: React.FC = () => {
     }
   };
 
-  useEffect(() => { queryStock(symbol); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { queryStock(symbol); }, []);
 
   // ── ② 个股趋势图数据 ──
   const stockTrend = useMemo(

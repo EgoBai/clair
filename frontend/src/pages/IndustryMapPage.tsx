@@ -27,9 +27,6 @@ import {
   Input,
   message,
   Divider,
-  Table,
-  Progress,
-  Alert,
 } from 'antd';
 import { EmptyState } from '../components/Common/StateComponents';
 import {
