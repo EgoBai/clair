@@ -46,6 +46,17 @@ const batchQuotesSchema = Joi.object({
   symbols: Joi.array().items(Joi.string().max(20)).min(1).max(100).required(),
 });
 
+// 股票对比：symbols 以逗号分隔字符串传递（前端 apiService.get('/compare',{symbols:'a,b,c'})），
+// 同时兼容 qs 解析出的数组形态（symbols[]=a,b,c）与空值
+const compareQuerySchema = Joi.object({
+  symbols: Joi.alternatives()
+    .try(
+      Joi.string().allow('').max(200),
+      Joi.array().items(Joi.string().max(20)).max(100)
+    )
+    .optional(),
+});
+
 // --- 市场相关 ---
 const marketQuerySchema = Joi.object({
   date: Joi.date().iso().optional(),
@@ -508,6 +519,7 @@ export const schemas = {
   stockSymbol: stockSymbolSchema,
   quoteQuery: quoteQuerySchema,
   batchQuotes: batchQuotesSchema,
+  compareSymbols: compareQuerySchema,
   // 财务报表
   financialsQuery: financialsQuerySchema,
   financialsTrendsQuery: financialsTrendsQuerySchema,

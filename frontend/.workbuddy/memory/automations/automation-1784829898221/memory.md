@@ -690,3 +690,35 @@
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260907-0332.md 兜底，标记「推送通道待开通」。
 
 **本轮收口**：commit `de221c102`（4 文件：PLAN.md / backend/src/api/screener.ts / 自身 automation memory.md / summaries/loop-20260907-0332.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
+
+## 第115轮（2026-09-07 10:02 · IP-17 compare 同业对比 500 修复·零交集域）
+
+**单通道红线（D22 二级判定）**：在途集 {`M backend/src/api/lockup-shares.ts`(mtime 2026-09-05 19:13，陈旧 stale，跨 110~114 轮 diff 一致) + `M frontend/src/pages/NorthBoundPage.tsx`(陈旧遗留 mtime 2026-08-29)}。IP-17 目标 `backend/src/api/stock-compare.ts` + `backend/src/middleware/validation.ts` 与在途集**零文件交集** → 合法推进，不碰任何在途文件。
+
+**取项**：PLAN「下一任务」仍 await 用户授权工单；IP-12（lockup 活跃在途阻塞，目标=lockup-shares.ts 本身即在途集，严守「不触碰在途文件本身」仍阻塞）；取 QA 蜂群 **IP-17（P1·累计 9 次·compare 同业对比 500 修复）**。
+
+**根因（独立验证实证）**：`stock-compare.ts` 两路由 `/compare`(line 68) + `/compare/radar`(line 115) 经 `validateQuery(schemas.batchQuotes)` 中间件，而 `batchQuotesSchema` 要求 `symbols` 为**数组**；但前端 `StockComparePage.tsx:64-67` 以 `apiService.get('/compare',{symbols:'600519,000858'})` 传逗号分隔**字符串** → 实测字符串形态 **400**、数组形态 `symbols[]=` handler 对其调 `.split` 抛 TypeError→catch→**500**（QA 蜂群报告根因=500）。属 schema 与 handler 契约冲突。
+
+**实装（主理人，最小侵入）**：
+- `backend/src/middleware/validation.ts` 新增 `compareSymbols` schema（`Joi.alternatives(Joi.string().allow('').max(200), Joi.array().items(Joi.string()).single())` 兼容字符串/数组/空串三形态），并挂入 `schemas.compareSymbols`。
+- `backend/src/api/stock-compare.ts` 新增 `parseSymbols(raw)` 归一化助手（兼容字符串 `split(',')`/数组直接 slice，`slice(0,5)` 最多 5 只），两路由改用 `compareSymbols`+`parseSymbols` 并补缺数据分支（缺值时返回空 stocks + 诚实提示，不抛 500）。
+
+**独立验证（E5 多形态 curl 实证·先验证再采信）**：
+- 重启后端（PID 95023→新）后 **6 形态全 200**：`/compare?symbols=字符串` / `?symbols[]=数组` / `?symbols=空` × 2（compare/radar）；修复前字符串 400、数组 500 → **证伪**。
+- 数据完整性：`/compare?symbols=600519,000858` 返回 count=2、symbols 正确、metrics 存在。
+- 后端 tsc 仅既有基线 `ai-analysis.ts(89,5)` 0 新增错；前端 tsc 0错 / `npm run build` 18.18s 一次过 / `npx playwright test e2e/route-render-smoke.spec.ts` **64/64**（含 /stock-compare，零白屏零崩溃零404退化）。
+- git status 确认本轮**仅 M backend/src/api/stock-compare.ts + M backend/src/middleware/validation.ts**，未触碰在途 {lockup-shares.ts, NorthBoundPage.tsx} 一字，红线零交集纪律严守。
+
+**文件域自检**：仅改 `backend/src/api/stock-compare.ts` + `backend/src/middleware/validation.ts` + PLAN.md，与在途 {lockup-shares.ts(陈旧), NorthBoundPage.tsx(陈旧)} 零交集，红线零交集纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-17 常规 API 契约修复，同 R111~R114 不立决策项）；D22 红线二级判定仍待用户追认（已连续 15 轮验证有效）/ 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / D24 龙虎榜死链 仍既存待用户动作，未重复推送。
+
+**专家团评估**：E1✅ 主理人自实现（单文件 API 契约修复）/ E2✅ 净 ~+20 行远低于 500 / E3🟢 / E4✅ 单人轮 / **E5✅ 多形态 curl 实证**——6 形态修复前后形态变化可观测（400/500→全200）/ E6🟢 红线实质收敛（compare 端点契约对齐前端实际调用，消除 500 假错），无新技术债。
+
+**改进池进度**：IP-1~IP-17 已完成（IP-17 本轮销号）；剩 IP-12（lockup 活跃在途阻塞，目标=在途文件本身，严守不触碰仍阻塞）/IP-18~IP-20 待做；IP-7 仍待决策。
+
+**待用户明确（未重复推送）**：**D22 红线二级判定追认（已连续 15 轮验证有效·新紧迫）** / 收口活跃在途 lockup-shares.ts（解锁 IP-12）/ D21-A NorthBoundPage 收口 / **D24 龙虎榜后端路由未注册（🟡 待决策）** / MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化 / D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260907-1002.md 兜底，标记「推送通道待开通」。
+
+**本轮收口**：commit 待执行（4 文件：PLAN.md / backend/src/api/stock-compare.ts / backend/src/middleware/validation.ts / 自身 automation memory.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。

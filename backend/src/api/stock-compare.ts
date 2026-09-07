@@ -62,13 +62,39 @@ function generateStockMetrics(symbol: string, name: string) {
 }
 
 /**
+ * 归一化 symbols 查询参数：兼容逗号分隔字符串与 qs 解析出的数组两种形态，
+ * 过滤空值，避免对数组调用 .split 触发 500（IP-17 修复根因）
+ */
+function parseSymbols(raw: unknown): string[] {
+  let str: string;
+  if (Array.isArray(raw)) {
+    str = raw.map(String).join(',');
+  } else if (typeof raw === 'string') {
+    str = raw;
+  } else {
+    return [];
+  }
+  return str
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/**
  * 获取股票对比数据
  * GET /api/compare?symbols=600519,000858,000001
  */
-router.get('/compare', validateQuery(schemas.batchQuotes), async (req: Request, res: Response) => {
+router.get('/compare', validateQuery(schemas.compareSymbols), async (req: Request, res: Response) => {
   try {
-    const symbolsParam = (req.query.symbols as string) || '600519,000858,000001';
-    const symbols = symbolsParam.split(',').map(s => s.trim()).slice(0, 5); // 最多5只
+    const symbols = parseSymbols(req.query.symbols).slice(0, 5); // 最多5只
+
+    // 缺数据分支：未提供有效代码时返回空结果，不再抛错 500（IP-17）
+    if (symbols.length === 0) {
+      return res.json({
+        success: true,
+        data: { stocks: [], metrics: COMPARE_METRICS, count: 0 },
+      });
+    }
 
     const stockNames: Record<string, string> = {
       '600519': '贵州茅台', '000858': '五粮液', '000001': '平安银行',
@@ -100,10 +126,9 @@ router.get('/compare', validateQuery(schemas.batchQuotes), async (req: Request, 
  * 获取雷达图数据（归一化 0-100）
  * GET /api/compare/radar?symbols=600519,000858
  */
-router.get('/compare/radar', validateQuery(schemas.batchQuotes), async (req: Request, res: Response) => {
+router.get('/compare/radar', validateQuery(schemas.compareSymbols), async (req: Request, res: Response) => {
   try {
-    const symbolsParam = (req.query.symbols as string) || '600519,000858';
-    const symbols = symbolsParam.split(',').map(s => s.trim()).slice(0, 5);
+    const symbols = parseSymbols(req.query.symbols).slice(0, 5);
 
     const stockNames: Record<string, string> = {
       '600519': '贵州茅台', '000858': '五粮液', '000001': '平安银行',
@@ -118,6 +143,14 @@ router.get('/compare/radar', validateQuery(schemas.batchQuotes), async (req: Req
       { key: 'cashflow', label: '现金流', fullMark: 100 },
       { key: 'dividend', label: '分红能力', fullMark: 100 },
     ];
+
+    // 缺数据分支：未提供有效代码时返回空结果，不再抛错 500（IP-17）
+    if (symbols.length === 0) {
+      return res.json({
+        success: true,
+        data: { indicators, stocks: [] },
+      });
+    }
 
     const radarData = symbols.map(symbol => {
       const stock = generateStockMetrics(symbol, stockNames[symbol] || symbol);
