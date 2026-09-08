@@ -1,0 +1,26 @@
+name: Collect Sector History
+
+# 每个交易日收盘后采集板块历史，为多维矩阵 v3-lite 积累 KV 数据底座
+# Cloudflare Pages Functions 不支持原生 cron，由本工作流调用 HTTP 端点代替
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'  # UTC 07:30 = 北京时间 15:30（收盘后）
+  workflow_dispatch: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger collect-history
+        run: |
+          set -euo pipefail
+          TOKEN="${{ secrets.CRON_TOKEN }}"
+          if [ -n "$TOKEN" ]; then
+            URL="https://clair-api.pages.dev/api/cron/collect-history?token=${TOKEN}"
+          else
+            URL="https://clair-api.pages.dev/api/cron/collect-history"
+          fi
+          code=$(curl -sS -o /tmp/collect.json -w "%{http_code}" --max-time 240 "$URL")
+          echo "HTTP $code"
+          cat /tmp/collect.json | head -c 2000; echo
+          [ "$code" = "200" ] || { echo "::warning::collect-history 返回 $code，请检查 Worker 部署状态"; exit 1; }
