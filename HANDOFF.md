@@ -246,3 +246,10 @@ backtest/run 茅台近1年 7 笔 超额+1.73% 200 · bundle index-acHnsVGK.js ·
 ### 遗留
 - `.github/workflows/collect-history.yml`（交易日 15:30 板块历史采集 cron）待 workflow scope 授权后补推
   （补推脚本 /tmp/gh_push_workflow.py 已就绪，自动触发于 device flow 轮询成功后）
+
+### 附：collect-history 上游依赖问题（2026-09-08 复盘）
+- 手动触发 `/api/cron/collect-history`：200，31 行业处理，但 ok=0（全部 days:0）
+- 根因：`push2his.eastmoney.com`（板块K线历史）在 Cloudflare Worker 出网**不可达**（metadata: boardKlineSource=null, boardKlineDays=0），沙箱侧同测不可达
+- 影响：multidim-v3 历史依赖维度（recovery/leverage/fundFlow 等）持续 null；基础五维正常
+- ⚠️ 结论：**补推 workflow 文件不解决此问题**，需另立任务：板块K线上游换源（候选：腾讯 qt.gtimg.cn 板块指数K线 / 东财其他入口）
+- 数据红线遵守：拉不到即如实 null，绝不冒充
