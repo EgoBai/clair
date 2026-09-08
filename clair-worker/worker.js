@@ -3513,7 +3513,152 @@ async function handleCronCollectHistory(url) {
 }
 
 // ==================== 资金流向（东财 push2 主力/散户净额）====================
-// 供前端 CapitalFlowPanel 消费；上游不可用时返回 data:null，前端隐藏面板，绝不返回 0 充数
+// 供前端 CapitalFlowPanel / FundFlowPage 消费；上游不可用时如实 null/空 + source 标注，绝不编造
+
+// FundFlowPage ①：全市场 5 档资金流 + 市场广度（与 backend /api/fund-flow/market 同契约）
+async function handleFundFlowMarket() {
+  try {
+    const FLOW_HOSTS = ['https://push2.eastmoney.com', 'https://push2delay.eastmoney.com'];
+    // 5 档主力/超大/大/中/小单净额：东财 push2 clist 全市场聚合（f62净额 f66超大 f72大 f78中 f84小；f184=主力净额占比此处求和无意义，用 f62）
+    let tiers = null;
+    let source = 'unavailable';
+    for (const host of FLOW_HOSTS) {
+      try {
+        const u = `${host}/api/qt/clist/get?pn=1&pz=6000&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f62,f184,f66,f72,f78,f84&ut=fa5fd1943c7b386f172d6893dbfba10b`;
+        const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com' } });
+        const t = (await resp.text()).trim();
+        if (!t.startsWith('{')) continue;
+        const d = JSON.parse(t);
+        const items = (d && d.data && d.data.diff) || [];
+        if (!items.length) continue;
+        const acc = { main: 0, superLarge: 0, large: 0, medium: 0, small: 0 };
+        let n = 0;
+        for (const it of items) {
+          const m = Number(it.f62), s = Number(it.f66), l = Number(it.f72), md = Number(it.f78), sm = Number(it.f84);
+          if (!isFinite(m) && !isFinite(s) && !isFinite(l)) continue;
+          acc.main += isFinite(m) ? m : 0;
+          acc.superLarge += isFinite(s) ? s : 0;
+          acc.large += isFinite(l) ? l : 0;
+          acc.medium += isFinite(md) ? md : 0;
+          acc.small += isFinite(sm) ? sm : 0;
+          n++;
+        }
+        if (n > 0) { tiers = acc; source = 'eastmoney'; break; }
+      } catch (_) { /* 尝试下一个 host */ }
+    }
+    // 市场广度：复用全市场实时行情快照（与 /api/market/summary 同口径）
+    let market = null;
+    try {
+      const { quotes } = await getAllQuotes();
+      const all = quotes.filter(q => q && q.changePercent !== undefined && isFinite(q.changePercent));
+      if (all.length) {
+        const rising = all.filter(q => q.changePercent > 0).length;
+        const falling = all.filter(q => q.changePercent < 0).length;
+        market = {
+          tradeDate: beijingToday(),
+          totalTurnover: all.reduce((s, q) => s + (q.turnover || 0), 0),
+          risingStocks: rising,
+          fallingStocks: falling,
+          unchangedStocks: Math.max(all.length - rising - falling, 0),
+          limitUpCount: all.filter(q => q.changePercent >= 9.9).length,
+          limitDownCount: all.filter(q => q.changePercent <= -9.9).length,
+          totalStocks: all.length,
+        };
+      }
+    } catch (_) { /* 广度如实 null */ }
+    const tierOk = !!tiers;
+    return json({
+      success: true,
+      data: {
+        tiers: tiers ?? { main: null, superLarge: null, large: null, medium: null, small: null },
+        market,
+        updateTime: new Date().toISOString(),
+        source: tierOk ? 'eastmoney' : 'unavailable',
+        note: tierOk ? undefined
+          : '全市场 5 档资金流：东方财富 push2 聚合在 Worker 出网不可达；市场广度/成交额来自实时行情快照。',
+      },
+      dataSource: tierOk ? 'eastmoney' : (market ? 'partial' : 'unavailable'),
+      notes: {
+        tiers: tierOk ? undefined : '5 档主力/超大单/大单/中单/小单净流入：数据源未接入',
+        market: market ? '市场广度与成交额：实时行情快照（约800只活跃股样本）' : '实时行情快照不可用',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+// FundFlowPage ③：行业资金流排行（东财 push2 clist 行业板块 f62 净额）
+async function handleFundFlowIndustry(url) {
+  try {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10) || 20, 50);
+    const FLOW_HOSTS = ['https://push2.eastmoney.com', 'https://push2delay.eastmoney.com'];
+    let industries = [];
+    for (const host of FLOW_HOSTS) {
+      try {
+        const u = `${host}/api/qt/clist/get?fid=f62&po=1&pz=90&pn=1&np=1&fltt=2&invt=2&fs=m:90+t:2&fields=f12,f14,f62,f184,f66,f72,f78,f84,f22&ut=fa5fd1943c7b386f172d6893dbfba10b`;
+        const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com' } });
+        const t = (await resp.text()).trim();
+        if (!t.startsWith('{')) continue;
+        const d = JSON.parse(t);
+        const items = (d && d.data && d.data.diff) || [];
+        industries = items.map(it => ({
+          industry: it.f14 || '',
+          mainNet: isFinite(Number(it.f62)) ? Number(it.f62) : 0,
+          netInflow: isFinite(Number(it.f62)) ? Number(it.f62) : 0,
+          stockCount: isFinite(Number(it.f22)) ? Number(it.f22) : 0,
+          topStocks: [],
+        })).filter(x => x.industry);
+        if (industries.length) break;
+      } catch (_) { /* 尝试下一个 host */ }
+    }
+    if (!industries.length) {
+      return json({
+        success: true,
+        data: {
+          industries: [], count: 0, updateTime: new Date().toISOString(), source: 'unavailable',
+          note: '行业资金流：东方财富数据源暂不可用，未接入兜底数据（诚实空态）',
+        },
+      });
+    }
+    return json({
+      success: true,
+      data: { industries: industries.slice(0, limit), count: industries.length, updateTime: new Date().toISOString(), source: 'eastmoney' },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+// FundFlowPage ②：provider 链诊断元信息（Worker 版）
+async function handleFundFlowMeta() {
+  return json({
+    success: true,
+    data: {
+      runtime: 'cloudflare-worker',
+      providers: [
+        { name: 'eastmoney-push2', desc: '个股/全市场/行业资金流（东财 push2 clist & stock/get）', envKey: null, primary: true },
+        { name: 'eastmoney-push2delay', desc: 'push2 不可达时的延迟行情备用域', envKey: null, primary: false },
+      ],
+      envKeys: {},
+      note: 'Worker 版无 Alpha Vantage 依赖；global 外资视角未接入（诚实 unavailable）',
+    },
+  });
+}
+
+// FundFlowPage ④：外资/全球视角 — Worker 版未接入 Alpha Vantage，诚实返回空指标
+async function handleFundFlowGlobal() {
+  return json({
+    success: true,
+    data: {
+      indicators: [],
+      dataSource: 'unavailable',
+    },
+    note: '全球资金视角（北向/美元指数/离岸人民币）：需 Alpha Vantage 数据源，Worker 版未接入，不提供演示数据',
+  });
+}
+
 async function handleFundFlow(symbol) {
   try {
     const pure = String(symbol || '').replace(/\.(SH|SZ|BJ)$/i, '');
@@ -3707,8 +3852,21 @@ export default {
     if (path === '/api/cron/collect-history') {
       return handleCronCollectHistory(url);
     }
-    // 个股/板块资金流向（CapitalFlowPanel 数据源）
-    const fundFlowMatch = path.match(/^\/api\/fund-flow\/(\d{6})$/);
+    // 个股/板块资金流向（CapitalFlowPanel / FundFlowPage 数据源）
+    // 静态子路径必须先于 :symbol 动态匹配（与 backend 路由顺序约定一致）
+    if (path === '/api/fund-flow/meta') {
+      return handleFundFlowMeta();
+    }
+    if (path === '/api/fund-flow/market') {
+      return handleFundFlowMarket();
+    }
+    if (path === '/api/fund-flow/industry') {
+      return handleFundFlowIndustry(url);
+    }
+    if (path === '/api/fund-flow/global') {
+      return handleFundFlowGlobal();
+    }
+    const fundFlowMatch = path.match(/^\/api\/fund-flow\/(\d{6})(?:\.(?:SH|SZ|BJ))?$/);
     if (fundFlowMatch) {
       return handleFundFlow(fundFlowMatch[1]);
     }
