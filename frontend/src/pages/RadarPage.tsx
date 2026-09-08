@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Tag, Empty, Row, Col, Statistic, Button, Card, Skeleton, message, Alert, type Breakpoint } from 'antd';
+import { Table, Tag, Empty, Row, Col, Statistic, Button, Card, Skeleton, message, type Breakpoint } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import echarts from '@/utils/echarts';
