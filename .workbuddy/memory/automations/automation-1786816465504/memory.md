@@ -36,5 +36,11 @@
 - 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token → import_html.py --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj。
 - 收口：✅ 仅提交本轮产物 automation memory.md；工作树遗留 frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md、frontend/playwright-report/index.html、CI_FIX_REPORT.md 均为他人在途改动，按单通道红线未触碰。
 
+## 2026-09-09 03:11 第 N+6 轮
+- 重新生成：✅ `python3 scripts/gen_dashboard.py` 成功（generatedAt=2026-09-09T03:11:52+08:00，round=121，tickets=59，realSrc=6，sprints=6，decisions=19，debts=11，swarm=5，orch=5，timeline=8），产物 docs/dashboard-data.json + docs/clair-dashboard.html（round 由 116→121）。
+- 提交推送：⚠️ 首次直连推送被远端拒绝（stale info，本地落后真实 origin/main 9 个提交）。先 `git fetch origin main` 拉取真实远端（b568df9f3），发现本地 7 个提交里含 6 个主循环自动化（automation-1784829898221）在途源码/记账提交——非本看板产物。按单通道红线，`git rebase --onto origin/main b32e1fa86` 仅把本看板提交 6682d46bd 重放到 origin/main 之上（新哈希 635e0e785），丢弃那 6 个他人提交（由其自身后续推送），他人 WIP 文件经 stash 保护并精确还原、未提交。随后 `git push origin main` 成功（b568df9f3..635e0e785）。
+- 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token → import_html.py --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj。
+- 收口：🔧 仅提交本轮产物 automation memory.md；工作树遗留 06fe3d69 自动化 memory.md、frontend/playwright-report/index.html、.workbuddy/memory/2026-09-09.md 为他人在途改动，按单通道红线未触碰（stash 还原保真）。
+
 ## 结论
-最近一轮（2026-09-08）：重新生成=是；推送=成功；重导入并发布=成功；收口=干净（仅本轮产物已提交，未触碰他人在途文件）。
+最近一轮（2026-09-09）：重新生成=是；推送=成功（经 rebase --onto 仅推送本看板提交，规避他人在途提交）；重导入并发布=成功；收口=干净（仅提交本轮 automation memory.md，未触碰他人在途文件）。
