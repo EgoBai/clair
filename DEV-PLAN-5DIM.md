@@ -159,3 +159,33 @@ curl -X POST "$B/api/backtest/run" -H 'Content-Type: application/json' \
 - **上游单一依赖风险**：本次 K 线故障即源于单源强依赖。建议对所有外部数据源统一走「多源 + HTML 探测 + 显式失败原因」模式，避免再出现静默失败。
 - **静默失败是头号敌人**：本次发现的两处最严重问题（东财 headline 404 后返回空数组、multidim 404 后渲染 `null`）都没有任何报错。**接口返回空必须区分「确实没有数据」和「上游挂了」**，并在响应中回传 `source` 与 `attempts`。
 - **口径必须与实现同源**：虚构权重（50/30/20）与虚假公式（百度搜索指数）的根源是文档/文案与代码分离。建议把字段口径以常量形式定义在后端，前端直接消费，杜绝手写文案。
+
+## 十一、全局复盘与后续计划（2026-09-09 深夜复盘）
+
+### 当前定位
+线上（github.io + Cloudflare Worker）与本地 deploy 内容已对齐（tree 比对验证），浏览器端到端验证通过。
+剩余差异：collect-history.yml（workflow scope）；已知数据缺陷两项已立卡。
+
+### 蜂群分工（当前有效配置）
+| 角色 | 载体 | 职责 | 节奏 |
+|---|---|---|---|
+| Clair Agent（主开发） | 本空间 | 功能开发/部署同步/看板卡执行 | 用户驱动 + 卡片驱动 |
+| 看板刷新自动化 | 独立空间 | dashboard-data/memory 提交推送 | 自动（并行安全：tree-diff 通道容忍） |
+| 每日价值汇总官 (7380400) | 本项目 | 汇总三空间产出 → 留言板日报 + 次日卡 | 每日 21:00 |
+| tree-diff 推送 | scripts/gh-push-treediff.sh | 标准部署通道（先拉后推，容忍并行写） | 每次部署 |
+
+**监控聚焦原则**：多空间的执行不要求用户巡查——以本项目留言板日报 + 看板卡为唯一观测点。
+
+### 后续开发队列（按优先级）
+1. **P0 rgUjDa** 二级行业补齐：momentum level=2 + 528 只未分类股
+2. **P1 rvLLs1** 个股资金流 f62 数值修复：fflow/kline 接口（先 curl 验证字段再写映射）+ 补 history
+3. **P1 rmBk2E** 板块K线上游换源：push2his 在 CF 不可达 → 腾讯 qt.gtimg.cn 板块指数K线
+4. **P1 rWiztm** SectorDetailPage 切 v3 口径
+5. **P0-3 rV5mJ6** DiscoverPage 排序/热力图重构
+6. **P1-3 r3YITh** 投资笔记入口可见性
+7. **待用户** rJK9XV：三个每日自动化粘贴回写契约 prompt（AUTOMATION-PROMPT-PATCH.md）
+
+### 工程红线（延续）
+- 数据诚实：拉不到即如实 null/空态，绝不编造（global 未接 Alpha Vantage → unavailable）
+- 提交前三门禁：npm run lint（0 error）+ tsc + vitest；eslint 独立于 tsc，必须单独跑
+- 推送用 tree-diff 通道；github.com 直连 TLS 不可靠，一切走 api.github.com
