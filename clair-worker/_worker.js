@@ -3631,11 +3631,13 @@ async function handleFundFlowIndustry(url) {
   }
 }
 
-// FundFlowPage ②：provider 链诊断元信息（Worker 版）
+// FundFlowPage ②：provider 链诊断元信息（与 backend 契约：activeProviders + keysConfigured）
 async function handleFundFlowMeta() {
   return json({
     success: true,
     data: {
+      activeProviders: ['eastmoney'],
+      keysConfigured: {},
       runtime: 'cloudflare-worker',
       providers: [
         { name: 'eastmoney-push2', desc: '个股/全市场/行业资金流（东财 push2 clist & stock/get）', envKey: null, primary: true },
@@ -3715,6 +3717,23 @@ async function handleFundFlow(symbol) {
     if (!latest && sectorFlows.length === 0) {
       return json({ success: true, data: null, source: null, attempts, note: '资金流上游暂不可用，已如实返回空' });
     }
+    // FundFlowPage 契约适配（StockFundFlowResp）：current/history/dataSource
+    // history 需 push2his 历史序列（Worker 出网不可达）→ 诚实空数组，前端图表空态
+    let stockName = '';
+    try {
+      const stocks = await getStockList();
+      const hit = stocks.find(s => s.symbol === pure);
+      if (hit) stockName = hit.name || '';
+    } catch (_) { /* 名字缺失不阻塞 */ }
+    const current = latest ? {
+      symbol: pure, name: stockName,
+      mainNet: latest.mainNet ?? 0,
+      superLargeNet: latest.superNet ?? 0,
+      largeNet: latest.bigNet ?? 0,
+      mediumNet: latest.midNet ?? 0,
+      smallNet: latest.smallNet ?? 0,
+      tradeDate: beijingToday(),
+    } : null;
     return json({
       success: true,
       data: {
@@ -3722,6 +3741,11 @@ async function handleFundFlow(symbol) {
         latest,   // { mainNet, mainNetPct, superNet, bigNet, midNet, smallNet } 单位：元
         sectorFlows,
         date: beijingToday(),
+        // ── FundFlowPage 消费字段（与 backend /fund-flow/:symbol 同契约）──
+        current,
+        history: [],
+        dataSource: latest ? 'eastmoney' : 'eastmoney',
+        name: stockName,
       },
       source: latest ? 'eastmoney' : 'eastmoney-boards-only',
       attempts,
