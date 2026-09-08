@@ -217,3 +217,32 @@ curl -X POST https://github.com/login/device/code -H "Accept: application/json" 
 「产业地图节点下钻」两张卡（rGQCdc / rwZEZV）核实为**已实现**：
 onNodeClick → 右侧面板 → renderCompanyList（名称/代码/位置/市值/涨跌，点击跳个股，可加自选），
 窄屏自动滚动定位，且支持 `?industry=` 三级匹配。已关闭并留核实证据。
+
+## 十、线上同步部署实录（7658001 → ddd7293）
+
+> 2026-09-08 · 沙箱网络受限环境下的完整交付记录
+
+### 通道结论
+- 用户完成 OAuth 设备流授权（user_code 4F6B-5E3C），获得 `repo` scope 的 `gho_` token
+- github.com TLS 受沙箱出口干扰 → **走 REST Git Data API 逐 commit 重放**：
+  `POST /git/blobs`（base64）→ `POST /git/trees`（base_tree+entries）→ `POST /git/commits` → `PATCH /git/refs/heads/main`
+- 远端 main：7658001 → d402b63（6 提交重放）→ ddd7293（lint 修复追加）
+
+### 三个关键坑（后继者必读）
+1. **中文路径**：git 默认 quotepath 会把 `五维数据体检报告.html` C 转义成 `"\344..."` 直接塞进 JSON 导致解析失败。解法：`git -c core.quotepath=off diff-tree -r -z` + 全部 payload 用 python `json.dumps` 组装，禁止字符串拼接。
+2. **tree 删除条目**：`{"path","sha":null}` 会 422 `Must supply a valid tree.mode`。**必须带 mode+type**：`{"path","sha":null,"mode":"100644","type":"blob"}`。
+3. **workflow scope**：OAuth token 只有 `repo` 时，创建/修改 `.github/workflows/*` 的 tree 会报 **404 Not Found**（GitHub 用 404 掩盖真实原因，探针对照实锤）。解法：device flow 申请 `repo workflow` scope。
+
+### CI 失败复盘
+- 首次推送后 CI failure：RadarPage.tsx 第 9 行 `Alert` 导入未使用（unused-imports/no-unused-imports 为 error 级）
+- 本地复现：`npx eslint .` → 1 error；删除该导入后 0 error，build/guard 均过，追加 fix 提交 ddd7293
+- 教训：**提交前必须本地跑 `npm run lint`**，仅 tsc + vitest 不够（eslint 规则独立生效）
+
+### 生产回归结果（全绿）
+market/summary 200 · momentum 30 行业 200 · **concept 504 个真实东财板块 200（原 P0 404 已修复）** ·
+fund-flow/600519 source=eastmoney 200 · multidim-v3 国防军工 200 · multidim-v3/batch computed 3/3 200 ·
+backtest/run 茅台近1年 7 笔 超额+1.73% 200 · bundle index-acHnsVGK.js · BacktestPage chunk 线上 200
+
+### 遗留
+- `.github/workflows/collect-history.yml`（交易日 15:30 板块历史采集 cron）待 workflow scope 授权后补推
+  （补推脚本 /tmp/gh_push_workflow.py 已就绪，自动触发于 device flow 轮询成功后）
