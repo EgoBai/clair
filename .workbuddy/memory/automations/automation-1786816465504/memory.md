@@ -51,3 +51,8 @@
 
 ## 结论
 最近一轮（2026-09-10）：重新生成=是；推送=成功（初遇网络中断与 "fetch first" 分叉，经 fetch+rebase --onto 仅推送本轮 2 提交规避他人在途提交，f1b45d3f1..bba2fe137）；重导入并发布=成功（已发布页即最新，为主交付通道）；收口=干净（仅提交本轮 memory.md 并随同推送，未触碰他人在途文件）。
+
+## 运维备忘（2026-09-10 复盘·红线教训）
+- **惨痛坑：`git stash pop` 会把 stash 内容暂存进 index（M 在第一列=staged）**。本轮回填收口时直接 `git add <memory.md>` + `git commit`，结果把 stash 还原的 6 个他人在途文件一并提交并误推（7f621639d，7 files）。已用 `git reset --soft HEAD~1` + `git restore --staged -- <他人 6 文件>` 仅保留本自动化 memory.md 重新提交，并以 `--force-with-lease` 覆盖远端错误提交（defe849a5，仅 1 file）。他人文件还原为工作树未提交改动，红线恢复。
+- **铁律（下轮必守）**：凡经 stash 保护/rebase 后，提交前必须 `git diff --cached --name-only` 核对暂存集；只 `git add` 本轮产物（docs/ 二文件 + 本 automation memory.md），严禁 `git commit`/`git add -A` 不带路径。stash pop 后务必先 `git reset HEAD <他人文件>` 清掉暂存再提交。
+- 网络策略：本沙箱到 github 间歇可达（代理空响应 + 直连 443 时通时断）。推送前先 `git fetch` 探活；遇 "fetch first"/"stale info" 用 `git rebase --onto origin/main <本轮base> main` 仅重放本轮提交；推送用 `GIT_HTTP_TIMEOUT=60 git -c http.proxy= -c https.proxy= push`（直连偶发比代理稳）。
