@@ -137,13 +137,17 @@ export const NavigationMenu: React.FC = () => {
                       <li className="nav-item" key={item.id}>
                         <NavLink
                           to={item.path}
-                          className={`nav-link${isActive ? ' active' : ''}`}
+                          className={`nav-link${isActive ? ' active' : ''}${item.featured ? ' has-featured' : ''}`}
                           aria-current={isActive ? 'page' : undefined}
                           /* rail 收起态只剩图标，用原生 title 提供可辨识提示（零依赖） */
                           title={item.label}
                         >
                           <ItemIcon className="nav-icon" aria-hidden="true" />
-                          <span className="nav-label">{item.label}</span>
+                          {/* 徽标放在 .nav-label 内：平板 icon-rail 收起态随文本整体隐藏 */}
+                          <span className="nav-label">
+                            {item.label}
+                            {item.featured && <em className="nav-featured-flag">荐</em>}
+                          </span>
                         </NavLink>
                       </li>
                     );
@@ -352,6 +356,40 @@ export const NavigationMenu: React.FC = () => {
         .nav-label {
           flex: 1;
           font-size: var(--text-md);
+        }
+
+        /* 高亮入口（featured）—— 投资笔记：置顶强调 + 「荐」徽标
+           徽标嵌套于 .nav-label 内，平板 icon-rail 收起态随文本一起隐藏，不产生悬浮残留 */
+        .nav-link.has-featured {
+          background: linear-gradient(90deg, var(--accent-light), transparent 85%);
+          color: var(--text-primary);
+          border-left-color: var(--accent-solid);
+        }
+
+        .nav-link.has-featured:hover {
+          background: linear-gradient(90deg, var(--bg-tertiary), transparent 85%);
+        }
+
+        .nav-link.has-featured .nav-icon {
+          color: var(--accent-solid);
+        }
+
+        .nav-featured-flag {
+          margin-left: 6px;
+          font-style: normal;
+          font-size: 10px;
+          line-height: 1.4;
+          padding: 1px 6px;
+          border-radius: 999px;
+          color: #fff;
+          background: linear-gradient(90deg, var(--accent-solid), #ef4444);
+          box-shadow: 0 0 0 2px var(--bg-primary);
+          vertical-align: 1px;
+          letter-spacing: 0.04em;
+        }
+
+        .nav-link.has-featured.active .nav-featured-flag {
+          box-shadow: 0 0 0 2px var(--accent-light);
         }
 
         /* 导航底部状态区 */

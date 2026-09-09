@@ -109,14 +109,15 @@ describe('NavigationMenu（折叠交互）', () => {
 
   it('再次点击已折叠分组可重新展开', () => {
     const { container } = renderWithRouter(['/']);
-    const header = screen.getByText('资金面').closest('button')!;
+    // 分组「宏观资金」在 navGroups 中 id = macro-capital（旧断言「资金面/capital」随改名过期）
+    const header = screen.getByText('宏观资金').closest('button')!;
 
     fireEvent.click(header);
     expect(header.getAttribute('aria-expanded')).toBe('false');
 
     fireEvent.click(header);
     expect(header.getAttribute('aria-expanded')).toBe('true');
-    const list = container.querySelector('#nav-group-capital');
+    const list = container.querySelector('#nav-group-macro-capital');
     expect(list?.classList.contains('is-collapsed')).toBe(false);
   });
 

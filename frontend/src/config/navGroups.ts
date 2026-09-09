@@ -47,6 +47,8 @@ export interface NavGroupItem {
   /** 已注册的路由路径常量（来自 ROUTE_PATHS） */
   path: string;
   icon: NavIcon;
+  /** 高亮入口（如「投资笔记」）：主导航渲染为置顶强调样式 + 徽标 */
+  featured?: boolean;
 }
 
 // 一级分组
@@ -74,12 +76,11 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'stock-research',
     label: '个股研究',
     items: [
+      // 投资笔记是「研究结论的沉淀」，将其置于本组首位并打上 featured 高亮徽标，
+      // 避免入口被折叠分组淹没。原位于第 4 组「组合与风控」末位（约 1050px 处）需滚动才可见；
+      // 先移入本组第 2 位，本轮再置顶强调。分组数量与其余顺序均不变，属最小侵入调整。
+      { id: 'knowledge', label: '投资笔记', path: ROUTE_PATHS.KNOWLEDGE, icon: FileTextOutlined, featured: true },
       { id: 'screener', label: '策略选股', path: ROUTE_PATHS.SCREENER, icon: FilterOutlined },
-      // 投资笔记原位于第 4 组「组合与风控」末位（第 20 个导航项，约 1050px 处），
-      // 侧栏默认全展开共 24 项，该位置在常见视口下需滚动才可见，发现率极低。
-      // 笔记是「研究结论的沉淀」，与选股/对比/研报同属研究工作流，
-      // 故移至本组第 2 位；分组数量与其余顺序均不变，属最小侵入调整。
-      { id: 'knowledge', label: '投资笔记', path: ROUTE_PATHS.KNOWLEDGE, icon: FileTextOutlined },
       { id: 'stocks', label: '股票列表', path: ROUTE_PATHS.STOCKS, icon: UnorderedListOutlined },
       { id: 'compare', label: '同业对比', path: ROUTE_PATHS.COMPARE, icon: DiffOutlined },
       { id: 'report-center', label: '研报AI摘要', path: ROUTE_PATHS.REPORT_CENTER, icon: FileSearchOutlined },

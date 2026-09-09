@@ -1,308 +1,375 @@
 /**
- * 行业板块分析页面
- * 成分股、权重、估值、PE分布、市值分布
- * P0-2: 5维度雷达图 + 解读仪表盘
+ * 行业板块分析页面（v3-lite 口径）
+ *
+ * 数据链路（与 DiscoverPage / IndustryMapPage 同源，全部为真实接口，无演示数据）：
+ *   1. 板块列表  GET /api/sectors/momentum          —— 申万一级行业实时动量（行业名即 v3 引擎键）
+ *   2. 多维矩阵  GET /api/sectors/{行业名}/multidim-v3 —— v3-lite 14 维引擎
+ *        - 实时截面 5 维（crowding/concentration/panic/volatility/spreadDegree）恒可算
+ *        - 板块指数日 K 3 维（recovery/leverage/fundFlow）依赖历史 K 线积累
+ *        - 其余维度数据可得前后端如实返回 score:null —— 前端显示「数据积累中」，绝不猜数/硬编码
+ *   3. 成分股    GET /api/sectors/{行业名}/stocks     —— 板块内个股实时行情
+ *
+ * 展示口径：维度分值为后端 0-20 原始分（与 DiscoverPage 的 `{score}/20` 芯片同口径）；
+ * 组合分为后端 0-100 归一（景气度 boomScore / 拥挤度 crowdingScore，缺失时返回 null）。
  */
 
-import { useState, useEffect } from 'react';
-import logger from '../utils/logger';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Breadcrumb, Card, Table, Tag, Row, Col, Statistic, Select, Space, Progress, Tooltip, Skeleton, Empty } from 'antd';
-import { LoadingState } from '../components/Common/StateComponents';
-import { ArrowUpOutlined, ArrowDownOutlined, CompassOutlined, NodeIndexOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
-import echarts from '../utils/echarts';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
-  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-} from 'recharts';
+  Breadcrumb, Card, Col, Empty, Row, Select, Skeleton, Space, Statistic, Table, Tag, Tooltip,
+} from 'antd';
+import { CompassOutlined, NodeIndexOutlined, ReloadOutlined,
+} from '@ant-design/icons';
+import { LoadingState } from '../components/Common/StateComponents';
+import { THEME } from '../styles/theme-constants';
 
-interface SectorSummary {
-  name: string;
-  code: string;
-  stockCount: number;
-  avgPE: number;
-  avgPB: number;
-  avgROE: number;
-  changePercent: number;
-  totalMarketCap: number;
-  turnover: number;
-  fundFlow: number;
+const TEXT = THEME.text;
+const TEXT_SEC = THEME.textSec;
+const COLOR_UP = THEME.up;
+const COLOR_DOWN = THEME.down;
+
+/* ============================== 类型（对齐 v3-lite 契约） ============================== */
+
+/** /api/sectors/momentum 板块项（子集，额外字段忽略） */
+interface SectorMomentumItem {
+  industry: string;
+  score: number;
+  changeScore?: number;
+  volumeScore?: number;
+  breadthScore?: number;
+  momentumScore?: number;
+  stock_count?: number;
+  avg_change_percent?: number;
+  total_turnover?: number;
+  limit_up_count?: number | null;
 }
 
-interface SectorDetail extends SectorSummary {
-  topStocks: {
-    symbol: string;
-    name: string;
-    weight: number;
-    price: number;
-    changePercent: number;
-    marketCap: number;
-    pe: number;
-    pb: number;
-    turnover: number;
-  }[];
-  peDistribution: { range: string; count: number }[];
-  marketCapDistribution: { range: string; count: number; total: number }[];
-}
-
-// 多维分析 API 返回类型
+/** 单个维度：score 可为 null（后端已停止用硬编码中性分充数） */
 interface MultidimDim {
-  /** 数据缺失时为 null —— 后端已停止用硬编码「中性分 10」冒充有效得分 */
   score: number | null;
   label: string;
   detail: string;
 }
 
-interface MultidimResult {
+/** GET /api/sectors/:industry/multidim-v3 → data */
+interface MultidimV3Result {
   industry: string;
-  /** 五维齐全时为 0-100；任一维缺失时为 null（维度不全，不予计算） */
+  /** 可算维度的原始分合计；无任何可算维度时为 null */
   totalScore: number | null;
+  maxScore?: number;
   availableDimCount?: number;
-  totalDimCount?: number;
-  dimensions: {
-    crowding: MultidimDim;
-    diffusion: MultidimDim;
-    concentration: MultidimDim;
-    retail: MultidimDim;
-    recovery: MultidimDim;
-  };
-  metadata: {
-    stockCount: number;
-    avgPE: number;
-    medianPE: number;
-    aboveMA20Pct: number;
-    top5TurnoverPct: number;
-    smallCapTurnoverSurge: number;
-    ma5Change: number;
-    ma20Change: number;
+  nullDimCount?: number;
+  /** 组合分（0-100）：成分维不齐全时后端返回 null，不予展示部分分 */
+  boomScore?: number | null;
+  crowdingScore?: number | null;
+  dimensions?: Record<string, MultidimDim>;
+  metadata?: {
+    stockCount?: number;
+    medianPE?: number | null;
+    boardKlineSource?: string | null;
+    boardKlineDays?: number;
+    [k: string]: unknown;
   };
 }
 
-const COLORS = ['#1890ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1', '#13c2c2', '#eb2f96', '#fadb14'];
-
-// 雷达图维度颜色
-const RADAR_COLORS = {
-  crowding: '#f59e0b',      // 拥挤度 - 琥珀
-  diffusion: '#3b82f6',     // 扩散程度 - 蓝
-  concentration: '#10b981', // 资金集中度 - 绿
-  retail: '#f97316',        // 小白指数 - 橙
-  recovery: '#8b5cf6',      // 回补程度 - 紫
-};
-
-const DIM_ICONS: Record<string, string> = {
-  crowding: '👥',
-  diffusion: '📊',
-  concentration: '💰',
-  retail: '🐟',
-  recovery: '🔄',
-};
-
-const DIM_NAMES: Record<string, string> = {
-  crowding: '拥挤度',
-  diffusion: '扩散程度',
-  concentration: '资金集中度',
-  retail: '小白指数',
-  recovery: '回补程度',
-};
-
-// 总分评级
-function getTotalRank(totalScore: number): { label: string; color: string } {
-  if (totalScore >= 80) return { label: '优秀', color: '#10b981' };
-  if (totalScore >= 60) return { label: '良好', color: '#3b82f6' };
-  if (totalScore >= 40) return { label: '一般', color: '#f59e0b' };
-  return { label: '偏弱', color: '#ef4444' };
+/** /api/sectors/:industry/stocks → data.items */
+interface ConstituentStock {
+  symbol: string;
+  name: string;
+  market?: string;
+  industry?: string;
+  latestQuote?: {
+    closePrice?: number | null;
+    changePercent?: number | null;
+    turnoverRate?: number | null;
+    peRatio?: number | null;
+  } | null;
 }
+
+/* ============================== 维度展示注册表（与 DiscoverPage DIM_REGISTRY 同名同口径） ============================== */
+
+type Polarity = 'pos' | 'neg'; // pos: 分越高越健康；neg: 分越高越危险（如拥挤/恐慌/波动）
+type GroupKey = 'realtime' | 'boardK' | 'stockHist' | 'peHist' | 'subIndustry';
+
+interface DimMeta {
+  label: string;
+  icon: string;
+  polarity: Polarity;
+  accent: string;
+  group: GroupKey;
+  /** 该维后端缺数据时展示的积累说明（data 可得前的诚实空态文案） */
+  awaiting: string;
+}
+
+const DIM_META: Record<string, DimMeta> = {
+  // —— 实时截面 5 维（后端恒可算）——
+  crowding:      { label: '拥挤度',     icon: '🧑‍🤝‍🧑', polarity: 'neg', accent: '#f59e0b', group: 'realtime',  awaiting: '估值分位需板块样本，实时截面积累中' },
+  concentration: { label: '集中度',     icon: '💰',    polarity: 'neg', accent: '#10b981', group: 'realtime',  awaiting: '板块成交数据积累中' },
+  panic:         { label: '恐慌指数',   icon: '🛡️',   polarity: 'neg', accent: '#ef4444', group: 'realtime',  awaiting: '板块个股行情积累中' },
+  volatility:    { label: '波动率',     icon: '🌊',    polarity: 'neg', accent: '#3b82f6', group: 'realtime',  awaiting: '个股振幅数据积累中' },
+  spreadDegree:  { label: '涨停扩散',   icon: '🔥',    polarity: 'pos', accent: '#f97316', group: 'realtime',  awaiting: '板块个股行情积累中' },
+  // —— 板块指数日 K 3 维（依赖 push2his / KV 每日积累）——
+  recovery:      { label: '回补动能',   icon: '🔄',    polarity: 'pos', accent: '#8b5cf6', group: 'boardK',    awaiting: '板块指数历史K线积累中（不足 21 日）' },
+  leverage:      { label: '杠杆率',     icon: '⚖️',   polarity: 'neg', accent: '#0ea5e9', group: 'boardK',    awaiting: '板块指数历史K线积累中（不足 21 日）' },
+  fundFlow:      { label: '基金流向',   icon: '💧',    polarity: 'pos', accent: '#06b6d4', group: 'boardK',    awaiting: '板块指数历史K线积累中（不足 21 日）' },
+  // —— 个股日 K 底座（历史积累中，后端如实 null）——
+  diffusion:        { label: '扩散度',     icon: '📊', polarity: 'pos', accent: '#3b82f6', group: 'stockHist', awaiting: '需个股MA20站上比例，个股日K底座积累中' },
+  retail:           { label: '散户情绪',   icon: '🐟', polarity: 'neg', accent: '#f97316', group: 'stockHist', awaiting: '需小盘股换手环比，个股日K底座积累中' },
+  momIndex:         { label: '动量指数',   icon: '📈', polarity: 'pos', accent: '#22c55e', group: 'stockHist', awaiting: '需低价股成交额前值，个股日K底座积累中' },
+  momentumPosition: { label: '动量仓位',   icon: '🚀', polarity: 'pos', accent: '#a855f7', group: 'stockHist', awaiting: '需个股近5日涨幅分布，个股日K底座积累中' },
+  // —— 其他积累维 ——
+  zScore:     { label: 'Z值',     icon: '📐', polarity: 'neg', accent: '#64748b', group: 'peHist',      awaiting: '需板块PE历史≥20日，KV 每日积累中' },
+  searchHeat: { label: '概念广度', icon: '🔎', polarity: 'pos', accent: '#eab308', group: 'subIndustry', awaiting: 'worker 无子行业分类数据' },
+};
+
+const GROUPS: { key: GroupKey; title: string }[] = [
+  { key: 'realtime',    title: '实时截面 · 即时可算' },
+  { key: 'boardK',      title: '板块指数历史 K 线 · 积累中' },
+  { key: 'stockHist',   title: '个股日 K 底座 · 积累中' },
+  { key: 'peHist',      title: '板块 PE 历史 · 积累中' },
+  { key: 'subIndustry', title: '子行业数据 · 不可得' },
+];
+
+const GROUP_ICONS: Record<GroupKey, string> = {
+  realtime: '⚡', boardK: '📅', stockHist: '🗄️', peHist: '📐', subIndustry: '🚫',
+};
+
+/** 布局顺序 = 引擎返回的顺序（与 DiscoverPage 同集合） */
+const DIM_ORDER = [
+  'crowding', 'diffusion', 'concentration', 'retail', 'recovery',
+  'panic', 'volatility', 'momIndex', 'searchHeat', 'spreadDegree',
+  'momentumPosition', 'zScore', 'leverage', 'fundFlow',
+] as const;
+
+/* ============================== 工具 ============================== */
+
+/** 容忍 number | numeric string | null，统一归一；null/NaN 返回 null（绝不用 0 冒充缺值） */
+const toNum = (v: unknown): number | null => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+  return null;
+};
+
+const fmt2 = (v: number | null | undefined): string => (v == null ? '—' : v.toFixed(2));
+const fmtInt = (v: number | null | undefined): string => (v == null ? '—' : String(Math.round(v)));
+
+/** 大额格式化（与 DiscoverPage formatBig 同口径） */
+function formatBig(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e8) return `${(n / 1e8).toFixed(1)}亿`;
+  if (abs >= 1e4) return `${(n / 1e4).toFixed(1)}万`;
+  return String(n);
+}
+
+/** 板块综合评分（0-100，来自 /api/sectors/momentum）的着色与档位文案 */
+function scoreColor(s: number): string {
+  return s >= 70 ? '#22c55e' : s >= 45 ? '#f59e0b' : s >= 25 ? '#f97316' : '#6b7280';
+}
+function scoreLabel(s: number): string {
+  return s >= 70 ? '高景气' : s >= 45 ? '较活跃' : s >= 25 ? '一般' : '冷门';
+}
+
+/** 维度分值 Tag 着色：pos 高分=好(绿)，neg 高分=危险(红) */
+function dimTone(score: number, polarity: Polarity): string {
+  if (polarity === 'neg') return score >= 14 ? 'red' : score >= 9 ? 'orange' : 'green';
+  return score >= 14 ? 'green' : score >= 9 ? 'orange' : 'red';
+}
+
+const klineSourceLabel = (src: string | null | undefined): string => {
+  if (!src) return '—';
+  if (src === 'kv') return 'KV 缓存';
+  if (src === 'em-board') return '东财实时';
+  if (src === 'stale-kv') return 'KV 陈旧';
+  return src;
+};
+
+/* ============================== 页面 ============================== */
 
 export default function SectorDetailPage() {
   const { symbol } = useParams<{ symbol?: string }>();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [sectorList, setSectorList] = useState<SectorSummary[]>([]);
-  const [selectedSector, setSelectedSector] = useState<SectorDetail | null>(null);
-  const [activeCode, setActiveCode] = useState(symbol || '');
-  const [multidimData, setMultidimData] = useState<MultidimResult | null>(null);
+
+  const decodeRoute = useCallback(() => {
+    if (!symbol) return '';
+    try { return decodeURIComponent(symbol); } catch { return symbol; }
+  }, [symbol]);
+
+  const [sectorList, setSectorList] = useState<SectorMomentumItem[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [activeIndustry, setActiveIndustry] = useState<string>(decodeRoute);
+  // multidim v3-lite
+  const [multidimData, setMultidimData] = useState<MultidimV3Result | null>(null);
   const [multidimLoading, setMultidimLoading] = useState(false);
   const [multidimError, setMultidimError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  // 成分股
+  const [stocks, setStocks] = useState<ConstituentStock[]>([]);
+  const [stocksLoading, setStocksLoading] = useState(false);
+  const [stocksError, setStocksError] = useState<string | null>(null);
 
+  const selected = sectorList.find(s => s.industry === activeIndustry) ?? null;
+
+  /* ---- 板块列表（申万一级，与 v3 引擎键一致）---- */
   useEffect(() => {
-    loadSectorList();
+    const ac = new AbortController();
+    (async () => {
+      setListLoading(true);
+      setListError(null);
+      try {
+        const r = await fetch('/api/sectors/momentum', { signal: ac.signal });
+        const d = await r.json();
+        const list = (Array.isArray(d?.data?.sectors) ? d.data.sectors : []) as SectorMomentumItem[];
+        if (ac.signal.aborted) return;
+        setSectorList(list);
+        if (list.length === 0) {
+          // 诚实红线：接口无数据如实置空，绝不注入演示数据
+          setListError('板块列表接口未返回数据');
+        }
+        // URL 无行业参数时选中列表首位；URL 带行业名则保持（即使不在列表，也按真实行业名请求 v3）
+        setActiveIndustry(prev => prev || (list[0]?.industry ?? ''));
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        setListError('板块列表接口请求失败，多维分析无法选择板块');
+      } finally {
+        if (!ac.signal.aborted) setListLoading(false);
+      }
+    })();
+    return () => ac.abort();
   }, []);
 
+  /* ---- 多维矩阵 v3-lite（单板块 GET） ---- */
   useEffect(() => {
-    if (activeCode) {
-      loadSectorDetail(activeCode);
-      loadMultidimAnalysis(activeCode);
-    }
-  }, [activeCode]);
-
-  const loadSectorList = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/sectors/analysis');
-      const data = await res.json();
-      if (data.success) {
-        setSectorList(data.data.sectors);
-        if (!activeCode && data.data.sectors.length > 0) {
-          setActiveCode(data.data.sectors[0].code);
-        }
-      }
-    } catch (e) {
-      logger.error('加载板块列表失败:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadSectorDetail = async (sectorCode: string) => {
-    try {
-      const res = await fetch(`/api/sectors/analysis/${sectorCode}`);
-      const data = await res.json();
-      if (data.success) setSelectedSector(data.data);
-    } catch (e) {
-      logger.error('加载板块详情失败:', e);
-    }
-  };
-
-  const loadMultidimAnalysis = async (sectorCode: string) => {
-    setMultidimLoading(true);
-    setMultidimError(null);
-    try {
-      const res = await fetch(`/api/sectors/${encodeURIComponent(sectorCode)}/multidim`);
-      const data = await res.json();
-      if (data.success && data.data) {
-        setMultidimData(data.data);
-      } else {
-        setMultidimData(null);
-        setMultidimError(
-          res.status === 404
-            ? '多维分析接口不存在（404）：当前 API 环境未提供 /api/sectors/:code/multidim'
-            : (data.error || '接口未返回有效数据')
-        );
-      }
-    } catch (e) {
-      logger.error('加载多维分析失败:', e);
+    if (!activeIndustry) return;
+    const ac = new AbortController();
+    (async () => {
+      setMultidimLoading(true);
+      setMultidimError(null);
       setMultidimData(null);
-      setMultidimError('网络请求失败，无法获取多维分析数据');
-    } finally {
-      setMultidimLoading(false);
-    }
-  };
+      try {
+        const r = await fetch(`/api/sectors/${encodeURIComponent(activeIndustry)}/multidim-v3`, { signal: ac.signal });
+        const d = await r.json().catch(() => ({}));
+        if (ac.signal.aborted) return;
+        const payload = d?.data;
+        const hasDims = payload && typeof payload === 'object' && payload.dimensions && typeof payload.dimensions === 'object';
+        if (r.ok && hasDims) {
+          setMultidimData(payload as MultidimV3Result);
+        } else {
+          setMultidimError(
+            r.status === 404
+              ? `「${activeIndustry}」不在 v3-lite 申万行业覆盖范围内，或该板块暂无计算数据`
+              : (d?.error || d?.message || `多维矩阵接口返回异常（HTTP ${r.status}）`)
+          );
+        }
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        setMultidimError('多维矩阵接口网络请求失败');
+      } finally {
+        if (!ac.signal.aborted) setMultidimLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, [activeIndustry, reloadKey]);
 
-  // ============== 雷达图配置 ==============
-  // 说明：维度缺失时后端现在返回 score: null（此前是硬编码 10 分，与真实 10 分在图上无法区分，
-  //       且被计入总分污染排序）。此处 null 按 0 画在圆心，并在 tooltip/标签上明示「数据不足」。
-  const buildRadarOption = () => {
-    if (!multidimData) return {};
+  /* ---- 板块成分股（实时） ---- */
+  useEffect(() => {
+    if (!activeIndustry) return;
+    const ac = new AbortController();
+    (async () => {
+      setStocksLoading(true);
+      setStocksError(null);
+      setStocks([]);
+      try {
+        const r = await fetch(`/api/sectors/${encodeURIComponent(activeIndustry)}/stocks?pageSize=50`, { signal: ac.signal });
+        const d = await r.json().catch(() => ({}));
+        if (ac.signal.aborted) return;
+        const items = (d?.success && Array.isArray(d?.data?.items)) ? (d.data.items as ConstituentStock[]) : [];
+        setStocks(items);
+        if (items.length === 0) setStocksError('该板块暂无成分股数据');
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        setStocksError('成分股接口请求失败');
+      } finally {
+        if (!ac.signal.aborted) setStocksLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, [activeIndustry]);
 
-    const dims = multidimData.dimensions;
-    const keys: (keyof typeof dims)[] = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery'];
+  /* ---------- 展示变量 ---------- */
 
-    const indicator = keys.map((k) => ({
-      name: DIM_NAMES[k],
-      max: 20,
-    }));
-
-    const values = keys.map((k) => {
-      const s = dims[k]?.score;
-      return typeof s === 'number' ? s : 0;
-    });
-
-    return {
-      radar: {
-        indicator,
-        center: ['50%', '52%'],
-        radius: '70%',
-        axisName: {
-          color: '#94a3b8',
-          fontSize: 12,
-          padding: [3, 5],
-        },
-        splitArea: {
-          areaStyle: {
-            color: ['rgba(59, 130, 246, 0.02)', 'rgba(59, 130, 246, 0.02)'],
-          },
-        },
-        splitLine: {
-          lineStyle: {
-            color: 'rgba(148, 163, 184, 0.2)',
-          },
-        },
-        axisLine: {
-          lineStyle: {
-            color: 'rgba(148, 163, 184, 0.3)',
-          },
-        },
-      },
-      series: [
-        {
-          type: 'radar',
-          data: [
-            {
-              value: values,
-              name: multidimData.industry,
-              areaStyle: {
-                color: {
-                  type: 'radial',
-                  x: 0.5, y: 0.5, r: 0.5,
-                  colorStops: [
-                    { offset: 0, color: 'rgba(59, 130, 246, 0.35)' },
-                    { offset: 1, color: 'rgba(139, 92, 246, 0.12)' },
-                  ],
-                },
-              },
-              lineStyle: {
-                color: '#3b82f6',
-                width: 2,
-              },
-              itemStyle: {
-                color: '#3b82f6',
-              },
-            },
-          ],
-        },
-      ],
-    };
-  };
-
-  const stockColumns = [
-    { title: '排名', key: 'rank', width: 60, render: (_: unknown, __: unknown, i: number) => i + 1 },
-    { title: '代码', dataIndex: 'symbol', key: 'symbol', width: 90 },
-    { title: '名称', dataIndex: 'name', key: 'name' },
-    {
-      title: '权重', dataIndex: 'weight', key: 'weight', width: 80,
-      render: (v: number) => <Progress percent={v} size="small" showInfo format={p => `${p}%`} />,
-    },
-    {
-      title: '价格', dataIndex: 'price', key: 'price', align: 'right' as const,
-      render: (v: number) => v.toFixed(2),
-    },
-    {
-      title: '涨跌幅', dataIndex: 'changePercent', key: 'changePercent', align: 'right' as const,
-      render: (v: number) => (
-        <Tag color={v >= 0 ? 'red' : 'green'}>
-          {v >= 0 ? '+' : ''}{v.toFixed(2)}%
-        </Tag>
-      ),
-    },
-    {
-      title: '市值(亿)', dataIndex: 'marketCap', key: 'marketCap', align: 'right' as const,
-      render: (v: number) => v.toFixed(2),
-    },
-    { title: 'PE', dataIndex: 'pe', key: 'pe', align: 'right' as const, render: (v: number) => v.toFixed(1) },
-    { title: 'PB', dataIndex: 'pb', key: 'pb', align: 'right' as const, render: (v: number) => v.toFixed(2) },
-    { title: '换手率%', dataIndex: 'turnover', key: 'turnover', align: 'right' as const },
+  const selectOptions = [
+    ...sectorList.map(s => ({
+      value: s.industry,
+      label: `${s.industry}（${(toNum(s.avg_change_percent) ?? 0) >= 0 ? '+' : ''}${fmt2(toNum(s.avg_change_percent))}%）`,
+    })),
+    // URL 直达但不在列表中的行业：仍保留一个可选项，避免 Select 白框
+    ...(activeIndustry && !sectorList.some(s => s.industry === activeIndustry)
+      ? [{ value: activeIndustry, label: activeIndustry }]
+      : []),
   ];
 
-  if (loading) return (
-    <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
-      <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
-      <Skeleton active paragraph={{ rows: 6 }} />
-    </div>
-  );
+  const dims = multidimData?.dimensions;
+  const dimKeysPresent = dims ? (Object.keys(dims) as string[]).filter(k => DIM_META[k]) : [];
 
-  // 获取维度解读数据
-  const dimKeys: (keyof MultidimResult['dimensions'])[] = ['crowding', 'diffusion', 'concentration', 'retail', 'recovery'];
+  const dimsByGroup = (g: GroupKey) => DIM_ORDER.filter(k => dimKeysPresent.includes(k) && DIM_META[k].group === g);
+  const groupAvail = (g: GroupKey) => dimsByGroup(g).filter(k => toNum(dims?.[k].score) != null).length;
+
+  const boomVal = toNum(multidimData?.boomScore);
+  const crowdVal = toNum(multidimData?.crowdingScore);
+  const totalVal = toNum(multidimData?.totalScore);
+  const maxScore = toNum(multidimData?.maxScore) ?? 280;
+  const availCount = toNum(multidimData?.availableDimCount);
+  const nullCount = toNum(multidimData?.nullDimCount);
+  const meta = multidimData?.metadata;
+
+  const stockColumns = [
+    { title: '排名', key: 'rank', width: 56, render: (_: unknown, __: ConstituentStock, i: number) => i + 1 },
+    { title: '代码', dataIndex: 'symbol', key: 'symbol', width: 84 },
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    {
+      title: '市场', dataIndex: 'market', key: 'market', width: 56,
+      render: (v: string) => (v ? <Tag style={{ fontSize: 10, lineHeight: '16px', margin: 0, padding: '0 4px' }}>{v}</Tag> : '—'),
+    },
+    {
+      title: '最新价', key: 'price', align: 'right' as const, width: 84,
+      render: (_: unknown, rec: ConstituentStock) => {
+        const p = toNum(rec.latestQuote?.closePrice);
+        return <span style={{ fontFamily: 'monospace' }}>{p == null ? '—' : p.toFixed(2)}</span>;
+      },
+    },
+    {
+      title: '涨跌幅', key: 'changePercent', align: 'right' as const, width: 92,
+      render: (_: unknown, rec: ConstituentStock) => {
+        const v = toNum(rec.latestQuote?.changePercent);
+        if (v == null) return '—';
+        return <Tag color={v >= 0 ? 'red' : 'green'} style={{ margin: 0 }}>{v >= 0 ? '+' : ''}{v.toFixed(2)}%</Tag>;
+      },
+    },
+    {
+      title: '换手率%', key: 'turnoverRate', align: 'right' as const, width: 84,
+      render: (_: unknown, rec: ConstituentStock) => {
+        const v = toNum(rec.latestQuote?.turnoverRate);
+        return v == null ? '—' : v.toFixed(2);
+      },
+    },
+    {
+      title: 'PE', key: 'peRatio', align: 'right' as const, width: 76,
+      render: (_: unknown, rec: ConstituentStock) => {
+        const v = toNum(rec.latestQuote?.peRatio);
+        return v == null ? '—' : v.toFixed(1);
+      },
+    },
+  ];
+
+  if (listLoading) {
+    return (
+      <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
+        <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
+        <Skeleton active paragraph={{ rows: 6 }} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 16 }}>
@@ -311,271 +378,321 @@ export default function SectorDetailPage() {
         items={[
           { href: '/', title: <><CompassOutlined /> 发掘</> },
           { href: '/industry-map', title: <><NodeIndexOutlined /> 产业地图</> },
-          { title: sectorList.find(s => s.code === activeCode)?.name || '行业板块' },
+          { title: selected?.industry || activeIndustry || '行业板块' },
         ]}
       />
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>📈 行业板块分析</h2>
+        <h2 style={{ margin: 0, color: TEXT }}>📈 行业板块分析</h2>
         <Space>
           <Select
-            value={activeCode}
-            onChange={setActiveCode}
-            style={{ width: 200 }}
-            options={sectorList.map(s => ({ value: s.code, label: `${s.name} (${s.changePercent >= 0 ? '+' : ''}${s.changePercent}%)` }))}
+            value={activeIndustry || undefined}
+            onChange={setActiveIndustry}
+            style={{ width: 240 }}
+            showSearch
+            options={selectOptions}
+            placeholder="选择行业板块"
           />
         </Space>
       </Row>
 
-      {/* 板块概览 */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        {sectorList.slice(0, 8).map(s => (
-          <Col key={s.code} xs={12} sm={8} md={6} lg={3}>
-            <Card
-              size="small"
-              hoverable
-              style={{
-                cursor: 'pointer',
-                borderLeft: `3px solid ${s.changePercent >= 0 ? '#ff4d4f' : '#52c41a'}`,
-                background: activeCode === s.code ? '#f0f5ff' : undefined,
-              }}
-              onClick={() => setActiveCode(s.code)}
+      {/* 板块概览（前 10，点击切换） */}
+      {sectorList.length > 0 && (
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          {sectorList.slice(0, 10).map(s => {
+            const change = toNum(s.avg_change_percent) ?? 0;
+            const sc = toNum(s.score) ?? 0;
+            const active = s.industry === activeIndustry;
+            return (
+              <Col key={s.industry} xs={12} sm={8} md={6} lg={4} xl={3}>
+                <Card
+                  size="small"
+                  hoverable
+                  style={{
+                    cursor: 'pointer',
+                    borderColor: active ? THEME.accent : undefined,
+                    background: active ? THEME.surface : undefined,
+                  }}
+                  onClick={() => setActiveIndustry(s.industry)}
+                >
+                  <div style={{ fontWeight: 600, fontSize: 13, color: TEXT, marginBottom: 4 }}>{s.industry}</div>
+                  <Statistic
+                    title="综合评分"
+                    value={sc}
+                    suffix="/100"
+                    valueStyle={{ color: scoreColor(sc), fontSize: 18 }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: TEXT_SEC, marginTop: 4 }}>
+                    <span style={{ color: change >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 600 }}>
+                      {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+                    </span>
+                    <span>{toNum(s.stock_count) ?? '—'}只</span>
+                  </div>
+                </Card>
+              </Col>
+            );
+          })}
+        </Row>
+      )}
+
+      {!listError && sectorList.length === 0 && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Empty image={null} description="暂无可用板块数据（/api/sectors/momentum 未返回数据）" />
+        </Card>
+      )}
+      {listError && sectorList.length === 0 && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Empty image={null} description={listError} />
+        </Card>
+      )}
+
+      {/* ========== 板块多维矩阵（v3-lite 口径） ========== */}
+      {activeIndustry ? (
+        multidimLoading ? (
+          <Card size="small" style={{ marginBottom: 16, textAlign: 'center', padding: 40 }}>
+            <LoadingState />
+          </Card>
+        ) : multidimData ? (
+          <Card
+            size="small"
+            style={{ marginBottom: 16 }}
+            title={
+              <Space wrap size={[8, 8]}>
+                <span style={{ color: TEXT }}>🎯 板块多维矩阵</span>
+                {totalVal == null ? (
+                  <Tag color="default" style={{ margin: 0 }}>综合得分暂不计算</Tag>
+                ) : (
+                  <Tooltip title={`v3-lite 将可算维度原始分（0-20/维）求和；全部 14 维齐备时满分 ${maxScore}。组合分（景气/拥挤）0-100 仅在成分维齐全时给出。`}>
+                    <Tag color="blue" style={{ margin: 0 }}>
+                      综合 {totalVal} · 可算 {availCount ?? '—'}/14 · 缺失 {nullCount ?? '—'}
+                    </Tag>
+                  </Tooltip>
+                )}
+                <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
+                  v3-lite 真实计算 · 无演示值
+                </Tag>
+              </Space>
+            }
+            extra={
+              <Space size={8} wrap style={{ fontSize: 12, color: TEXT_SEC }}>
+                <span>成分股 {fmtInt(toNum(meta?.stockCount))} 只</span>
+                <span>PE中位 {fmt2(meta?.medianPE != null ? toNum(meta.medianPE) : null)}</span>
+                <span>板块K线源 {klineSourceLabel(meta?.boardKlineSource)} · {fmtInt(toNum(meta?.boardKlineDays))} 日</span>
+              </Space>
+            }
+          >
+            {/* 组合分横条：景气度 / 拥挤度（0-100，后端仅在成分维齐全时给出） */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+              <GroupScoreChip label="📈 景气度" value={boomVal} tone="#22c55e" hint="扩散+回补+动量仓位+概念广度+涨停扩散（5维×20）" />
+              <GroupScoreChip label="🔥 拥挤度" value={crowdVal} tone="#f59e0b" hint="拥挤度+集中度+Z值+杠杆+恐慌+基金流向（归一至100）" />
+            </div>
+
+            <Row gutter={[16, 8]}>
+              {GROUPS.map(g => {
+                const keys = dimsByGroup(g.key);
+                if (keys.length === 0) return null;
+                return (
+                  <Col xs={24} md={12} xl={8} key={g.key}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: TEXT_SEC, marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{GROUP_ICONS[g.key]} {g.title}</span>
+                      <span style={{ opacity: 0.8 }}>
+                        {groupAvail(g.key)}/{keys.length}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {keys.map(k => {
+                        const metaK = DIM_META[k];
+                        const dim = dims?.[k];
+                        const score = toNum(dim?.score);
+                        const available = score != null;
+                        return (
+                          <Tooltip key={k} title={available ? dim?.detail : (dim?.detail || metaK.awaiting)}>
+                            <div style={{
+                              display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '8px 10px', borderRadius: 8,
+                              background: 'var(--bg-secondary)', border: '1px solid var(--border-default)',
+                              cursor: 'help',
+                            }}>
+                              <span style={{ fontSize: 16, flexShrink: 0 }}>{metaK.icon}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: TEXT }}>{metaK.label}</span>
+                                  {available ? (
+                                    <Tag color={dimTone(score as number, metaK.polarity)} style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>
+                                      {score}/20
+                                    </Tag>
+                                  ) : (
+                                    <Tag color="default" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>
+                                      ⏳ 数据积累中
+                                    </Tag>
+                                  )}
+                                </div>
+                                <div
+                                  style={{
+                                    height: 4, borderRadius: 2, background: 'var(--border-default)', overflow: 'hidden',
+                                  }}
+                                >
+                                  {available && (
+                                    <div style={{
+                                      height: '100%', borderRadius: 2,
+                                      width: `${Math.min(100, (score as number) * 5)}%`,
+                                      background: `linear-gradient(90deg, ${metaK.accent}, ${metaK.accent}88)`,
+                                    }} />
+                                  )}
+                                </div>
+                                <div style={{
+                                  fontSize: 11, color: TEXT_SEC, marginTop: 3,
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }}>
+                                  {available ? dim?.label : (dim?.label === '历史缺失' || !dim?.label ? metaK.awaiting : dim?.label)}
+                                </div>
+                              </div>
+                            </div>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </Col>
+                );
+              })}
+            </Row>
+          </Card>
+        ) : (
+          <Card size="small" style={{ marginBottom: 16 }}>
+            <Empty
+              image={null}
+              description={
+                <div style={{ color: TEXT_SEC, fontSize: 12, lineHeight: 1.8 }}>
+                  <div style={{ fontSize: 13, color: TEXT, marginBottom: 4 }}>🎯 板块多维矩阵暂不可用</div>
+                  <div>{multidimError || '多维矩阵接口未返回数据'}</div>
+                  <div style={{ marginTop: 6, opacity: 0.8 }}>
+                    v3-lite 引擎对缺失数据如实返回 null，本页不做任何降级估算——宁可留白，不用假数据填充。
+                    可尝试切换其它申万行业，或点击重试。
+                  </div>
+                </div>
+              }
             >
-              <Statistic
-                title={s.name}
-                value={s.changePercent}
-                precision={2}
-                prefix={s.changePercent >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                suffix="%"
-                valueStyle={{ color: s.changePercent >= 0 ? '#ff4d4f' : '#52c41a', fontSize: 16 }}
-              />
-              <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
-                PE {s.avgPE} | {s.stockCount}只
-              </div>
+              <Space>
+                <Tag icon={<ReloadOutlined />} color="blue" style={{ cursor: 'pointer' }} onClick={() => setReloadKey(k => k + 1)}>
+                  重试
+                </Tag>
+              </Space>
+            </Empty>
+          </Card>
+        )
+      ) : null}
+
+      {/* ========== 板块实时概览（来自 /api/sectors/momentum，0-100 综合评分） ========== */}
+      {selected && (
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col xs={12} sm={8} md={6}>
+            <Tooltip title="板块动量评分（0-100）= 动量35% + 涨跌25% + 广度25% + 量能15%（成分<10 只按比例折减），口径同发掘页">
+              <Card size="small">
+                <div style={{ color: TEXT_SEC, fontSize: 12, marginBottom: 4 }}>综合评分</div>
+                <span style={{ fontSize: 26, fontWeight: 800, color: scoreColor(toNum(selected.score) ?? 0), fontFamily: 'monospace' }}>
+                  {fmtInt(toNum(selected.score))}
+                </span>
+                <Tag color="default" style={{ marginLeft: 8, fontSize: 11 }}>{scoreLabel(toNum(selected.score) ?? 0)}</Tag>
+              </Card>
+            </Tooltip>
+          </Col>
+          <Col xs={12} sm={8} md={6}>
+            <Card size="small">
+              <div style={{ color: TEXT_SEC, fontSize: 12, marginBottom: 4 }}>平均涨跌幅</div>
+              {(() => {
+                const v = toNum(selected.avg_change_percent);
+                return v == null
+                  ? <span style={{ fontSize: 22, fontWeight: 700, color: TEXT }}>—</span>
+                  : (
+                    <span style={{ fontSize: 22, fontWeight: 700, color: v >= 0 ? COLOR_UP : COLOR_DOWN, fontFamily: 'monospace' }}>
+                      {v >= 0 ? '+' : ''}{v.toFixed(2)}%
+                    </span>
+                  );
+              })()}
             </Card>
           </Col>
-        ))}
-      </Row>
-
-      {/* ========== P0-2: 多维雷达图 + 解读仪表盘 ========== */}
-      {multidimLoading ? (
-        <Card size="small" style={{ marginBottom: 16, textAlign: 'center', padding: 40 }}>
-          <LoadingState />
-        </Card>
-      ) : multidimData ? (
-        <Card
-          size="small"
-          style={{ marginBottom: 16 }}
-          title={
-            <Space>
-              <span>🎯 板块多维雷达图</span>
-              {/* totalScore 为 null = 维度不全（后端已停止用硬编码 10 分凑数）。
-                  此时必须明示「维度不全」，不能拿残缺分数给出「良好/一般」评级。 */}
-              {multidimData.totalScore == null ? (
-                <Tooltip title="该板块存在数据缺失的维度，综合得分不予计算（缺失维度不参与评分）">
-                  <Tag color="default" style={{ margin: 0 }}>
-                    维度不全 {multidimData.availableDimCount ?? '—'}/{multidimData.totalDimCount ?? 5} · 综合得分暂不计算
-                  </Tag>
-                </Tooltip>
-              ) : (
-                <Tag color={getTotalRank(multidimData.totalScore).color}>
-                  综合得分: {multidimData.totalScore}/100 ({getTotalRank(multidimData.totalScore).label})
-                </Tag>
-              )}
-            </Space>
-          }
-        >
-          <Row gutter={[24, 24]}>
-            {/* 雷达图 */}
-            <Col xs={24} md={12} lg={10}>
-              <ReactECharts
-                echarts={echarts}
-                option={buildRadarOption()}
-                style={{ height: 380 }}
-                notMerge
-              />
-            </Col>
-
-            {/* 维度解读 */}
-            <Col xs={24} md={12} lg={14}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', justifyContent: 'center' }}>
-                {dimKeys.map((key) => {
-                  const dim = multidimData.dimensions[key];
-                  const color = RADAR_COLORS[key];
-                  const icon = DIM_ICONS[key];
-                  const name = DIM_NAMES[key];
-                  // 数据缺失维度：score 为 null，进度条置空并显示「—」，不伪装成 0 分或 10 分
-                  const unavailable = dim?.score == null;
-                  const scorePct = unavailable ? 0 : ((dim.score as number) / 20) * 100;
-
+          <Col xs={12} sm={8} md={6}>
+            <Card size="small">
+              <div style={{ color: TEXT_SEC, fontSize: 12, marginBottom: 4 }}>上涨广度</div>
+              {(() => {
+                const v = toNum(selected.breadthScore);
+                return v == null
+                  ? <span style={{ fontSize: 22, fontWeight: 700, color: TEXT }}>—</span>
+                  : <span style={{ fontSize: 22, fontWeight: 700, color: TEXT, fontFamily: 'monospace' }}>{v.toFixed(0)}%</span>;
+              })()}
+            </Card>
+          </Col>
+          <Col xs={12} sm={8} md={6}>
+            <Card size="small">
+              <div style={{ color: TEXT_SEC, fontSize: 12, marginBottom: 4 }}>成分股 / 涨停</div>
+              <span style={{ fontSize: 22, fontWeight: 700, color: TEXT, fontFamily: 'monospace' }}>
+                {fmtInt(toNum(selected.stock_count))}
+              </span>
+              <span style={{ fontSize: 13, color: TEXT_SEC, marginLeft: 8 }}>
+                只
+              </span>
+              <span style={{ marginLeft: 10, fontSize: 16 }}>
+                {(() => {
+                  const lu = toNum(selected.limit_up_count);
+                  if (lu == null) return <span style={{ color: TEXT_SEC, fontSize: 13 }}>涨停 —</span>;
                   return (
-                    <div key={key} style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      padding: '10px 14px',
-                      borderRadius: 8,
-                      background: 'rgba(255,255,255,0.03)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      transition: 'all 0.2s',
-                    }}>
-                      {/* 图标 */}
-                      <div style={{
-                        width: 40, height: 40, borderRadius: 10,
-                        background: `${color}15`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 20, flexShrink: 0,
-                      }}>
-                        {icon}
-                      </div>
-
-                      {/* 内容 */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontWeight: 600, fontSize: 14, color: '#e2e8f0' }}>{name}</span>
-                          {unavailable ? (
-                            <Tooltip title={dim?.detail || '该维度数据缺失，不参与评分'}>
-                              <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
-                                —/20 数据不足
-                              </Tag>
-                            </Tooltip>
-                          ) : (
-                            <Tag color={(dim.score as number) >= 14 ? 'green' : (dim.score as number) >= 9 ? 'orange' : 'red'} style={{ margin: 0, fontSize: 11 }}>
-                              {dim.score}/20
-                            </Tag>
-                          )}
-                          <span style={{ fontSize: 12, color: color, fontWeight: 500 }}>{dim.label}</span>
-                        </div>
-
-                        {/* 进度条 */}
-                        <div style={{
-                          height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)',
-                          marginBottom: 6, overflow: 'hidden',
-                        }}>
-                          <div style={{
-                            height: '100%', borderRadius: 2,
-                            width: `${scorePct}%`,
-                            background: `linear-gradient(90deg, ${color}, ${color}88)`,
-                            transition: 'width 0.5s ease',
-                          }} />
-                        </div>
-
-                        {/* 详细解读 */}
-                        <Tooltip title={dim.detail}>
-                          <span style={{
-                            fontSize: 12, color: '#94a3b8',
-                            lineHeight: 1.5,
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                          }}>
-                            {dim.detail}
-                          </span>
-                        </Tooltip>
-                      </div>
-                    </div>
+                    <span style={{ color: lu > 0 ? '#ff4d4f' : TEXT_SEC, fontSize: 13 }}>
+                      🔥 涨停 {lu}
+                    </span>
                   );
-                })}
-              </div>
-            </Col>
-          </Row>
-        </Card>
-      ) : (
-        /* 此前这里是 `null`：接口不可用时（线上 Worker 尚未提供 /api/sectors/:code/multidim）
-           整个多维区会静默消失，用户完全不知道有此功能。改为诚实空态并说明原因。 */
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Empty
-            image={null}
-            description={
-              <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.8 }}>
-                <div style={{ fontSize: 13, color: '#e2e8f0', marginBottom: 4 }}>
-                  🎯 板块多维雷达图暂不可用
-                </div>
-                <div>{multidimError || '多维分析接口未返回数据'}</div>
-                <div style={{ marginTop: 6, opacity: 0.75 }}>
-                  该能力依赖后端多维计算服务（需历史行情，如 MA20 / 20日动量）。
-                  在纯实时行情环境下无法计算，故不做降级估算——宁可留白，不用假数据填充。
-                </div>
-              </div>
-            }
-          />
-        </Card>
+                })()}
+              </span>
+            </Card>
+          </Col>
+        </Row>
       )}
 
-      {selectedSector && (
-        <>
-          {/* 板块详情指标 */}
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={12} sm={8} md={6}>
-              <Card size="small"><Statistic title="平均PE" value={selectedSector.avgPE} precision={1} /></Card>
-            </Col>
-            <Col xs={12} sm={8} md={6}>
-              <Card size="small"><Statistic title="平均PB" value={selectedSector.avgPB} precision={2} /></Card>
-            </Col>
-            <Col xs={12} sm={8} md={6}>
-              <Card size="small"><Statistic title="平均ROE" value={selectedSector.avgROE} precision={1} suffix="%" /></Card>
-            </Col>
-            <Col xs={12} sm={8} md={6}>
-              <Card size="small">
-                <Statistic
-                  title="资金流向"
-                  value={selectedSector.fundFlow}
-                  precision={2}
-                  suffix="亿"
-                  valueStyle={{ color: selectedSector.fundFlow >= 0 ? '#ff4d4f' : '#52c41a' }}
-                />
-              </Card>
-            </Col>
-          </Row>
-
-          {/* 图表 */}
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={24} md={12}>
-              <Card title="PE分布" size="small">
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={selectedSector.peDistribution}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="range" />
-                    <YAxis />
-                    <RechartsTooltip />
-                    <Bar dataKey="count" name="公司数" fill="#1890ff" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Card>
-            </Col>
-            <Col xs={24} md={12}>
-              <Card title="市值分布" size="small">
-                <ResponsiveContainer width="100%" height={250}>
-                  <PieChart>
-                    <Pie data={selectedSector.marketCapDistribution} cx="50%" cy="50%" outerRadius={80}
-                      label={({ range, count }: any) => `${range}(${count})`} labelLine={false}>
-                      {selectedSector.marketCapDistribution.map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </Card>
-            </Col>
-          </Row>
-
-          {/* 成分股表格 */}
-          <Card title={`${selectedSector.name} - 重仓成分股`} size="small">
-            <Table
-              columns={stockColumns}
-              dataSource={selectedSector.topStocks}
-              rowKey="symbol"
-              pagination={false}
-              size="small"
-              onRow={(record) => ({
-                onClick: () => navigate(`/stocks/${record.symbol}`),
-                style: { cursor: 'pointer' },
-              })}
-            />
-          </Card>
-        </>
-      )}
+      {/* ========== 板块成分股（实时行情） ========== */}
+      <Card
+        title={<span style={{ color: TEXT }}>{selected?.industry || activeIndustry} — 板块成分股（按涨跌幅排序）</span>}
+        size="small"
+        styles={{ body: { paddingTop: 0 } }}
+      >
+        <Table
+          columns={stockColumns}
+          dataSource={stocks}
+          rowKey="symbol"
+          loading={stocksLoading}
+          pagination={false}
+          size="small"
+          locale={{ emptyText: stocksError ? <Empty image={null} description={stocksError} /> : undefined }}
+          onRow={(record) => ({
+            onClick: () => navigate(`/stocks/${record.symbol}`),
+            style: { cursor: 'pointer' },
+          })}
+        />
+      </Card>
     </div>
+  );
+}
+
+/** 组合分小横条：value 为 null 表示成分维不齐 → 「数据积累中」 */
+function GroupScoreChip({ label, value, tone, hint }: { label: string; value: number | null; tone: string; hint: string }) {
+  const available = value != null;
+  return (
+    <Tooltip title={available ? `${hint}\n综合景气需该组全部维度可算，满分 100` : `成分维未齐备，综合分暂不计算（${hint}）`}>
+      <div style={{
+        flex: '1 1 180px', maxWidth: 260,
+        padding: '10px 14px', borderRadius: 10,
+        background: 'var(--bg-secondary)', border: '1px solid var(--border-default)',
+        cursor: 'help',
+      }}>
+        <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 4 }}>{label}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          {available ? (
+            <>
+              <span style={{ fontSize: 24, fontWeight: 800, color: tone, fontFamily: 'monospace' }}>{value}</span>
+              <span style={{ fontSize: 11, color: TEXT_SEC }}>/100</span>
+            </>
+          ) : (
+            <span style={{ fontSize: 14, fontWeight: 600, color: TEXT_SEC }}>⏳ 数据积累中</span>
+          )}
+        </div>
+      </div>
+    </Tooltip>
   );
 }
