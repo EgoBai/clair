@@ -56,3 +56,13 @@
 - **惨痛坑：`git stash pop` 会把 stash 内容暂存进 index（M 在第一列=staged）**。本轮回填收口时直接 `git add <memory.md>` + `git commit`，结果把 stash 还原的 6 个他人在途文件一并提交并误推（7f621639d，7 files）。已用 `git reset --soft HEAD~1` + `git restore --staged -- <他人 6 文件>` 仅保留本自动化 memory.md 重新提交，并以 `--force-with-lease` 覆盖远端错误提交（defe849a5，仅 1 file）。他人文件还原为工作树未提交改动，红线恢复。
 - **铁律（下轮必守）**：凡经 stash 保护/rebase 后，提交前必须 `git diff --cached --name-only` 核对暂存集；只 `git add` 本轮产物（docs/ 二文件 + 本 automation memory.md），严禁 `git commit`/`git add -A` 不带路径。stash pop 后务必先 `git reset HEAD <他人文件>` 清掉暂存再提交。
 - 网络策略：本沙箱到 github 间歇可达（代理空响应 + 直连 443 时通时断）。推送前先 `git fetch` 探活；遇 "fetch first"/"stale info" 用 `git rebase --onto origin/main <本轮base> main` 仅重放本轮提交；推送用 `GIT_HTTP_TIMEOUT=60 git -c http.proxy= -c https.proxy= push`（直连偶发比代理稳）。
+
+## 2026-09-11 03:00 第 N+8 轮
+- 重新生成：✅ `python3 scripts/gen_dashboard.py` 成功（generatedAt=2026-09-11T03:00:45+08:00，round=120，tickets=59，realSrc=6，sprints=6，decisions=19，debts=11，swarm=5，orch=5，timeline=8），产物 docs/dashboard-data.json + docs/clair-dashboard.html（round 与 09-10 持平=120，仅时间戳刷新）。
+- 提交：✅ 仅 add 两个 docs 产物 + commit（本地初哈希 589026aa9）「chore(dashboard): 自动刷新进度数据」。
+- 推送：✅ 推送前 `git fetch` 发现本地领先 origin/main 5 提交，其中 4 个（3a586e6d6/177690ae3/76eb1a332/e39af2dd7）为主循环 automation 他人在途记账提交（非本看板产物）。先 `git stash -u` 保护他人 WIP（5 个 modified + 3 个 untracked），`git rebase --onto origin/main 3a586e6d6 main` 仅把本轮 docs 提交重放到 origin/main 之上（新哈希 670755969），他人文件经 stash 精确还原并 `git reset HEAD` 清暂存。git-push-retry.sh 直连首推成功（888ca41bf..670755969），仅含本轮 docs 提交。
+- 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token（authenticated=true）→ import_html.py --token-stdin --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --token-stdin --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj。**看板主交付通道已是最新**。
+- 收口：✅ 仅提交本轮产物 automation memory.md（chore(dashboard): 看板刷新·收口本轮产物，本地提交待推送）；工作树遗留 06fe3d69 自动化 memory.md、backend/src/services/factorEngine.ts、frontend/playwright-report/index.html、frontend/src/config/navGroups.ts、frontend/src/config/pageIndex.ts 及未跟踪的 .workbuddy/memory/2026-09-09.md、frontend/.workbuddy/memory/2026-09-10.md、frontend/src/utils/README.md 均为他人在途改动，按单通道红线未触碰、未提交。
+
+## 结论
+最近一轮（2026-09-11）：重新生成=是；推送=成功（本地领先 5 提交、含 4 个他人在途记账提交，经 stash 保护 + rebase --onto 仅推送本轮 docs 提交 670755969，规避他人 WIP，888ca41bf..670755969）；重导入并发布=成功（已发布页即最新，为主交付通道）；收口=干净（仅提交并提交本轮 memory.md，未触碰他人在途文件）。
