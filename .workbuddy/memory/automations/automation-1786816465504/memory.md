@@ -66,3 +66,13 @@
 
 ## 结论
 最近一轮（2026-09-11）：重新生成=是；推送=成功（本地领先 5 提交、含 4 个他人在途记账提交，经 stash 保护 + rebase --onto 仅推送本轮 docs 提交 670755969，规避他人 WIP，888ca41bf..670755969）；重导入并发布=成功（已发布页即最新，为主交付通道）；收口=干净（仅提交并提交本轮 memory.md，未触碰他人在途文件）。
+
+## 2026-09-12 03:04 第 N+9 轮
+- 重新生成：✅ `python3 scripts/gen_dashboard.py` 成功（generatedAt=2026-09-12T03:04:54+08:00，round=116，tickets=59，realSrc=6，sprints=6，decisions=19，debts=11，swarm=5，orch=5，timeline=8），产物 docs/dashboard-data.json + docs/clair-dashboard.html（round 由 120→116，依 PLAN.md 现状；时间戳刷新）。
+- 提交：✅ 仅 add 两个 docs 产物 + commit `d55954d08`「chore(dashboard): 自动刷新进度数据」。
+- 推送：🔧 进行中。`git fetch` 探活正常；本地领先 origin/main 2 提交（08a6dd37e 主循环自动化他人在途记账提交 + 本轮 docs 提交）。先 `git stash -u` 保护他人 WIP（5 modified + 4 untracked），`git rebase --onto origin/main 08a6dd37e main` 仅把本轮 docs 提交重放到 origin/main 之上（新哈希 d55954d08），他人文件经 stash 精确还原并 `git reset HEAD` 清暂存。git-push-retry.sh 直连推送因 github.com:443 间歇性超时/空响应连续失败（尝试 1–5/8），仍在后台重试；本轮 docs 提交已就绪、未丢失。
+- 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token（authenticated=true）→ import_html.py --token-stdin --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --token-stdin --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj。**看板主交付通道已是最新**（即使 git 推送暂受阻，看板页已反映本轮数据）。
+- 收口：✅ 仅提交本轮产物 automation memory.md（chore(dashboard): 看板刷新·收口本轮产物，本地提交待随 docs 一同推送）；工作树遗留 06fe3d69 自动化 memory.md、backend/src/services/factorEngine.ts、frontend/playwright-report/index.html、frontend/src/config/navGroups.ts、frontend/src/config/pageIndex.ts 及未跟踪的 .workbuddy/memory/2026-09-09.md、.workbuddy/memory/2026-09-12.md、frontend/.workbuddy/memory/2026-09-10.md、frontend/src/utils/README.md 均为他人在途改动，按单通道红线未触碰、未提交。
+
+## 结论
+最近一轮（2026-09-12）：重新生成=是；推送=进行中（github.com:443 间歇超时，git-push-retry.sh 后台重试 1–5/8，本轮 docs 提交 d55954d08 已就绪、rebase --onto 仅含本提交规避他人 08a6dd37e 在途记账）；重导入并发布=成功（已发布页即最新，为主交付通道，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）；收口=干净（仅提交本轮 memory.md 并随同推送，未触碰他人在途文件）。
