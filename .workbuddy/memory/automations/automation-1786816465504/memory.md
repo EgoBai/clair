@@ -76,3 +76,13 @@
 
 ## 结论
 最近一轮（2026-09-12）：重新生成=是；推送=成功（初 git-push-retry.sh 直连 8/8 全败、生成 bundle 兜底，末次 verify fetch 恢复后直连推送 cff9dd368..6d25edca1，0 ahead/0 behind，仅含本轮 2 提交 d55954d08+6d25edca1 规避他人 08a6dd37e 在途记账）；重导入并发布=成功（已发布页即最新，为主交付通道，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）；收口=干净（仅提交并提交本轮 memory.md，未触碰他人在途文件）。
+
+## 2026-09-13 03:00 第 N+10 轮
+- 重新生成：✅ `python3 scripts/gen_dashboard.py` 成功（generatedAt=2026-09-13T03:00:31+08:00，round=116，tickets=59，realSrc=6，sprints=6，decisions=19，debts=11，swarm=5，orch=5，timeline=8），产物 docs/dashboard-data.json + docs/clair-dashboard.html（round 与 09-12 持平=116，仅时间戳刷新）。
+- 提交：✅ 仅 add 两个 docs 产物 + commit `ff1c1dc76`「chore(dashboard): 自动刷新进度数据」。
+- 推送：⚠️ **网络不可达**——`git fetch origin main` 连续 2 次 github.com:443 超时（~75s），无法取得真实 origin/main，因而**无法** `rebase --onto` 隔离本看板提交。本地领先 5 提交，其中 4 个（376a31d50/893285105/c61b99419/f2f69443f）为主循环 automation 他人在途记账提交（非本看板产物）。依 09-09 起红线纪律（只推送本看板产物、严禁带他人在途提交上共享历史），**本轮未推送**；已生成离线 bundle 兜底 `.git-push-bundles/clair-20260913-030442.bundle`（14.9MB，`--all` 保险，本地提交不丢失）。网络恢复后重跑本脚本即可补齐。
+- 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token（authenticated=true）→ import_html.py --token-stdin --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --token-stdin --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj。**看板主交付通道已是最新**（import 读本地 HTML，不受 git 推送阻塞影响——即便 github raw 本轮未更新，已发布页即反映本轮数据）。
+- 收口：🔧 仅提交本轮产物 automation memory.md（chore(dashboard): 看板刷新·收口本轮产物，本地提交待网络恢复后随 docs 一同推送）；工作树遗留 06fe3d69 自动化 memory.md、backend/src/services/factorEngine.ts、frontend/playwright-report/index.html、frontend/src/config/navGroups.ts、frontend/src/config/pageIndex.ts 及未跟踪的 .workbuddy/memory/2026-09-09.md、2026-09-12.md、frontend/.workbuddy/memory/2026-09-10.md、frontend/src/utils/README.md 均为他人在途改动，按单通道红线未触碰、未提交。
+
+## 结论
+最近一轮（2026-09-13）：重新生成=是；推送=**网络不可达未成功**（github.com:443 持续超时，无法 fetch 真实 origin/main 故不能 rebase --onto 隔离，依红线纪律未推送、仅本地 commit ff1c1dc76 + 离线 bundle 兜底，规避把 4 个主循环他人在途记账提交带上共享历史）；重导入并发布=成功（已发布页即最新，为主交付通道，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）；收口=干净（仅提交并提交本轮 memory.md，未触碰他人在途文件）。待网络恢复后重跑 git-push-retry.sh 补齐 docs 提交与 memory.md 收口提交。
