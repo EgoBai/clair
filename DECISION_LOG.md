@@ -139,6 +139,15 @@
   - **选项**：A. 后端注册龙虎榜路由（将 `_archived/top-traders.ts` 迁回并挂载，恢复真实数据）；B. 前端将「龙虎榜」入口标记为「未就绪」并暂时从主导航移出（避免用户反复进入空页）；C. 维持现状（诚实空态已兜底，仅体验债，不阻断其他功能）。
   - **状态**：🟡 **待用户决策**（非循环可擅自扩展范围；属 D21 类「需用户拍板的体验/产品债」）。建议选 A（根治）或 B（最小风险隔离），C 仅作临时容忍。本轮 IP-8 统一两页空态时发现此缺陷，已登记不影响本轮代码收口。
 
+- **D25（2026-09-14 06:07 · 单通道红线触发·交互会话生产源码在途·本轮 PAUSE）🔴**：`git status` 检出 **3 个生产源码在途**（均 mtime 2026-09-14 03:04，仅 ~3h 前，属活跃并行写码，非陈旧遗留）：
+  - `M backend/src/services/factorEngine.ts`（+56/-6，**IP-19 诚实降级**：新增 `available`/`reason`/`dataAsOf` 字段 + 诚实 note，区分「因子不可计算（ic=0 表示未算）」与「IC 真实为 0」，避免静默归零违反诚实数据红线）
+  - `M frontend/src/config/navGroups.ts`（+6/-2，**D24/IP-18**：摘除龙虎榜导航入口，保留 `/top-traders` 路由与 `TopTradersPage` 诚实空态兜底）
+  - `M frontend/src/config/pageIndex.ts`（+2/-1，**D24/IP-18**：摘除龙虎榜搜索索引）
+  - 经独立核验：① 前端 `tsc --noEmit` 0 错、后端 `tsc` 仅既有基线 `ai-analysis.ts(89,5)` 0 新增错（因子引擎改动未引入新错）；② `navGroups.ts` 摘除 `TrophyOutlined` 导入后无悬空引用（grep 实证）；③ `/top-traders` 路由与 `TopTradersPage` 保留（诚实空态兜底），仅入口摘除，与注释一致。三项在途改动**健康、自包含、非破坏**，但属用户当日 03:04 交互会话活跃编辑产物，automation 严守红线**暂停本轮全部源码推进，绝不并行改库**。
+  - **关联状态更新**：**D21（NorthBoundPage.tsx）已解除**——该文件已不在 git status（用户已 commit 收口，旧红线僵局终解）；**D24 部分已处置**——龙虎榜导航入口已摘除（用户以 D24-B「从主导航移出」方式实质处理），但后端 `/api/top-traders/*` 路由仍 404（实现仅存 `backend/src/api/_archived/top-traders.ts`，未注册），D24 后端根治项仍待用户决策。
+  - **选项**：A. 用户 `git commit` 收口这 3 个在途文件（低风险、可秒回滚），automation 下轮恢复开发/改进池推进（推荐）；B. 用户声明 automation 可接管的互斥安全文件域（与这 3 文件零交集），依 D22 零交集规则继续推进；C. 维持现状：automation 持续 PAUSE 健康巡检待命，直至工作区清空。
+  - **状态**：🔴 **待用户协调**。提示：D22「零交集域二级判定」已连续 16+ 轮（R101~R116）验证有效但**至今未获用户正式追认**，且本轮 3 文件 mtime <24h（活跃），即便按 D22 二级判定规则②（活跃并行→整轮 PAUSE）亦属完整暂停，故本轮严格按自主循环 spec 暂停，未擅自并行改库。微信 webhook 空 + agent-mail 仅附件上传无 SendMessage → 通道待开通，总结落盘 summaries/ 兜底。
+
 ## 2026-08-27 用户授权干预（D20 根治 + 防空转机制）
 
 - **🟢 D20 已根治（2026-08-27 用户授权复盘优化，团队 clair-loop-review 执行）**：根因查明——PLAN.md 脏写并非兄弟自动化抢写（`gen_dashboard.py` 对 PLAN.md 纯只读，看板自动化 12 次执行均只 add docs 文件），实为**自主循环自身未及时 commit 的记账改动 + 框架自动追加的 automation memory.md 未被 prompt 涵盖收口**，被时序误判为"兄弟抢写"。处置：①两自动化 prompt 均已注入「每轮结束强制收口」纪律（逐文件 add+commit 自身产物，严禁遗留脏树）；②自主循环单通道红线精细化——记账类脏文件（PLAN/DECISION_LOG/automation memory/guard/docs 看板产物）**容忍不暂停**，仅生产源码（frontend/src、backend/src、miniprogram、shared）在途才触发红线，D20 类误暂停不再复发。**状态：✅ 已决，无需用户再选 A/B/C。**

@@ -752,3 +752,32 @@
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 仍仅暴露附件上传、无 SendMessage/send_mail → 全部通道不可用，summary 落盘 summaries/loop-20260907-2234.md 兜底，标记「推送通道待开通」。
 
 **本轮收口**：commit `41723b782`（3 文件：PLAN.md / backend/src/api/fund-flow.ts / 自身 automation memory.md）；在途 {lockup-shares.ts, NorthBoundPage.tsx} 及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
+
+## 本轮（2026-09-14 06:07 · 单通道红线触发·PAUSE 轮）
+
+**前置**：上轮记录为第116轮（2026-09-07 22:34 · IP-20）。本次间隔约 7 天，期间未见新 memory 段落（文件仍止于 R116），推测轮次照常运行但本 memory 仅保留近期窗口。
+
+**单通道红线（触发·完整 PAUSE）**：`git status` 检出 **3 个生产源码在途**（均 mtime 2026-09-14 03:04，仅 ~3h 前 → 活跃并行写码，非陈旧遗留）：
+- `M backend/src/services/factorEngine.ts`（+56/-6，IP-19 诚实降级：available/reason/dataAsOf + 诚实 note）
+- `M frontend/src/config/navGroups.ts`（+6/-2，D24/IP-18：摘除龙虎榜导航入口，保留路由与 TopTradersPage 诚实空态）
+- `M frontend/src/config/pageIndex.ts`（+2/-1，D24/IP-18：摘除龙虎榜搜索索引）
+- 另：`M .workbuddy/memory/automations/06fe3d69-.../memory.md`（他自动化记账，容忍不触发）、`M frontend/playwright-report/index.html`/`M frontend/ui-guard-report.md`（报告产物，容忍）、`?? .workbuddy/memory/2026-09-09~14.md`（日记，容忍）、`?? frontend/src/utils/README.md`（非源码阻断）。**NorthBoundPage.tsx 与 lockup-shares.ts 已不在脏列表**——旧 D21 红线僵局已随用户 commit 解除。
+
+**独立验证（先验证再采信·证伪破坏）**：
+- `git diff` 复核三文件改动，内容自包含、与注释一致（factorEngine 加诚实降级字段；navGroups/pageIndex 摘除龙虎榜入口与索引，保留路由兜底）。
+- `grep` 确认 `navGroups.ts` 摘除 `TrophyOutlined` 后无悬空引用；`/top-traders` 路由与 `TopTradersPage` 保留（注释明示）。
+- 只读健康校验：前端 `./node_modules/.bin/tsc --noEmit` exit 0（TSC_OK）；后端 `tsc` 仅既有基线 `ai-analysis.ts(89,5)` 0 新增错（factorEngine 改动未引入新错）；dev 5173=200。在途改动健康、可编译、非破坏。
+
+**处置**：本轮严守自主循环 spec 单通道红线（生产源码活跃在途 → 完整 PAUSE）：未碰任何源码、未推进改进池，零源码/文档改动（PLAN.md 本轮未改，避免误动巨型表格）。另立 **D25 🔴**（3 文件活跃在途·本轮 PAUSE + D21 已解除 + D24 部分处置 + 选项 A/B/C），请用户收口在途文件或声明互斥域。
+
+**决策门**：🔴 D25（新·单通道红线触发·生产源码活跃在途·待用户协调）。
+
+**专家团评估**：E1✅ 无需分派（红线暂停+只读验证）/ E2✅ 零改动 / E3🟢 / E4✅ / E5✅ 独立验证（grep+tsc+diff 证零破坏）/ E6🟢 无新技术债（在途改动健康、系用户 IP-19/D24 诚实数据工作）。
+
+**改进池进度**：IP-1~IP-20 前序已完成（R116 销号 IP-20）；本轮未推进（红线阻塞）。注：D24/IP-18 龙虎榜摘除已由用户在交互会话实质完成（在途 navGroups/pageIndex 改动即其产物），非 automation 待办。
+
+**待用户明确（本轮新增）**：**D25 单通道红线·3 个生产源码活跃在途（🔴 新）**——选 A 收口 / B 声明互斥域 / C 维持巡检；**D22 红线二级判定追认（仍待用户正式追认·已连续 16+ 轮验证有效）**；D24 后端龙虎榜路由根治（🟡 待决策）；MP-1 收尾 / S2-x 蜂群 / RAG 二期向量化（DeepSeek key 用户独占）/ D2 POC 四件套延后。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 经 ToolSearch 复验仅暴露 `agent_mail_upload_attachment`/`download_attachment`，**无 SendMessage/send_mail** → 邮件仍不可用。全部通道不可用 → summary 落盘 summaries/loop-20260914-0607.md 兜底，标记「推送通道待开通」。
+
+**本轮收口**：commit（DECISION_LOG.md + 自身 automation memory.md + summaries/loop-20260914-0607.md）；在途 3 生产源码文件及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
