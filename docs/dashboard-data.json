@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-14T03:01:05+08:00",
+  "generatedAt": "2026-09-15T03:01:16+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
-    "round": 124,
+    "round": 116,
     "totalTickets": 59,
     "pagesActive": "24·24",
     "realDataSources": 6,
@@ -363,16 +363,6 @@
   ],
   "timeline": [
     {
-      "round": 123,
-      "tag": "诚实数据注释漂移校正 + IP-21 收口·2026-09-13 17:27",
-      "summary": "防空转纪律续推 IP-21（诚实数据残留审计）。单通道红线 D22 ②：在途 4 文件（factorEngine/navGroups/pageIndex/utils/README."
-    },
-    {
-      "round": 122,
-      "tag": "诚实数据残留审计 + 演示标注补全·2026-09-13 10:45",
-      "summary": "防空转纪律取现场挖掘项——全量审计生产源码 `Math.random`（346 处，多数良性 ID/重连抖动/会话令牌）与 8 个演示兜底生成器。**独立验证纠正初期误判**：Gr"
-    },
-    {
       "round": 106,
       "tag": "IP-8 第3批·三态统一·零交集域，2026-09-03 21:28",
       "summary": "单通道红线沿用 D22 二级判定——git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx（+15/-11，陈旧遗留，跨 90"
@@ -401,6 +391,16 @@
       "round": 94,
       "tag": "单通道红线连续5轮暂停·升级轮，2026-08-31 11:27",
       "summary": "单通道红线第5次触发（git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx +15/-11，与第90-93轮完全吻合），au"
+    },
+    {
+      "round": 88,
+      "tag": "IP-5 低覆盖核心模块契约测试轮，2026-08-29 03:18",
+      "summary": "防空转机制取自主改进池 IP-5（下一任务仍 await 用户明确授权，自主可推进项达天花板）。**单通道红线**：git status 仅 `.workbuddy/memory/"
+    },
+    {
+      "round": 87,
+      "tag": "IP-4 T5 类型漂移核实轮，2026-08-28 21:00",
+      "summary": "防空转机制取 IP-4（技术债 T5 exportScheduler 类型漂移）。**独立验证（先验证再采信·证伪漂移）**：`grep` 确认 `src/utils/bloomb"
     }
   ]
 }
