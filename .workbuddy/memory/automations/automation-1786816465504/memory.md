@@ -106,3 +106,12 @@
 
 ## 结论
 最近一轮（2026-09-15）：重新生成=是；推送=成功（git-push-retry.sh 直连首推 a90719312..154d13903，本地 main 已对齐 origin/main 无 interleaved 他人提交，无分叉）；重导入并发布=成功（已发布页即最新，为主交付通道，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）；收口=干净（仅提交并提交本轮 memory.md，未触碰他人在途文件）。
+
+## 2026-09-16 03:01 第 N+13 轮
+- 重新生成：✅ `python3 scripts/gen_dashboard.py` 成功（generatedAt=2026-09-16T03:01:35+08:00，round=119，tickets=59，realSrc=6，sprints=6，decisions=20，debts=11，swarm=5，orch=5，timeline=8），产物 docs/dashboard-data.json + docs/clair-dashboard.html（decisions 由 19→20，依 PLAN.md/DECISION_LOG.md 现状；时间戳刷新）。
+- 提交推送：✅ 仅 add 两个 docs 产物 + commit `ea776ac26`「chore(dashboard): 自动刷新进度数据」。本地 main 领先 origin/main 5 提交，其中 10ec63cd1/a1ede992e/4fb4bf374/be9c3cdf8 共 4 个为主循环 automation 他人在途记账提交（非本看板产物）。依红线纪律：`git stash -u` 保护他人 WIP → checkout --detach origin/main → `git cherry-pick ea776ac26` 仅重放本看板提交（新哈希 `98e0b46e7`）→ 直连 `git push origin HEAD:main` 成功（ef64b7c7b..98e0b46e7，仅含本看板产物，规避他人 interleaved 在途记账提交）→ `git branch -f main HEAD` 对齐 origin/main → `git checkout main` + `git stash pop` 还原他人 WIP 未提交。
+- 重导入+发布：✅ connect_open_platform(skill_id=library) 取 token（authenticated=true）→ import_html.py --token-stdin --node-block-id eogGNOjY0dIWxTpPibPgvj 原地更新成功（KS_IMPORT_OK，node_block_id 一致，file_name=clair-dashboard.html）→ publish_page.py --token-stdin --node-id eogGNOjY0dIWxTpPibPgvj 发布公开成功（publish_url=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）。**看板主交付通道已是最新**（github raw 与已发布页均已同步本轮数据）。
+- 收口：🔧 仅提交本轮产物 automation memory.md（chore(dashboard): 看板刷新·收口本轮产物，本地提交待随同推送）；工作树遗留 06fe3d69 自动化 memory.md、frontend/playwright-report/index.html 及未跟踪的 .workbuddy/memory/2026-09-09.md、2026-09-12.md、2026-09-13.md、2026-09-14.md、2026-09-15.md、frontend/.workbuddy/memory/2026-09-10.md 均为他人在途改动，按单通道红线未触碰、未提交（stash 还原保真）。
+
+## 结论
+最近一轮（2026-09-16）：重新生成=是；推送=成功（本地 main 领先 5 含 4 个主循环 interleaved 在途记账提交，经 stash 保护 + cherry-pick 仅重放本看板提交 98e0b46e7 直连推送 ef64b7c7b..98e0b46e7，并 branch -f 对齐 main，规避他人 interleaved 提交）；重导入并发布=成功（已发布页即最新，为主交付通道，URL=https://workbuddy.link/p/eogGNOjY0dIWxTpPibPgvj）；收口=干净（仅提交并提交本轮 memory.md，他人 WIP 经 stash 还原保真、未触碰未提交）。
