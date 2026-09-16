@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-16T03:01:35+08:00",
+  "generatedAt": "2026-09-17T03:00:16+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
@@ -239,13 +239,6 @@
       "level": "✅",
       "title": "**单通道红线连续3轮触发·工作区停滞**（automation 第50/51/52轮）",
       "status": "✅ 已决"
-    },
-    {
-      "id": "D26",
-      "date": "2026-09-15",
-      "level": "🟡",
-      "title": "**本轮触及 PLAN §7/§8 标记在途保护文件 `backend/src/api/ai-ana",
-      "status": "⚠️ 阻塞"
     }
   ],
   "techDebts": [
@@ -370,6 +363,21 @@
   ],
   "timeline": [
     {
+      "round": 119,
+      "tag": "诚实数据红线·静态回归守卫·防空转新掘·2026-09-16 23:20",
+      "summary": "防空转纪律取改进池——池达天花板（仅 IP-7/utils拆分·IP-18/龙虎榜死链·IP-22/fund-flow-global 待用户决策），现场挖掘新项 **IP-23（测"
+    },
+    {
+      "round": 118,
+      "tag": "诚实数据红线·残留审计 + IP-21 回归测试加固轮·2026-09-16 0",
+      "summary": "防空转纪律取改进池——池达天花板（仅 IP-7/utils拆分·IP-18/龙虎榜死链 待用户决策），现场挖掘新项。**主动诚实数据残留审计**（全仓库 grep Math.ran"
+    },
+    {
+      "round": 117,
+      "tag": "改进池收口 + 漂移纠偏 + 基线健康认证轮·2026-09-16 03:42",
+      "summary": "单通道红线解除（git status 无生产源码在途，D25 三文件 + D21 NorthBoundPage 已由用户 commit 收口）。防空转纪律取改进池：IP-12（lo"
+    },
+    {
       "round": 106,
       "tag": "IP-8 第3批·三态统一·零交集域，2026-09-03 21:28",
       "summary": "单通道红线沿用 D22 二级判定——git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx（+15/-11，陈旧遗留，跨 90"
@@ -393,21 +401,6 @@
       "round": 98,
       "tag": "单通道红线连续9轮暂停·2026-09-01 12:00",
       "summary": "单通道红线仍触发——唯一在途生产源码 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11，纯三态规范重构：自定义`<Spin>`/`"
-    },
-    {
-      "round": 94,
-      "tag": "单通道红线连续5轮暂停·升级轮，2026-08-31 11:27",
-      "summary": "单通道红线第5次触发（git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx +15/-11，与第90-93轮完全吻合），au"
-    },
-    {
-      "round": 88,
-      "tag": "IP-5 低覆盖核心模块契约测试轮，2026-08-29 03:18",
-      "summary": "防空转机制取自主改进池 IP-5（下一任务仍 await 用户明确授权，自主可推进项达天花板）。**单通道红线**：git status 仅 `.workbuddy/memory/"
-    },
-    {
-      "round": 87,
-      "tag": "IP-4 T5 类型漂移核实轮，2026-08-28 21:00",
-      "summary": "防空转机制取 IP-4（技术债 T5 exportScheduler 类型漂移）。**独立验证（先验证再采信·证伪漂移）**：`grep` 确认 `src/utils/bloomb"
     }
   ]
 }
