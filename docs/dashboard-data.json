@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-17T03:00:16+08:00",
+  "generatedAt": "2026-09-18T03:02:36+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
-    "round": 119,
+    "round": 120,
     "totalTickets": 59,
     "pagesActive": "24·24",
     "realDataSources": 6,
@@ -363,19 +363,19 @@
   ],
   "timeline": [
     {
-      "round": 119,
-      "tag": "诚实数据红线·静态回归守卫·防空转新掘·2026-09-16 23:20",
-      "summary": "防空转纪律取改进池——池达天花板（仅 IP-7/utils拆分·IP-18/龙虎榜死链·IP-22/fund-flow-global 待用户决策），现场挖掘新项 **IP-23（测"
+      "round": 120,
+      "tag": "IP-22 shortcutEngine 核心匹配契约测试·防空转·测试覆盖补强",
+      "summary": "单通道红线未触发（git status 仅 memory/记账类脏，生产源码在途全清）。「下一任务」仍 await 用户（IP-7 utils 93K 行拆分待技术选型决策 / I"
     },
     {
       "round": 118,
-      "tag": "诚实数据红线·残留审计 + IP-21 回归测试加固轮·2026-09-16 0",
-      "summary": "防空转纪律取改进池——池达天花板（仅 IP-7/utils拆分·IP-18/龙虎榜死链 待用户决策），现场挖掘新项。**主动诚实数据残留审计**（全仓库 grep Math.ran"
+      "tag": "IP-19 漂移闭环 + 用户 D25 在途文件 commit 收口后健康认证轮",
+      "summary": "防空转机制取自主改进池 IP-19（P1·QA 蜂群登记·factor-lab IC 重算/asOf 刷新）。**单通道红线**：git status 生产源码（frontend/"
     },
     {
       "round": 117,
-      "tag": "改进池收口 + 漂移纠偏 + 基线健康认证轮·2026-09-16 03:42",
-      "summary": "单通道红线解除（git status 无生产源码在途，D25 三文件 + D21 NorthBoundPage 已由用户 commit 收口）。防空转纪律取改进池：IP-12（lo"
+      "tag": "IP-12 lockup 解禁伪数据下线收口轮，2026-09-17 05:51",
+      "summary": "防空转机制取自主改进池 IP-12（P0 诚实数据红线收口）。**幂等复查（关键）**：`backend/src/api/lockup-shares.ts` 已由前序交互会话诚实重"
     },
     {
       "round": 106,
