@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-18T03:02:36+08:00",
+  "generatedAt": "2026-09-19T03:00:24+08:00",
   "repo": "EgoBai/clair",
   "branch": "main",
   "overview": {
-    "round": 120,
+    "round": 118,
     "totalTickets": 59,
     "pagesActive": "24·24",
     "realDataSources": 6,
@@ -363,21 +363,6 @@
   ],
   "timeline": [
     {
-      "round": 120,
-      "tag": "IP-22 shortcutEngine 核心匹配契约测试·防空转·测试覆盖补强",
-      "summary": "单通道红线未触发（git status 仅 memory/记账类脏，生产源码在途全清）。「下一任务」仍 await 用户（IP-7 utils 93K 行拆分待技术选型决策 / I"
-    },
-    {
-      "round": 118,
-      "tag": "IP-19 漂移闭环 + 用户 D25 在途文件 commit 收口后健康认证轮",
-      "summary": "防空转机制取自主改进池 IP-19（P1·QA 蜂群登记·factor-lab IC 重算/asOf 刷新）。**单通道红线**：git status 生产源码（frontend/"
-    },
-    {
-      "round": 117,
-      "tag": "IP-12 lockup 解禁伪数据下线收口轮，2026-09-17 05:51",
-      "summary": "防空转机制取自主改进池 IP-12（P0 诚实数据红线收口）。**幂等复查（关键）**：`backend/src/api/lockup-shares.ts` 已由前序交互会话诚实重"
-    },
-    {
       "round": 106,
       "tag": "IP-8 第3批·三态统一·零交集域，2026-09-03 21:28",
       "summary": "单通道红线沿用 D22 二级判定——git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx（+15/-11，陈旧遗留，跨 90"
@@ -401,6 +386,21 @@
       "round": 98,
       "tag": "单通道红线连续9轮暂停·2026-09-01 12:00",
       "summary": "单通道红线仍触发——唯一在途生产源码 `M frontend/src/pages/NorthBoundPage.tsx`（+15/-11，纯三态规范重构：自定义`<Spin>`/`"
+    },
+    {
+      "round": 94,
+      "tag": "单通道红线连续5轮暂停·升级轮，2026-08-31 11:27",
+      "summary": "单通道红线第5次触发（git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx +15/-11，与第90-93轮完全吻合），au"
+    },
+    {
+      "round": 88,
+      "tag": "IP-5 低覆盖核心模块契约测试轮，2026-08-29 03:18",
+      "summary": "防空转机制取自主改进池 IP-5（下一任务仍 await 用户明确授权，自主可推进项达天花板）。**单通道红线**：git status 仅 `.workbuddy/memory/"
+    },
+    {
+      "round": 87,
+      "tag": "IP-4 T5 类型漂移核实轮，2026-08-28 21:00",
+      "summary": "防空转机制取 IP-4（技术债 T5 exportScheduler 类型漂移）。**独立验证（先验证再采信·证伪漂移）**：`grep` 确认 `src/utils/bloomb"
     }
   ]
 }
