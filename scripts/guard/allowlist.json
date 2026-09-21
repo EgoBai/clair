@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-21",
+  "entries": [
+    {
+      "id": "AL-001",
+      "path": "backend/src/api/user.ts",
+      "match": "user_${Date.now()}_",
+      "category": "id-generation",
+      "reason": "用户实体 ID 生成（时间戳+随机后缀），非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-002",
+      "path": "backend/src/api/user.ts",
+      "match": "action_${Date.now()}_",
+      "category": "id-generation",
+      "reason": "用户行为日志 ID 生成，非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-003",
+      "path": "backend/src/services/alertEngine.ts",
+      "match": "alert_${now}_",
+      "category": "id-generation",
+      "reason": "告警事件 ID 生成，非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-004",
+      "path": "backend/src/services/logger.ts",
+      "match": "req_${Date.now()}_",
+      "category": "id-generation",
+      "reason": "请求追踪 requestId 生成，非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-005",
+      "path": "backend/src/services/notification/coordinator.ts",
+      "match": "task_${channel}_",
+      "category": "id-generation",
+      "reason": "通知任务 ID 生成，非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-006",
+      "path": "backend/src/services/notification/emailTemplateEngine.ts",
+      "match": "email_${Date.now()}_",
+      "category": "id-generation",
+      "reason": "邮件任务 ID 生成，非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-007",
+      "path": "backend/src/services/notification/service.ts",
+      "match": "notif_${Date.now()}_",
+      "category": "id-generation",
+      "reason": "通知记录 ID 生成，非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-008",
+      "path": "backend/src/services/notification/subscriptionManager.ts",
+      "match": "rule_${Date.now()}_",
+      "category": "id-generation",
+      "reason": "订阅规则 ID 生成，非供数数值",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-009",
+      "path": "backend/src/services/riskBudgetEngine.ts",
+      "match": "const u1 = Math.random();",
+      "category": "stochastic-algorithm",
+      "reason": "蒙特卡洛 VaR（Box-Muller 正态抽样）第一分量；随机是算法本体，输入 returns 为真实数据。改进项：应可播种",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-010",
+      "path": "backend/src/services/riskBudgetEngine.ts",
+      "match": "const u2 = Math.random();",
+      "category": "stochastic-algorithm",
+      "reason": "蒙特卡洛 VaR（Box-Muller 正态抽样）第二分量；同上，应可播种",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-011",
+      "path": "backend/src/services/crossAssetCorrelationEngine.ts",
+      "match": "Array(n).fill(0).map(() => Math.random())",
+      "category": "stochastic-algorithm",
+      "reason": "幂迭代求特征向量的随机初值；随机是算法本体。改进项：应可播种（参照 fundFlowProviders 的 FNV-1a+LCG）",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-012",
+      "path": "backend/src/services/notification/emailTemplateEngine.ts",
+      "match": "if (Math.random() > 0.1)",
+      "category": "unwired-module",
+      "reason": "模拟 90% 投递成功率的随机分支；经实测该模块在 backend/src 内除测试外零调用点（不可达），非供数",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-013",
+      "path": "backend/src/services/notification/rateLimitEngine.ts",
+      "match": "priority === 'low' && Math.random()",
+      "category": "unwired-module",
+      "reason": "高负载下随机拒绝低优先级任务（行为性限流，非供数）；经实测该模块在 backend/src 内除测试外零调用点",
+      "clearingTicket": null,
+      "expiresAt": "2027-03-20"
+    },
+    {
+      "id": "AL-014",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "(Math.random() - 0.5) * 2 * volatility",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪行情：generatePrice 的日涨跌随机项（PG 不可用时全站以此供数）",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-015",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "const basePrice = 10 + Math.random() * 200",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪行情：每只标的基准价随机生成",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-016",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "const high = Math.max(open, close)",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪行情：日最高价随机扰动",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-017",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "const low = Math.min(open, close)",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪行情：日最低价随机扰动",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-018",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "const volume = Math.floor(5000000",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪成交量随机生成",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-019",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "turnoverRate: Math.round(Math.random()",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪换手率随机生成",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-020",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "peRatio: Math.round((10 + Math.random()",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪 PE 随机生成",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-021",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "pbRatio: Math.round((1 + Math.random()",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪 PB 随机生成",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-022",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "marketCap: Math.floor(close * (1e8",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪总市值随机生成",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    },
+    {
+      "id": "AL-023",
+      "path": "backend/src/db/InMemoryDatabase.ts",
+      "match": "circulatingMarketCap: Math.floor(close * (5e7",
+      "category": "acknowledged-debt",
+      "reason": "内存库伪流通市值随机生成",
+      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "expiresAt": "2026-10-05"
+    }
+  ]
+}
