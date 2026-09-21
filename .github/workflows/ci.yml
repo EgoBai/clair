@@ -48,3 +48,61 @@ jobs:
       - name: Frontend - UI guard
         working-directory: frontend
         run: npm run guard
+
+  # ---------------------------------------------------------------
+  # 单元测试 (非阻断起步)
+  # - 独立 job 而非并入 quality: 使 vitest 失败可单独归因, 且与 quality 并行。
+  # - job 级 continue-on-error: true 是刻意的: 两个测试套在 CI 环境的真实
+  #   通过率尚未建立基线, 直接阻断会立刻卡死 main; 先暴露真实结果,
+  #   基线稳定后由后续工单收紧为阻断级。
+  # - 用 `npx vitest run` 显式进入 run 模式: 前端 package.json 的 test 脚本是
+  #   裸 `vitest`(watch 模式), 在 CI 会挂住不退出, 故不使用 npm test。
+  # ---------------------------------------------------------------
+  unit-tests:
+    name: Unit tests (vitest)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Backend - install & test
+        working-directory: backend
+        run: |
+          npm ci
+          npx vitest run
+
+      - name: Frontend - install & test
+        working-directory: frontend
+        run: |
+          npm ci
+          npx vitest run
+
+  # ---------------------------------------------------------------
+  # 诚实红线门禁 (非阻断)
+  # - 零依赖, 故无需安装: scripts/guard/honesty-scan.mjs 为纯 Node ESM 脚本,
+  #   只用内置 node:fs / node:path / node:url, 直接以 node 执行即可,
+  #   刻意不做 npm ci / npm install。
+  # - 刻意不加 --strict: 本轮维持非阻断(退出码恒为 0), 仅暴露诚实红线基线;
+  #   待 allowlist 欠账清偿后, 由后续工单转 strict 阻断。
+  # ---------------------------------------------------------------
+  honesty-guard:
+    name: Honesty red-line guard (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Honesty scan (zero-dependency)
+        run: node scripts/guard/honesty-scan.mjs
