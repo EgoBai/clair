@@ -2,7 +2,6 @@
   "name": "clair",
   "description": "澄观 · AI驱动的A股投资研究平台 | clair.market",
   "version": "1.0.0",
-  "description": "A股行情分析网站 - 实时行情、技术分析、选股策略",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
@@ -19,7 +18,8 @@
     "lint:frontend": "cd frontend && npm run lint",
     "lint:backend": "cd backend && npm run lint",
     "data:collect": "cd backend && npm run data:collect",
-    "data:validate": "cd backend && npm run data:validate"
+    "data:validate": "cd backend && npm run data:validate",
+    "guard:honesty": "node scripts/guard/honesty-scan.mjs"
   },
   "keywords": [
     "a股",
