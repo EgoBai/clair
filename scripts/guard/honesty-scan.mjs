@@ -367,10 +367,10 @@ function fmtRedRows(hits) {
   }).join('\n') + '\n';
 }
 
-function renderReport({ ruleA, ruleB, allowlist, exemptions, generatedAt }) {
+function renderReport({ ruleA, ruleB, allowlist, exemptions }) {
   const { hits, exemptByFile } = ruleA;
   const contractMissing = ruleB.filter((r) => r.routes > 0 && r.dataSource === 0);
-  const now = new Date(generatedAt);
+  const now = new Date();
 
   const exemptFileCount = exemptByFile.size;
   const exemptLineCount = hits.exempt.length;
@@ -387,25 +387,19 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions, generatedAt }) {
     if (!byCategory.has(c)) byCategory.set(c, []);
     byCategory.get(c).push(e);
   }
-  const soonExpiring = allowlist.entries.filter((e) => {
-    const exp = parseExpiry(e.expiresAt);
-    if (exp === null) return false;
-    const d = daysUntil(exp, now);
-    return d >= 0 && d <= EXPIRY_WARN_DAYS;
-  });
   const unusedEntries = allowlist.entries.filter((e) => !exemptions.usedIds.has(e.id));
 
   const L = [];
   L.push('# 诚实红线门禁基线报告（honesty-scan）');
   L.push('');
-  if (STRICT) {
-    L.push('> **当前状态：BLOCKING（--strict）** —— 存在未豁免 RED 或过期豁免时退出码为 1；否则为 0。');
-  } else {
-    L.push('> **当前状态：NON-BLOCKING（非阻断）** —— 未传 `--strict` 时退出码恒为 0；`--strict` 下未豁免 RED / 过期豁免 → exit 1。');
-  }
+  // 本报告为「可提交的静态产物」：措辞与调用方式无关、且不含随运行/日期变化的字段
+  // （无生成时间、无「剩余天数」）。动态信号（本次是否 strict、近到期提醒、阻断明细）
+  // 一律走 stdout，见 main()。
+  L.push('> **门禁模式**：脚本默认非阻断（exit 0）；传 `--strict` 时，存在未豁免 RED 或过期豁免则 exit 1。');
+  L.push('> 本报告措辞与调用方式无关，且不含生成时间戳 / 「剩余天数」等随运行漂移的字段，故可幂等提交；');
+  L.push('> 台账「状态」列仅在条目真正到期（或代码变更致未命中）时变化，属真实状态变更。');
   L.push('');
-  L.push(`- 生成命令：\`${GENERATED_CMD}\`${STRICT ? ' `--strict`' : ''}（在仓库根执行）`);
-  L.push(`- 生成时间：${generatedAt}`);
+  L.push(`- 运行命令：\`${GENERATED_CMD}\`（默认，非阻断）/ \`${GENERATED_CMD} --strict\`（未豁免 RED 或过期豁免 → exit 1）；均在仓库根执行`);
   L.push(`- 扫描根：${SCAN_ROOTS.map((r) => '`' + r + '`').join('、')}（仅 \`*.ts\` / \`*.tsx\`）`);
   L.push('- 规则 A 判据：`Math.random` 按路径分域（RED=供数路径 / YELLOW=其它 / 豁免域=归档·测试·种子）；**注释与字符串文本内提及**单列、不计违规（模板 `${}` 插值仍算代码）。');
   L.push('- 规则 B 判据：`backend/src/api/*.ts` 一层内 路由数 N>0 且 `dataSource` 次数 M==0 → `CONTRACT-MISSING`。');
@@ -496,7 +490,7 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions, generatedAt }) {
     L.push('');
   } else {
     L.push(`- version：${allowlist.version ?? '—'}　updatedAt：${allowlist.updatedAt ?? '—'}`);
-    L.push(`- 共 ${allowlist.entries.length} 条；未命中 ${unusedEntries.length} 条；${EXPIRY_WARN_DAYS} 天内到期 ${soonExpiring.length} 条。`);
+    L.push(`- 共 ${allowlist.entries.length} 条；未命中 ${unusedEntries.length} 条。`);
     L.push('');
     L.push('### 按类别分组计数');
     L.push('');
@@ -508,21 +502,18 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions, generatedAt }) {
     if (byCategory.has('(非法类别)')) L.push(`| ⛔ \`(非法类别)\` | ${byCategory.get('(非法类别)').length} |`);
     L.push('');
 
-    L.push('### 明细（🔔 = 30 天内到期）');
+    // 说明：不输出「剩余天数」等日期相对字段（否则文件每日必脏、无法幂等提交）。
+    // 近到期提醒（30 天内）由 stdout 承担，见 main()。
+    L.push('### 明细');
     L.push('');
-    L.push('| 豁免ID | category | 路径 | match | expiresAt | 剩余天数 | clearingTicket | 状态 |');
-    L.push('|---|---|---|---|---|---:|---|---|');
+    L.push('| 豁免ID | category | 路径 | match | expiresAt | clearingTicket | 状态 |');
+    L.push('|---|---|---|---|---|---|---|');
     for (const e of allowlist.entries) {
       const exp = parseExpiry(e.expiresAt);
-      const d = exp === null ? null : daysUntil(exp, now);
-      let mark = '';
-      if (d === null) mark = '⛔ 无到期日';
-      else if (d < 0) mark = '**已过期** ⚠️';
-      else if (d <= EXPIRY_WARN_DAYS) mark = `🔔 ${d} 天`;
-      else mark = `${d} 天`;
-      const st = unusedEntries.includes(e) ? '未命中' : (exp !== null && d !== null && d < 0 ? '过期' : '生效中');
+      const st = unusedEntries.includes(e) ? '未命中'
+        : (exp !== null && exp < todayStartMs(now) ? '**已过期** ⚠️' : '生效中');
       const cat = CATEGORY_ENUM.has(e.category) ? `\`${e.category}\`` : `⛔ \`${e.category}\``;
-      L.push(`| \`${e.id}\` | ${cat} | \`${e.path}\` | \`${e.match}\` | ${e.expiresAt ?? '—'} | ${mark} | ${e.clearingTicket ?? '—'} | ${st} |`);
+      L.push(`| \`${e.id}\` | ${cat} | \`${e.path}\` | \`${e.match}\` | ${e.expiresAt ?? '—'} | ${e.clearingTicket ?? '—'} | ${st} |`);
     }
     L.push('');
     if (unusedEntries.length) {
@@ -549,11 +540,7 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions, generatedAt }) {
   L.push('');
   L.push('---');
   L.push('');
-  if (STRICT) {
-    L.push('**当前状态：BLOCKING（--strict）** —— 存在未豁免 RED 或过期豁免时退出码为 1；否则为 0。');
-  } else {
-    L.push('**当前状态：NON-BLOCKING（非阻断）** —— 未传 `--strict` 时退出码恒为 0；`--strict` 下未豁免 RED / 过期豁免 → exit 1。');
-  }
+  L.push('**门禁模式**：脚本默认非阻断（exit 0）；传 `--strict` 时，存在未豁免 RED 或过期豁免则 exit 1。');
   L.push('');
   return L.join('\n');
 }
@@ -562,13 +549,13 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions, generatedAt }) {
 // 8. main
 // ---------------------------------------------------------------------------
 function main() {
-  const generatedAt = new Date().toISOString();
+  const now = new Date();
   const ruleA = scanRuleA();
   const ruleB = scanRuleB();
   const allowlist = loadAllowlist();
-  const exemptions = annotateExemptions(ruleA.hits, allowlist, new Date(generatedAt));
+  const exemptions = annotateExemptions(ruleA.hits, allowlist, now);
 
-  const report = renderReport({ ruleA, ruleB, allowlist, exemptions, generatedAt });
+  const report = renderReport({ ruleA, ruleB, allowlist, exemptions });
 
   fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
   fs.writeFileSync(OUT_FILE, report, 'utf8'); // 覆盖写，幂等，不追加
@@ -594,6 +581,36 @@ function main() {
   out.push(`规则B CONTRACT-MISSING : ${contractMissing.length} 文件`);
   out.push(`allowlist 条目         : ${allowlist.entries.length}（未命中 ${allowlist.entries.filter((e) => !exemptions.usedIds.has(e.id)).length}）`);
   out.push(`报告已落盘             : ${relOut}`);
+
+  // 近到期提醒（日期相对，故只走 stdout，不进报告文件以保幂等）
+  const soonExpiring = allowlist.entries
+    .filter((e) => { const x = parseExpiry(e.expiresAt); return x !== null && daysUntil(x, now) >= 0 && daysUntil(x, now) <= EXPIRY_WARN_DAYS; })
+    .sort((a, b) => String(a.expiresAt).localeCompare(String(b.expiresAt)));
+  if (soonExpiring.length) {
+    out.push('');
+    out.push(`🔔 ${EXPIRY_WARN_DAYS} 天内到期豁免（${soonExpiring.length} 条）—— 到期未清偿将自动转计为 RED 并使 --strict 失败：`);
+    for (const e of soonExpiring) {
+      const x = parseExpiry(e.expiresAt);
+      out.push(`  ${e.id}  ${e.expiresAt}（剩 ${daysUntil(x, now)} 天）  ${e.path}  ← ${e.clearingTicket ?? '无 clearingTicket'}`);
+    }
+  }
+
+  // 阻断明细打到 stdout（CI 日志可见）—— 报告文件落在 runner 临时工作区、跑完即弃，
+  // 若只写文件，开发者只会看到计数而不知是哪个文件哪一行，门禁即不可操作。
+  if (unexempted.length) {
+    out.push('');
+    out.push(`⛔ 阻断明细（${unexempted.length} 条，未豁免 RED / 过期豁免）：`);
+    for (const h of unexempted) {
+      out.push(`  ${h.file}:${h.line}`);
+      out.push(`      ${h.text}`);
+      out.push(`      原因: ${h.reasonNote || '—'}`);
+      if (h.entryId) {
+        const e = allowlist.entries.find((x) => x.id === h.entryId);
+        if (e) out.push(`      豁免条目: ${e.id}（expiresAt=${e.expiresAt ?? '—'}, clearingTicket=${e.clearingTicket ?? '—'}）`);
+      }
+    }
+  }
+
   if (STRICT) {
     out.push(fail ? `[STRICT] 未豁免 RED 或过期豁免存在 → exit 1` : `[STRICT] 无未豁免 RED、无过期豁免 → exit 0`);
   } else {

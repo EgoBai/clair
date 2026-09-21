@@ -1,9 +1,10 @@
 # 诚实红线门禁基线报告（honesty-scan）
 
-> **当前状态：BLOCKING（--strict）** —— 存在未豁免 RED 或过期豁免时退出码为 1；否则为 0。
+> **门禁模式**：脚本默认非阻断（exit 0）；传 `--strict` 时，存在未豁免 RED 或过期豁免则 exit 1。
+> 本报告措辞与调用方式无关，且不含生成时间戳 / 「剩余天数」等随运行漂移的字段，故可幂等提交；
+> 台账「状态」列仅在条目真正到期（或代码变更致未命中）时变化，属真实状态变更。
 
-- 生成命令：`node scripts/guard/honesty-scan.mjs` `--strict`（在仓库根执行）
-- 生成时间：2026-09-21T07:20:33.359Z
+- 运行命令：`node scripts/guard/honesty-scan.mjs`（默认，非阻断）/ `node scripts/guard/honesty-scan.mjs --strict`（未豁免 RED 或过期豁免 → exit 1）；均在仓库根执行
 - 扫描根：`backend/src`、`frontend/src`（仅 `*.ts` / `*.tsx`）
 - 规则 A 判据：`Math.random` 按路径分域（RED=供数路径 / YELLOW=其它 / 豁免域=归档·测试·种子）；**注释与字符串文本内提及**单列、不计违规（模板 `${}` 插值仍算代码）。
 - 规则 B 判据：`backend/src/api/*.ts` 一层内 路由数 N>0 且 `dataSource` 次数 M==0 → `CONTRACT-MISSING`。
@@ -460,7 +461,7 @@
 ## 豁免台账（allowlist）
 
 - version：1　updatedAt：2026-09-21
-- 共 23 条；未命中 0 条；30 天内到期 10 条。
+- 共 23 条；未命中 0 条。
 
 ### 按类别分组计数
 
@@ -472,33 +473,33 @@
 | `unwired-module` | 2 |
 | `acknowledged-debt` | 10 |
 
-### 明细（🔔 = 30 天内到期）
+### 明细
 
-| 豁免ID | category | 路径 | match | expiresAt | 剩余天数 | clearingTicket | 状态 |
-|---|---|---|---|---|---:|---|---|
-| `AL-001` | `id-generation` | `backend/src/api/user.ts` | `user_${Date.now()}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-002` | `id-generation` | `backend/src/api/user.ts` | `action_${Date.now()}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-003` | `id-generation` | `backend/src/services/alertEngine.ts` | `alert_${now}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-004` | `id-generation` | `backend/src/services/logger.ts` | `req_${Date.now()}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-005` | `id-generation` | `backend/src/services/notification/coordinator.ts` | `task_${channel}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-006` | `id-generation` | `backend/src/services/notification/emailTemplateEngine.ts` | `email_${Date.now()}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-007` | `id-generation` | `backend/src/services/notification/service.ts` | `notif_${Date.now()}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-008` | `id-generation` | `backend/src/services/notification/subscriptionManager.ts` | `rule_${Date.now()}_` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-009` | `stochastic-algorithm` | `backend/src/services/riskBudgetEngine.ts` | `const u1 = Math.random();` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-010` | `stochastic-algorithm` | `backend/src/services/riskBudgetEngine.ts` | `const u2 = Math.random();` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-011` | `stochastic-algorithm` | `backend/src/services/crossAssetCorrelationEngine.ts` | `Array(n).fill(0).map(() => Math.random())` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-012` | `unwired-module` | `backend/src/services/notification/emailTemplateEngine.ts` | `if (Math.random() > 0.1)` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-013` | `unwired-module` | `backend/src/services/notification/rateLimitEngine.ts` | `priority === 'low' && Math.random()` | 2027-03-20 | 180 天 | — | 生效中 |
-| `AL-014` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `(Math.random() - 0.5) * 2 * volatility` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-015` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const basePrice = 10 + Math.random() * 200` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-016` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const high = Math.max(open, close)` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-017` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const low = Math.min(open, close)` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-018` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const volume = Math.floor(5000000` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-019` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `turnoverRate: Math.round(Math.random()` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-020` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `peRatio: Math.round((10 + Math.random()` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-021` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `pbRatio: Math.round((1 + Math.random()` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-022` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `marketCap: Math.floor(close * (1e8` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-023` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `circulatingMarketCap: Math.floor(close * (5e7` | 2026-10-05 | 🔔 14 天 | R0'-1b 内存库降级暴露 | 生效中 |
+| 豁免ID | category | 路径 | match | expiresAt | clearingTicket | 状态 |
+|---|---|---|---|---|---|---|
+| `AL-001` | `id-generation` | `backend/src/api/user.ts` | `user_${Date.now()}_` | 2027-03-20 | — | 生效中 |
+| `AL-002` | `id-generation` | `backend/src/api/user.ts` | `action_${Date.now()}_` | 2027-03-20 | — | 生效中 |
+| `AL-003` | `id-generation` | `backend/src/services/alertEngine.ts` | `alert_${now}_` | 2027-03-20 | — | 生效中 |
+| `AL-004` | `id-generation` | `backend/src/services/logger.ts` | `req_${Date.now()}_` | 2027-03-20 | — | 生效中 |
+| `AL-005` | `id-generation` | `backend/src/services/notification/coordinator.ts` | `task_${channel}_` | 2027-03-20 | — | 生效中 |
+| `AL-006` | `id-generation` | `backend/src/services/notification/emailTemplateEngine.ts` | `email_${Date.now()}_` | 2027-03-20 | — | 生效中 |
+| `AL-007` | `id-generation` | `backend/src/services/notification/service.ts` | `notif_${Date.now()}_` | 2027-03-20 | — | 生效中 |
+| `AL-008` | `id-generation` | `backend/src/services/notification/subscriptionManager.ts` | `rule_${Date.now()}_` | 2027-03-20 | — | 生效中 |
+| `AL-009` | `stochastic-algorithm` | `backend/src/services/riskBudgetEngine.ts` | `const u1 = Math.random();` | 2027-03-20 | — | 生效中 |
+| `AL-010` | `stochastic-algorithm` | `backend/src/services/riskBudgetEngine.ts` | `const u2 = Math.random();` | 2027-03-20 | — | 生效中 |
+| `AL-011` | `stochastic-algorithm` | `backend/src/services/crossAssetCorrelationEngine.ts` | `Array(n).fill(0).map(() => Math.random())` | 2027-03-20 | — | 生效中 |
+| `AL-012` | `unwired-module` | `backend/src/services/notification/emailTemplateEngine.ts` | `if (Math.random() > 0.1)` | 2027-03-20 | — | 生效中 |
+| `AL-013` | `unwired-module` | `backend/src/services/notification/rateLimitEngine.ts` | `priority === 'low' && Math.random()` | 2027-03-20 | — | 生效中 |
+| `AL-014` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `(Math.random() - 0.5) * 2 * volatility` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-015` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const basePrice = 10 + Math.random() * 200` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-016` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const high = Math.max(open, close)` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-017` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const low = Math.min(open, close)` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-018` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const volume = Math.floor(5000000` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-019` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `turnoverRate: Math.round(Math.random()` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-020` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `peRatio: Math.round((10 + Math.random()` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-021` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `pbRatio: Math.round((1 + Math.random()` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-022` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `marketCap: Math.floor(close * (1e8` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-023` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `circulatingMarketCap: Math.floor(close * (5e7` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
 
 ## 规则 B 明细（backend/src/api/*.ts）
 
@@ -564,4 +565,4 @@
 
 ---
 
-**当前状态：BLOCKING（--strict）** —— 存在未豁免 RED 或过期豁免时退出码为 1；否则为 0。
+**门禁模式**：脚本默认非阻断（exit 0）；传 `--strict` 时，存在未豁免 RED 或过期豁免则 exit 1。

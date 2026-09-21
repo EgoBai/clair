@@ -86,15 +86,19 @@ jobs:
           npx vitest run
 
   # ---------------------------------------------------------------
-  # 诚实红线门禁 (非阻断)
+  # 诚实红线门禁 (真实信号, 对合并仍非阻断)
   # - 零依赖, 故无需安装: scripts/guard/honesty-scan.mjs 为纯 Node ESM 脚本,
   #   只用内置 node:fs / node:path / node:url, 直接以 node 执行即可,
   #   刻意不做 npm ci / npm install。
-  # - 刻意不加 --strict: 本轮维持非阻断(退出码恒为 0), 仅暴露诚实红线基线;
-  #   待 allowlist 欠账清偿后, 由后续工单转 strict 阻断。
+  # - 传 --strict: 当前未豁免 RED 与过期豁免均为 0, 故今天不阻断任何东西;
+  #   但一旦有人引入新的未豁免违规或 allowlist 条目到期, 本 job 立即变红,
+  #   从而把"恒定绿灯"的装饰性 job 变成真实信号。
+  #   失败时会打印 路径:行 + 行内容 + 判定原因 到 CI 日志(见脚本 main())。
+  # - job 级 continue-on-error: true 保持不变 —— 即便变红, 对合并仍非阻断,
+  #   只作可见性告警; 待基线稳定后再摘掉它转为硬阻断。
   # ---------------------------------------------------------------
   honesty-guard:
-    name: Honesty red-line guard (non-blocking)
+    name: Honesty red-line guard (strict, non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -104,5 +108,5 @@ jobs:
         with:
           node-version: 20
 
-      - name: Honesty scan (zero-dependency)
-        run: node scripts/guard/honesty-scan.mjs
+      - name: Honesty scan (zero-dependency, --strict)
+        run: node scripts/guard/honesty-scan.mjs --strict
