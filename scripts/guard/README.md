@@ -92,7 +92,10 @@ RED/YELLOW 的命中里混有大量**合法随机**（`requestId` 生成、`audi
 node scripts/guard/honesty-scan.mjs --strict   # 存在未豁免 RED 或过期豁免 → exit 1
 ```
 
-默认（无参）维持 exit 0 非阻断。R0′-2 接 CI 时先不挂 `--strict`。
+默认（无参）维持 exit 0 非阻断。CI 的 `honesty-guard` job **已挂 `--strict`**，但 job 级 `continue-on-error: true` 使其对合并非阻断。
+
+> ⚠️ **转硬阻断前必读（已核实的坑）**：`continue-on-error: true` 会让该 job 在分支保护看来**始终是绿勾**——GitHub 认可的通过态只有 `success` / `skipped` / `neutral`，而 `continue-on-error` 正是把失败归入 `success`。因此**把本 job 设为 required check 而不摘掉 `continue-on-error`，等于零保护**。
+> 转阻断必须**同时**做两件事：① 摘掉 `continue-on-error`；② 实测一次「故意失败能否真的挡住 PR」。
 
 ## 5. 运行方式
 
