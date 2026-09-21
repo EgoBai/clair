@@ -378,6 +378,17 @@
 | 第106轮 | **（IP-8 第3批·三态统一·零交集域，2026-09-03 21:28）**：单通道红线沿用 D22 二级判定——git status 仍检出 M frontend/src/pages/NorthBoundPage.tsx（+15/-11，陈旧遗留，跨 90~105 轮 diff 一致），本轮作业域 EventCalendarPage.tsx + KnowledgeBase.tsx 与在途文件零文件交集，续推 IP-8 第3批（2页）。mimo 协作 + 主理人独立复核（E5 反例探针证伪静默退化）：EventCalendarPage 3 处内联 antd `<Empty>`（事件列表/聚集预警/高风险日，原 PRESENTED_IMAGE_SIMPLE 极简态）统一为共享 `EmptyState`（无图标极简态保真）；KnowledgeBase 富文本 antd `<Empty>`（自定义 BookOutlined 圆形图标 + 双 action 按钮「手动写第一条笔记」openModal /「去 AI 对话中提问」navigate('/')）保真映射至 `EmptyState` 的 icon/title/description/action/secondaryAction。验证全绿：git diff 复核零越界于在途 NorthBoundPage.tsx / grep 零残留 antd Empty / tsc --noEmit 0错 / build 4.00s / e2e route-render-smoke 64/64（含两页）/ E5 反例探针（强制空态后新 EmptyState 标题可见、旧 rich markup 消失、两按钮挂载、点击主按钮弹 Modal、零 pageerror）4/4 通过、探针用后即删。决策门🟢 无新增（D22 已连续6轮验证有效 / D21-A / D24 既存待用户，未重复推送）。专家团 E1✅/E2✅/E3🟢/E4✅/E5🟡/E6🟢。下一候选 IP-8 第4批（Portfolio/FundFlow/Radar/Watchlist/Macro/MacroHub）或待 D21-A 收口后恢复 IP-7。 | |
 ---
 
+### D26 · RSI 递归自我迭代框架 v2.0 立项（2026-09-20 · 主理人）
+
+- **方案正文**：`design/rsi-framework-v2.md`（**v2.0 · 412 行**）。⚠️ v1.0 已废——其 §1.2 / §4 / §5.1⑤ 经评审判定**不成立**，禁止引用。
+- **评审报告**：`~/WorkBuddy/2026-07-29-16-31-33/Clair-RSI-方案评审报告-v1.0.md`（3 路并行独立核查 + 主理人直查，结论 **有条件通过**：3×P0 阻断 + 14×P1 事实修订）。
+- **执行范围**：**R0′ 收窄案** = 扩展既有 `ui-guard`/`e2e`/CI（**不新建 6 组件**）+ 补用户侧「验证」缺口（回头看卡最小闭环）。**embedding 记忆层 / bandit / judge 砍出 R0′**，改为**触发式重启**（纠错·采纳信号累计 ≥200 条 **且** 用户体系启用）。
+- **⚠️ 验收口径变更（与本文件第七节顶部告示块一致，D26 起强制）**：核验协议由"三证"改 **四证** = `grep 证存在` + `读文件证逻辑` + `curl 证服务存活`（**降级为存活探测**）+ **`e2e 渲染断言证可用`**（路由/页面级改动强制）。诚实判据改 **`dataSource` 契约断言 + 分域伪数据扫描（白名单）**；**AST 扫描保持 CI 阻断级，不降级**；基线**分环境 + 禁 `eq`**（股票数 5541/5544 双口径）。
+- **同批清偿**：**IP-12（P0）** / IP-18 / IP-19（+ IP-20 **前端 `fundFlowPageDemo.ts` demo 残余复核**，后端已于第 116 轮收口）。门禁首次运行须报出 IP-12 作为捕获力活体验证。
+- **单通道红线**：`automation-1784829898221` 已于 **2026-09-20 置 PAUSED**，防与 R0′ 开发并行改库；**恢复前须先完成 commit/push**。
+- **核心结论**：协议骨架（任务卡四元组 / 诚实降级契约 `dataSource` / 记忆纪律 / 人在环出口 / 单通道零交集）两尺度**可复用**；**评估器绝不可复用**。
+- **状态**：🟢 立项完成，R0′ 待执行。
+
 ## 七·五、各页真实数据收尾（完整体验版本主线，用户 2026-08-10 选）
 
 目标：把仍 demo 兜底的页面接通真实源（东财/腾讯免key 已验证、腾讯自选股 westock MCP 已连），缺口处诚实空态。前端 `*Demo.ts` 仅作后端真实数据缺失时的兜底，不得伪装真实。
