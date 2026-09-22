@@ -502,11 +502,11 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions }) {
     if (byCategory.has('(非法类别)')) L.push(`| ⛔ \`(非法类别)\` | ${byCategory.get('(非法类别)').length} |`);
     L.push('');
 
-    // 说明：不输出「剩余天数」等日期相对字段（否则文件每日必脏、无法幂等提交）。
-    // 近到期提醒（30 天内）由 stdout 承担，见 main()。
+    // 说明：本表只放**静态**字段。「到期日期」为绝对日期（不随时间变，保幂等）；
+    // 「剩 N 天」是唯一随时间变的相对量，故只走 stdout（见 main()）。
     L.push('### 明细');
     L.push('');
-    L.push('| 豁免ID | category | 路径 | match | expiresAt | clearingTicket | 状态 |');
+    L.push('| 豁免ID | category | 路径 | match | 到期日期(expiresAt) | clearingTicket | 状态 |');
     L.push('|---|---|---|---|---|---|---|');
     for (const e of allowlist.entries) {
       const exp = parseExpiry(e.expiresAt);

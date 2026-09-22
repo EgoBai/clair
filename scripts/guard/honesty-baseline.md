@@ -475,7 +475,7 @@
 
 ### 明细
 
-| 豁免ID | category | 路径 | match | expiresAt | clearingTicket | 状态 |
+| 豁免ID | category | 路径 | match | 到期日期(expiresAt) | clearingTicket | 状态 |
 |---|---|---|---|---|---|---|
 | `AL-001` | `id-generation` | `backend/src/api/user.ts` | `user_${Date.now()}_` | 2027-03-20 | — | 生效中 |
 | `AL-002` | `id-generation` | `backend/src/api/user.ts` | `action_${Date.now()}_` | 2027-03-20 | — | 生效中 |

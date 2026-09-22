@@ -92,10 +92,10 @@ RED/YELLOW 的命中里混有大量**合法随机**（`requestId` 生成、`audi
 node scripts/guard/honesty-scan.mjs --strict   # 存在未豁免 RED 或过期豁免 → exit 1
 ```
 
-默认（无参）维持 exit 0 非阻断。CI 的 `honesty-guard` job **已挂 `--strict`**，但 job 级 `continue-on-error: true` 使其对合并非阻断。
+默认（无参）维持 exit 0 非阻断。CI 的 `honesty-guard` job **已挂 `--strict`**，且**已转真阻断**（R0′-2.2 起摘除了 job 级 `continue-on-error`）—— 违规或过期豁免会真正拦截合并。`unit-tests` job 亦同批转为阻断级。
 
-> ⚠️ **转硬阻断前必读（已核实的坑）**：`continue-on-error: true` 会让该 job 在分支保护看来**始终是绿勾**——GitHub 认可的通过态只有 `success` / `skipped` / `neutral`，而 `continue-on-error` 正是把失败归入 `success`。因此**把本 job 设为 required check 而不摘掉 `continue-on-error`，等于零保护**。
-> 转阻断必须**同时**做两件事：① 摘掉 `continue-on-error`；② 实测一次「故意失败能否真的挡住 PR」。
+> ⚠️ **请勿给本 job 加回 `continue-on-error`（已核实的坑，留此记录以防后人重蹈）**：`continue-on-error: true` 会让该 job 在分支保护看来**始终是绿勾**——GitHub 认可的通过态只有 `success` / `skipped` / `neutral`，而 `continue-on-error` 正是把失败归入 `success`。因此**把本 job 设为 required check 却带着 `continue-on-error`，等于零保护**（看似有门禁、实则拦不住）。
+> 本项目已于 R0′-2.2 **摘除**该字段转为真阻断。**将来若有人为"让 CI 变绿"而把它加回，等于拆掉门禁**；确需临时降级，必须写明期限与恢复工单，并在恢复时**实测一次「故意失败能否真的挡住 PR」**。
 
 ## 5. 运行方式
 

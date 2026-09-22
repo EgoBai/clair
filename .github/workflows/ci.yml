@@ -50,18 +50,19 @@ jobs:
         run: npm run guard
 
   # ---------------------------------------------------------------
-  # 单元测试 (非阻断起步)
+  # 单元测试 (阻断级)
   # - 独立 job 而非并入 quality: 使 vitest 失败可单独归因, 且与 quality 并行。
-  # - job 级 continue-on-error: true 是刻意的: 两个测试套在 CI 环境的真实
-  #   通过率尚未建立基线, 直接阻断会立刻卡死 main; 先暴露真实结果,
-  #   基线稳定后由后续工单收紧为阻断级。
+  # - 已转真阻断 (R0'-2.2): job 级 continue-on-error 已摘除, vitest 失败即
+  #   使本 job 失败, 从而真正拦截合并。刻意不放宽任何断言、不加 `|| true`,
+  #   要的是真实失败暴露。
+  #   已知风险(事前已告知并获确认): 两个测试套在 CI 环境的通过率此前没有基线,
+  #   故转入阻断后的首次 CI 可能直接变红 —— 这是预期行为, 不是故障。
   # - 用 `npx vitest run` 显式进入 run 模式: 前端 package.json 的 test 脚本是
   #   裸 `vitest`(watch 模式), 在 CI 会挂住不退出, 故不使用 npm test。
   # ---------------------------------------------------------------
   unit-tests:
     name: Unit tests (vitest)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -86,21 +87,20 @@ jobs:
           npx vitest run
 
   # ---------------------------------------------------------------
-  # 诚实红线门禁 (真实信号, 对合并仍非阻断)
+  # 诚实红线门禁 (阻断级)
   # - 零依赖, 故无需安装: scripts/guard/honesty-scan.mjs 为纯 Node ESM 脚本,
   #   只用内置 node:fs / node:path / node:url, 直接以 node 执行即可,
   #   刻意不做 npm ci / npm install。
-  # - 传 --strict: 当前未豁免 RED 与过期豁免均为 0, 故今天不阻断任何东西;
-  #   但一旦有人引入新的未豁免违规或 allowlist 条目到期, 本 job 立即变红,
-  #   从而把"恒定绿灯"的装饰性 job 变成真实信号。
+  # - 传 --strict: 当前未豁免 RED 与过期豁免均为 0, 故今天不会红;
+  #   一旦有人引入新的未豁免违规或 allowlist 条目到期, 本 job 立即失败。
   #   失败时会打印 路径:行 + 行内容 + 判定原因 到 CI 日志(见脚本 main())。
-  # - job 级 continue-on-error: true 保持不变 —— 即便变红, 对合并仍非阻断,
-  #   只作可见性告警; 待基线稳定后再摘掉它转为硬阻断。
+  # - 已转真阻断 (R0'-2.2): job 级 continue-on-error 已摘除。
+  #   注意: continue-on-error 会让分支保护恒见绿勾, 从而"看似有门禁、实则拦不住";
+  #   此坑已记录在 scripts/guard/README.md §4.4, 请勿加回。
   # ---------------------------------------------------------------
   honesty-guard:
-    name: Honesty red-line guard (strict, non-blocking)
+    name: Honesty red-line guard (strict)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
