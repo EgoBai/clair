@@ -4,7 +4,7 @@
 > 本报告措辞与调用方式无关，且不含生成时间戳 / 「剩余天数」等随运行漂移的字段，故可幂等提交；
 > 台账「状态」列仅在条目真正到期（或代码变更致未命中）时变化，属真实状态变更。
 
-- 运行命令：`node scripts/guard/honesty-scan.mjs`（默认，非阻断）/ `node scripts/guard/honesty-scan.mjs --strict`（未豁免 RED 或过期豁免 → exit 1）；均在仓库根执行
+- 运行命令：`node scripts/guard/honesty-scan.mjs`（默认，非阻断；**只输出 stdout，不写任何文件**）/ `node scripts/guard/honesty-scan.mjs --strict`（未豁免 RED / 过期豁免 / 台账不同步 → exit 1）/ `node scripts/guard/honesty-scan.mjs --update-baseline`（**显式 opt-in：额外把本报告覆盖写入本文件**）；均在仓库根执行
 - 扫描根：`backend/src`、`frontend/src`（仅 `*.ts` / `*.tsx`）
 - 规则 A 判据：`Math.random` 按路径分域（RED=供数路径 / YELLOW=其它 / 豁免域=归档·测试·种子）；**注释与字符串文本内提及**单列、不计违规（模板 `${}` 插值仍算代码）。
 - 规则 B 判据：`backend/src/api/*.ts` 一层内 路由数 N>0 且 `dataSource` 次数 M==0 → `CONTRACT-MISSING`。
