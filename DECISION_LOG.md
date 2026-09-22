@@ -162,6 +162,27 @@
   - **⚠️ 台账更正（2026-09-20 主理人独立复核，推翻本日志同一改动内的初稿口径）**：**IP-12（P0）已证伪为「已修复」**，非待清偿项——`backend/src/api/lockup-shares.ts` 当前 199 行、全文无 `Math.random` 伪数据生成器（唯一命中为 L4 注释）、已实现 `dataSource:'unavailable'`+`notes`（L109/L160/L162）、路由已注册（`app.ts:140`）。PLAN.md 台账"待做（第110轮首选）"为**滞后记录**。**当前真实存续的红线欠账为 IP-18**：`frontend/src/config/navGroups.ts:87` 仍暴露「龙虎榜」入口，而 `backend/src/app.ts` 对 `top-traders` **零注册** → 仍是 404 死链（PLAN D25 曾记"用户已摘除入口"，实况未生效）。**教训登记**：本项目台账存在系统性滞后，任何"待清偿"清单在派发前**必须以源码实测复核**，不得直引 PLAN/DECISION 台账。
   - **状态**：🟢 立项完成，R0′ 待执行（角色重建：主理人 / hermes-be / mimo-fe / red-team / qa-swarm；旧 clair-swarm 六成员运行时全部 **unresumable**，不可自动恢复）。
 
+### D26 续 · R0′ 前段落地与用户四次拍板（2026-09-21 ~ 09-22 · 主理人）
+
+- **⚠️ 再度推翻台账口径（重要，第二次同源错误）**：D26 正文与上条台账均记「`dbFactory.ts` 静默降级到 `InMemoryDatabase`（**20 只 mock**）」。实测**不成立**：`InMemoryDatabase.initializeData()`(`:294-340`) 先从 `clair-worker/all_stocks_compact.json` 载入 **5541 只真实股票清单**，再于 `:328` 对**每一只**调 `generateQuotes()`，用纯 `Math.random()` 伪造 OHLCV/turnover/turnoverRate/PE/PB/marketCap × 120 日。`dbFactory.ts:57` 的日志 `(Mock数据, 20只股票)` 是**事实错误**（真实为 5541），且仅在服务端。**教训：台账数字同样需实测复核，"20 只"这类量与事实差了 277 倍。**
+- **红线暴露定级**：`isMemoryMode()` 全仓仅被 `app.ts:200`（`/api/search` 实现选择）与 `history.ts:93`（统计实现选择）消费，**从不设置 `dataSource`**；`health` 不暴露 `dbType` ⟹ PG 不可用时全站以零降级标记的姿态吐出 5541 只伪 K 线 + 伪估值。**影响面大于 IP-12**。
+- **供数路径正面结论**：RED 13 逐条实测后 **零真实红线违规**——8 条纯 ID 生成；3 条为合理随机算法（`riskBudgetEngine.ts:114-115` Monte Carlo VaR 的 Box-Muller；`crossAssetCorrelationEngine.ts:341` 幂迭代随机初值）——随机属**算法**不属**数据**；2 条位于**未接线模块**（`emailTemplateEngine` / `rateLimitEngine` 除测试外**零调用点**）。副产 P2：`eigenAnalysis()` 多特征值提取**缺 deflation**，算法正确性存疑。
+- **交付：跨端诚实红线门禁**。`scripts/guard/honesty-scan.mjs`（Ticket A 343 行 → A.1 **607 行**，纯 Node ESM 零依赖）+ `allowlist.json`（**23 条**：id-generation 8 / stochastic-algorithm 3 / unwired-module 2 / acknowledged-debt 10）+ README + 基线。既有 `frontend/scripts/ui-guard/lib.mts` 的 `ROOT=frontend/` 使其**无法**承载跨端断言，故诚实门禁独立成根级扫描器。
+- **allowlist 机制设计（防白名单腐烂，本机制核心价值）**：① 每条豁免**强制 `expiresAt`**，到期未清偿**自动转计 RED** 并使 `--strict` 失败；② 匹配以 `path`+`match` 代码片段为准、**行号仅作提示**；③ `category` 枚举收口，枚举外一律计入失败；④ db/ 10 条按 `acknowledged-debt` 入册 + 挂清偿工单（「承认欠账 + 挂倒计时」，非长红亦非永久豁免）；⑤ 新增 `--strict`。**该设计已通过首次真实漂移检验**：R0′-1b 改动使 `InMemoryDatabase.ts` 行号整体位移，复跑仍 RED 23 / 未豁免 0 / 未命中 0。
+- **修复首版掩码漏报级 bug（子 Agent 主动自查上报，主理人实证确认）**：原 `computeCommentMask` 不识别**正则字面量**，而 `frontend/src/__tests__/securityLogic.test.ts:13-14` 存在 `.replace(/"/g,'&quot;')` 等**含引号正则** → 状态机失步 → 后续真实调用被误判为字符串（`:30` 真 `Math.random` 被吞）。**漏报比误报危险**（误报促人修门禁，漏报静默藏违规）。重写为 `computeNonCodeMask`：0=代码/1=注释/2=字符串，补正则字面量识别（前一有意义字符启发式区分正则与除号），模板 `${}` 插值**按代码计**。影响更正：豁免域 1036 行/291 文件 → **1024 行/287 文件**。
+- **用户四次拍板（2026-09-22）**：
+  ① **db/ 欠账走「生产环境拒供伪行情」根治**（内存模式在 `NODE_ENV=production` 下不再供给伪造行情，改走无数据路径；**真实股票清单须继续正常供给**，不得一刀切）→ 成为 R0′-3；
+  ② **`unit-tests` 与 `honesty-guard` 两个 job 立即摘除 `continue-on-error`，转真阻断**（用户已知悉 unit-tests 全量套件在 CI 的通过率**无基线**、首次 CI 可能直接红）；
+  ③ **基线豁免台账用「静态到期日期」列，「剩 N 天」相对量留 stdout**（两者兼得：文件保幂等，到期信息不丢）；
+  ④ **推进顺序：R0′-3 → R0′-6 → R0′-5 → R0′-7**。
+- **已核实并登记的陷阱**：`continue-on-error: true` 会使该 job 在**分支保护看来恒为绿勾**（GitHub 认可通过态仅 `success`/`skipped`/`neutral`，该属性把失败归入 `success`）⟹ **设 required check 而不摘掉它 = 零保护**。已写入 `scripts/guard/README.md`，并要求转阻断时**同时**摘除 + 实测「故意失败能否真的挡住 PR」。
+- **另修**：`frontend/package.json` `"test": "vitest"` → `"vitest run"` + 新增 `test:watch`。原为**裸 `vitest` = watch 模式**（后端本就 `vitest run`，两边不一致），致仓库根 `npm test` **挂到超时**。
+- **基线幂等**：`honesty-baseline.md` 原含 `生成时间` 且状态行随调用方式变化 ⟹ **每次运行即弄脏工作树**。已改为与调用方式无关、不含随时间变化字段；硬性验收＝连跑两次默认 + 一次 `--strict` 后 `git status` 对该文件均须为空（已通过）。
+- **提交链（均已推送 origin/main）**：`ef76eda6d`（Ticket A）→ `53d110e25`（A.1 allowlist）→ `4bb599441`（R0′-2 CI）→ `72038b605`（R0′-2.1 收口）→ `b9a1a3ea7`（README 更正）→ `f14e41dd3`（**R0′-1b 内存库降级显式暴露**：修正错误日志、新增 `getDbStatus()`、`health` 注册 `database` 检查项暴露 `dbType/degraded/stockCount`、导出 `IN_MEMORY_DATA_SOURCE='memory-demo'`；日志实证由 `20只股票` 改为 `5541 只股票`；定向测试 23/23）。
+- **环境坑登记**：`github.com`(`20.205.243.166:443`) 曾 **TCP 超时**，而**同 /24 的 `api.github.com`(`20.205.243.168:443`) 连通正常**、`example.com` 正常 ⟹ 属该**特定 IP 路由**问题，非域名封锁/非沙箱/非代理（`HTTPS_PROXY` 为空）。本地提交安全囤积、网络恢复后一次性 push 即过（同 2026-08-02 模式）。
+- **另记**：本机 `grep` 对部分 UTF-8 前端/后端源文件会**误判为二进制而不输出**（如 `ReviewPage.tsx`、`healthCheck.ts`），须加 `-a`。**不要据此认为符号不存在。**
+- **状态**：🟡 R0′ 前段（门禁 + 降级暴露）已落地并推送；R0′-2.2（转真阻断）、R0′-3（生产拒供伪行情）、R0′-6（用户侧回头看卡）在途；R0′-5 / R0′-7 待启。
+
 ## 2026-08-27 用户授权干预（D20 根治 + 防空转机制）
 
 - **🟢 D20 已根治（2026-08-27 用户授权复盘优化，团队 clair-loop-review 执行）**：根因查明——PLAN.md 脏写并非兄弟自动化抢写（`gen_dashboard.py` 对 PLAN.md 纯只读，看板自动化 12 次执行均只 add docs 文件），实为**自主循环自身未及时 commit 的记账改动 + 框架自动追加的 automation memory.md 未被 prompt 涵盖收口**，被时序误判为"兄弟抢写"。处置：①两自动化 prompt 均已注入「每轮结束强制收口」纪律（逐文件 add+commit 自身产物，严禁遗留脏树）；②自主循环单通道红线精细化——记账类脏文件（PLAN/DECISION_LOG/automation memory/guard/docs 看板产物）**容忍不暂停**，仅生产源码（frontend/src、backend/src、miniprogram、shared）在途才触发红线，D20 类误暂停不再复发。**状态：✅ 已决，无需用户再选 A/B/C。**
