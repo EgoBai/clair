@@ -38,6 +38,7 @@ import sectorAnalysisRouter from './api/sector-analysis';
 import userRouter from './api/user';
 import performanceRouter from './api/performance';
 import marginRouter from './api/margin';
+import topTradersRouter from './api/topTraders';
 import blockTradesRouter from './api/block-trades';
 import lockupSharesRouter from './api/lockup-shares';
 import aiStockSelectionRouter from './api/ai-stock-selection';
@@ -137,6 +138,10 @@ app.use('/api', sectorAnalysisRouter);
 app.use('/api', userRouter);
 app.use('/api', performanceRouter);
 app.use('/api', marginRouter);
+// IP-18 清偿：龙虎榜路由（R0'-5）。此前 backend 从未挂载 /api/top-traders/*，
+// 而前端 navGroups.ts:87「龙虎榜」入口 + routes/index.tsx:90 路由均已上线 →
+// 页面恒 404 显示「暂无龙虎榜数据」。本挂载接东财真实源，诚实降级见该文件。
+app.use('/api', topTradersRouter);
 app.use('/api', blockTradesRouter);
 app.use('/api', lockupSharesRouter);
 app.use('/api', aiStockSelectionRouter);
