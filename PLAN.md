@@ -389,7 +389,17 @@
 - **⚠️ 台账纪律（D26 起）**：本项目 PLAN/DECISION 台账存在系统性滞后（IP-12 实例：源码已修而台账仍标"待做/P0 阻塞"）。**任何"待清偿清单"在派发任务卡前必须以源码实测复核**，禁止直引台账。
 - **单通道红线**：`automation-1784829898221` 已于 **2026-09-20 置 PAUSED**，防与 R0′ 开发并行改库；**恢复前须先完成 commit/push**。
 - **核心结论**：协议骨架（任务卡四元组 / 诚实降级契约 `dataSource` / 记忆纪律 / 人在环出口 / 单通道零交集）两尺度**可复用**；**评估器绝不可复用**。
-- **状态**：🟢 立项完成，R0′ 待执行。
+- **状态**：🟡 **R0′ 执行中**（前段「门禁 + 降级暴露」已落地并推送，HEAD `93f736265`）。
+
+#### D26-a · R0′ 执行进度（2026-09-21 ~ 09-22 · 主理人）
+
+- **⚠️ 二次台账更正（与 D26 正文冲突之处以此为准）**：`dbFactory.ts` 降级内存库**不是**「20 只 mock」。实测 `InMemoryDatabase.initializeData()`(`:294-340`) 从 `clair-worker/all_stocks_compact.json` 载入 **5541 只真实股票清单**，再于 `:328` 对**每一只**调用 `generateQuotes()` 用纯 `Math.random()` 伪造 OHLCV/turnover/turnoverRate/PE/PB/marketCap × 120 日；`dbFactory.ts:57` 日志 `(Mock数据, 20只股票)` 为**事实错误**（真实 5541，差 277 倍）。
+- **✅ R0′-1 Ticket A / A.1 —— 跨端诚实红线门禁上线**：`scripts/guard/honesty-scan.mjs`（**607 行**，纯 Node ESM 零依赖）+ `allowlist.json`（23 条）+ README + 基线。**核验基线**：RED **23**（= `backend/src/api|services|db` 三域）/ YELLOW 53 / 未豁免 0 / 未命中 0。既有 `ui-guard` 因 `ROOT=frontend/` 无法承载跨端断言，故独立成根级扫描器。allowlist 机制：强制 `expiresAt` 到期自动翻红 / 片段匹配行号仅提示 / category 枚举收口 / `--strict`。
+- **✅ R0′-2 / R0′-2.1 —— CI 补 `unit-tests` 与 `honesty-guard` 两 job**：`quality` job **零改动**（纯新增 58 行）。`--strict` 已挂；阻断明细落 **stdout**（原只在 runner 临时文件，属"红而无因"）；基线改**幂等产物**（硬性验收：连跑两次 `git status` 须为空，已过）。另修 `frontend/package.json` `"test":"vitest"` → `"vitest run"`（原为 watch 模式，致仓库根 `npm test` **挂到超时**）。
+- **✅ R0′-1b —— 内存库降级显式暴露**（`f14e41dd3`）：修正错误日志；新增 `getDbStatus()`；`health` 注册 `database` 检查项暴露 `dbType/degraded/stockCount`；导出 `IN_MEMORY_DATA_SOURCE='memory-demo'`。日志实证由 `20只股票` → `5541 只股票`；定向测试 23/23。**allowlist 片段匹配已通过首次真实漂移检验**（该改动致行号整体位移，复跑仍未豁免 0）。
+- **用户在途裁决（2026-09-22）**：① db/ 欠账走**「生产环境拒供伪行情」根治**（内存模式在 `NODE_ENV=production` 下不再供给伪造行情；**真实股票清单须继续正常供给**，不得一刀切）→ **R0′-3**；② `unit-tests` 与 `honesty-guard` **立即摘 `continue-on-error` 转真阻断**（用户已知悉 unit-tests 全量套件在 CI **无通过率基线**、首次 CI 可能直接红）→ **R0′-2.2**；③ 基线豁免台账用**静态到期日期**列，「剩 N 天」留 stdout；④ **推进顺序 R0′-3 → R0′-6 → R0′-5 → R0′-7**。
+- **剩余工单**：R0′-2.2（转真阻断）/ R0′-3（生产拒供伪行情）/ R0′-6（用户侧回头看卡最小闭环，在途）/ R0′-5（清偿 **IP-18** 死链）/ R0′-7（red-team 独立验证，**至今一次未做**）/ R0′-4（基线分环境禁 `eq`）/ R0′-8（文档同步）。
+- **⚠️ 新登记环境坑**：本机 `grep` 对部分 UTF-8 源文件（如 `frontend/src/pages/ReviewPage.tsx`、`backend/src/services/healthCheck.ts`）会**误判为二进制而不输出**，须加 `-a`；**不得据此判定符号不存在**。
 
 ## 七·五、各页真实数据收尾（完整体验版本主线，用户 2026-08-10 选）
 
