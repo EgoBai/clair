@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table,
   Card,
@@ -11,6 +11,9 @@ import {
   Space,
   Empty,
   Skeleton,
+  Modal,
+  Input,
+  Radio,
   message,
 } from 'antd';
 import {
@@ -23,9 +26,27 @@ import {
   CalendarOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { renderMarkdown } from '../utils/markdown';
+import LookbackCard from '../components/review/LookbackCard';
+import {
+  loadSnapshots,
+  createSnapshot,
+  removeSnapshot,
+  computeOutcome,
+  fetchBenchmarkLevel,
+  fetchCurrentPrices,
+  pickCurrentPrice,
+  LOOKBACK_MIN_AGE_DAYS,
+} from '../services/reviewSnapshot';
+import type {
+  ReviewSnapshot,
+  SnapshotOutcome,
+  SnapshotBenchmark,
+  ExpectedDirection,
+} from '../services/reviewSnapshot';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -221,8 +242,59 @@ const ReviewPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [hasWatchlist, setHasWatchlist] = useState<boolean | null>(null); // null = not checked yet
 
+  // --- R0'-6 回头看：判断留档与兑现验证 ---------------------------------
+  const [snapshots, setSnapshots] = useState<ReviewSnapshot[]>([]);
+  const [snapshotPrices, setSnapshotPrices] = useState<Record<string, number>>({});
+  const [snapshotBenchmark, setSnapshotBenchmark] = useState<SnapshotBenchmark | null>(null);
+  const [lookbackLoading, setLookbackLoading] = useState(false);
+  const [recordTarget, setRecordTarget] = useState<StockRecord | null>(null);
+  const [thesisInput, setThesisInput] = useState('');
+  const [expectedDir, setExpectedDir] = useState<ExpectedDirection | null>(null);
+  const [savingSnapshot, setSavingSnapshot] = useState(false);
+
   const stats = computeStats(stocks);
   const rangeLabel = dateRangeLabel(dateRange);
+
+  // 逐条计算回看结果：个股当前价取自真实接口，基准点位取自真实接口；
+  // 任一缺失 → computeOutcome 内部标注「不可用」，不在 UI 层做任何兜底假值。
+  const lookbackRows = useMemo<{ snapshot: ReviewSnapshot; outcome: SnapshotOutcome }[]>(
+    () =>
+      snapshots.map((snapshot) => ({
+        snapshot,
+        outcome: computeOutcome(snapshot, {
+          price: pickCurrentPrice(snapshotPrices, snapshot.symbol),
+          benchmarkLevel: snapshotBenchmark ? snapshotBenchmark.levelAtSnapshot : null,
+        }),
+      })),
+    [snapshots, snapshotPrices, snapshotBenchmark]
+  );
+
+  /* --- 回头看：加载快照 + 真实当前价/基准点位 ----------------------- */
+  const loadLookback = useCallback(async () => {
+    const list = loadSnapshots();
+    setSnapshots(list);
+    if (list.length === 0) {
+      setSnapshotPrices({});
+      setSnapshotBenchmark(null);
+      return;
+    }
+    setLookbackLoading(true);
+    try {
+      const symbols = Array.from(new Set(list.map((s) => s.symbol)));
+      const [prices, benchmark] = await Promise.all([
+        fetchCurrentPrices(symbols),
+        fetchBenchmarkLevel(),
+      ]);
+      setSnapshotPrices(prices);
+      setSnapshotBenchmark(benchmark);
+    } finally {
+      setLookbackLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLookback();
+  }, [loadLookback]);
 
   /* --- Load watchlist and fetch real quotes ------------------------- */
   const loadStockData = useCallback(async () => {
@@ -364,6 +436,55 @@ const ReviewPage: React.FC = () => {
     }
   };
 
+  /* --- R0'-6 回头看：留档交互 ------------------------------------- */
+  const handleOpenRecord = (record: StockRecord) => {
+    setRecordTarget(record);
+    setThesisInput('');
+    setExpectedDir(null);
+  };
+
+  const handleCancelRecord = () => {
+    setRecordTarget(null);
+    setThesisInput('');
+    setExpectedDir(null);
+  };
+
+  const handleSaveSnapshot = async () => {
+    if (!recordTarget) return;
+    const price = recordTarget.price;
+    if (!Number.isFinite(price) || price <= 0) {
+      // 诚实红线：没有真实价格就不留档，绝不用假价/当前价反推填充。
+      message.warning('当前无有效行情价，无法留档（不会用假数填充）');
+      return;
+    }
+    setSavingSnapshot(true);
+    try {
+      // 基准点位：优先用已缓存的实时点位，没有则现取一次；仍取不到则置 null（不编造）。
+      let benchmark = snapshotBenchmark;
+      if (!benchmark) benchmark = await fetchBenchmarkLevel();
+      createSnapshot({
+        symbol: recordTarget.symbol,
+        name: recordTarget.name,
+        priceAtSnapshot: price,
+        changePctAtSnapshot: recordTarget.rangeChangePct ?? recordTarget.changePct ?? null,
+        thesis: thesisInput.trim(),
+        benchmark,
+        expectedDirection: expectedDir,
+      });
+      handleCancelRecord();
+      await loadLookback();
+      message.success(
+        '已记录该判断，满 ' + LOOKBACK_MIN_AGE_DAYS + ' 天后可回看是否兑现'
+      );
+    } finally {
+      setSavingSnapshot(false);
+    }
+  };
+
+  const handleRemoveSnapshot = (id: string) => {
+    setSnapshots(removeSnapshot(id));
+  };
+
   /* --- Table columns ---------------------------------------------- */
   const columns = [
     {
@@ -470,6 +591,25 @@ const ReviewPage: React.FC = () => {
             产业链
           </Button>
         </Space>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 100,
+      render: (_v: unknown, record: StockRecord) => (
+        <Button
+          type="link"
+          size="small"
+          icon={<HistoryOutlined />}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOpenRecord(record);
+          }}
+          style={{ fontSize: 12, padding: 0 }}
+        >
+          记录判断
+        </Button>
       ),
     },
   ];
@@ -722,6 +862,57 @@ const ReviewPage: React.FC = () => {
             scroll={{ x: 'max-content' }}
             style={{ background: 'transparent' }}
           />
+        )}
+      </Card>
+
+      {/* ============================================================ */}
+      {/*  回头看：把「当时的判断」留档并验证（R0'-6 闭环验证格）          */}
+      {/* ============================================================ */}
+      <Card
+        style={{ ...cardStyle, marginBottom: 24 }}
+        bodyStyle={{ padding: 20 }}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <HistoryOutlined style={{ color: THEME.accent }} />
+            <Text style={{ color: THEME.text, fontSize: 16, fontWeight: 600 }}>
+              回头看 · 判断兑现追踪
+            </Text>
+            <Tag
+              style={{
+                marginLeft: 8,
+                background: 'rgba(59,130,246,0.15)',
+                color: THEME.accent,
+                border: 'none',
+                borderRadius: 4,
+              }}
+            >
+              共 {lookbackRows.length} 条
+            </Tag>
+          </div>
+        }
+      >
+        <Paragraph style={{ color: THEME.textSecondary, fontSize: 12, marginTop: 0, marginBottom: 16 }}>
+          在上方自选股表格点击「记录判断」即可留档（仅存本机）。满 {LOOKBACK_MIN_AGE_DAYS} 天后系统按真实行情计算：
+          个股区间涨跌幅 − 基准（上证指数）区间涨跌幅 = 超额收益，并给出中性兑现结论；数据取不到时如实标注「不可用」。
+        </Paragraph>
+        {lookbackLoading ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : lookbackRows.length === 0 ? (
+          <Empty
+            description={
+              <span style={{ color: THEME.textSecondary }}>还没有记录任何判断</span>
+            }
+            style={{ margin: '24px 0' }}
+          />
+        ) : (
+          lookbackRows.map((row) => (
+            <LookbackCard
+              key={row.snapshot.id}
+              snapshot={row.snapshot}
+              outcome={row.outcome}
+              onRemove={handleRemoveSnapshot}
+            />
+          ))
         )}
       </Card>
 
@@ -1011,6 +1202,66 @@ const ReviewPage: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* ============================================================ */}
+      {/*  记录判断 Modal（R0'-6 留档入口）                              */}
+      {/* ============================================================ */}
+      <Modal
+        open={recordTarget !== null}
+        title="记录我的判断"
+        okText="留档"
+        cancelText="取消"
+        onOk={handleSaveSnapshot}
+        onCancel={handleCancelRecord}
+        confirmLoading={savingSnapshot}
+        destroyOnClose
+      >
+        {recordTarget && (
+          <div>
+            <Space size={8} style={{ marginBottom: 12 }} wrap>
+              <Text style={{ color: THEME.text, fontWeight: 600 }}>{recordTarget.name}</Text>
+              <Text style={{ color: THEME.textSecondary, fontSize: 12, fontFamily: 'monospace' }}>
+                {recordTarget.symbol}
+              </Text>
+              <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>
+                当前价 ¥{recordTarget.price.toFixed(2)}
+              </Text>
+            </Space>
+            <div style={{ marginBottom: 14 }}>
+              <Text style={{ color: THEME.textSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>
+                判断 / 理由（自由文本）
+              </Text>
+              <Input.TextArea
+                value={thesisInput}
+                onChange={(e) => setThesisInput(e.target.value)}
+                rows={4}
+                maxLength={500}
+                showCount
+                placeholder="例如：订单回暖叠加产能释放，判断未来一个月跑赢大盘"
+              />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <Text style={{ color: THEME.textSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>
+                方向性预期（可选，用于事后兑现判定）
+              </Text>
+              <Radio.Group
+                value={expectedDir}
+                onChange={(e) => setExpectedDir(e.target.value as ExpectedDirection | null)}
+              >
+                <Radio value="up">看涨</Radio>
+                <Radio value="down">看跌</Radio>
+                <Radio value="watch">观察</Radio>
+                <Radio value={null}>不标注</Radio>
+              </Radio.Group>
+            </div>
+            <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>
+              基准：{snapshotBenchmark
+                ? `${snapshotBenchmark.name}（当前 ${snapshotBenchmark.levelAtSnapshot.toFixed(2)}）`
+                : '暂不可用，本次将不留存基准（事后超额收益标注不可用）'}
+            </Text>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
