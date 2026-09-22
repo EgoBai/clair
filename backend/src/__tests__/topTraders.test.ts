@@ -1,250 +1,293 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+
+import topTradersRouter from '../api/topTraders';
 
 /**
- * 龙虎榜 API 测试
- * 测试龙虎榜记录生成、席位分析、统计逻辑
+ * 龙虎榜 API 测试（真实源诚实契约）
+ *
+ * 说明：本文件替换了原先基于 Math.random 的「伪数据生成器」测试。
+ *   原测试只是对本地假函数做自证（与真实实现无任何关系），已随 IP-18 死链清偿一并移除。
+ *
+ * 本测试**直接挂载 topTraders router**（不 import app.ts），mock `global.fetch`
+ * 后校验四条端点与诚实降级契约。
  */
-describe('Top Traders API', () => {
-  const BROKER_SEATS = [
-    '华泰证券深圳益田路荣超商务中心',
-    '国泰君安证券上海江苏路',
-    '东方财富证券拉萨团结路第二',
-    '中国银河证券绍兴',
-    '中信证券上海溧阳路',
-    '财通证券杭州上塘路',
-    '光大证券佛山绿景路',
-    '华鑫证券上海宛平南路',
-    '申万宏源证券上海闵行区东川路',
-    '招商证券深圳蛇口招商南路',
-    '机构专用-1',
-    '机构专用-2',
-    '机构专用-3',
-  ];
 
-  const REASONS = [
-    '日涨幅偏离值达7%',
-    '日跌幅偏离值达7%',
-    '日振幅值达15%',
-    '日换手率达20%',
-    '连续三个交易日涨幅偏离值累计达20%',
-    '无价格涨跌幅限制的证券',
-  ];
+const app = express();
+app.use('/api', topTradersRouter);
 
-  function generateTopTraderRecord(symbol: string, name: string) {
-    const buyTotal = parseFloat((5e7 + Math.random() * 2e9).toFixed(2));
-    const sellTotal = parseFloat((4e7 + Math.random() * 1.8e9).toFixed(2));
-    const changePercent = parseFloat((Math.random() * 20 - 10).toFixed(2));
+const ORIGINAL_FETCH = global.fetch;
 
-    const entries = BROKER_SEATS.slice(0, 10).map((seat, i) => {
-      const buyAmount = parseFloat((1e7 + Math.random() * 5e8).toFixed(2));
-      const sellAmount = parseFloat((5e6 + Math.random() * 4e8).toFixed(2));
-      return {
-        rank: i + 1,
-        seatName: seat,
-        buyAmount,
-        sellAmount,
-        netAmount: parseFloat((buyAmount - sellAmount).toFixed(2)),
-        isOrganizational: seat.startsWith('机构'),
-      };
+function jsonResponse(body: unknown) {
+  return { ok: true, json: async () => body } as unknown as Response;
+}
+
+/** 单只股票因「不同上榜原因」出现多行（东财真实行为），用于校验 totalStocks 去重 */
+const DETAIL_ROWS = [
+  {
+    SECURITY_CODE: '000560',
+    SECURITY_NAME_ABBR: '我爱我家',
+    SECUCODE: '000560.SZ',
+    CLOSE_PRICE: 3.0,
+    CHANGE_RATE: 5.1,
+    TURNOVERRATE: 20.3,
+    BILLBOARD_BUY_AMT: 1.0e8,
+    BILLBOARD_SELL_AMT: 4.0e7,
+    BILLBOARD_NET_AMT: 6.0e7,
+    EXPLANATION: '日涨幅偏离值达7%的前5只证券',
+    TRADE_DATE: '2026-09-22 00:00:00',
+    TRADE_MARKET: '深交所主板',
+  },
+  {
+    SECURITY_CODE: '000560',
+    SECURITY_NAME_ABBR: '我爱我家',
+    SECUCODE: '000560.SZ',
+    CLOSE_PRICE: 3.0,
+    CHANGE_RATE: 5.1,
+    TURNOVERRATE: 20.3,
+    BILLBOARD_BUY_AMT: 5.0e7,
+    BILLBOARD_SELL_AMT: 2.0e7,
+    BILLBOARD_NET_AMT: 3.0e7,
+    EXPLANATION: '日换手率达20%的前5只证券',
+    TRADE_DATE: '2026-09-22 00:00:00',
+    TRADE_MARKET: '深交所主板',
+  },
+  {
+    SECURITY_CODE: '600664',
+    SECURITY_NAME_ABBR: '哈药股份',
+    SECUCODE: '600664.SH',
+    CLOSE_PRICE: 5.2,
+    CHANGE_RATE: -3.4,
+    TURNOVERRATE: 11.2,
+    BILLBOARD_BUY_AMT: 2.0e7,
+    BILLBOARD_SELL_AMT: 9.0e7,
+    BILLBOARD_NET_AMT: -7.0e7,
+    EXPLANATION: '日跌幅偏离值达7%的前5只证券',
+    TRADE_DATE: '2026-09-22 00:00:00',
+    TRADE_MARKET: '上交所主板',
+  },
+];
+
+const BUY_SEAT_ROWS = [
+  {
+    SECURITY_CODE: '000560',
+    TRADE_DATE: '2026-09-22 00:00:00',
+    TRADE_ID: '100416565',
+    OPERATEDEPT_CODE: '0',
+    OPERATEDEPT_NAME: '机构专用',
+    BUY: 9.0e7,
+    SELL: 1.0e7,
+    NET: 8.0e7,
+  },
+  {
+    SECURITY_CODE: '000560',
+    TRADE_DATE: '2026-09-22 00:00:00',
+    TRADE_ID: '100416565',
+    OPERATEDEPT_CODE: '80032599',
+    OPERATEDEPT_NAME: '华泰证券股份有限公司深圳益田路荣超商务中心证券营业部',
+    BUY: 2.0e7,
+    SELL: 0,
+    NET: 2.0e7,
+  },
+];
+
+const SELL_SEAT_ROWS = [
+  {
+    SECURITY_CODE: '000560',
+    TRADE_DATE: '2026-09-22 00:00:00',
+    TRADE_ID: '100416565',
+    OPERATEDEPT_CODE: '0',
+    OPERATEDEPT_NAME: '机构专用',
+    BUY: 0,
+    SELL: 3.0e7,
+    NET: -3.0e7,
+  },
+];
+
+afterEach(() => {
+  global.fetch = ORIGINAL_FETCH;
+  vi.restoreAllMocks();
+});
+
+describe('龙虎榜 API（诚实契约）', () => {
+  describe('a) 真实源可用 → dataSource=eastmoney，且 totalStocks 按代码去重', () => {
+    beforeEach(() => {
+      global.fetch = vi.fn(async () =>
+        jsonResponse({ success: true, result: { pages: 1, data: DETAIL_ROWS } }),
+      ) as unknown as typeof fetch;
     });
 
-    return {
-      symbol,
-      name,
-      tradeDate: new Date().toISOString().split('T')[0],
-      closePrice: parseFloat((10 + Math.random() * 190).toFixed(2)),
-      changePercent,
-      turnover: parseFloat((1e8 + Math.random() * 5e9).toFixed(2)),
-      reason: REASONS[Math.floor(Math.random() * REASONS.length)],
-      buyTotal,
-      sellTotal,
-      netTotal: parseFloat((buyTotal - sellTotal).toFixed(2)),
-      entries,
-    };
-  }
+    it('GET /api/top-traders/overview?date= 返回 200 且为真实源数据', async () => {
+      const res = await request(app).get('/api/top-traders/overview?date=2026-09-22');
 
-  describe('Record Generation', () => {
-    it('should generate valid record structure', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      expect(record).toHaveProperty('symbol', '600519.SH');
-      expect(record).toHaveProperty('name', '贵州茅台');
-      expect(record).toHaveProperty('tradeDate');
-      expect(record).toHaveProperty('closePrice');
-      expect(record).toHaveProperty('changePercent');
-      expect(record).toHaveProperty('turnover');
-      expect(record).toHaveProperty('reason');
-      expect(record).toHaveProperty('buyTotal');
-      expect(record).toHaveProperty('sellTotal');
-      expect(record).toHaveProperty('netTotal');
-      expect(record).toHaveProperty('entries');
-    });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
 
-    it('should have correct net total calculation', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      expect(record.netTotal).toBeCloseTo(record.buyTotal - record.sellTotal, 2);
-    });
+      const data = res.body.data;
+      expect(data.dataSource).toBe('eastmoney');
+      // 3 行明细归属 2 只股票（000560 占 2 行）→ 去重后应为 2
+      expect(data.totalStocks).toBe(2);
+      expect(data.tradeDate).toBe('2026-09-22');
 
-    it('should generate 10 entries per record', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      expect(record.entries.length).toBe(10);
-    });
+      // 合计金额 = 全部行求和（去重不影响总额）
+      expect(data.totalBuyAmount).toBeCloseTo(1.7e8, 0);
+      expect(data.totalSellAmount).toBeCloseTo(1.5e8, 0);
+      expect(data.totalNetAmount).toBeCloseTo(2.0e7, 0);
 
-    it('should have sequential rank numbers', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      record.entries.forEach((entry, i) => {
-        expect(entry.rank).toBe(i + 1);
-      });
-    });
+      // 000560 净额 +9e7、600664 净额 -7e7
+      expect(data.buyDominantCount).toBe(1);
+      expect(data.sellDominantCount).toBe(1);
 
-    it('should have valid entry amounts', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      record.entries.forEach(entry => {
-        expect(entry.buyAmount).toBeGreaterThan(0);
-        expect(entry.sellAmount).toBeGreaterThan(0);
-        expect(entry.netAmount).toBeCloseTo(entry.buyAmount - entry.sellAmount, 2);
-      });
-    });
+      expect(Array.isArray(data.topBuyStocks)).toBe(true);
+      expect(data.topBuyStocks.length).toBeGreaterThan(0);
+      expect(data.topBuyStocks[0].symbol).toBe('000560');
+      expect(data.topBuyStocks[0].reason).toBe('日涨幅偏离值达7%的前5只证券');
 
-    it('should identify organizational seats', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      const orgEntries = record.entries.filter(e => e.isOrganizational);
-      const nonOrgEntries = record.entries.filter(e => !e.isOrganizational);
-      expect(orgEntries.length + nonOrgEntries.length).toBe(10);
-    });
-
-    it('should have valid trade date format', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      expect(record.tradeDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    });
-
-    it('should have valid price range', () => {
-      const record = generateTopTraderRecord('600519.SH', '贵州茅台');
-      expect(record.closePrice).toBeGreaterThanOrEqual(10);
-      expect(record.closePrice).toBeLessThanOrEqual(200);
-    });
-  });
-
-  describe('Broker Seats', () => {
-    it('should have at least 10 broker seats', () => {
-      expect(BROKER_SEATS.length).toBeGreaterThanOrEqual(10);
-    });
-
-    it('should identify organizational seats correctly', () => {
-      const orgSeats = BROKER_SEATS.filter(s => s.startsWith('机构'));
-      expect(orgSeats.length).toBe(3);
-    });
-
-    it('should identify non-organizational seats correctly', () => {
-      const nonOrgSeats = BROKER_SEATS.filter(s => !s.startsWith('机构'));
-      expect(nonOrgSeats.length).toBe(10);
-    });
-  });
-
-  describe('Reasons Validation', () => {
-    it('should have valid listing reasons', () => {
-      expect(REASONS.length).toBeGreaterThanOrEqual(5);
-      REASONS.forEach(reason => {
-        expect(reason).toBeTruthy();
-        expect(typeof reason).toBe('string');
-      });
-    });
-
-    it('should include price deviation reasons', () => {
-      const hasPriceReason = REASONS.some(r => r.includes('偏离值'));
-      expect(hasPriceReason).toBe(true);
-    });
-
-    it('should include turnover reason', () => {
-      const hasTurnoverReason = REASONS.some(r => r.includes('换手率'));
-      expect(hasTurnoverReason).toBe(true);
+      // 真实源不提供行业字段 → 恒空对象（前端据此隐藏行业卡片）
+      expect(data.industryDistribution).toEqual({});
     });
   });
 
-  describe('Overview Generation', () => {
-    function generateOverview(date?: string) {
-      return {
-        tradeDate: date || new Date().toISOString().split('T')[0],
-        totalStocks: 15 + Math.floor(Math.random() * 20),
-        buyDominantCount: 8 + Math.floor(Math.random() * 10),
-        sellDominantCount: 5 + Math.floor(Math.random() * 8),
-        totalBuyAmount: parseFloat((1e10 + Math.random() * 5e10).toFixed(2)),
-        totalSellAmount: parseFloat((8e9 + Math.random() * 4e10).toFixed(2)),
-        totalNetAmount: parseFloat((Math.random() * 1e10 - 5e9).toFixed(2)),
-      };
-    }
-
-    it('should generate valid overview', () => {
-      const overview = generateOverview();
-      expect(overview.totalStocks).toBeGreaterThanOrEqual(15);
-      expect(overview.buyDominantCount).toBeGreaterThanOrEqual(8);
-      expect(overview.sellDominantCount).toBeGreaterThanOrEqual(5);
+  describe('b) 网络失败（fetch reject）→ 诚实降级', () => {
+    beforeEach(() => {
+      global.fetch = vi.fn(async () => {
+        throw new Error('network down');
+      }) as unknown as typeof fetch;
     });
 
-    it('should accept custom date', () => {
-      const overview = generateOverview('2024-01-15');
-      expect(overview.tradeDate).toBe('2024-01-15');
+    it('GET overview 返回 200 + unavailable + 空数组 + 非空 notes', async () => {
+      const res = await request(app).get('/api/top-traders/overview?date=2026-09-22');
+
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(data.dataSource).toBe('unavailable');
+      expect(typeof data.notes).toBe('string');
+      expect(data.notes.length).toBeGreaterThan(0);
+      expect(data.totalStocks).toBe(0);
+      expect(data.totalBuyAmount).toBe(0);
+      expect(data.topBuyStocks).toEqual([]);
+      expect(data.topSellStocks).toEqual([]);
+      expect(data.industryDistribution).toEqual({});
     });
 
-    it('should have valid amount ranges', () => {
-      const overview = generateOverview();
-      expect(overview.totalBuyAmount).toBeGreaterThan(0);
-      expect(overview.totalSellAmount).toBeGreaterThan(0);
-    });
-  });
+    it('GET seat/rank 返回 200 + unavailable + 空 rank', async () => {
+      const res = await request(app).get('/api/top-traders/seat/rank?count=20');
 
-  describe('Seat Ranking', () => {
-    it('should rank seats by net amount', () => {
-      const seats = BROKER_SEATS.slice(0, 10).map((seat, i) => ({
-        rank: i + 1,
-        seatName: seat,
-        totalBuyAmount: 5e8 + Math.random() * 5e9,
-        totalSellAmount: 4e8 + Math.random() * 4e9,
-        netAmount: Math.random() * 2e9 - 1e9,
-        appearCount: Math.floor(3 + Math.random() * 20),
-        isOrganizational: seat.startsWith('机构'),
-      }));
-
-      const sorted = [...seats].sort((a, b) => b.netAmount - a.netAmount);
-      for (let i = 1; i < sorted.length; i++) {
-        expect(sorted[i - 1].netAmount).toBeGreaterThanOrEqual(sorted[i].netAmount);
-      }
-    });
-
-    it('should respect count limit', () => {
-      const count = 5;
-      const seats = BROKER_SEATS.slice(0, Math.min(count, BROKER_SEATS.length));
-      expect(seats.length).toBeLessThanOrEqual(count);
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(data.dataSource).toBe('unavailable');
+      expect(Array.isArray(data.rank)).toBe(true);
+      expect(data.rank).toEqual([]);
+      expect(typeof data.notes).toBe('string');
+      expect(data.notes.length).toBeGreaterThan(0);
     });
   });
 
-  describe('History Generation', () => {
-    it('should generate history with correct day count', () => {
-      const days = 7;
-      const records = [];
-      for (let i = 0; i < Math.min(days, 30); i++) {
-        records.push(generateTopTraderRecord('600519.SH', '贵州茅台'));
-      }
-      expect(records.length).toBe(7);
+  describe('c) 东财错误态（success:false / result:null）→ 同样降级', () => {
+    beforeEach(() => {
+      global.fetch = vi.fn(async () =>
+        jsonResponse({ success: false, result: null }),
+      ) as unknown as typeof fetch;
     });
 
-    it('should cap history at 30 days', () => {
-      const days = 50;
-      const records = [];
-      for (let i = 0; i < Math.min(days, 30); i++) {
-        records.push(generateTopTraderRecord('600519.SH', '贵州茅台'));
-      }
-      expect(records.length).toBe(30);
+    it('GET overview 返回 unavailable', async () => {
+      const res = await request(app).get('/api/top-traders/overview?date=2026-09-22');
+
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(data.dataSource).toBe('unavailable');
+      expect(data.topBuyStocks).toEqual([]);
+      expect(data.notes.length).toBeGreaterThan(0);
     });
   });
 
-  describe('Industry Distribution', () => {
-    it('should count stocks by industry', () => {
-      const distribution: Record<string, number> = {
-        '白酒': 3, '新能源': 4, '半导体': 2, '银行': 1, '医药': 2, '消费电子': 1,
-      };
-      const total = Object.values(distribution).reduce((s, v) => s + v, 0);
-      expect(total).toBe(13);
-      expect(distribution['白酒']).toBe(3);
+  describe('d) 路由注册顺序：seat/rank 命中 seat 端点，未被 :symbol 吞掉', () => {
+    beforeEach(() => {
+      global.fetch = vi.fn(async (url: string | URL) => {
+        const s = String(url);
+        if (s.includes('RPT_DAILYBILLBOARD_DETAILSNEW')) {
+          return jsonResponse({ success: true, result: { pages: 1, data: DETAIL_ROWS } });
+        }
+        if (s.includes('RPT_BILLBOARD_DAILYDETAILSSELL')) {
+          return jsonResponse({ success: true, result: { pages: 1, data: SELL_SEAT_ROWS } });
+        }
+        if (s.includes('RPT_BILLBOARD_DAILYDETAILSBUY')) {
+          return jsonResponse({ success: true, result: { pages: 1, data: BUY_SEAT_ROWS } });
+        }
+        return jsonResponse({ success: false, result: null });
+      }) as unknown as typeof fetch;
+    });
+
+    it('GET /api/top-traders/seat/rank 返回 rank 数组（非 record）', async () => {
+      const res = await request(app).get('/api/top-traders/seat/rank?count=20');
+
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(Array.isArray(data.rank)).toBe(true);
+      expect(data.rank.length).toBeGreaterThan(0);
+      // 若被 :symbol 吞掉，返回体会是 { record: null, ... } 而没有 rank
+      expect(data.record).toBeUndefined();
+
+      const first = data.rank[0];
+      expect(typeof first.seatName).toBe('string');
+      expect(first.seatName.length).toBeGreaterThan(0);
+      expect(typeof first.netAmount).toBe('number');
+      // 机构专用席位聚合：buy 9e7 - sell 3e7 = 6e7，且被识别为机构席位
+      expect(first.seatName).toBe('机构专用');
+      expect(first.isOrganizational).toBe(true);
+      expect(first.totalBuyAmount).toBeCloseTo(9.0e7, 0);
+      expect(first.totalSellAmount).toBeCloseTo(3.0e7, 0);
+      expect(first.netAmount).toBeCloseTo(6.0e7, 0);
+      // 同一 (股票_交易ID) 在买卖两侧各现一次 → 去重后上榜次数为 1
+      expect(first.appearCount).toBe(1);
+      expect(data.dataSource).toBe('eastmoney');
+    });
+
+    it('GET /api/top-traders/:symbol 仍可达（顺序正确）', async () => {
+      const res = await request(app).get(
+        `/api/top-traders/000560?name=${encodeURIComponent('我爱我家')}`,
+      );
+
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(data.dataSource).toBe('eastmoney');
+      expect(data.record).toBeTruthy();
+      expect(data.record.symbol).toBe('000560');
+      expect(data.record.tradeDate).toBe('2026-09-22');
+      expect(data.record.entries.length).toBeGreaterThan(0);
+      expect(data.record.netTotal).toBeCloseTo(
+        data.record.buyTotal - data.record.sellTotal,
+        2,
+      );
+    });
+  });
+
+  describe('e) history 端点', () => {
+    beforeEach(() => {
+      global.fetch = vi.fn(async (url: string | URL) => {
+        const s = String(url);
+        if (s.includes('RPT_DAILYBILLBOARD_DETAILSNEW')) {
+          return jsonResponse({ success: true, result: { pages: 1, data: DETAIL_ROWS } });
+        }
+        if (s.includes('RPT_BILLBOARD_DAILYDETAILSSELL') || s.includes('RPT_BILLBOARD_DAILYDETAILSBUY')) {
+          return jsonResponse({ success: true, result: { pages: 1, data: BUY_SEAT_ROWS } });
+        }
+        return jsonResponse({ success: false, result: null });
+      }) as unknown as typeof fetch;
+    });
+
+    it('GET /api/top-traders/history/:symbol?days= 返回 records 数组', async () => {
+      const res = await request(app).get('/api/top-traders/history/000560?days=10');
+
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(data.dataSource).toBe('eastmoney');
+      expect(Array.isArray(data.records)).toBe(true);
+      // 明细 3 行同属 2026-09-22 → 归并为 1 个交易日
+      expect(data.records.length).toBe(1);
+      expect(data.records[0].tradeDate).toBe('2026-09-22');
+      expect(data.records[0].entries.length).toBeGreaterThan(0);
     });
   });
 });
