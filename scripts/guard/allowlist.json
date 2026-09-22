@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-21",
+  "updatedAt": "2026-09-22",
   "entries": [
     {
       "id": "AL-001",
@@ -125,7 +125,7 @@
       "match": "(Math.random() - 0.5) * 2 * volatility",
       "category": "acknowledged-debt",
       "reason": "内存库伪行情：generatePrice 的日涨跌随机项（PG 不可用时全站以此供数）",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -134,7 +134,7 @@
       "match": "const basePrice = 10 + Math.random() * 200",
       "category": "acknowledged-debt",
       "reason": "内存库伪行情：每只标的基准价随机生成",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -143,7 +143,7 @@
       "match": "const high = Math.max(open, close)",
       "category": "acknowledged-debt",
       "reason": "内存库伪行情：日最高价随机扰动",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -152,7 +152,7 @@
       "match": "const low = Math.min(open, close)",
       "category": "acknowledged-debt",
       "reason": "内存库伪行情：日最低价随机扰动",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -161,7 +161,7 @@
       "match": "const volume = Math.floor(5000000",
       "category": "acknowledged-debt",
       "reason": "内存库伪成交量随机生成",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -170,7 +170,7 @@
       "match": "turnoverRate: Math.round(Math.random()",
       "category": "acknowledged-debt",
       "reason": "内存库伪换手率随机生成",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -179,7 +179,7 @@
       "match": "peRatio: Math.round((10 + Math.random()",
       "category": "acknowledged-debt",
       "reason": "内存库伪 PE 随机生成",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -188,7 +188,7 @@
       "match": "pbRatio: Math.round((1 + Math.random()",
       "category": "acknowledged-debt",
       "reason": "内存库伪 PB 随机生成",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -197,7 +197,7 @@
       "match": "marketCap: Math.floor(close * (1e8",
       "category": "acknowledged-debt",
       "reason": "内存库伪总市值随机生成",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     },
     {
@@ -206,7 +206,7 @@
       "match": "circulatingMarketCap: Math.floor(close * (5e7",
       "category": "acknowledged-debt",
       "reason": "内存库伪流通市值随机生成",
-      "clearingTicket": "R0'-1b 内存库降级暴露",
+      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
       "expiresAt": "2026-10-05"
     }
   ]
