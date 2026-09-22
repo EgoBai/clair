@@ -18,6 +18,10 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import { classifyStock } from '@shared/industryClassification';
+import {
+  FabricatedDataRefusedError,
+  isFabricatedQuoteRefusalActive,
+} from './FabricatedDataRefusedError';
 
 // ==================== 内部类型定义 ====================
 
@@ -299,6 +303,24 @@ class InMemoryDatabase {
     this.initializeData();
   }
 
+  /**
+   * 诚实红线根治：生产环境拒供伪造行情。
+   *
+   * 本类中的 OHLCV / 涨跌幅 / 成交额 / 换手率 / PE / PB / 市值全部由 Math.random() 伪造
+   * （见 generateQuotes / generatePrice）。当 `NODE_ENV === 'production'` 时（可用
+   * `ALLOW_FABRICATED_MARKET_DATA='true'` 显式放行），所有会返回伪行情的读方法一律抛
+   * `FabricatedDataRefusedError`，让上层走「无数据」路径，而不是把伪数字当真实行情供给。
+   *
+   * 真实的股票清单（symbol / name / market / industry / subIndustry）不受影响，
+   * 由 getStocks / getStockCount / getStockById / getStockBySymbol / searchStocks /
+   * reclassifyAll 等继续正常供给。
+   */
+  private refuseFabricatedQuotes(method: string): void {
+    if (isFabricatedQuoteRefusalActive()) {
+      throw new FabricatedDataRefusedError(method);
+    }
+  }
+
   /** 重新分类所有股票行业 */
   reclassifyAll(): number {
     let changed = 0;
@@ -363,6 +385,14 @@ class InMemoryDatabase {
     });
 
     console.log(`📊 内存数据库初始化完成: ${this.stocks.length} 只股票`);
+
+    // 诚实红线根治：生产环境默认拒供上述伪行情；逃生开关被显式使用时必须留下刺眼记录。
+    if (process.env.NODE_ENV === 'production' && !isFabricatedQuoteRefusalActive()) {
+      console.error(
+        '🚨 ALLOW_FABRICATED_MARKET_DATA=true 已显式放行：生产环境正在以 Math.random 伪造行情对外供给，' +
+        '该状态违反诚实数据红线，仅可用于应急且必须尽快恢复 PostgreSQL',
+      );
+    }
   }
 
   // 模拟Knex接口 — connection is a callable function like Knex
@@ -371,6 +401,12 @@ class InMemoryDatabase {
       return conn._table(tableName);
     }) as MockKnexConnection;
     conn._table = (tableName: string) => {
+      // 诚实红线根治：daily_quotes 是纯伪造行情表，生产环境拒供。
+      // 该路径被 backtest / portfolio / risk-center / watchlist / kline 等大量端点直接消费，
+      // 若只拦具名方法会留下同等严重的伪造行情泄露口子。
+      if (tableName.startsWith('daily_quotes')) {
+        this.refuseFabricatedQuotes(`connection('${tableName}')`);
+      }
       // Return data based on table name
       let data: QueryRow[];
       if (tableName === 'stocks') {
@@ -396,7 +432,10 @@ class InMemoryDatabase {
   getPoolStats() { return { used: 0, free: 0, pending: 0, min: 0, max: 0 }; }
   async healthCheck() { return { healthy: true, latency: 0 }; }
 
-  getQuotes(symbol: string): DailyQuote[] { return this.quotes.get(symbol) || []; }
+  getQuotes(symbol: string): DailyQuote[] {
+    this.refuseFabricatedQuotes('getQuotes');
+    return this.quotes.get(symbol) || [];
+  }
 
   /**
    * 同步返回当前内存库的股票数量（不触发任何异步查询）。
@@ -405,10 +444,12 @@ class InMemoryDatabase {
   getStockCountSync(): number { return this.stocks.length; }
   
   async getMarketSummary(_date?: unknown): Promise<MarketSummary> {
+    this.refuseFabricatedQuotes('getMarketSummary');
     return this.getMarketSummaryInternal();
   }
 
   getTopGainers(limit: number = 10) {
+    this.refuseFabricatedQuotes('getTopGainers');
     return this.stocks.map((s): StockWithLatestQuote => {
       const quotes = this.quotes.get(s.symbol);
       const latest = quotes ? quotes[quotes.length - 1] : undefined;
@@ -420,6 +461,7 @@ class InMemoryDatabase {
   }
 
   getTopLosers(limit: number = 10) {
+    this.refuseFabricatedQuotes('getTopLosers');
     return this.stocks.map((s): StockWithLatestQuote => {
       const quotes = this.quotes.get(s.symbol);
       const latest = quotes ? quotes[quotes.length - 1] : undefined;
@@ -475,6 +517,7 @@ class InMemoryDatabase {
   }
 
   async getDailyQuotes(stockId: number, startDate?: Date | string, endDate?: Date | string, limit?: number): Promise<DailyQuote[]> {
+    this.refuseFabricatedQuotes('getDailyQuotes');
     const stock = this.stocks.find(s => s.id === stockId);
     if (!stock) return [];
     let quotes = this.quotes.get(stock.symbol) || [];
@@ -492,6 +535,7 @@ class InMemoryDatabase {
   }
 
   async getLatestDailyQuote(stockId: number): Promise<DailyQuote | null> {
+    this.refuseFabricatedQuotes('getLatestDailyQuote');
     const stock = this.stocks.find(s => s.id === stockId);
     if (!stock) return null;
     const quotes = this.quotes.get(stock.symbol) || [];
@@ -499,6 +543,7 @@ class InMemoryDatabase {
   }
 
   async getStockWithLatestQuote(symbol: string): Promise<StockWithQuotes | null> {
+    this.refuseFabricatedQuotes('getStockWithLatestQuote');
     const stock = this.stocks.find(s => s.symbol === symbol);
     if (!stock) return null;
     const quotes = this.quotes.get(symbol) || [];
@@ -507,6 +552,7 @@ class InMemoryDatabase {
   }
 
   async getStocksWithLatestQuotes(symbols: string[]): Promise<StockWithQuotes[]> {
+    this.refuseFabricatedQuotes('getStocksWithLatestQuotes');
     return symbols
       .map(symbol => {
         const stock = this.stocks.find(s => s.symbol === symbol);
@@ -559,6 +605,7 @@ class InMemoryDatabase {
   }
 
   async getIndustryPerformance(_date?: unknown): Promise<IndustryPerformanceRow[]> {
+    this.refuseFabricatedQuotes('getIndustryPerformance');
     const industryMap = new Map<string, IndustryStats>();
     this.stocks.forEach(s => {
       const quotes = this.quotes.get(s.symbol);
@@ -581,6 +628,7 @@ class InMemoryDatabase {
   }
 
   async getTopTurnover(_date?: unknown, limit: number = 10): Promise<StockWithLatestQuote[]> {
+    this.refuseFabricatedQuotes('getTopTurnover');
     return this.stocks
       .map((s): StockWithLatestQuote => {
         const quotes = this.quotes.get(s.symbol);
@@ -686,6 +734,7 @@ class InMemoryDatabase {
   }
 
   getMarketSummaryInternal(): MarketSummary {
+    this.refuseFabricatedQuotes('getMarketSummaryInternal');
     const latest = this.stocks
       .map(s => {
         const quotes = this.quotes.get(s.symbol);
@@ -712,6 +761,7 @@ class InMemoryDatabase {
 
   /** 板块内个股列表 */
   async getSectorStocks(industry: string): Promise<StockWithLatestQuote[]> {
+    this.refuseFabricatedQuotes('getSectorStocks');
     return this.stocks
       .filter(s => s.industry === industry || (industry === '其他' && !s.industry))
       .map(s => {
@@ -732,6 +782,7 @@ class InMemoryDatabase {
     total_market_cap: number;
     limit_up_count: number;
   }>> {
+    this.refuseFabricatedQuotes('getSectorPerformanceEnhanced');
     const map = new Map<string, {
       count: number; totalChange: number; totalTurnover: number;
       totalCap: number; limitUp: number;
@@ -773,6 +824,7 @@ class InMemoryDatabase {
     total_turnover: number;
     limit_up_count: number;
   }>> {
+    this.refuseFabricatedQuotes('getSectorMomentumScore');
     const enhanced = await this.getSectorPerformanceEnhanced();
     if (enhanced.length === 0) return [];
 
@@ -818,6 +870,7 @@ class InMemoryDatabase {
     parent: string; name: string; stock_count: number;
     avg_change_percent: number; avg_turnover_percent: number; total_market_cap: number;
   }>> {
+    this.refuseFabricatedQuotes('getSubIndustryPerformance');
     const map = new Map<string, {
       parent: string; count: number; totalChange: number; totalTurnover: number; totalCap: number;
     }>();
@@ -851,6 +904,7 @@ class InMemoryDatabase {
     symbol: string; name: string; l1: string; l2: string;
     price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
   }>> {
+    this.refuseFabricatedQuotes('getStocksBySubIndustry');
     const result: Array<{
       symbol: string; name: string; l1: string; l2: string;
       price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;

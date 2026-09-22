@@ -5,6 +5,7 @@
 
 import { Database } from './Database';
 import { InMemoryDatabase, getInMemoryDb } from './InMemoryDatabase';
+import { isFabricatedQuoteRefusalActive } from './FabricatedDataRefusedError';
 
 export type DbType = 'postgres' | 'memory';
 
@@ -15,7 +16,10 @@ let dbInstance: Database | InMemoryDatabase | null = null;
  * 初始化数据库连接
  * 优先使用PostgreSQL，失败则降级到内存数据库
  *
- * ⚠️ 内存库中的行情/估值为 Math.random 伪造数据，降级态的暴露见 getDbStatus()。
+ * ⚠️ 内存库中的行情/估值为 Math.random 伪造数据（真实数据只有股票清单）：
+ * - 降级态的机器可观测入口见 getDbStatus()
+ * - 生产环境（NODE_ENV==='production'）下这些伪造行情由 InMemoryDatabase 直接拒绝供给，
+ *   见 db/FabricatedDataRefusedError.ts
  */
 export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase; type: DbType }> {
   const pgUrl = process.env.DATABASE_URL;
@@ -69,8 +73,13 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
   if (process.env.NODE_ENV === 'production') {
     // 生产环境降级必须在日志中显式暴露，且不得与常规 warn 混淆
     console.error(
-      `🚨 生产环境已降级至伪造行情：PostgreSQL 不可用（${pgUnavailableReason}），` +
-      '当前 API 返回的行情/估值全部由 Math.random 伪造，禁止作为真实数据对外使用',
+      isFabricatedQuoteRefusalActive()
+        ? `🚨 生产环境数据库降级：PostgreSQL 不可用（${pgUnavailableReason}）。` +
+          '内存库的行情/估值为 Math.random 伪造数据，生产环境已拒供（相关端点将返回错误/无数据，' +
+          '不会返回伪行情）；仅真实股票清单（symbol/name/industry）仍可用。'
+        : `🚨 生产环境数据库降级且伪行情已被显式放行：PostgreSQL 不可用（${pgUnavailableReason}），` +
+          'ALLOW_FABRICATED_MARKET_DATA=true 正在使生产 API 以 Math.random 伪造行情对外供给，' +
+          '该状态违反诚实数据红线，仅可用于应急且必须尽快恢复 PostgreSQL',
     );
   }
 
@@ -89,7 +98,9 @@ function getMemoryStockCount(instance: Database | InMemoryDatabase | null): numb
 
 /**
  * 获取当前数据库状态（供健康检查/路由层暴露降级态）
- * - degraded: 仅当 type === 'memory' 时为 true —— 内存模式即降级态（行情为伪造数据）
+ * - degraded: 仅当 type === 'memory' 时为 true —— 内存模式即降级态（行情为伪造数据）。
+ *   生产环境下 degraded 还意味着这些伪造行情已被 InMemoryDatabase 拒供（除非显式设置
+ *   ALLOW_FABRICATED_MARKET_DATA=true），此时读行情端点会返回错误而非伪数字。
  * - stockCount: 内存模式下返回内存库实际股票数；
  *   PostgreSQL 模式下不缓存计数，返回 -1（如需真实计数请调用 db.getStockCount()）；
  *   数据库尚未初始化时同样返回 -1。
