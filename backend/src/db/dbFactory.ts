@@ -16,9 +16,10 @@ let dbInstance: Database | InMemoryDatabase | null = null;
  * 初始化数据库连接
  * 优先使用PostgreSQL，失败则降级到内存数据库
  *
- * ⚠️ 内存库中的行情/估值为 Math.random 伪造数据（真实数据只有股票清单）：
+ * ⚠️ 内存库已**不再生成**任何行情/估值（R0′-9 已删除 Math.random 伪造生成器），
+ *   真实数据只有股票清单；行情类读取一律返回诚实空态（省略键 / 空数组 / null）。
  * - 降级态的机器可观测入口见 getDbStatus()
- * - 生产环境（NODE_ENV==='production'）下这些伪造行情由 InMemoryDatabase 直接拒绝供给，
+ * - 生产环境（NODE_ENV==='production'）下行情类读取由 InMemoryDatabase 升级为显式失败，
  *   见 db/FabricatedDataRefusedError.ts
  */
 export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase; type: DbType }> {
@@ -75,11 +76,11 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
     console.error(
       isFabricatedQuoteRefusalActive()
         ? `🚨 生产环境数据库降级：PostgreSQL 不可用（${pgUnavailableReason}）。` +
-          '内存库的行情/估值为 Math.random 伪造数据，生产环境已拒供（相关端点将返回错误/无数据，' +
-          '不会返回伪行情）；仅真实股票清单（symbol/name/industry）仍可用。'
-        : `🚨 生产环境数据库降级且伪行情已被显式放行：PostgreSQL 不可用（${pgUnavailableReason}），` +
-          'ALLOW_FABRICATED_MARKET_DATA=true 正在使生产 API 以 Math.random 伪造行情对外供给，' +
-          '该状态违反诚实数据红线，仅可用于应急且必须尽快恢复 PostgreSQL',
+          '内存库已不生成任何行情/估值（R0′-9 已移除伪造生成器），生产环境将该静默空态升级为显式失败：' +
+          '行情类端点返回 503/unavailable，不会返回任何行情数值；仅真实股票清单（symbol/name/industry）仍可用。'
+        : `⚠️ 生产环境数据库降级且已设置 ALLOW_FABRICATED_MARKET_DATA=true：PostgreSQL 不可用（${pgUnavailableReason}）。` +
+          '注意：内存库已无伪造行情可放行，该开关当前**只**让行情类读取返回诚实空态（而非抛错），' +
+          '不改变数据内容；降级态应尽快恢复 PostgreSQL',
     );
   }
 
@@ -98,9 +99,9 @@ function getMemoryStockCount(instance: Database | InMemoryDatabase | null): numb
 
 /**
  * 获取当前数据库状态（供健康检查/路由层暴露降级态）
- * - degraded: 仅当 type === 'memory' 时为 true —— 内存模式即降级态（行情为伪造数据）。
- *   生产环境下 degraded 还意味着这些伪造行情已被 InMemoryDatabase 拒供（除非显式设置
- *   ALLOW_FABRICATED_MARKET_DATA=true），此时读行情端点会返回错误而非伪数字。
+ * - degraded: 仅当 type === 'memory' 时为 true —— 内存模式即降级态（无真实行情来源）。
+ *   生产环境下 degraded 还意味着行情类读取已被 InMemoryDatabase 升级为显式失败
+ *   （除非显式设置 ALLOW_FABRICATED_MARKET_DATA=true，此时改回返回诚实空态）。
  * - stockCount: 内存模式下返回内存库实际股票数；
  *   PostgreSQL 模式下不缓存计数，返回 -1（如需真实计数请调用 db.getStockCount()）；
  *   数据库尚未初始化时同样返回 -1。

@@ -298,8 +298,9 @@ app.get('/health', async (_req, res) => {
         dbType: dbStatus.type,
         degraded,
         // 降级态下二选一，且**必须**能区分：
-        //   refusalActive=true      → 已拒绝供给伪造行情（诚实，行情端点返回 503 unavailable）
-        //   fabricationAllowed=true → 逃生开关已打开，正在对外供给 Math.random 伪造行情（违反诚实红线）
+        //   refusalActive=true      → 行情读方法抛 FabricatedDataRefusedError（诚实，端点返回 503 unavailable）
+        //   fabricationAllowed=true → 逃生开关已打开：行情读方法返回诚实空态（省略键/空数组）而非抛错。
+        //                             R0'-9 已删除 Math.random 伪造生成器，故此处不再存在「对外供给伪造行情」的语义。
         refusalActive: degraded ? refusalActive : false,
         fabricationAllowed: degraded ? !refusalActive : false,
         stockCount: dbStatus.stockCount,

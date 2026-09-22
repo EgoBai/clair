@@ -679,7 +679,7 @@ export class Database {
   /** 按二级行业查股票（实时分类，返回带最新行情的列表） */
   async getStocksBySubIndustry(subName: string): Promise<Array<{
     symbol: string; name: string; l1: string; l2: string;
-    price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+    price: number | null; changePercent: number | null; peRatio: number | null; turnoverRate: number | null; marketCap: number | null;
   }>> {
     const rows = await this.knexInstance.raw(`
       SELECT s.industry AS industry, s.symbol AS symbol, s.name AS name,
@@ -697,7 +697,7 @@ export class Database {
     const toNum = (v: unknown): number => (v === null || v === undefined ? 0 : parseFloat(String(v)));
     const result: Array<{
       symbol: string; name: string; l1: string; l2: string;
-      price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+      price: number | null; changePercent: number | null; peRatio: number | null; turnoverRate: number | null; marketCap: number | null;
     }> = [];
     for (const r of rows.rows as Array<Record<string, unknown>>) {
       const rawL1 = (r.industry && r.industry !== '综合' && r.industry !== '未分类') ? String(r.industry) : undefined;

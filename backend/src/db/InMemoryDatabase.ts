@@ -224,75 +224,6 @@ const STOCK_SYMBOLS = [
   { symbol: '002352', name: '顺丰控股', market: 'SZ', industry: '物流' },
 ];
 
-/**
- * @internal
- * **伪数据**：仅供本地开发/降级降噪，禁止视为真实行情。
- * 用随机游走模拟单日价格波动，输出与真实行情无任何对应关系。
- */
-function generatePrice(basePrice: number, volatility: number = 0.03): number {
-  const change = (Math.random() - 0.5) * 2 * volatility;
-  return Math.round(basePrice * (1 + change) * 100) / 100;
-}
-
-/**
- * @internal
- * **伪数据**：仅供本地开发/降级降噪，禁止视为真实行情。
- * 用 `Math.random()` 全量伪造 open/close/high/low/volume/turnover/
- * turnoverRate/peRatio/pbRatio/marketCap/circulatingMarketCap，并生成约 120 日伪历史。
- * 调用方（路由层）必须通过 dataSource 字段向用户显式暴露该降级态。
- */
-function generateQuotes(symbol: string, days: number = 120): DailyQuote[] {
-  const quotes: DailyQuote[] = [];
-  const basePrice = 10 + Math.random() * 200;
-  let currentPrice = basePrice;
-  const now = new Date();
-
-  for (let i = days; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i);
-    
-    // 跳过周末
-    const day = date.getDay();
-    if (day === 0 || day === 6) continue;
-
-    const open = generatePrice(currentPrice, 0.02);
-    const close = generatePrice(open, 0.03);
-    const high = Math.max(open, close) * (1 + Math.random() * 0.02);
-    const low = Math.min(open, close) * (1 - Math.random() * 0.02);
-    const prevClose = currentPrice;
-    const change = close - prevClose;
-    const changePercent = (change / prevClose) * 100;
-    const volume = Math.floor(5000000 + Math.random() * 50000000);
-    const turnover = volume * close;
-
-    quotes.push({
-      id: quotes.length + 1,
-      stockId: 0,
-      tradeDate: new Date(date.toISOString().split('T')[0]),
-      openPrice: Math.round(open * 100) / 100,
-      closePrice: Math.round(close * 100) / 100,
-      highPrice: Math.round(high * 100) / 100,
-      lowPrice: Math.round(low * 100) / 100,
-      volume,
-      turnover: Math.round(turnover),
-      change: Math.round(change * 100) / 100,
-      changePercent: Math.round(changePercent * 100) / 100,
-      amplitude: Math.round(((high - low) / prevClose) * 10000) / 100,
-      turnoverRate: Math.round(Math.random() * 10 * 100) / 100,
-      peRatio: Math.round((10 + Math.random() * 50) * 100) / 100,
-      pbRatio: Math.round((1 + Math.random() * 10) * 100) / 100,
-      marketCap: Math.floor(close * (1e8 + Math.random() * 1e10)),
-      circulatingMarketCap: Math.floor(close * (5e7 + Math.random() * 5e9)),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    currentPrice = close;
-  }
-
-  return quotes;
-}
-
 // ==================== 内存数据库 ====================
 
 class InMemoryDatabase {
@@ -304,16 +235,21 @@ class InMemoryDatabase {
   }
 
   /**
-   * 诚实红线根治：生产环境拒供伪造行情。
+   * 诚实红线根治（**语义已于 R0′-9 变更，勿按旧义理解**）。
    *
-   * 本类中的 OHLCV / 涨跌幅 / 成交额 / 换手率 / PE / PB / 市值全部由 Math.random() 伪造
-   * （见 generateQuotes / generatePrice）。当 `NODE_ENV === 'production'` 时（可用
-   * `ALLOW_FABRICATED_MARKET_DATA='true'` 显式放行），所有会返回伪行情的读方法一律抛
-   * `FabricatedDataRefusedError`，让上层走「无数据」路径，而不是把伪数字当真实行情供给。
+   * R0′-9 已删除 Math.random 伪行情生成器（原 `generateQuotes` / `generatePrice`），
+   * 内存库**不再生成任何 OHLCV / 涨跌幅 / 成交额 / 换手率 / PE / PB / 市值**。
+   * 降级态下只有真实股票清单（symbol / name / market / industry / subIndustry）可用，
+   * 行情类读方法一律返回**诚实空态**：集合 `[]`、对象/标量 `null`、可选键**省略**
+   * （不使用 `0` 顶替——`0` 会被读成「今日 0 家上涨 / 今日无涨停」，是更隐蔽的谎报）。
    *
-   * 真实的股票清单（symbol / name / market / industry / subIndustry）不受影响，
-   * 由 getStocks / getStockCount / getStockById / getStockBySymbol / searchStocks /
-   * reclassifyAll 等继续正常供给。
+   * 本方法因此从「**拦截伪造行情**」转为「**在生产环境把静默空态升级为显式失败**」：
+   * 当 `NODE_ENV === 'production'` 时（若 `ALLOW_FABRICATED_MARKET_DATA='true'` 则不抛，
+   * 改回返回诚实空态），行情类读方法抛 `FabricatedDataRefusedError`（`dataSource=unavailable`），
+   * 让上游走显式「无数据」路径，而不是把空态当成「当日无波动」默默返回。
+   *
+   * 真实的股票清单不受影响，由 getStocks / getStockCount / getStockById /
+   * getStockBySymbol / searchStocks / reclassifyAll 等继续正常供给。
    */
   private refuseFabricatedQuotes(method: string): void {
     if (isFabricatedQuoteRefusalActive()) {
@@ -351,11 +287,12 @@ class InMemoryDatabase {
       console.warn('⚠️ 无法加载JSON文件，使用默认股票列表:', (error as Error).message);
     }
 
-    // ⚠️ 诚实红线：股票清单（symbol/name/market/industry）来自真实文件，
-    // 但下面的行情/估值全部由 Math.random() 伪造，调用方不得当作真实行情。
+    // ⚠️ 诚实红线：股票清单（symbol/name/market/industry）来自真实文件；
+    // 行情/估值一律不生成（R0′-9 已删除 Math.random 伪造生成器），读取方只会得到诚实空态。
     console.warn(
-      `⚠️ 内存库降级模式：将为 ${stockList.length} 只股票生成【伪行情】` +
-      `(Math.random 伪造 120 日 K 线 + 估值)，仅供本地开发/降级降噪，禁止视为真实行情`,
+      `ℹ️ 内存库降级模式：仅加载 ${stockList.length} 只真实股票清单` +
+      `（symbol/name/market/industry）；不生成任何行情/估值（Math.random 伪造生成器已移除），` +
+      `行情类读取返回空态，需由路由层以 dataSource:'unavailable' 标注`,
     );
 
     stockList.forEach((s, idx) => {
@@ -373,24 +310,18 @@ class InMemoryDatabase {
         updatedAt: new Date(),
       };
       this.stocks.push(stock);
-      this.quotes.set(s.symbol, generateQuotes(s.symbol));
     });
 
-    // 给每个quote设置stockId
-    this.stocks.forEach(stock => {
-      const stockQuotes = this.quotes.get(stock.symbol);
-      if (stockQuotes) {
-        stockQuotes.forEach(q => { q.stockId = stock.id; });
-      }
-    });
+    console.log(`📊 内存数据库初始化完成: ${this.stocks.length} 只股票（无行情/估值，诚实空态）`);
 
-    console.log(`📊 内存数据库初始化完成: ${this.stocks.length} 只股票`);
-
-    // 诚实红线根治：生产环境默认拒供上述伪行情；逃生开关被显式使用时必须留下刺眼记录。
+    // 诚实红线根治（**语义已变更**）：内存库已不再生成任何伪造行情（生成器已删），
+    // 故 ALLOW_FABRICATED_MARKET_DATA 已无「伪造行情」可放行——它当前只影响
+    // 「生产环境是否把空态升级为显式失败」，不改变数据内容。
     if (process.env.NODE_ENV === 'production' && !isFabricatedQuoteRefusalActive()) {
       console.error(
-        '🚨 ALLOW_FABRICATED_MARKET_DATA=true 已显式放行：生产环境正在以 Math.random 伪造行情对外供给，' +
-        '该状态违反诚实数据红线，仅可用于应急且必须尽快恢复 PostgreSQL',
+        '🚨 ALLOW_FABRICATED_MARKET_DATA=true 已设置，但内存库已不再生成任何伪造行情（R0′-9 已删除生成器）：' +
+        '该开关当前只让行情读取返回空态、而不抛 FabricatedDataRefusedError；' +
+        '生产环境降级态应尽快恢复 PostgreSQL',
       );
     }
   }
@@ -443,7 +374,7 @@ class InMemoryDatabase {
    */
   getStockCountSync(): number { return this.stocks.length; }
   
-  async getMarketSummary(_date?: unknown): Promise<MarketSummary> {
+  async getMarketSummary(_date?: unknown): Promise<MarketSummary | null> {
     this.refuseFabricatedQuotes('getMarketSummary');
     return this.getMarketSummaryInternal();
   }
@@ -548,7 +479,9 @@ class InMemoryDatabase {
     if (!stock) return null;
     const quotes = this.quotes.get(symbol) || [];
     const latestQuote = quotes.length > 0 ? quotes[quotes.length - 1] : undefined;
-    return { ...stock, latestQuote };
+    // R1 诚实空态：无行情时**省略 latestQuote 键**（不置 null/undefined）——
+    // `StockWithQuotes.latestQuote?` 本就可选，缺席即「无行情」。
+    return latestQuote ? { ...stock, latestQuote } : { ...stock };
   }
 
   async getStocksWithLatestQuotes(symbols: string[]): Promise<StockWithQuotes[]> {
@@ -558,7 +491,9 @@ class InMemoryDatabase {
         const stock = this.stocks.find(s => s.symbol === symbol);
         if (!stock) return null;
         const quotes = this.quotes.get(symbol) || [];
-        return { ...stock, latestQuote: quotes.length > 0 ? quotes[quotes.length - 1] : undefined } as StockWithQuotes;
+        const latestQuote = quotes.length > 0 ? quotes[quotes.length - 1] : undefined;
+        // R1 诚实空态：无行情时省略 latestQuote 键（同 getStockWithLatestQuote）
+        return (latestQuote ? { ...stock, latestQuote } : { ...stock }) as StockWithQuotes;
       })
       .filter((s): s is NonNullable<typeof s> => s !== null);
   }
@@ -733,7 +668,7 @@ class InMemoryDatabase {
     };
   }
 
-  getMarketSummaryInternal(): MarketSummary {
+  getMarketSummaryInternal(): MarketSummary | null {
     this.refuseFabricatedQuotes('getMarketSummaryInternal');
     const latest = this.stocks
       .map(s => {
@@ -741,6 +676,11 @@ class InMemoryDatabase {
         return quotes ? quotes[quotes.length - 1] : null;
       })
       .filter((q): q is DailyQuote => q !== null);
+
+    // R2 诚实空态：无任何行情时，市场汇总「不可得」→ 返回 null。
+    // 绝不能返回全 0 对象——`totalTurnover:0 / risingStocks:0` 会被读成
+    // 「今日 0 家上涨 / 0 成交额」，是比空数组更隐蔽的谎报。
+    if (latest.length === 0) return null;
 
     const rising = latest.filter(q => q.changePercent > 0).length;
     const falling = latest.filter(q => q.changePercent < 0).length;
@@ -762,15 +702,22 @@ class InMemoryDatabase {
   /** 板块内个股列表 */
   async getSectorStocks(industry: string): Promise<StockWithLatestQuote[]> {
     this.refuseFabricatedQuotes('getSectorStocks');
-    return this.stocks
+    const rows = this.stocks
       .filter(s => s.industry === industry || (industry === '其他' && !s.industry))
       .map(s => {
         const quotes = this.quotes.get(s.symbol);
-        const latest = quotes ? quotes[quotes.length - 1] : undefined;
-        return { ...s, latestQuote: latest } as StockWithLatestQuote;
-      })
-      .filter(s => s.latestQuote !== undefined)
-      .sort((a, b) => (b.latestQuote?.changePercent || 0) - (a.latestQuote?.changePercent || 0));
+        const latest = quotes && quotes.length ? quotes[quotes.length - 1] : undefined;
+        // R1 诚实空态：无行情时**省略 latestQuote 键**（不置 undefined/null），缺席即「无行情」。
+        // 且**绝不能再 filter 掉无行情的成分股**——删除生成器后那会退化成 `[]`，
+        // 谎称「该板块无成分股」（成分股身份来自真实分类，我们确实知道集合成员）。
+        return (latest ? { ...s, latestQuote: latest } : { ...s }) as StockWithLatestQuote;
+      });
+    // 行情不可得时改按 symbol 排序（原按 latestQuote.changePercent，全缺时排序无意义）
+    return rows.sort((a, b) =>
+      a.latestQuote && b.latestQuote
+        ? b.latestQuote.changePercent - a.latestQuote.changePercent
+        : a.symbol.localeCompare(b.symbol),
+    );
   }
 
   /** 板块增强数据：含涨停家数、总成交额 */
@@ -902,12 +849,12 @@ class InMemoryDatabase {
   /** 按二级行业查股票（实时分类，返回带最新行情的列表） */
   async getStocksBySubIndustry(subName: string): Promise<Array<{
     symbol: string; name: string; l1: string; l2: string;
-    price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+    price: number | null; changePercent: number | null; peRatio: number | null; turnoverRate: number | null; marketCap: number | null;
   }>> {
     this.refuseFabricatedQuotes('getStocksBySubIndustry');
     const result: Array<{
       symbol: string; name: string; l1: string; l2: string;
-      price: number; changePercent: number; peRatio: number | null; turnoverRate: number; marketCap: number;
+      price: number | null; changePercent: number | null; peRatio: number | null; turnoverRate: number | null; marketCap: number | null;
     }> = [];
     for (const s of this.stocks) {
       const rawL1 = (s.industry && s.industry !== '综合' && s.industry !== '未分类') ? s.industry : undefined;
@@ -915,15 +862,21 @@ class InMemoryDatabase {
       if (subIndustry !== subName) continue;
       const quotes = this.quotes.get(s.symbol);
       const latest = quotes && quotes.length ? quotes[quotes.length - 1] : null;
-      if (!latest) continue;
+      // R1 诚实空态：实体清单必须保留（symbol/name/l1/l2 是真实的分类结果）——
+      // 这里**不得** `if (!latest) continue`：那会退化成 `[]`，谎称「该二级行业无股票」。
+      // 行情派生字段一律置 `null`；也**不得**用 `|| 0` 顶替——「0 元市值 / 0% 涨跌」
+      // 是比空值更隐蔽的谎报（会被读成真实数值）。
       result.push({
         symbol: s.symbol, name: s.name, l1: industry, l2: subIndustry,
-        price: latest.closePrice, changePercent: latest.changePercent,
-        peRatio: latest.peRatio ?? null, turnoverRate: latest.turnoverRate,
-        marketCap: latest.marketCap || 0,
+        price: latest ? latest.closePrice : null,
+        changePercent: latest ? latest.changePercent : null,
+        peRatio: latest ? (latest.peRatio ?? null) : null,
+        turnoverRate: latest ? latest.turnoverRate : null,
+        marketCap: latest ? (latest.marketCap ?? null) : null,
       });
     }
-    return result.sort((a, b) => b.marketCap - a.marketCap);
+    // R1 诚实空态：行情不可得时按 symbol 排序（原按 marketCap，全 null 时排序未定义）
+    return result.sort((a, b) => a.symbol.localeCompare(b.symbol));
   }
 }
 

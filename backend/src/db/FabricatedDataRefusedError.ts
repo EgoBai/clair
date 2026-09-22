@@ -2,12 +2,13 @@
  * 生产环境「伪造行情拒供」错误 —— 诚实红线根治
  *
  * 背景：
- *   内存库 (InMemoryDatabase) 的 OHLCV / 涨跌幅 / 成交额 / 换手率 / PE / PB / 市值
- *   全部由 `Math.random()` 伪造（见该文件 generateQuotes/generatePrice 的 JSDoc）。
+ *   内存库 (InMemoryDatabase) 曾用 `Math.random()` 伪造 OHLCV / 涨跌幅 / 成交额 /
+ *   换手率 / PE / PB / 市值（原 generateQuotes/generatePrice）。
  *   此前 PostgreSQL 不可用时后端会静默降级到内存库，把伪行情当真实行情对外供给。
  *
- * 本错误用于在「生产环境 + 内存库降级态」下显式拒绝供给伪造行情，
- * 让上层自然走入「无数据」路径，而不是拿到一批看似真实的伪数字。
+ *   **R0′-9 已删除该伪造生成器**：内存库如今不生成任何行情/估值，读取方只会得到诚实空态。
+ *   本错误因此从「拦截伪造数字」转为「在生产环境把静默空态升级为显式失败」——
+ *   「静默返回空 K 线 / 全 0 汇总」会被上层读成「当日无波动」，本身也是一种失真。
  *
  * ⚠️ 不受影响的真实数据：
  *   内存库中的股票清单（symbol / name / market / industry / subIndustry）
@@ -43,13 +44,13 @@ export class FabricatedDataRefusedError extends AppError {
 
   constructor(
     method: string,
-    reason = '生产环境处于内存库降级态，行情/估值为 Math.random 伪造数据，拒绝供给',
+    reason = '生产环境处于内存库降级态，且内存库无真实行情/估值来源（伪造生成器已随 R0′-9 移除），拒绝以空态冒充行情',
   ) {
     super(
       503,
       FABRICATED_DATA_REFUSED_CODE,
       `行情数据不可用（dataSource=unavailable）：${reason} [method: ${method}]`,
-      `方法 ${method} 依赖内存库伪行情。真实股票清单仍可用；如需临时放行伪行情（应急，违反诚实红线）请设置 ALLOW_FABRICATED_MARKET_DATA=true`,
+      `方法 ${method} 在内存库降级态下无真实行情来源。真实股票清单仍可用；如需让行情类读取改回返回诚实空态（而非抛错，应急用）请设置 ALLOW_FABRICATED_MARKET_DATA=true`,
     );
     this.name = 'FabricatedDataRefusedError';
     this.method = method;
@@ -60,9 +61,10 @@ export class FabricatedDataRefusedError extends AppError {
 /**
  * 是否启用「伪造行情拒供」。
  *
- * - 默认：仅 `NODE_ENV === 'production'` 时启用；本地开发 / 测试行为完全不变（照旧使用伪行情）。
- * - 逃生开关：`ALLOW_FABRICATED_MARKET_DATA='true'` 显式放行（生产应急用；放行时会打出显式错误日志，
- *   避免这把开关被静默使用）。
+ * - 默认：仅 `NODE_ENV === 'production'` 时启用；本地开发 / 测试下行情类读取返回诚实空态。
+ * - 逃生开关：`ALLOW_FABRICATED_MARKET_DATA='true'` 时关闭本拒供（生产应急用；会打出显式告警日志，
+ *   避免这把开关被静默使用）。注意：R0′-9 之后该开关**不再放行任何伪造行情**——内存库已无伪造
+ *   生成器，它只影响「行情类读取是返回诚实空态、还是抛本错误」。
  */
 export function isFabricatedQuoteRefusalActive(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.ALLOW_FABRICATED_MARKET_DATA === 'true') return false;
