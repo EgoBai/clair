@@ -14,9 +14,13 @@ let dbInstance: Database | InMemoryDatabase | null = null;
 /**
  * 初始化数据库连接
  * 优先使用PostgreSQL，失败则降级到内存数据库
+ *
+ * ⚠️ 内存库中的行情/估值为 Math.random 伪造数据，降级态的暴露见 getDbStatus()。
  */
 export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase; type: DbType }> {
   const pgUrl = process.env.DATABASE_URL;
+  // 记录 PG 不可用的原因，用于在降级后输出可观测的告警
+  let pgUnavailableReason: string | null = null;
 
   if (pgUrl) {
     try {
@@ -45,18 +49,56 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
         dbInstance = pgDb;
         return { db: pgDb, type: 'postgres' };
       }
+      pgUnavailableReason = 'testConnection() 返回 false';
     } catch (error) {
-      console.warn('⚠️ PostgreSQL 连接失败，降级到内存数据库:', (error as Error).message);
+      pgUnavailableReason = (error as Error).message;
+      console.warn('⚠️ PostgreSQL 连接失败，降级到内存数据库:', pgUnavailableReason);
     }
   } else {
+    pgUnavailableReason = '未配置 DATABASE_URL';
     console.log('ℹ️ 未配置 DATABASE_URL，使用内存数据库');
   }
 
   // 降级到内存数据库
   currentType = 'memory';
   dbInstance = getInMemoryDb();
-  console.log('✅ 使用内存数据库 (Mock数据, 20只股票)');
+  const stockCount = getMemoryStockCount(dbInstance);
+  // 诚实红线：不要把股票数量硬编码进日志（曾错误写死为 "20只股票"，实际为数千只）
+  console.log(`✅ 使用内存数据库 (Mock数据, ${stockCount >= 0 ? `${stockCount} 只股票` : '股票数未知'})`);
+
+  if (process.env.NODE_ENV === 'production') {
+    // 生产环境降级必须在日志中显式暴露，且不得与常规 warn 混淆
+    console.error(
+      `🚨 生产环境已降级至伪造行情：PostgreSQL 不可用（${pgUnavailableReason}），` +
+      '当前 API 返回的行情/估值全部由 Math.random 伪造，禁止作为真实数据对外使用',
+    );
+  }
+
   return { db: dbInstance, type: 'memory' };
+}
+
+/**
+ * 读取内存库实际股票数（不新建实例）。
+ * 通过可选方法探测，兼容测试中注入的 mock 实例。
+ */
+function getMemoryStockCount(instance: Database | InMemoryDatabase | null): number {
+  if (!instance) return -1;
+  const probe = instance as unknown as { getStockCountSync?: () => number };
+  return typeof probe.getStockCountSync === 'function' ? probe.getStockCountSync() : -1;
+}
+
+/**
+ * 获取当前数据库状态（供健康检查/路由层暴露降级态）
+ * - degraded: 仅当 type === 'memory' 时为 true —— 内存模式即降级态（行情为伪造数据）
+ * - stockCount: 内存模式下返回内存库实际股票数；
+ *   PostgreSQL 模式下不缓存计数，返回 -1（如需真实计数请调用 db.getStockCount()）；
+ *   数据库尚未初始化时同样返回 -1。
+ */
+export function getDbStatus(): { type: DbType; degraded: boolean; stockCount: number } {
+  const type = currentType;
+  const degraded = type === 'memory';
+  const stockCount = degraded ? getMemoryStockCount(dbInstance) : -1;
+  return { type, degraded, stockCount };
 }
 
 /**
