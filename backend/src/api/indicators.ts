@@ -3,11 +3,27 @@
  * 提供 MA、MACD、KDJ、RSI、布林带等技术指标计算和查询
  */
 
-import { Request, Response, Router } from 'express';
+import { Request, Response, Router, NextFunction } from 'express';
 import { db } from '../db/dbFactory';
 import { calculateAllIndicators, OHLCV } from '../indicators/technical';
 import { validateQuery, validateParams, schemas } from '../middleware/validation';
+import { AppError } from '../middleware/errorHandler';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
+
+// 诚实红线契约（datapath R0'-3 / 契约偏差修正）：
+// 在「生产环境 + 内存库降级态」下，db 层读行情的方法（如 getDailyQuotes）会抛
+// FabricatedDataRefusedError —— 它是 AppError 子类，自带 statusCode=503 与
+// code='FABRICATED_DATA_REFUSED'，由统一错误中间件（middleware/errorHandler.ts）
+// 渲染为机器可读的 { code, message, timestamp }。
+// 本文件每个 handler 的本地 catch 若**无条件**吞掉它，就会把该契约降级成
+// 「500 且响应体无 code」。故各 catch 一律先把它交还给 next()。
+const FORWARD_APP_ERROR = (error: unknown, next: NextFunction): boolean => {
+  if (error instanceof AppError) {
+    next(error);
+    return true;
+  }
+  return false;
+};
 
 const router = Router();
 
@@ -15,7 +31,7 @@ const router = Router();
  * 获取股票技术指标
  * GET /api/indicators/:symbol
  */
-router.get('/indicators/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
+router.get('/indicators/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { symbol } = req.params;
     const limit = parseInt(req.query.limit as string) || 120;
@@ -55,6 +71,7 @@ router.get('/indicators/:symbol', validateParams(schemas.stockSymbol), validateQ
       },
     });
   } catch (error) {
+    if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取技术指标失败:', error);
     res.status(500).json({
       success: false,
@@ -68,7 +85,7 @@ router.get('/indicators/:symbol', validateParams(schemas.stockSymbol), validateQ
  * 获取MA均线数据
  * GET /api/indicators/:symbol/ma
  */
-router.get('/indicators/:symbol/ma', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/ma', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { symbol } = req.params;
     const period = parseInt(req.query.period as string) || 5;
@@ -99,6 +116,7 @@ router.get('/indicators/:symbol/ma', validateParams(schemas.stockSymbol), valida
       data: { symbol, period, values: result },
     });
   } catch (error) {
+    if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取MA失败:', error);
     res.status(500).json({ success: false, error: '获取MA失败' });
   }
@@ -108,7 +126,7 @@ router.get('/indicators/:symbol/ma', validateParams(schemas.stockSymbol), valida
  * 获取MACD数据
  * GET /api/indicators/:symbol/macd
  */
-router.get('/indicators/:symbol/macd', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/macd', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { symbol } = req.params;
     const limit = parseInt(req.query.limit as string) || 120;
@@ -140,6 +158,7 @@ router.get('/indicators/:symbol/macd', validateParams(schemas.stockSymbol), vali
       data: { symbol, values: result },
     });
   } catch (error) {
+    if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取MACD失败:', error);
     res.status(500).json({ success: false, error: '获取MACD失败' });
   }
@@ -149,7 +168,7 @@ router.get('/indicators/:symbol/macd', validateParams(schemas.stockSymbol), vali
  * 获取KDJ数据
  * GET /api/indicators/:symbol/kdj
  */
-router.get('/indicators/:symbol/kdj', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/kdj', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { symbol } = req.params;
     const limit = parseInt(req.query.limit as string) || 120;
@@ -183,6 +202,7 @@ router.get('/indicators/:symbol/kdj', validateParams(schemas.stockSymbol), valid
       data: { symbol, values: result },
     });
   } catch (error) {
+    if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取KDJ失败:', error);
     res.status(500).json({ success: false, error: '获取KDJ失败' });
   }
@@ -192,7 +212,7 @@ router.get('/indicators/:symbol/kdj', validateParams(schemas.stockSymbol), valid
  * 获取RSI数据
  * GET /api/indicators/:symbol/rsi
  */
-router.get('/indicators/:symbol/rsi', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/rsi', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { symbol } = req.params;
     const period = parseInt(req.query.period as string) || 14;
@@ -223,6 +243,7 @@ router.get('/indicators/:symbol/rsi', validateParams(schemas.stockSymbol), valid
       data: { symbol, period, values: result },
     });
   } catch (error) {
+    if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取RSI失败:', error);
     res.status(500).json({ success: false, error: '获取RSI失败' });
   }
@@ -232,7 +253,7 @@ router.get('/indicators/:symbol/rsi', validateParams(schemas.stockSymbol), valid
  * 获取布林带数据
  * GET /api/indicators/:symbol/boll
  */
-router.get('/indicators/:symbol/boll', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response) => {
+router.get('/indicators/:symbol/boll', validateParams(schemas.stockSymbol), validateQuery(schemas.indicatorQuery), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { symbol } = req.params;
     const period = parseInt(req.query.period as string) || 20;
@@ -265,6 +286,7 @@ router.get('/indicators/:symbol/boll', validateParams(schemas.stockSymbol), vali
       data: { symbol, period, values: result },
     });
   } catch (error) {
+    if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取布林带失败:', error);
     res.status(500).json({ success: false, error: '获取布林带失败' });
   }
