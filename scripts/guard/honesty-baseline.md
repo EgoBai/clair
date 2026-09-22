@@ -20,7 +20,7 @@
 | └ 其中过期豁免 | 豁免已到期，自动转计为 RED | 0（0 条条目） |
 | **YELLOW**（其它） | 其余前端/后端代码 | **53** |
 | 豁免域 | `_archived` / `.bak` / `.test.` / `.spec.` / `__tests__` / `seeds/` | 1024 行 / 287 文件（仅计数） |
-| 注释/字符串中提及（非违规） | 位于注释或字符串文本内，不产生运行期伪数据 | 49 |
+| 注释/字符串中提及（非违规） | 位于注释或字符串文本内，不产生运行期伪数据 | 57 |
 | **规则 B 命中文件数** | 有路由但全文无 `dataSource` | **31** |
 | 豁免台账规模 | allowlist 条目数（未命中 0 条） | 23 |
 
@@ -32,16 +32,16 @@
 |---|---|---|
 | `backend/src/api/user.ts:210` | `const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;` | 豁免 `AL-001` |
 | `backend/src/api/user.ts:368` | `id: `action_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,` | 豁免 `AL-002` |
-| `backend/src/db/InMemoryDatabase.ts:229` | `const change = (Math.random() - 0.5) * 2 * volatility;` | 豁免 `AL-014` |
-| `backend/src/db/InMemoryDatabase.ts:242` | `const basePrice = 10 + Math.random() * 200;` | 豁免 `AL-015` |
-| `backend/src/db/InMemoryDatabase.ts:256` | `const high = Math.max(open, close) * (1 + Math.random() * 0.02);` | 豁免 `AL-016` |
-| `backend/src/db/InMemoryDatabase.ts:257` | `const low = Math.min(open, close) * (1 - Math.random() * 0.02);` | 豁免 `AL-017` |
-| `backend/src/db/InMemoryDatabase.ts:261` | `const volume = Math.floor(5000000 + Math.random() * 50000000);` | 豁免 `AL-018` |
-| `backend/src/db/InMemoryDatabase.ts:277` | `turnoverRate: Math.round(Math.random() * 10 * 100) / 100,` | 豁免 `AL-019` |
-| `backend/src/db/InMemoryDatabase.ts:278` | `peRatio: Math.round((10 + Math.random() * 50) * 100) / 100,` | 豁免 `AL-020` |
-| `backend/src/db/InMemoryDatabase.ts:279` | `pbRatio: Math.round((1 + Math.random() * 10) * 100) / 100,` | 豁免 `AL-021` |
-| `backend/src/db/InMemoryDatabase.ts:280` | `marketCap: Math.floor(close * (1e8 + Math.random() * 1e10)),` | 豁免 `AL-022` |
-| `backend/src/db/InMemoryDatabase.ts:281` | `circulatingMarketCap: Math.floor(close * (5e7 + Math.random() * 5e9)),` | 豁免 `AL-023` |
+| `backend/src/db/InMemoryDatabase.ts:233` | `const change = (Math.random() - 0.5) * 2 * volatility;` | 豁免 `AL-014` |
+| `backend/src/db/InMemoryDatabase.ts:246` | `const basePrice = 10 + Math.random() * 200;` | 豁免 `AL-015` |
+| `backend/src/db/InMemoryDatabase.ts:260` | `const high = Math.max(open, close) * (1 + Math.random() * 0.02);` | 豁免 `AL-016` |
+| `backend/src/db/InMemoryDatabase.ts:261` | `const low = Math.min(open, close) * (1 - Math.random() * 0.02);` | 豁免 `AL-017` |
+| `backend/src/db/InMemoryDatabase.ts:265` | `const volume = Math.floor(5000000 + Math.random() * 50000000);` | 豁免 `AL-018` |
+| `backend/src/db/InMemoryDatabase.ts:281` | `turnoverRate: Math.round(Math.random() * 10 * 100) / 100,` | 豁免 `AL-019` |
+| `backend/src/db/InMemoryDatabase.ts:282` | `peRatio: Math.round((10 + Math.random() * 50) * 100) / 100,` | 豁免 `AL-020` |
+| `backend/src/db/InMemoryDatabase.ts:283` | `pbRatio: Math.round((1 + Math.random() * 10) * 100) / 100,` | 豁免 `AL-021` |
+| `backend/src/db/InMemoryDatabase.ts:284` | `marketCap: Math.floor(close * (1e8 + Math.random() * 1e10)),` | 豁免 `AL-022` |
+| `backend/src/db/InMemoryDatabase.ts:285` | `circulatingMarketCap: Math.floor(close * (5e7 + Math.random() * 5e9)),` | 豁免 `AL-023` |
 | `backend/src/services/alertEngine.ts:101` | `id: `alert_${now}_${Math.random().toString(36).substr(2, 9)}`,` | 豁免 `AL-003` |
 | `backend/src/services/crossAssetCorrelationEngine.ts:341` | `let v = Array(n).fill(0).map(() => Math.random());` | 豁免 `AL-011` |
 | `backend/src/services/logger.ts:242` | `const requestId = req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;` | 豁免 `AL-004` |
@@ -429,6 +429,7 @@
 | `backend/src/__tests__/financialsHonestData.test.ts:30` | 字符串 | `expect(src).not.toContain('Math.random');` |
 | `backend/src/__tests__/financialsHonestData.test.ts:136` | 字符串 | `it('真实源可用时返回汇总 + indicators（含真实 revenueGrowth/profitGrowth，非 Math.random）', async () => {` |
 | `backend/src/__tests__/financialsHonestData.test.ts:191` | 字符串 | `it('metric=roa 时结合资产负债表真实计算（不调用 Math.random）', async () => {` |
+| `backend/src/__tests__/healthHonestDegradation.test.ts:10` | 注释 | `* `dbType`，致使「PG 不可用 → 后端静默供给 5541 只 Math.random 伪造行情」` |
 | `backend/src/__tests__/klineDataService.test.ts:5` | 注释 | `* 绝不包含任何 Math.random / 硬编码假 K 线。` |
 | `backend/src/__tests__/rotationEngine.test.ts:7` | 注释 | `/** Deterministic return generator — avoids flaky Math.random() tests */` |
 | `backend/src/api/etf.ts:4` | 注释 | `* - 单位净值(NAV) 与净值历史：东方财富 fundf10 lsjz（免 key），替换原 Math.random 模拟` |
@@ -436,11 +437,17 @@
 | `backend/src/api/eventCalendar.ts:18` | 注释 | `* - 现有 lockup-shares 接口为 Math.random 伪数据，按红线剔除，真实解禁源待接入。` |
 | `backend/src/api/lockup-shares.ts:4` | 注释 | `* 红线：原实现全量 Math.random 伪数据（解禁日期/股数/市值/比例/股东/个股历史），` |
 | `backend/src/api/margin.ts:4` | 注释 | `* 红线：原实现全量 Math.random 伪数据，违反「诚实数据」要求，已彻底移除。` |
-| `backend/src/db/InMemoryDatabase.ts:236` | 注释 | `* 用 `Math.random()` 全量伪造 open/close/high/low/volume/turnover/` |
-| `backend/src/db/InMemoryDatabase.ts:333` | 注释 | `// 但下面的行情/估值全部由 Math.random() 伪造，调用方不得当作真实行情。` |
-| `backend/src/db/InMemoryDatabase.ts:336` | 字符串 | ``(Math.random 伪造 120 日 K 线 + 估值)，仅供本地开发/降级降噪，禁止视为真实行情`,` |
-| `backend/src/db/dbFactory.ts:18` | 注释 | `* ⚠️ 内存库中的行情/估值为 Math.random 伪造数据，降级态的暴露见 getDbStatus()。` |
-| `backend/src/db/dbFactory.ts:73` | 字符串 | `'当前 API 返回的行情/估值全部由 Math.random 伪造，禁止作为真实数据对外使用',` |
+| `backend/src/app.ts:297` | 注释 | `// fabricationAllowed=true → 逃生开关已打开，正在对外供给 Math.random 伪造行情（违反诚实红线）` |
+| `backend/src/db/FabricatedDataRefusedError.ts:6` | 注释 | `* 全部由 `Math.random()` 伪造（见该文件 generateQuotes/generatePrice 的 JSDoc）。` |
+| `backend/src/db/FabricatedDataRefusedError.ts:46` | 字符串 | `reason = '生产环境处于内存库降级态，行情/估值为 Math.random 伪造数据，拒绝供给',` |
+| `backend/src/db/InMemoryDatabase.ts:240` | 注释 | `* 用 `Math.random()` 全量伪造 open/close/high/low/volume/turnover/` |
+| `backend/src/db/InMemoryDatabase.ts:309` | 注释 | `* 本类中的 OHLCV / 涨跌幅 / 成交额 / 换手率 / PE / PB / 市值全部由 Math.random() 伪造` |
+| `backend/src/db/InMemoryDatabase.ts:355` | 注释 | `// 但下面的行情/估值全部由 Math.random() 伪造，调用方不得当作真实行情。` |
+| `backend/src/db/InMemoryDatabase.ts:358` | 字符串 | ``(Math.random 伪造 120 日 K 线 + 估值)，仅供本地开发/降级降噪，禁止视为真实行情`,` |
+| `backend/src/db/InMemoryDatabase.ts:392` | 字符串 | `'🚨 ALLOW_FABRICATED_MARKET_DATA=true 已显式放行：生产环境正在以 Math.random 伪造行情对外供给，' +` |
+| `backend/src/db/dbFactory.ts:19` | 注释 | `* ⚠️ 内存库中的行情/估值为 Math.random 伪造数据（真实数据只有股票清单）：` |
+| `backend/src/db/dbFactory.ts:78` | 字符串 | `'内存库的行情/估值为 Math.random 伪造数据，生产环境已拒供（相关端点将返回错误/无数据，' +` |
+| `backend/src/db/dbFactory.ts:81` | 字符串 | `'ALLOW_FABRICATED_MARKET_DATA=true 正在使生产 API 以 Math.random 伪造行情对外供给，' +` |
 | `backend/src/services/aiDiagnosisEngine.ts:4` | 注释 | `* 替换原 ai-stock-selection.ts 中基于 Math.random 的伪随机评分。` |
 | `backend/src/services/etfDataService.ts:229` | 注释 | `* 获取 ETF 净值历史（真实源，替换原 Math.random 模拟）` |
 | `backend/src/services/fundFlowProviders.ts:49` | 注释 | `// ============ 确定性随机：FNV-1a + LCG（禁用 Math.random） ============` |
@@ -454,6 +461,7 @@
 | `frontend/src/__tests__/factorSeries.test.ts:35` | 注释 | `/** 生成 2024 年起的确定性日线（无 Math.random） */` |
 | `frontend/src/__tests__/regimeDetectionEngine.test.ts:5` | 注释 | `* calculateVolatilityRegime 旧测试用 Math.random 喂数据, 改为确定性数据。` |
 | `frontend/src/__tests__/seasonalPatternEngine.test.ts:19` | 注释 | `* 使用确定性数据驱动真实逻辑，不依赖 Math.random 假数据。` |
+| `frontend/src/services/reviewSnapshot.ts:14` | 注释 | `* 3. 不使用 Math.random()。快照 id 用 crypto.randomUUID()，不可用时退化为` |
 | `frontend/src/utils/deterministic.ts:4` | 注释 | `* Unlike Math.random(), these produce consistent, repeatable outputs` |
 | `frontend/src/utils/deterministic.ts:10` | 注释 | `* Wave functions (sin/cos) are used instead of Math.random()` |
 | `frontend/src/utils/fundFlowPageDemo.ts:43` | 注释 | `// ==================== 确定性随机（FNV-1a + LCG，禁用 Math.random） ====================` |
