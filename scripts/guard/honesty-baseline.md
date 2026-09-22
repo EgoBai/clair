@@ -498,16 +498,16 @@
 | `AL-011` | `stochastic-algorithm` | `backend/src/services/crossAssetCorrelationEngine.ts` | `Array(n).fill(0).map(() => Math.random())` | 2027-03-20 | — | 生效中 |
 | `AL-012` | `unwired-module` | `backend/src/services/notification/emailTemplateEngine.ts` | `if (Math.random() > 0.1)` | 2027-03-20 | — | 生效中 |
 | `AL-013` | `unwired-module` | `backend/src/services/notification/rateLimitEngine.ts` | `priority === 'low' && Math.random()` | 2027-03-20 | — | 生效中 |
-| `AL-014` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `(Math.random() - 0.5) * 2 * volatility` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-015` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const basePrice = 10 + Math.random() * 200` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-016` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const high = Math.max(open, close)` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-017` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const low = Math.min(open, close)` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-018` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const volume = Math.floor(5000000` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-019` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `turnoverRate: Math.round(Math.random()` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-020` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `peRatio: Math.round((10 + Math.random()` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-021` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `pbRatio: Math.round((1 + Math.random()` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-022` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `marketCap: Math.floor(close * (1e8` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
-| `AL-023` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `circulatingMarketCap: Math.floor(close * (5e7` | 2026-10-05 | R0'-1b 内存库降级暴露 | 生效中 |
+| `AL-014` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `(Math.random() - 0.5) * 2 * volatility` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-015` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const basePrice = 10 + Math.random() * 200` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-016` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const high = Math.max(open, close)` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-017` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const low = Math.min(open, close)` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-018` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const volume = Math.floor(5000000` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-019` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `turnoverRate: Math.round(Math.random()` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-020` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `peRatio: Math.round((10 + Math.random()` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-021` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `pbRatio: Math.round((1 + Math.random()` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-022` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `marketCap: Math.floor(close * (1e8` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
+| `AL-023` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `circulatingMarketCap: Math.floor(close * (5e7` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
 
 ## 规则 B 明细（backend/src/api/*.ts）
 
