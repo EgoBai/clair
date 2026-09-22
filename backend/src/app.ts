@@ -9,7 +9,8 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { corsMiddleware, corsStatusEndpoint } from './middleware/corsConfig';
 import { createServer } from 'http';
-import { initDatabase, db, getDb, isMemoryMode } from './db/dbFactory';
+import { initDatabase, db, getDb, isMemoryMode, getDbStatus } from './db/dbFactory';
+import { isFabricatedQuoteRefusalActive } from './db/FabricatedDataRefusedError';
 import { InMemoryDatabase } from './db/InMemoryDatabase';
 import { createLogger } from './utils/logger';
 // db is a lazy proxy, initialized via initDatabase()
@@ -272,16 +273,31 @@ app.get('/health', async (_req, res) => {
   try {
     const db = getDb();
     const health = await db.healthCheck();
+    const dbStatus = getDbStatus();
     const wsStats = wsService.getSubscriptionStats();
     const poolStats = db.getPoolStats();
     const cacheStats = queryCache.getStats();
 
+    // 诚实口径（2026-09-22）：内存库降级态下**不得**把 connected 报成 true。
+    // InMemoryDatabase.healthCheck() 恒返回 healthy:true，那不是"PostgreSQL 连通"的证据——
+    // 实测生产环境未配置 DATABASE_URL 时此处曾报 `connected: true`，是假话。
+    const degraded = dbStatus.degraded;
+    const refusalActive = isFabricatedQuoteRefusalActive();
+
     res.json({
-      status: health.healthy ? 'healthy' : 'unhealthy',
+      status: degraded ? 'degraded' : health.healthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
       version: '1.4.0',
       database: {
-        connected: health.healthy,
+        connected: degraded ? false : health.healthy,
+        dbType: dbStatus.type,
+        degraded,
+        // 降级态下二选一，且**必须**能区分：
+        //   refusalActive=true      → 已拒绝供给伪造行情（诚实，行情端点返回 503 unavailable）
+        //   fabricationAllowed=true → 逃生开关已打开，正在对外供给 Math.random 伪造行情（违反诚实红线）
+        refusalActive: degraded ? refusalActive : false,
+        fabricationAllowed: degraded ? !refusalActive : false,
+        stockCount: dbStatus.stockCount,
         latency: health.latency,
         pool: poolStats,
       },
