@@ -5,9 +5,12 @@
  * 目的：补上既有前端静态门禁（frontend/scripts/ui-guard/**，作用域硬绑 frontend/）
  *       无法覆盖的一环 —— **后端供数路径的伪数据** 与 **dataSource 诚实降级契约缺失**。
  *
- * 运行：node scripts/guard/honesty-scan.mjs            （默认：NON-BLOCKING，exit 0）
- *       node scripts/guard/honesty-scan.mjs --strict   （存在未豁免 RED 或过期豁免 → exit 1）
- * 产出：scripts/guard/honesty-baseline.md              （幂等覆盖，不追加）
+ * 运行：node scripts/guard/honesty-scan.mjs                    （默认：NON-BLOCKING，exit 0；**只写 stdout**）
+ *       node scripts/guard/honesty-scan.mjs --strict           （未豁免 RED / 过期豁免 / 台账不同步 → exit 1）
+ *       node scripts/guard/honesty-scan.mjs --update-baseline  （额外把报告覆盖写入受控基线文件）
+ * 产出：默认**不写任何文件**；仅显式 `--update-baseline` 时写
+ *       scripts/guard/honesty-baseline.md（幂等覆盖，不追加）。
+ *       —— R0′-11a：写入改为 opt-in，杜绝「每次运行都弄脏工作树」与并发互相覆盖。
  *
  * 约束：纯 Node ESM，仅用内置模块 node:fs / node:path / node:url，无任何外部依赖。
  * ============================================================================
@@ -27,6 +30,8 @@ const OUT_FILE = path.join(REPO_ROOT, 'scripts', 'guard', 'honesty-baseline.md')
 const ALLOWLIST_FILE = path.join(REPO_ROOT, 'scripts', 'guard', 'allowlist.json');
 
 const STRICT = process.argv.includes('--strict');
+// R0′-11a：基线写入改为显式 opt-in。默认只写 stdout，不触碰受版本控制的基线文件。
+const UPDATE_BASELINE = process.argv.includes('--update-baseline');
 
 const SCAN_ROOTS = ['backend/src', 'frontend/src']; // 规则 A 扫描根（相对仓库根）
 const SRC_EXT = new Set(['.ts', '.tsx']);           // 只扫 TS/TSX
@@ -46,6 +51,9 @@ const CATEGORY_ENUM = new Set([
 // 「30 天内到期」高亮阈值
 const EXPIRY_WARN_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// 豁免台账表头（渲染与 R0′-11b 同步校验共用同一常量，避免两处漂移）
+const LEDGER_HEADER = '| 豁免ID | category | 路径 | match | 到期日期(expiresAt) | clearingTicket | 状态 |';
 
 // ---------------------------------------------------------------------------
 // 1. 规则 A 分域判据（路径 → 域）
@@ -349,6 +357,66 @@ function annotateExemptions(hits, allowlist, now) {
 }
 
 // ---------------------------------------------------------------------------
+// 6.5 【R0′-11b】窄口径台账同步校验（仅 --strict 执行）
+// ---------------------------------------------------------------------------
+// 动机：本项目已发生「只改源 allowlist.json、未同步派生基线」的缺陷
+// （假清偿凭证留在已提交报告里，见 commit 224695142 → 00bd31579）。
+// 本校验把 allowlist 每条 AL 的 expiresAt / clearingTicket **渲染值** 与已提交基线
+// 的对应行比对，不一致即失败 —— 这是该类「改源忘派生」缺陷的唯一机器防线。
+//
+// 刻意只查「台账条目集合 + expiresAt + clearingTicket」这一窄口径：
+// 宽口径（断言「提交基线 == 当前源码全量产物」）被否决（R0′-11c），因为它会把一个
+// **派生文件**升格为 CI 阻断不变量，与「基线不得在源码在途时定稿」冲突，产生死循环。
+function stripCell(s) {
+  return String(s).trim().replace(/^`+/, '').replace(/`+$/, '').trim();
+}
+
+/** 从基线文本解析台账明细表 → Map<id, {expiresAt, clearingTicket}>；找不到表头返回 null */
+function parseLedgerRows(baselineText) {
+  const lines = baselineText.split('\n');
+  const headerIdx = lines.findIndex((l) => l.trim() === LEDGER_HEADER);
+  if (headerIdx === -1) return null;
+  const rows = new Map();
+  for (let i = headerIdx + 2; i < lines.length; i++) { // +2：跳过表头行与 |---| 分隔行
+    const l = lines[i];
+    if (!l.startsWith('|')) break; // 表格结束
+    const cells = l.split('|');
+    if (cells.length < 8) continue;
+    const id = stripCell(cells[1]);
+    if (!/^AL-\d+$/.test(id)) continue;
+    // 从右取列，避免 match 内含 '|' 时左侧索引错位（expiresAt/clearingTicket/状态 不含 '|'）
+    rows.set(id, { expiresAt: stripCell(cells[cells.length - 4]), clearingTicket: stripCell(cells[cells.length - 3]) });
+  }
+  return rows;
+}
+
+/** 比对源 allowlist 与提交基线台账。返回 { ok, diffs: string[] } */
+function checkBaselineSync(allowlist) {
+  const diffs = [];
+  if (!fs.existsSync(OUT_FILE)) {
+    return { ok: false, diffs: [`基线文件不存在：${path.relative(REPO_ROOT, OUT_FILE)}（无法校验派生一致性）`] };
+  }
+  const rows = parseLedgerRows(fs.readFileSync(OUT_FILE, 'utf8'));
+  if (rows === null) {
+    return { ok: false, diffs: ['基线中未找到台账表头，无法校验（可能被手工改动）'] };
+  }
+  const srcIds = new Set();
+  for (const e of allowlist.entries) {
+    srcIds.add(e.id);
+    const exp = String(e.expiresAt ?? '—');
+    const ct = String(e.clearingTicket ?? '—');
+    const row = rows.get(e.id);
+    if (!row) { diffs.push(`${e.id}：源 allowlist 有该条，但基线台账缺失（派生未跟上新增）`); continue; }
+    if (row.expiresAt !== exp) diffs.push(`${e.id}.expiresAt：源=${exp} ≠ 基线=${row.expiresAt}`);
+    if (row.clearingTicket !== ct) diffs.push(`${e.id}.clearingTicket：源=${ct} ≠ 基线=${row.clearingTicket}`);
+  }
+  for (const id of rows.keys()) {
+    if (!srcIds.has(id)) diffs.push(`${id}：基线台账存在该条，但源 allowlist 已无（派生未跟上删除）`);
+  }
+  return { ok: diffs.length === 0, diffs };
+}
+
+// ---------------------------------------------------------------------------
 // 7. 报告渲染（幂等覆盖写）
 // ---------------------------------------------------------------------------
 function fmtRows(hits) {
@@ -399,7 +467,7 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions }) {
   L.push('> 本报告措辞与调用方式无关，且不含生成时间戳 / 「剩余天数」等随运行漂移的字段，故可幂等提交；');
   L.push('> 台账「状态」列仅在条目真正到期（或代码变更致未命中）时变化，属真实状态变更。');
   L.push('');
-  L.push(`- 运行命令：\`${GENERATED_CMD}\`（默认，非阻断）/ \`${GENERATED_CMD} --strict\`（未豁免 RED 或过期豁免 → exit 1）；均在仓库根执行`);
+  L.push(`- 运行命令：\`${GENERATED_CMD}\`（默认，非阻断；**只输出 stdout，不写任何文件**）/ \`${GENERATED_CMD} --strict\`（未豁免 RED / 过期豁免 / 台账不同步 → exit 1）/ \`${GENERATED_CMD} --update-baseline\`（**显式 opt-in：额外把本报告覆盖写入本文件**）；均在仓库根执行`);
   L.push(`- 扫描根：${SCAN_ROOTS.map((r) => '`' + r + '`').join('、')}（仅 \`*.ts\` / \`*.tsx\`）`);
   L.push('- 规则 A 判据：`Math.random` 按路径分域（RED=供数路径 / YELLOW=其它 / 豁免域=归档·测试·种子）；**注释与字符串文本内提及**单列、不计违规（模板 `${}` 插值仍算代码）。');
   L.push('- 规则 B 判据：`backend/src/api/*.ts` 一层内 路由数 N>0 且 `dataSource` 次数 M==0 → `CONTRACT-MISSING`。');
@@ -506,7 +574,7 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions }) {
     // 「剩 N 天」是唯一随时间变的相对量，故只走 stdout（见 main()）。
     L.push('### 明细');
     L.push('');
-    L.push('| 豁免ID | category | 路径 | match | 到期日期(expiresAt) | clearingTicket | 状态 |');
+    L.push(LEDGER_HEADER);
     L.push('|---|---|---|---|---|---|---|');
     for (const e of allowlist.entries) {
       const exp = parseExpiry(e.expiresAt);
@@ -557,20 +625,31 @@ function main() {
 
   const report = renderReport({ ruleA, ruleB, allowlist, exemptions });
 
-  fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
-  fs.writeFileSync(OUT_FILE, report, 'utf8'); // 覆盖写，幂等，不追加
+  // R0′-11a：默认**不写**受版本控制的基线（仅 stdout）；仅 --update-baseline 时覆盖写。
+  // 这样任何默认运行（含 CI 的 --strict）都不会弄脏工作树，也消除并发运行互相覆盖。
+  const relOut = path.relative(REPO_ROOT, OUT_FILE).split(path.sep).join('/');
+  let wroteBaseline = false;
+  if (UPDATE_BASELINE) {
+    fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
+    fs.writeFileSync(OUT_FILE, report, 'utf8'); // 覆盖写，幂等，不追加
+    wroteBaseline = true;
+  }
 
   const hits = ruleA.hits;
   const exemptedCount = hits.red.filter((h) => h.status === 'exempted').length;
   const expiredHitCount = hits.red.filter((h) => h.status === 'expired').length;
   const unexempted = exemptions.blocking; // 未豁免 RED（含已过期豁免，均属阻断项）
   const contractMissing = ruleB.filter((r) => r.routes > 0 && r.dataSource === 0);
-  const relOut = path.relative(REPO_ROOT, OUT_FILE).split(path.sep).join('/');
 
-  const fail = unexempted.length > 0;
+  // R0′-11b：仅 --strict 下做窄口径台账同步校验（源 allowlist vs 已提交基线）
+  const sync = STRICT ? checkBaselineSync(allowlist) : { ok: true, diffs: [] };
 
+  const fail = unexempted.length > 0 || !sync.ok;
+
+  const modeTags = [STRICT ? '--strict' : 'NON-BLOCKING'];
+  if (UPDATE_BASELINE) modeTags.push('--update-baseline');
   const out = [];
-  out.push(`=== honesty-scan${STRICT ? ' (--strict)' : ' (NON-BLOCKING)'} ===`);
+  out.push(`=== honesty-scan (${modeTags.join(', ')}) ===`);
   out.push(`RED (供数路径) 原始     : ${hits.red.length}`);
   out.push(`  ├ 已豁免             : ${exemptedCount}`);
   out.push(`  ├ 未豁免 RED         : ${unexempted.length}`);
@@ -580,7 +659,7 @@ function main() {
   out.push(`注释/字符串提及(非违规): ${hits.comment.length}`);
   out.push(`规则B CONTRACT-MISSING : ${contractMissing.length} 文件`);
   out.push(`allowlist 条目         : ${allowlist.entries.length}（未命中 ${allowlist.entries.filter((e) => !exemptions.usedIds.has(e.id)).length}）`);
-  out.push(`报告已落盘             : ${relOut}`);
+  out.push(`基线文件               : ${wroteBaseline ? `已写入 ${relOut}` : `未写（默认只读；需 --update-baseline 才写 ${relOut}）`}`);
 
   // 近到期提醒（日期相对，故只走 stdout，不进报告文件以保幂等）
   const soonExpiring = allowlist.entries
@@ -595,8 +674,8 @@ function main() {
     }
   }
 
-  // 阻断明细打到 stdout（CI 日志可见）—— 报告文件落在 runner 临时工作区、跑完即弃，
-  // 若只写文件，开发者只会看到计数而不知是哪个文件哪一行，门禁即不可操作。
+  // 阻断明细打到 stdout（CI 日志可见）—— 报告默认不再落盘（R0′-11a），
+  // 若只依赖文件，开发者只会看到计数而不知是哪个文件哪一行，门禁即不可操作。
   if (unexempted.length) {
     out.push('');
     out.push(`⛔ 阻断明细（${unexempted.length} 条，未豁免 RED / 过期豁免）：`);
@@ -611,8 +690,22 @@ function main() {
     }
   }
 
+  // R0′-11b：台账同步校验结果（仅 --strict 会真正校验）
+  if (STRICT && !sync.ok) {
+    out.push('');
+    out.push(`⛔ 台账同步校验失败（源 allowlist vs 已提交基线，${sync.diffs.length} 处不一致）——`);
+    out.push(`   疑似「只改源、未同步派生基线」，请核对后提交基线更新：`);
+    for (const d of sync.diffs) out.push(`   - ${d}`);
+  } else if (STRICT) {
+    out.push('');
+    out.push(`✅ 台账同步校验通过（源 allowlist 与已提交基线的 条目集合 / expiresAt / clearingTicket 一致）`);
+  }
+
   if (STRICT) {
-    out.push(fail ? `[STRICT] 未豁免 RED 或过期豁免存在 → exit 1` : `[STRICT] 无未豁免 RED、无过期豁免 → exit 0`);
+    const reasons = [];
+    if (unexempted.length) reasons.push('未豁免/过期 RED');
+    if (!sync.ok) reasons.push('台账不同步');
+    out.push(reasons.length ? `[STRICT] 阻断项：${reasons.join(' + ')} → exit 1` : `[STRICT] 无未豁免 RED、无过期豁免、台账同步 → exit 0`);
   } else {
     out.push('[NON-BLOCKING] exit 0');
   }

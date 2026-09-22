@@ -47,7 +47,7 @@
 
 ## 3. 为什么默认是 NON-BLOCKING（非阻断）
 
-RED/YELLOW 的命中里混有大量**合法随机**（`requestId` 生成、`auditId` 生成等），规则 B 的 31 个命中里也难免混有非供数端点。**在白名单定稿之前直接判死，只会制造噪声、逼迫开发者用 `// eslint-disable` 式的方式绕过门禁**，反而降低真实性。因此默认**产证据**：把全部命中如实落盘到基线报告，退出码恒为 **0**；阻断行为由 `--strict` 显式开启。
+RED/YELLOW 的命中里混有大量**合法随机**（`requestId` 生成、`auditId` 生成等），规则 B 的 31 个命中里也难免混有非供数端点。**在白名单定稿之前直接判死，只会制造噪声、逼迫开发者用 `// eslint-disable` 式的方式绕过门禁**，反而降低真实性。因此默认**产证据**：把全部命中如实输出到 **stdout**（需要留档时才用 `--update-baseline` 落盘基线报告），退出码恒为 **0**；阻断行为由 `--strict` 显式开启。
 
 ## 4. allowlist 机制（已落地）
 
@@ -97,18 +97,29 @@ node scripts/guard/honesty-scan.mjs --strict   # 存在未豁免 RED 或过期�
 > ⚠️ **请勿给本 job 加回 `continue-on-error`（已核实的坑，留此记录以防后人重蹈）**：`continue-on-error: true` 会让该 job 在分支保护看来**始终是绿勾**——GitHub 认可的通过态只有 `success` / `skipped` / `neutral`，而 `continue-on-error` 正是把失败归入 `success`。因此**把本 job 设为 required check 却带着 `continue-on-error`，等于零保护**（看似有门禁、实则拦不住）。
 > 本项目已于 R0′-2.2 **摘除**该字段转为真阻断。**将来若有人为"让 CI 变绿"而把它加回，等于拆掉门禁**；确需临时降级，必须写明期限与恢复工单，并在恢复时**实测一次「故意失败能否真的挡住 PR」**。
 
+### 4.5 台账同步校验（R0′-11b，`--strict` 下生效）
+
+**问题（已真实发生）**：本项目曾出现「只改源 `allowlist.json`、未同步派生基线 `honesty-baseline.md`」的缺陷 —— `commit 224695142` 把 db/ 十条豁免的清偿凭证由 `R0'-1b` 改为 `R0'-9`，但**已提交的基线报告里 `R0'-1b` 假凭证仍在 10 处**，直到 `commit 00bd31579` 才补齐派生产物。这类「改源忘派生」缺陷人工极易漏。
+
+**做法（窄口径）**：`--strict` 下，把 `allowlist.json` 每条 `AL-*` 的 `expiresAt` / `clearingTicket` **渲染值**与已提交基线台账中的对应行比对，并核对**条目集合**（源有派生无 / 派生有源无），任一不一致即 **exit 1** 并打印逐条差异。
+
+**为何不做宽口径（R0′-11c 已否决）**：曾提议「CI 断言『提交的基线 == 当前源码全量产物』（`git diff --exit-code`）」。**否决理由**：那会把一个**派生文件**升格为 CI 阻断不变量，而本项目同时确立「基线不得在源码在途时定稿」—— 两者叠加成死循环：源码未提交 → 基线不能定稿 → 基线不匹配 → CI 红 → 迫使在源码在途时定稿基线。故只做上述窄口径（也只查台账字段，不查描述性文案）。
+
 ## 5. 运行方式
 
 ```bash
 # 必须从仓库根执行
-node scripts/guard/honesty-scan.mjs            # 非阻断，exit 0
-node scripts/guard/honesty-scan.mjs --strict   # 未豁免 RED / 过期豁免 → exit 1
+node scripts/guard/honesty-scan.mjs                     # 非阻断，exit 0；**只写 stdout，不写任何文件**
+node scripts/guard/honesty-scan.mjs --strict            # 未豁免 RED / 过期豁免 / 台账不同步 → exit 1
+node scripts/guard/honesty-scan.mjs --update-baseline   # 额外把报告覆盖写入受控基线文件（显式 opt-in）
 # 或
-npm run guard:honesty                          # 等价于无参调用
+npm run guard:honesty                                   # 等价于无参调用
 ```
 
-- 产物：`scripts/guard/honesty-baseline.md`（**幂等覆盖写，不追加**）。
+- 产物：默认**不写任何文件**；仅 `--update-baseline` 时写 `scripts/guard/honesty-baseline.md`（**幂等覆盖写，不追加**）。
+  —— R0′-11a 起写入改为 opt-in：此前每次运行都重写该受控文件，导致工作树频繁变脏、且并发运行会互相覆盖。
 - 依赖：**零外部依赖**，纯 Node ESM，仅用内置 `node:fs` / `node:path` / `node:url`。
+- CI（`--strict`）**不写任何受控文件**，因此不会污染 runner 工作区。
 
 ## 6. 与既有门禁的关系
 
