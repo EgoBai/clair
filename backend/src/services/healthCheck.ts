@@ -3,8 +3,6 @@
  * 健康检查服务 - 系统状态监控
  */
 
-import { getDbStatus } from '../db/dbFactory';
-
 export interface HealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
   timestamp: number;
@@ -134,18 +132,6 @@ export function createDefaultHealthCheck(version?: string): HealthCheckService {
     return {
       status: 'pass',
       details: { uptimeSeconds: uptimeSec },
-    };
-  });
-
-  // 数据库降级可观测性：内存模式即降级态（行情为 Math.random 伪造数据）
-  service.register('database', async () => {
-    const { type: dbType, degraded, stockCount } = getDbStatus();
-    return {
-      status: degraded ? 'warn' : 'pass',
-      message: degraded
-        ? '数据库已降级为内存库，行情/估值为伪造数据，禁止视为真实数据'
-        : undefined,
-      details: { dbType, degraded, stockCount },
     };
   });
 

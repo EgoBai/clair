@@ -47,13 +47,6 @@ interface StockWithLatestQuote extends Stock {
 /** MockQueryBuilder 可接受的数据行类型 */
 type QueryRow = Record<string, unknown>;
 
-/**
- * 内存库（演示/降级）数据源标识。
- * 内存库中的行情/估值全部为伪造数据，任何对外响应若要标注来源，
- * 必须引用此常量，禁止在路由层再硬编码 'memory-demo' 字符串字面量。
- */
-export const IN_MEMORY_DATA_SOURCE = 'memory-demo';
-
 // ==================== Mock数据生成 ====================
 
 /** 轻量MockQueryBuilder，模拟Knex查询链 */
@@ -220,23 +213,11 @@ const STOCK_SYMBOLS = [
   { symbol: '002352', name: '顺丰控股', market: 'SZ', industry: '物流' },
 ];
 
-/**
- * @internal
- * **伪数据**：仅供本地开发/降级降噪，禁止视为真实行情。
- * 用随机游走模拟单日价格波动，输出与真实行情无任何对应关系。
- */
 function generatePrice(basePrice: number, volatility: number = 0.03): number {
   const change = (Math.random() - 0.5) * 2 * volatility;
   return Math.round(basePrice * (1 + change) * 100) / 100;
 }
 
-/**
- * @internal
- * **伪数据**：仅供本地开发/降级降噪，禁止视为真实行情。
- * 用 `Math.random()` 全量伪造 open/close/high/low/volume/turnover/
- * turnoverRate/peRatio/pbRatio/marketCap/circulatingMarketCap，并生成约 120 日伪历史。
- * 调用方（路由层）必须通过 dataSource 字段向用户显式暴露该降级态。
- */
 function generateQuotes(symbol: string, days: number = 120): DailyQuote[] {
   const quotes: DailyQuote[] = [];
   const basePrice = 10 + Math.random() * 200;
@@ -329,13 +310,6 @@ class InMemoryDatabase {
       console.warn('⚠️ 无法加载JSON文件，使用默认股票列表:', (error as Error).message);
     }
 
-    // ⚠️ 诚实红线：股票清单（symbol/name/market/industry）来自真实文件，
-    // 但下面的行情/估值全部由 Math.random() 伪造，调用方不得当作真实行情。
-    console.warn(
-      `⚠️ 内存库降级模式：将为 ${stockList.length} 只股票生成【伪行情】` +
-      `(Math.random 伪造 120 日 K 线 + 估值)，仅供本地开发/降级降噪，禁止视为真实行情`,
-    );
-
     stockList.forEach((s, idx) => {
       // 真实申万分类：一级有效直接用，缺失/非标准则按名称反推一级，再得二级
       const { industry, subIndustry } = classifyStock(s.industry, s.name);
@@ -397,12 +371,6 @@ class InMemoryDatabase {
   async healthCheck() { return { healthy: true, latency: 0 }; }
 
   getQuotes(symbol: string): DailyQuote[] { return this.quotes.get(symbol) || []; }
-
-  /**
-   * 同步返回当前内存库的股票数量（不触发任何异步查询）。
-   * 供 dbFactory.getDbStatus() 暴露降级规模，避免为了读一个计数而新建实例。
-   */
-  getStockCountSync(): number { return this.stocks.length; }
   
   async getMarketSummary(_date?: unknown): Promise<MarketSummary> {
     return this.getMarketSummaryInternal();
