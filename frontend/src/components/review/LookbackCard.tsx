@@ -154,6 +154,8 @@ const LookbackCard: React.FC<LookbackCardProps> = ({ snapshot, outcome, onRemove
             {pctText(outcome.excessReturnPct)}
             {snapshot.benchmark ? `（基准：${snapshot.benchmark.name}）` : ''}
           </Text>
+        ) : outcome.verdict === 'pending' ? (
+          <Text style={{ color: THEME.textSecondary }}>记录未满最短回看期，暂不计算</Text>
         ) : (
           <Text style={{ color: THEME.textSecondary }}>
             {UNAVAILABLE}
