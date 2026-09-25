@@ -36,7 +36,7 @@ export const FABRICATED_DATA_REFUSED_CODE = 'FABRICATED_DATA_REFUSED';
 
 export class FabricatedDataRefusedError extends AppError {
   /** 与 API 层 dataSource 契约对齐：本错误对应「无数据」而非「真实数据」 */
-  readonly dataSource: 'unavailable' = 'unavailable';
+  readonly dataSource = 'unavailable' as const;
   /** 触发拒绝的 InMemoryDatabase 方法名 */
   readonly method: string;
   /** 人类可读的拒绝原因 */

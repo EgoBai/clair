@@ -53,7 +53,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { InMemoryDatabase } from '../db/InMemoryDatabase';
-import { isFabricatedQuoteRefusalActive } from '../db/FabricatedDataRefusedError';
+import { isFabricatedQuoteRefusalActive, FabricatedDataRefusedError, FABRICATED_DATA_REFUSED_CODE } from '../db/FabricatedDataRefusedError';
 
 // R0′-9 已落地：临时 skip 开关已删除，两半用例恒运行（生产段靠运行时改 NODE_ENV 生效）。
 const d = describe;
@@ -257,7 +257,16 @@ d('内存库诚实空态（R0′-9 目标契约）', () => {
     const prev = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
-      expect(() => db.getTopGainers(3)).toThrow(/FABRICATED_DATA_REFUSED/);
+      // 注意：错误的人类可读 message 是中文文案，code 'FABRICATED_DATA_REFUSED' 在
+      // `.code` 属性上（CI 曾因用 message 正则匹配而误判失败）。改为断言类型 + 机器可读字段。
+      let thrown: unknown;
+      try {
+        db.getTopGainers(3);
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(FabricatedDataRefusedError);
+      expect((thrown as FabricatedDataRefusedError).code).toBe(FABRICATED_DATA_REFUSED_CODE);
       await expect(db.getMarketSummary(new Date())).rejects.toMatchObject({
         code: 'FABRICATED_DATA_REFUSED',
         dataSource: 'unavailable',
