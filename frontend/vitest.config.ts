@@ -43,8 +43,15 @@ export default defineConfig({
     },
   },
   resolve: {
+    // 与 vite.config.ts 的 resolve.extensions 对齐（R0' CI 收口修复）：
+    // 不设置时 vitest 走 vite 默认顺序（.js 先于 .ts），shared/ 下陈旧编译产物
+    // （如 4 月残留的 types.js 空壳）会影子化 types.ts，导致 CACHE_TTL 等运行时
+    // 导出为 undefined、api.ts 模块初始化即崩（CI StockTable.test.tsx 首跑失败根因）。
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
     alias: {
-      '@shared': path.resolve(__dirname, '../../shared'),
+      // 修正层级：本文件位于 frontend/ 下，'../shared' 才指向仓库根 shared/
+      // （原 '../../shared' 指到仓库外层，路径不存在）。
+      '@shared': path.resolve(__dirname, '../shared'),
       '@': path.resolve(__dirname, 'src'),
     },
   },
