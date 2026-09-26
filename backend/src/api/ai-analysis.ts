@@ -27,6 +27,9 @@ import {
   getFinancialIndicators,
   FinancialsUnavailableError,
 } from '../services/financialsDataService';
+import { db } from '../db/dbFactory';
+import { normalizeSymbol } from '../utils/symbolUtils';
+import type { Stock } from '../models/Stock';
 
 import { aiTiming } from '../middleware/aiTiming';
 import {
@@ -75,6 +78,12 @@ function toSecid(symbol: string): string {
   if (trimmed.startsWith('SH') || trimmed.endsWith('.SH') || digits.startsWith('6')) return `1.${digits}`;
   // 深交所（0/3/2 开头）与北交所（8/4 开头）在 push2 secid 中均为 0
   return `0.${digits}`;
+}
+
+/** 归一为裸 6 位代码（内存库清单为裸码 600519；东财 secid 亦基于裸码）
+ * 例：600519.SH → 600519；sh.600519 → 600519；INVALID → INVALID（原样返回）。 */
+function toBareCode(symbol: string): string {
+  return (symbol || '').trim().toUpperCase().replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
 }
 
 async function fetchWithTimeout(url: string, headers?: Record<string, string>): Promise<Response> {
@@ -289,9 +298,33 @@ router.get('/ai/recommendations', asyncHandler(async (_req: Request, res: Respon
  */
 router.get('/ai/analyze/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
+
+  // 诚实红线：只有真实存在的股票才允许进入分析流程，未知代码一律 404，
+  // 绝不回落到任何占位/伪造分析。存在性以真实股票清单（DB stocks）为真源，
+  // 同时兼容内存库裸码（600519）与 PG 带后缀（600519.SH）两种存储格式。
+  const bare = toBareCode(symbol);
+  const candidates = Array.from(new Set([bare, normalizeSymbol(bare)]));
+  let known: Stock | null = null;
+  let existenceChecked = false;
+  try {
+    for (const c of candidates) {
+      const s = await db.getStockBySymbol(c);
+      if (s) { known = s; break; }
+    }
+    existenceChecked = true;
+  } catch {
+    // DB 未初始化（如单测直接挂载 router 而未 initDatabase）：无法校验存在性，
+    // 交由后续真实源流程判断，不臆造 404——但绝不因此伪造任何分析数据。
+    existenceChecked = false;
+  }
+  if (existenceChecked && !known) {
+    sendNotFound(res, `股票 ${symbol}`);
+    return;
+  }
+
   const watch = AI_WATCHLIST.find((s) => s.symbol === symbol);
-  const industry = watch?.industry ?? '未知';
-  const name = watch?.name ?? symbol;
+  const industry = watch?.industry ?? known?.industry ?? '未知';
+  const name = watch?.name ?? known?.name ?? symbol;
 
   try {
     const stock = await fetchRealStock(symbol, name, industry);
