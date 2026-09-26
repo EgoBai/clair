@@ -8,44 +8,10 @@ import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import echarts from '@/utils/echarts';
 import { Card, Tabs, Skeleton } from 'antd';
+// IndicatorPoint 已下沉到 leaf 类型层（消除 utils -> components 越层依赖），此处仅为兼容既有消费方 re-export
+import type { IndicatorPoint } from '../../types/charts';
 
-export interface IndicatorPoint {
-  date: string;
-  // MACD
-  dif?: number;
-  dea?: number;
-  macd?: number;
-  // KDJ
-  k?: number;
-  d?: number;
-  j?: number;
-  // RSI
-  rsi6?: number;
-  rsi12?: number;
-  rsi24?: number;
-  // BOLL
-  bollUpper?: number;
-  bollMiddle?: number;
-  bollLower?: number;
-  // VWAP
-  vwap?: number;
-  // OBV
-  obv?: number;
-  // ADX / DMI
-  adx?: number;
-  pdi?: number;
-  mdi?: number;
-  // CCI
-  cci?: number;
-  // W%R
-  wr?: number;
-  // BIAS
-  bias6?: number;
-  bias12?: number;
-  bias24?: number;
-  // ATR
-  atr?: number;
-}
+export type { IndicatorPoint } from '../../types/charts';
 
 interface IndicatorPanelProps {
   data: IndicatorPoint[];

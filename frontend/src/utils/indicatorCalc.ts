@@ -3,10 +3,10 @@
  * 纯函数 / 无外部依赖 / 数据不足时返回 undefined 字段
  * 计算全部 11 个指标: MACD / KDJ / RSI / BOLL / VWAP / OBV / ADX(DMI) / CCI / W%R / BIAS / ATR
  *
- * 返回类型复用 components/Charts/IndicatorPanel 的 IndicatorPoint (type-only import, 零运行时成本)
+ * 返回类型复用 leaf 类型层 types/charts 的 IndicatorPoint (type-only import, 零运行时成本)
  */
 
-import type { IndicatorPoint } from '../components/Charts/IndicatorPanel';
+import type { IndicatorPoint } from '../types/charts';
 
 export interface IndicatorInput {
   date: string;

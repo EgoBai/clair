@@ -8,7 +8,7 @@
  *
  * 颜色约定：涨红跌绿（中国习惯），页面用 THEME.up/THEME.down，本文件不碰 UI。
  */
-import type { BacktestResult } from '../pages/BacktestPage';
+import type { BacktestResult } from '../types/backtest';
 
 const BASE_SEED = 20260725;
 

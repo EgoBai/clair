@@ -19,6 +19,10 @@ import { apiFetch } from '../utils/api';
 import { useGamificationStore } from '../store/useGamificationStore';
 // RangePicker 弹层（portal 到 body）的暗色适配，避免在深色页面弹出白底日历
 import '../styles/antd-picker-dark.css';
+// BacktestResult 已下沉到 leaf 类型层（消除 utils -> pages 越层依赖），此处仅为兼容既有消费方 re-export
+import type { BacktestResult } from '../types/backtest';
+
+export type { BacktestResult } from '../types/backtest';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -59,42 +63,6 @@ const RANGE_PRESETS: { label: string; value: [Dayjs, Dayjs] }[] = [
 
 /** 默认区间：近 1 年 */
 const DEFAULT_RANGE: [Dayjs, Dayjs] = [dayjs().subtract(1, 'year'), dayjs()];
-
-export interface BacktestResult {
-  strategy: string;
-  symbol: string;
-  startDate: string;
-  endDate: string;
-  totalDays: number;
-  initialCapital: number;
-  finalValue: number;
-  totalReturn: number;
-  // 以下三项在数学上可能无定义（无交易 / 收益无波动 / 区间过短），
-  // 后端如实返回 null，前端显示「—」，不用 0 冒充
-  annualizedReturn: number | null;
-  benchmarkReturn: number | null;
-  maxDrawdown: number;
-  sharpeRatio: number | null;
-  winRate: number;
-  totalTrades: number;
-  winningTrades: number;
-  losingTrades: number;
-  profitFactor: number | null;
-  name?: string;
-  note?: string | null;
-  warnings?: string[];
-  source?: string;
-  trades: Array<{
-    date: string;
-    type: 'buy' | 'sell';
-    price: number;
-    quantity: number;
-    amount: number;
-    reason: string;
-  }>;
-  equityCurve: Array<{ date: string; value: number }>;
-  drawdownCurve: Array<{ date: string; drawdown: number }>;
-}
 
 const BacktestPage: React.FC = () => {
   const [symbol, setSymbol] = useState('');
