@@ -236,7 +236,11 @@ describe('路由自动注册', () => {
     expect(paths).toContain('/api/financials/summary');
     expect(paths).toContain('/health');
     expect(paths).toContain('/api/etf/list');
-    expect(paths).toContain('/api/ai/selection/recommendations');
+    // 反向诚实断言（R0' CI 收口）：/api/ai/selection/* 在后端从未实现（app.ts API 索引
+    // 仍在宣传，属登记在案的产品缺口），注册表不得为不存在的端点虚挂路径。
+    // 旧版 pathMetadata 曾含该幽灵条目使 toContain 侥幸通过，routeAutoRegistry 对齐
+    // 真实端点全集后删除幽灵，本断言同步翻转为 not.toContain。
+    expect(paths).not.toContain('/api/ai/selection/recommendations');
   });
 
   it('auth 标记应正确标识需要认证的端点', () => {
