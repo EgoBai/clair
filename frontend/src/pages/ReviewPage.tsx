@@ -40,12 +40,12 @@ import {
   fetchCurrentPrices,
   pickCurrentPrice,
   LOOKBACK_MIN_AGE_DAYS,
-} from '../services/reviewSnapshot';
-import type {
-  ReviewSnapshot,
-  SnapshotOutcome,
-  SnapshotBenchmark,
-  ExpectedDirection,
+  // 合并 type-only 导入（no-duplicate-imports）：TS5.9 内联 type 修饰符与独立
+  // `import type` 语义等价（编译期擦除），且避免与上一条 import 构成同模块重复。
+  type ReviewSnapshot,
+  type SnapshotOutcome,
+  type SnapshotBenchmark,
+  type ExpectedDirection,
 } from '../services/reviewSnapshot';
 
 const { Title, Text, Paragraph } = Typography;
