@@ -12,6 +12,7 @@ import {
 } from '../utils/apiResponse';
 import { queryCache } from '../utils/queryCache';
 import { dataSyncService } from '../data-sync/DataSyncService';
+import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
 
@@ -282,7 +283,7 @@ router.post('/tech/batch', asyncHandler(async (req, res) => {
   const symbolList = ((symbols as string[]) || []).slice(0, 40);
   
   if (!symbolList.length) {
-    return sendSuccess(res, { data: {} });
+    throw new AppError(400, 'VALIDATION_ERROR', '未提供 symbols：无法查询任何技术指标', 'symbols 不能为空数组');
   }
 
   const results: Record<string, any> = {};
@@ -365,7 +366,8 @@ router.post('/tech/batch', asyncHandler(async (req, res) => {
             rsi14,
             volatility20d: vol20d,
           };
-        } catch {
+        } catch (e) {
+          if (e instanceof AppError) throw e;
           return { symbol };
         }
       })
@@ -378,7 +380,15 @@ router.post('/tech/batch', asyncHandler(async (req, res) => {
     }
   }
 
-  sendSuccess(res, { data: results });
+  if (Object.keys(results).length === 0) {
+    return sendSuccess(res, {
+      dataSource: 'unavailable',
+      message: '未获得任何标的的技术指标：数据源不可用或历史行情样本不足',
+      data: {},
+    });
+  }
+
+  sendSuccess(res, { dataSource: 'real', data: results });
 }));
 
 
