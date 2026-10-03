@@ -321,13 +321,30 @@ export function getParentIndustry(subIndustry: string): string | undefined {
 }
 
 /**
+ * deriveIndustryFromName 的预处理条目：全部关键词拍平，按长度降序。
+ * 长度相同时保持声明顺序（V8 的 Array.prototype.sort 稳定），
+ * 从而「最长命中优先，同长按声明顺序」。
+ * 模块加载时排序一次，避免每次调用重复排序。
+ */
+const DERIVE_KEYWORD_ENTRIES: { sub: string; kw: string }[] = (() => {
+  const entries: { sub: string; kw: string }[] = [];
+  for (const [sub, keywords] of Object.entries(SUB_INDUSTRY_KEYWORDS)) {
+    for (const kw of keywords) entries.push({ sub, kw });
+  }
+  entries.sort((a, b) => b.kw.length - a.kw.length);
+  return entries;
+})();
+
+/**
  * 仅凭公司名称反推一级行业（用于补齐未分类股票）
  * 复用 SUB_INDUSTRY_KEYWORDS：命中某二级的关键词即返回其所属一级。
+ * 命中策略：最长命中优先，长度相同按关键词声明顺序。
  * 无法命中返回 '未分类'。
  */
 export function deriveIndustryFromName(name: string): string {
-  for (const [sub, keywords] of Object.entries(SUB_INDUSTRY_KEYWORDS)) {
-    if (keywords?.some((kw) => name.includes(kw))) {
+  for (const { sub, kw } of DERIVE_KEYWORD_ENTRIES) {
+    if (kw.length > name.length) continue;
+    if (name.includes(kw)) {
       const parent = SUB_TO_PARENT[sub];
       if (parent) return parent;
     }
