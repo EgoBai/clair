@@ -5,6 +5,10 @@ build/
 .vite/
 coverage/
 
+# shared/ 的 .ts 编译残留（事故 T-2604：types.js 影子化 .ts 根因，源码只有 .ts，.js/.d.ts 一律不入库）
+shared/*.js
+shared/*.d.ts
+
 # 环境变量 —— 任何层级的 .env 一律不入库，只提交 .env.example
 .env
 .env.*
