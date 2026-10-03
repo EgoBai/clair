@@ -14,15 +14,15 @@
 
 | 域 / 指标 | 判据 | 命中数 |
 |---|---|---|
-| **RED**（供数路径，原始命中） | 路径含 `backend/src/api/` / `backend/src/services/` / `backend/src/db/` | **23** |
-| ├ 其中已豁免 | 命中 allowlist 且类别合法、未过期 | 23 |
+| **RED**（供数路径，原始命中） | 路径含 `backend/src/api/` / `backend/src/services/` / `backend/src/db/` | **13** |
+| ├ 其中已豁免 | 命中 allowlist 且类别合法、未过期 | 13 |
 | ├ **未豁免 RED（阻断项）** | 无豁免条目 / 类别越界 / 无 expiresAt / **已过期** | **0** |
 | └ 其中过期豁免 | 豁免已到期，自动转计为 RED | 0（0 条条目） |
 | **YELLOW**（其它） | 其余前端/后端代码 | **53** |
-| 豁免域 | `_archived` / `.bak` / `.test.` / `.spec.` / `__tests__` / `seeds/` | 1024 行 / 287 文件（仅计数） |
+| 豁免域 | `_archived` / `.bak` / `.test.` / `.spec.` / `__tests__` / `seeds/` | 1006 行 / 286 文件（仅计数） |
 | 注释/字符串中提及（非违规） | 位于注释或字符串文本内，不产生运行期伪数据 | 57 |
-| **规则 B 命中文件数** | 有路由但全文无 `dataSource` | **31** |
-| 豁免台账规模 | allowlist 条目数（未命中 0 条） | 23 |
+| **规则 B 命中文件数** | 有路由但全文无 `dataSource` | **30** |
+| 豁免台账规模 | allowlist 条目数（未命中 0 条） | 13 |
 
 ## 规则 A 明细
 
@@ -32,16 +32,6 @@
 |---|---|---|
 | `backend/src/api/user.ts:210` | `const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;` | 豁免 `AL-001` |
 | `backend/src/api/user.ts:368` | `id: `action_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,` | 豁免 `AL-002` |
-| `backend/src/db/InMemoryDatabase.ts:233` | `const change = (Math.random() - 0.5) * 2 * volatility;` | 豁免 `AL-014` |
-| `backend/src/db/InMemoryDatabase.ts:246` | `const basePrice = 10 + Math.random() * 200;` | 豁免 `AL-015` |
-| `backend/src/db/InMemoryDatabase.ts:260` | `const high = Math.max(open, close) * (1 + Math.random() * 0.02);` | 豁免 `AL-016` |
-| `backend/src/db/InMemoryDatabase.ts:261` | `const low = Math.min(open, close) * (1 - Math.random() * 0.02);` | 豁免 `AL-017` |
-| `backend/src/db/InMemoryDatabase.ts:265` | `const volume = Math.floor(5000000 + Math.random() * 50000000);` | 豁免 `AL-018` |
-| `backend/src/db/InMemoryDatabase.ts:281` | `turnoverRate: Math.round(Math.random() * 10 * 100) / 100,` | 豁免 `AL-019` |
-| `backend/src/db/InMemoryDatabase.ts:282` | `peRatio: Math.round((10 + Math.random() * 50) * 100) / 100,` | 豁免 `AL-020` |
-| `backend/src/db/InMemoryDatabase.ts:283` | `pbRatio: Math.round((1 + Math.random() * 10) * 100) / 100,` | 豁免 `AL-021` |
-| `backend/src/db/InMemoryDatabase.ts:284` | `marketCap: Math.floor(close * (1e8 + Math.random() * 1e10)),` | 豁免 `AL-022` |
-| `backend/src/db/InMemoryDatabase.ts:285` | `circulatingMarketCap: Math.floor(close * (5e7 + Math.random() * 5e9)),` | 豁免 `AL-023` |
 | `backend/src/services/alertEngine.ts:101` | `id: `alert_${now}_${Math.random().toString(36).substr(2, 9)}`,` | 豁免 `AL-003` |
 | `backend/src/services/crossAssetCorrelationEngine.ts:341` | `let v = Array(n).fill(0).map(() => Math.random());` | 豁免 `AL-011` |
 | `backend/src/services/logger.ts:242` | `const requestId = req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;` | 豁免 `AL-004` |
@@ -221,7 +211,6 @@
 | `backend/src/__tests__/technicalIndicatorsAdvanced.test.ts` | 4 |
 | `backend/src/__tests__/timeSeriesAnalysis.test.ts` | 9 |
 | `backend/src/__tests__/timeSeriesEngineV2.test.ts` | 1 |
-| `backend/src/__tests__/topTraders.test.ts` | 18 |
 | `backend/src/__tests__/tradeExecution.test.ts` | 1 |
 | `backend/src/__tests__/tradingEngine.test.ts` | 2 |
 | `backend/src/__tests__/tradingRulesAStock.test.ts` | 1 |
@@ -431,23 +420,23 @@
 | `backend/src/__tests__/financialsHonestData.test.ts:191` | 字符串 | `it('metric=roa 时结合资产负债表真实计算（不调用 Math.random）', async () => {` |
 | `backend/src/__tests__/healthHonestDegradation.test.ts:10` | 注释 | `* `dbType`，致使「PG 不可用 → 后端静默供给 5541 只 Math.random 伪造行情」` |
 | `backend/src/__tests__/klineDataService.test.ts:5` | 注释 | `* 绝不包含任何 Math.random / 硬编码假 K 线。` |
+| `backend/src/__tests__/memoryDbHonestEmpty.test.ts:9` | 注释 | `* 来自 clair-worker/all_stocks_compact.json）。OHLCV / 估值全部是 Math.random 伪造，` |
+| `backend/src/__tests__/memoryDbHonestEmpty.test.ts:105` | 注释 | `/** 由 Math.random 伪造的行情字段名 —— R3：这些字段的值绝不能是数字（含 0） */` |
 | `backend/src/__tests__/rotationEngine.test.ts:7` | 注释 | `/** Deterministic return generator — avoids flaky Math.random() tests */` |
+| `backend/src/__tests__/topTraders.test.ts:10` | 注释 | `* 说明：本文件替换了原先基于 Math.random 的「伪数据生成器」测试。` |
 | `backend/src/api/etf.ts:4` | 注释 | `* - 单位净值(NAV) 与净值历史：东方财富 fundf10 lsjz（免 key），替换原 Math.random 模拟` |
 | `backend/src/api/etf.ts:111` | 注释 | `* 获取 ETF 净值历史（真实源，替换原 Math.random 模拟）` |
 | `backend/src/api/eventCalendar.ts:18` | 注释 | `* - 现有 lockup-shares 接口为 Math.random 伪数据，按红线剔除，真实解禁源待接入。` |
 | `backend/src/api/lockup-shares.ts:4` | 注释 | `* 红线：原实现全量 Math.random 伪数据（解禁日期/股数/市值/比例/股东/个股历史），` |
 | `backend/src/api/margin.ts:4` | 注释 | `* 红线：原实现全量 Math.random 伪数据，违反「诚实数据」要求，已彻底移除。` |
-| `backend/src/app.ts:297` | 注释 | `// fabricationAllowed=true → 逃生开关已打开，正在对外供给 Math.random 伪造行情（违反诚实红线）` |
-| `backend/src/db/FabricatedDataRefusedError.ts:6` | 注释 | `* 全部由 `Math.random()` 伪造（见该文件 generateQuotes/generatePrice 的 JSDoc）。` |
-| `backend/src/db/FabricatedDataRefusedError.ts:46` | 字符串 | `reason = '生产环境处于内存库降级态，行情/估值为 Math.random 伪造数据，拒绝供给',` |
-| `backend/src/db/InMemoryDatabase.ts:240` | 注释 | `* 用 `Math.random()` 全量伪造 open/close/high/low/volume/turnover/` |
-| `backend/src/db/InMemoryDatabase.ts:309` | 注释 | `* 本类中的 OHLCV / 涨跌幅 / 成交额 / 换手率 / PE / PB / 市值全部由 Math.random() 伪造` |
-| `backend/src/db/InMemoryDatabase.ts:355` | 注释 | `// 但下面的行情/估值全部由 Math.random() 伪造，调用方不得当作真实行情。` |
-| `backend/src/db/InMemoryDatabase.ts:358` | 字符串 | ``(Math.random 伪造 120 日 K 线 + 估值)，仅供本地开发/降级降噪，禁止视为真实行情`,` |
-| `backend/src/db/InMemoryDatabase.ts:392` | 字符串 | `'🚨 ALLOW_FABRICATED_MARKET_DATA=true 已显式放行：生产环境正在以 Math.random 伪造行情对外供给，' +` |
-| `backend/src/db/dbFactory.ts:19` | 注释 | `* ⚠️ 内存库中的行情/估值为 Math.random 伪造数据（真实数据只有股票清单）：` |
-| `backend/src/db/dbFactory.ts:78` | 字符串 | `'内存库的行情/估值为 Math.random 伪造数据，生产环境已拒供（相关端点将返回错误/无数据，' +` |
-| `backend/src/db/dbFactory.ts:81` | 字符串 | `'ALLOW_FABRICATED_MARKET_DATA=true 正在使生产 API 以 Math.random 伪造行情对外供给，' +` |
+| `backend/src/api/topTraders.ts:4` | 注释 | `* 背景：原实现位于 `backend/src/api/_archived/top-traders.ts`，为 100% Math.random 伪数据` |
+| `backend/src/api/topTraders.ts:19` | 注释 | `* - 本文件内 **严禁出现 Math.random**（backend/src/api/ 属诚实门禁 RED 域）。` |
+| `backend/src/app.ts:303` | 注释 | `// R0'-9 已删除 Math.random 伪造生成器，故此处不再存在「对外供给伪造行情」的语义。` |
+| `backend/src/db/FabricatedDataRefusedError.ts:5` | 注释 | `* 内存库 (InMemoryDatabase) 曾用 `Math.random()` 伪造 OHLCV / 涨跌幅 / 成交额 /` |
+| `backend/src/db/InMemoryDatabase.ts:240` | 注释 | `* R0′-9 已删除 Math.random 伪行情生成器（原 `generateQuotes` / `generatePrice`），` |
+| `backend/src/db/InMemoryDatabase.ts:291` | 注释 | `// 行情/估值一律不生成（R0′-9 已删除 Math.random 伪造生成器），读取方只会得到诚实空态。` |
+| `backend/src/db/InMemoryDatabase.ts:294` | 字符串 | ``（symbol/name/market/industry）；不生成任何行情/估值（Math.random 伪造生成器已移除），` +` |
+| `backend/src/db/dbFactory.ts:19` | 注释 | `* ⚠️ 内存库已**不再生成**任何行情/估值（R0′-9 已删除 Math.random 伪造生成器），` |
 | `backend/src/services/aiDiagnosisEngine.ts:4` | 注释 | `* 替换原 ai-stock-selection.ts 中基于 Math.random 的伪随机评分。` |
 | `backend/src/services/etfDataService.ts:229` | 注释 | `* 获取 ETF 净值历史（真实源，替换原 Math.random 模拟）` |
 | `backend/src/services/fundFlowProviders.ts:49` | 注释 | `// ============ 确定性随机：FNV-1a + LCG（禁用 Math.random） ============` |
@@ -468,8 +457,8 @@
 
 ## 豁免台账（allowlist）
 
-- version：1　updatedAt：2026-09-21
-- 共 23 条；未命中 0 条。
+- version：1　updatedAt：2026-10-04
+- 共 13 条；未命中 0 条。
 
 ### 按类别分组计数
 
@@ -479,7 +468,7 @@
 | `stochastic-algorithm` | 3 |
 | `behavioral-random` | 0 |
 | `unwired-module` | 2 |
-| `acknowledged-debt` | 10 |
+| `acknowledged-debt` | 0 |
 
 ### 明细
 
@@ -498,16 +487,6 @@
 | `AL-011` | `stochastic-algorithm` | `backend/src/services/crossAssetCorrelationEngine.ts` | `Array(n).fill(0).map(() => Math.random())` | 2027-03-20 | — | 生效中 |
 | `AL-012` | `unwired-module` | `backend/src/services/notification/emailTemplateEngine.ts` | `if (Math.random() > 0.1)` | 2027-03-20 | — | 生效中 |
 | `AL-013` | `unwired-module` | `backend/src/services/notification/rateLimitEngine.ts` | `priority === 'low' && Math.random()` | 2027-03-20 | — | 生效中 |
-| `AL-014` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `(Math.random() - 0.5) * 2 * volatility` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-015` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const basePrice = 10 + Math.random() * 200` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-016` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const high = Math.max(open, close)` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-017` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const low = Math.min(open, close)` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-018` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `const volume = Math.floor(5000000` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-019` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `turnoverRate: Math.round(Math.random()` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-020` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `peRatio: Math.round((10 + Math.random()` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-021` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `pbRatio: Math.round((1 + Math.random()` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-022` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `marketCap: Math.floor(close * (1e8` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
-| `AL-023` | `acknowledged-debt` | `backend/src/db/InMemoryDatabase.ts` | `circulatingMarketCap: Math.floor(close * (5e7` | 2026-10-05 | R0'-9 内存库去伪行情根治（删除伪行情生成器本体） | 生效中 |
 
 ## 规则 B 明细（backend/src/api/*.ts）
 
@@ -563,8 +542,9 @@
 | `backend/src/api/sectors.ts` | 6 | 0 | `CONTRACT-MISSING` |
 | `backend/src/api/social.ts` | 10 | 0 | `CONTRACT-MISSING` |
 | `backend/src/api/stock-compare.ts` | 2 | 0 | `CONTRACT-MISSING` |
-| `backend/src/api/stock.ts` | 14 | 0 | `CONTRACT-MISSING` |
+| `backend/src/api/stock.ts` | 14 | 2 |  |
 | `backend/src/api/strategy-templates.ts` | 8 | 0 | `CONTRACT-MISSING` |
+| `backend/src/api/topTraders.ts` | 4 | 13 |  |
 | `backend/src/api/user.ts` | 7 | 0 | `CONTRACT-MISSING` |
 | `backend/src/api/watchlist.ts` | 7 | 0 | `CONTRACT-MISSING` |
 

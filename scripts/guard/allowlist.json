@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-22",
+  "updatedAt": "2026-10-04",
   "entries": [
     {
       "id": "AL-001",
@@ -118,96 +118,6 @@
       "reason": "高负载下随机拒绝低优先级任务（行为性限流，非供数）；经实测该模块在 backend/src 内除测试外零调用点",
       "clearingTicket": null,
       "expiresAt": "2027-03-20"
-    },
-    {
-      "id": "AL-014",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "(Math.random() - 0.5) * 2 * volatility",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪行情：generatePrice 的日涨跌随机项（PG 不可用时全站以此供数）",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-015",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "const basePrice = 10 + Math.random() * 200",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪行情：每只标的基准价随机生成",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-016",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "const high = Math.max(open, close)",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪行情：日最高价随机扰动",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-017",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "const low = Math.min(open, close)",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪行情：日最低价随机扰动",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-018",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "const volume = Math.floor(5000000",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪成交量随机生成",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-019",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "turnoverRate: Math.round(Math.random()",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪换手率随机生成",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-020",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "peRatio: Math.round((10 + Math.random()",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪 PE 随机生成",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-021",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "pbRatio: Math.round((1 + Math.random()",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪 PB 随机生成",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-022",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "marketCap: Math.floor(close * (1e8",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪总市值随机生成",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
-    },
-    {
-      "id": "AL-023",
-      "path": "backend/src/db/InMemoryDatabase.ts",
-      "match": "circulatingMarketCap: Math.floor(close * (5e7",
-      "category": "acknowledged-debt",
-      "reason": "内存库伪流通市值随机生成",
-      "clearingTicket": "R0'-9 内存库去伪行情根治（删除伪行情生成器本体）",
-      "expiresAt": "2026-10-05"
     }
   ]
 }

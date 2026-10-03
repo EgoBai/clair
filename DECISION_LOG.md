@@ -191,3 +191,12 @@
 
 - **🟢 D20 已根治（2026-08-27 用户授权复盘优化，团队 clair-loop-review 执行）**：根因查明——PLAN.md 脏写并非兄弟自动化抢写（`gen_dashboard.py` 对 PLAN.md 纯只读，看板自动化 12 次执行均只 add docs 文件），实为**自主循环自身未及时 commit 的记账改动 + 框架自动追加的 automation memory.md 未被 prompt 涵盖收口**，被时序误判为"兄弟抢写"。处置：①两自动化 prompt 均已注入「每轮结束强制收口」纪律（逐文件 add+commit 自身产物，严禁遗留脏树）；②自主循环单通道红线精细化——记账类脏文件（PLAN/DECISION_LOG/automation memory/guard/docs 看板产物）**容忍不暂停**，仅生产源码（frontend/src、backend/src、miniprogram、shared）在途才触发红线，D20 类误暂停不再复发。**状态：✅ 已决，无需用户再选 A/B/C。**
 - **🟢 防空转机制落地（用户 2026-08-27 指令「让每日自主循环推进有真实效果」）**：近两周（8/19-8/27，第75-83轮）循环处于纯巡检待命空转（任务队列耗尽、全部剩余项 await 用户拍板、推送通道断裂形成等待黑箱）。处置：①PLAN.md 新增第九节「自主改进池」（IP-1~IP-8 种子项：guard INFO 清偿/GlobalSearch 处置/app_v4 清理/类型漂移/补测/文档同步/utils 拆分/三态体验），下一任务为空时**禁止纯待命，必从池取项推进**（每轮≤1项，最小侵入，重大决策边界不变）；②新增「循环总结推送」环节：微信 webhook（未配置）→ agent-mail 邮件 374070139@qq.com（用户已授权；当前 agent-mail 邮箱未开通，**待用户在 WorkBuddy 开通面板激活后生效**）→ 兜底落盘 summaries/；③团队协作模式固化：hermes/mimo 分派 + 独立验证红线。**状态：✅ 已落地。待用户：在 WorkBuddy 上方开通面板激活 Agent Mail 邮箱（或配置 .wechat_push.json webhook），循环总结推送通道即全通。**
+
+## 2026-10-04 诚实门禁豁免清理（第117轮 · 主理人 · 防 CI 断裂收尾）
+
+- **背景**：D26/R0′ 交付的跨端诚实门禁 `scripts/guard/honesty-scan.mjs` + `allowlist.json`（原 23 条豁免：id-generation 8 / stochastic-algorithm 3 / unwired-module 2 / acknowledged-debt 10）。其中 `acknowledged-debt` 10 条（AL-014~AL-023）指向 `backend/src/db/InMemoryDatabase.ts` 的 `Math.random` 伪行情代码——该代码已于 R0′-9 被彻底删除（`grep "Math.random("` 在 InMemoryDatabase.ts 仅命中注释，实际调用 = 0）。
+- **风险（时间敏感）**：10 条豁免 `expiresAt` 均为 **2026-10-05**（即次日），到期未清偿将**自动转计 RED** 并使 `honesty-scan --strict` **失败 → CI 阻断**。扫描器实测报「未命中 10」（豁免指向的代码已删除）→ 豁免纯属陈旧。
+- **处置（主理人，最小侵入）**：① 重写 `scripts/guard/allowlist.json`，移除 AL-014~AL-023，保留 AL-001~AL-013（13 条，均经 D26 正面实测为良性：纯 ID 生成 / 合理随机算法 / 未接线模块），`updatedAt=2026-10-04`；② 因派生基线 `scripts/guard/honesty-baseline.md` 仍含已删 10 条豁免，首次 `--strict` 报「台账同步校验失败」，遂运行 `--update-baseline` 重生成基线。
+- **验证（独立·先验证再采信）**：重跑 `node scripts/guard/honesty-scan.mjs --strict` → `✅ 台账同步校验通过… 未豁免 RED:0 / 过期豁免:0 / 未命中:0 → exit 0`，CI 阻断风险彻底解除。RED 域 13 条全部已豁免且豁免均有效（无过期、无未命中）。
+- **关联台账校正（D26 纪律）**：本轮（R117）同步核实 PLAN 第九节 IP-12/18/19「待做」为台账滞后——三项均已被 R0′ 工作流实质清偿，已销号更正（见 PLAN.md 第九节 + 销号记录）。IP-20 表单元格与 R116 销号记录矛盾，亦同步更正。
+- **提交**：`git add scripts/guard/allowlist.json scripts/guard/honesty-baseline.md PLAN.md DECISION_LOG.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit`（记账收口，严禁 git add -A）。

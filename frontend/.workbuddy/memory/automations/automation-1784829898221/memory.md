@@ -825,3 +825,30 @@
 **推送通道**：wechat webhook 空；agent-mail 经 ToolSearch 复验仅 `agent_mail_upload_attachment`（无 SendMessage）→ 全部通道不可用，summary 落盘 summaries/loop-20260915-0115.md 兜底，标记「推送通道待开通」。
 
 **本轮收口**：commit（DECISION_LOG.md + 自身 automation memory.md + summaries/loop-20260915-0115.md）；在途 3 生产源码文件及他自动化记账均未触碰，工作区无脏树残留本轮回产物。
+
+## 第117轮（2026-10-04 01:46 · 诚实门禁豁免清理 + IP-12/18/19 台账校正）
+
+**前置**：上轮（2026-09-15 01:15）为 D25 连续多轮暂停延续轮（3 生产源码在途·PAUSE）。本轮间隔 ~19 天，期间 git 显示用户已 commit 在途的 factorEngine.ts/navGroups.ts/pageIndex.ts（D25 阻塞解除），且 R0′ 工作流（be-datapath 等）落地了诚实数据根治。`git status` 现**无生产源码在途**（仅 guard 配置 + 记账类脏文件）→ 单通道红线未触发，可安全推进。
+
+**单通道红线**：`git status --short` 检出 `M scripts/guard/allowlist.json` + `M scripts/guard/honesty-baseline.md`（本轮自身产物）+ 记账类（`.workbuddy/memory/MEMORY.md` / `frontend/ui-guard-report.md` / `frontend/playwright-report/index.html` / `frontend/scripts/ui-guard/.ast-findings.json` / 他 automation memory / 日记 ??）。**无 `frontend/src`/`backend/src`/`miniprogram`/`shared` 在途** → 红线未触发。
+
+**核心 Ticket（诚实门禁豁免清理·R0′ 收尾·防 CI 断裂）**：D26/R0′ 诚实门禁 `allowlist.json` 含 23 条豁免，其中 `acknowledged-debt` 10 条（AL-014~AL-023）指向 `InMemoryDatabase.ts` 已删除的 `Math.random` 伪行情代码（`expiresAt=2026-10-05`，即次日到期，到期转 RED 会阻断 CI）。独立验证：grep `Math.random(` 在 InMemoryDatabase.ts = 0（仅注释）；扫描器报「未命中 10」→ 豁免陈旧。**处置**：重写 `allowlist.json` 移除 AL-014~AL-023（保留 AL-001~AL-013 共 13 条良性豁免）；首次 `--strict` 因基线含已删 10 条失败 → `--update-baseline` 重生成；再跑 `--strict` → `未豁免 RED:0 / 过期豁免:0 / 未命中:0 → exit 0`，CI 阻断风险解除。
+
+**独立验证（先验证再采信·IP-12/18/19 台账滞后纠正）**：依 D26 纪律对 PLAN 第九节 IP-12/18/19「待做」逐项源码复核，证实均已被 R0′ 工作流实质清偿（属滞后记录）：
+- **IP-12**：`backend/src/api/lockup-shares.ts` `grep Math.random` 仅命中 L4 **注释**，正文零伪数据生成器 → 伪解禁数据已下线。
+- **IP-18**：`backend/src/app.ts:41/144` 挂载 `topTradersRouter` + `frontend/src/config/navGroups.ts:87` 仍暴露 top-traders 入口 + TopTradersPage 诚实空态 → 入口与路由均在、**无 404 死链**，D24 禁止项满足。
+- **IP-19**：`backend/src/services/factorEngine.ts:420` `asOf` 由数据 `t.date` 动态计算（非硬编码 2026-06-05）→ 滞后关切消除。
+
+**处置（PLAN/DECISION 台账校正）**：PLAN 第九节 IP-12/18/19/20 单元格由「待做」更正为「已完成（台账滞后纠正/同步）」+ 销号记录追加 R117 三行；DECISION_LOG 追加「2026-10-04 诚实门禁豁免清理」段。所有改动零源码、零交集于生产目录，红线纪律严守。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增——本轮回账/清理均属已拍板 R0′ 工作流收尾，非新用户待决策项；D22 红线二级判定仍待用户正式追认（已连续多轮验证有效）；D24 龙虎榜死链经核实无死链（已满足）；IP-7 utils 拆分仍待决策。
+
+**专家团评估**：E1✅ 核心 Ticket 为门禁配置清理，主理人自实现无需分派 / E2✅ 净改动 2 配置文件（-10 豁免 + 基线重生成），远低于 500 行 / E3🟢 / E4✅ / E5✅ 独立验证（grep+`--strict` exit 0 实证 CI 风险解除 + 三 IP 源码复核证伪台账滞后）/ E6🟢 无新技术债，CI 阻断风险收敛（防 2026-10-05 到期转 RED）。
+
+**改进池进度**：IP-1~IP-20 全部完成（R116 销号 IP-20；R117 销号 IP-12/18/19 滞后纠正 + IP-20 表同步）；仅剩 IP-7（utils 拆分，大改动待用户决策）。
+
+**待用户明确**：D22 红线二级判定仍待正式追认；IP-7 utils 拆分仍待决策；D24 龙虎榜真实数据源接入（当前为诚实空态，非阻塞）；推送通道（wechat/agent-mail）仍不可用，summary 落盘兜底。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 经复验仅暴露 `agent_mail_upload_attachment`（无 SendMessage）→ 全部通道不可用，summary 落盘 `summaries/loop-20261004-0146.md` 兜底，标记「推送通道待开通」。
+
+**本轮收口**：`git add scripts/guard/allowlist.json scripts/guard/honesty-baseline.md PLAN.md DECISION_LOG.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md summaries/loop-20261004-0146.md` + `git commit -m "chore(auto): 第117轮 诚实门禁豁免清理+IP12/18/19台账校正·记账收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
