@@ -852,3 +852,30 @@
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 经复验仅暴露 `agent_mail_upload_attachment`（无 SendMessage）→ 全部通道不可用，summary 落盘 `summaries/loop-20261004-0146.md` 兜底，标记「推送通道待开通」。
 
 **本轮收口**：`git add scripts/guard/allowlist.json scripts/guard/honesty-baseline.md PLAN.md DECISION_LOG.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md summaries/loop-20261004-0146.md` + `git commit -m "chore(auto): 第117轮 诚实门禁豁免清理+IP12/18/19台账校正·记账收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
+
+## 第118轮（2026-10-04 07:52 · 健康巡检待命轮）
+
+**前置**：上轮（第117轮·2026-10-04 01:46）为诚实门禁豁免清理+IP-12/18/19 台账校正轮，自主改进池 IP-1~IP-20 全部完成，仅剩 IP-7（utils 93K 拆分）需用户拍板。
+
+**单通道红线**：`git status --short` 检出容忍类脏文件（`.workbuddy/memory/MEMORY.md`、他 automation memory、docs/harness、playwright-report、ui-guard 报告、未跟踪日记 ??），**无 `frontend/src`/`backend/src`/`miniprogram`/`shared` 生产源码在途** → 红线未触发。
+
+**健康巡检（核心验收，全绿）**：
+- dev server 5173=200（持续运行）；后端 3001=200（复验在线）
+- 前端 `./node_modules/.bin/tsc --noEmit` → **0 错**（TSC_OK）
+- `npm run build` → **4.51s 一次过**（仅 chunk size 警告，vite:terser 占 91% 正常负载态非回归）
+- `npx playwright test e2e/route-render-smoke.spec.ts` → **64/64 零回归**（31 路由 × chromium+mobile-chrome 双 project 真实渲染 + 反 404 死链守卫用例），证零白屏/零崩溃/零死链
+- 真实端点 `/api/market/realtime` 上证 3842.19 +0.31%、`dataSource:'real'` 诚实标记完好
+
+**处置**：纯健康巡检轮，无新 Ticket（自主改进池已尽，IP-7 需用户拍板不擅自动工）；仅更新 PLAN.md 当前循环状态表（第118轮行 + 最近一轮指针）与本 memory，零源码/零生产改动。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-7 既有待决策、D22 红线二级判定仍待追认、D24 龙虎榜真实源接入非阻塞、推送通道仍不可用，均未重复推送）。
+
+**专家团评估**：E1-E6 维持，无调整（巡检轮无 Agent 分派、无新开发）；E6🟢 无新技术债，基线健康稳定。
+
+**改进池进度**：IP-1~IP-20 全部完成；仅剩 IP-7（utils 拆分，大改动待用户决策），本轮未推进。
+
+**待用户明确**：① IP-7 utils/ 93K 行拆分是否授权启动（技术债 T2，P3，范围/资源决策）② D22 单通道红线二级判定仍待正式追认 ③ D24 龙虎榜真实数据源接入（当前诚实空态非阻塞）④ 完整体验版本真机验证清单闭环 / RAG 二期向量化（DeepSeek key 已通电）/ D2 POC 四件套 仍待拍板 ⑤ 推送通道（wechat/agent-mail）仍不可用。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 复验仅 `agent_mail_upload_attachment`（无 SendMessage）→ 全部通道不可用；纯健康巡检轮按频率控制**不发推送**，仅记 memory + 落盘（兜底）。
+
+**本轮收口**：`git add PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第118轮 健康巡检待命·基线零回归记账收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
