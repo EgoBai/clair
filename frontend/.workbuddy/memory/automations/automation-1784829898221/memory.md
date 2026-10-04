@@ -923,4 +923,18 @@
 **专家团评估**：E1-E6 全为"是/维持"，无调整；E6🟢 无新技术债。
 **推送**：纯健康巡检轮按频率控制不发推送，仅记 memory（微信 webhook 仍空、agent-mail 仍无 SendMessage → 全通道不可用）。
 **下一任务**：维持健康巡检+待命，await 用户明确下一授权工单（IP-7 utils 拆分拍板 / 完整体验版本真机验证清单闭环 / RAG 二期向量化 / D2 POC 四件套）。
+
+---
+
+## 第121轮 · 健康巡检待命轮（2026-10-05 02:09）
+
+**类型**：纯健康巡检待命轮（无新开发）。
+**单通道红线**：git status 确认 frontend/src/backend/src/miniprogram/shared 无 M/?? 生产源码在途（仅 .workbuddy/memory、docs/harness、playwright-report、ui-guard 产物等记账类/文档类脏文件，容忍不暂停）→ 红线未触发，安全推进。
+**幂等/可推进项核查**：「下一任务」=await 用户授权工单；自主改进池 IP-1~IP-21 全完成，仅 IP-7（utils/93K 拆分·技术债 T2·范围/资源决策）待用户拍板 → 无安全自主任务；IP-7 属重大重构，按约束须用户拍板，不自动执行。
+**健康巡检全绿（权威 4 判据）**：dev 5173=200 / 后端 3001=200（/health 在线）/ 真实端点 /api/market/realtime 上证 3842.19 +0.31%·深证 12887.62 -0.11%·创业板 3135.28 -0.23% dataSource:'real' / 前端 tsc --noEmit 0 错 / npm run build 4.28s 一次过 / **e2e route-render-smoke 64/64**（12.8s，31 路由双 project 真实浏览器渲染 + 反 404 死链守卫）/ npm run guard ERROR=0 WARN=0（INFO 降至 1 条提示级非阻塞）。
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-7 既有待用户拍板项未重复推送；D22 红线二级判定/D24 龙虎榜仍待用户决策未重复催办）。
+**专家团评估**：E1-E6 全为"是/维持"，无调整（巡检轮无 Agent 分派、无源码改动）；E6🟢 无新技术债。
+**自主天花板提示**：自第118轮起连续健康巡检待命（第119轮借 IP-21 收口最后一项改进池），自主可推进项已达硬顶；后续若无用户授权，将持续健康巡检待命。未达「连续5轮无可做项」停滞阈值，暂不标记停滞/推送提醒，但显式提示用户：若要推进，请拍板 IP-7 或授权 S2-x 蜂群工单 / RAG二期 / D2 POC / 真机验证清单闭环。
+**推送**：纯健康巡检轮按频率控制不发推送，仅记 memory（微信 webhook 仍空、agent-mail 仍无 SendMessage → 全通道不可用）。
+**本轮收口**：`git add PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md frontend/ui-guard-report.md frontend/scripts/ui-guard/.ast-findings.json` + `git commit -m "chore(auto): 第121轮 健康巡检待命·基线零回归记账收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
 **本轮收口**：`git add PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第120轮 健康巡检待命·记账收口"`（严禁 git add -A）。
