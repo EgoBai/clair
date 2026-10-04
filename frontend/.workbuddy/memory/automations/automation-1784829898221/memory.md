@@ -879,3 +879,34 @@
 **推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 复验仅 `agent_mail_upload_attachment`（无 SendMessage）→ 全部通道不可用；纯健康巡检轮按频率控制**不发推送**，仅记 memory + 落盘（兜底）。
 
 **本轮收口**：`git add PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第118轮 健康巡检待命·基线零回归记账收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
+
+## 第119轮（2026-10-04 13:56 · fund-flow 诚实红线收敛·改进轮）
+
+**前置**：第118轮为纯健康巡检待命轮；自主改进池 IP-1~IP-20 全部完成，仅剩 IP-7（utils 93K 拆分）需用户拍板；主线 T7/RAG二期/D2 POC/真机验证清单均 await 用户授权。
+
+**防空转触发**：下一任务为 await 用户 → 禁止纯待命空跑，现场挖掘新改进项 IP-21（ fund-flow 诚实红线残余收敛）。
+
+**单通道红线**：`git status` 确认 `frontend/src`/`backend/src`/`miniprogram`/`shared` 无 M/?? 在途 → 红线未触发，安全推进。
+
+**IP-21 实装（主理人，最小侵入）**：
+- 删除 `frontend/src/utils/fundFlowPageDemo.ts` 中未被任何生产代码调用的确定性伪数据生成器（`genStockFundFlow/genIndustryFlow/genGlobalIndicators/genMarketOverview/genMeta` + `fnv1a/makeLcg/seedOf/mkRow`，~100 行死代码），仅保留被 `FundFlowPage.tsx` 引用的 11 个类型契约。
+- `StockFundFlowResp.current` 类型由 `FundFlowData` 改为 `FundFlowData | null`（对齐诚实空态）。
+- 修正文件头与 `FundFlowPage.tsx` line 9-10 误导性「演示数据回退」注释（IP-20 框架标记的残余复核项，本次收口）。
+
+**独立验证（先验证再采信）**：
+- `grep genStockFundFlow` 全仓仅命中定义文件自身（无外部调用）→ 证伪误删风险。
+- 前端 `tsc --noEmit` 0 错；`npm run build` 4.45s 一次过（仅 chunk size 警告）。
+- `npx playwright test e2e/route-render-smoke.spec.ts` **64/64**（含 /fund-flow 真实渲染诚实空态），零回归。
+- 实证 `curl /api/fund-flow/600519.SH` → `{"current":null,"history":[],"dataSource":"unavailable",...}`，无伪数据残留。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-21 为常规诚实红线收敛，非用户待决策项）。
+
+**专家团评估**：E1✅ 单文件小改动主理人亲为实现 / E2✅ 净删 ~100 行 / E5✅ grep 证伪外部调用 + curl 实证 unavailable / E6🟢 诚实数据红线收敛（fund-flow 前端伪数据生成器彻底下线，仅留类型契约，呼应 IP-20 后端收口）。
+
+**改进池进度**：IP-1~IP-21 全部完成；仅剩 IP-7（utils 拆分，大改动待用户决策），本轮未推进。
+
+**待用户明确**：① IP-7 utils/ 93K 行拆分是否授权启动 ② 完整体验版真机验证清单闭环 / RAG 二期向量化 / D2 POC 四件套 仍待拍板 ③ 推送通道（wechat/agent-mail）仍不可用。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 复验仅 `agent_mail_upload_attachment`（无 SendMessage）→ 全部通道不可用；改进轮按频率控制须发推送，故走兜底：summary 落盘 `/Users/ego_bai/WorkBuddy/20260318120110/summaries/loop-20261004-1356.md` + 本 memory 记「推送通道待开通」。
+
+**本轮收口**：`git add frontend/src/utils/fundFlowPageDemo.ts frontend/src/pages/FundFlowPage.tsx PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第119轮 fund-flow诚实红线收敛(IP-21)·记账收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。

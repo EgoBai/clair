@@ -6,8 +6,8 @@
  *   GET /api/fund-flow/industry      —— 行业资金流排行
  *   GET /api/fund-flow/:symbol       —— 个股资金流 + 历史趋势
  *   POST /api/fund-flow/batch        —— 批量（类型已消费，供后续接入）
- * 后端不可达/报错时回退 src/utils/fundFlowPageDemo.ts 确定性演示数据，
- * 标注「演示数据」gold Tag，页面始终完整渲染。
+ * 后端不可达/报错时走诚实空态兜底（EmptyState / dsTag('unavailable')），绝不回退伪数据；
+ * fundFlowPageDemo 仅提供类型契约，不含数据生成器（诚实数据红线，IP-20 收口）。
  * 涨红跌绿：净流入/上涨=var(--color-up)，净流出/下跌=var(--color-down)。
  */
 
