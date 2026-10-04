@@ -1,13 +1,11 @@
 /**
- * AI 财报解读 — 确定性演示与结构化摘要
+ * AI 财报解读 — 结构化摘要计算
  *
- * 后端财报接口可能缺失，本模块提供两层确定性能力：
- *   1. generateDeterministicFinancials: 基于 LCG 线性同余种子
- *      (seed=20260725 联合 symbol 的 FNV-1a 哈希) 生成可复现的多期三表数据，
- *      用于接口缺失时兜底，保证页面渲染稳定。
- *   2. computeFinancialInsight: 基于三表（利润/资产负债/现金流）多期数据，
- *      动态计算 5 个维度的结构化摘要（盈利/成长/偿债/现金流/综合评分），
- *      结论文字由计算结果推导，不写死。
+ * 诚实数据红线：本模块不生成任何伪随机/确定性兜底三表数据。
+ * 仅提供 computeFinancialInsight：基于三表（利润/资产负债/现金流）多期真实数据，
+ * 动态计算 5 个维度的结构化摘要（盈利/成长/偿债/现金流/综合评分），
+ * 结论文字由计算结果推导，不写死、不伪造。
+ * 真实源缺失时由调用方（FinancialsPage）诚实置空或标记 unavailable。
  *
  * 配色遵循中国习惯「涨红跌绿」：
  *   改善 / 正增长 → 红 #f5222d ；恶化 / 负增长 → 绿 #52c41a ；持平 → 灰。
@@ -76,37 +74,7 @@ export interface FFinancialSummary {
   indicators: FIndicators;
 }
 
-export interface DeterministicFinancials {
-  summary: FFinancialSummary;
-  balanceHistory: FBalanceSheet[];
-  incomeHistory: FIncomeStatement[];
-  cashFlowHistory: FCashFlow[];
-}
-
-// ==================== 确定性随机（LCG） ====================
-
-const LCG_A = 1103515245;
-const LCG_C = 12345;
-const LCG_M = 4294967296; // 2^32
-
-/** FNV-1a 字符串哈希，使不同 symbol 派生出不同种子 */
-function hashString(str: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-/** 线性同余发生器，返回 [0,1) 确定性序列 */
-function makeLcg(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (Math.imul(LCG_A, s) + LCG_C) >>> 0;
-    return s / LCG_M;
-  };
-}
+// ==================== 计算辅助 ====================
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -115,140 +83,6 @@ function clamp(v: number, min: number, max: number): number {
 function round(v: number, digits = 2): number {
   const f = Math.pow(10, digits);
   return Math.round(v * f) / f;
-}
-
-/** 全局基础种子（按任务约定） */
-const BASE_SEED = 20260725;
-
-// ==================== 确定性三表数据生成 ====================
-
-const DEMO_PERIODS = ['2025Q1', '2025Q2', '2025Q3', '2025Q4'];
-
-export function generateDeterministicFinancials(
-  symbol: string,
-  baseSeed: number = BASE_SEED,
-): DeterministicFinancials {
-  const seed = (baseSeed ^ hashString(symbol)) >>> 0;
-  const rng = makeLcg(seed);
-
-  const income: FIncomeStatement[] = [];
-  const balance: FBalanceSheet[] = [];
-  const cash: FCashFlow[] = [];
-
-  let revenue = 200 + rng() * 1500; // 200~1700 亿
-  let assets = revenue * (1.2 + rng() * 0.8);
-  const shares = 5 + rng() * 20; // 亿股
-
-  for (let i = 0; i < DEMO_PERIODS.length; i++) {
-    const period = DEMO_PERIODS[i];
-
-    if (i > 0) {
-      const g = -0.05 + rng() * 0.3; // -5% ~ +25%
-      revenue = revenue * (1 + g);
-    }
-
-    const grossMargin = 0.35 + rng() * 0.2; // 35% ~ 55%
-    const operatingCost = revenue * (1 - grossMargin);
-    const grossProfit = revenue - operatingCost;
-    const netMargin = grossMargin - (0.06 + rng() * 0.1); // 净利率 < 毛利率
-    const netProfit = revenue * netMargin;
-    const roe = netMargin * (1 + rng() * 0.6);
-    const roa = roe * (0.4 + rng() * 0.4);
-    const eps = netProfit / shares;
-    const operatingProfit = grossProfit * (0.7 + rng() * 0.2);
-
-    income.push({
-      symbol,
-      period,
-      totalRevenue: round(revenue),
-      operatingCost: round(operatingCost),
-      grossProfit: round(grossProfit),
-      operatingProfit: round(operatingProfit),
-      netProfit: round(netProfit),
-      eps: round(eps),
-      grossMargin: round(grossMargin * 100),
-      netMargin: round(netMargin * 100),
-      roe: round(roe * 100),
-      roa: round(roa * 100),
-    });
-
-    const debtRatio = 0.3 + rng() * 0.35; // 30% ~ 65%
-    const totalLiabilities = assets * debtRatio;
-    const totalEquity = assets - totalLiabilities;
-    const currentRatio = 1.0 + rng() * 1.5; // 1.0 ~ 2.5
-    const currentLiabilities = totalLiabilities * (0.4 + rng() * 0.3);
-    const currentAssets = currentLiabilities * currentRatio;
-    const cashAmt = assets * (0.05 + rng() * 0.15);
-    const ar = assets * (0.05 + rng() * 0.12);
-    const inv = assets * (0.05 + rng() * 0.12);
-    const fixed = assets * (0.2 + rng() * 0.3);
-
-    balance.push({
-      symbol,
-      period,
-      totalAssets: round(assets),
-      currentAssets: round(currentAssets),
-      nonCurrentAssets: round(assets - currentAssets),
-      cash: round(cashAmt),
-      accountsReceivable: round(ar),
-      inventory: round(inv),
-      fixedAssets: round(fixed),
-      totalLiabilities: round(totalLiabilities),
-      currentLiabilities: round(currentLiabilities),
-      totalEquity: round(totalEquity),
-      currentRatio: round(currentRatio),
-      debtToAssetRatio: round(debtRatio * 100),
-    });
-
-    const opCf = netProfit * (0.8 + rng() * 0.5); // 0.8 ~ 1.3 倍净利润
-    const invCf = -assets * (0.02 + rng() * 0.08);
-    const finCf = -netProfit * rng() * 0.3;
-    const netCf = opCf + invCf + finCf;
-    const fcf = opCf - Math.abs(invCf);
-
-    cash.push({
-      symbol,
-      period,
-      netOperatingCashFlow: round(opCf),
-      netInvestingCashFlow: round(invCf),
-      netFinancingCashFlow: round(finCf),
-      netCashFlow: round(netCf),
-      freeCashFlow: round(fcf),
-      operatingCashToNetProfit: netProfit !== 0 ? round(opCf / netProfit) : 0,
-    });
-
-    // 下一期资产随留存收益温和增长
-    assets = assets + netProfit * 0.3 + rng() * assets * 0.02;
-  }
-
-  const last = income[income.length - 1];
-  const prev = income[income.length - 2];
-  const lastBal = balance[balance.length - 1];
-  const lastCash = cash[cash.length - 1];
-
-  const summary: FFinancialSummary = {
-    balanceSheet: lastBal,
-    incomeStatement: last,
-    cashFlow: lastCash,
-    indicators: {
-      grossMargin: last.grossMargin,
-      netMargin: last.netMargin,
-      roe: last.roe,
-      roa: last.roa,
-      currentRatio: lastBal.currentRatio,
-      debtToAssetRatio: lastBal.debtToAssetRatio,
-      revenueGrowth:
-        prev.totalRevenue !== 0
-          ? round(((last.totalRevenue - prev.totalRevenue) / prev.totalRevenue) * 100)
-          : 0,
-      profitGrowth:
-        prev.netProfit !== 0
-          ? round(((last.netProfit - prev.netProfit) / prev.netProfit) * 100)
-          : 0,
-    },
-  };
-
-  return { summary, balanceHistory: balance, incomeHistory: income, cashFlowHistory: cash };
 }
 
 // ==================== 结构化摘要计算 ====================

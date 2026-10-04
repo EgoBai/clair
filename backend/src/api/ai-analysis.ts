@@ -86,7 +86,7 @@ function toBareCode(symbol: string): string {
   return (symbol || '').trim().toUpperCase().replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
 }
 
-async function fetchWithTimeout(url: string, headers?: Record<string, string>): Promise<Response> {
+async function fetchWithTimeout(url: string, headers?: Record<string, string>): Promise<globalThis.Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {

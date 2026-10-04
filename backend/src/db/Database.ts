@@ -715,7 +715,7 @@ export class Database {
         marketCap: toNum(r.market_cap_wan) * 10000, // 万元 → 元
       });
     }
-    return result.sort((a, b) => b.marketCap - a.marketCap);
+    return result.sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0));
   }
 
   /**

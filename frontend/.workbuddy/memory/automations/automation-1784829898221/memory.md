@@ -926,15 +926,20 @@
 
 ---
 
-## 第121轮 · 健康巡检待命轮（2026-10-05 02:09）
+## 第121轮 · 改进轮（IP-22 + 后端 tsc 3 错根治·2026-10-05 02:09）
 
-**类型**：纯健康巡检待命轮（无新开发）。
-**单通道红线**：git status 确认 frontend/src/backend/src/miniprogram/shared 无 M/?? 生产源码在途（仅 .workbuddy/memory、docs/harness、playwright-report、ui-guard 产物等记账类/文档类脏文件，容忍不暂停）→ 红线未触发，安全推进。
-**幂等/可推进项核查**：「下一任务」=await 用户授权工单；自主改进池 IP-1~IP-21 全完成，仅 IP-7（utils/93K 拆分·技术债 T2·范围/资源决策）待用户拍板 → 无安全自主任务；IP-7 属重大重构，按约束须用户拍板，不自动执行。
-**健康巡检全绿（权威 4 判据）**：dev 5173=200 / 后端 3001=200（/health 在线）/ 真实端点 /api/market/realtime 上证 3842.19 +0.31%·深证 12887.62 -0.11%·创业板 3135.28 -0.23% dataSource:'real' / 前端 tsc --noEmit 0 错 / npm run build 4.28s 一次过 / **e2e route-render-smoke 64/64**（12.8s，31 路由双 project 真实浏览器渲染 + 反 404 死链守卫）/ npm run guard ERROR=0 WARN=0（INFO 降至 1 条提示级非阻塞）。
-**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-7 既有待用户拍板项未重复推送；D22 红线二级判定/D24 龙虎榜仍待用户决策未重复催办）。
-**专家团评估**：E1-E6 全为"是/维持"，无调整（巡检轮无 Agent 分派、无源码改动）；E6🟢 无新技术债。
-**自主天花板提示**：自第118轮起连续健康巡检待命（第119轮借 IP-21 收口最后一项改进池），自主可推进项已达硬顶；后续若无用户授权，将持续健康巡检待命。未达「连续5轮无可做项」停滞阈值，暂不标记停滞/推送提醒，但显式提示用户：若要推进，请拍板 IP-7 或授权 S2-x 蜂群工单 / RAG二期 / D2 POC / 真机验证清单闭环。
-**推送**：纯健康巡检轮按频率控制不发推送，仅记 memory（微信 webhook 仍空、agent-mail 仍无 SendMessage → 全通道不可用）。
-**本轮收口**：`git add PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md frontend/ui-guard-report.md frontend/scripts/ui-guard/.ast-findings.json` + `git commit -m "chore(auto): 第121轮 健康巡检待命·基线零回归记账收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
+**类型**：改进轮（非纯巡检）——纠正本轮回执前的误分类：a098877f7 曾以「健康巡检待命轮」记账，但 2026-10-05 日报揭示两项真实安全自主任务，遂转改进轮实装。
+**单通道红线**：git status 确认 frontend/src/backend/src/miniprogram/shared 无 M/?? 生产源码在途（仅记账类/文档类脏文件，容忍不暂停）→ 红线未触发，安全推进。
+**防空转触发**：「下一任务」=await 用户授权；改进池 IP-1~IP-21 仅剩 IP-7（utils 93K 拆分·重大重构待拍板）；但 2026-10-05 日报登记 IP-22（financialInsightDemo 死代码）+ 后端 tsc 3 错（连续 8 天 CI 红）→ 现场挖掘为合法安全自主任务，执行。
+**IP-22 实装（主理人，最小侵入）**：
+- `frontend/src/utils/financialInsightDemo.ts` 删零生产调用的 `generateDeterministicFinancials`（LCG 伪财报）+ `makeLcg`/`hashString`/`DeterministicFinancials`/`BASE_SEED`/`DEMO_PERIODS`（~170 行死代码），保留被 `FinancialsPage.tsx` 引用的 `computeFinancialInsight`/`clamp`/`round` 与全部类型契约；文件头误导性「接口缺失兜底」注释修正为诚实红线声明。
+- **后端 tsc 3 错根治（纠正第118/120轮自报失真——实为 3 错非 1）**：`Database.ts:718` `marketCap:number|null` 排序 TS18047×2 → `(b.marketCap ?? 0)-(a.marketCap ?? 0)`；`ai-analysis.ts:89/98` `fetchWithTimeout` 返回类型被 `import { Response } from 'express'` 遮蔽全局 Web `Response`（DOM lib）致 TS2740 → 改注 `Promise<globalThis.Response>`。
+**独立验证（先验证再采信）**：
+- `grep generateDeterministicFinancials|makeLcg|hashString` 全仓仅命中本文件定义（零外部调用）→ 证伪误删风险。
+- 前端 `tsc --noEmit` 0 错；后端 `tsc --noEmit` 0 错（3→0）；`npm run build` 4.79s；`npx playwright test e2e/route-render-smoke.spec.ts` **64/64**（含 /financials/600519 真实渲染）；`npm run guard` ERROR=0 WARN=0（仅 1 条预存 INFO）。
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-22 常规诚实红线收敛，非用户待决策项）。
+**专家团评估**：E1✅ 单文件小改动主理人亲为实现 / E2✅ 净删 ~170 行远低于 500 / E5✅ grep 证伪死代码零外部调用 + 后端 tsc 实跑 0 错证伪失真自报 / E6🟢 诚实数据红线收敛（financialInsight 链路伪财报生成器彻底下线）+ 技术债清零（后端 tsc 连续 8 天 CI 红归零）。
+**改进池进度**：IP-1~IP-22 全部完成；仅剩 IP-7（utils 拆分，大改动待用户决策）。
+**推送**：改进轮按频率控制须发推送，但微信 webhook 仍空、agent-mail 仍无 SendMessage → 全通道不可用；走兜底：summary 落盘 + 本 memory 记「推送通道待开通」。
+**本轮收口**：`git add backend/src/db/Database.ts backend/src/api/ai-analysis.ts frontend/src/utils/financialInsightDemo.ts PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第121轮 IP-22+后端tsc3错根治·改进轮收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
 **本轮收口**：`git add PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第120轮 健康巡检待命·记账收口"`（严禁 git add -A）。
