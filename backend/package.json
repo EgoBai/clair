@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "build:prod": "esbuild src/index.ts --bundle --packages=external --platform=node --format=cjs --outfile=dist/server.cjs --log-level=warning",
+    "start": "node dist/server.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/"
