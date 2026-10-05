@@ -61,7 +61,7 @@ interface MultidimData {
   };
 }
 
-interface StockData { symbol: string; name: string; price: number; changePercent: number; turnoverRate?: number; peRatio?: number; market: string; }
+interface StockData { symbol: string; name: string; price: number | null; changePercent: number | null; turnoverRate?: number; peRatio?: number; market: string; }
 
 /** Highlight numbers in text: percentages in green/red, plain numbers in monospace bold */
 function renderInsightLine(line: string) {
@@ -396,14 +396,17 @@ const DiscoverPage: React.FC = () => {
       const r = await fetch(`/api/sectors/${encodeURIComponent(s.industry)}/stocks?pageSize=50`);
       const d = await r.json();
       const rawStocks = d.data?.items || d.data?.stocks || [];
-      setSectorStocks(rawStocks.map((st: any) => ({
-        symbol: st.symbol || '', name: st.name || st.symbol,
-        price: st.latestQuote?.closePrice || 0,
-        changePercent: st.latestQuote?.changePercent || 0,
-        turnoverRate: st.latestQuote?.turnoverRate,
-        peRatio: st.latestQuote?.peRatio,
-        market: st.market || '',
-      })).sort((a: StockData, b: StockData) => b.changePercent - a.changePercent));
+      setSectorStocks(rawStocks.map((st: any) => {
+        const q = st.latestQuote ?? null;
+        return {
+          symbol: st.symbol || '', name: st.name || st.symbol,
+          price: q ? q.closePrice : null,
+          changePercent: q ? q.changePercent : null,
+          turnoverRate: q ? q.turnoverRate : undefined,
+          peRatio: q ? q.peRatio : undefined,
+          market: st.market || '',
+        };
+      }).sort((a: StockData, b: StockData) => (b.changePercent ?? -Infinity) - (a.changePercent ?? -Infinity)));
     } catch { setSectorStocks([]); }
   }, []);
 
@@ -1434,9 +1437,10 @@ const DiscoverPage: React.FC = () => {
                     <a onClick={() => navigate(`/stocks/${v}`)} style={{ color: ACCENT, fontWeight: 600, fontFamily: 'monospace', cursor: 'pointer' }}>{v.replace(/\.(SH|SZ)$/, '')}</a>
                   )},
                   { title: '名称', dataIndex: 'name', ellipsis: true, render: (v: string) => <span style={{ color: TEXT }}>{v}</span> },
-                  { title: '最新价', dataIndex: 'price', align: 'right' as const, width: 85, render: (v: number) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: TEXT }}>{v?.toFixed(2)}</span> },
-                  { title: '涨跌幅', dataIndex: 'changePercent', align: 'right' as const, width: 85, render: (v: number) => (
-                    <span style={{ color: v >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 700, fontFamily: 'monospace' }}>{v >= 0 ? '+' : ''}{v?.toFixed(2)}%</span>
+                  { title: '最新价', dataIndex: 'price', align: 'right' as const, width: 85, render: (v: number | null) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: v != null ? TEXT : TEXT_SEC }}>{v != null ? v.toFixed(2) : '—'}</span> },
+                  { title: '涨跌幅', dataIndex: 'changePercent', align: 'right' as const, width: 85, render: (v: number | null) => (
+                    v == null ? <span style={{ color: TEXT_SEC }}>—</span> :
+                    <span style={{ color: v >= 0 ? COLOR_UP : COLOR_DOWN, fontWeight: 700, fontFamily: 'monospace' }}>{v >= 0 ? '+' : ''}{v.toFixed(2)}%</span>
                   )},
                   { title: '换手率', dataIndex: 'turnoverRate', align: 'right' as const, width: 75, render: (v?: number) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v?.toFixed(2) ?? '-'}%</span> },
                   { title: 'PE', dataIndex: 'peRatio', align: 'right' as const, width: 65, render: (v?: number) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v?.toFixed(1) ?? '-'}</span> },

@@ -942,4 +942,33 @@
 **改进池进度**：IP-1~IP-22 全部完成；仅剩 IP-7（utils 拆分，大改动待用户决策）。
 **推送**：改进轮按频率控制须发推送，但微信 webhook 仍空、agent-mail 仍无 SendMessage → 全通道不可用；走兜底：summary 落盘 + 本 memory 记「推送通道待开通」。
 **本轮收口**：`git add backend/src/db/Database.ts backend/src/api/ai-analysis.ts frontend/src/utils/financialInsightDemo.ts PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第121轮 IP-22+后端tsc3错根治·改进轮收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
+
+---
+
+## 第122轮（2026-10-05 08:32 · 改进轮·IP-23 sectors 个股端点诚实红线收敛）
+
+**类型**：改进轮（非纯巡检）——防空转现场挖掘安全改进项。
+**单通道红线**：git status 确认 frontend/src/backend/src/miniprogram/shared 无 M/?? 生产源码在途（仅记账类/文档类脏文件：.workbuddy/memory/MEMORY.md、他 automation memory、docs/harness、playwright-report、ui-guard-report.md、未跟踪日记 ??，容忍不暂停）→ 红线未触发，安全推进。
+**防空转触发**：「下一任务」=await 用户授权；自主改进池 IP-1~IP-22 全完成，仅剩 IP-7（utils 93K 拆分·重大重构待拍板）。前端 Math.random 全量审计：命中均属良性类别（ID 生成 / 重试抖动 / 蒙特卡洛仿真算法 / Demo 组件 / 测试夹具），无违反诚实红线伪数据生成器 → 前端诚实收敛已实质完成。guard 仅余 1 条 INFO（BacktestPage.tsx:260 数字输入框 `?? ''` 标准写法，属良性误报，强行改动会破坏编辑，不处理）。遂取 D26 已标记的 route 层就近造数债（②）作为 IP-23。
+
+**IP-23 实装（主理人，最小侵入·2 文件）**：
+- `backend/src/api/sectors.ts:72` 删除 `{closePrice:0,changePercent:0,turnoverRate:0,peRatio:0}` 零值对象分支（缺行情时捏造「今日涨跌 0%」，比返回空更隐蔽），改 `latestQuote: s.latestQuote ?? null` 诚实表达「无行情」。
+- `frontend/src/pages/DiscoverPage.tsx`（唯一消费方：板块内个股表 openSector）：`StockData.price/changePercent` 类型允许 `null`；映射缺行情置 null；「最新价/涨跌幅」列 render 对 null 显「—」（中性色）、排序以 `-Infinity` 沉底避免 NaN 回归。仅影响 `/api/sectors/:industry/stocks` 端点 + 其唯一消费方，与在途集零交集。
+
+**独立验证（先验证再采信）**：
+- `grep 'closePrice: s.latestQuote' sectors.ts` → 零命中（零值对象分支已删）；`grep '?? null' sectors.ts` → 命中新写法。
+- 前端 `tsc --noEmit` 0 错；后端 `tsc --noEmit` 0 错（2 文件改动 0 新增错）；`npm run build` 4.35s 一次过；`npx playwright test e2e/route-render-smoke.spec.ts` **64/64 零回归**（含 /discover、/sectors/801010）；`npm run guard` ERROR=0 WARN=0（仅 1 条预存良性 INFO）。
+- 真实端点 `curl /api/sectors/银行/stocks` 实测 `latestQuote` 返回真实行情对象（无捏造）；缺行情按 `?? null` 诚实地返回 null（源码保证）。
+
+**决策门**：🟢 无 🔴/🟠/🟡 新增（IP-23 常规诚实红线收敛，非用户待决策项；D22/D24/IP-7 既存待用户拍板，未重复推送）。
+
+**专家团评估**：E1✅ 单文件小改动主理人亲为实现 / E2✅ 净改动 ~15 行远低于 500 / E3🟢 / E4✅ / E5✅ grep 证零值对象分支已删 + curl 实证 latestQuote 真实/ null / E6🟢 诚实数据红线收敛（sectors 个股端点不再捏造零值涨跌，与 IP-12~IP-22 同一红线谱系）；前端改动对 null 显「—」消除「undefined」/「0%」误导。
+
+**改进池进度**：IP-1~IP-23 全部完成；仅剩 IP-7（utils 拆分，大改动待用户决策），本轮未推进。
+
+**待用户明确**：① IP-7 utils/ 93K 行拆分是否授权启动（技术债 T2，P3，范围/资源决策）② D22 单通道红线二级判定仍待正式追认 ③ D24 龙虎榜真实数据源接入（当前诚实空态非阻塞）④ 完整体验版本真机验证清单闭环 / RAG 二期向量化（DeepSeek key 已通电）/ D2 POC 四件套 仍待拍板 ⑤ 推送通道（wechat/agent-mail）仍不可用。
+
+**推送通道**：wechat `.wechat_push.json` 仍空；agent-mail 复验仅 `agent_mail_upload_attachment`（无 SendMessage）→ 全部通道不可用；改进轮按频率控制须发推送，故走兜底：summary 落盘 `/Users/ego_bai/WorkBuddy/20260318120110/summaries/loop-20261005-0832.md` + 本 memory 记「推送通道待开通」。
+
+**本轮收口**：`git add backend/src/api/sectors.ts frontend/src/pages/DiscoverPage.tsx PLAN.md DECISION_LOG.md frontend/ui-guard-report.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第122轮 IP-23 sectors零值造数收口·改进轮收口"`（严禁 git add -A）；在途无生产源码，工作区无脏树残留本轮回产物。
 **本轮收口**：`git add PLAN.md frontend/.workbuddy/memory/automations/automation-1784829898221/memory.md` + `git commit -m "chore(auto): 第120轮 健康巡检待命·记账收口"`（严禁 git add -A）。

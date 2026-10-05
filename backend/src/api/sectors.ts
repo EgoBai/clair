@@ -64,17 +64,14 @@ router.get('/sectors/:industry/stocks', asyncHandler(async (req, res) => {
   const offset = (page - 1) * pageSize;
   const paged = sectorStocks.slice(offset, offset + pageSize);
   // 格式化为前端期望的结构
+  // 诚实红线：缺行情时不捏造零值对象（避免用户看到「今日涨跌 0%」），
+  // 以 null 表达「无行情」，由前端降级显示「—」。
   const stocks = paged.map((s: any) => ({
     symbol: s.symbol,
     name: s.name,
     market: s.market,
     industry: s.industry,
-    latestQuote: s.latestQuote || {
-      closePrice: s.latestQuote?.closePrice || 0,
-      changePercent: s.latestQuote?.changePercent || 0,
-      turnoverRate: s.latestQuote?.turnoverRate || 0,
-      peRatio: s.latestQuote?.peRatio || 0,
-    },
+    latestQuote: s.latestQuote ?? null,
   }));
   sendPaginated(res, stocks, page, pageSize, totalCount);
 }));
