@@ -7,10 +7,13 @@
  * 设计要点：
  * - 纯函数（pearson / spearman / meanCrossSectionalIC / quintileReturns / correlationMatrix /
  *   synthesize / computeDecay）与 DB 取数解耦，可单测、零 RNG。
- * - DB 计算 `computeFactorUniverse()` 覆盖全部满足最少交易日历史（当前 ≥126）的真实个股，
- *   横截面 IC 按交易日聚合、跨期取均值与 ICIR，符合标准因子研究方法。
+ * - DB 计算 `computeFactorUniverse()` 覆盖全部满足最少交易日历史（当前 ≥65）的真实个股，
+ *   日频快照横截面（每期 ≥10 只个股）按前瞻 horizon 配对计算 IC，跨期取均值与 ICIR，
+ *   符合标准因子研究方法。
  * - 遵守「诚实数据」红线：DB 不可达或覆盖不足（<${MIN_COVERAGE} 只个股）→ 返回 dataSource:'unavailable'，绝不回填/伪造；
  *   覆盖不足健康阈值（<${HEALTHY_COVERAGE} 只）但 ≥ 最低阈值时返回 dataSource:'real' 且 limitedSample=true，透明标注样本偏薄。
+ * - 单因子粒度诚实降级（IP-19）：基础字段缺失或期数不足 → 该因子 available=false + reason，
+ *   ic=0 明确为占位零；available=true 时 ic 一律为真实计算值，valid 仅反映 |IC| 是否超过阈值。
  * - 命中结果内存缓存 5 分钟（计算较重，避免每次请求全量重算）。
  */
 
@@ -36,6 +39,7 @@ export interface FactorMetrics {
   key: string;
   cn: string;
   category: string;
+  /** 主信息系数（5 日前瞻横截面 IC 跨期均值）；统计上显著的 |IC| 一般认为 > 0.02 */
   ic: number;
   rankIC: number;
   icir: number;
@@ -43,9 +47,19 @@ export interface FactorMetrics {
   quintiles: { quintile: number; avgReturn: number }[];
   longShort: number;
   monotonic: boolean;
+  /**
+   * 因子是否通过有效性阈值（|IC| > 0.02 且统计可算）。
+   * 注意与 available 区分：available=false 表示「未算」（ic=0 为占位零，非真实值）；
+   * available=true 且 valid=false 表示「真实算出但 IC 未达阈值」，此时 ic 为真实值。
+   */
   valid: boolean;
+  /** 统计可算标志：false 时 ic/rankIC/icir 为占位 0，reason 如实说明 */
+  available: boolean;
+  /** 未算原因（available=false 时必有） */
+  reason?: string;
   coverage: number;
-  decay: { lag: number; ic: number }[];
+  /** 衰减曲线：lag 为前瞻交易日数；样本不足期的 ic 为 null（不伪造 0） */
+  decay: { lag: number; ic: number | null }[];
 }
 
 export interface FactorCorrelationResult {
@@ -62,8 +76,12 @@ export interface SynthesisResult {
 export interface FactorOverviewResponse {
   dataSource: 'real' | 'unavailable';
   asOf: string | null;
+  /** DB daily_quotes 实际数据截止日（与 asOf=最后快照日区分，快照日因前瞻窗口结构性滞后） */
+  dataAsOf: string | null;
   coverage: number;
   observationCount: number;
+  /** 主 IC 使用的前瞻 horizon（交易日） */
+  primaryHorizon: number;
   factors: FactorMetrics[];
   correlation: FactorCorrelationResult;
   synthesis: SynthesisResult;
@@ -73,6 +91,8 @@ export interface FactorOverviewResponse {
   sampleCoverage?: number;
   /** 单只个股所需的最少交易日历史（低于此值被剔除） */
   minRequiredHistory?: number;
+  /** 因子有效性阈值（|IC| 超过此值 valid=true） */
+  validIcThreshold?: number;
   /** 诚实说明：数据窗口 / 样本局限等 */
   note?: string;
   message?: string;
@@ -96,18 +116,22 @@ const FACTORS: FactorMeta[] = [
 ];
 
 /**
- * 衰减/前瞻收益 horizons（交易日）：1~3 个月。
- * 当前 PostgreSQL 实盘数据窗口仅约 336 个交易日（≈1.5 年），
- * 绝大多数个股仅 ~40 条报价，仅约 12 只个股 ≥126 条。
- * 故 horizon 上限压到 63（3 月），使真实因子分析在现有数据上可落地。
+ * 前瞻收益 horizons（交易日）。
+ * 当前 PostgreSQL 实盘数据：5427+ 只个股持有 85~215 条对齐至 2026-10-06 的真实日线，
+ * 横截面个股数充足但单股历史偏短，故采用日频快照（STEP=1）+ 短前瞻窗口 [1, 5, 10]，
+ * 主 IC 用 5 日前瞻（85 条个股可贡献 ~17 个日度横截面，IC 时序稳健）；
+ * 21 日及以上前瞻因单股历史不足会产生 <3 期的退化 IC，不再使用。
  */
-const HORIZONS = [21, 42, 63];
-const MAX_HORIZON = Math.max(...HORIZONS);
+const HORIZONS = [1, 5, 10];
+/** 主 IC / 五分位 / 相关性使用的 horizon */
+const PRIMARY_HORIZON = 5;
 const MIN_PRIOR = 63; // MOM3M 需 63 个前期收盘
-const STEP = 21; // 每 21 交易日取一个横截面快照（≈月度）
-const MIN_SNAPSHOT_HISTORY = 126; // 需 ≥ MIN_PRIOR + MAX_HORIZON + 1 才有 1 个有效快照（当前数据约 12 只个股达标）
+const STEP = 1; // 日频快照：每个交易日形成一个横截面
+const MIN_SNAPSHOT_HISTORY = MIN_PRIOR + Math.min(...HORIZONS) + 1; // 63+1+1=65：至少 1 个 h=1 快照
 const MIN_COVERAGE = 10; // 横截面最低个股数（低于此值无统计意义 → unavailable）
 const HEALTHY_COVERAGE = 50; // 覆盖 ≥ 此值视为充分；低于此值但 ≥ MIN_COVERAGE 返回 real 但 limitedSample=true
+const MIN_PERIODS = 3; // IC 时序列最少期数（低于此值视为不可算）
+const VALID_IC_THRESHOLD = 0.02; // 日度 5 日前瞻 |IC| 有效性阈值
 
 // ==================== 纯函数：统计工具 ====================
 
@@ -184,7 +208,7 @@ export function meanCrossSectionalIC(byDate: Map<string, FactorObservation[]>): 
     const ric = spearman(f, r);
     rics.push(isFinite(ric) ? ric : ic);
   });
-  if (ics.length < 3) {
+  if (ics.length < MIN_PERIODS) {
     return { icMean: 0, rankIcMean: 0, icStd: 0, icir: 0, positiveRate: 0, periods: ics.length };
   }
   const icMean = mean(ics);
@@ -222,8 +246,8 @@ export function quintileReturns(obs: FactorObservation[]): QuintileResult {
   return { quintiles, longShort, monotonic };
 }
 
-/** 因子衰减：不同前瞻 horizon 的横截面 IC 序列（lag 以月计） */
-export function computeDecay(byHorizon: Map<number, FactorObservation[]>): { lag: number; ic: number }[] {
+/** 因子衰减：不同前瞻 horizon 的横截面 IC 序列；lag 为前瞻交易日数；期数不足时 ic=null（不伪造 0） */
+export function computeDecay(byHorizon: Map<number, FactorObservation[]>): { lag: number; ic: number | null }[] {
   return [...byHorizon.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([horizon, obs]) => {
@@ -233,7 +257,8 @@ export function computeDecay(byHorizon: Map<number, FactorObservation[]>): { lag
         a.push(o);
         byDate.set(o.date, a);
       }
-      return { lag: horizon / 21, ic: meanCrossSectionalIC(byDate).icMean };
+      const r = meanCrossSectionalIC(byDate);
+      return { lag: horizon, ic: r.periods >= MIN_PERIODS ? r.icMean : null };
     });
 }
 
@@ -285,7 +310,14 @@ function countObs(m: Map<string, FactorObservation[]>): number {
 }
 
 function toDateStr(d: unknown): string {
-  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  // pg 将 DATE 列以 UTC 零点 Date 返回（本机东八区会渲染为前一日 16:00），
+  // 必须用本地时间取值，避免日期早一天
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
   return String(d).slice(0, 10);
 }
 
@@ -293,8 +325,10 @@ function unavailable(message?: string): FactorOverviewResponse {
   return {
     dataSource: 'unavailable',
     asOf: null,
+    dataAsOf: null,
     coverage: 0,
     observationCount: 0,
+    primaryHorizon: PRIMARY_HORIZON,
     factors: [],
     correlation: { keys: [], matrix: [] },
     synthesis: { factors: [], ic: 0, icir: 0 },
@@ -312,7 +346,7 @@ let cache: CacheEntry | null = null;
 const TTL_MS = 5 * 60 * 1000;
 
 /**
- * 计算全市场真实因子分析（覆盖全部有 ≥190 交易日历史的真实个股）。
+ * 计算全市场真实因子分析（覆盖全部有 ≥65 交易日历史的真实个股）。
  * 结果内存缓存 5 分钟。
  */
 export async function computeFactorUniverse(force = false): Promise<FactorOverviewResponse> {
@@ -335,17 +369,20 @@ export async function computeFactorUniverse(force = false): Promise<FactorOvervi
 
     // 按个股分组为时间序列
     const bySymbol = new Map<string, RawSeries[]>();
+    let dataAsOf: string | null = null;
     for (const r of raw) {
       const sym = String(r.symbol);
+      const d = toDateStr(r.trade_date);
       const arr = bySymbol.get(sym) ?? [];
       arr.push({
-        date: toDateStr(r.trade_date),
+        date: d,
         close: Number(r.close_price),
         pe: r.pe_ratio != null ? Number(r.pe_ratio) : null,
         pb: r.pb_ratio != null ? Number(r.pb_ratio) : null,
         cap: r.market_cap != null ? Number(r.market_cap) : null,
         turn: r.turnover_rate != null ? Number(r.turnover_rate) : null,
       });
+      if (!dataAsOf || d > dataAsOf) dataAsOf = d;
       bySymbol.set(sym, arr);
     }
 
@@ -369,45 +406,47 @@ export async function computeFactorUniverse(force = false): Promise<FactorOvervi
       for (let i = 1; i < n; i++) ret[i] = series[i].close / series[i - 1].close - 1;
 
       let contributed = false;
-      for (let i = MIN_PRIOR; i + MAX_HORIZON < n; i += STEP) {
-        const t = series[i];
-        const closeT = t.close;
-        const vals: Record<string, number> = {};
-        vals.MOM3M = closeT / series[i - 63].close - 1;
-        vals.REV1M = -(closeT / series[i - 21].close - 1);
+      // 日频快照：每个交易日为一个横截面；horizon 与快照一一配对，
+      // 每个 horizon 只在「前瞻收益可得」（i + h < n）时取样，避免长 horizon 截断可用期数。
+      for (const h of HORIZONS) {
+        for (let i = MIN_PRIOR; i + h < n; i += STEP) {
+          const t = series[i];
+          const closeT = t.close;
+          const vals: Record<string, number> = {};
+          vals.MOM3M = closeT / series[i - 63].close - 1;
+          vals.REV1M = -(closeT / series[i - 21].close - 1);
 
-        const vr: number[] = [];
-        for (let k = i - 20; k <= i; k++) vr.push(ret[k]);
-        vals.VOL = std(vr);
+          const vr: number[] = [];
+          for (let k = i - 20; k <= i; k++) vr.push(ret[k]);
+          vals.VOL = std(vr);
 
-        let ts = 0;
-        for (let k = i - 20; k <= i; k++) ts += series[k].turn || 0;
-        vals.TURN = ts / 21;
+          let ts = 0;
+          for (let k = i - 20; k <= i; k++) ts += series[k].turn || 0;
+          vals.TURN = ts / 21;
 
-        if (t.pe && t.pe > 0) vals.EP = 1 / t.pe;
-        if (t.pb && t.pb > 0) vals.BP = 1 / t.pb;
-        if (t.cap && t.cap > 0) vals.SIZE = Math.log(t.cap);
+          if (t.pe && t.pe > 0) vals.EP = 1 / t.pe;
+          if (t.pb && t.pb > 0) vals.BP = 1 / t.pb;
+          if (t.cap && t.cap > 0) vals.SIZE = Math.log(t.cap);
 
-        for (const h of HORIZONS) {
           const fwd = series[i + h].close / closeT - 1;
           for (const f of FACTORS) {
             const fv = vals[f.key];
             if (fv === undefined || !isFinite(fv)) continue;
-            // 横截面按「月」对齐（个股快照索引不同，按精确日分组会稀疏）；
-            // 同月跨股形成有效横截面，ICIR 取跨月标准差。
-            const obs: FactorObservation = { date: t.date.slice(0, 7), ticker: symbol, factorValue: fv, nextReturn: fwd };
-            let bd = byDate[f.key].get(t.date);
-            if (!bd) {
-              bd = [];
-              byDate[f.key].set(t.date, bd);
-            }
-            bd.push(obs);
+            const obs: FactorObservation = { date: t.date, ticker: symbol, factorValue: fv, nextReturn: fwd };
             let bh = byHorizon[f.key].get(h);
             if (!bh) {
               bh = [];
               byHorizon[f.key].set(h, bh);
             }
             bh.push(obs);
+            // 主指标（IC/五分位）只用主 horizon，避免混合不同前瞻期的收益
+            if (h !== PRIMARY_HORIZON) continue;
+            let bd = byDate[f.key].get(t.date);
+            if (!bd) {
+              bd = [];
+              byDate[f.key].set(t.date, bd);
+            }
+            bd.push(obs);
             let arr = avgByTicker[f.key].get(symbol);
             if (!arr) {
               arr = [];
@@ -415,25 +454,37 @@ export async function computeFactorUniverse(force = false): Promise<FactorOvervi
             }
             arr.push(fv);
           }
+          if (!asOf || t.date > asOf) asOf = t.date;
         }
         contributed = true;
-        if (!asOf || t.date > asOf) asOf = t.date;
       }
       if (contributed) coverage++;
     });
 
     if (coverage < MIN_COVERAGE) {
       return unavailable(
-        `覆盖个股不足（${coverage} < ${MIN_COVERAGE}）：当前 daily_quotes 仅约 336 交易日，需单股 ≥${MIN_SNAPSHOT_HISTORY} 交易日才有有效快照`,
+        `覆盖个股不足（${coverage} < ${MIN_COVERAGE}）：当前 daily_quotes 单股历史普遍较短，需单股 ≥${MIN_SNAPSHOT_HISTORY} 交易日才有有效快照`,
       );
     }
 
     const factors: FactorMetrics[] = FACTORS.map((f) => {
+      const obsCount = countObs(byDate[f.key]);
       const icr = meanCrossSectionalIC(byDate[f.key]);
       const q = quintileReturns(flatten(byDate[f.key]));
       const decay = computeDecay(byHorizon[f.key]);
-      const avgMap = new Map<string, number>();
-      avgByTicker[f.key].forEach((arr, sym) => avgMap.set(sym, mean(arr)));
+      // 诚实降级（IP-19）：区分「未算」（available=false，ic=0 为占位零）与「真实算出但未达阈值」
+      let available = true;
+      let reason: string | undefined;
+      if (obsCount === 0) {
+        available = false;
+        reason = '该因子的基础字段（如 PE/PB/市值）在数据窗口内全空，无法计算';
+      } else if (icr.periods < MIN_PERIODS) {
+        available = false;
+        reason = `有效横截面期数不足（${icr.periods} < ${MIN_PERIODS}），IC 未计算`;
+      } else if (Math.abs(icr.icMean) <= VALID_IC_THRESHOLD) {
+        // 真实算出但 |IC| 未达有效性阈值：ic 为真实值，reason 如实说明弱有效性
+        reason = `|IC|=${Math.abs(icr.icMean).toFixed(4)} 未达有效性阈值 ${VALID_IC_THRESHOLD}（该窗口内因子预测力弱）`;
+      }
       return {
         key: f.key,
         cn: f.cn,
@@ -445,8 +496,10 @@ export async function computeFactorUniverse(force = false): Promise<FactorOvervi
         quintiles: q.quintiles,
         longShort: q.longShort,
         monotonic: q.monotonic,
-        valid: Math.abs(icr.icMean) > 0.03,
-        coverage: countObs(byDate[f.key]),
+        valid: available && Math.abs(icr.icMean) > VALID_IC_THRESHOLD,
+        available,
+        reason,
+        coverage: obsCount,
         decay,
       };
     });
@@ -467,17 +520,18 @@ export async function computeFactorUniverse(force = false): Promise<FactorOvervi
     const data: FactorOverviewResponse = {
       dataSource: 'real',
       asOf,
+      dataAsOf,
       coverage,
       observationCount,
+      primaryHorizon: PRIMARY_HORIZON,
       factors,
       correlation,
       synthesis: synth,
       limitedSample: limited,
       sampleCoverage: coverage,
       minRequiredHistory: MIN_SNAPSHOT_HISTORY,
-      note: limited
-        ? `样本偏薄：仅 ${coverage} 只个股满足 ≥${MIN_SNAPSHOT_HISTORY} 交易日（当前 DB 窗口约 336 交易日），因子 IC 基于 ≤3 月前瞻窗口，统计显著性有限，仅供参考，不构成投资建议。`
-        : undefined,
+      validIcThreshold: VALID_IC_THRESHOLD,
+      note: `数据窗口截至 ${dataAsOf}；主 IC 为 ${PRIMARY_HORIZON} 个交易日前瞻的日度横截面 IC（单股历史 65~215 交易日，1 个月以上前瞻窗口期数不足，未采用）。available=false 的因子为基础字段缺失未计算（ic=0 为占位，非真实值），仅供参考，不构成投资建议。`,
     };
     cache = { data, ts: Date.now() };
     return data;

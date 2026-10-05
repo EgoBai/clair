@@ -97,22 +97,38 @@ describe('五分位分层', () => {
 });
 
 describe('因子衰减', () => {
-  it('不同 horizon 返回对应 lag（以月计）且正相关 IC>0', () => {
+  it('不同 horizon 返回对应 lag（以前瞻交易日数计）且正相关 IC>0', () => {
     const byH = new Map<number, FactorObservation[]>();
-    for (const h of [21, 63]) {
+    for (const h of [5, 10]) {
       const arr: FactorObservation[] = [];
       for (let d = 0; d < 3; d++) {
         for (let s = 0; s < 12; s++) {
-          arr.push({ date: `2024-${String(d + 1).padStart(2, '0')}`, ticker: `S${s}`, factorValue: s + 1, nextReturn: (s + 1) / 100 });
+          arr.push({ date: `2024-0${d + 1}-15`, ticker: `S${s}`, factorValue: s + 1, nextReturn: (s + 1) / 100 });
         }
       }
       byH.set(h, arr);
     }
     const d = computeDecay(byH);
     expect(d.length).toBe(2);
-    expect(d[0].lag).toBe(1);
-    expect(d[1].lag).toBe(3);
+    expect(d[0].lag).toBe(5);
+    expect(d[1].lag).toBe(10);
     expect(d[0].ic).toBeGreaterThan(0);
+  });
+
+  it('期数不足 3 的 horizon 返回 ic=null（不伪造 0）', () => {
+    const arr: FactorObservation[] = ['2026-09-01', '2026-09-02'].flatMap((date) =>
+      Array.from({ length: 12 }, (_, s) => ({
+        date,
+        ticker: `S${s}`,
+        factorValue: s + 1,
+        nextReturn: (s + 1) / 100,
+      })),
+    );
+    const byH = new Map<number, FactorObservation[]>([[10, arr]]);
+    const d = computeDecay(byH);
+    expect(d.length).toBe(1);
+    expect(d[0].lag).toBe(10);
+    expect(d[0].ic).toBeNull();
   });
 });
 
