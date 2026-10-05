@@ -195,6 +195,11 @@ export const db = new Proxy<DatabaseProxy>({} as DatabaseProxy, {
   get(_target, prop: string) {
     const instance = getDb();
     const value = (instance as unknown as Record<string, unknown>)[prop];
+    // connection 是 knex / MockKnexConnection 实例——它们本身是「可调用函数」，
+    // 但 bind 会剥离其全部属性（.from/.raw/...），导致 db.connection.from 等用法在
+    // PostgreSQL 模式下抛 "not a function"（曾使 /api/screener/filter 恒伪降级）。
+    // 因此 connection 必须原样返回；类方法才需要 bind 到实例上。
+    if (prop === 'connection') return value;
     if (typeof value === 'function') {
       return (value as CallableFunction).bind(instance);
     }

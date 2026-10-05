@@ -14,7 +14,8 @@
 
 import { Request, Response, Router } from 'express';
 import { Knex } from 'knex';
-import { db } from '../db/dbFactory';
+import { db, isMemoryMode } from '../db/dbFactory';
+import { FabricatedDataRefusedError } from '../db/FabricatedDataRefusedError';
 import { queryCache } from '../utils/queryCache';
 import { validateBody, schemas } from '../middleware/validation';
 
@@ -333,11 +334,53 @@ interface CustomTemplate {
 
 const customTemplates: Map<string, CustomTemplate> = new Map();
 
+// ==================== 真实 schema 探测 ====================
+// live PostgreSQL 不一定存在 technical_indicators 表，daily_quotes 列集也可能
+// 与代码假设不同。按真实库探测一次并缓存：不存在的表不 JOIN、不存在的列不 SELECT；
+// 对无真实列支撑的条件按「不可满足」处理（AND → 空结果，OR 组内跳过）。
+
+interface AdvancedScreenerSchema {
+  dq: Set<string>;       // daily_quotes 实际列
+  ti: Set<string> | null; // technical_indicators 实际列（表不存在时为 null）
+}
+
+let schemaPromise: Promise<AdvancedScreenerSchema> | null = null;
+
+function getAdvancedSchema(): Promise<AdvancedScreenerSchema> {
+  if (!schemaPromise) {
+    const p = (async () => {
+      const hasTi = await db.connection.schema.hasTable('technical_indicators');
+      const dq = new Set(Object.keys(await db.connection('daily_quotes').columnInfo()));
+      const ti = hasTi
+        ? new Set(Object.keys(await db.connection('technical_indicators').columnInfo()))
+        : null;
+      return { dq, ti };
+    })();
+    p.catch(() => { schemaPromise = null; });
+    schemaPromise = p;
+  }
+  return schemaPromise;
+}
+
+function columnNameOf(dbField: string): string {
+  const col = dbField.split(' ')[0];
+  const dot = col.indexOf('.');
+  return dot === -1 ? col : col.slice(dot + 1);
+}
+
+function columnExists(dbField: string, schema: AdvancedScreenerSchema): boolean {
+  if (dbField.startsWith('dq.')) return schema.dq.has(columnNameOf(dbField));
+  if (dbField.startsWith('ti.')) return schema.ti !== null && schema.ti.has(columnNameOf(dbField));
+  return true;
+}
+
 // ==================== 辅助函数 ====================
 
-function applyCondition(query: Knex.QueryBuilder, cond: ScreenerCondition): Knex.QueryBuilder {
+function applyCondition(query: Knex.QueryBuilder, cond: ScreenerCondition, schema: AdvancedScreenerSchema): Knex.QueryBuilder {
   const dbField = FIELD_MAP[cond.field];
   if (!dbField) return query;
+  // 真实库无此列/表 → 条件不可满足（AND 语义下整个结果为空）
+  if (!columnExists(dbField, schema)) return query.whereRaw('1 = 0');
 
   switch (cond.operator) {
     case 'gt': return query.where(dbField, '>', cond.value);
@@ -395,8 +438,8 @@ function applyConditionToBuilder(builder: Knex.QueryBuilder, cond: ScreenerCondi
   }
 }
 
-function buildAdvancedQuery() {
-  return db.connection
+function buildAdvancedQuery(schema: AdvancedScreenerSchema) {
+  let query = db.connection
     .from('stocks as s')
     .joinRaw(`
       JOIN daily_quotes dq ON dq.id = (
@@ -405,30 +448,41 @@ function buildAdvancedQuery() {
         ORDER BY trade_date DESC
         LIMIT 1
       )
-    `)
-    .joinRaw(`
+    `);
+  // technical_indicators 表在真实库中不存在时不 JOIN，ti.* 列不选取
+  if (schema.ti !== null) {
+    query = query.joinRaw(`
       LEFT JOIN technical_indicators ti ON ti.stock_id = s.id
       AND ti.trade_date = (
         SELECT MAX(trade_date) FROM technical_indicators WHERE stock_id = s.id
       )
-    `)
-    .where('s.is_active', true);
+    `);
+  }
+  return query.where('s.is_active', true);
 }
 
-function applyGroups(query: Knex.QueryBuilder, groups: ConditionGroup[]): Knex.QueryBuilder {
+function applyGroups(query: Knex.QueryBuilder, groups: ConditionGroup[], schema: AdvancedScreenerSchema): Knex.QueryBuilder {
   for (const group of groups) {
     if (!group.conditions || group.conditions.length === 0) continue;
 
     if (group.logic === 'and') {
       for (const cond of group.conditions) {
-        query = applyCondition(query, cond);
+        query = applyCondition(query, cond, schema);
       }
     } else {
+      // OR 语义：无真实列支撑的条件为假，直接跳过；整组都不可满足则结果为空
+      const applicable = group.conditions.filter(c => {
+        const dbField = FIELD_MAP[c.field];
+        return dbField && columnExists(dbField, schema);
+      });
+      if (applicable.length === 0) {
+        query = query.whereRaw('1 = 0');
+        continue;
+      }
       query = query.where(function (this: Knex.QueryBuilder) {
-        for (let i = 0; i < group.conditions.length; i++) {
-          const cond = group.conditions[i];
+        for (let i = 0; i < applicable.length; i++) {
+          const cond = applicable[i];
           const dbField = FIELD_MAP[cond.field];
-          if (!dbField) continue;
 
           if (i === 0) {
             applyConditionToBuilder(this, cond, dbField, 'where');
@@ -442,11 +496,13 @@ function applyGroups(query: Knex.QueryBuilder, groups: ConditionGroup[]): Knex.Q
   return query;
 }
 
-function applyAdvancedSorting(query: Knex.QueryBuilder, sortBy: string, sortOrder: string, secondarySort?: { field: string; order: string }) {
+function applyAdvancedSorting(query: Knex.QueryBuilder, sortBy: string, sortOrder: string, secondarySort?: { field: string; order: string }, schema?: AdvancedScreenerSchema) {
   const sortField = FIELD_MAP[sortBy] || 'dq.change_percent';
-  query = query.orderBy(sortField, sortOrder as 'asc' | 'desc');
+  if (!schema || columnExists(sortField, schema)) {
+    query = query.orderBy(sortField, sortOrder as 'asc' | 'desc');
+  }
 
-  if (secondarySort && FIELD_MAP[secondarySort.field]) {
+  if (secondarySort && FIELD_MAP[secondarySort.field] && (!schema || columnExists(FIELD_MAP[secondarySort.field], schema))) {
     query = query.orderBy(FIELD_MAP[secondarySort.field], secondarySort.order as 'asc' | 'desc');
   }
 
@@ -464,6 +520,11 @@ const SELECT_COLUMNS = [
   'ti.kdj_k', 'ti.kdj_d', 'ti.kdj_j',
   'ti.ma5', 'ti.ma10', 'ti.ma20', 'ti.ma60',
 ];
+
+/** 只选取真实库中存在的列（ti 表不存在时全部不取），响应字段缺列由 mapStockRow 置 null */
+function selectColumns(schema: AdvancedScreenerSchema): string[] {
+  return SELECT_COLUMNS.filter(c => columnExists(c, schema));
+}
 
 function mapStockRow(s: Record<string, string | null>): MappedStock {
   const pf = (v: string | null) => { const x = parseFloat(String(v)); return Number.isFinite(x) ? x : 0; };
@@ -576,8 +637,9 @@ router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), a
     const result = await queryCache.query(
       cacheKey,
       async () => {
-        let query = buildAdvancedQuery();
-        query = applyGroups(query, groups);
+        const schema = await getAdvancedSchema();
+        let query = buildAdvancedQuery(schema);
+        query = applyGroups(query, groups, schema);
 
         // 获取总数
         const countResult = await query.clone()
@@ -588,12 +650,12 @@ router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), a
         const totalCount = parseInt(String(countResult?.total || '0'));
 
         // 排序
-        query = applyAdvancedSorting(query, sortBy, sortOrder, secondarySort);
+        query = applyAdvancedSorting(query, sortBy, sortOrder, secondarySort, schema);
 
         // 分页
         const offset = (safePage - 1) * safePageSize;
         const stocks = await query
-          .select(...SELECT_COLUMNS)
+          .select(...selectColumns(schema))
           .limit(safePageSize)
           .offset(offset);
 
@@ -625,9 +687,27 @@ router.post('/screener/advanced-filter', validateBody(schemas.screenerFilter), a
       return res.send('\uFEFF' + csv); // BOM for Excel
     }
 
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: { ...result, dataSource: 'real' } });
   } catch (error) {
     console.error('高级筛选失败:', error);
+    // 内存库降级态（R0′-9 后无行情/估值来源）：筛选字段全部依赖行情/技术指标，
+    // 无法真实评估 → 诚实标注 unavailable。PostgreSQL 模式下查询真实执行。
+    if (error instanceof FabricatedDataRefusedError || isMemoryMode()) {
+      const body = req.body as AdvancedScreenerRequest;
+      const fallbackPageSize = Math.min(Math.max(body.pageSize ?? 50, 1), 200);
+      const fallbackPage = Math.max(body.page ?? 1, 1);
+      return res.json({
+        success: true,
+        data: {
+          stocks: [],
+          dataSource: 'unavailable',
+          notes: '数据库处于内存降级态，无真实行情/估值数据源，筛选条件无法评估',
+          pagination: { page: fallbackPage, pageSize: fallbackPageSize, totalCount: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
+          sortConfig: { sortBy: body.sortBy ?? 'change_percent', sortOrder: body.sortOrder ?? 'desc', secondarySort: body.secondarySort },
+          filterSummary: { groupCount: Array.isArray(body.groups) ? body.groups.length : 0, totalConditions: 0 },
+        },
+      });
+    }
     res.status(500).json({
       success: false,
       error: '高级筛选失败',

@@ -5,7 +5,8 @@
  */
 
 import { Request, Response, Router } from 'express';
-import { db } from '../db/dbFactory';
+import { db, isMemoryMode } from '../db/dbFactory';
+import { FabricatedDataRefusedError } from '../db/FabricatedDataRefusedError';
 import { queryCache } from '../utils/queryCache';
 import { validateBody, schemas } from '../middleware/validation';
 
@@ -357,11 +358,50 @@ const OPERATORS = [
   { operator: 'not_in', name: '不属于', symbol: '∉' },
 ];
 
+// ==================== 真实 schema 探测 ====================
+// live PostgreSQL 的 daily_quotes 列集与代码假设不完全一致（如缺 ps_ratio/roe/eps），
+// 静态 SELECT 会因 "column does not exist" 整体失败。这里按真实库探测一次并缓存，
+// 只选取真实存在的列；对不存在列的筛选条件按「不可满足」处理（AND → 空结果，
+// OR 组内跳过该条件），绝不静默忽略后返回错误的全集。
+
+interface ScreenerSchema {
+  dq: Set<string>; // daily_quotes 实际列
+}
+
+let schemaPromise: Promise<ScreenerSchema> | null = null;
+
+function getScreenerSchema(): Promise<ScreenerSchema> {
+  if (!schemaPromise) {
+    const p = (async () => {
+      const info = await db.connection('daily_quotes').columnInfo();
+      return { dq: new Set(Object.keys(info)) };
+    })();
+    // 探测失败（如内存库无 columnInfo）时允许下次重试
+    p.catch(() => { schemaPromise = null; });
+    schemaPromise = p;
+  }
+  return schemaPromise;
+}
+
+/** 从 'dq.close_price' / 'dq.close_price as price' 取列名 'close_price' */
+function columnNameOf(dbField: string): string {
+  const col = dbField.split(' ')[0];
+  const dot = col.indexOf('.');
+  return dot === -1 ? col : col.slice(dot + 1);
+}
+
+/** 该字段映射的列在真实库中是否存在 */
+function columnExists(dbField: string, schema: ScreenerSchema): boolean {
+  return !dbField.startsWith('dq.') || schema.dq.has(columnNameOf(dbField));
+}
+
 // ==================== 辅助函数 ====================
 
-function applyConditionToQuery(query: any, cond: ScreenerCondition): any {
+function applyConditionToQuery(query: any, cond: ScreenerCondition, schema: ScreenerSchema): any {
   const dbField = FIELD_MAP[cond.field];
   if (!dbField) return query;
+  // 真实库无此列 → 条件不可满足（AND 语义下整个结果为空）
+  if (!columnExists(dbField, schema)) return query.whereRaw('1 = 0');
 
   switch (cond.operator) {
     case 'gt': return query.where(dbField, '>', cond.value);
@@ -403,20 +443,24 @@ function buildBaseQuery(logic: 'and' | 'or' = 'and') {
     .where('s.is_active', true);
 }
 
-function applyConditions(query: any, conditions: ScreenerCondition[], logic: 'and' | 'or'): any {
+function applyConditions(query: any, conditions: ScreenerCondition[], logic: 'and' | 'or', schema: ScreenerSchema): any {
   if (conditions.length === 0) return query;
 
   if (logic === 'and') {
     for (const cond of conditions) {
-      query = applyConditionToQuery(query, cond);
+      query = applyConditionToQuery(query, cond, schema);
     }
   } else {
+    // OR 语义：无真实列支撑的条件为假，直接跳过；整组都不可满足则结果为空
+    const applicable = conditions.filter(c => {
+      const dbField = FIELD_MAP[c.field];
+      return dbField && columnExists(dbField, schema);
+    });
+    if (applicable.length === 0) return query.whereRaw('1 = 0');
     query = query.where(function (this: any) {
-      for (let i = 0; i < conditions.length; i++) {
-        const cond = conditions[i];
+      for (let i = 0; i < applicable.length; i++) {
+        const cond = applicable[i];
         const dbField = FIELD_MAP[cond.field];
-        if (!dbField) continue;
-
         const method = i === 0 ? 'where' : 'orWhere';
         switch (cond.operator) {
           case 'gt': this[method](dbField, '>', cond.value); break;
@@ -449,11 +493,14 @@ function applyConditions(query: any, conditions: ScreenerCondition[], logic: 'an
   return query;
 }
 
-function applySorting(query: any, sortBy: string, sortOrder: string, secondarySort?: { field: string; order: string }) {
+function applySorting(query: any, sortBy: string, sortOrder: string, secondarySort?: { field: string; order: string }, schema?: ScreenerSchema) {
   const sortField = FIELD_MAP[sortBy] || 'dq.change_percent';
-  query = query.orderBy(sortField, sortOrder as 'asc' | 'desc');
+  // 排序列在真实库中不存在时跳过该排序键，避免 "column does not exist"
+  if (!schema || columnExists(sortField, schema)) {
+    query = query.orderBy(sortField, sortOrder as 'asc' | 'desc');
+  }
 
-  if (secondarySort && FIELD_MAP[secondarySort.field]) {
+  if (secondarySort && FIELD_MAP[secondarySort.field] && (!schema || columnExists(FIELD_MAP[secondarySort.field], schema))) {
     query = query.orderBy(FIELD_MAP[secondarySort.field], secondarySort.order as 'asc' | 'desc');
   }
 
@@ -470,6 +517,11 @@ const STOCK_COLUMNS = [
   'dq.market_cap', 'dq.circulating_market_cap',
   'dq.dividend_yield', 'dq.roe', 'dq.roa', 'dq.eps',
 ];
+
+/** 只选取真实库中存在的列，响应字段缺列由 mapStockRow 置 null */
+function stockColumns(schema: ScreenerSchema): string[] {
+  return STOCK_COLUMNS.filter(c => !c.startsWith('dq.') || schema.dq.has(columnNameOf(c)));
+}
 
 function mapStockRow(s: Record<string, string | null>) {
   const pf = (x: string | null | undefined): number => {
@@ -538,8 +590,9 @@ router.post('/screener/filter', validateBody(schemas.screenerFilter), async (req
     const result = await queryCache.query(
       cacheKey,
       async () => {
+        const schema = await getScreenerSchema();
         let query = buildBaseQuery(logic);
-        query = applyConditions(query, conditions || [], logic);
+        query = applyConditions(query, conditions || [], logic, schema);
 
         // 获取总数 (使用 COUNT(*) 窗口函数优化)
         const countResult = await query.clone()
@@ -550,12 +603,12 @@ router.post('/screener/filter', validateBody(schemas.screenerFilter), async (req
         const totalCount = parseInt(String(countResult?.total || '0'));
 
         // 排序
-        query = applySorting(query, sortBy, sortOrder, secondarySort);
+        query = applySorting(query, sortBy, sortOrder, secondarySort, schema);
 
         // 分页
         const offset = (safePage - 1) * safePageSize;
         const stocks = await query
-          .select(...STOCK_COLUMNS)
+          .select(...stockColumns(schema))
           .limit(safePageSize)
           .offset(offset);
 
@@ -584,17 +637,21 @@ router.post('/screener/filter', validateBody(schemas.screenerFilter), async (req
     });
   } catch (error) {
     console.error('选股筛选失败:', error);
-    const msg = (error as Error).message || '';
-    // 真实查询失败（InMemoryDatabase 不支持复杂 knex 联合查询 / 未配置真实库）→ 诚实标注 unavailable，绝不冒充「无匹配」
-    if (msg.includes('not a function') || process.env.DATABASE_URL === undefined) {
+    // 内存库降级态（R0′-9 后无行情/估值来源）：筛选字段全部依赖行情数据，
+    // 无法真实评估 → 诚实标注 unavailable。PostgreSQL 模式下查询真实执行，
+    // 空结果语义为「无符合条件股票」，dataSource 仍为 'real'。
+    if (error instanceof FabricatedDataRefusedError || isMemoryMode()) {
+      const body = req.body as ScreenerRequest;
+      const fallbackPageSize = Math.min(Math.max(body.pageSize ?? 50, 1), 200);
+      const fallbackPage = Math.max(body.page ?? 1, 1);
       return res.json({
         success: true,
         data: {
           stocks: [],
           dataSource: 'unavailable',
-          notes: '筛选引擎当前不可用：底层数据库暂不支持复杂联合查询',
-          pagination: { page: 1, pageSize: 50, totalCount: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
-          sortConfig: { sortBy: 'change_percent', sortOrder: 'desc' },
+          notes: '数据库处于内存降级态，无真实行情/估值数据源，筛选条件无法评估',
+          pagination: { page: fallbackPage, pageSize: fallbackPageSize, totalCount: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
+          sortConfig: { sortBy: body.sortBy ?? 'change_percent', sortOrder: body.sortOrder ?? 'desc', secondarySort: body.secondarySort },
         },
       });
     }
@@ -659,8 +716,9 @@ router.post('/screener/templates/:id/run', validateBody(schemas.screenerTemplate
     const result = await queryCache.query(
       cacheKey,
       async () => {
+        const schema = await getScreenerSchema();
         let query = buildBaseQuery('and');
-        query = applyConditions(query, template.conditions, 'and');
+        query = applyConditions(query, template.conditions, 'and', schema);
 
         const countResult = await query.clone()
           .clearSelect()
@@ -669,11 +727,11 @@ router.post('/screener/templates/:id/run', validateBody(schemas.screenerTemplate
           .first();
         const totalCount = parseInt(String(countResult?.total || '0'));
 
-        query = applySorting(query, template.sortBy, template.sortOrder, template.secondarySort);
+        query = applySorting(query, template.sortBy, template.sortOrder, template.secondarySort, schema);
 
         const offset = (page - 1) * pageSize;
         const stocks = await query
-          .select(...STOCK_COLUMNS)
+          .select(...stockColumns(schema))
           .limit(pageSize)
           .offset(offset);
 
@@ -849,8 +907,9 @@ router.post('/screener/quick', async (req: Request, res: Response) => {
     const result = await queryCache.query(
       cacheKey,
       async () => {
+        const schema = await getScreenerSchema();
         let query = buildBaseQuery('and');
-        query = applyConditions(query, filter.conditions, 'and');
+        query = applyConditions(query, filter.conditions, 'and', schema);
 
         const countResult = await query.clone()
           .clearSelect()
@@ -859,11 +918,11 @@ router.post('/screener/quick', async (req: Request, res: Response) => {
           .first();
         const totalCount = parseInt(String(countResult?.total || '0'));
 
-        query = applySorting(query, filter.sortBy, filter.sortOrder);
+        query = applySorting(query, filter.sortBy, filter.sortOrder, undefined, schema);
 
         const offset = (safePage - 1) * safePageSize;
         const stocks = await query
-          .select(...STOCK_COLUMNS)
+          .select(...stockColumns(schema))
           .limit(safePageSize)
           .offset(offset);
 
