@@ -48,6 +48,10 @@
 - 内容：sectors.ts:72 零值兜底造数 + eigenAnalysis 缺 deflation；/api/market/realtime GBK 乱码；/health version 与启动横幅不一致；performance/enhanced 路由遮蔽。
 - **执行者**：进自主改进池，主循环/监工按 P2 节奏消化。
 
+### T-2604-09 / T-2604-10（wave1-shadow-audit 报告新增，台账已登记，P2）
+- T-2604-09：shared/env.ts 本体零引用死代码评估（validateBackendEnv/getEnv/isDev），评估删或留，报告级。
+- T-2604-10：snapshots.test.tsx「EmptyStocks 应该渲染」10s 超时 flake，排查组件内定时器/异步渲染挂起。
+
 ## 批次 D：体验与产品（PLAN P1）
 - 策略回测日期选择器、产业地图节点下钻、投资笔记入口可见性 —— 维持 PLAN 排队，由主循环在改进池节奏推进，不新增并行线。
 
