@@ -219,5 +219,12 @@
 - **决策三 · D26-9 合规留存期限 = 1 年**：据此外推 **T-2604-05「合规三件套」**评估口径——① 留存 1 年（到期自动删除或匿名化，**不扩张解释为"长期留存"**）；② 导出权（个人数据可导出 JSON，含自选股/笔记/复盘快照）；③ 授权同意（采集前明示、可撤回）。评估结论写入 `docs/compliance/`，评估完成前**不得**扩大任何数据采集范围。
 - **状态**：🟢 三项已决并登记；T-2610-11 平台选型待用户拍板，主理人先出部署方案骨架（Dockerfile / start 脚本 / 环境变量契约）与零交集文件域，不触碰自动化与 cloud 自动化。
 
+### 2026-10-06 04:48（自主循环第125轮 · T-2610-11 部署骨架独立运行时验证）
+- **验证结果（独立·先验证再采信）**：先前会话提交的 Dockerfile 重写 + esbuild 生产产物（`6e47eba2f`）经本轮端到端验证确认**可构建、可启动、可服务真实数据**：`npm run build:prod` 复跑 exit 0（1.1MB CJS bundle）；补齐 `JWT_SECRET`（生产缺密钥即启动失败，`.env.example` 已载明的正确安全守卫，非缺陷）+ `DATABASE_URL` + `NODE_ENV=production` 后于 3099 端口成功监听；`/health` 返回 D26 诚实契约（healthy / v1.7.0 / postgres / fabricationAllowed=false）；`/api/market/realtime` 与 `/api/factors/overview` 均返回真实数据（dataSource:'real'，coverage=5541）。**结论**：T-2610-11 ②（Dockerfile + start 脚本 + 环境变量契约）已闭环可用，先前 Dockerfile 注释「旧版从未被验证」的隐患本轮补证消除。
+- **遗留待用户决策（🟡）**：
+  - T-2610-11 ① **托管平台选型**：Railway / Render / Fly.io 三选一，最终由用户拍板；② 已落地（Dockerfile/start/env 契约）。
+  - T-2610-11 ③ **前端 VITE_API_BASE 默认收敛**：当前 `frontend/src/main.tsx:9` 默认指向 `https://clair-api.pages.dev`（即 Cloudflare Worker，14/23 端点 404 的总根源），需随部署拓扑确定「同域相对路径 / 跨域域名」后再收敛；④ 回滚与退役方案（文档）随平台选型一并产出。
+- **状态**：部署骨架可用；待用户拍板 ① 平台选型 + ③ 前端拓扑，循环不擅自扩展范围。
+
 - **第125轮决策门（2026-10-06 04:43 · 主理人 · 巡检+记账同步轮）🟡 自主天花板延续·待用户授权**：本轮单通道红线解除（仅记账类脏文件）→ 安全转巡检+记账同步。幂等核查：T-2610-11 部署骨架（backend/Dockerfile + package.json build:prod/start + PORT/DATABASE_URL/JWT_SECRET 契约）已于 2026-10-06 04:22 先行交付且经 `build:prod` 实测可构建（dist/server.cjs 1.1MB，非空头文件）；健康巡检全绿（dev 200 / 后端 /health 200·postgres 已连·fabricationAllowed=false / 前端 tsc 0错 / build 8.84s / **e2e route-render-smoke 64/64**）。自主改进池 IP-1~IP-23 全完成，循环仍在自主天花板待命。**待用户择一授权即恢复推进（5 项）**：① T-2610-11 托管平台选型（Railway/Render/Fly.io，骨架就绪待部署）；② IP-7 utils 93K 行拆分；③ RAG 二期向量化（DeepSeek key 已通电）；④ D2 POC 四件套（Taro vs 原生）；⑤ 完整体验版真机验证清单闭环。
   - **状态**：🟡 待用户明确下一授权工单；无新指令循环不擅自扩展范围。微信 webhook 未配置 → 降级本地日志 + 对话提示。
