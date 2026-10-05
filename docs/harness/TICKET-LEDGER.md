@@ -37,3 +37,14 @@
 - 2026-10-05 数据可用性专项（P0 波次）登记 7 单：T-2610-01~04 已派 4 个 fix worker（文件域零交集并行）+ T-2610-05 派 audit-availability（只读）；T-2610-06/07 暂缓。worker 回报后逐单四证复验，全波收口后出里程碑汇总。来源：qa-report-2026-10-05 + 用户指令。
 - 2026-10-05 T-2610-03 监工四证终验通过（待收口）。两个附带发现：①etf.test.ts:243 隐 flake 已修（timestamp 竞态断言）；②长期挂跑的 :3001 后端为陈旧 v1.4.0 进程，验证行为须以当前代码新起实例为准，重启归属主理人/进程所有人决策。
 - 2026-10-05 T-2610-03 已收口 0c4cea97d（含监工隐 flake 修复）；:3001 已重启为工作树代码+PG 真实连接；#41 实锤代码 bug（health 版本硬编码）记 T-2604-08；此后行为实测基准=新进程，fix-screener/fix-fundflow 落盘后主理人将再重启。
+
+## 2026-10-06 上午 · 主理人四证收口 + 生产架构 A 打通（用户三项拍板落地）
+- **用户拍板（已登记 DECISION_LOG.md）**：① 生产架构 **A**（Express 241 端点部署到托管平台）；② 看板自动化 `automation-1786816465504` **永久停用**（保持 PAUSED，禁止再启用，刷新改手动跑 gen_dashboard.py）；③ D26-9 合规留存期限 **1 年**（外推 T-2604-05 合规三件套：留存 1 年 / 导出权 / 授权同意）。
+- **T-2610-01 已收口 fe137850a**：dbFactory Proxy 对 `connection` 原样返回（bind 会剥离 knex 属性，曾致 screener 在 PG 模式恒伪降级）+ advanced-screener 真实库 schema 探测。四证：esbuild 5/5 转译过、定向测试 234/234 绿（12 文件空载）、e2e 实测 `/api/screener/filter` 返回真实个股（善水科技 301190.SZ +20.01%）、advanced-filter 同。**IP-16 选股恒空根治。**
+- **T-2610-02 已收口 661ce1c4e**：东财 push2 主源 + 新浪备源、8s 超时、缺档即废该源、normalizeSymbol 三格式归一、修 f184（主力净占比%）被当 mainNet 净额的**数值失真**。四证含 e2e：`/api/fund-flow/600519` 返回真实主力净额 7.44 亿、`dataSource:"sina"`。
+- **T-2610-04 已收口 2a4b31029**：日频快照 + horizon [1,5,10] + 单因子 available/reason 诚实降级 + 时区 bug。四证含 e2e：`/api/factors/overview` → `coverage:5541`、`observations:639108`、EP `ic=-0.0154` 真实且 `reason` 如实说明未达阈值、**无 ic=0 占位假值**。
+- **#41 已核销 df19cb002**：`/health` 硬编码 1.4.0 vs 根路径 1.7.0 → 提取 `APP_VERSION` 单一真源；实测 health 与根路径均返回 1.7.0。
+- **T-2610-11 立项并已交付前段（6e47eba2f）**：生产架构 A 打通「源码 → 可运行容器」。实测踩三堵墙：① tsconfig 未设 rootDir 致产物在 `dist/backend/src/index.js` 而 start 指向不存在的 `dist/index.js`（生产 npm start 必崩，被长期 tsx dev 掩盖）；② ESM 无扩展名 ERR_MODULE_NOT_FOUND；③ `@shared/*` 运行期不存在。⟹ 生产产物改 **esbuild bundle**（CJS 单文件 `dist/server.cjs`，实测 `node dist/server.cjs` 起得来且 health 1.7.0+PG）；Dockerfile 重写（原版从未被验证过）。方案见 `docs/deploy/EXPRESS-DEPLOY-PLAN.md`。
+- **⚠️ 新登记硬前置（未做则部署=更差）**：生产数据只在**本机** PG，托管平台须配托管 PG 并用 pg_dump 迁移。**只搬容器不搬数据 → 退回内存库全站诚实空态，比现在更差**，故列 T-2610-11 的第一优先级子项。
+- **平台选型待用户拍板**：Railway / Render / Fly.io（对比见方案 §四）；主理人建议 Railway 但**国内可达性必须先实测**（面向国内用户，平台打不开等于把 404 换成超时）。
+- **单通道**：本轮开工前 `automation-1784829898221` 已置 PAUSED（在途生产源码在途防并行改库），收口 + push 干净后可恢复 ACTIVE。
