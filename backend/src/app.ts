@@ -73,6 +73,11 @@ import { dataSyncService } from './data-sync/DataSyncService';
 import { apiRateLimit, syncRateLimit } from './middleware/rateLimit';
 import { csrfTokenEndpoint } from './middleware/csrf';
 import { enhancedSecurityHeaders } from './middleware/securityHeaders';
+
+// 单一版本真源：历史教训 —— /health 硬编码 '1.4.0' 而 / 硬编码 '1.7.0'（第 #41 项），
+// 同一进程对外自报两个版本号，监控/告警与前端版本比对全部失效。
+// 任何一处再出现字面量版本号，都属于「令牌/常量双真源」回归。
+const APP_VERSION = '1.7.0';
 import { performanceMonitor } from './middleware/performanceMonitor';
 import { sanitizeInput } from './middleware/validation';
 import { requestLogger } from './middleware/requestLogger';
@@ -292,7 +297,7 @@ app.get('/health', async (_req, res) => {
     res.json({
       status: degraded ? 'degraded' : health.healthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
-      version: '1.4.0',
+      version: APP_VERSION,
       database: {
         connected: degraded ? false : health.healthy,
         dbType: dbStatus.type,
@@ -365,7 +370,7 @@ app.post('/api/sync/degradation/clear', asyncHandler(async (_req, res) => {
 app.get('/', (_req, res) => {
   res.json({
     service: 'A股行情分析网站 - 后端API',
-    version: '1.7.0',
+    version: APP_VERSION,
     status: 'running',
     docs: {
       swaggerUI: '/api-docs',
