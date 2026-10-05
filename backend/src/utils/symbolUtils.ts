@@ -24,6 +24,14 @@ export function normalizeSymbol(symbol: string): string {
 }
 
 /**
+ * 归一为裸 6 位代码（东财 fundCode / secid / 内存库清单均基于裸码）
+ * 例：600519.SH → 600519；sh.600519 → 600519；600519 → 600519；非法输入原样返回。
+ */
+export function toBareCode(symbol: string): string {
+  return (symbol || '').trim().toUpperCase().replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
+}
+
+/**
  * 从数据库查找股票，自动尝试标准化和原始格式
  * 适用于所有需要按symbol查找的API端点
  */

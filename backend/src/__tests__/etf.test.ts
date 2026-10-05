@@ -218,6 +218,42 @@ describe('ETF API (honest-data)', () => {
 
       expect(res.status).toBe(404);
     });
+
+    it('带后缀符号与裸码走同一归一路径（510300.SH → 服务层收到 510300）', async () => {
+      (getEtfNavHistory as any).mockResolvedValue(realNavHistory);
+
+      const res = await request(buildApp()).get('/api/etf/510300.SH/nav-history?days=30');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('real');
+      expect(getEtfNavHistory).toHaveBeenCalledWith('510300', 30);
+      expect(res.body.data.data.symbol).toBe('510300');
+    });
+
+    it('裸码与带后缀的目录外代码（600519）行为一致：均返回 unavailable（净值源无数据）', async () => {
+      (getEtfNavHistory as any).mockRejectedValue(new EtfUnavailableError('净值源无 600519 的净值数据'));
+
+      const bare = await request(buildApp()).get('/api/etf/600519/nav-history');
+      const suffixed = await request(buildApp()).get('/api/etf/600519.SH/nav-history');
+
+      expect(bare.status).toBe(200);
+      expect(suffixed.status).toBe(200);
+      expect(bare.body.data.dataSource).toBe('unavailable');
+      expect(suffixed.body.data.dataSource).toBe('unavailable');
+      // 两次请求分属不同毫秒，timestamp 必然不等；剥离后比对业务负载一致性
+      const { timestamp: _bareTs, ...bareRest } = bare.body;
+      const { timestamp: _suffixedTs, ...suffixedRest } = suffixed.body;
+      expect(suffixedRest).toEqual(bareRest);
+      expect(getEtfNavHistory).toHaveBeenCalledWith('600519', 30);
+      expect(getEtfNavHistory).toHaveBeenCalledTimes(2);
+    });
+
+    it('非法符号（含字母无后缀格式）返回 400', async () => {
+      const res = await request(buildApp()).get('/api/etf/600519ABC/nav-history');
+
+      expect(res.status).toBe(400);
+      expect(getEtfNavHistory).not.toHaveBeenCalled();
+    });
   });
 
   describe('Math.random 回归守卫', () => {

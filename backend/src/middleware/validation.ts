@@ -106,7 +106,8 @@ const etfListQuerySchema = Joi.object({
 });
 
 const etfSymbolSchema = Joi.object({
-  symbol: Joi.string().max(10).pattern(/^[0-9]+$/).required(),
+  // 兼容裸码 600519 与带后缀 600519.SH / 600519.sz（路由层统一 toBareCode 归一）
+  symbol: Joi.string().max(12).pattern(/^\d{6}(\.(SH|SZ|BJ))?$/i).required(),
 });
 
 const etfNavHistorySchema = Joi.object({

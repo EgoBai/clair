@@ -141,6 +141,25 @@ describe('etfDataService (honest-data)', () => {
       });
     });
 
+    it('带后缀符号与裸码行为一致（510300.SH / sh.510300 → 510300）', async () => {
+      const fetchMock = stubFetch({});
+      const bare = await getEtfNavHistory('510300', 30);
+      const suffixed = await getEtfNavHistory('510300.SH', 30);
+      const prefixed = await getEtfNavHistory('sh.510300', 30);
+      expect(suffixed).toEqual(bare);
+      expect(prefixed).toEqual(bare);
+      // 全部命中缓存：真实净值源只应被请求一次
+      const navCalls = fetchMock.mock.calls.filter((c) =>
+        String(c[0]).includes('api.fund.eastmoney.com'),
+      );
+      expect(navCalls).toHaveLength(1);
+      expect(String(navCalls[0][0])).toContain('fundCode=510300');
+      // 详情同样归一
+      const detail = await getEtfDetail('159915.SZ');
+      expect(detail).not.toBeNull();
+      expect(detail!.symbol).toBe('159915');
+    });
+
     it('净值源失败时行情仍返回，premiumRate 退化为 0（诚实降级）', async () => {
       stubFetch({ navBody: {}, navOk: false });
       const list = await getEtfList();
@@ -167,11 +186,21 @@ describe('etfDataService (honest-data)', () => {
       await expect(getEtfDetail('510300')).rejects.toBeInstanceOf(EtfUnavailableError);
     });
 
-    it('未知 symbol → getEtfDetail / getEtfNavHistory 返回 null（不发请求）', async () => {
+    it('未知 symbol → getEtfDetail 返回 null（不发请求）', async () => {
       const fetchMock = stubFetch({});
       expect(await getEtfDetail('999999')).toBeNull();
-      expect(await getEtfNavHistory('999999', 30)).toBeNull();
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('目录外代码仍尝试真实净值源；源失败 → getEtfNavHistory 抛 EtfUnavailableError', async () => {
+      stubFetch({ navOk: false });
+      await expect(getEtfNavHistory('999999', 30)).rejects.toBeInstanceOf(EtfUnavailableError);
+    });
+
+    it('目录外代码（如个股 600519）净值源无数据 → 抛 EtfUnavailableError（诚实 unavailable，非伪造）', async () => {
+      stubFetch({ navBody: { Data: { LSJZList: [] } } });
+      await expect(getEtfNavHistory('600519', 30)).rejects.toBeInstanceOf(EtfUnavailableError);
+      await expect(getEtfNavHistory('600519.SH', 30)).rejects.toBeInstanceOf(EtfUnavailableError);
     });
 
     it('净值源失败 → getEtfNavHistory 抛 EtfUnavailableError', async () => {

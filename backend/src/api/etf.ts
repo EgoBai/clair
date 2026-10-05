@@ -11,6 +11,7 @@
 import { Router, Request, Response } from 'express';
 import { validateQuery, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
+import { toBareCode } from '../utils/symbolUtils';
 import {
   getEtfList,
   getEtfDetail,
@@ -87,7 +88,7 @@ router.get(
   '/:symbol',
   validateParams(schemas.etfSymbol),
   asyncHandler(async (req: Request, res: Response) => {
-    const symbol = req.params.symbol;
+    const symbol = toBareCode(req.params.symbol);
     try {
       const data = await getEtfDetail(symbol);
       if (!data) return sendNotFound(res, 'ETF 未找到');
@@ -116,7 +117,7 @@ router.get(
   validateParams(schemas.etfSymbol),
   validateQuery(schemas.etfNavHistory),
   asyncHandler(async (req: Request, res: Response) => {
-    const symbol = req.params.symbol;
+    const symbol = toBareCode(req.params.symbol);
     const days = parseInt(req.query.days as string) || 30;
     try {
       const data = await getEtfNavHistory(symbol, days);

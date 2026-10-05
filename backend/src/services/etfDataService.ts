@@ -11,6 +11,8 @@
  * 由路由层降级为 dataSource:'unavailable'，绝不回填演示/正弦/随机伪造数据。
  */
 
+import { toBareCode } from '../utils/symbolUtils';
+
 export type EtfType = 'index' | 'sector' | 'qdii' | 'commodity' | 'bond' | 'theme';
 
 export interface EtfCatalog {
@@ -125,7 +127,8 @@ async function fetchFundNav(symbol: string, days: number): Promise<EtfNav> {
   const nav = history[0]?.nav ?? 0;
   const preNav = history[1]?.nav ?? nav;
   const entry: EtfNav = { nav, preNav, history };
-  navCache.set(symbol, { ts: Date.now(), entry });
+  // 空历史不缓存，避免源侧暂时无数据时被 60s 缓存放大为「持续无数据」
+  if (history.length > 0) navCache.set(symbol, { ts: Date.now(), entry });
   return entry;
 }
 
@@ -208,7 +211,8 @@ export async function getEtfList(): Promise<EtfItem[]> {
  * 行情源失败时抛出 EtfUnavailableError。
  */
 export async function getEtfDetail(symbol: string): Promise<EtfItem | null> {
-  const cat = ETF_CATALOG.find((c) => c.symbol === symbol);
+  const bare = toBareCode(symbol);
+  const cat = ETF_CATALOG.find((c) => c.symbol === bare);
   if (!cat) return null;
   let quote: any;
   try {
@@ -228,17 +232,26 @@ export async function getEtfDetail(symbol: string): Promise<EtfItem | null> {
 /**
  * 获取 ETF 净值历史（真实源，替换原 Math.random 模拟）
  * 净值源失败时抛出 EtfUnavailableError。
+ *
+ * 符号归一：裸码 510300 与带后缀 510300.SH 行为一致（统一 toBareCode）。
+ * 目录外代码（如个股 600519）也尝试真实净值源；源侧无该代码净值数据时
+ * 同样抛 EtfUnavailableError → 路由层诚实降级，保证两格式响应一致。
  */
 export async function getEtfNavHistory(
   symbol: string,
   days: number,
 ): Promise<{ symbol: string; name: string; history: EtfNav['history'] } | null> {
-  const cat = ETF_CATALOG.find((c) => c.symbol === symbol);
-  if (!cat) return null;
+  const bare = toBareCode(symbol);
+  if (!/^\d{6}$/.test(bare)) return null;
+  const cat = ETF_CATALOG.find((c) => c.symbol === bare);
   try {
-    const navEntry = await fetchFundNav(cat.symbol, days);
-    return { symbol: cat.symbol, name: cat.name, history: navEntry.history };
+    const navEntry = await fetchFundNav(bare, days);
+    if (navEntry.history.length === 0) {
+      throw new EtfUnavailableError(`净值源无 ${bare} 的净值数据（非基金代码或源侧无记录）`);
+    }
+    return { symbol: bare, name: cat?.name ?? '', history: navEntry.history };
   } catch (e) {
+    if (e instanceof EtfUnavailableError) throw e;
     throw new EtfUnavailableError(e instanceof Error ? e.message : 'ETF 净值源不可用');
   }
 }

@@ -28,7 +28,7 @@ import {
   FinancialsUnavailableError,
 } from '../services/financialsDataService';
 import { db } from '../db/dbFactory';
-import { normalizeSymbol } from '../utils/symbolUtils';
+import { normalizeSymbol, toBareCode } from '../utils/symbolUtils';
 import type { Stock } from '../models/Stock';
 
 import { aiTiming } from '../middleware/aiTiming';
@@ -78,12 +78,6 @@ function toSecid(symbol: string): string {
   if (trimmed.startsWith('SH') || trimmed.endsWith('.SH') || digits.startsWith('6')) return `1.${digits}`;
   // 深交所（0/3/2 开头）与北交所（8/4 开头）在 push2 secid 中均为 0
   return `0.${digits}`;
-}
-
-/** 归一为裸 6 位代码（内存库清单为裸码 600519；东财 secid 亦基于裸码）
- * 例：600519.SH → 600519；sh.600519 → 600519；INVALID → INVALID（原样返回）。 */
-function toBareCode(symbol: string): string {
-  return (symbol || '').trim().toUpperCase().replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
 }
 
 async function fetchWithTimeout(url: string, headers?: Record<string, string>): Promise<globalThis.Response> {
