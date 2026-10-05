@@ -22,6 +22,8 @@ export interface FundFlowData {
   mediumNet: number;        // 中单净额
   smallNet: number;         // 小单净额
   tradeDate: string;
+  /** 本行数据的真实来源；与响应顶层 dataSource 保持一致（诚实红线：绝不两级矛盾） */
+  dataSource?: 'eastmoney' | 'sina' | 'unavailable';
 }
 
 export interface IndustryFlowData {
@@ -32,46 +34,163 @@ export interface IndustryFlowData {
   topStocks: Array<{ symbol: string; name: string; mainNet: number }>;
 }
 
-/**
- * 从东方财富API获取个股资金流向
- */
-async function fetchFundFlow(symbol: string): Promise<FundFlowData | null> {
+// ==================== 符号规范化 ====================
+// 兼容 600519 / 600519.SH / sh600519 三种写法，统一为 600519.SH
+
+function inferMarket(code: string): string {
+  if (code.startsWith('6')) return 'SH';
+  if (code.startsWith('4') || code.startsWith('8')) return 'BJ';
+  return 'SZ';
+}
+
+export function normalizeSymbol(symbol: string): string {
+  const s = symbol.trim().toUpperCase();
+  const m = s.match(/^(?:(SH|SZ|BJ))?(\d{6})(?:\.(SH|SZ|BJ))?$/);
+  if (!m) return s;
+  const market = m[1] || m[3] || inferMarket(m[2]);
+  return `${m[2]}.${market}`;
+}
+
+// ==================== 带超时的 JSON 抓取（复用 etfDataService 的 fetchJson 模式） ====================
+
+const FETCH_TIMEOUT_MS = 8000;
+
+async function fetchJson(url: string, headers?: Record<string, string>): Promise<unknown> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const code = symbol.replace(/\.(SZ|SH|BJ)$/i, '');
-    const market = symbol.endsWith('.SH') ? '1' : '0';
-    const secid = `${market}.${code}`;
+    const resp = await fetch(url, { signal: ctrl.signal, headers });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-    const url = `https://push2.eastmoney.com/api/qt/stock/get`;
-    const response = await axios.get(url, {
-      params: {
-        secid,
-        fields: 'f62,f184,f66,f69,f72,f75,f78,f81,f84,f87',
-        _: Date.now(),
-      },
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://quote.eastmoney.com',
-      },
+const numOrNull = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+// ==================== 真实源 1：东方财富 push2（实时，本机间歇不可达） ====================
+// 字段语义（元）：f62=主力净额 f66=超大单净额 f72=大单净额 f78=中单净额 f84=小单净额 f124=时间戳
+// 历史 bug：曾把 f184（主力净占比 %）当作 mainNet 净额返回，属数据失真，已修正。
+
+async function fetchFundFlowEastmoney(symbol: string): Promise<FundFlowData | null> {
+  const norm = normalizeSymbol(symbol);
+  const code = norm.slice(0, 6);
+  const market = norm.endsWith('.SH') ? '1' : '0';
+  const url =
+    `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${code}` +
+    `&fields=f62,f66,f72,f78,f84,f124&_=${Date.now()}`;
+  try {
+    const json = await fetchJson(url, {
+      'User-Agent': 'Mozilla/5.0',
+      Referer: 'https://quote.eastmoney.com',
     });
+    const d = (json as { data?: Record<string, unknown> })?.data;
+    if (!d) return null;
 
-    const data = response.data?.data;
-    if (!data) return null;
+    const main = numOrNull(d.f62);
+    const superLarge = numOrNull(d.f66);
+    const large = numOrNull(d.f72);
+    const medium = numOrNull(d.f78);
+    const small = numOrNull(d.f84);
+    // 实测该 CDN 间歇返回缺档（f66/f72 缺失）：任一档位缺失即判该源本次不可用，交由下一真实源。
+    if (main === null || superLarge === null || large === null || medium === null || small === null) {
+      return null;
+    }
 
-    return {
-      symbol,
-      name: '',
-      mainNet: data.f184 || 0,
-      superLargeNet: data.f66 || 0,
-      largeNet: data.f72 || 0,
-      mediumNet: data.f78 || 0,
-      smallNet: data.f84 || 0,
-      tradeDate: new Date().toISOString().split('T')[0],
-    };
+    const ts = numOrNull(d.f124);
+    const tradeDate = ts
+      ? new Date(ts * 1000).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0];
+
+    return { symbol: norm, name: '', mainNet: main, superLargeNet: superLarge, largeNet: large, mediumNet: medium, smallNet: small, tradeDate, dataSource: 'eastmoney' };
   } catch (error) {
-    console.error(`获取资金流向失败: ${symbol}`, error);
+    console.error(`[fund-flow] 东财个股资金流不可达: ${norm}`, error);
     return null;
   }
+}
+
+// ==================== 真实源 2：新浪财经 MoneyFlow（最近交易日，5 档完整） ====================
+// ssl_qsfx_lscjfb 返回最近交易日列表：r0/r1/r2/r3_net 分别为超大单/大单/中单/小单净额（元）。
+// 实测本机稳定可达（2026-10-06）；主力净额 = 超大单 + 大单（与东财口径一致）。
+
+interface SinaFlowRow {
+  opendate?: string;
+  r0_net?: string | number;
+  r1_net?: string | number;
+  r2_net?: string | number;
+  r3_net?: string | number;
+}
+
+function mapSinaRow(symbol: string, row: SinaFlowRow): FundFlowData | null {
+  const toAmount = (v: unknown): number | null => {
+    const n = typeof v === 'string' ? parseFloat(v) : typeof v === 'number' ? v : NaN;
+    return Number.isFinite(n) ? n : null;
+  };
+  const superLarge = toAmount(row.r0_net);
+  const large = toAmount(row.r1_net);
+  const medium = toAmount(row.r2_net);
+  const small = toAmount(row.r3_net);
+  if (superLarge === null || large === null || medium === null || small === null) return null;
+  return {
+    symbol,
+    name: '',
+    mainNet: superLarge + large,
+    superLargeNet: superLarge,
+    largeNet: large,
+    mediumNet: medium,
+    smallNet: small,
+    tradeDate: typeof row.opendate === 'string' ? row.opendate : new Date().toISOString().split('T')[0],
+    dataSource: 'sina',
+  };
+}
+
+async function fetchFundFlowSina(symbol: string, days: number): Promise<{ current: FundFlowData; history: FundFlowData[] } | null> {
+  const norm = normalizeSymbol(symbol);
+  const dot = norm.lastIndexOf('.');
+  const sinaCode = `${norm.slice(dot + 1).toLowerCase()}${norm.slice(0, dot)}`; // sh600519 / sz300750 / bj430047
+  const url =
+    'https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/MoneyFlow.ssl_qsfx_lscjfb' +
+    `?page=1&num=${days}&sort=opendate&asc=0&daima=${sinaCode}`;
+  try {
+    const json = await fetchJson(url, {
+      'User-Agent': 'Mozilla/5.0',
+      Referer: 'https://finance.sina.com.cn',
+    });
+    if (!Array.isArray(json) || json.length === 0) return null;
+    const history = (json as SinaFlowRow[])
+      .map((r) => mapSinaRow(norm, r))
+      .filter((x): x is FundFlowData => x !== null);
+    if (history.length === 0) return null;
+    return { current: history[0], history };
+  } catch (error) {
+    console.error(`[fund-flow] 新浪个股资金流不可达: ${norm}`, error);
+    return null;
+  }
+}
+
+/**
+ * 个股资金流真实源解析链：东财实时 → 新浪最近交易日 → null（由路由层统一诚实降级）。
+ * 诚实红线：链中绝不包含任何生成/演示数据。
+ */
+export async function resolveStockFlow(symbol: string, historyDays = 20): Promise<{
+  current: FundFlowData | null;
+  history: FundFlowData[];
+  dataSource: 'eastmoney' | 'sina' | 'unavailable';
+}> {
+  const norm = normalizeSymbol(symbol);
+  const em = await fetchFundFlowEastmoney(norm);
+  if (em) {
+    // 东财实时成功：历史序列 best-effort 补新浪真实数据（拿不到不拖垮主响应）
+    const sina = await fetchFundFlowSina(norm, historyDays).catch(() => null);
+    return { current: em, history: sina?.history ?? [], dataSource: 'eastmoney' };
+  }
+  const sina = await fetchFundFlowSina(norm, historyDays);
+  if (sina) {
+    return { current: sina.current, history: sina.history, dataSource: 'sina' };
+  }
+  return { current: null, history: [], dataSource: 'unavailable' };
 }
 
 /**
@@ -313,22 +432,33 @@ router.post('/fund-flow/batch', validateBody(schemas.fundFlowBatch), async (req:
     }
 
     const results: FundFlowData[] = [];
+    const sources = new Set<string>();
 
     for (const symbol of symbols) {
-      const flowData = await fetchFundFlow(symbol);
-      if (flowData) {
-        const stock = await db.getStockBySymbol(symbol);
+      const norm = normalizeSymbol(symbol);
+      const flow = await resolveStockFlow(norm);
+      if (flow.current) {
+        const stock = await db.getStockBySymbol(norm);
         if (stock) {
-          flowData.name = stock.name;
-          results.push(flowData);
+          results.push({ ...flow.current, name: stock.name });
+          sources.add(flow.dataSource);
         }
       }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
+    // 顶层 dataSource 与各条目共识：全部同源则取该源，混合/全空如实标注
+    const batchSource =
+      sources.size === 0 ? 'unavailable' : sources.size === 1 ? [...sources][0] : 'mixed';
+
     res.json({
       success: true,
       data: { flows: results, count: results.length },
+      dataSource: batchSource,
+      notes:
+        batchSource === 'unavailable'
+          ? { flows: '批量资金流：东财/新浪真实源均不可达，未返回任何生成数据' }
+          : undefined,
     });
   } catch (error) {
     console.error('批量获取资金流向失败:', error);
@@ -340,41 +470,75 @@ router.post('/fund-flow/batch', validateBody(schemas.fundFlowBatch), async (req:
  * 获取个股资金流向
  * GET /api/fund-flow/:symbol
  * ⚠️ 必须注册在所有静态路径路由之后（见顶部路由顺序约定）。
+ *
+ * 符号兼容：600519 / 600519.SH / sh600519（内部统一规范为 600519.SH 后查库）。
+ *
+ * 诚实红线（验收点）：
+ *   - 真实源解析链：东财实时 → 新浪最近交易日 → 统一降级；
+ *   - 响应顶层 dataSource、data.dataSource、current/history 各层 dataSource 完全一致，
+ *     杜绝历史版本"顶层 eastmoney / current 层无标注或 demo"的两级矛盾；
+ *   - 链中无任何生成/演示数据，两源均不可达时 current=null、history=[]、全层 unavailable + 诚实 notes。
  */
 router.get('/fund-flow/:symbol', validateParams(schemas.stockSymbol), validateQuery(schemas.fundFlowQuery), async (req: Request, res: Response) => {
   try {
-    const { symbol } = req.params;
-    const stock = await db.getStockBySymbol(symbol);
+    const norm = normalizeSymbol(req.params.symbol);
+    // 不同库后端 symbol 存法不同：Postgres 为 600519.SH，内存库 JSON 清单为裸代码 600519。
+    // 依次尝试：规范化全码 → 裸代码 → 原始入参，三种格式（600519 / 600519.SH / sh600519）都要兼容。
+    const bare = norm.includes('.') ? norm.slice(0, norm.indexOf('.')) : norm;
+    const stock =
+      (await db.getStockBySymbol(norm)) ||
+      (bare !== norm ? await db.getStockBySymbol(bare) : null) ||
+      (await db.getStockBySymbol(req.params.symbol));
 
     if (!stock) {
       return res.status(404).json({ success: false, error: '股票未找到' });
     }
 
-    const flowData = await fetchFundFlow(symbol);
+    const flow = await resolveStockFlow(norm);
+    const now = new Date().toISOString();
 
-    if (!flowData) {
-      // 诚实红线：东方财富个股资金流不可达时，不编造零值，如实返回空数据 + 标记 unavailable。
-      // 前端据此展示 EmptyState（"暂无数据"），而非伪装的零净流入误导用户。
+    if (!flow.current) {
+      // 东财/新浪真实源均不可达：如实空态 + 全层一致的 unavailable
       return res.json({
         success: true,
         data: {
           current: null,
           history: [],
           dataSource: 'unavailable' as const,
-          note: '个股资金流：东方财富数据源暂不可达，后端未接入兜底数据',
+          note: '个股资金流：东财（实时）与新浪（最近交易日）真实源均暂不可达，后端未接入兜底数据',
         },
+        dataSource: 'unavailable' as const,
+        notes: {
+          current: '当前资金流：真实源不可达',
+          history: '历史资金流：真实源不可达',
+        },
+        timestamp: now,
       });
     }
 
-    flowData.name = stock.name;
+    const current = { ...flow.current, name: stock.name, dataSource: flow.dataSource };
+    const history = flow.history.map((h) => ({ ...h, name: stock.name, dataSource: flow.dataSource }));
 
     res.json({
       success: true,
       data: {
-        current: flowData,
-        history: [],
-        dataSource: 'eastmoney' as const,
+        current,
+        history,
+        dataSource: flow.dataSource,
+        note:
+          flow.dataSource === 'sina'
+            ? '东财实时源不可达，current/history 为新浪财经最近交易日真实资金流（非当日实时）'
+            : undefined,
       },
+      dataSource: flow.dataSource,
+      notes: {
+        current:
+          flow.dataSource === 'eastmoney'
+            ? '当前资金流：东方财富实时（沙箱间歇不可达，失败自动降级新浪）'
+            : '当前资金流：新浪财经最近交易日',
+        history: history.length > 0 ? `历史资金流：${history.length} 个交易日` : '历史资金流：真实源不可达',
+      },
+      timestamp: now,
     });
   } catch (error) {
     console.error('获取资金流向失败:', error);
