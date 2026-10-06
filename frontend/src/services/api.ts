@@ -556,11 +556,11 @@ async function rawGet<T = unknown>(url: string): Promise<T> {
 
 export async function fetchOrderBook(symbol: string, name?: string) {
   const params = name ? `?name=${encodeURIComponent(name)}` : '';
-  return rawGet(`/api/order-book/${symbol}${params}`);
+  return rawGet(`/order-book/${symbol}${params}`);
 }
 
 export async function fetchTimeShare(symbol: string) {
-  return rawGet(`/api/time-share/${symbol}`);
+  return rawGet(`/time-share/${symbol}`);
 }
 
 // ==================== 融资融券 ====================
@@ -593,27 +593,27 @@ export async function fetchMarginTrend(days = 30): Promise<MarginTrendResp> {
 
 export async function fetchTopTraderOverviewTyped(date?: string): Promise<TopTraderOverview> {
   const params = date ? `?date=${date}` : '';
-  return rawGet<TopTraderOverview>(`/api/top-traders/overview${params}`);
+  return rawGet<TopTraderOverview>(`/top-traders/overview${params}`);
 }
 
 // ==================== 龙虎榜 ====================
 
 export async function fetchTopTraderOverview(date?: string) {
   const params = date ? `?date=${date}` : '';
-  return rawGet(`/api/top-traders/overview${params}`);
+  return rawGet(`/top-traders/overview${params}`);
 }
 
 export async function fetchTopTraderDetail(symbol: string, name?: string) {
   const params = name ? `?name=${encodeURIComponent(name)}` : '';
-  return rawGet(`/api/top-traders/${symbol}${params}`);
+  return rawGet(`/top-traders/${symbol}${params}`);
 }
 
 export async function fetchTopTraderHistory(symbol: string, days = 10) {
-  return rawGet(`/api/top-traders/history/${symbol}?days=${days}`);
+  return rawGet(`/top-traders/history/${symbol}?days=${days}`);
 }
 
 export async function fetchTopTraderSeatRank(count = 20): Promise<SeatRankEntry[] | undefined> {
-  const result = await rawGet<{ rank: SeatRankEntry[] }>(`/api/top-traders/seat/rank?count=${count}`);
+  const result = await rawGet<{ rank: SeatRankEntry[] }>(`/top-traders/seat/rank?count=${count}`);
   if (!Array.isArray(result?.rank)) return undefined;
   return result.rank;
 }
@@ -626,15 +626,15 @@ export async function fetchBlockTrades(params: { date?: string; symbol?: string;
   if (params.symbol) query.set('symbol', params.symbol);
   if (params.page) query.set('page', String(params.page));
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
-  return rawGet(`/api/block-trades?${query}`);
+  return rawGet(`/block-trades?${query}`);
 }
 
 export async function fetchBlockTradeOverview() {
-  return rawGet('/api/block-trades/overview');
+  return rawGet('/block-trades/overview');
 }
 
 export async function fetchBlockTradeHistory(symbol: string, days = 30) {
-  return rawGet(`/api/block-trades/${symbol}?days=${days}`);
+  return rawGet(`/block-trades/${symbol}?days=${days}`);
 }
 
 // ==================== 股东增减持 ====================
@@ -665,7 +665,7 @@ export async function fetchLockupCalendar(year?: number, month?: number) {
     year: String(year || now.getFullYear()),
     month: String(month || now.getMonth() + 1),
   });
-  return rawGet(`/api/lockup/calendar?${params}`);
+  return rawGet(`/lockup/calendar?${params}`);
 }
 
 export async function fetchLockupRank(year?: number, month?: number) {
@@ -674,28 +674,28 @@ export async function fetchLockupRank(year?: number, month?: number) {
     year: String(year || now.getFullYear()),
     month: String(month || now.getMonth() + 1),
   });
-  return rawGet(`/api/lockup/rank?${params}`);
+  return rawGet(`/lockup/rank?${params}`);
 }
 
 export async function fetchLockupHistory(symbol: string, months = 12) {
-  return rawGet(`/api/lockup/${symbol}?months=${months}`);
+  return rawGet(`/lockup/${symbol}?months=${months}`);
 }
 
 // ==================== AI 智能选股 ====================
 
 export async function fetchAIRecommendations(strategy?: string) {
   const params = strategy ? `?strategy=${strategy}` : '';
-  return rawGet(`/api/ai/recommendations${params}`);
+  return rawGet(`/ai/recommendations${params}`);
 }
 
 export async function fetchAIDiagnosis(symbol: string) {
-  return rawGet(`/api/ai/diagnose/${symbol}`);
+  return rawGet(`/ai/diagnose/${symbol}`);
 }
 
 export async function fetchAISectorRotation() {
-  return rawGet('/api/ai/sector-rotation');
+  return rawGet('/ai/sector-rotation');
 }
 
 export async function fetchAIAlertSuggestions() {
-  return rawGet('/api/ai/alert-suggestions');
+  return rawGet('/ai/alert-suggestions');
 }
