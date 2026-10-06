@@ -1,10 +1,23 @@
 /**
  * AI Client — 前端AI调用层
- * 
+ *
  * 封装与后端AI服务的通信，支持流式响应
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+import { API_ORIGIN } from '../config/apiBase';
+
+/**
+ * 后端根地址，来自单一真源 `config/apiBase.ts`（内部读 VITE_API_BASE）。
+ *
+ * 为什么用 API_ORIGIN 而不是 api.ts 用的 API_BASE_URL：
+ * 本文件用 fetch 且**自己拼完整路径** `${地址}/api/ai/chat`，
+ * 所以需要的是**根地址**（`https://后端域名`）。API_BASE_URL 已带 `/api` 后缀，
+ * 误用它会拼出 `/api/api/ai/chat` —— 多一层 /api，必然 404。
+ *
+ * dev 下 API_ORIGIN 为空串，请求路径就是相对的 `/api/ai/chat`，交 Vite proxy 转发，
+ * 与改动前 `import.meta.env.VITE_API_BASE || ''` 的行为完全一致。
+ */
+const API_BASE = API_ORIGIN;
 
 // ============================================================
 // 类型定义

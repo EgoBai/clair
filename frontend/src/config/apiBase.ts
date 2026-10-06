@@ -70,9 +70,43 @@ export function resolveApiBase(): string {
 }
 
 /**
- * 导出供 axios 直接使用的 baseURL。
+ * 解析后端**根地址**（不含 `/api` 后缀）。
+ *
+ * ## 谁需要它
+ *
+ * `services/aiClient.ts` 走fetch，且自己拼 `${地址}/api/ai/chat` 这类完整路径，
+ * 所以它要的是**根地址**（`https://后端域名`），而不是 axios 用的
+ * `API_BASE_URL`（`https://后端域名/api`）。若误用后者会拼出
+ * `.../api/api/ai/chat` —— 多一层 `/api`，直接 404。
+ *
+ * - dev：返回空串 `''`，于是请求路径就是相对的 `/api/ai/chat`，
+ *   交给 Vite proxy 转发（与改动前 `import.meta.env.VITE_API_BASE || ''` 行为完全一致）。
+ * - 生产：返回归一化后的根地址；未配置时抛错（同 resolveApiBase 的诚实红线）。
+ */
+export function resolveApiOrigin(): string {
+  if (IS_DEV) return '';
+
+  const base = normalize(RAW_API_BASE);
+  if (!base) {
+    throw new Error(
+      '[config] 生产构建缺少 VITE_API_BASE，fetch 数据层无法确定后端地址。' +
+        '线上前端必须显式指定后端地址，不要依赖代码里的默认兜底。' +
+        '注入方式：构建时设置环境变量 VITE_API_BASE=https://<你的后端域名>'
+    );
+  }
+  return base;
+}
+
+/**
+ * 导出供 axios 直接使用的 baseURL（含 `/api` 后缀）。
  *
  * 注意这里**没有** try/catch 兜底：若生产缺配置导致抛错，那属于「构建期就该失败」
  * 的配置错误，静默吞掉只会把「漏配」重新变成「运行时连错后端」。
  */
 export const API_BASE_URL: string = resolveApiBase();
+
+/**
+ * 导出供 fetch 数据层（aiClient）使用的后端根地址（不含 `/api`）。
+ * 调用方自行拼接 `/api/xxx`，不要与 API_BASE_URL 混用。
+ */
+export const API_ORIGIN: string = resolveApiOrigin();
