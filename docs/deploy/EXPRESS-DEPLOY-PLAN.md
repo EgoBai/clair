@@ -156,8 +156,12 @@ node scripts/smoke/production-smoke.mjs --base https://<新后端> --expect-comm
   工作流里再留一个 pages.dev 兜底，等于把「漏配静默回落」的后门重新装上。
   （此文件属`.github/workflows/**`，需由该域负责人改动。）
 - **判据**：构建**成功**。漏配时构建会**直接失败**并打印：
-  `[UNRESOLVED_IMPORT] ... VITE_API_BASE 未注入：生产构建必须显式指定后端地址`
+  `[plugin clair-require-api-base] [config] 生产构建缺少 VITE_API_BASE，已中止。`
   ——这正是预期的快速失败，不要用加兜底的方式"修好"它。
+  校验发生在 `frontend/vite.config.ts` 的 plugin（`buildStart` 阶段），
+  **dev（`vite dev`）不校验**，本地开发照常走 proxy。
+  ⚠️ 注意注入方式有三种都能生效：GitHub Actions variable、
+  shell 环境变量、或 `frontend/.env`（实现用了 `loadEnv`，三者都认）。
 
 ### 步骤 6：切换后二次核验
 
