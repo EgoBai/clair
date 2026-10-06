@@ -60,11 +60,18 @@ if (!isDev && !RAW_API_BASE.trim()) {
   //  2) **必须是顶层 await** —— 写成 `void import(...)` 时分支不会被 DCE，
   //     即便配置正确也会构建失败（实测 exit 1）。
   //
-  // 这里的 @ts-ignore 只为压制 tsc 的 TS2307（模块故意不存在）。
+  // 这里的 @ts-expect-error 只为压制 tsc 的 TS2307（模块故意不存在）。
   // deploy.yml 的构建命令是 `npx tsc && npx vite build`——tsc 先跑，
   // 若不压制，**配置完全正确**时也会因 TS2307 让整条流水线失败，
   // 那就变成了「永远部署不出去」而不是「漏配时失败」。
-  // @ts-ignore
+  //
+  // 为什么是 @ts-expect-error 而不是 @ts-ignore：eslint 的
+  // @typescript-eslint/ban-ts-comment 规则会拒绝 @ts-ignore（CI lint 阻断级）。
+  // 改用 @ts-expect-error 后需确认「该指令一定被用上」，否则 tsc 会报
+  // TS2578（Unused '@ts-expect-error' directive）。这里是安全的：tsc 不做
+  // rolldown那种常量折叠/DCE，`import.meta.env.VITE_API_BASE` 对 tsc 而言
+  // 永远是普通string，该分支代码恒存在 ⟹ TS2307 恒成立 ⟹ 指令恒被使用。
+  // @ts-expect-error -- 模块故意不存在，用于把「漏配」变成构建期失败
   await import(
     './VITE_API_BASE 未注入：生产构建必须显式指定后端地址，见 .env.example'
   );
