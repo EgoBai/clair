@@ -133,6 +133,30 @@ describe('block-trades 上游契约（东财 v1 端点）', () => {
     expect(res.body.data.summary.discountCount).toBe(1);
     expect(res.body.data.summary.premiumCount).toBe(1);
   });
+
+  it('discount 必须收敛到 2 位小数，不得把浮点尾数泄漏给前端', async () => {
+    // 真实样本：159967 成交价0.72 / 收盘价0.719 → PREMIUM_RATIO=0.0013908205841
+    setFetch(mockFetch(okV1([
+      {
+        SECURITY_CODE: '159967',
+        SECURITY_NAME_ABBR: '华夏创成长ETF',
+        TRADE_DATE: '2026-09-30 00:00:00',
+        DEAL_PRICE: 0.72,
+        CLOSE_PRICE: 0.719,
+        DEAL_VOLUME: 190821300,
+        DEAL_AMT: 137773000,
+        BUYER_NAME: '机构专用',
+        SELLER_NAME: '机构专用',
+        PREMIUM_RATIO: 0.0013908205841446466,
+      },
+    ])));
+    const res = await request(buildApp()).get('/api/block-trades?date=2026-09-30');
+
+    const d = res.body.data.trades[0].discount;
+    // ×100 后为 0.13908205...，应收敛到 0.14 而非 0.13908205839999999
+    expect(d).toBe(0.14);
+    expect(String(d).length).toBeLessThanOrEqual(4);
+  });
 });
 
 describe('block-trades 参数契约：不带任何参数也必须可用', () => {
@@ -254,5 +278,22 @@ describe('block-trades overview：长假期间必须回退到最近有数据的�
     // 概览数字必须来自这批真实记录
     expect(res.body.data.totalTrades).toBe(2);
     expect(res.body.data.totalAmount).toBe(58817500 + 17076000);
+  });
+
+  it('overview 必须给出中文可展示的 dataDateNote，明确数据截至日', async () => {
+    setFetch(mockFetch(okV1(V1_ROWS)));
+    const res = await request(buildApp()).get('/api/block-trades/overview');
+
+    expect(typeof res.body.data.dataDateNote).toBe('string');
+    expect(res.body.data.dataDateNote).toContain('2026-09-30');
+    expect(res.body.data.dataDateNote).toContain('数据截至');
+  });
+
+  it('列表端点也必须给出 dataDateNote（休市日不得静默显示空数据）', async () => {
+    setFetch(mockFetch(okV1(V1_ROWS)));
+    const res = await request(buildApp()).get('/api/block-trades');
+
+    expect(res.body.data.date).toBe('2026-09-30');
+    expect(res.body.data.dataDateNote).toContain('2026-09-30');
   });
 });

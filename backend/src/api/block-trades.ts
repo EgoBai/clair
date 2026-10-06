@@ -16,6 +16,8 @@ import { validateQuery, validateParams, schemas } from '../middleware/validation
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 import {
   getBlockTrades,
+  getBlockTradesInRange,
+  getLatestBlockTrades,
   normalizeSymbol,
   BlockTradesUnavailableError,
   BlockTrade,
@@ -62,6 +64,18 @@ function describeUpstreamFailure(message: string): string {
   return message;
 }
 
+/**
+ * 生成中文可展示的数据日期说明。
+ * 休市日返回「今天 + 空数组」本身就是失真（会让人误以为当天零成交），
+ * 故必须明确告知数据实际截至哪个交易日。
+ */
+function buildDataDateNote(tradeDate: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  if (!tradeDate) return '真实源暂无可用的大宗交易记录';
+  if (tradeDate === today) return `数据截至 ${tradeDate}`;
+  return `数据截至 ${tradeDate}（${today} 为休市日或当日无大宗交易）`;
+}
+
 // 大宗交易列表
 router.get(
   '/block-trades',
@@ -72,14 +86,13 @@ router.get(
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 20;
 
-    const cacheKey = `block-trades:${date || 'latest'}:${symbol || 'all'}`;
-
     try {
-      const trades = await queryCache.query(
-        cacheKey,
-        () => getBlockTrades(date, symbol),
-        300000
-      );
+      // 未指定日期时取真实源中最近一个**有成交的交易日**：
+      // 休市日（如长假）按「今天」查必然为空，会被误读成当天零成交。
+      const resolved = date
+        ? { tradeDate: date, trades: await queryCache.query(`block-trades:${date}:${symbol || 'all'}`, () => getBlockTrades(date, symbol), 300000) }
+        : await queryCache.query(`block-trades:latest:${symbol || 'all'}`, () => getLatestBlockTrades(symbol), 300000);
+      const trades = resolved.trades;
 
       const sorted = [...trades].sort((a, b) => b.amount - a.amount);
       const total = sorted.length;
@@ -96,6 +109,9 @@ router.get(
 
       sendSuccess(res, {
         dataSource: 'realtime',
+        // 如实上报数据所属交易日；空态时回落为请求日期/今天
+        date: resolved.tradeDate || date || new Date().toISOString().slice(0, 10),
+        dataDateNote: buildDataDateNote(resolved.tradeDate || date),
         trades: paginated,
         pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
         summary: {
@@ -155,9 +171,11 @@ router.get(
     const today = new Date().toISOString().slice(0, 10);
 
     try {
-      const todayTrades = await queryCache.query(
+      // 概览代表「最近一个真实有成交的交易日」，不硬编码今天：
+      // 长假/休市期间按今天查必然为空，会被误读成当天零成交。
+      const { tradeDate, trades: todayTrades } = await queryCache.query(
         cacheKey,
-        () => getBlockTrades(today),
+        () => getLatestBlockTrades(),
         300000
       );
 
@@ -177,13 +195,13 @@ router.get(
       // 故诚实地返回空数组，绝不随机编造行业。
       const industryDistribution: Array<{ industry: string; count: number; amount: number }> = [];
 
-      // 日期必须来自真实记录本身：长假/停市期间「今天」无成交，
-      // 若上报硬编码的今天会让人误以为当天真的零成交。
-      const tradeDate = todayTrades[0]?.tradeDate || today;
+      // 日期取自真实记录本身（tradeDate 来自上游首条记录），空态时回落为今天
+      const reportedDate = tradeDate || today;
 
       sendSuccess(res, {
         dataSource: 'realtime',
-        date: tradeDate,
+        date: reportedDate,
+        dataDateNote: buildDataDateNote(tradeDate),
         totalTrades: todayTrades.length,
         totalAmount,
         avgAmount: Math.round(totalAmount / (todayTrades.length || 1)),
@@ -228,18 +246,16 @@ router.get(
       const trades = await queryCache.query(
         cacheKey,
         async () => {
-          // 逐日查询真实源并合并（日期范围由校验约束最大 365 天）
+          // 单次区间查询取代逐日 N 次往返（days 上限 365，逐日会打爆上游）
           const norm = normalizeSymbol(symbol);
           const digits = norm?.digits;
-          const collected: BlockTrade[] = [];
           const today = new Date();
-          for (let d = days - 1; d >= 0; d--) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - d);
-            const dateStr = date.toISOString().slice(0, 10);
-            const dayTrades = await getBlockTrades(dateStr, symbol);
-            collected.push(...dayTrades);
-          }
+          const endDate = today.toISOString().slice(0, 10);
+          const start = new Date(today);
+          start.setDate(start.getDate() - (days - 1));
+          const startDate = start.toISOString().slice(0, 10);
+
+          const collected = await getBlockTradesInRange(symbol, startDate, endDate);
           return collected
             .map((t, i) => ({ ...t, id: `${digits ?? t.symbol}-${i + 1}` }))
             .sort((a, b) => b.tradeDate.localeCompare(a.tradeDate));

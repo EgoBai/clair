@@ -31,43 +31,46 @@ function buildApp() {
   return app;
 }
 
-// 样例：东方财富大宗交易真实接口返回结构（result.data 数组）
+// 样例：东方财富大宗交易 v1 报表 RPT_DATA_BLOCKTRADE 真实返回结构（result.data 数组）
+// 注意列名为 v1 命名：DEAL_PRICE / DEAL_VOLUME / DEAL_AMT / PREMIUM_RATIO
+// （旧端点的 TRADE_PRICE / TRADE_AMOUNT / DISCOUNT 已随端点废弃而失效）
 const sampleRawRows = [
   {
     SECURITY_CODE: '600519',
     SECURITY_NAME_ABBR: '贵州茅台',
     TRADE_DATE: '2026-08-12 00:00:00',
-    TRADE_PRICE: 1680.5,
+    DEAL_PRICE: 1680.5,
     CLOSE_PRICE: 1700.0,
-    TRADE_VOLUME: 35000,
-    TRADE_AMOUNT: 58817500,
+    DEAL_VOLUME: 35000,
+    DEAL_AMT: 58817500,
     BUYER_NAME: '中信证券上海分公司',
     SELLER_NAME: '机构专用',
-    DISCOUNT: -1.15,
+    // 无量纲 (1680.5-1700)/1700 = -0.011470588…，映射后应为 -1.15%
+    PREMIUM_RATIO: -0.011470588235,
   },
   {
     SECURITY_CODE: '000858',
     SECURITY_NAME_ABBR: '五粮液',
     TRADE_DATE: '2026-08-12 00:00:00',
-    TRADE_PRICE: 142.3,
-    CLOSE_PRICE: 145.0,
-    TRADE_VOLUME: 120000,
-    TRADE_AMOUNT: 17076000,
+    DEAL_PRICE: 145.0,
+    CLOSE_PRICE: 142.3,
+    DEAL_VOLUME: 120000,
+    DEAL_AMT: 17076000,
     BUYER_NAME: '机构专用',
     SELLER_NAME: '华泰证券深圳益田路',
-    DISCOUNT: 1.8,
+    PREMIUM_RATIO: 0.018975404079,
   },
   {
     SECURITY_CODE: '600519',
     SECURITY_NAME_ABBR: '贵州茅台',
     TRADE_DATE: '2026-08-12 00:00:00',
-    TRADE_PRICE: 1690.0,
+    DEAL_PRICE: 1690.0,
     CLOSE_PRICE: 1700.0,
-    TRADE_VOLUME: 20000,
-    TRADE_AMOUNT: 33800000,
+    DEAL_VOLUME: 20000,
+    DEAL_AMT: 33800000,
     BUYER_NAME: '中金公司上海分公司',
     SELLER_NAME: '机构专用',
-    DISCOUNT: -0.59,
+    PREMIUM_RATIO: -0.005882352941,
   },
 ];
 
@@ -101,7 +104,8 @@ describe('blockTradesDataService (honest-data)', () => {
       expect(maotai!.closePrice).toBe(1700.0);
       expect(maotai!.volume).toBe(35000);
       expect(maotai!.amount).toBe(58817500);
-      expect(maotai!.discount).toBe(-1.15);
+      // PREMIUM_RATIO 无量纲 → discount 契约为百分数，应为 -1.15%
+      expect(maotai!.discount).toBeCloseTo(-1.15, 2);
       expect(maotai!.buyer).toBe('中信证券上海分公司');
       expect(maotai!.seller).toBe('机构专用');
     });
@@ -115,13 +119,13 @@ describe('blockTradesDataService (honest-data)', () => {
               SECUCODE: '000001.SZ',
               SECUNAME: '平安银行',
               TRADE_DATE: '2026-08-12 00:00:00',
-              TRADE_PRICE: 11.2,
+              DEAL_PRICE: 11.2,
               CLOSE_PRICE: 11.5,
-              TRADE_VOLUME: 50000,
-              TRADE_AMOUNT: 560000,
+              DEAL_VOLUME: 50000,
+              DEAL_AMT: 560000,
               BUYER_NAME: '机构专用',
               SELLER_NAME: '机构专用',
-              DISCOUNT: -2.6,
+              PREMIUM_RATIO: -0.026086956522,
             },
           ],
         },
@@ -134,6 +138,12 @@ describe('blockTradesDataService (honest-data)', () => {
     it('当日真实源确无记录时诚实返回空数组（非错误）', async () => {
       setFetch(mockFetchOnce({ success: true, result: { data: [] } }));
       const trades = await getBlockTrades('2026-08-12');
+      expect(trades).toEqual([]);
+    });
+
+    it('上游 9201「返回数据为空」→ 返回 [] 而非抛错（源可达，仅当日无成交）', async () => {
+      setFetch(mockFetchOnce({ success: false, result: null, code: 9201, message: '返回数据为空' }));
+      const trades = await getBlockTrades('2026-10-06');
       expect(trades).toEqual([]);
     });
   });
