@@ -36,6 +36,32 @@ function sendUnavailable(res: Response, payload: Record<string, unknown>): void 
   sendSuccess(res, { dataSource: 'unavailable', ...payload });
 }
 
+/**
+ * 上游「源可达但当日无记录」的原始文案（东财 code=9201）。
+ * 它与「源不可达」是**两种不同事实**，绝不可混为一谈：
+ * 前者应诚实返回 realtime + 空数组，后者才是 unavailable。
+ */
+const UPSTREAM_EMPTY_MESSAGE = '返回数据为空';
+
+/** 上游对用户无意义的参数类报错（东财 code=9501），转成可理解的真实原因。 */
+const UPSTREAM_PARAM_MESSAGES = ['返回字段参数不能为空'];
+
+function isUpstreamEmptySignal(message: string): boolean {
+  return message.includes(UPSTREAM_EMPTY_MESSAGE);
+}
+
+/**
+ * 把上游原始报错翻译为**对用户诚实**的原因描述。
+ * 直接把「返回字段参数不能为空」透给用户是误导——它既不是用户参数问题，
+ * 也不是页面无数据的原因，而是上游报表接口本身不可用。
+ */
+function describeUpstreamFailure(message: string): string {
+  if (UPSTREAM_PARAM_MESSAGES.some((m) => message.includes(m))) {
+    return '上游大宗交易报表接口不可用（东方财富报表接口返回异常，非请求参数问题）';
+  }
+  return message;
+}
+
 // 大宗交易列表
 router.get(
   '/block-trades',
@@ -83,6 +109,24 @@ router.get(
       });
     } catch (e) {
       if (e instanceof BlockTradesUnavailableError) {
+        // 源可达但当日无成交 → 诚实空（realtime），不是「不可用」
+        if (isUpstreamEmptySignal(e.message)) {
+          sendSuccess(res, {
+            dataSource: 'realtime',
+            trades: [],
+            pagination: { page, pageSize, total: 0, totalPages: 0 },
+            summary: {
+              totalAmount: 0,
+              totalVolume: 0,
+              avgDiscount: 0,
+              premiumCount: 0,
+              discountCount: 0,
+              tradeCount: 0,
+            },
+            message: `${date || '最近交易日'} 真实源无大宗交易记录`,
+          });
+          return;
+        }
         sendUnavailable(res, {
           trades: [],
           pagination: { page, pageSize, total: 0, totalPages: 0 },
@@ -94,7 +138,7 @@ router.get(
             discountCount: 0,
             tradeCount: 0,
           },
-          message: e.message,
+          message: describeUpstreamFailure(e.message),
         });
         return;
       }
@@ -133,9 +177,13 @@ router.get(
       // 故诚实地返回空数组，绝不随机编造行业。
       const industryDistribution: Array<{ industry: string; count: number; amount: number }> = [];
 
+      // 日期必须来自真实记录本身：长假/停市期间「今天」无成交，
+      // 若上报硬编码的今天会让人误以为当天真的零成交。
+      const tradeDate = todayTrades[0]?.tradeDate || today;
+
       sendSuccess(res, {
         dataSource: 'realtime',
-        date: today,
+        date: tradeDate,
         totalTrades: todayTrades.length,
         totalAmount,
         avgAmount: Math.round(totalAmount / (todayTrades.length || 1)),
@@ -157,7 +205,7 @@ router.get(
           flatTrades: 0,
           topBuyers: [],
           industryDistribution: [],
-          message: e.message,
+          message: describeUpstreamFailure(e.message),
         });
         return;
       }
@@ -211,7 +259,7 @@ router.get(
           symbol,
           trades: [],
           total: 0,
-          message: e.message,
+          message: describeUpstreamFailure(e.message),
         });
         return;
       }
