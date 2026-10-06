@@ -3,7 +3,7 @@
  * - 真实指数（上证/深证/创业）+ 涨跌分布，源自 services/realMarketData（腾讯财经 + 东方财富，免 key）
  * - 遵守「诚实数据」红线：指数源不可用直接返回 dataSource:'unavailable'，绝不回填演示/硬编码
  */
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { getRealMarketData } from '../services/realMarketData';
 import {
   getKline,
@@ -11,21 +11,46 @@ import {
   DEFAULT_KLINE_DAYS,
 } from '../services/klineDataService';
 import { queryCache } from '../utils/queryCache';
-import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 
 const router = Router();
+
+/**
+ * 诚实数据契约发送器（本文件统一出口）
+ *
+ * 为什么不用 sendSuccess：本项目「诚实数据红线」要求 **响应顶层** 有 dataSource，
+ * 而 sendSuccess 只输出 { success, data, timestamp }，dataSource 会被埋在 data 里，
+ * 前端无法与 { code, data } 形态的端点统一判定。
+ *
+ * 为什么顶层与 data 内**由同一个入参**写出：IP-20 曾踩过「两级 dataSource 互相矛盾」的坑
+ * （顶层 real / 行级 unavailable）。这里让两处都从唯一的 dataSource 变量派生，
+ * 结构上就不可能漂移。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
 
 router.get(
   '/realtime',
   asyncHandler(async (_req, res) => {
     try {
       const data = await getRealMarketData();
-      sendSuccess(res, { ...data, dataSource: 'real' });
+      sendHonest(res, 'real', data);
     } catch (e) {
       // 诚实降级：指数源失败时如实标注不可达，不编造数据
-      sendSuccess(res, {
-        dataSource: 'unavailable',
+      sendHonest(res, 'unavailable', {
         error: e instanceof Error ? e.message : 'unknown',
+        message: '真实指数源不可达：本端点不返回任何指数数值，请勿以 0 或空值当作行情',
       });
     }
   }),
@@ -58,11 +83,10 @@ router.get(
         () => getKline(symbol, days),
         10 * 60 * 1000 // 日线数据 TTL 10 分钟
       );
-      sendSuccess(res, { dataSource: 'real', ...data });
+      sendHonest(res, 'real', { symbol, ...data });
     } catch (e) {
       if (e instanceof KlineUnavailableError) {
-        sendSuccess(res, {
-          dataSource: 'unavailable',
+        sendHonest(res, 'unavailable', {
           symbol,
           ...empty,
           message: e.message,

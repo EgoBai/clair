@@ -15,7 +15,7 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import { validateQuery } from '../middleware/validation';
-import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
+import { asyncHandler, sendNotFound } from '../utils/apiResponse';
 import {
   analyzeStock,
   generateRecommendations,
@@ -25,7 +25,6 @@ import {
 } from '../utils/aiAnalysis';
 import {
   getFinancialIndicators,
-  FinancialsUnavailableError,
 } from '../services/financialsDataService';
 import { db } from '../db/dbFactory';
 import { normalizeSymbol, toBareCode } from '../utils/symbolUtils';
@@ -233,6 +232,24 @@ function unavailable(e: unknown) {
   return { dataSource: 'unavailable' as const, message, data: null };
 }
 
+/**
+ * 诚实数据契约发送器（本文件统一出口）
+ *
+ * 本文件原已用 sendSuccess 在 data 内输出 dataSource，但**顶层缺失**，
+ * 前端无法与 { code, data } 形态的端点统一判定。
+ * 这里由**同一个 dataSource 入参**同时写出顶层与 data 内两处，
+ * 结构上杜绝 IP-20 那类「顶层 real / 行级 unavailable」的矛盾。
+ */
+function sendHonest(res: Response, dataSource: 'real' | 'unavailable', data: Record<string, unknown>): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 // ==================== RAG 二期：本地知识库语料缓存 ====================
 // 懒加载一次，避免每次请求重复读盘；后续可借 reloadKnowledgeBase 做增量重载，
 // 无需全量重启（对应二期「知识库增量更新机制」项，此处先留钩子）。
@@ -272,9 +289,9 @@ router.get('/ai/recommendations', asyncHandler(async (_req: Request, res: Respon
   try {
     const stocks = await fetchWatchlistStocks();
     const recommendation = generateRecommendations(stocks);
-    sendSuccess(res, { ...recommendation, dataSource: 'real' });
+    sendHonest(res, 'real', { ...recommendation });
   } catch (e) {
-    sendSuccess(res, {
+    sendHonest(res, 'unavailable', {
       date: new Date().toISOString().split('T')[0],
       strategy: 'AI综合评分选股',
       stocks: [],
@@ -326,16 +343,12 @@ router.get('/ai/analyze/:symbol', asyncHandler(async (req: Request, res: Respons
     // 二期 RAG：融合知识库溯源（行情可得 → 置信度上限更高）
     const knowledgeReferences = knowledgeReferencesFor(stock.industry, stock.name, 3);
     const knowledgeConfidence = deriveKnowledgeConfidence(knowledgeReferences, true);
-    sendSuccess(res, { ...analysis, dataSource: 'real', knowledgeReferences, knowledgeConfidence });
+    sendHonest(res, 'real', { ...analysis, knowledgeReferences, knowledgeConfidence });
   } catch (e) {
     // 行情缺失仍尝试返回知识溯源（市场不可得 → 置信度上限下调，绝不编造）
     const knowledgeReferences = knowledgeReferencesFor(industry, name, 3);
     const knowledgeConfidence = deriveKnowledgeConfidence(knowledgeReferences, false);
-    if (e instanceof FinancialsUnavailableError) {
-      sendSuccess(res, { symbol, knowledgeReferences, knowledgeConfidence, ...unavailable(e) });
-      return;
-    }
-    sendSuccess(res, { symbol, knowledgeReferences, knowledgeConfidence, ...unavailable(e) });
+    sendHonest(res, 'unavailable', { symbol, knowledgeReferences, knowledgeConfidence, ...unavailable(e) });
   }
 }));
 
@@ -368,14 +381,13 @@ router.get('/ai/alerts', validateQuery(alertQuerySchema), asyncHandler(async (re
 
     alerts = alerts.slice(0, Number(limit));
 
-    sendSuccess(res, {
+    sendHonest(res, 'real', {
       alerts,
       total: alerts.length,
       generatedAt: new Date().toISOString(),
-      dataSource: 'real',
     });
   } catch (e) {
-    sendSuccess(res, {
+    sendHonest(res, 'unavailable', {
       alerts: [],
       total: 0,
       generatedAt: new Date().toISOString(),
@@ -393,15 +405,14 @@ router.get('/ai/sector-rotation', asyncHandler(async (_req: Request, res: Respon
     const stocks = await fetchWatchlistStocks();
     const rotation = analyzeSectorRotation(stocks);
 
-    sendSuccess(res, {
+    sendHonest(res, 'real', {
       sectors: rotation,
       leading: rotation.filter(s => s.currentPhase === 'leading'),
       lagging: rotation.filter(s => s.currentPhase === 'lagging'),
       analyzedAt: new Date().toISOString(),
-      dataSource: 'real',
     });
   } catch (e) {
-    sendSuccess(res, {
+    sendHonest(res, 'unavailable', {
       sectors: [],
       leading: [],
       lagging: [],
@@ -444,7 +455,7 @@ router.get('/ai/market-sentiment', asyncHandler(async (_req: Request, res: Respo
       sentimentScore = 20;
     }
 
-    sendSuccess(res, {
+    sendHonest(res, 'real', {
       sentiment,
       sentimentScore,
       avgScore: Math.round(avgScore),
@@ -462,10 +473,9 @@ router.get('/ai/market-sentiment', asyncHandler(async (_req: Request, res: Respo
         .slice(0, 3)
         .map(s => ({ symbol: s.symbol, name: s.name, score: s.totalScore, recommendation: s.recommendation })),
       analyzedAt: new Date().toISOString(),
-      dataSource: 'real',
     });
   } catch (e) {
-    sendSuccess(res, {
+    sendHonest(res, 'unavailable', {
       sentiment: '数据源暂不可用',
       sentimentScore: 0,
       avgScore: 0,
@@ -518,12 +528,12 @@ router.get('/ai/knowledge-search', validateQuery(knowledgeSearchQuerySchema), as
     });
 
     if (!payload.knowledgeBaseAvailable) {
-      sendSuccess(res, { ...payload, dataSource: 'unavailable', message: '知识库暂不可用' });
+      sendHonest(res, 'unavailable', { ...payload, message: '知识库暂不可用' });
       return;
     }
-    sendSuccess(res, { ...payload, dataSource: 'real' });
+    sendHonest(res, 'real', { ...payload });
   } catch (e) {
-    sendSuccess(res, {
+    sendHonest(res, 'unavailable', {
       query: q,
       results: [],
       confidence: 0,

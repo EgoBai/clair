@@ -3,18 +3,39 @@
  * 提供股票查询、行情获取、市场指数等功能
  */
 
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { db } from '../db/dbFactory';
 import { StockSearchParams } from '../models/Stock';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import {
-  asyncHandler, sendSuccess, sendPaginated, sendNotFound, sendInternalError,
+  asyncHandler, sendPaginated, sendNotFound,
 } from '../utils/apiResponse';
 import { queryCache } from '../utils/queryCache';
 import { dataSyncService } from '../data-sync/DataSyncService';
 import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
+
+/**
+ * 诚实数据契约发送器（本文件统一出口）
+ *
+ * 与 api/market.ts 同构：顶层 dataSource 与 data 内 dataSource 由**同一个入参**派生，
+ * 结构上杜绝 IP-20 那类「两级互相矛盾」。不用 sendSuccess 是因为它只输出
+ * { success, data, timestamp }，dataSource 会被埋在 data 里，前端无法统一判定。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
 
 /** 标准化股票代码: 000001 → 000001.SZ, 600519 → 600519.SH */
 function normalizeSymbol(symbol: string): string {
@@ -62,7 +83,17 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
     };
   }, 30000); // 30秒缓存
 
-  sendSuccess(res, result);
+  // 诚实红线：DB 直读无「历史缓存」层，查不到行即如实置 unavailable，
+  // 绝不让前端把「空列表」误当成「真实但今天没有股票」。
+  const rowCount = Array.isArray(result.stocks) ? result.stocks.length : 0;
+  if (rowCount === 0) {
+    sendHonest(res, 'unavailable', {
+      ...result,
+      message: '本地真实股票库无匹配记录（数据库为空或筛选条件无命中），未返回任何股票数据',
+    });
+    return;
+  }
+  sendHonest(res, 'real', result);
 }));
 
 // 注意：特定路径必须在通配符路径之前定义，否则 /stocks/:symbol 会匹配 /stocks/xxx/quotes
@@ -76,7 +107,15 @@ router.get('/stocks/:symbol/quotes', validateParams(schemas.stockSymbol), valida
   const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
   const limit = req.query.limit ? parseInt(req.query.limit as string) : 120;
   const quotes = await db.getDailyQuotes(stock.id, startDate, endDate, limit);
-  sendSuccess(res, { stock: { symbol: stock.symbol, name: stock.name }, quotes });
+  if (!quotes || quotes.length === 0) {
+    sendHonest(res, 'unavailable', {
+      stock: { symbol: stock.symbol, name: stock.name },
+      quotes: [],
+      message: '本地真实行情库无该股票的日线记录，未返回任何行情数据',
+    });
+    return;
+  }
+  sendHonest(res, 'real', { stock: { symbol: stock.symbol, name: stock.name }, quotes });
 }));
 
 router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
@@ -84,7 +123,16 @@ router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncH
   const symbol = normalizeSymbol(rawSymbol);
   const stockWithQuote = await db.getStockWithLatestQuote(symbol) || await db.getStockWithLatestQuote(rawSymbol);
   if (!stockWithQuote) return sendNotFound(res, '股票');
-  sendSuccess(res, stockWithQuote);
+  // 无最新行情时只回股票档案 + 显式空态，不用 0 冒充现价
+  if (!stockWithQuote.latestQuote) {
+    sendHonest(res, 'unavailable', {
+      ...stockWithQuote,
+      latestQuote: null,
+      message: '本地真实行情库无该股票的最新行情记录，latestQuote 置 null（未用 0 顶替）',
+    });
+    return;
+  }
+  sendHonest(res, 'real', stockWithQuote as unknown as Record<string, unknown>);
 }));
 
 router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
@@ -97,7 +145,15 @@ router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(
   }
   if (!stock) return sendNotFound(res, '股票');
   const latestQuote = await db.getLatestDailyQuote(stock.id);
-  sendSuccess(res, { ...stock, latestQuote });
+  if (!latestQuote) {
+    sendHonest(res, 'unavailable', {
+      ...stock,
+      latestQuote: null,
+      message: '本地真实行情库无该股票的最新行情记录，latestQuote 置 null（未用 0 顶替）',
+    });
+    return;
+  }
+  sendHonest(res, 'real', { ...stock, latestQuote });
 }));
 
 // K线数据接口 - 支持日K/周K/月K
@@ -130,7 +186,11 @@ router.get('/stocks/:symbol/kline', validateParams(schemas.stockSymbol), asyncHa
     .limit(limit);
 
   if (klineRows.length === 0) {
-    return sendSuccess(res, { data: [], symbol, period, count: 0 });
+    // 诚实空态：真实库无 K 线时置 unavailable，绝不返回 count:0 冒充「真实但无行情」
+    return sendHonest(res, 'unavailable', {
+      data: [], symbol, period, count: 0,
+      message: '本地真实行情库无该股票的 K 线记录，未返回任何行情数据',
+    });
   }
 
   // 转换为数值类型 + 日期格式化
@@ -178,13 +238,20 @@ router.get('/stocks/:symbol/kline', validateParams(schemas.stockSymbol), asyncHa
     }));
   }
 
-  sendSuccess(res, { quotes: data, symbol, period, count: data.length });
+  sendHonest(res, 'real', { quotes: data, symbol, period, count: data.length });
 }));
 
 router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHandler(async (req, res) => {
   const { symbols } = req.body;
   const stocks = await db.getStocksWithLatestQuotes(symbols);
-  sendSuccess(res, { stocks, count: stocks.length });
+  if (!stocks || stocks.length === 0) {
+    sendHonest(res, 'unavailable', {
+      stocks: [], count: 0,
+      message: '本地真实行情库无匹配标的的行情记录，未返回任何行情数据',
+    });
+    return;
+  }
+  sendHonest(res, 'real', { stocks, count: stocks.length });
 }));
 
 // ==================== 市场数据 ====================
@@ -192,44 +259,78 @@ router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHand
 router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const summary = await db.getMarketSummary(date);
-  if (!summary) return sendNotFound(res, '当日市场数据');
+  if (!summary) {
+    sendHonest(res, 'unavailable', {
+      date: date.toISOString().split('T')[0],
+      message: '本地真实行情库无当日市场聚合数据（未同步或非交易日），未返回任何涨跌家数',
+    });
+    return;
+  }
+  let indicesAvailable = true;
   try {
     const indices = await fetchMarketIndices();
     (summary as Record<string, unknown>).indices = indices;
+    indicesAvailable = indices.length > 0;
   } catch (e) { /* 指数获取失败不影响主流程 */ }
-  sendSuccess(res, summary);
+  // indices 来自腾讯实时源，失败时主数据仍为真实 → 整体仍是 real，但显式告知 indices 缺失
+  sendHonest(res, 'real', {
+    ...summary,
+    ...(indicesAvailable ? {} : { message: '市场聚合数据为真实值；实时指数源不可达，indices 为空' }),
+  });
 }));
 
 router.get('/market/indices', asyncHandler(async (_req, res) => {
   const indices = await fetchMarketIndices();
-  sendSuccess(res, { indices });
+  if (!indices || indices.length === 0) {
+    sendHonest(res, 'unavailable', {
+      indices: [],
+      message: '腾讯实时指数源不可达或未返回数据，未返回任何指数数值',
+    });
+    return;
+  }
+  sendHonest(res, 'real', { indices });
 }));
 
 router.get('/market/industries', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const industries = await db.getIndustryPerformance(date);
-  sendSuccess(res, { date, industries });
+  sendHonest(res, industries.length > 0 ? 'real' : 'unavailable', {
+    date,
+    industries,
+    ...(industries.length > 0
+      ? {}
+      : { message: '本地真实行情库无该交易日的行业聚合数据（未同步或非交易日）' }),
+  });
 }));
 
 router.get('/market/top-gainers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const limit = parseInt(req.query.limit as string) || 10;
   const topGainers = await db.getTopGainers(date, limit);
-  sendSuccess(res, { date, topGainers });
+  sendHonest(res, topGainers.length > 0 ? 'real' : 'unavailable', {
+    date, topGainers,
+    ...(topGainers.length > 0 ? {} : { message: '本地真实行情库无该交易日的涨幅榜数据' }),
+  });
 }));
 
 router.get('/market/top-losers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const limit = parseInt(req.query.limit as string) || 10;
   const topLosers = await db.getTopLosers(date, limit);
-  sendSuccess(res, { date, topLosers });
+  sendHonest(res, topLosers.length > 0 ? 'real' : 'unavailable', {
+    date, topLosers,
+    ...(topLosers.length > 0 ? {} : { message: '本地真实行情库无该交易日的跌幅榜数据' }),
+  });
 }));
 
 router.get('/market/top-turnover', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const date = req.query.date ? new Date(req.query.date as string) : new Date();
   const limit = parseInt(req.query.limit as string) || 10;
   const topTurnover = await db.getTopTurnover(date, limit);
-  sendSuccess(res, { date, topTurnover });
+  sendHonest(res, topTurnover.length > 0 ? 'real' : 'unavailable', {
+    date, topTurnover,
+    ...(topTurnover.length > 0 ? {} : { message: '本地真实行情库无该交易日的换手率榜数据' }),
+  });
 }));
 
 // ==================== 三大指数实时行情 ====================
@@ -381,14 +482,14 @@ router.post('/tech/batch', asyncHandler(async (req, res) => {
   }
 
   if (Object.keys(results).length === 0) {
-    return sendSuccess(res, {
-      dataSource: 'unavailable',
+    // 顶层与 data 内共用同一 dataSource 变量（诚实红线：绝不返回 0 值或空对象冒充真实）
+    return sendHonest(res, 'unavailable', {
       message: '未获得任何标的的技术指标：数据源不可用或历史行情样本不足',
       data: {},
     });
   }
 
-  sendSuccess(res, { dataSource: 'real', data: results });
+  sendHonest(res, 'real', { data: results });
 }));
 
 
@@ -435,7 +536,14 @@ router.get('/data/freshness', asyncHandler(async (_req, res) => {
     };
   }, 60000); // 60秒缓存
 
-  sendSuccess(res, result);
+  // 数据新鲜度本身即「真实库有无数据」的如实反映：无任何真实行时置 unavailable
+  const hasRealRows = latestTradeDate !== null || stockCount > 0;
+  sendHonest(res, hasRealRows ? 'real' : 'unavailable', {
+    ...result,
+    ...(hasRealRows
+      ? {}
+      : { message: '本地真实行情库为空（无最新交易日、无活跃股票），以下计数均为 0 而非行情数据' }),
+  });
 }));
 
 export default router;

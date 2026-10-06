@@ -7,10 +7,10 @@
  *      现有字段结构完全不变，前端可渐进接入。
  */
 
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { db } from '../db/dbFactory';
 import { validateQuery, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess, sendPaginated } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 import {
   fetchConceptBoardsWithMeta,
   scoreConceptBoards,
@@ -21,11 +21,34 @@ import type { ResponseMeta } from '@shared/types';
 
 const router = Router();
 
-/** 数据库直读类接口的 meta：有数据=live，无数据=unavailable（DB 无"历史缓存"层） */
-function dbMeta(rowCount: number, emptyReason: string): ResponseMeta {
+/**
+ * 数据库直读类接口的 meta：有数据=live，无数据=unavailable（DB 无"历史缓存"层）
+ * 同时派生**顶层 dataSource**，由同一入参决定 —— 结构上保证顶层与行级不矛盾（IP-20 教训）。
+ */
+function dbMeta(rowCount: number, emptyReason: string): { meta: ResponseMeta; dataSource: 'real' | 'unavailable' } {
   return rowCount > 0
-    ? { source: 'live', updatedAt: new Date().toISOString() }
-    : { source: 'unavailable', updatedAt: null, error: emptyReason };
+    ? { meta: { source: 'live', updatedAt: new Date().toISOString() }, dataSource: 'real' }
+    : { meta: { source: 'unavailable', updatedAt: null, error: emptyReason }, dataSource: 'unavailable' };
+}
+
+/**
+ * 诚实数据契约发送器：顶层 dataSource 与 data.meta.source 由同一处派生，
+ * 前端可从顶层直接判定，不必先钻进 data 里找 meta。
+ * meta.source 的三态映射：live→real、stale→stale、unavailable→unavailable。
+ */
+function sendHonest(res: Response, dataSource: 'real' | 'unavailable' | 'stale', data: Record<string, unknown>): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/** 概念板块 meta（含上游 stale 回退）→ 顶层 dataSource */
+function conceptDataSource(meta: ResponseMeta): 'real' | 'unavailable' | 'stale' {
+  return meta.source === 'live' ? 'real' : meta.source;
 }
 
 /** 从 dbFactory 代理上取出 knex（内存库模式为 undefined） */
@@ -45,11 +68,12 @@ router.get('/sectors', validateQuery(schemas.sectorQuery), asyncHandler(async (r
     const bVal = (b[sortBy] as number) ?? 0;
     return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
   });
-  sendSuccess(res, {
+  const { meta, dataSource } = dbMeta(industries.length, '该交易日无行业聚合数据（可能未同步或非交易日）');
+  sendHonest(res, dataSource, {
     date: date.toISOString().split('T')[0],
     sectors: industries,
     count: industries.length,
-    meta: dbMeta(industries.length, '该交易日无行业聚合数据（可能未同步或非交易日）'),
+    meta,
   });
 }));
 
@@ -73,7 +97,26 @@ router.get('/sectors/:industry/stocks', asyncHandler(async (req, res) => {
     industry: s.industry,
     latestQuote: s.latestQuote ?? null,
   }));
-  sendPaginated(res, stocks, page, pageSize, totalCount);
+  // 诚实红线：db 直读无历史缓存层，取不到行即 unavailable，
+  // 不用「空分页 + totalCount 0」冒充「真实但该板块无成分股」。
+  if (totalCount === 0) {
+    sendHonest(res, 'unavailable', {
+      items: [],
+      pagination: { page, pageSize, totalCount: 0, totalPages: 0 },
+      industry: decodedIndustry,
+      message: `本地真实股票库无「${decodedIndustry}」板块的成分股，未返回任何个股数据`,
+    });
+    return;
+  }
+  sendHonest(res, 'real', {
+    items: stocks,
+    pagination: {
+      page,
+      pageSize,
+      totalCount,
+      totalPages: Math.ceil(totalCount / pageSize),
+    },
+  });
 }));
 
 router.get('/sectors/ranking', validateQuery(schemas.sectorQuery), asyncHandler(async (req, res) => {
@@ -86,21 +129,20 @@ router.get('/sectors/ranking', validateQuery(schemas.sectorQuery), asyncHandler(
       ? ((b.avg_change_percent as number) ?? 0) - ((a.avg_change_percent as number) ?? 0)
       : ((a.avg_change_percent as number) ?? 0) - ((b.avg_change_percent as number) ?? 0)
   );
-  sendSuccess(res, {
+  const { meta, dataSource } = dbMeta(sorted.length, '该交易日无行业聚合数据（可能未同步或非交易日）');
+  sendHonest(res, dataSource, {
     date: date.toISOString().split('T')[0],
     type,
     ranking: sorted.slice(0, limit),
-    meta: dbMeta(sorted.length, '该交易日无行业聚合数据（可能未同步或非交易日）'),
+    meta,
   });
 }));
 
 // 板块增强数据（含涨停家数）
 router.get('/sectors/performance/enhanced', asyncHandler(async (_req, res) => {
   const sectors = await db.getSectorPerformanceEnhanced();
-  sendSuccess(res, {
-    sectors,
-    meta: dbMeta(sectors.length, '无板块增强数据（stocks/daily_quotes 为空或未同步）'),
-  });
+  const { meta, dataSource } = dbMeta(sectors.length, '无板块增强数据（stocks/daily_quotes 为空或未同步）');
+  sendHonest(res, dataSource, { sectors, meta });
 }));
 
 // 板块景气度综合评分
@@ -108,10 +150,8 @@ router.get('/sectors/momentum', asyncHandler(async (_req, res) => {
   // 首次访问时重分类所有股票
   try { await db.reclassifyAll(); } catch { /* ignore: reclassify is best-effort */ }
   const scores = await db.getSectorMomentumScore();
-  sendSuccess(res, {
-    sectors: scores,
-    meta: dbMeta(scores.length, '无板块景气度数据（stocks/daily_quotes 为空或未同步）'),
-  });
+  const { meta, dataSource } = dbMeta(scores.length, '无板块景气度数据（stocks/daily_quotes 为空或未同步）');
+  sendHonest(res, dataSource, { sectors: scores, meta });
 }));
 
 // 概念板块景气度评分 (P0-1) — 数据源: 腾讯财经概念板块排行
@@ -125,7 +165,8 @@ router.get('/sectors/concept', asyncHandler(async (_req, res) => {
   if (meta.source === 'live') {
     void persistConcepts(knexLike, boards);
   }
-  sendSuccess(res, {
+  // 顶层 dataSource 与 data.meta.source 严格对应（live→real / stale→stale / unavailable→unavailable）
+  sendHonest(res, conceptDataSource(meta), {
     sectors: scores,
     count: scores.length,
     source: 'tencent', // 保留原字段（数据源标识），不要与 meta.source 混淆

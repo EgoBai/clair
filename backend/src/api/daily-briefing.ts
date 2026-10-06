@@ -4,11 +4,25 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import { getMarketRegime } from '../services/engineOrchestrator';
 
 const router = Router();
+
+/**
+ * 诚实数据契约发送器（本文件统一出口）
+ * 顶层 dataSource 与 data 内 dataSource 由**同一个入参**派生，杜绝两级矛盾（IP-20 教训）。
+ */
+function sendHonest(res: Response, dataSource: 'real' | 'unavailable', data: Record<string, unknown>): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
 
 /**
  * GET /api/ai/daily-briefing
@@ -17,14 +31,18 @@ const router = Router();
 router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Response) => {
   const db = getDb();
   const knex = (db as any).connection || (db as any).knexInstance;
-  
+
   // 获取最新交易日
   const latestDate = await knex('daily_quotes')
     .max('trade_date as latest')
     .first();
-  
+
+  // 诚实空态：真实行情库无任何交易日 → unavailable，绝不返回 0 值统计冒充真实简报
   if (!latestDate?.latest) {
-    return sendSuccess(res, { error: 'No data available' });
+    return sendHonest(res, 'unavailable', {
+      error: 'No data available',
+      message: '本地真实行情库无任何交易日数据（daily_quotes 为空或未同步），未生成任何市场简报',
+    });
   }
   
   // 获取市场宽度统计
@@ -114,7 +132,15 @@ router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Respons
     aiSummary: generateAISummary(breadth, marketRegime),
   };
   
-  sendSuccess(res, briefing);
+  // 简报主体全部来自本地真实行情库；宽度统计缺失（如该交易日无任何行情行）时如实置 unavailable
+  const hasRealBreadth = !!breadth && Number(breadth.total) > 0;
+
+  sendHonest(res, hasRealBreadth ? 'real' : 'unavailable', {
+    ...briefing,
+    ...(hasRealBreadth
+      ? {}
+      : { message: `交易日 ${latestDate.latest} 在本地真实行情库中无任何行情行，市场宽度统计不可用（计数为 0 而非真实统计）` }),
+  });
 }));
 
 /**

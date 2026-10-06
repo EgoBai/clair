@@ -18,6 +18,23 @@ const router = Router();
 // F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
 router.use(aiTiming);
 
+/**
+ * 诚实数据契约发送器（本文件统一出口）
+ *
+ * 本文件多数端点用 res.json 直写 { code, data } 形态，顶层无 dataSource；
+ * 这里由**同一个入参**同时写出顶层与 data 内两处，结构上杜绝
+ * IP-20 那类「顶层 real / 行级 unavailable」的矛盾。
+ */
+function sendHonest(res: Response, dataSource: string, data: Record<string, unknown>): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 // ============================================================
 // 对话接口（流式）
 // ============================================================
@@ -100,6 +117,9 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
           res.write(`data: ${JSON.stringify({ content: chunk.content })}\n\n`);
         }
         if (chunk.done) {
+          // 诚实数据契约：SSE 形态无「响应顶层 JSON」，故在终止帧显式带出 dataSource。
+          // 字段名与其它端点一致；前端 chatStream 只读 parsed.content，不受影响。
+          res.write(`data: ${JSON.stringify({ content: '', done: true, dataSource: 'real' })}\n\n`);
           res.write('data: [DONE]\n\n');
           break;
         }
@@ -108,7 +128,8 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
       res.end();
     } catch (error) {
       logger.error('AI chat stream error:', error as Error);
-      res.write(`data: ${JSON.stringify({ content: '\n\n⚠️ AI服务暂时不可用' })}\n\n`);
+      // 诚实降级：LLM 不可用 → 显式 unavailable，不用半截内容冒充完整真实回答
+      res.write(`data: ${JSON.stringify({ content: '\n\n⚠️ AI服务暂时不可用', done: true, dataSource: 'unavailable' })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     }
@@ -117,13 +138,23 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
     try {
       const response = await aiService.chat({ messages });
       res.json({
+        success: true,
+        // 对话文本由 LLM 基于上方注入的真实市场数据生成 → 数据来源为真实
+        dataSource: 'real',
         content: response.content,
         model: response.model,
         usage: response.usage,
+        timestamp: new Date().toISOString(),
       });
     } catch (error) {
       logger.error('AI chat error:', error as Error);
-      res.status(500).json({ error: 'AI服务暂时不可用' });
+      res.status(500).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: 'AI服务暂时不可用',
+        message: 'LLM 网关不可用（余额不足/超时/模型错误），未生成任何对话内容',
+        timestamp: new Date().toISOString(),
+      });
     }
   }
 }));
@@ -153,10 +184,23 @@ router.get('/ai/market-analysis', asyncHandler(async (_req: Request, res: Respon
       : '\n注意：涨跌分布/成交额数据当前暂不可用，请仅基于上方三大指数数据进行客观分析，不要臆测涨跌家数。';
 
     const analysis = await aiService.analyzeMarket(marketData, note);
-    res.json({ analysis, dataSource: 'real', breadthAvailable: !!breadth });
+    res.json({
+      success: true,
+      dataSource: 'real',
+      analysis,
+      breadthAvailable: !!breadth,
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     logger.error('Market analysis error:', error as Error);
-    res.status(500).json({ error: '市场分析失败：真实行情源不可用', dataSource: 'real' });
+    // 诚实红线：源不可达即 unavailable（此前此处误标 real，属IP-20 两级矛盾同类问题）
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '市场分析失败：真实行情源不可用',
+      message: '未获得任何真实指数数据，市场分析未生成',
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 
@@ -272,10 +316,17 @@ router.get('/ai/diagnose/:symbol', asyncHandler(async (req: Request, res: Respon
   try {
     const { stockData, dataSource } = await resolveStockData(symbol);
     const diagnosis = await aiService.diagnoseStock(stockData);
-    res.json({ diagnosis, dataSource });
+    // 顶层与行级同用 resolveStockData 的结论（real / demo），不允许两级矛盾
+    sendHonest(res, dataSource, { diagnosis });
   } catch (error) {
     logger.error('Stock diagnosis error:', error as Error);
-    res.status(500).json({ error: '个股诊断失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '个股诊断失败',
+      message: '未获得任何真实个股数据，诊断未生成',
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 
@@ -302,10 +353,16 @@ router.post('/ai/strategy', asyncHandler(async (req: Request, res: Response) => 
     };
 
     const strategy = await aiService.generateStrategy(stockData, userPreference);
-    res.json({ strategy, dataSource });
+    sendHonest(res, dataSource, { strategy });
   } catch (error) {
     logger.error('Strategy generation error:', error as Error);
-    res.status(500).json({ error: '策略生成失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '策略生成失败',
+      message: '未获得任何真实个股数据，策略未生成',
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 
@@ -319,10 +376,24 @@ router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Respons
     const briefing = await aiService.chatWithAI(
       '请生成今日A股市场简报，包括：\n1. 大盘表现\n2. 热点板块\n3. 重要消息\n4. 操作建议'
     );
-    res.json({ briefing });
+    // 诚实红线：本端点为纯 LLM 生成、**未接入任何真实行情源**（见上方 TODO），
+    // 故置 unavailable，避免与 daily-briefing.ts 的真实库简报（real）混淆。
+    res.json({
+      success: true,
+      dataSource: 'unavailable',
+      briefing,
+      message: '本端点为 LLM 直出简报，尚未接入真实行情数据源；真实数据简报见 /api/ai/daily-briefing（daily-briefing 路由）',
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     logger.error('Daily briefing error:', error as Error);
-    res.status(500).json({ error: '简报生成失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '简报生成失败',
+      message: 'LLM 不可用，未生成任何简报内容',
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 
@@ -436,10 +507,17 @@ router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Respons
     const { getDb } = await import('../db/dbFactory');
     const db = getDb();
     const insight = await buildRuleInsight(db);
-    res.json({ success: true, data: insight });
+    // buildRuleInsight 全部指标来自本地真实行情库（getMarketSummary + 板块景气度）
+    sendHonest(res, 'real', insight as Record<string, unknown>);
   } catch (error) {
     console.error('[AIChat] 获取市场洞察失败:', error);
-    res.status(500).json({ success: false, error: '获取市场洞察失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '获取市场洞察失败',
+      message: '未获得任何真实市场数据，市场洞察未生成',
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 
@@ -481,10 +559,21 @@ ${stockSummary}
       maxTokens: 500,
     });
 
-    res.json({ summary: aiResponse.content });
+    res.json({
+      success: true,
+      dataSource: 'real',
+      summary: aiResponse.content,
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     logger.error('Watchlist summary error:', error as Error);
-    res.status(500).json({ error: '追踪总结生成失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '追踪总结生成失败',
+      message: 'LLM 不可用，未生成任何自选股总结',
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 
@@ -527,10 +616,21 @@ ${trades?.slice(0, 10).map((t: any) =>
       maxTokens: 800,
     });
 
-    res.json({ analysis: aiResponse.content });
+    res.json({
+      success: true,
+      dataSource: 'real',
+      analysis: aiResponse.content,
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     logger.error('Trade analysis error:', error as Error);
-    res.status(500).json({ error: '交易分析失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '交易分析失败',
+      message: 'LLM 不可用，未生成任何交易分析',
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 
@@ -636,18 +736,26 @@ ${topSectors.map(s => `- ${s.industry}: 景气度${s.score}分, 涨幅${s.avg_ch
     
     // 解析LLM输出，生成结构化数据
     const insight = parseMarketInsight(aiResponse.content, marketData);
-    
-    res.json({ data: { ...insight, source: 'llm' }, success: true });
+
+    // LLM 文本 + 板块景气度/涨跌家数（本地真实行情库）→ real
+    sendHonest(res, 'real', { ...insight, source: 'llm' });
   } catch (error) {
     // LLM 不可用（余额不足/超时/模型错误等）时降级为规则引擎结果，保证前端始终有内容可展示
     logger.error('LLM market insight failed, falling back to rule engine:', error as Error);
     try {
       const db = getDb();
       const fallback = await buildRuleInsight(db);
-      res.json({ success: true, data: { ...fallback, source: 'rule' } });
+      // 降级源仍是本地真实行情库，只是解读方式由 LLM 换成规则引擎 → 仍为 real（如实标注 source:'rule'）
+      sendHonest(res, 'real', { ...fallback, source: 'rule' });
     } catch (fallbackErr) {
       logger.error('Rule engine fallback also failed:', fallbackErr as Error);
-      res.status(500).json({ error: '市场解读生成失败' });
+      res.status(500).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '市场解读生成失败',
+        message: 'LLM 与规则引擎均未产出任何市场解读',
+        timestamp: new Date().toISOString(),
+      });
     }
   }
 }));

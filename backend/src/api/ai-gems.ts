@@ -157,6 +157,10 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
 
   const totalCount = rawStocks.length;
 
+  // 诚实数据契约：本地真实行情库无任何标的 → 顶层/行级 dataSource 同置 unavailable。
+  // 绝不用空结果 + 0 值分布冒充「真实但今日无潜力股」。
+  const dataSource: 'real' | 'unavailable' = totalCount > 0 ? 'real' : 'unavailable';
+
   // ====== 阶段2: 百分位评分 (幂次=1.3 拉开顶部差距) ======
   const POWER = 1.1;
   const momentumScores  = computePercentileScores(rawStocks.map(s => s.momentumRaw), 20, POWER);
@@ -261,12 +265,16 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
   const midCap = topGems.filter(g => g.sizeScore >= 10).length;
 
   const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+  // 诚实红线：totalCount 为 0 时不做除法（否则得到 NaN% 的伪统计），如实说明无可评分标的
+  const pct = (n: number) => (totalCount > 0 ? ((n / totalCount) * 100).toFixed(1) : '—');
   const aiSummary = [
     `📊 **${today} 潜力股雷达扫描报告**`,
     ``,
-    `全市场 ${totalCount} 只标的，百分位模型 v3.0 扫描：`,
-    `≥${minScore}分: **${gems.length}** 只（前 ${((gems.length/totalCount)*100).toFixed(1)}%）`,
-    `≥80分（优质）: **${over80}** 只（前 ${((over80/totalCount)*100).toFixed(1)}%）`,
+    dataSource === 'unavailable'
+      ? `⚠️ 本地真实行情库无可评分标的（0 只），以下分布均为空，不代表市场真实选股结果。`
+      : `全市场 ${totalCount} 只标的，百分位模型 v3.0 扫描：`,
+    dataSource === 'unavailable' ? `` : `≥${minScore}分: **${gems.length}** 只（前 ${pct(gems.length)}%）`,
+    dataSource === 'unavailable' ? `` : `≥80分（优质）: **${over80}** 只（前 ${pct(over80)}%）`,
     ``,
     `**📈 全市场分布：**`,
     `  90+: ${buckets['90+']}  |  80-89: ${buckets['80-89']}  |  70-79: ${buckets['70-79']}`,
@@ -283,8 +291,10 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
     `⚠️ 量化筛选结果，不构成投资建议。`,
   ].join('\n');
 
-  res.json({
+  res.status(200).json({
     success: true,
+    // 顶层 dataSource 与 data 内由同一变量派生，杜绝两级矛盾（IP-20 教训）
+    dataSource,
     data: {
       gems: topGems,
       total: gems.length,
@@ -302,7 +312,12 @@ router.post('/ai/gems', asyncHandler(async (req: Request, res: Response) => {
         penalty: '负向: 跌>3%(-10) PE>100(-5) 亏损(-8)',
       },
       scoring: '总分(30-98) = Σ百分位分 + 行业 + 质量 - 负向惩罚',
+      dataSource,
+      ...(dataSource === 'unavailable'
+        ? { message: '本地真实行情库无可用标的（stocks/daily_quotes 为空或未同步），未返回任何选股结果' }
+        : {}),
     },
+    timestamp: new Date().toISOString(),
   });
 }));
 

@@ -6,7 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { queryCache } from '../utils/queryCache';
 import { validateParams, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 
 import { aiTiming } from '../middleware/aiTiming';
 import { buildRealDiagnosis } from '../services/aiDiagnosisEngine';
@@ -15,6 +15,22 @@ const router = Router();
 
 // F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
 router.use(aiTiming);
+
+/**
+ * 诚实数据契约发送器（本文件统一出口）
+ *
+ * 顶层 dataSource 与 data 内 dataSource 由**同一个入参**派生，
+ * 结构上杜绝 IP-20 那类「顶层 real / 行级 unavailable」的矛盾。
+ */
+function sendHonest(res: Response, dataSource: 'real' | 'unavailable', data: Record<string, unknown>): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
 
 // 模拟 AI 选股推荐数据
 function generateRecommendations(strategy?: string) {
@@ -97,7 +113,9 @@ function generateRecommendations(strategy?: string) {
   }));
 }
 
-// AI 选股推荐列表
+// 诚实红线警示（下方 generateRecommendations 为**硬编码静态表**，非真实行情）：
+// 该端点在本文件中的副本被 app.ts 更早挂载的 ai-analysis.ts（真实源）遮蔽，
+// 但为防本路由被单独挂载/调整顺序后把静态表当真实数据输出，此处一律置 unavailable。
 router.get('/ai/recommendations', asyncHandler(async (req: Request, res: Response) => {
   const strategy = req.query.strategy as string;
 
@@ -108,13 +126,15 @@ router.get('/ai/recommendations', asyncHandler(async (req: Request, res: Respons
     600000 // 10分钟缓存
   );
 
-  sendSuccess(res, {
+  sendHonest(res, 'unavailable', {
     recommendations: strategy ? [data] : data,
     updatedAt: new Date().toISOString(),
+    message: '本端点返回的是硬编码静态策略表，非真实行情数据；真实选股请用 /api/ai/recommendations（ai-analysis 真实源）',
   });
 }));
 
 // AI 个股诊断（诚实数据版：评分来自真实行情/财务，无真实数据则标注 unavailable，绝不随机伪造）
+// dataSource 由 buildRealDiagnosis 的行级结论派生，保证顶层与行级一致。
 router.get('/ai/diagnose/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
 
@@ -125,10 +145,11 @@ router.get('/ai/diagnose/:symbol', validateParams(schemas.stockSymbol), asyncHan
     600000
   );
 
-  sendSuccess(res, diagnosis);
+  sendHonest(res, diagnosis.dataSource, diagnosis as unknown as Record<string, unknown>);
 }));
 
 // 行业轮动分析
+// 诚实红线：本路由的数据源为**硬编码静态板块表**（非真实行情），故一律置 unavailable。
 router.get('/ai/sector-rotation', asyncHandler(async (_req: Request, res: Response) => {
   const cacheKey = 'ai:sector-rotation';
   const data = await queryCache.query(
@@ -159,10 +180,14 @@ router.get('/ai/sector-rotation', asyncHandler(async (_req: Request, res: Respon
     600000
   );
 
-  sendSuccess(res, data);
+  sendHonest(res, 'unavailable', {
+    ...data,
+    message: '本端点返回的是硬编码静态板块轮动表，非真实行情数据；真实轮动请用 /api/ai/sector-rotation（ai-analysis 真实源）',
+  });
 }));
 
 // 智能预警优化建议
+// 诚实红线：本路由为**静态预警规则模板**，不含任何真实行情数值，故置 unavailable。
 router.get('/ai/alert-suggestions', asyncHandler(async (_req: Request, res: Response) => {
   const cacheKey = 'ai:alert-suggestions';
   const suggestions = await queryCache.query(
@@ -217,7 +242,10 @@ router.get('/ai/alert-suggestions', asyncHandler(async (_req: Request, res: Resp
     600000
   );
 
-  sendSuccess(res, suggestions);
+  sendHonest(res, 'unavailable', {
+    ...suggestions,
+    message: '本端点返回的是静态预警规则模板，不含真实行情数据',
+  });
 }));
 
 export default router;
