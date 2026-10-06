@@ -242,6 +242,14 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
         // 里 0 分对应 label '弱势'）。计算失败时必须为 null，
         // 由前端显示「不可用」，绝不用 0 冒充一个真实评分。
         temperature: { score: null, label: '未知' },
+        // breadth / limitUp 同样是业务量（上涨家数 / 涨停家数）。旧实现在降级分支
+        // **整个省略**这两个字段，前端 `pulse.breadth?.rising` 拿到 undefined，
+        // React 渲染成空串→ 显示「上涨　/　下跌　（占比　%）」「涨停　只」，
+        // 用户看到的是残缺文案而非明确的「不可用」。
+        // 显式声明为 null（而非省略）：既让契约形状完整、前端能区分
+        // 「不可用」与「字段不存在」，也避免将来有人误用 ?? 0 再造一个假 0。
+        breadth: null,
+        limitUp: null,
         themes: [],
         risks: [{ level: 'low', label: '数据暂不可用', detail: '市场信号计算失败' }],
         candidates: [],
