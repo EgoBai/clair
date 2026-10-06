@@ -31,6 +31,15 @@ const GREEN = '#22c55e';
 // 不是字面量 #667eea —— 断言必须跟真实渲染出的值对齐，否则测试会假失败。
 const ORANGE = 'var(--accent-solid)';
 
+/**
+ * jsdom 会把内联 style 里的十六进制色归一化成 `rgb(r, g, b)`，
+ * 所以在 DOM 断言里不能直接 `toContain('#ef4444')`（会假失败）。
+ * 这里统一按 rgb 形态断言，这才是 DOM 里真实存在的字符串。
+ */
+const RED_RGB = 'rgb(239, 68, 68)';   // #ef4444
+const GREEN_RGB = 'rgb(34, 197, 94)'; // #22c55e
+const NEUTRAL_RGB = 'rgb(148, 163, 184)'; // #94a3b8
+
 describe('P0-TEMPGAUGE · 市场温度仪表盘诚实契约', () => {
   describe('场景 B：后端降级态 score: null（核心回归）', () => {
     it('score 为 null 时 available 必须为 false，且 score 不得被替换成 0', () => {
@@ -164,10 +173,11 @@ describe('P0-TEMPGAUGE · 市场温度仪表盘诚实契约', () => {
     });
 
     it('DOM 中不出现任何档位色（strokeColor 不是 #ef4444）', () => {
-      const html = domOf(<MarketTemperatureGauge temperature={{ score: null, label: '未知' }} />);
-      expect(html).not.toContain(RED);
-      expect(html).not.toContain(GREEN);
-      expect(html).toContain(GAUGE_UNAVAILABLE_COLOR);
+      const { container } = render(<MarketTemperatureGauge temperature={{ score: null, label: '未知' }} />);
+      const html = container.innerHTML;
+      expect(html).not.toContain(RED_RGB);
+      expect(html).not.toContain(GREEN_RGB);
+      expect(html).toContain(NEUTRAL_RGB);
       // aria 层面也必须可读出「不可得」
       expect(screen.getByLabelText('市场温度暂不可用')).toBeTruthy();
     });
@@ -194,7 +204,7 @@ describe('P0-TEMPGAUGE · 市场温度仪表盘诚实契约', () => {
 
     it('score=72 → DOM 颜色为绿色档', () => {
       const { container } = render(<MarketTemperatureGauge temperature={{ score: 72, label: '偏暖' }} />);
-      expect(container.innerHTML).toContain(GREEN);
+      expect(container.innerHTML).toContain(GREEN_RGB);
       expect(screen.getByTestId('gauge-text').textContent).toContain('72/100');
     });
 
@@ -202,12 +212,12 @@ describe('P0-TEMPGAUGE · 市场温度仪表盘诚实契约', () => {
       const { container: realC, unmount } = render(<MarketTemperatureGauge temperature={{ score: 0, label: '弱势' }} />);
       const realHtml = realC.innerHTML;
       expect(screen.getByTestId('gauge-text').textContent).toContain('0/100');
-      expect(realHtml).toContain(RED);
+      expect(realHtml).toContain(RED_RGB);
       unmount();
 
       render(<MarketTemperatureGauge temperature={{ score: null, label: '未知' }} />);
       const missingHtml = document.body.innerHTML;
-      expect(missingHtml).not.toContain(RED);
+      expect(missingHtml).not.toContain(RED_RGB);
       expect(missingHtml).not.toContain('0/100');
       expect(missingHtml).not.toBe(realHtml);
     });
