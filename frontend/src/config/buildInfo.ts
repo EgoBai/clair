@@ -48,7 +48,10 @@ function normalizeCommit(raw: unknown): string | null {
  * 本地 dev 与未配置 CI 时全为 undefined——这是正常降级路径。
  */
 export function getBuildTimeInfo(): BuildInfo {
-  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+  // 显式标注类型：`|| {}` 会让 env 变成 `ImportMetaEnv | {}` 联合类型，
+  // 访问任何属性都变成 TS2339。断言成 ImportMetaEnv 即可安全访问。
+  const env: ImportMetaEnv =
+    (typeof import.meta !== 'undefined' && import.meta.env) || ({} as ImportMetaEnv);
   const full = normalizeCommit(env.VITE_GIT_COMMIT_SHA ?? env.VITE_BUILD_COMMIT);
   const appVersion = typeof env.VITE_APP_VERSION === 'string' && env.VITE_APP_VERSION.trim()
     ? env.VITE_APP_VERSION.trim()
