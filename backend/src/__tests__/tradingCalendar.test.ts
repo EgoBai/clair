@@ -26,6 +26,9 @@ import {
   addDays,
   daysBetween,
   resetTradingCalendarCache,
+  calendarPrecisionOfYear,
+  reconcileCalendarWithQuotes,
+  candidateTradingDaysWithData,
 } from '../utils/tradingCalendar';
 
 /**
@@ -269,6 +272,93 @@ describe('tradingCalendar（生产实现）', () => {
     it('2026 年交易日总数应为 242 天（算术自洽校验）', () => {
       // 2026 共 261 个工作日，扣除 19 个法定休市工作日 = 242
       expect(tradingDaysBetween('2026-01-01', '2026-12-31')).toHaveLength(242);
+    });
+  });
+
+  describe('2025 年内置表（公告原文，2024-12-23 发布）', () => {
+    it('2025 法定假日工作日均判为非交易日', () => {
+      for (const d of [
+        '2025-01-01', // 元旦 Wed
+        '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', // 春节
+        '2025-04-04', // 清明 Fri
+        '2025-05-01', '2025-05-02', '2025-05-05', // 劳动节
+        '2025-06-02', // 端午 Mon
+        '2025-10-01', '2025-10-02', '2025-10-03', '2025-10-06', '2025-10-07', '2025-10-08', // 国庆中秋
+      ]) {
+        expect(isTradingDay(d)).toBe(false);
+      }
+    });
+
+    it('2025 春节 1/28–2/4 休市，2/5 起开市', () => {
+      expect(tradingDaysBetween('2025-01-28', '2025-02-04')).toEqual([]);
+      expect(isTradingDay('2025-02-05')).toBe(true);
+    });
+
+    it('2025 国庆中秋 10/1–10/8 休市，10/9 起开市', () => {
+      expect(tradingDaysBetween('2025-10-01', '2025-10-08')).toEqual([]);
+      expect(isTradingDay('2025-10-09')).toBe(true);
+    });
+
+    it('2025 交易日总数应为 243 天', () => {
+      expect(tradingDaysBetween('2025-01-01', '2025-12-31')).toHaveLength(243);
+    });
+  });
+
+  describe('精度标注（诚实红线：不得静默假装全年精确）', () => {
+    it('2025/2026 有交易所公告 → official', () => {
+      expect(calendarPrecisionOfYear(2025)).toBe('official');
+      expect(calendarPrecisionOfYear(2026)).toBe('official');
+    });
+
+    it('2027 交易所公告未发布 → provisional（近似）', () => {
+      // 交易所历年于头一年12月中下旬发布次年安排，2027 公告尚未发布
+      expect(calendarPrecisionOfYear(2027)).toBe('provisional');
+    });
+
+    it('未覆盖年份 → unavailable', () => {
+      expect(calendarPrecisionOfYear(2030)).toBe('unavailable');
+    });
+
+    it('provisional 年份的 resolveQueryDate 必须声明近似', async () => {
+      const r = await resolveQueryDate('2027-10-05', { useDatabase: false });
+      expect(r.note).toContain('尚未发布');
+      expect(r.note).toContain('近似');
+    });
+
+    it('unavailable 年份的 resolveQueryDate 必须声明精度较低', async () => {
+      const r = await resolveQueryDate('2030-01-02', { useDatabase: false });
+      expect(r.note).toContain('内置日历未覆盖');
+      expect(r.note).toContain('精度较低');
+    });
+  });
+
+  describe('日历 × 库对账（reconcileCalendarWithQuotes）', () => {
+    it('应区分「佐证/库中缺/抹布行」三类', () => {
+      const calendarDays = ['2026-09-24', '2026-09-25', '2026-09-28'];
+      const quoteDates = new Set(['2026-09-24', '2026-10-06']); // 10-06 是抹布行
+
+      const r = reconcileCalendarWithQuotes(calendarDays, quoteDates);
+
+      expect(r.corroborated).toEqual(['2026-09-24']); // 09-24 日历与库一致
+      expect(r.missingInDb).toEqual(['2026-09-25', '2026-09-28']); // 日历有、库无
+      expect(r.smearedInDb).toEqual(['2026-10-06']); // 库有、日历判非交易日
+    });
+
+    it('抹布行绝不可出现在「日历有数据佐证」的候选里', () => {
+      const r = reconcileCalendarWithQuotes(
+        ['2026-09-24'],
+        new Set(['2026-09-24', '2026-10-06']),
+      );
+      expect(r.corroborated).not.toContain('2026-10-06');
+    });
+
+    it('连续佐证天数应正确统计（连续段取最长）', () => {
+      //09-22/09-24 连续；09-18 之后断开
+      const r = reconcileCalendarWithQuotes(
+        ['2026-09-18', '2026-09-22', '2026-09-23', '2026-09-24'],
+        new Set(['2026-09-18', '2026-09-22', '2026-09-23', '2026-09-24']),
+      );
+      expect(r.consecutiveEvidence).toBe(3); // 09-22~09-24 连续 3 天
     });
   });
 });

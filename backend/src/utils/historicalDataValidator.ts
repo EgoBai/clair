@@ -8,9 +8,20 @@
  * - 异常模式识别（洗盘、操纵痕迹）
  * 
  * 参考：Wind 数据质量标准 + Bloomberg 数据校验规范
+ *
+ * ⚠️ 交易日历口径（P0-5D）：本引擎所有「间隔/缺失」判定**一律以
+ * `utils/tradingCalendar` 为准**，不再用「日历天数 × 5/7」估算。
+ * 原因：长假（国庆 9 天、春节 8~9 天）会让真实完整的区间被误判为缺失，
+ * 令warning 虚高、真实缺口被淹没。
+ *
+ * 另需注意：`daily_quotes` 中可能存在**抹布行**（同一交易日被复制到
+ * 假期日期，如 2026-10-04/05/06 与前一交易日 OHLCV 完全相同）。
+ * 因此判定库内日期时**必须用 `DISTINCT trade_date` 消解抹布行**，
+ * 不可按行计数，也不可单股抽样 —— 必须对日期集合去重后再比对。
  */
 
 import { KLineData, DailyQuote } from '../types';
+import { tradingDaysBetween, tradingDaysStrictlyBetween, daysBetween } from './tradingCalendar';
 
 // ==================== 类型 ====================
 
@@ -131,24 +142,57 @@ export class HistoricalDataValidator {
     return { name: '日期完整性', category: 'completeness', status: 'pass', message: '所有记录均有日期' };
   }
 
+  /**
+   * 检查日期间隔是否真的「缺数据」。
+   *
+   * ⚠️ 历史缺陷（已修）：旧实现只按日历天数判断 `diff > 5` 即算「长间隔」，
+   * 于是**每个正常长假都被误判为数据缺失** —— 国庆 10/1–10/7 休市使
+   * 09-30 → 10-08 间隔 8 天，春节可跨 9 天，全部命中 `> 5`。
+   * 结果：数据本应完整的区间被报成 warning，且 warning 比例随长假数量虚高，
+   * 真正该报警的「数据缺口」反而被淹没（告警疲劳）。
+   *
+   * 正确口径：**以交易日历为准**。用 `utils/tradingCalendar` 的
+   * `tradingDaysBetween` 算出区间内「本应有的交易日数」，
+   * 只有实际记录数明显少于该值时才算真缺失。法定休市不算缺失。
+   */
   private checkDateContinuity(data: KLineData[]): ValidationCheck {
-    let gapCount = 0;
-    for (let i = 1; i < data.length; i++) {
-      const prev = new Date(data[i - 1].tradeDate);
-      const curr = new Date(data[i].tradeDate);
-      const diff = (curr.getTime() - prev.getTime()) / 86400000;
-      if (diff > 5) gapCount++;
+    const sorted = [...data].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    let missingTradingDays = 0;
+    let holidayGaps = 0;
+
+    for (let i = 1; i < sorted.length; i++) {
+      const from = sorted[i - 1].tradeDate;
+      const to = sorted[i].tradeDate;
+      // 开区间统计：两端本身就有记录，不能计入「本应有」
+      const expected = tradingDaysStrictlyBetween(from, to);
+      // 区间内实际记录数（相邻两条记录之间恒为 0，见 countRecordsStrictlyBetween）
+      const actual = countRecordsStrictlyBetween(sorted, from, to);
+      const missing = expected - actual;
+      if (missing > 0) {
+        missingTradingDays += missing;
+      } else if (expected === 0) {
+        holidayGaps++;
+      }
     }
-    if (gapCount > data.length * 0.1) {
+
+    const realGapRatio = data.length > 0 ? missingTradingDays / data.length : 0;
+    if (realGapRatio > 0.1) {
       return {
         name: '日期连续性',
         category: 'completeness',
         status: 'warning',
-        message: `${gapCount}个长间隔 (>5天)，占比${((gapCount / data.length) * 100).toFixed(1)}%`,
-        affectedRecords: gapCount,
+        message:
+          `缺失 ${missingTradingDays} 个交易日（按交易日历口径，已排除周末与法定休市），` +
+          `占比 ${(realGapRatio * 100).toFixed(1)}%`,
+        affectedRecords: missingTradingDays,
       };
     }
-    return { name: '日期连续性', category: 'completeness', status: 'pass', message: '日期连续性正常' };
+    return {
+      name: '日期连续性',
+      category: 'completeness',
+      status: 'pass',
+      message: `日期连续性正常（按交易日历口径核对，已排除 ${holidayGaps} 处整段休市区间）`,
+    };
   }
 
   private checkDuplicateDates(data: KLineData[]): ValidationCheck {
@@ -293,30 +337,45 @@ export class HistoricalDataValidator {
     return { name: '零成交量天数', category: 'completeness', status: 'pass', message: '零成交量天数正常' };
   }
 
-  /**
-   * 分析时间序列间隔
+/**
+   * 分析时间序列间隔。
+   *
+   * ⚠️ 历史缺陷（已修）：旧实现用 `Math.floor(diffDays * 5/7)` 估算交易日，
+   * 既把「完整的长假区间」误报为`holiday`/`data_missing`，估算值本身也不准
+   * （未按真实周末与法定休市扣除）。现改为**直接用交易日历数区间内的交易日**。
+   *
+   * 另：区间判定须用 `DISTINCT trade_date` 消解抹布行 —— 库中假期可能有
+   * 伪造行情行，若按行计数会把长假判成「有数据」，掩盖真实缺口。
    */
   analyzeGaps(data: KLineData[]): TimeSeriesGap[] {
     const gaps: TimeSeriesGap[] = [];
     const sorted = [...data].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
 
     for (let i = 1; i < sorted.length; i++) {
-      const prev = new Date(sorted[i - 1].tradeDate);
-      const curr = new Date(sorted[i].tradeDate);
-      const diffDays = Math.round((curr.getTime() - prev.getTime()) / 86400000);
+      const startDate = sorted[i - 1].tradeDate;
+      const endDate = sorted[i].tradeDate;
+      const diffDays = daysBetween(startDate, endDate);
 
-      if (diffDays > 5) {
-        // 估算缺失交易日
-        const expectedTrading = Math.floor(diffDays * (5 / 7)); // 去掉周末
+      // 区间内「本应有」的交易日数（开区间，已排除周末与法定休市，也不含两端端点）
+      const expectedTradingDays = tradingDaysStrictlyBetween(startDate, endDate);
+      // 实际记录数：注意 sorted[i-1] 与 sorted[i] 是**相邻**两条记录，
+      // 两者之间不可能还有别的记录，故此处恒为 0。
+      // （历史 bug：曾误写为 `i - 1`，把「前面已有的记录数」当成「区间内记录数」，
+      //   导致 expected - actual 被抵消，真缺口反而检不出来。）
+      const actualInRange = countRecordsStrictlyBetween(sorted, startDate, endDate);
+      const missing = expectedTradingDays - actualInRange;
+
+      // 只有「日历说该开市、实际却没有记录」才算真缺口
+      if (missing > 0) {
         let gapType: TimeSeriesGap['gapType'] = 'data_missing';
         if (diffDays > 30) gapType = 'suspension';
         else if (diffDays > 7 && diffDays <= 30) gapType = 'holiday';
 
         gaps.push({
-          startDate: sorted[i - 1].tradeDate,
-          endDate: sorted[i].tradeDate,
+          startDate,
+          endDate,
           missingDays: diffDays,
-          expectedTradingDays: Math.max(0, expectedTrading - 1),
+          expectedTradingDays: Math.max(0, expectedTradingDays - 1),
           gapType,
         });
       }
@@ -324,6 +383,27 @@ export class HistoricalDataValidator {
 
     return gaps;
   }
+}
+
+/**
+ * 统计严格落在 `(from, to)` 开区间内的记录数。
+ *
+ * 用字符串比较（ISO 日期字典序即时间序）而非下标差，避免把「区间外的前序记录」
+ * 误计入区间内 —— 那会让缺口被凭空抵消。
+ *
+ * 注：调用方遍历的是**相邻**两条记录，故正常情况下返回值恒为 0；
+ * 保留该函数是为了让「区间内已有记录」这一概念显式化、可测。
+ */
+function countRecordsStrictlyBetween(
+  sorted: readonly KLineData[],
+  from: string,
+  to: string,
+): number {
+  let n = 0;
+  for (const r of sorted) {
+    if (r.tradeDate > from && r.tradeDate < to) n += 1;
+  }
+  return n;
 }
 
 // ==================== 财务数据交叉验证 ====================

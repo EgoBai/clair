@@ -75,17 +75,163 @@ const HOLIDAY_RANGES_2026: readonly HolidayRange[] = [
   { from: '2026-10-01', to: '2026-10-07', name: '国庆节' },
 ] as const;
 
-/** 当前内置日历覆盖的年份（含）。超出该年份时日历退化为「仅周末规则」。 */
-const BUILTIN_TABLE_YEARS = 2026;
+/**
+ * 内置 2025 年休市安排 —— 交易所公告原文（2024-12-23 沪深北交易所发布）。
+ *
+ * 之所以补 2025：本地 `daily_quotes` 覆盖 2025 年，历史数据校验
+ * （historicalDataValidator）与「数据截至某日」类查询都会命中该年，
+ * 若缺表会把 2025 的法定假日误判为交易日。
+ */
+const HOLIDAY_RANGES_2025: readonly HolidayRange[] = [
+  { from: '2025-01-01', to: '2025-01-01', name: '元旦' },
+  { from: '2025-01-28', to: '2025-02-04', name: '春节' },
+  { from: '2025-04-04', to: '2025-04-06', name: '清明节' },
+  { from: '2025-05-01', to: '2025-05-05', name: '劳动节' },
+  { from: '2025-05-31', to: '2025-06-02', name: '端午节' },
+  { from: '2025-10-01', to: '2025-10-08', name: '国庆节、中秋节' },
+] as const;
+
+/**
+ * 内置 2027 年休市安排 —— **临时表（provisional），精度低于 2025/2026**。
+ *
+ * 截至本模块编写时（2026-10），沪深北交易所**尚未发布 2027 年休市安排**
+ * （历年均在头一年 12 月中下旬发布，2026 年安排即2025-12-22 公告）。
+ * 因此下表按「国务院公布的 2027 年法定节假日 + A 股惯例」推导，**不是官方公告原文**。
+ *
+ * 推导依据（法定节假日，来源为国务院办公厅2027 年放假安排公开信息）：
+ *   元旦 1/1(五)｜春节 2/5(五)–2/11(四)｜清明 4/5(一)｜劳动节 5/1(六)–5/5(三)
+ *   端午 6/9(三)｜中秋 9/15(三)｜国庆 10/1(五)–10/7(四)
+ *
+ * ⚠️ **已知不确定项**（公告发布后必须逐项核对，此处先按惯例取值）：
+ *   - 春节 2027-02-06 为周六，2/5(五) 与 2/11(四) 是否休市取决于调休安排；
+ *   - 劳动节 2027-05-01 为周六，5/4(周二) 是否补休取决于官方安排；
+ *   - **元旦 2027-01-04(周一) 是否休市存疑**：本表按「1/1–1/3 休市、1/4 上班」取值
+ *     （因1/1 是周五、1/2–1/3 为周末）；若官方安排调休，则该日应休市、交易日数
+ *     将由 239 变为 238。`tradingCalendarHypothesis.test.ts` 会就此发出
+ *     `::warning::`，提示按公告更新。
+ *   故 2027 年 isTradingDay() 的返回应视为**近似**，note 会显式声明精度来源。
+ *
+ * 维护须知：交易所公告发布后，用公告原文替换本表，并把
+ * {@link CALENDAR_PRECISION} 中2027 的标注升级为 'official'。
+ */
+const HOLIDAY_RANGES_2027_PROVISIONAL: readonly HolidayRange[] = [
+  { from: '2027-01-01', to: '2027-01-03', name: '元旦' },
+  { from: '2027-02-05', to: '2027-02-11', name: '春节' },
+  { from: '2027-04-03', to: '2027-04-05', name: '清明节' },
+  { from: '2027-04-30', to: '2027-05-05', name: '劳动节' },
+  { from: '2027-06-09', to: '2027-06-11', name: '端午节' },
+  { from: '2027-09-15', to: '2027-09-17', name: '中秋节' },
+  { from: '2027-10-01', to: '2027-10-07', name: '国庆节' },
+] as const;
+
+/** 每年内置休市表及其精度等级 */
+interface YearCalendar {
+  readonly ranges: readonly HolidayRange[];
+  /**
+   * `'official'`= 交易所公告原文（2026）
+   * `'provisional'` = 法定节假日推导，交易所公告未发布（2027）
+   * `null` = 该年无内置表，退化为「仅周末规则」
+   */
+  readonly precision: 'official' | 'provisional' | null;
+}
+
+/** 内置日历表总表。未列出的年份 → 精度为 null（仅周末规则） */
+const BUILTIN_CALENDARS: Readonly<Record<number, YearCalendar>> = {
+  2025: { ranges: HOLIDAY_RANGES_2025, precision: 'official' },
+  2026: { ranges: HOLIDAY_RANGES_2026, precision: 'official' },
+  2027: { ranges: HOLIDAY_RANGES_2027_PROVISIONAL, precision: 'provisional' },
+};
+
+/**
+ * 取某年内置日历的精度等级。
+ * @returns `'official'` / `'provisional'` / `'unavailable'`（无内置表）
+ */
+export function calendarPrecisionOfYear(year: number): 'official' | 'provisional' | 'unavailable' {
+  return BUILTIN_CALENDARS[year]?.precision ?? 'unavailable';
+}
 
 /** PG 行情日期缓存有效期：交易日集合变化极慢，10 分钟足够，避免端点高频打库。 */
 const PG_CACHE_TTL_MS = 10 * 60 * 1000;
 
-/** 单次向PG 拉取的近期行情日期个数（够覆盖一次长假回退）。 */
+/**
+ * 候选交易日回退窗口上限（单位：**交易日**，非日历日）。
+ *
+ * 取20 的依据：
+ * - A 股最长法定长假为 9 个连续休市日（国庆 10/1–10/7 含调休，2027 年可能更长），
+ *   折算「须跳过的交易日」约 6–8 个；
+ * - 数据滞后（如节后未同步）会额外拉长窗口；
+ * - 主理人要求「≥ 2× 最长法定长假」以避免长假期间 `isFallback`频繁误报，
+ *   而误报会让上层不再信任该标志、进而失去诚实约束能力。
+ *
+ * 代价：窗口越大，越可能回退到「更早但确有数据」的日期。这是**刻意选择**——
+ * 宁可让用户看到稍旧但真实的数据，也不展示当天并不存在的行情。
+ */
+const CANDIDATE_LOOKBACK_TRADING_DAYS = 20;
+
+/** 单次向 PG 拉取的近期行情日期个数（须 ≥ 窗口跨度 + 长假冗余，故取 60 天） */
 const PG_FETCH_LIMIT = 60;
 
-/** 回退时向前查找数据的最长天数，防止库内完全无数据时无限回溯。 */
-const MAX_FALLBACK_LOOKBACK_DAYS = 30;
+/**
+ * 自适应降级所需的最少「连续交易日证据」条数。
+ *
+ * 当日历判定为交易日、但库中无该日数据时，不能直接断言「今天没有行情」——
+ * 也可能是数据未同步。此时若库中存在**连续多个**被日历标记为交易日的日期，
+ * 说明「日历本身可用、只是这一天缺数据」，可据此继续回退到有数据的交易日。
+ * 阈值取 3：单日无法区分偶发缺失，连续 3 日才有足够证据。
+ */
+const MIN_CONSECUTIVE_TRADING_DAY_EVIDENCE = 3;
+
+/**
+ * 判定「内置日历在该区间内是否与库内数据一致」。
+ *
+ * 用途：日历说交易日、库说没数据时，二者必有一方失真。逐项列举并给出
+ * 诚实结论，避免上层静默采用其中一方。
+ *
+ * @param calendarDays 日历判定为交易日的日期（降序即可）
+ * @param quoteDates 库中实际有行情的日期集合
+ */
+export function reconcileCalendarWithQuotes(
+  calendarDays: readonly DateStr[],
+  quoteDates: ReadonlySet<DateStr>,
+): {
+  /** 日历说交易、库也有 → 强证据 */
+  corroborated: DateStr[];
+  /** 日历说交易、库无 → 疑似停市/数据未同步 */
+  missingInDb: DateStr[];
+  /** 库有、日历说非交易日 → 疑似抹布行/日历漏项（绝不可当行情上报） */
+  smearedInDb: DateStr[];
+  /** 连续交易日证据条数（库中有数据且日历认定为交易日的连续段） */
+  consecutiveEvidence: number;
+} {
+  const corroborated: DateStr[] = [];
+  const missingInDb: DateStr[] = [];
+  for (const d of calendarDays) {
+    if (quoteDates.has(d)) corroborated.push(d);
+    else missingInDb.push(d);
+  }
+
+  const smearedInDb: DateStr[] = [];
+  for (const d of quoteDates) {
+    if (!isTradingDay(d)) smearedInDb.push(d);
+  }
+
+  // 连续段长度：以降序遍历 corroborated，遇到断点即重置
+  let best = 0;
+  let run = 0;
+  let prev: DateStr | null = null;
+  for (const d of [...corroborated].sort()) {
+    run = prev !== null && daysBetween(prev, d) === 1 ? run + 1 : 1;
+    if (run > best) best = run;
+    prev = d;
+  }
+
+  return {
+    corroborated,
+    missingInDb,
+    smearedInDb,
+    consecutiveEvidence: best,
+  };
+}
 
 // ─────────────────────────── 纯日期工具（无副作用、可单测） ───────────────────────────
 
@@ -184,8 +330,9 @@ export function isWeekend(date: DateInput): boolean {
  */
 function builtinHolidayName(date: DateStr): string | null {
   const year = Number(date.slice(0, 4));
-  if (year !== BUILTIN_TABLE_YEARS) return null;
-  for (const range of HOLIDAY_RANGES_2026) {
+  const ranges = BUILTIN_CALENDARS[year]?.ranges;
+  if (!ranges) return null;
+  for (const range of ranges) {
     if (date >= range.from && date <= range.to) return range.name;
   }
   return null;
@@ -262,6 +409,24 @@ export function prevTradingDay(from: DateInput = today()): DateStr {
 }
 
 /**
+ * `(from, to)` **开区间**内的交易日数 —— 不含两端。
+ *
+ * 专治「把端点算进缺失」这一类回溯误判：相邻两条记录的区间里，
+ * `from` 本身就是一条存在的记录，若用闭区间 {@link tradingDaysBetween}
+ * 统计，会把 `from` 重复计入「本应有」而凭空造出一个缺口。
+ *
+ * @example
+ * // 01-05(Thu) → 01-06(Sat) 区间内无中间交易日 → 0（闭区间会算成 1）
+ * tradingDaysStrictlyBetween('2026-01-05', '2026-01-06') === 0
+ */
+export function tradingDaysStrictlyBetween(from: DateInput, to: DateInput): number {
+  const start = addDays(from, 1);
+  const end = addDays(to, -1);
+  if (start > end) return 0; // 相邻或倒序
+  return tradingDaysBetween(start, end).length;
+}
+
+/**
  * 闭区间 `[start, end]` 内的交易日列表（升序）。
  * 起止颠倒时自动纠正为升序。
  */
@@ -296,7 +461,11 @@ let pgUnavailableWarned = false;
  * @returns 由近及远的日期列表；PG 不可达/未初始化/查询失败时返回 `null`
  *
  * 注意：这里**不做**「取最大日期即最近交易日」的判定 —— 返回的列表仍需
- * 经{@link isTradingDay} 过滤，因为库中存在假期/周末的抹布行（见文件头实测反例）。
+ * 经 {@link isTradingDay} 过滤，因为库中存在假期/周末的抹布行（见文件头实测反例）。
+ *
+ * 必须用 `GROUP BY trade_date`（等价于 `DISTINCT trade_date`）：抹布行是
+ * 同一交易日被复制到多个日期，**按行判断会重复计数**、按单股判断会放大噪声，
+ * 唯有对日期集合去重才能得到「市场实际开市日」。
  */
 export async function fetchQuoteDatesFromDb(): Promise<DateStr[] | null> {
   // 内存库（未初始化 / 已降级）没有可信行情，一律视为「PG 不可用」
@@ -368,14 +537,79 @@ export async function hasQuoteData(date: DateInput): Promise<boolean | null> {
 export async function latestTradingDayWithData(
   limit: DateInput = today(),
 ): Promise<DateStr | null> {
+  const candidates = await candidateTradingDaysWithData(limit);
+  return candidates.length > 0 ? candidates[0] : null;
+}
+
+/**
+ * 自 `limit` 起向前取「既是交易日、库里又有数据」的候选日期（降序）。
+ *
+ * 窗口为 {@link CANDIDATE_LOOKBACK_TRADING_DAYS} 个**交易日**（≥ 2× 最长法定长假，
+ * 避免长假期间频繁耗尽窗口导致 `isFallback` 误报）。
+ *
+ * 双重过滤是本模块的核心防线：
+ * - `isTradingDay(d)`：剔除库中的周末/假期**抹布行**（它们不在交易日历上）；
+ * - `quoteDates.has(d)`：要求库中确有该日行情。
+ * 二者缺一不可 —— 只做前者会把抹布行当行情上报，只做后者会把休市日当数据日。
+ *
+ * @returns 候选日期降序列表；PG 不可用或窗口内无合格候选时为空数组
+ */
+export async function candidateTradingDaysWithData(
+  limit: DateInput = today(),
+): Promise<DateStr[]> {
   const ds = toDateString(limit);
   const dates = await cachedQuoteDates();
-  if (dates === null || dates.length === 0) return null;
-  for (const d of dates) {
-    if (d > ds) continue;
-    if (isTradingDay(d)) return d;
+  if (dates === null || dates.length === 0) return [];
+
+  const quoteDates = new Set(dates);
+
+  // 先按交易日历展开窗口（最多 20 个交易日），再与库内实际数据求交集
+  const window: DateStr[] = [];
+  let cursor = ds;
+  for (let i = 0; i < CANDIDATE_LOOKBACK_TRADING_DAYS; i += 1) {
+    if (isTradingDay(cursor)) window.push(cursor);
+    cursor = addDays(cursor, -1);
   }
-  return null;
+
+  return window.filter((d) => quoteDates.has(d));
+}
+
+/**
+ * 生成人类可读的「库中抹布行」清单，供运维排查与 CI 告警。
+ *
+ * 抹布行 = 库中有行情、但日历判定为非交易日的日期（如国庆假期的复制行）。
+ * 它们**绝不可**被当作行情上报，但必须可见 —— 否则数据源造假会静默存在。
+ *
+ * @returns 降序的抹布日期列表；PG 不可用时返回空数组
+ */
+export async function detectSmearedQuoteDates(
+  limit: DateInput = today(),
+): Promise<DateStr[]> {
+  const dates = await cachedQuoteDates();
+  if (dates === null) return [];
+  return dates.filter((d) => !isTradingDay(d));
+}
+
+/**
+ * 以 `anchor` 为基准，对「窗口内交易日历」与「库内实际数据」做对账。
+ *
+ * @returns 对账结果；PG 不可用时返回 `null`
+ */
+export async function reconcileWithDb(anchor: DateInput): Promise<ReturnType<
+  typeof reconcileCalendarWithQuotes
+> | null> {
+  const dates = await cachedQuoteDates();
+  if (dates === null) return null;
+
+  const ds = toDateString(anchor);
+  const window: DateStr[] = [];
+  let cursor = ds;
+  for (let i = 0; i < CANDIDATE_LOOKBACK_TRADING_DAYS; i += 1) {
+    if (isTradingDay(cursor)) window.push(cursor);
+    cursor = addDays(cursor, -1);
+  }
+
+  return reconcileCalendarWithQuotes(window, new Set(dates));
 }
 
 /** 丢弃 PG 日期缓存（测试与长驻进程的显式刷新用） */
@@ -465,6 +699,17 @@ export async function resolveQueryDate(
 
   const resolveNotes: string[] = [];
 
+  // ── 第 0 层：声明内置日历的精度等级（诚实红线：不得静默假装全年精确）
+  const originYear = Number(origin.slice(0, 4));
+  const precision = calendarPrecisionOfYear(originYear);
+  if (precision === 'provisional') {
+    resolveNotes.push(
+      `${originYear} 年交易所休市安排尚未发布，当前按法定节假日推导（近似），建议以交易所公告为准`,
+    );
+  } else if (precision === 'unavailable') {
+    resolveNotes.push(`内置日历未覆盖 ${originYear} 年，仅按周末规则推算（精度较低）`);
+  }
+
   // ── 第 1 层：日历回退（非交易日 → 最近交易日）
   let date = origin;
   let isFallback = false;
@@ -498,19 +743,38 @@ export async function resolveQueryDate(
     }
 
     if (dataAvailable === false && fallbackUntilDataAvailable) {
-      const withData = await latestTradingDayWithData(date);
-      if (withData && withData !== date) {
-        const span = daysBetween(withData, date);
-        resolveNotes.push(
-          `${date} 虽是交易日，但本地行情库无该日数据，已继续回退至最近有数据的交易日 ${withData}` +
-            `（相隔 ${span} 天）`,
-        );
-        date = withData;
-        isFallback = true;
-        if (reason === null) reason = '库内无该日数据';
-        dataAvailable = true;
+      // 自适应降级：先在 20 个交易日窗口内找「既是交易日又有数据」的日期
+      const candidates = await candidateTradingDaysWithData(date);
+
+      if (candidates.length > 0) {
+        const withData = candidates[0];
+        if (withData !== date) {
+          const span = daysBetween(withData, date);
+          resolveNotes.push(
+            `${date} 虽是交易日，但本地行情库无该日数据，已继续回退至最近有数据的交易日 ${withData}` +
+              `（相隔 ${span} 天，候选窗口 ${CANDIDATE_LOOKBACK_TRADING_DAYS} 个交易日）`,
+          );
+          date = withData;
+          isFallback = true;
+          if (reason === null) reason = '库内无该日数据';
+          dataAvailable = true;
+        }
       } else {
-        resolveNotes.push(`${date} 虽是交易日，但本地行情库无该日数据`);
+        // 窗口内没有任何「交易日 + 有数据」的候选：证据不足，不得断言，
+        // 只能如实告知「本地库无该日数据佐证」，并保留 isFallback 标记。
+        const recon = await reconcileWithDb(date);
+        if (recon !== null && recon.consecutiveEvidence >= MIN_CONSECUTIVE_TRADING_DAY_EVIDENCE) {
+          resolveNotes.push(
+            `${date} 交易日历与本地库不一致（可能停市或数据未同步）：` +
+              `窗口内虽有 ${recon.consecutiveEvidence} 个连续交易日有数据佐证，但均早于该日`,
+          );
+        } else {
+          resolveNotes.push(
+            `${date} 虽是交易日，但本地行情库无该日数据佐证（证据不足，按交易日历推算）`,
+          );
+        }
+        isFallback = true;
+        if (reason === null) reason = '库内无该日数据佐证';
       }
     }
   }
