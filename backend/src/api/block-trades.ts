@@ -145,14 +145,18 @@ router.get(
         }
         sendUnavailable(res, {
           trades: [],
-          pagination: { page, pageSize, total: 0, totalPages: 0 },
+          // 诚实红线（P0-HONESTY2）：源**不可达**，「今日成交 0 笔 / 成交额 0 元」
+          // 是伪造的业务量——用户无法区分「真的没有大宗交易」与「没取到」。
+          // 故业务量字段一律 null（注意与上方 9201 分支区分：那里源可达，
+          // 0 是**真实事实**，必须保留 0）。
+          pagination: { page, pageSize, total: null, totalPages: null },
           summary: {
-            totalAmount: 0,
-            totalVolume: 0,
-            avgDiscount: 0,
-            premiumCount: 0,
-            discountCount: 0,
-            tradeCount: 0,
+            totalAmount: null,
+            totalVolume: null,
+            avgDiscount: null,
+            premiumCount: null,
+            discountCount: null,
+            tradeCount: null,
           },
           message: describeUpstreamFailure(e.message),
         });
@@ -215,12 +219,13 @@ router.get(
       if (e instanceof BlockTradesUnavailableError) {
         sendUnavailable(res, {
           date: today,
-          totalTrades: 0,
-          totalAmount: 0,
-          avgAmount: 0,
-          premiumTrades: 0,
-          discountTrades: 0,
-          flatTrades: 0,
+          // 诚实红线（P0-HONESTY2）：源不可达 → 统计量是未知，不是 0
+          totalTrades: null,
+          totalAmount: null,
+          avgAmount: null,
+          premiumTrades: null,
+          discountTrades: null,
+          flatTrades: null,
           topBuyers: [],
           industryDistribution: [],
           message: describeUpstreamFailure(e.message),
@@ -274,7 +279,8 @@ router.get(
         sendUnavailable(res, {
           symbol,
           trades: [],
-          total: 0,
+          // 诚实红线（P0-HONESTY2）：源不可达 → 区间成交笔数未知，不是 0
+          total: null,
           message: describeUpstreamFailure(e.message),
         });
         return;

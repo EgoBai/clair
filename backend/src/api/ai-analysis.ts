@@ -297,7 +297,10 @@ router.get('/ai/recommendations', asyncHandler(async (_req: Request, res: Respon
       stocks: [],
       marketOutlook: '数据源暂不可用',
       riskLevel: 'high',
-      confidence: 0,
+      // 诚实红线（P0-HONESTY2）：confidence 是 0-100 的**业务量**（置信度），
+      // 降级态标对了unavailable，但 0 会被读成「置信度 0%」这个真实结论。
+      // 「拿不到」≠「置信度为零」→ null。
+      confidence: null,
       ...unavailable(e),
     });
   }
@@ -389,7 +392,12 @@ router.get('/ai/alerts', validateQuery(alertQuerySchema), asyncHandler(async (re
   } catch (e) {
     sendHonest(res, 'unavailable', {
       alerts: [],
-      total: 0,
+      // 诚实红线（P0-HONESTY2）：alerts:[] 在这里是**降级产物**而非真实空集
+      // （源不可达 → 根本没检测过）。此时 total:0 会让用户读成
+      // 「今天真的零条异动」，与真实空集无法区分→ null。
+      // 注意这与 etf.ts / hkConnect.ts 的 `count: data.length` 不同：
+      // 那两处 data:[] 是**真实**取到的空集，count:0 语义正确，不改。
+      total: null,
       generatedAt: new Date().toISOString(),
       ...unavailable(e),
     });
@@ -477,11 +485,16 @@ router.get('/ai/market-sentiment', asyncHandler(async (_req: Request, res: Respo
   } catch (e) {
     sendHonest(res, 'unavailable', {
       sentiment: '数据源暂不可用',
-      sentimentScore: 0,
-      avgScore: 0,
-      bullishCount: 0,
-      bearishCount: 0,
-      neutralCount: 0,
+      // 诚实红线（P0-HONESTY2）：以下全部是**业务量**（评分 / 家数），
+      // 源不可达时它们是「未知」，不是「真的是 0」。
+      // 旧实现把 sentimentScore/avgScore 填 0、bullish/bearish/neutralCount 填 0，
+      // 前端会把这屏渲染成「情绪极度悲观(20/100)、看涨 0 家」的**真实结论**——
+      // 比返回空数组隐蔽得多。→ 全部 null。
+      sentimentScore: null,
+      avgScore: null,
+      bullishCount: null,
+      bearishCount: null,
+      neutralCount: null,
       topBullish: [],
       topBearish: [],
       analyzedAt: new Date().toISOString(),
@@ -536,7 +549,9 @@ router.get('/ai/knowledge-search', validateQuery(knowledgeSearchQuerySchema), as
     sendHonest(res, 'unavailable', {
       query: q,
       results: [],
-      confidence: 0,
+      // 诚实红线（P0-HONESTY2）：confidence 是置信度业务量，
+      // 「检索失败」≠「置信度 0%」→ null。
+      confidence: null,
       knowledgeBaseAvailable: false,
       marketData: 'not_requested',
       ...unavailable(e),

@@ -107,27 +107,58 @@ router.get('/watchlist', validateQuery(schemas.watchlistQuery), async (req: Requ
       }));
 
       // 获取分组信息
-      const groups = await db.connection('watchlist_groups')
-        .where('user_id', userId)
-        .select('id', 'name', 'sort_index as sortIndex')
-        .orderBy('sort_index', 'asc')
-        .catch(() => []);
+      //
+      // 诚实红线（P0-HONESTY2）：旧实现 `.catch(() => [])` 把「分组查询失败」
+      // 与「该用户确实没有分组」压成同一个空数组，再由下方兜底补一个
+      // 「默认分组」——于是**数据库故障被伪装成「你只有一个默认分组」**，
+      // 前端完全看不出来，后续任何分组操作都会写向一个不存在的分组。
+      // 现在把失败如实暴露为 groupsUnavailable，让上层标 unavailable。
+      let groups: Array<{ id: string; name: string; sortIndex: number }> | null = null;
+      let groupsUnavailable = false;
+      try {
+        groups = await db.connection('watchlist_groups')
+          .where('user_id', userId)
+          .select('id', 'name', 'sort_index as sortIndex')
+          .orderBy('sort_index', 'asc');
+      } catch (e) {
+        groupsUnavailable = true;
+        console.error('[Watchlist] 分组查询失败，如实标记 unavailable:', e);
+      }
 
       return {
         watchlist: enriched,
-        groups: groups.length > 0 ? groups : [{ id: 'default', name: '默认分组', sortIndex: 0 }],
+        // 分组不可用时给 null（不是伪造的「默认分组」）；前端据此提示而非假装有分组
+        groups: groupsUnavailable ? null : (groups && groups.length > 0 ? groups : [{ id: 'default', name: '默认分组', sortIndex: 0 }]),
+        groupsUnavailable,
       };
     }, 10000); // 10秒缓存
 
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        // 分组查询失败时整体标 unavailable（watchlist 行本身仍可用，故一并说明）
+        ...(result.groupsUnavailable
+          ? { dataSource: 'unavailable', message: '自选股分组查询失败，分组信息不可用' }
+          : { dataSource: 'real' }),
+      },
+    });
   } catch (error) {
     console.error('获取自选股列表失败:', error);
     // InMemoryDatabase doesn't support watchlist joins — return empty gracefully
     const msg = (error as Error).message || '';
     if (msg.includes('does not exist') || msg.includes('not a function') || process.env.DATABASE_URL === undefined) {
+      // 诚实红线（P0-HONESTY2）：这是「后端不提供自选股能力」，
+      // 不是「你确实没有自选股」。必须标unavailable，
+      // 且 groups 给 null 而非伪造一个「默认分组」。
       return res.json({
         success: true,
-        data: { watchlist: [], groups: [{ id: 'default', name: '默认分组', sortIndex: 0 }] },
+        data: {
+          watchlist: null,
+          groups: null,
+          dataSource: 'unavailable',
+          message: '当前部署未提供自选股存储能力（数据库不可用），自选股数据不可用',
+        },
       });
     }
     res.status(500).json({ success: false, error: '获取自选股列表失败' });

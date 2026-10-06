@@ -518,7 +518,16 @@ export async function checkAlerts(): Promise<AlertRule[]> {
           case 'volume_surge': {
             // 改进：获取平均成交量进行对比
             const avgVolume = await getAverageVolume(stock.id, 20);
-            actualValue = avgVolume > 0 ? quote.volume / avgVolume : quote.volume;
+            // 诚实红线（P0-HONESTY2）：均量取不到（null）或真实为 0 时，
+            // 「倍数」这个业务量**无法计算**。旧实现把取不到当成 0，于是
+            // actualValue 退化成 quote.volume（成交量绝对值），再拿它去和
+            // 以「倍」为单位的阈值比——只要有成交量就必然误触发。
+            // 现在按「不可评估」处理：不触发，且不写入伪造的 actualValue。
+            if (avgVolume === null || avgVolume <= 0) {
+              isTriggered = false;
+              break;
+            }
+            actualValue = quote.volume / avgVolume;
             isTriggered = actualValue >= alert.threshold;
             break;
           }
@@ -615,18 +624,31 @@ function evaluateIndicatorCondition(alert: AlertRule, quote: DailyQuote): { trig
 
 /**
  * 获取平均成交量
+ *
+ * 诚实红线（P0-HONESTY2）：**0 是合法真实值**（某天确实可能零成交），
+ * 因此绝不能用 0 表达「拿不到均量」——那会让调用方无法区分
+ * 「均量真的是 0」与「没取到均量」。
+ *
+ * 返回 `number | null`：
+ *   - number：真实算出的均量（**允许为 0**，即该窗口确实零成交）
+ *   - null  ：取不到（查询失败 / 窗口内无任何行情记录）
+ *
+ * 注意：均量为 0 时同样**无法评估倍数**（除零），调用方须一并按
+ * 「不可评估」处理，不可退化成拿原始成交量去比倍数阈值。
  */
-async function getAverageVolume(stockId: number, days: number = 20): Promise<number> {
+async function getAverageVolume(stockId: number, days: number = 20): Promise<number | null> {
   try {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const quotes = await db.getDailyQuotes(stockId, startDate);
-    if (!quotes || quotes.length === 0) return 0;
+    // 「窗口内无任何行情记录」= 取不到，而非均量为 0
+    if (!quotes || quotes.length === 0) return null;
     const total = quotes.reduce((sum: number, q: DailyQuote) => sum + (q.volume || 0), 0);
     return total / quotes.length;
   } catch (e) {
+    // 「查询失败」= 取不到，而非均量为 0
     console.warn('[Alerts] 计算平均成交量失败:', e);
-    return 0;
+    return null;
   }
 }
 

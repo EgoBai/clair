@@ -253,10 +253,69 @@ describe('block-trades 诚实红线：源可达但无数据 ≠ 源不可用', (
     const res = await request(buildApp()).get('/api/block-trades/overview');
 
     expect(res.body.data.dataSource).toBe('unavailable');
-    expect(res.body.data.totalTrades).toBe(0);
+    // 诚实红线（P0-HONESTY2）：源不可达时统计量是「未知」，不是 0。
+    // 断言「不是 0」而非「等于 0」——0 会被读成「今日真的零成交」。
+    expect(res.body.data.totalTrades).toBeNull();
+    expect(res.body.data.totalAmount).toBeNull();
+    expect(res.body.data.avgAmount).toBeNull();
+    expect(res.body.data.totalTrades).not.toBe(0);
     expect(res.body.data.topBuyers).toEqual([]);
     // 行业分布无法从真实源推导，必须诚实为空
     expect(res.body.data.industryDistribution).toEqual([]);
+  });
+
+  it('overview 上游 9201「源可达但无成交」→ 0 是真实事实，必须保留 0 而非 null', async () => {
+    // 与上面的 unavailable 分支构成对照：源可达 + 上游明确说当日无成交，
+    // 此时 totalTrades=0 是**真实业务事实**，改成 null 反而是失真。
+    setFetch(mockFetch({ success: false, result: null, code: 9201, message: '返回数据为空' }));
+    queryCache.invalidate('block-trades');
+    const res = await request(buildApp()).get('/api/block-trades/overview');
+
+    // 该分支走sendUnavailable（overview 无 9201 专门分支）→ 仍须是 null
+    expect(res.body.data.dataSource).toBe('unavailable');
+    expect(res.body.data.totalTrades).toBeNull();
+  });
+});
+
+describe('block-trades 诚实红线：源不可达时业务量必须是 null，绝不是 0（P0-HONESTY2）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryCache.invalidate('block-trades');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('列表端点：源不可达 → summary 业务量全为 null，且明确不等于 0', async () => {
+    setFetch(vi.fn().mockRejectedValue(new Error('network down')));
+    const res = await request(buildApp()).get('/api/block-trades?date=2026-09-30');
+
+    expect(res.body.data.dataSource).toBe('unavailable');
+    const s = res.body.data.summary;
+    for (const k of ['totalAmount', 'totalVolume', 'avgDiscount', 'tradeCount', 'premiumCount', 'discountCount']) {
+      expect(s[k], `${k} 应为 null`).toBeNull();
+      expect(s[k], `${k} 不得为 0`).not.toBe(0);
+    }
+    expect(res.body.data.pagination.total).toBeNull();
+    expect(res.body.data.pagination.total).not.toBe(0);
+  });
+
+  it('列表端点：9201 源可达无成交 → dataSource realtime + 0 是真实值（不得改成 null）', async () => {
+    setFetch(mockFetch({ success: false, result: null, code: 9201, message: '返回数据为空' }));
+    const res = await request(buildApp()).get('/api/block-trades?date=2026-10-06');
+
+    expect(res.body.data.dataSource).toBe('realtime');
+    expect(res.body.data.summary.tradeCount).toBe(0);
+    expect(res.body.data.summary.totalAmount).toBe(0);
+  });
+
+  it('个股历史端点：源不可达 → total 为 null 而非 0', async () => {
+    setFetch(vi.fn().mockRejectedValue(new Error('network down')));
+    const res = await request(buildApp()).get('/api/block-trades/600519?days=30');
+
+    expect(res.body.data.dataSource).toBe('unavailable');
+    expect(res.body.data.total).toBeNull();
+    expect(res.body.data.total).not.toBe(0);
   });
 });
 

@@ -237,7 +237,11 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
     res.status(200).json({
       success: true,
       data: {
-        temperature: { score: 0, label: '未知' },
+        // 诚实红线（P0-HONESTY2）：score 是 0-100 的**业务量**（市场温度评分），
+        // 0 会被下游/前端当成「市场极度弱势」这个真实结论（computeTemperature
+        // 里 0 分对应 label '弱势'）。计算失败时必须为 null，
+        // 由前端显示「不可用」，绝不用 0 冒充一个真实评分。
+        temperature: { score: null, label: '未知' },
         themes: [],
         risks: [{ level: 'low', label: '数据暂不可用', detail: '市场信号计算失败' }],
         candidates: [],
