@@ -27,8 +27,18 @@ import {
   type FundFlowProviderName, type StockFundFlowResp, type IndustryFlowResp,
   type GlobalFlowResp, type FundFlowMeta, type GlobalIndicator, type MarketFundFlowResp,
 } from '../utils/fundFlowPageDemo';
+import { API_ORIGIN } from '../config/apiBase';
 const { Title, Text } = Typography;
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+
+/**
+ * 后端地址取自唯一真源 config/apiBase.ts（不再自行解析环境变量）。
+ *
+ * 为什么用 API_ORIGIN（根地址）而不是 API_BASE_URL（含 /api）：
+ * 本页所有请求路径在调用处已写明 `/api/fund-flow/xxx`，由 apiFetch 拼成
+ * `${API_BASE}${path}`。若取含 `/api` 的地址会拼出 `/api/api/fund-flow/xxx` → 必404。
+ * dev 下 API_ORIGIN 为空串，路径相对，走 Vite proxy 到 127.0.0.1:3001（与改动前一致）。
+ */
+const API_BASE = API_ORIGIN;
 
 /** 涨/流入=红，跌/流出=绿（中国习惯） */
 const flowColor = (v: number): string => (v >= 0 ? THEME.up : THEME.down);

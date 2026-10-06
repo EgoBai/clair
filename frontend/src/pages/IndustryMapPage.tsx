@@ -74,14 +74,27 @@ import {
 } from '../types/industryChain';
 import { renderMarkdown } from '../utils/markdown';
 import { useWatchlistStore } from '../hooks/useWatchlistStore';
+import { API_ORIGIN } from '../config/apiBase';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
 const { Search } = Input;
 const { Option } = Select;
 
-// API 基础 URL
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
+/**
+ * 后端地址取自唯一真源 config/apiBase.ts（不再自行解析环境变量）。
+ *
+ * 为什么用 API_ORIGIN（根地址）而不是 API_BASE_URL（含 /api）：
+ * 本页所有请求在调用处自行拼接 `${API_BASE}/api/xxx`，需要的是不含 `/api` 的根地址。
+ * 若取含 `/api` 的地址会拼出 `/api/api/xxx` → 必 404。
+ *
+ * dev 下 API_ORIGIN 为空串，请求路径相对（`/api/xxx`），由 Vite proxy 转发到
+ * 127.0.0.1:3001 —— 与改动前硬编码的本机后端地址指向同一个后端，
+ * 仅传输路径由「直连绝对地址」改为「走 proxy」，请求目标不变。
+ *
+ * 生产构建若缺 VITE_API_BASE，由 apiBase.ts 直接抛错（不回落到任何硬编码地址）。
+ */
+const API_BASE = API_ORIGIN;
 
 // ============= 自定义节点组件 =============
 
