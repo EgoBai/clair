@@ -35,6 +35,40 @@ function sendHonest(res: Response, dataSource: string, data: Record<string, unkn
   });
 }
 
+/**
+ * 业务性降级发送器：上游数据源 / LLM 不可用（**不是崩溃**）
+ *
+ * 语义判据：HTTP 状态码表达的是「服务端有没有正常处理这个请求」，
+ * 而不是「业务上有没有拿到结论」。上游行情源 / LLM 网关不可用时，
+ * 本服务**已经正常走完了流程**，并如实回报「一条真实数据都没拿到」——
+ * 这属于业务性降级，故回200 + dataSource:'unavailable' + 中文 message，
+ * 让前端能渲染诚实空态。
+ *
+ * 为什么不能回 5xx：前端所有 AI 调用点（services/aiClient.ts、各Page 的 fetch）
+ * 都写的是 `if (!res.ok) throw` / `if (!response.ok) throw`，
+ * 5xx 会让它们在**解析响应体之前**就进 catch 分支，
+ * 于是响应体里诚实标注的 dataSource / message 永远读不到，
+ * 用户看到的只有页面报错或空白。这正是 b9b0564e2「响应体已诚实标注、
+ * 但状态码仍是 500」时用户仍觉得「页面数据不可用」的直接机制。
+ *
+ * 真正的代码 bug / 未捕获异常才应该 5xx，且那种响应体**不得声称是数据问题**
+ * （那类由 asyncHandler → globalErrorHandler 统一出错误码，不在本文件手写）。
+ *
+ * `code` 字段给机器判别用（避免让前端去匹配中文 message）；
+ * 语义是「上游依赖不可用」，刻意不同于本服务自身的 503。
+ */
+function sendUnavailable(res: Response, error: string, message: string): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: false,
+    dataSource: 'unavailable',
+    code: 'UPSTREAM_UNAVAILABLE',
+    error,
+    message,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 // ============================================================
 // 对话接口（流式）
 // ============================================================
@@ -193,14 +227,15 @@ router.get('/ai/market-analysis', asyncHandler(async (_req: Request, res: Respon
     });
   } catch (error) {
     logger.error('Market analysis error:', error as Error);
-    // 诚实红线：源不可达即 unavailable（此前此处误标 real，属IP-20 两级矛盾同类问题）
-    res.status(500).json({
-      success: false,
-      dataSource: 'unavailable',
-      error: '市场分析失败：真实行情源不可用',
-      message: '未获得任何真实指数数据，市场分析未生成',
-      timestamp: new Date().toISOString(),
-    });
+    // 诚实红线：源不可达即 unavailable（此前此处误标real，属IP-20 两级矛盾同类问题）
+    // 状态码：200 而非 500 —— 「真实行情源不可用」是业务性降级，不是服务端崩溃。
+    // 详见 sendUnavailable 的注释：前端 `if(!res.ok) throw` 会在读body 前就抛，
+    // 导致这里诚实标注的 dataSource/message 永远传不到用户眼前。
+    sendUnavailable(
+      res,
+      '市场分析失败：真实行情源不可用',
+      '未获得任何真实指数数据，市场分析未生成',
+    );
   }
 }));
 
@@ -337,6 +372,23 @@ router.get('/ai/diagnose/:symbol', asyncHandler(async (req: Request, res: Respon
 router.post('/ai/strategy', asyncHandler(async (req: Request, res: Response) => {
   const { symbol, riskLevel, horizon, position } = req.body;
 
+  // 入参校验：symbol 缺失是**客户端错误**，不是数据源不可用。
+  //此前没有这道校验，symbol=undefined 会一路流进 resolveStockData →
+  // buildDemoStockData(undefined) → hashSeed(undefined) 读 undefined.length
+  // 抛 TypeError，被下面的 catch 接住后**误报**成「未获得任何真实个股数据」
+  // ——把代码 bug 谎报成数据问题（既误导用户，也违反诚实红线）。
+  if (typeof symbol !== 'string' || symbol.trim() === '') {
+    res.status(400).json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'VALIDATION_ERROR',
+      error: '缺少股票代码',
+      message: '请求必须提供 symbol（股票代码）；未查询任何数据，策略未生成',
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   try {
     const { stockData: base, dataSource } = await resolveStockData(symbol);
     const stockData = {
@@ -356,13 +408,13 @@ router.post('/ai/strategy', asyncHandler(async (req: Request, res: Response) => 
     sendHonest(res, dataSource, { strategy });
   } catch (error) {
     logger.error('Strategy generation error:', error as Error);
-    res.status(500).json({
-      success: false,
-      dataSource: 'unavailable',
-      error: '策略生成失败',
-      message: '未获得任何真实个股数据，策略未生成',
-      timestamp: new Date().toISOString(),
-    });
+    // 走到这里说明入参合法，故失败原因是 AI 服务不可用（非数据源、非客户端错误）
+    // → 业务性降级 200，详见 sendUnavailable 注释。
+    sendUnavailable(
+      res,
+      '策略生成失败：AI 服务不可用',
+      '未生成任何策略内容（既未获得真实个股数据，AI 服务也不可用）',
+    );
   }
 }));
 
@@ -624,13 +676,14 @@ ${trades?.slice(0, 10).map((t: any) =>
     });
   } catch (error) {
     logger.error('Trade analysis error:', error as Error);
-    res.status(500).json({
-      success: false,
-      dataSource: 'unavailable',
-      error: '交易分析失败',
-      message: 'LLM 不可用，未生成任何交易分析',
-      timestamp: new Date().toISOString(),
-    });
+    // LLM 网关不可用（余额不足/超时/模型错误）= 业务性降级，非服务端崩溃 → 200。
+    // 关键：绝不用「空字符串分析」冒充真实结果，dataSource:'unavailable' + 中文
+    // message 让前端据此渲染诚实空态。详见 sendUnavailable 注释。
+    sendUnavailable(
+      res,
+      '交易分析失败：AI 服务不可用',
+      'LLM 不可用，未生成任何交易分析',
+    );
   }
 }));
 
