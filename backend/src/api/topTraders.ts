@@ -18,6 +18,15 @@
  *   - 成功：`dataSource: 'eastmoney'`；失败：空值 + `dataSource: 'unavailable'` + notes 显性说明。
  *   - 本文件内 **严禁出现 Math.random**（backend/src/api/ 属诚实门禁 RED 域）。
  *
+ * 【根因修复 P0-5B·交易日解析】原实现从今天起逐日回溯**最多 6 天**找龙虎榜。
+ * A股长假可连休 7~9 天（国庆 10/01~10/06、春节等），实测 2026-10-06 为休市日、
+ * 东财对明细返回 `code:9201 返回数据为空`，6 天窗口内**一天都没有龙虎榜**，
+ * 于是端点恒 unavailable，而 2026-09-30 明明有 84 页真实数据。
+ * 现改为：一次轻量探测（只取 TRADE_DATE 一列、pageSize=1、按 TRADE_DATE 倒序）
+ * 直接问东财「全表最新交易日是哪天」，再拉该日明细；探测失败才退回逐日回溯（上限 10 天）。
+ * 由此 `tradeDate` 恒为**真实数据日期**（实测取到 2026-09-30），
+ * 休市日不再出现「今天 + 空数组」冒充零成交。
+ *
  * 行业字段诚实声明：东财龙虎榜真实源**不提供行业字段**，且无可靠的 symbol→行业 真实映射，
  *   故 `industryDistribution` 恒返回空对象 `{}`（shared/types.ts:644 声明为必填
  *   `Record<string, number>`，不改类型定义），前端 TopTradersPage 对空对象走
@@ -43,7 +52,7 @@ const BUY_REPORT = 'RPT_BILLBOARD_DAILYDETAILSBUY';
 const SELL_REPORT = 'RPT_BILLBOARD_DAILYDETAILSSELL';
 
 const UNAVAILABLE_NOTE =
-  '龙虎榜：东方财富数据中心不可达或该交易日无龙虎榜数据；后端未接入任何兜底/编造数据';
+  '龙虎榜：东方财富数据中心不可达，或最近 10 个自然日内无龙虎榜数据（休市/当日未出榜）；tradeDate 为空表示未取到任何真实数据日期，后端未接入任何兜底/编造数据';
 
 const PARTIAL_SELL_NOTE =
   '龙虎榜：卖出席位报表（RPT_BILLBOARD_DAILYDETAILSSELL）本次不可达，卖出金额仅缺失、不做任何估算填充';
@@ -117,9 +126,29 @@ async function fetchDailyDetail(date: string): Promise<any[] | null> {
 /**
  * 解析出「有数据的交易日」。
  * - 显式传 date：只查该日，无数据即 null（不猜测、不挪日）。
- * - 缺省：从今天起回溯，最多 6 个自然日，取第一个非空的交易日。
- * 返回该日的明细行。
+ * - 缺省：**一次轻量探测**取回全表最新的 TRADE_DATE（只要 TRADE_DATE 一列、pageSize=1），
+ *   再拉该日明细。实测 2026-10-06（国庆休市）东财对明细返回 code 9201「返回数据为空」，
+ *   而按 TRADE_DATE 倒序探测直接给出 2026-09-30 —— 比逐日回溯更快（1 次而非 N 次）
+ *   且不会因为长假（国庆/春节可连休 7~9 天）超出固定回溯窗口而漏掉数据。
+ *   探测失败时再退回逐日回溯（上限 MAX_LOOKBACK_DAYS 天）。
+ * 返回该日的明细行，且 date 恒为**真实数据日期**（诚实红线：绝不把请求日当数据日）。
  */
+const MAX_LOOKBACK_DAYS = 10;
+
+/** 轻量探测：取回东财全表最新的一个 TRADE_DATE（休市日不会误判） */
+async function probeLatestTradeDate(): Promise<string | null> {
+  const rows = await emGet(DETAIL_REPORT, {
+    columns: 'TRADE_DATE',
+    filter: '',
+    sortColumns: 'TRADE_DATE',
+    sortTypes: '-1',
+    pageSize: '1',
+    pageNumber: '1',
+  });
+  const d = String(rows?.[0]?.TRADE_DATE ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
 async function resolveRecentTrade(
   date?: string,
 ): Promise<{ date: string; rows: any[] } | null> {
@@ -127,7 +156,16 @@ async function resolveRecentTrade(
     const rows = await fetchDailyDetail(date);
     return rows && rows.length ? { date, rows } : null;
   }
-  for (let i = 0; i < 6; i++) {
+
+  // 首选：一次探测拿到最近有数据的交易日
+  const latest = await probeLatestTradeDate();
+  if (latest) {
+    const rows = await fetchDailyDetail(latest);
+    if (rows && rows.length) return { date: latest, rows };
+  }
+
+  // 兜底：逐日回溯（应对探测接口本身不可用）
+  for (let i = 0; i < MAX_LOOKBACK_DAYS; i++) {
     const d = minusDays(i);
     const rows = await fetchDailyDetail(d);
     if (rows && rows.length) return { date: d, rows };
@@ -197,7 +235,13 @@ function aggregateSeats(buyRows: any[], sellRows: any[]): SeatAgg[] {
   }));
 }
 
-/** 不可用的概览诚实空（字段齐全，绝不编造数值） */
+/**
+ * 不可用的概览诚实空（字段齐全，绝不编造数值）。
+ *
+ * 诚实红线：拿不到数据时 tradeDate 必须给**空串**，
+ * 绝不回填「请求当天」——否则休市日会让用户以为「今天零成交」，
+ * 而真实情况是「今天没有龙虎榜数据」。真实数据日期只在拿到数据时才回填。
+ */
 function emptyOverview(tradeDate: string, notes: string): TopTraderOverview & { dataSource: string; notes: string } {
   return {
     tradeDate,
@@ -229,7 +273,8 @@ router.get(
 
     const resolved = await resolveRecentTrade(dateQ);
     if (!resolved) {
-      sendSuccess(res, emptyOverview(dateQ ?? toYmd(new Date()), UNAVAILABLE_NOTE));
+      // 诚实红线：拿不到数据时 tradeDate 给空串，不回填请求日
+      sendSuccess(res, emptyOverview('', UNAVAILABLE_NOTE));
       return;
     }
 
