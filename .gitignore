@@ -49,3 +49,17 @@ test-results/
 # git filter-repo / 重写历史临时目录（非源码，禁止入库）
 .git-rewrite/
 .git-push-bundles/
+
+# ===== Agent 验证残留（2026-10-07 补）=====
+# 多worker 并发时留下的临时 harness / 验证脚本，单个可达 11MB（编译产物）。
+# 它们不在任何 worker 的授权文件域内，但 `git add -A` 会把它们卷进commit。
+# 教训：验证产物必须留在 /tmp，或至少禁止入库。
+frontend/.tempgauge-harness.*
+frontend/nulladapt-verify.tsx
+frontend/*-verify-tmp.*
+frontend/vite.*verify*.ts
+frontend/nv.tmp.*
+frontend/serve-verify.mjs
+frontend/checkApiBase*.mjs
+*.harness.cjs
+*.harness.tsx
