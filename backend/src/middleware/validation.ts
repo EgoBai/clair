@@ -63,10 +63,15 @@ const marketQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(10),
 });
 
+// 【P0-SCHEMA 同根因】/sectors/ranking 的 handler 读 type/limit，
+// 但它们只挂在 sectorQuery 上时被 stripUnknown 静默剥离 → 端点永远走默认值
+// （type 恒 'gainers'、limit 恒 10）。此处补齐声明；/sectors 忽略二者，不受影响。
 const sectorQuerySchema = Joi.object({
   date: Joi.date().iso().optional(),
   sortBy: Joi.string().valid('industry', 'avgChangePercent', 'totalMarketCap', 'stockCount').default('avgChangePercent'),
   sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+  type: Joi.string().valid('gainers', 'losers').optional(),
+  limit: Joi.number().integer().min(1).max(100).optional(),
 });
 
 // --- 新闻相关 ---
@@ -78,11 +83,18 @@ const newsQuerySchema = Joi.object({
   sentiment: Joi.string().valid('positive', 'negative', 'neutral', 'all').optional(),
   q: Joi.string().max(200).optional(),
   limit: Joi.number().integer().min(1).max(100).default(20),
+  // 【P0-SCHEMA 同根因】handler 的排序分支读 sortBy（'relevance' 走综合评分，
+  // 其它值走纯时间倒序），未声明时被剥离 → 排序参数恒失效。不给 default，保持与 handler 的 `|| 'relevance'` 一致。
+  sortBy: Joi.string().valid('relevance', 'time').optional(),
 });
 
 // --- 指标相关 ---
+// 【P0-SCHEMA 同根因】/indicators/:symbol/{ma,rsi,boll} 的 handler 读 period
+// （分别默认 5/14/20，即 MA5/RSI14/BOLL20 的窗口），未声明时被剥离 →
+// 用户无法调窗口，恒返回默认窗口。上界 500 与 limit 对齐。
 const indicatorQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(500).default(120),
+  period: Joi.number().integer().min(1).max(500).optional(),
 });
 
 // --- 资金流向 ---
@@ -127,17 +139,33 @@ const blockTradeHistorySchema = Joi.object({
 });
 
 // --- 限售股 ---
+// 年月定位参数。declared 但**不带 default**：缺省时端点自己回退当月，
+// 校验层一旦给 default 就会把「未传」和「显式传当前月」变成同一件事，掩盖调用方意图。
+//
+// 【根因 P0-SCHEMA】validateQuery 用 `stripUnknown: true`，schema 未声明的键会被
+// **静默剥离且不报错**。本组 schema 曾漏声明 year/month，导致
+// `GET /api/lockup/calendar?year=2020&month=3` 的年月被丢成当前月——
+// 解禁日历「翻月」从上线起就完全失效，且无任何报错信号。
+const lockupYearMonth = {
+  // 4 位数年份，下界 2000（解禁报表口径与现代 A 股同期），上界 = 当前年 +1（允许查未来一年的预约解禁）
+  year: Joi.number().integer().min(2000).max(new Date().getFullYear() + 1).optional(),
+  month: Joi.number().integer().min(1).max(12).optional(),
+};
+
 const lockupCalendarSchema = Joi.object({
+  ...lockupYearMonth,
   startDate: Joi.date().iso().optional(),
   endDate: Joi.date().iso().optional(),
   page: Joi.number().integer().min(1).max(1000).default(1),
   pageSize: Joi.number().integer().min(1).max(100).default(20),
-});
+  // year/month 必须成对：单给一个无法定位月份，与其让端点猜，不如 400
+}).and('year', 'month');
 
 const lockupRankSchema = Joi.object({
+  ...lockupYearMonth,
   limit: Joi.number().integer().min(1).max(50).default(10),
   sortBy: Joi.string().valid('unlockValue', 'unlockShares', 'unlockDate').default('unlockValue'),
-});
+}).and('year', 'month');
 
 // --- 融资融券 ---
 const marginSymbolSchema = Joi.object({
