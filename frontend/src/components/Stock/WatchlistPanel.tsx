@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import { safeGetItem, safeSetItem } from '../../utils/safeStorage';
 import { apiFetch } from '../../utils/api';
+import { fetchAlertsForSymbols, describeAlertsOutcome } from '../../hooks/useWatchlistData';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Text } = Typography;
@@ -23,6 +24,12 @@ const COLOR_DOWN = '#1db468';
 interface WatchlistGroup { id: string; name: string; stocks: WatchlistStock[]; isDefault?: boolean; }
 interface WatchlistStock { symbol: string; name: string; market: string; sortIndex: number; groupId: string; }
 interface StockQuote { symbol: string; name: string; price: number; changePercent: number; change: number; }
+/** 与 useWatchlistData.AlertItem 同构：按标的分组，组内为预警明细 */
+interface AlertItem {
+  symbol: string;
+  name: string;
+  alerts: Array<{ type: string; level: string; message: string }>;
+}
 
 const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = React.memo(({ onStockClick }) => {
   const [groups, setGroups] = useState<WatchlistGroup[]>(() => {
@@ -39,7 +46,9 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({});
   const [quotesLoading, setQuotesLoading] = useState(false);
   const fetchTimer = useRef<ReturnType<typeof setTimeout>>();
-  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  /** 部分标的查询失败 / 截断说明；null = 查询完整成功（P0-ALERTFE 诚实红线） */
+  const [alertsNotice, setAlertsNotice] = useState<string | null>(null);
 
   // 持久化
   useEffect(() => { safeSetItem(STORAGE_KEY, JSON.stringify(groups)); }, [groups]);
@@ -80,13 +89,28 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
   useEffect(() => { fetchQuotes(); }, [fetchQuotes]);
 
   // 异动提醒
+  // P0-ALERTFE：后端 /api/alerts 只支持单个 ?symbol=<code>（复数形态显式 400）。
+  // 原先这里用裸 fetch 打 ?symbols=a,b,c —— 既触发了后端 400，又绕过 apiFetch
+  // 统一错误处理。改为逐标的请求后合并，并复用 apiFetch。
   useEffect(() => {
-    if (symbols.length === 0) { setAlerts([]); return; }
-    fetch(`/api/alerts?symbols=${symbols.join(',')}`)
-      .then(r => r.json())
-      .then(d => setAlerts(d.data || []))
-      .catch(() => {});
-  }, [symbols.join(',')]);
+    if (symbols.length === 0) { setAlerts([]); setAlertsNotice(null); return; }
+    let cancelled = false;
+    const nameOf = (sym: string) =>
+      (currentGroup?.stocks || []).find((s) => s.symbol === sym)?.name || sym;
+    fetchAlertsForSymbols(symbols, nameOf)
+      .then((outcome) => {
+        if (cancelled) return;
+        setAlerts(outcome.items);
+        setAlertsNotice(describeAlertsOutcome(outcome));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // 不返回空数组伪装成「无预警」
+        setAlerts([]);
+        setAlertsNotice('预警查询失败：请求未能完成，无法判断这些股票是否有预警。');
+      });
+    return () => { cancelled = true; };
+  }, [symbols.join(','), currentGroup]);
 
   // 定时刷新(30秒)
   useEffect(() => {
@@ -179,16 +203,27 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
       styles={{ body: { padding: '10px 16px' } }}
     >
       {/* 异动提醒 */}
-      {alerts.length > 0 && (
+      {/* P0-ALERTFE：查询不完整时也要展示提示，把「没查出来」与「没有预警」区分开 */}
+      {(alerts.length > 0 || alertsNotice) && (
         <div style={{ background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#d46b08', marginBottom: 6 }}>⚠️ 异动提醒</div>
-          {alerts.map(stock => stock.alerts.map((a: any, i: number) => (
+          {alertsNotice && (
+            <div role="alert" style={{ fontSize: 12, color: '#b45309', lineHeight: 1.6, marginBottom: 6 }}>{alertsNotice}</div>
+          )}
+          {alerts.map(stock => stock.alerts.map((a, i) => (
             <div key={`${stock.symbol}-${i}`} style={{ fontSize: 12, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontWeight: 600, color: '#d46b08', fontFamily: 'monospace', cursor: 'pointer' }}
                 onClick={() => onStockClick?.(stock.symbol)}>{stock.name}</span>
-              <Tag color={a.level === 'critical' ? 'red' : a.level === 'warning' ? 'orange' : 'blue'} 
+              <Tag color={a.level === 'critical' ? 'red' : a.level === 'warning' ? 'orange' : a.level === 'inactive' ? 'default' : 'blue'}
                 style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                {a.type === 'limit_move' ? '涨跌停' : a.type === 'big_move' ? '大幅波动' : a.type === 'volume_spike' ? '放量' : '异动'}
+                {a.type === 'price_above' ? '价格上穿'
+                  : a.type === 'price_below' ? '价格下穿'
+                    : a.type === 'change_above' ? '涨幅超限'
+                      : a.type === 'change_below' ? '跌幅超限'
+                        : a.type === 'volume_surge' ? '放量异动'
+                          : a.type === 'indicator' ? '指标触发'
+                            : a.type === 'composite' ? '组合条件'
+                              : '预警规则'}
               </Tag>
               <span style={{ color: '#555' }}>{a.message}</span>
             </div>

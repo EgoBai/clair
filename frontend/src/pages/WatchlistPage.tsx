@@ -24,6 +24,10 @@ import {
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { toast } from '../components/ui/toast';
 import { apiFetch } from '../utils/api';
+import {
+  fetchAlertsForSymbols,
+  describeAlertsOutcome,
+} from '../hooks/useWatchlistData';
 import { renderMarkdown } from '../utils/markdown';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -488,6 +492,8 @@ const WatchlistPage: React.FC = () => {
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
+  /** 部分标的查询失败 / 截断的说明；null = 查询完整成功（P0-ALERTFE 诚实红线） */
+  const [alertsNotice, setAlertsNotice] = useState<string | null>(null);
   const [signals, setSignals] = useState<Record<string, StrategySignal>>({});
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [aiSummary, setAiSummary] = useState<string>('');
@@ -561,19 +567,26 @@ const WatchlistPage: React.FC = () => {
   }, [symbols.join(',')]);
 
   /* ─── Fetch alerts ─── */
+  // P0-ALERTFE：后端 /api/alerts 只支持单个 ?symbol=<code>（复数形态显式 400）。
+  // 原先这里拼复数 ?symbols=a,b,c，在 stripUnknown 下过滤条件整个消失 → 静默返回
+  // 该用户全量预警。改为逐标的请求后合并，合并口径见 fetchAlertsForSymbols 注释。
   const fetchAlerts = useCallback(async () => {
-    if (symbols.length === 0) { setAlerts([]); return; }
+    if (symbols.length === 0) { setAlerts([]); setAlertsNotice(null); return; }
     setAlertsLoading(true);
     try {
-      const resp = await apiFetch(`/api/alerts?symbols=${symbols.join(',')}`);
-      const data = await resp.json();
-      setAlerts(data.data?.alerts || []);
+      const nameOf = (sym: string) =>
+        (currentGroup?.stocks || []).find((s) => s.symbol === sym)?.name || sym;
+      const outcome = await fetchAlertsForSymbols(symbols, nameOf);
+      setAlerts(outcome.items);
+      setAlertsNotice(describeAlertsOutcome(outcome));
     } catch {
+      // 不能用空数组伪装成「无预警」
       setAlerts([]);
+      setAlertsNotice('预警查询失败：请求未能完成，无法判断这些股票是否有预警。');
     } finally {
       setAlertsLoading(false);
     }
-  }, [symbols.join(',')]);
+  }, [symbols.join(','), currentGroup]);
 
   /* ─── Fetch strategy signals ─── */
   const fetchSignals = useCallback(async () => {
@@ -1234,7 +1247,10 @@ const WatchlistPage: React.FC = () => {
         )}
 
         {/* ── Alerts Banner ── */}
-        {alerts.length > 0 && (
+        {/* P0-ALERTFE：查询不完整（部分标的失败/被截断）时必须显式提示，
+            否则用户会把「没查出来」误读成「这些股票没有预警」。
+            真正的「无预警」不展示横幅，避免与失败态混淆。 */}
+        {(alerts.length > 0 || alertsNotice) && (
           <Card
             style={{
               background: 'linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.02))',
@@ -1249,6 +1265,23 @@ const WatchlistPage: React.FC = () => {
               <Text strong style={{ color: GOLD, fontSize: 14 }}>异动提醒</Text>
               {alertsLoading && <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>加载中…</Text>}
             </div>
+            {alertsNotice && (
+              <div
+                role="alert"
+                style={{
+                  fontSize: 12,
+                  color: '#b45309',
+                  background: 'rgba(245,158,11,0.12)',
+                  border: '1px solid rgba(245,158,11,0.35)',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  marginBottom: 8,
+                  lineHeight: 1.6,
+                }}
+              >
+                {alertsNotice}
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {alerts.map(stock =>
                 stock.alerts.map((a, i) => (
@@ -1277,7 +1310,8 @@ const WatchlistPage: React.FC = () => {
                       color={
                         a.level === 'critical' ? 'red'
                           : a.level === 'warning' ? 'orange'
-                            : 'blue'
+                            : a.level === 'inactive' ? 'default'
+                              : 'blue'
                       }
                       style={{
                         fontSize: 10,
@@ -1287,11 +1321,14 @@ const WatchlistPage: React.FC = () => {
                         borderRadius: 4,
                       }}
                     >
-                      {a.type === 'limit_move' ? '涨跌停'
-                        : a.type === 'big_move' ? '大幅波动'
-                          : a.type === 'volume_spike' ? '放量'
-                            : a.type === 'price_break' ? '突破'
-                              : '异动'}
+                      {a.type === 'price_above' ? '价格上穿'
+                        : a.type === 'price_below' ? '价格下穿'
+                          : a.type === 'change_above' ? '涨幅超限'
+                            : a.type === 'change_below' ? '跌幅超限'
+                              : a.type === 'volume_surge' ? '放量异动'
+                                : a.type === 'indicator' ? '指标触发'
+                                  : a.type === 'composite' ? '组合条件'
+                                    : '预警规则'}
                     </Tag>
                     <Text style={{ color: '#9ca3af', fontSize: 12 }}>{a.message}</Text>
                   </div>
