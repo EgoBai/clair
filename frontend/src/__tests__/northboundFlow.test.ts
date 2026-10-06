@@ -147,11 +147,15 @@ describe('NorthboundFlow', () => {
       expect(summary.consecutiveDays).toBeGreaterThanOrEqual(0);
     });
 
-    it('should handle empty flows', () => {
+    it('should handle empty flows（诚实红线：无数据一律 null，不回落 0）', () => {
       const summary = summarizeNorthboundFlow([]);
-      expect(summary.todayNet).toBe(0);
-      expect(summary.weekNet).toBe(0);
+      // 交易所已停止披露净买额，空输入 = 不可得，绝不能用 0 顶替（否则页面显示「0.00 亿」）
+      expect(summary.todayNet).toBeNull();
+      expect(summary.weekNet).toBeNull();
+      expect(summary.monthNet).toBeNull();
+      expect(summary.momentum).toBeNull();
       expect(summary.trend).toBe('neutral');
+      expect(summary.netInflowDisclosed).toBe(false);
     });
 
     it('should handle single flow entry', () => {

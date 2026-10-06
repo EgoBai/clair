@@ -69,6 +69,17 @@ async function getJson(url: string): Promise<any> {
   return json?.data;
 }
 
+/**
+ * 拉取完整响应信封。
+ * 后端把 `dataSource` / `message` / `notes` / `netInflowDisclosure` 放在**顶层**，
+ * 不在 `data` 内，故需要口径说明的模块必须读信封而非 `json.data`。
+ */
+async function getEnvelope(url: string): Promise<any> {
+  const res = await fetch(url, { signal: AbortSignal.timeout?.(8000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 const fmtYi = (v: any): string =>
   v == null ? '—' : `${(Number(v) / 1e8).toFixed(0)} 亿`;
 
@@ -111,23 +122,37 @@ const MODULES: ModuleDef[] = [
     icon: ArrowLeftOutlined,
     path: ROUTE_PATHS.NORTH_BOUND,
     load: async (): Promise<ModuleState> => {
-      const d = await getJson('/api/north-bound/overview');
-      const flows: any[] = d?.flows ?? [];
-      const holdings: any[] = d?.holdings ?? [];
-      const sectors: any[] = d?.sectors ?? [];
+      const env = await getEnvelope('/api/north-bound/overview');
+      const d = env?.data ?? {};
+      // 诚实口径：主数据源是 dealFlows / byDate（成交额，语义无歧义）。
+      // flows / holdings / sectors 后端恒为空数组，不可用于判空。
+      const dealFlows: any[] = Array.isArray(d.dealFlows) ? d.dealFlows : [];
+      const byDate: any[] = Array.isArray(d.byDate) ? d.byDate : [];
+      const latest = byDate.length > 0 ? byDate[byDate.length - 1] : null;
       const status: Status =
-        d?.dataSource === 'real'
+        env?.dataSource === 'real'
           ? 'real'
-          : flows.length || holdings.length || sectors.length
+          : dealFlows.length || byDate.length
             ? 'partial'
             : 'unavailable';
+      // 成交额：后端单位万元，÷10000 → 亿元；缺失显示「—」，不回落 0
+      const latestTotalYi =
+        latest?.totalDealAmount === null || latest?.totalDealAmount === undefined
+          ? '—'
+          : `${(Number(latest.totalDealAmount) / 1e4).toFixed(2)} 亿`;
+      const netNote: string | undefined =
+        typeof env?.notes?.netInflow === 'string'
+          ? env.notes.netInflow
+          : typeof env?.notes?.source === 'string'
+            ? env.notes.source
+            : undefined;
       return {
         status,
-        statusNote: d?.notes?.source,
+        statusNote: netNote ? `净买额口径已停止披露，本卡片展示成交额；${netNote}` : undefined,
         metrics: [
-          { label: '净流入序列', value: `${flows.length}` },
-          { label: '北向重仓', value: `${holdings.length}` },
-          { label: '板块净流入', value: `${sectors.length}` },
+          { label: '成交额合计', value: latestTotalYi },
+          { label: '成交明细', value: `${dealFlows.length} 条` },
+          { label: '交易日', value: byDate.length ? `${byDate.length} 天` : '—' },
         ],
       };
     },

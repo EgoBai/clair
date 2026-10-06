@@ -1,17 +1,24 @@
 /**
  * 北向资金追踪引擎
  * 沪股通 / 深股通 资金流向分析
+ *
+ * 诚实红线（与后端 backend/src/api/northBound.ts 对齐）：
+ *  交易所自 2024-08-19 起停止披露北向「净买额」口径，`total` / `shConnect` / `szConnect`
+ *  的真实取值恒为 `null`。因此这三个字段声明为 `number | null`，汇总结果同样可能为 `null`，
+ *  **绝不允许用 0 顶替缺失**（0 会被页面渲染成「今日净流入 0.00 亿」，即零值顶替空态）。
+ *  真实可得的口径是「成交额」，见 NorthBoundPage 的 `dealFlows` 消费路径。
  */
 
 export interface NorthboundFlow {
   date: string;
-  shConnect: number; // 沪股通净流入
-  szConnect: number; // 深股通净流入
-  total: number;
-  shBuy: number;
-  shSell: number;
-  szBuy: number;
-  szSell: number;
+  shConnect: number | null; // 沪股通净流入（亿元）；null = 上游已停止披露
+  szConnect: number | null; // 深股通净流入（亿元）；null = 上游已停止披露
+  /** 合计净流入（亿元）；null = 上游已停止披露，绝不用成交额或 0 顶替 */
+  total: number | null;
+  shBuy: number | null;
+  shSell: number | null;
+  szBuy: number | null;
+  szSell: number | null;
 }
 
 export interface NorthboundHolding {
@@ -25,14 +32,28 @@ export interface NorthboundHolding {
 }
 
 export interface NorthboundSummary {
-  todayNet: number;
-  weekNet: number;
-  monthNet: number;
-  monthDayAvg: number;
+  /** 最新交易日净流入（亿元）；null = 上游已停止披露，不得回落 0 */
+  todayNet: number | null;
+  /** 近 5 日累计净流入（亿元）；窗口内任一天缺披露即整体为 null（不做部分和） */
+  weekNet: number | null;
+  /** 近 20 日累计净流入（亿元）；同上 */
+  monthNet: number | null;
+  /** 近 20 日日均净流入（亿元）；null = 不可得 */
+  monthDayAvg: number | null;
   trend: 'inflow' | 'outflow' | 'neutral';
-  momentum: number; // 动量指标
-  consecutiveDays: number; // 连续流入/流出天数
+  /** 动量（近5日均值 / 近20日均值）；分母不可得或为 0 时为 null */
+  momentum: number | null;
+  consecutiveDays: number; // 连续流入/流出天数；不可得时为 0
+  /**
+   * 净流入口径是否真实可得。
+   * false = 上游（交易所）已停止披露北向净买额，所有净流入字段均为 null，
+   * 此时页面只能展示成交额，不得展示任何净流入数值。
+   */
+  netInflowDisclosed?: boolean;
 }
+
+/** 统一保留 2 位小数 */
+const round2 = (x: number): number => Math.round(x * 100) / 100;
 
 export interface TopHoldingsChange {
   topIncreased: NorthboundHolding[];
@@ -43,44 +64,68 @@ export interface TopHoldingsChange {
 
 /**
  * 计算北向资金汇总
+ *
+ * 诚实红线：`total` 为 `null` 表示交易所已停止披露该日净买额。
+ *  - 单日缺失 → 该日相关聚合为 `null`，**不回落 0**
+ *  - 窗口内存在缺失 → 整个窗口聚合为 `null`，不做「部分和」冒充完整值
+ *  - 分母为 0 或不可得 → `momentum` 为 `null`，不用 `1` 顶替
  */
 export function summarizeNorthboundFlow(flows: NorthboundFlow[]): NorthboundSummary {
   if (flows.length === 0) {
     return {
-      todayNet: 0,
-      weekNet: 0,
-      monthNet: 0,
-      monthDayAvg: 0,
+      todayNet: null,
+      weekNet: null,
+      monthNet: null,
+      monthDayAvg: null,
       trend: 'neutral',
-      momentum: 0,
+      momentum: null,
       consecutiveDays: 0,
+      netInflowDisclosed: false,
     };
   }
 
   const sorted = [...flows].sort((a, b) => b.date.localeCompare(a.date));
-  const today = sorted[0]?.total ?? 0;
+
+  /** 窗口聚合：任一天缺披露即整体不可得（null），绝不用部分和或 0 顶替 */
+  const sumWindow = (win: NorthboundFlow[]): number | null => {
+    if (win.length === 0) return null;
+    let acc = 0;
+    for (const f of win) {
+      if (f.total === null || f.total === undefined) return null;
+      acc += f.total;
+    }
+    return round2(acc);
+  };
+
+  const today = sorted[0]?.total ?? null;
   const weekFlows = sorted.slice(0, 5);
   const monthFlows = sorted.slice(0, 20);
 
-  const weekNet = weekFlows.reduce((s, f) => s + f.total, 0);
-  const monthNet = monthFlows.reduce((s, f) => s + f.total, 0);
-  const monthDayAvg = monthNet / monthFlows.length;
+  const weekNet = sumWindow(weekFlows);
+  const monthNet = sumWindow(monthFlows);
+  const monthDayAvg =
+    monthNet === null || monthFlows.length === 0 ? null : round2(monthNet / monthFlows.length);
 
-  // 趋势判断
+  // 趋势判断：日均不可得时一律 neutral（不猜方向）
   let trend: 'inflow' | 'outflow' | 'neutral';
-  if (monthDayAvg > 5) trend = 'inflow';
+  if (monthDayAvg === null) trend = 'neutral';
+  else if (monthDayAvg > 5) trend = 'inflow';
   else if (monthDayAvg < -5) trend = 'outflow';
   else trend = 'neutral';
 
-  // 动量 = 近5日均值 / 近20日均值
-  const weekAvg = weekNet / weekFlows.length;
-  const momentum = monthDayAvg !== 0 ? weekAvg / monthDayAvg : 1;
+  // 动量 = 近5日均值 / 近20日均值；任一不可得或分母为 0 → null
+  let momentum: number | null = null;
+  if (weekNet !== null && monthDayAvg !== null && monthDayAvg !== 0) {
+    momentum = round2(weekNet / weekFlows.length / monthDayAvg);
+  }
 
-  // 连续天数
+  // 连续天数：从最新一天往回，遇到 null（方向未知）即中断
   let consecutiveDays = 0;
-  const lastDirection = today > 0 ? 'in' : today < 0 ? 'out' : 'neutral';
-  if (lastDirection !== 'neutral') {
+  const latest = sorted[0]?.total ?? null;
+  const lastDirection = latest === null ? null : latest > 0 ? 'in' : latest < 0 ? 'out' : 'neutral';
+  if (lastDirection !== null && lastDirection !== 'neutral') {
     for (const f of sorted) {
+      if (f.total === null || f.total === undefined) break;
       const dir = f.total > 0 ? 'in' : f.total < 0 ? 'out' : 'neutral';
       if (dir === lastDirection) consecutiveDays++;
       else break;
@@ -88,13 +133,14 @@ export function summarizeNorthboundFlow(flows: NorthboundFlow[]): NorthboundSumm
   }
 
   return {
-    todayNet: Math.round(today * 100) / 100,
-    weekNet: Math.round(weekNet * 100) / 100,
-    monthNet: Math.round(monthNet * 100) / 100,
-    monthDayAvg: Math.round(monthDayAvg * 100) / 100,
+    todayNet: today === null ? null : round2(today),
+    weekNet,
+    monthNet,
+    monthDayAvg,
     trend,
-    momentum: Math.round(momentum * 100) / 100,
+    momentum,
     consecutiveDays,
+    netInflowDisclosed: flows.some((f) => f.total !== null && f.total !== undefined),
   };
 }
 
@@ -178,8 +224,30 @@ export interface NorthboundSignal {
   message: string;
 }
 
+/** 可选数值守卫：null / undefined 一律视为「不可得」，绝不参与比较与算术 */
+const has = (v: number | null | undefined): v is number =>
+  typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * 由汇总生成北向资金信号
+ *
+ * 诚实红线：`summary.netInflowDisclosed === false`（或所有净流入字段均缺失）时，
+ * **一条方向性信号都不生成** —— 净买额口径已停披露，无从判断流入/流出。
+ * 只返回一条说明性中性信号，避免用「均衡」暗示「有数据但持平」。
+ */
 export function generateNorthboundSignals(summary: NorthboundSummary): NorthboundSignal[] {
   const signals: NorthboundSignal[] = [];
+
+  const disclosed = summary.netInflowDisclosed !== false && has(summary.monthDayAvg);
+  if (!disclosed) {
+    return [
+      {
+        type: 'neutral',
+        strength: 0,
+        message: '净买额口径已停止披露，无法生成流入/流出方向信号；本页仅展示成交额等真实可得口径',
+      },
+    ];
+  }
 
   // 连续流入信号
   if (summary.consecutiveDays >= 5 && summary.trend === 'inflow') {
@@ -199,8 +267,8 @@ export function generateNorthboundSignals(summary: NorthboundSummary): Northboun
     });
   }
 
-  // 动量加速
-  if (summary.momentum > 1.5 && summary.trend === 'inflow') {
+  // 动量加速（动量不可得时不出信号）
+  if (has(summary.momentum) && summary.momentum > 1.5 && summary.trend === 'inflow') {
     signals.push({
       type: 'bullish',
       strength: Math.min(85, 40 + summary.momentum * 20),
@@ -208,8 +276,8 @@ export function generateNorthboundSignals(summary: NorthboundSummary): Northboun
     });
   }
 
-  // 动量减速
-  if (summary.momentum < 0.5 && summary.trend === 'inflow') {
+  // 动量减速（动量不可得时不出信号）
+  if (has(summary.momentum) && summary.momentum < 0.5 && summary.trend === 'inflow') {
     signals.push({
       type: 'bearish',
       strength: 55,
@@ -218,7 +286,7 @@ export function generateNorthboundSignals(summary: NorthboundSummary): Northboun
   }
 
   // 大额流入
-  if (summary.todayNet > 100) {
+  if (has(summary.todayNet) && summary.todayNet > 100) {
     signals.push({
       type: 'bullish',
       strength: Math.min(80, 50 + summary.todayNet / 10),
@@ -227,7 +295,7 @@ export function generateNorthboundSignals(summary: NorthboundSummary): Northboun
   }
 
   // 大额流出
-  if (summary.todayNet < -100) {
+  if (has(summary.todayNet) && summary.todayNet < -100) {
     signals.push({
       type: 'bearish',
       strength: Math.min(80, 50 + Math.abs(summary.todayNet) / 10),
