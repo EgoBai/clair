@@ -214,14 +214,39 @@ Failed to start forks worker / Timeout waiting for worker to respond (60s)
 
 ### 正确做法
 
-unset 掉，而非覆盖：
+unset 掉，而非覆盖。**最小充分条件是只 unset `NODE_OPTIONS`**：
 
 ```bash
-cd backend && env -u NODE_OPTIONS -u PYTHONPATH \
-  ./node_modules/.bin/vitest run <测试文件>
+cd backend && env -u NODE_OPTIONS ./node_modules/.bin/vitest run <测试文件>
 ```
 
-实测：unset 后 worker 3.5s 正常启动，94/94 通过，**无需任何内存参数**。
+实测（本仓库）：`PYTHONPATH` 也指向同一个 shim 目录
+（`.../cli/vendor/shim`），但**保留它不影响**——
+`env -u NODE_OPTIONS` 单独使用即可让worker 3.5s 正常启动、94/94 通过。
+`CODEBUDDY_SANDBOX_PROGRAM_POLICY_COMMAND` 同样与本问题无关。
+
+> 教训：看到别人广播里的命令有三个 `env -u`，别默认「少一个就不生效」——
+> 那会让人以为已unset 干净却仍失败，从而错误地去怀疑自己的代码。
+> 反过来，也别照抄未验证的变量。**以实测的最小充分条件为准。**
+
+等价的更省事写法（利用「整体替换而非追加」这一语义）：
+
+```bash
+NODE_OPTIONS=--max-old-space-size=4096<你的命令>
+```
+
+不必 `env -u`，直接赋值即可让 shim 自然消失。但**推荐 `env -u`** ——
+它意图明确，不会让人误以为「加内存参数」是本问题的正解（见上文「容易误判的地方」）。
+
+### 影响面：不只是 vitest
+
+**`scripts/guard/honesty-scan.mjs` 也受影响** —— 它在 CI 是真阻断 job，
+带着 shim 跑会得到 `exit 137/SIGTERM`，该退出码**极易被误读成脚本 OOM 或性能问题**
+（fix-schema-gap 就因此向team-lead 报过「脚本自身内存占用问题」的误判）。
+实测 `env -u NODE_OPTIONS node scripts/guard/honesty-scan.mjs --strict` → `exit 0`。
+
+这说明该shim 影响的是**一切 fork/子进程型 CLI**，不止测试。
+遇到 `exit 137` 时，先 `unset NODE_OPTIONS` 再判断是否为真实内存问题。
 
 ### 如何防止复发
 
