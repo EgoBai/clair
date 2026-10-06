@@ -86,8 +86,17 @@
 
 ## 2026-10-07 03:00 · 沙箱 NODE_OPTIONS 量化结论（主理人实测，三方独立复现后收敛）
 - **机制（我实测的硬数据）**：30 次 `fs.readFileSync`，带 shim **7678ms** vs 无 shim **0ms** ⟹ shim 给**每次 fs 调用**加约 **256ms**。凡是需要读大量文件的进程（`honesty-scan` 读数百文件、vitest 模块加载）会被放大到分钟级并最终被 SIGTERM。
+  - ⚠️ **量级不是固定倍数**（`fix-lockup-toptraders` 补充，我采纳）：惩罚强度**与 fs 调用次数正相关、且随机器负载放大**。同一 `honesty-scan` 低负载时 53s、高负载（多worker 并发）实测 **10 分钟仍未结束**。所以「53s」「50倍」只在特定负载下成立，**不要把它当固定常数用于排期或阈值设定**。
 - **最小充分条件**：只需 `env -u NODE_OPTIONS`（`PYTHONPATH` / `CODEBUDDY_SANDBOX_PROGRAM_POLICY_COMMAND` 无需unset）。
 - **⚠️ 重要澄清（`fix-blocktrades` 的建议我采纳但需修正其范围）**：它建议「给 CI 门禁加 `env -u NODE_OPTIONS`」，理由是「CI 若同样注入 shim 会假红」。**但 shim 的路径是 `/Applications/WorkBuddy.app/.../node-language-shim.cjs`——这是 WorkBuddy 沙箱注入的，GitHub Actions runner 上不存在该文件与该环境变量。**⟹ **CI 门禁不受此影响，无需改 workflow**。仅本地/沙箱复跑需要 unset。
 - **`honesty-scan` 本体无性能问题**：717 行纯本地扫描、无网络调用，去掉 shim 后 **0~1s**。历史上多次把它归因为「脚本内存占用」是**错误结论**（`fix-schema-gap`、`fix-half-honest-zero`、`fix-fe-deadlinks` 三方均独立更正过），已在本单留档。
 - **另一条独立事实（`fix-hkconnect-page` 实测）**：vitest 的 `Duration` 在带 shim 时被放大约 400倍（105s vs 245ms；155s vs 0.34s），**慢的锅不归被改的文件**（其 13 例纯 mock 用例 `tests` 仅 25ms，耗时全在 `collect`/`prepare`）。⟹ **排期不得用 Duration 判断某 worker 的测试「写得慢」**。
 - **判据表（已广播全员）**：换命令形态就好 → 命令写法（`nohup &` 被回收 / `| tail` 吞日志 / 固定 sleep）；只有 unset 好且仅 fork 子进程 → NODE_OPTIONS；vite 在 run_in_background 下仍复现 → 才是真环境问题。
+- **⚠️ 纠正一处越界建议（`fix-blocktrades`/`audit-reachability` 均提过）**：他们建议「给 CI 门禁加 `env -u NODE_OPTIONS`，否则 CI unit-tests 会无端变红」。**范围过宽，不采纳**——shim 路径是 `/Applications/WorkBuddy.app/.../node-language-shim.cjs`，属 **WorkBuddy 沙箱注入**，GitHub Actions runner 上不存在该文件与该环境变量。⟹ **CI 不受影响、不得为此改 workflow**，仅本地/沙箱复跑需 unset。
+- **诚实门禁双计数器语义（`fix-hkconnect-page` 实测 + 主理人复核规则原文，已留档）**：
+  - `SCAN_ROOTS = ['backend/src','frontend/src']` —— **前端全量在扫描面内**
+  - `SUPPLY_MARKERS = ['backend/src/api/','backend/src/services/','backend/src/db/']` ⟹ 只有**供数路径**升 **RED**（`--strict` 下真阻断、exit 1）；`frontend/src/**` 全部落 **YELLOW**（只计数、不阻断）。
+  - ⟹ **做阳性对照时必须盯 YELLOW 计数变化**（前后差 1 即命中），盯 RED 永远是 0 会误判成「门禁没生效」。`fix-fe-null-adapt` 曾因此差点白跑一轮。
+  - 当前基线（主理人实测）：未豁免 RED **0** / YELLOW **53** / 规则B CONTRACT-MISSING **24 文件** / allowlist 13 未命中 0 ⟹ `--strict` **exit 0**。
+- **⚠️ 防误杀（`fix-hkconnect-page` 实测，当前仍有 11 个门禁进程在跑）**：`pkill -f honesty-scan` 会打断他人运行，且 `ps eww` **读不到别session 的 `CODEBUDDY_SESSION_ID`**（返回空）⟹「先 pgrep 再按 session 挑着 kill」在本环境**不可行**（不是顺序问题）。**唯一安全做法：用任务停止接口按 task_id 停自己启动的后台任务**；若只能用 pkill，则 `pgrep` 数量不为 1 就**放弃 kill**。
+- **协作纪律（源自今晚多次自我纠错）**：跑对照实验时**必须记录当次的「是否带 shim / 是否带 env -u / 是否并发 / 负载如何」**，与结果一起记（一行即可）。否则事后只能靠残缺信息重建现场 ⟹ 每次都在重新猜。今晚三次环境误判（单次观察当因果/拿污染值定优化目标/计时脚本本身写错）全部源于此。
