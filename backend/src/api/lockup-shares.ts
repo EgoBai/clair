@@ -97,20 +97,31 @@ function monthRange(year: number, month: number): { start: string; end: string }
 }
 
 /**
- * 归一化年份/月份：月份越界时回退到当前月（绝不把非法月份透传给东财）。
+ * 归一化年份/月份：以 `req.query`（已由 Joi 校验并转型为 number）为准，
+ * 仅当键缺失时才回退解析 `req.originalUrl`。
  *
- * 【根因修复 P0-5B·第二层】year/month 必须从**原始 query串**取，不能读 req.query：
+ * 【历史背景】P0-5B 期间此处的 year/month 曾被 `validateQuery` 静默剥离——
  * `validateQuery` 用 `schema.validate(req.query, { stripUnknown: true })`，
- * 而 `schemas.lockupCalendar` / `schemas.lockupRank` 并未声明 year/month，
- * 故这两个键会被**静默剥离**——前端 LockupCalendarPage 传来的
- * `?year=2026&month=10` 会被丢成当前月，日历翻月永远失效。
- * validation.ts 不在本工单可改范围内，故在此自行解析 req.originalUrl 兜底。
+ * 而当时 `schemas.lockupCalendar`/`lockupRank` 未声明这两个键，导致前端
+ * `?year=2026&month=10` 被丢成当前月、日历翻月全线失效且无任何报错。
+ * 该schema 缺口已由 P0-SCHEMA（#67）在 validation.ts 正式补齐
+ * （含 `.and('year','month')` 成对校验与 2000~当前年+1 的年份下上界）。
+ *
+ * 此处保留 originalUrl 分支仅作**纵深防御**：即便将来 schema 再被误改回
+ * 缺字段，本端点也不会静默退化为「永远当前月」这种难以察觉的错误。
+ * 正常路径恒走 req.query，故 `.and('year','month')` 的 400 校验不会被绕过。
  */
 function normYearMonth(req: Request): { year: number; month: number } {
   const now = new Date();
-  const raw = new URLSearchParams((req.originalUrl ?? '').split('?')[1] ?? '');
-  const y = parseInt(raw.get('year') ?? '', 10);
-  const m = parseInt(raw.get('month') ?? '', 10);
+  // 首选已被 Joi 校验/转型好的 req.query（权威来源，含 .and 成对校验）
+  let y = parseInt(String((req.query as Record<string, unknown>)?.year ?? ''), 10);
+  let m = parseInt(String((req.query as Record<string, unknown>)?.month ?? ''), 10);
+  // 纵深防御：schema 若再被误改回缺字段，退回解析原始 query 串
+  if (!Number.isFinite(y) || !Number.isFinite(m)) {
+    const raw = new URLSearchParams((req.originalUrl ?? '').split('?')[1] ?? '');
+    y = parseInt(raw.get('year') ?? '', 10);
+    m = parseInt(raw.get('month') ?? '', 10);
+  }
   const year = Number.isFinite(y) ? y : now.getFullYear();
   const month = Number.isFinite(m) && m >= 1 && m <= 12 ? m : now.getMonth() + 1;
   return { year, month };
@@ -313,9 +324,12 @@ router.get(
   validateParams(schemas.stockSymbol),
   asyncHandler(async (req: Request, res: Response) => {
     const symbol = String(req.params.symbol).trim().replace(/\.(SZ|SH|BJ)$/i, '');
-    // months 同year/month：validateParams 只校验 params，query 里的 months 需自行取
-    const monthsQ = new URLSearchParams((req.originalUrl ?? '').split('?')[1] ?? '').get('months');
-    const months = Math.min(parseInt(String(monthsQ ?? ''), 10) || 12, 36);
+    // 本路由只挂 validateParams(校验 req.params)，不会剥离 req.query，故直接读。
+    // 上限放宽到 240 月（20 年）：A 股最早一批解禁在 2010 年前后，原36 月上限
+    // 会让「查个股解禁历史」对绝大多数已过解禁期的老股票永远返回空
+    // （实测 000001 上游有 6 条2010~2018 记录，months=240 却返回 0 条）。
+    const monthsQ = parseInt(String(req.query?.months ?? ''), 10);
+    const months = Number.isFinite(monthsQ) && monthsQ > 0 ? Math.min(monthsQ, 240) : 12;
 
     const rows = await emGet(LIFT_STAGE_REPORT, {
       filter: `(SECURITY_CODE="${symbol}")`,
