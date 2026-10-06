@@ -191,7 +191,7 @@ cd backend && node --import tsx --test src/__tests__/tradingCalendarHypothesis.n
 
 ---
 
-## AP-7 沙箱注入的 `NODE_OPTIONS` 让 vitest fork worker 起不来
+## AP-7沙箱注入的 `NODE_OPTIONS` 让子进程卡死（vitest / honesty-scan / 后端起不来）
 
 ### 症状
 
@@ -238,19 +238,55 @@ NODE_OPTIONS=--max-old-space-size=4096<你的命令>
 不必 `env -u`，直接赋值即可让 shim 自然消失。但**推荐 `env -u`** ——
 它意图明确，不会让人误以为「加内存参数」是本问题的正解（见上文「容易误判的地方」）。
 
-### 影响面：不只是 vitest
+### 影响面：不只是 vitest，而是**一切走 `node --require` 的子进程**
 
-**`scripts/guard/honesty-scan.mjs` 也受影响** —— 它在 CI 是真阻断 job，
-带着 shim 跑会得到 `exit 137/SIGTERM`，该退出码**极易被误读成脚本 OOM 或性能问题**
-（fix-schema-gap 就因此向team-lead 报过「脚本自身内存占用问题」的误判）。
-实测 `env -u NODE_OPTIONS node scripts/guard/honesty-scan.mjs --strict` → `exit 0`。
+本项目已实测确认的三个症状，**根因全是这个 shim**：
 
-这说明该shim 影响的是**一切 fork/子进程型 CLI**，不止测试。
-遇到 `exit 137` 时，先 `unset NODE_OPTIONS` 再判断是否为真实内存问题。
+| 症状 | 实测验证 |
+|---|---|
+| **vitest** fork worker 超时 / exit 137 | `env -u NODE_OPTIONS` → 正常启动 |
+| **`scripts/guard/honesty-scan.mjs`** exit 137 | 带 shim `EXIT=137`；`env -u` → `EXIT=0` |
+| **后端 `tsx src/index.ts`** 端口 bind 不上 | 带 shim：T+75s 日志仍 **0 字节**、health 000；`env -u`：T+30s 日志 3594 字节、health **200** |
+
+⚠️ `honesty-scan` 是 CI **真阻断** job，137 极易被误读成脚本自身 OOM/性能问题
+（fix-schema-gap 就因此向 team-lead 报过「脚本自身内存占用问题」的**误判**）。
+**建议在脚本入口自检**（检测 `process.env.NODE_OPTIONS?.includes('--require')` 即告警）——
+踩坑的人一般不会先读文档。
+
+### ⚠️ 它伪装成「慢」——这是最坑的地方
+
+后端启动失败时**进程是活着的**（`pgrep` 查得到 `node tsx src/index.ts`），
+但端口没绑、**日志文件 0 字节**，连启动 banner 都没有。
+看起来像「还在慢慢启动」，实际是子进程已被卡死 —— 实测 **75 秒仍未起**，
+而无界等待永远不会成功。
+
+> **判据：日志文件是 0 字节 → 不是「启动中」，是 shim 卡死了。立刻 unset 重试，别再等。**
+
+正确的起服姿势（与 vite 的坑不同，别混）：
+
+```bash
+cd backend && env -u NODE_OPTIONS PORT=<你的端口> \
+  ./node_modules/.bin/tsx src/index.ts > /tmp/be.log 2>&1
+```
+
+- 输出**重定向到文件**，**不要接 `| tail`**（否则日志被吞，0 字节也看不出来）
+- 用 harness 的后台托管参数，**不要 `nohup ... &`**
+- **循环轮询到 200 为止**，别固定 sleep
+- 多worker 并行时，探活**务必带自己的具体端口**：
+  `curl --noproxy '*' -m 6 http://127.0.0.1:<端口>/health`
+  ——别只看「有 tsx 进程在跑」就以为起来了，那是别人的端口
+- `curl` 打本地**必须**加 `--noproxy '*'`，否则代理返回的 000/502 会被误判成「服务没起来」
+
+### 与 vite 的坑**区分**开（别混归因）
+
+vite dev 绑不上端口**与 NODE_OPTIONS 无关** —— 实测保留 shim 时 vite 照样 bind 成功。
+真因通常是命令写法（`nohup ... &` 被回收，或 `| tail` 吞掉日志）。
+若误以为 unset 能解决 vite，会白找原因。
 
 ### 如何防止复发
 
-- 遇到 vitest worker 超时/137，**先 unset 再怀疑自己的代码**
+- 遇到 **exit 137 / worker 超时 / 端口不绑 / 日志 0 字节**，**先 `unset NODE_OPTIONS`**，
+  再判断是否为真实内存问题
 - 别用「加内存参数」当万能药 —— 它可能只是覆盖掉了真正的原因
 - 同理，沙箱内 `ps` / `pgrep` 受限（`operation not permitted`），
   「查不到进程」不等于「没进程在跑」
