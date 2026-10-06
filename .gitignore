@@ -58,8 +58,18 @@ frontend/.tempgauge-harness.*
 frontend/nulladapt-verify.tsx
 frontend/*-verify-tmp.*
 frontend/vite.*verify*.ts
+frontend/vite.config.*-temp.*
+frontend/vite.config.*-temp.js
 frontend/nv.tmp.*
 frontend/serve-verify.mjs
 frontend/checkApiBase*.mjs
 *.harness.cjs
 *.harness.tsx
+
+# ⚠️ 高危补充（2026-10-07 02:47）
+# `vite.config.bt-temp.ts` 这类临时 vite 配置若被提交并覆盖真实 vite.config.ts，
+# 会把 server.proxy 的 /api 目标从 3001 静默改到 3411 —— **前端不报错、只是拿不到数据**。
+# 「静默失效」比误提交测试文件危险得多：CI 不红、dev 不报错，只有用户看到空页面。
+# 因此禁止任何 `vite.config.*-temp*` / `*-verify*` 形态的配置文件入库。
+vite.config.*-temp.*
+frontend/vite.config.bt-temp.ts

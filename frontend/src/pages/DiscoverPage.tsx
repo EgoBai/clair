@@ -63,6 +63,113 @@ interface MultidimData {
 
 interface StockData { symbol: string; name: string; price: number | null; changePercent: number | null; turnoverRate?: number; peRatio?: number; market: string; }
 
+/**
+ * 市场温度仪表盘的**诚实渲染契约**（P0-TEMPGAUGE）。
+ *
+ * 后端 `ai-market-pulse` 在信号计算失败时返回 `temperature: { score: null, label: '未知' }`
+ * 且 `dataSource: 'unavailable'`（诚实红线）。此前前端写 `percent={score ?? 0}` +
+ * `score >= 60 ? 绿 : score >= 45 ? 橙 : 红`，于是 null 被吃成 0：
+ *   - `null ?? 0`        → 显示「0/100」（假数值）
+ *   - `null >= 60` 为 false、`null >= 45` 也为 false → 落到 `#ef4444`（红）
+ * 而后端 `computeTemperature` 里 0 分对应的真实 label 恰恰是「弱势」，
+ * 所以「0/100 + 红色」在视觉上就是一个**真实但完全错误的「市场极度弱势」结论**。
+ * 这比直接报错更坏：用户无从分辨「算不出来」与「算出来很弱」。
+ *
+ * 因此不可得态必须同时满足三条：
+ *   1. 不渲染任何看起来像真实温度的数字（不给 percent，不显示 0）
+ *   2. 不用红/绿/橙任何一档档位色 —— 改用中性灰，明确区别于三档语义
+ *   3. 给出可解释文案，指明是「数据源不可得」而非「市场很弱」
+ */
+export const GAUGE_UNAVAILABLE_COLOR = '#94a3b8'; // 中性灰：三档档位色之外，语义上不表示强弱
+
+/** 真实值档位色：与后端 computeTemperature 的 label 阈值保持一致（>=60 偏暖/强势，>=45 中性，<45 偏冷/弱势） */
+export function temperatureGaugeColor(score: number): string {
+  return score >= 60 ? '#22c55e' : score >= 45 ? ACCENT : '#ef4444';
+}
+
+/**
+ * 把后端 temperature 字段解析成「可直接渲染」的仪表盘契约。
+ * score 为 null / 非有限数 / 缺失 → 走不可得分支，绝不退化成 0。
+ */
+export function resolveTemperatureGauge(temperature: any): {
+  available: boolean;
+  /** 仅 available 时有值；不可得时为 null，调用方不得再拿它做算术或比较 */
+  score: number | null;
+  color: string;
+  /** 顶部主文案 */
+  text: string;
+  /** 底部副文案 */
+  subText: string;
+} {
+  const raw = temperature?.score;
+  const score = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+
+  if (score === null) {
+    return {
+      available: false,
+      score: null,
+      color: GAUGE_UNAVAILABLE_COLOR,
+      text: '暂不可用',
+      subText: temperature?.label === '未知' || !temperature?.label ? '数据源不可得' : `数据源不可得 · ${temperature.label}`,
+    };
+  }
+
+  return {
+    available: true,
+    score,
+    color: temperatureGaugeColor(score),
+    text: `${score}/100`,
+    subText: temperature?.label ?? '',
+  };
+}
+
+/**
+ * 市场温度仪表盘（P0-TEMPGAUGE）。
+ *
+ * 诚实红线：后端降级态给 `score: null` 时，这里**不渲染 Progress、不给 percent**，
+ * 改用一个中性灰的虚线圆占位 + 「暂不可用 / 数据源不可得」文案。
+ * 绝不能出现「0/100 + 红色」—— 那等于凭空断言「市场极度弱势」。
+ */
+export function MarketTemperatureGauge({ temperature }: { temperature: any }) {
+  const g = resolveTemperatureGauge(temperature);
+
+  if (!g.available) {
+    return (
+      <div
+        role="status"
+        aria-label="市场温度暂不可用"
+        data-testid="market-temperature-unavailable"
+        data-gauge-color={g.color}
+        style={{
+          width: 104, height: 104, borderRadius: '50%',
+          border: `2px dashed ${g.color}`,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          color: g.color, fontSize: 12, textAlign: 'center', lineHeight: 1.5,
+          background: 'var(--bg-surface)', flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{g.text}</span>
+        <span style={{ fontSize: 10 }}>{g.subText}</span>
+      </div>
+    );
+  }
+
+  return (
+    <Progress
+      type="dashboard"
+      percent={g.score as number}
+      size={104}
+      strokeColor={g.color}
+      data-testid="market-temperature-gauge"
+      format={() => (
+        <span style={{ color: TEXT, fontSize: 13 }} data-testid="gauge-text">
+          {g.text}<br />{g.subText}
+        </span>
+      )}
+    />
+  );
+}
+
 /** Highlight numbers in text: percentages in green/red, plain numbers in monospace bold */
 function renderInsightLine(line: string) {
   const trimmed = line.trim();
@@ -1064,13 +1171,7 @@ const DiscoverPage: React.FC = () => {
               {/* 左：市场温度 + 主线行业 */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
-                  <Progress
-                    type="dashboard"
-                    percent={pulse.temperature?.score ?? 0}
-                    size={104}
-                    strokeColor={pulse.temperature?.score >= 60 ? '#22c55e' : pulse.temperature?.score >= 45 ? ACCENT : '#ef4444'}
-                    format={(p) => <span style={{ color: TEXT, fontSize: 13 }}>{p}<br/>{pulse.temperature?.label}</span>}
-                  />
+                  <MarketTemperatureGauge temperature={pulse.temperature} />
                   <div style={{ fontSize: 12, color: TEXT_SEC, lineHeight: 1.8 }}>
                     <div>上涨 <b style={{ color: COLOR_UP }}>{pulse.breadth?.rising}</b> / 下跌 <b style={{ color: COLOR_DOWN }}>{pulse.breadth?.falling}</b>（占比 {pulse.breadth?.risingRatio}%）</div>
                     <div>涨停 <b style={{ color: '#f59e0b' }}>{pulse.limitUp}</b> 只</div>

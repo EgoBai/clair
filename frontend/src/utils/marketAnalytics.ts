@@ -140,13 +140,17 @@ export function calculateBreadthScore(data: BreadthData): number {
 
   // 诚实红线：新高/新低不可用（null）时该维度的权重整体退出，并按剩余权重的
   // 占比折算总分 —— 不能用 0 代替 null，否则会被读成「今日无新高/无新低」这一伪造事实。
-  const hasNewHighLow = data.newHighs !== null && data.newLows !== null;
+  // 先取局部值并收窄：TS 无法穿过 const 布尔变量做控制流收窄，
+  // 直接在if (hasNewHighLow) 块里用 data.newHighs 仍会报 TS18047(possibly null)。
+  const newHighsVal = data.newHighs;
+  const newLowsVal = data.newLows;
+  const hasNewHighLow = newHighsVal !== null && newLowsVal !== null;
 
   let score = advanceRatio * 25 + adScore * 0.25 + maScore * 0.25;
   let weightUsed = 25 + 0.25 + 0.25;
   if (hasNewHighLow) {
-    const newHighScore = Math.min(100, (data.newHighs / total) * 500);
-    const newLowPenalty = Math.min(50, (data.newLows / total) * 500);
+    const newHighScore = Math.min(100, (newHighsVal / total) * 500);
+    const newLowPenalty = Math.min(50, (newLowsVal / total) * 500);
     score += newHighScore * 0.15 - newLowPenalty * 0.1;
     weightUsed += 0.15 + 0.1;
   }

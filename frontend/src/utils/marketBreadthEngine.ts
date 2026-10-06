@@ -45,13 +45,16 @@ export class MarketBreadthEngine {
     this.adLineHistory.push(adLine);
 
     // 新高新低比。诚实红线：null = 不可用（行情源不提供），此时取中性 1
-    // 且不参与下方多空因子计数，而不是把 null 当 0 算出「无新高无新低」的假象。
-    const hasNewHighLow = data.newHighs !== null && data.newLows !== null;
+    // 且不参与下方多空因子计数，而不是把null 当 0 算出「无新高无新低」的假象。
+    // 先取局部值收窄，避免用 `as number` 强转（会丢掉控制流类型收窄）。
+    const newHighsVal = data.newHighs;
+    const newLowsVal = data.newLows;
+    const hasNewHighLow = newHighsVal !== null && newLowsVal !== null;
     const nhRatio = !hasNewHighLow
       ? 1
-      : data.newLows > 0
-        ? (data.newHighs as number) / (data.newLows as number)
-        : (data.newHighs as number) > 0 ? 10 : 1;
+      : newLowsVal > 0
+        ? newHighsVal / newLowsVal
+        : newHighsVal > 0 ? 10 : 1;
 
     // 成交量广度
     const volumeBreadth = data.downVolume > 0
