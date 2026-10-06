@@ -2,9 +2,14 @@
  * 交易日历三年双源校验（2025 / 2026 / 2027）—— 用 `node --test` 运行。
  *
  *运行方式（零 vitest 依赖）：
- *   cd backend && node --import tsx --test src/__tests__/tradingCalendarHypothesis.node-test.ts
+ *   cd backend && env -u NODE_OPTIONS DATABASE_URL="postgresql://..." \
+ *     node --import tsx --test src/__tests__/tradingCalendarHypothesis.node-test.ts
  *   # 需 DATABASE_URL 指向真实 PG 才能跑第2 层交叉校验；
- *   # 无 PG 时第 2 层自动 skip（只打 ::warning::），第 1 层照常执行。
+ *   # 无 PG 时第 2 层自动 skip（只打::warning::），第 1 层照常执行。
+ *
+ * ⚠️ `env -u NODE_OPTIONS` 不是可选项：沙箱注入的 `--require node-language-shim.cjs`
+ *   会让 worker 卡在启动阶段（vitest 表现为 fork worker 超时/exit 137，
+ *   node --test 表现为挂住无输出）。详见 docs/harness/lessons/anti-patterns.md AP-7。
  *
  * ⚠️ 文件名为何是 `.node-test.ts` 而不是 `.test.ts`：
  *   `vitest.config.ts` 的 include 是 `src/__tests__/` 目录下所有 `.test.ts`。

@@ -128,7 +128,9 @@ SELECT trade_date, COUNT(*) FROM daily_quotes
 6. 跑双源校验确认无新 `::warning::`：
 
 ```bash
-cd backend && DATABASE_URL="postgresql://..." \
+# ⚠️ 必须 unset NODE_OPTIONS：沙箱注入的 --require shim 会让 vitest worker 起不来
+#（详见 anti-patterns.md AP-7）。node --test 亦同。
+cd backend && env -u NODE_OPTIONS DATABASE_URL="postgresql://..." \
   node --import tsx --test src/__tests__/tradingCalendarHypothesis.node-test.ts
 ```
 

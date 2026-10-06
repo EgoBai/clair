@@ -191,6 +191,47 @@ cd backend && node --import tsx --test src/__tests__/tradingCalendarHypothesis.n
 
 ---
 
+## AP-7 沙箱注入的 `NODE_OPTIONS` 让 vitest fork worker 起不来
+
+### 症状
+
+```
+Failed to start forks worker / Timeout waiting for worker to respond (60s)
+```
+
+或进程直接 `exit 137`（SIGTERM / OOM kill），**且代码本身毫无问题**：
+同仓库既有测试（如 `StatCard.test.tsx`）会同时失败，`--pool=threads`、
+`--no-file-parallelism --maxWorkers=1` 等常规手段全部无效。
+
+### 根因
+
+沙箱注入了 `NODE_OPTIONS=--require=.../node-language-shim.cjs`，
+该 shim 让 vitest fork 出的 worker 卡在启动阶段。
+
+⚠️ **容易误判的地方**：若用 `NODE_OPTIONS="--max-old-space-size=2048"` 去「治OOM」，
+因为是**整体覆盖**原值，恰好把 `--require` 冲掉了，于是「看起来是治好了 OOM」，
+实则是顺手绕过了 shim —— 换台机器或换个注入策略就会复现，且根因被掩盖。
+
+### 正确做法
+
+unset 掉，而非覆盖：
+
+```bash
+cd backend && env -u NODE_OPTIONS -u PYTHONPATH \
+  ./node_modules/.bin/vitest run <测试文件>
+```
+
+实测：unset 后 worker 3.5s 正常启动，94/94 通过，**无需任何内存参数**。
+
+### 如何防止复发
+
+- 遇到 vitest worker 超时/137，**先 unset 再怀疑自己的代码**
+- 别用「加内存参数」当万能药 —— 它可能只是覆盖掉了真正的原因
+- 同理，沙箱内 `ps` / `pgrep` 受限（`operation not permitted`），
+  「查不到进程」不等于「没进程在跑」
+
+---
+
 ## 附：判定「假绿」的三个快速问题
 
 写完/审查任何测试时问：
