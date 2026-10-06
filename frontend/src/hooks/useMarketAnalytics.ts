@@ -398,7 +398,12 @@ export function useMarketRisk(
     if (total > 0 && breadth.declineCount / total > 0.7) {
       alerts.push('市场普跌');
     }
-    if (breadth.newLows > breadth.newHighs * 2) {
+    // 诚实红线：newHighs/newLows 取不到时后端返回 null（不可用 ≠ 0）。
+    // 旧写法 `breadth.newLows > breadth.newHighs * 2` 在 null 下走 false 分支，
+    // 等于静默断言「新高新低健康」——必须显式判空并告知不可用。
+    if (breadth.newHighs === null || breadth.newLows === null) {
+      alerts.push('新高/新低家数不可用（行情源不提供该统计），该风险维度未纳入判断');
+    } else if (breadth.newLows > breadth.newHighs * 2) {
       alerts.push('创新低家数远超创新高');
     }
 

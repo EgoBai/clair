@@ -18,13 +18,19 @@ export interface BreadthData {
   unchanged: number;
   totalStocks: number;
   advanceDeclineRatio: number;
-  newHighs: number;
-  newLows: number;
+  /** 创新高家数；行情源不提供时为 null（不可用 ≠ 0），展示前须判空 */
+  newHighs: number | null;
+  /** 创新低家数；行情源不提供时为 null（不可用 ≠ 0），展示前须判空 */
+  newLows: number | null;
   upVolume: number;
   downVolume: number;
   volumeRatio: number;
   marketSentiment: 'bullish' | 'bearish' | 'neutral';
   sentimentScore: number;
+  /** 无真实源的字段名清单，用于向用户解释「为什么没有」 */
+  unavailableFields?: string[];
+  /** 诚实降级说明（中文） */
+  message?: string;
 }
 
 interface MarketBreadthPanelProps {
@@ -198,11 +204,31 @@ export const MarketBreadthPanel: React.FC<MarketBreadthPanelProps> = ({
           />
         </Col>
         <Col span={compact ? 12 : 6}>
-          <Statistic
-            title="新高新低"
-            value={`${data.newHighs} / ${data.newLows}`}
-            valueStyle={{ fontSize: compact ? 18 : 24 }}
-          />
+          {/* 诚实红线：newHighs/newLows 为 null 时显示不可用原因，绝不显示 0/0 */}
+          {data.newHighs === null || data.newLows === null ? (
+            <div>
+              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 14, marginBottom: 4 }}>
+                新高新低
+              </div>
+              <Tooltip
+                title={
+                  data.message ||
+                  '当前行情源不提供历史新高/新低统计，该指标不可用（不等于 0 家）'
+                }
+              >
+                <span style={{ color: '#faad14', fontSize: compact ? 14 : 16 }}>
+                  数据不可用
+                  <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                </span>
+              </Tooltip>
+            </div>
+          ) : (
+            <Statistic
+              title="新高新低"
+              value={`${data.newHighs} / ${data.newLows}`}
+              valueStyle={{ fontSize: compact ? 18 : 24 }}
+            />
+          )}
         </Col>
         <Col span={compact ? 12 : 6}>
           <div>

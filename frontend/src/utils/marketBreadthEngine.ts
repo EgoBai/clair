@@ -7,8 +7,10 @@ export interface BreadthData {
   advances: number;
   declines: number;
   unchanged: number;
-  newHighs: number;
-  newLows: number;
+  /** 创新高家数；行情源不提供时为 null（不可用 ≠ 0），使用前须判空 */
+  newHighs: number | null;
+  /** 创新低家数；行情源不提供时为 null（不可用 ≠ 0），使用前须判空 */
+  newLows: number | null;
   upVolume: number;
   downVolume: number;
   totalVolume: number;
@@ -42,8 +44,14 @@ export class MarketBreadthEngine {
     const adLine = prevADLine + (data.advances - data.declines);
     this.adLineHistory.push(adLine);
 
-    // 新高新低比
-    const nhRatio = data.newLows > 0 ? data.newHighs / data.newLows : data.newHighs > 0 ? 10 : 1;
+    // 新高新低比。诚实红线：null = 不可用（行情源不提供），此时取中性 1
+    // 且不参与下方多空因子计数，而不是把 null 当 0 算出「无新高无新低」的假象。
+    const hasNewHighLow = data.newHighs !== null && data.newLows !== null;
+    const nhRatio = !hasNewHighLow
+      ? 1
+      : data.newLows > 0
+        ? (data.newHighs as number) / (data.newLows as number)
+        : (data.newHighs as number) > 0 ? 10 : 1;
 
     // 成交量广度
     const volumeBreadth = data.downVolume > 0
@@ -71,7 +79,7 @@ export class MarketBreadthEngine {
     let signal: BreadthResult['signal'];
     const bullishFactors =
       (adRatio > 1.5 ? 1 : 0) +
-      (nhRatio > 2 ? 1 : 0) +
+      (hasNewHighLow && nhRatio > 2 ? 1 : 0) +
       (volumeBreadth > 1.5 ? 1 : 0) +
       (mcclellan > 0 ? 1 : 0) +
       (trin < 0.8 ? 1 : 0) +
@@ -79,7 +87,7 @@ export class MarketBreadthEngine {
 
     const bearishFactors =
       (adRatio < 0.67 ? 1 : 0) +
-      (nhRatio < 0.5 ? 1 : 0) +
+      (hasNewHighLow && nhRatio < 0.5 ? 1 : 0) +
       (volumeBreadth < 0.67 ? 1 : 0) +
       (mcclellan < 0 ? 1 : 0) +
       (trin > 1.2 ? 1 : 0) +

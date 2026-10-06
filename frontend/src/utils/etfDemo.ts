@@ -18,7 +18,13 @@ export interface ETFData {
   nav: number;
   preNav: number;
   changePercent: number;
-  premiumRate: number;
+  /** 真实成交价（后端源侧全字段真实）。替代「用 premiumRate 反推价格」的脏做法 */
+  price: number;
+  /**
+   * 折溢价率（%）。缺真实净值或真实行情时后端诚实返回 null —— 此时**不可计算**，
+   * 前端必须显示「暂无可用」文案，绝不能当 0 用或参与任何算术/比较。
+   */
+  premiumRate: number | null;
   totalAssets: number;
   trackingError: number;
   dividendYield: number;
@@ -102,6 +108,8 @@ export const etfList: ETFData[] = (() => {
       nav,
       preNav,
       changePercent,
+      // 演示数据自洽：现价由净值与折溢价推出，保证 price/premiumRate 口径一致
+      price: round2(nav * (1 + premiumRate / 100)),
       premiumRate,
       totalAssets,
       trackingError,

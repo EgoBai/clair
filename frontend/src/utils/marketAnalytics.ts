@@ -54,8 +54,10 @@ export interface BreadthData {
   advanceCount: number;
   declineCount: number;
   unchangedCount: number;
-  newHighs: number;
-  newLows: number;
+  /** 创新高家数；行情源不提供时为 null（不可用 ≠ 0），使用前须判空 */
+  newHighs: number | null;
+  /** 创新低家数；行情源不提供时为 null（不可用 ≠ 0），使用前须判空 */
+  newLows: number | null;
   advanceDeclineRatio: number;
   aboveMA50Percent: number;
   aboveMA200Percent: number;
@@ -134,12 +136,23 @@ export function calculateBreadthScore(data: BreadthData): number {
 
   const advanceRatio = data.advanceCount / total;
   const adScore = Math.min(100, data.advanceDeclineRatio * 50);
-  const newHighScore = total > 0 ? Math.min(100, (data.newHighs / total) * 500) : 0;
-  const newLowPenalty = total > 0 ? Math.min(50, (data.newLows / total) * 500) : 0;
   const maScore = (data.aboveMA50Percent + data.aboveMA200Percent) / 2;
 
-  const score = advanceRatio * 25 + adScore * 0.25 + newHighScore * 0.15
-    - newLowPenalty * 0.1 + maScore * 0.25;
+  // 诚实红线：新高/新低不可用（null）时该维度的权重整体退出，并按剩余权重的
+  // 占比折算总分 —— 不能用 0 代替 null，否则会被读成「今日无新高/无新低」这一伪造事实。
+  const hasNewHighLow = data.newHighs !== null && data.newLows !== null;
+
+  let score = advanceRatio * 25 + adScore * 0.25 + maScore * 0.25;
+  let weightUsed = 25 + 0.25 + 0.25;
+  if (hasNewHighLow) {
+    const newHighScore = Math.min(100, (data.newHighs / total) * 500);
+    const newLowPenalty = Math.min(50, (data.newLows / total) * 500);
+    score += newHighScore * 0.15 - newLowPenalty * 0.1;
+    weightUsed += 0.15 + 0.1;
+  }
+  // 归一化到原始满分口径（缺失维度不摊薄、不虚增）
+  const TOTAL_WEIGHT = 25 + 0.25 + 0.25 + 0.15 + 0.1;
+  score = (score / weightUsed) * TOTAL_WEIGHT;
 
   return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100;
 }
@@ -357,8 +370,8 @@ export function calculateRiskLevel(
   const total = breadth.advanceCount + breadth.declineCount;
   if (total > 0 && breadth.declineCount / total > 0.6) riskScore += 2;
 
-  // 新低数量增加
-  if (breadth.newLows > breadth.newHighs) riskScore += 1;
+  // 新低数量增加（新高/新低不可用时跳过该维度，不让 null 参与比较）
+  if (breadth.newLows !== null && breadth.newHighs !== null && breadth.newLows > breadth.newHighs) riskScore += 1;
 
   // 恐慌情绪
   if (sentiment.fearGreedIndex < 25) riskScore += 2;
@@ -571,7 +584,7 @@ export function detectMarketAnomalies(
       anomalies.push({ type: 'breadth_warning', severity: 'warning', message: `下跌家数占比${(declineRatio * 100).toFixed(1)}%，市场情绪偏弱` });
     }
 
-    if (breadth.newLows > breadth.newHighs * 3 && breadth.newHighs > 0) {
+    if (breadth.newLows !== null && breadth.newHighs !== null && breadth.newLows > breadth.newHighs * 3 && breadth.newHighs > 0) {
       anomalies.push({ type: 'new_lows_surge', severity: 'critical', message: `创新低(${breadth.newLows})远超创新高(${breadth.newHighs})` });
     }
   }

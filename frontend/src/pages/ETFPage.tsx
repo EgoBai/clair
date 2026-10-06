@@ -35,6 +35,29 @@ const formatAmount = (val: number): string => {
   return val.toFixed(0);
 };
 
+/** 折溢价率不可用时的诚实文案：说清「缺什么」，而不是显示 0.00% */
+const PREMIUM_NA = '暂无折溢价数据（缺真实净值）';
+/** 后端 price=0 表示行情源无报价，同样不可用 */
+const PRICE_NA = '暂无成交价（行情源无报价）';
+
+/** premiumRate 是否为可用的真实数值（后端诚实返回 null 时为 false） */
+export const hasPremium = (e: ETFData): e is ETFData & { premiumRate: number } =>
+  typeof e.premiumRate === 'number' && Number.isFinite(e.premiumRate);
+
+/** 真实成交价是否可用（后端 price=0 表示源侧无报价） */
+export const hasPrice = (e: ETFData): boolean =>
+  typeof e.price === 'number' && Number.isFinite(e.price) && e.price > 0;
+
+/** 折溢价率排序：不可用项恒排在最后，不与真实值混排 */
+export const sortByPremium = (a: ETFData, b: ETFData): number => {
+  const av = hasPremium(a) ? a.premiumRate : null;
+  const bv = hasPremium(b) ? b.premiumRate : null;
+  if (av === null && bv === null) return 0;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return av - bv;
+};
+
 const typeLabels: Record<string, { label: string; color: string }> = {
   index: { label: '指数型', color: 'blue' },
   sector: { label: '行业型', color: 'orange' },
@@ -44,13 +67,20 @@ const typeLabels: Record<string, { label: string; color: string }> = {
   theme: { label: '主题型', color: 'cyan' },
 };
 
-/** 页面 ETFData → 分析引擎 ETFData（适配字段语义） */
+/**
+ * 页面 ETFData → 分析引擎 ETFData（适配字段语义）
+ *
+ * 诚实红线：折溢价率不可计算（premiumRate=null）或行情源无报价（price=0）时，
+ * 返回 null 让该只 ETF **退出**依赖折溢价的引擎，而不是把 null 当 0 送进去
+ * —— null*100=0 会被引擎读成「折溢价率 0%、估值平价」，属于伪造结论。
+ */
 function toAnalysisETF(e: ETFData) {
+  if (!hasPremium(e) || !hasPrice(e)) return null;
   return {
     ticker: e.symbol,
     name: e.name,
     nav: e.nav,
-    price: round2(e.nav * (1 + e.premiumRate / 100)),
+    price: e.price,
     premium: e.premiumRate,
     trackingError: e.trackingError,
     volume: e.volume,
@@ -63,14 +93,19 @@ function toAnalysisETF(e: ETFData) {
   };
 }
 
-/** 页面 ETFData → 折溢价引擎 ETFData */
+/**
+ * 页面 ETFData → 折溢价引擎 ETFData
+ * 同上：真实成交价直接取后端 price，不再用 premiumRate 反推；
+ * nav<=0 时 calculatePremiumRate 会返回 0（＝「平价」），同样属伪造，故一并退出。
+ */
 function toPremiumETF(e: ETFData) {
-  const shares = e.nav > 0 ? Math.round(e.totalAssets / e.nav) : 1;
+  if (!hasPrice(e) || !(e.nav > 0)) return null;
+  const shares = e.totalAssets > 0 && e.nav > 0 ? Math.round(e.totalAssets / e.nav) : 0;
   return {
     symbol: e.symbol,
     name: e.name,
     nav: e.nav,
-    marketPrice: round2(e.nav * (1 + e.premiumRate / 100)),
+    marketPrice: e.price,
     totalAssets: e.totalAssets,
     shares,
     trackingError: e.trackingError,
@@ -90,6 +125,14 @@ export default function ETFPage() {
   const [etfList, setEtfList] = useState<ETFData[]>([]);
   const [dataSource, setDataSource] = useState<'real' | 'unavailable' | 'loading'>('loading');
   const [loading, setLoading] = useState(true);
+  // 列表级诚实契约（后端自描述）：覆盖率与不可用原因，用于向用户解释「为什么没有」
+  const [coverage, setCoverage] = useState<{
+    quoteCoverage?: string;
+    navCoverage?: string;
+    premiumCoverage?: string;
+    notes?: string;
+    message?: string;
+  }>({});
 
   useEffect(() => {
     let alive = true;
@@ -101,15 +144,24 @@ export default function ETFPage() {
         if (json?.success && json.data && Array.isArray(json.data.data)) {
           setEtfList(json.data.data as ETFData[]);
           setDataSource(json.data.dataSource === 'unavailable' ? 'unavailable' : 'real');
+          setCoverage({
+            quoteCoverage: json.data.quoteCoverage,
+            navCoverage: json.data.navCoverage,
+            premiumCoverage: json.data.premiumCoverage,
+            notes: json.data.notes,
+            message: json.data.message,
+          });
         } else {
           setEtfList([]);
           setDataSource('unavailable');
+          setCoverage({ message: json?.data?.message });
         }
       })
       .catch(() => {
         if (!alive) return;
         setEtfList([]);
         setDataSource('unavailable');
+        setCoverage({});
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -120,7 +172,11 @@ export default function ETFPage() {
   }, []);
 
   // ── 引擎封装（全部 try/catch 降级，绝不让页面崩溃） ──
-  const analysisData = useMemo(() => etfList.map(toAnalysisETF), [etfList]);
+  // 缺真实净值/报价的 ETF 在适配层已被剔除（返回 null），不进入依赖折溢价的引擎
+  const analysisData = useMemo(
+    () => etfList.map(toAnalysisETF).filter((x): x is NonNullable<typeof x> => x !== null),
+    [etfList],
+  );
 
   const arbitrageList: ArbitrageOpportunity[] = useMemo(() => {
     try {
@@ -134,8 +190,10 @@ export default function ETFPage() {
   const selected = etfList.find((e) => e.symbol === selectedSymbol) ?? etfList[0];
   const selectedAnalysis: ETFAnalysis | null = useMemo(() => {
     if (!selected) return null;
+    const input = toAnalysisETF(selected);
+    if (!input) return null;
     try {
-      return analyzeETF(toAnalysisETF(selected));
+      return analyzeETF(input);
     } catch (e) {
       logger.error('[ETF] analyzeETF failed', e);
       return null;
@@ -144,13 +202,21 @@ export default function ETFPage() {
 
   const selectedPremium: PremiumDiscountResult | null = useMemo(() => {
     if (!selected) return null;
+    const input = toPremiumETF(selected);
+    if (!input) return null;
     try {
-      return analyzePremiumDiscount(toPremiumETF(selected));
+      return analyzePremiumDiscount(input);
     } catch (e) {
       logger.error('[ETF] analyzePremiumDiscount failed', e);
       return null;
     }
   }, [selected]);
+
+  /** 折溢价不可用的只数（诚实口径：不可用 ≠ 0） */
+  const premiumUnavailableCount = useMemo(
+    () => etfList.filter((e) => !hasPremium(e)).length,
+    [etfList],
+  );
 
   // ── ① 概览统计 ──
   const totalAssets = etfList.reduce((s, e) => s + e.totalAssets, 0);
@@ -181,11 +247,27 @@ export default function ETFPage() {
       ),
     },
     {
+      title: '现价',
+      dataIndex: 'price',
+      width: 90,
+      render: (val: number, record: ETFData) =>
+        hasPrice(record) ? (
+          <Text strong style={{ color: THEME.text }}>{val.toFixed(3)}</Text>
+        ) : (
+          <Text style={{ color: THEME.textSec }}>{PRICE_NA}</Text>
+        ),
+    },
+    {
       title: '最新净值',
       dataIndex: 'nav',
       width: 90,
       sorter: (a: ETFData, b: ETFData) => a.nav - b.nav,
-      render: (val: number) => <Text style={{ color: THEME.text }}>{val.toFixed(4)}</Text>,
+      render: (val: number, record: ETFData) =>
+        record.nav > 0 ? (
+          <Text style={{ color: THEME.text }}>{val.toFixed(4)}</Text>
+        ) : (
+          <Text style={{ color: THEME.textSec }}>净值源无数据</Text>
+        ),
     },
     {
       title: '涨跌幅',
@@ -201,13 +283,17 @@ export default function ETFPage() {
     {
       title: '折溢价率',
       dataIndex: 'premiumRate',
-      width: 90,
-      sorter: (a: ETFData, b: ETFData) => a.premiumRate - b.premiumRate,
-      render: (val: number) => (
-        <Text style={{ color: flowColor(val) }}>
-          {val >= 0 ? '+' : ''}{val.toFixed(2)}%
-        </Text>
-      ),
+      width: 130,
+      sorter: sortByPremium,
+      // 诚实红线：premiumRate 为 null（缺真实净值）时绝不显示 0.00%
+      render: (_val: number | null, record: ETFData) =>
+        hasPremium(record) ? (
+          <Text style={{ color: flowColor(record.premiumRate) }}>
+            {record.premiumRate >= 0 ? '+' : ''}{record.premiumRate.toFixed(2)}%
+          </Text>
+        ) : (
+          <Text style={{ color: THEME.textSec, fontSize: 12 }}>{PREMIUM_NA}</Text>
+        ),
     },
     {
       title: '规模(亿)',
@@ -270,6 +356,29 @@ export default function ETFPage() {
           <Text style={{ color: THEME.textSec, fontSize: 12 }}>正在拉取实时行情与净值…</Text>
         )}
       </Space>
+
+      {/* 列表级诚实契约：把「哪些字段缺、为什么缺」直接告诉用户（深色主题，无新增浅色背景） */}
+      {dataSource === 'real' && (premiumUnavailableCount > 0 || coverage.notes || coverage.message) && (
+        <div
+          style={{
+            border: `1px solid ${THEME.border}`,
+            borderLeft: `3px solid ${GOLD}`,
+            borderRadius: 6,
+            padding: '8px 12px',
+            marginBottom: 12,
+            background: THEME.cardBg,
+          }}
+        >
+          <Text style={{ color: THEME.textSec, fontSize: 12 }}>
+            {coverage.message || coverage.notes}
+            {coverage.quoteCoverage && ` 行情覆盖 ${coverage.quoteCoverage}`}
+            {coverage.navCoverage && ` · 净值覆盖 ${coverage.navCoverage}`}
+            {coverage.premiumCoverage && ` · 折溢价覆盖 ${coverage.premiumCoverage}`}
+            {premiumUnavailableCount > 0 &&
+              ` · ${premiumUnavailableCount} 只缺真实净值，折溢价率不可计算（不显示为 0）`}
+          </Text>
+        </div>
+      )}
 
       {/* ① 概览统计 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -351,6 +460,11 @@ export default function ETFPage() {
         size="small"
         style={{ background: THEME.cardBg, borderColor: THEME.border, marginBottom: 16 }}
       >
+        {premiumUnavailableCount > 0 && (
+          <Text style={{ color: THEME.textSec, fontSize: 12, display: 'block', marginBottom: 8 }}>
+            已排除 {premiumUnavailableCount} 只缺真实净值的 ETF：折溢价率不可计算，不参与套利检测。
+          </Text>
+        )}
         {arbitrageList.length === 0 ? (
           <Text style={{ color: THEME.textSec }}>当前数据中无显著折溢价套利机会。</Text>
         ) : (
@@ -435,7 +549,11 @@ export default function ETFPage() {
             </Col>
           </Row>
         ) : (
-          <Text style={{ color: THEME.textSec }}>暂无 ETF 数据，无法分析。</Text>
+          <Text style={{ color: THEME.textSec }}>
+            {selected && !hasPremium(selected)
+              ? `${selected.name}（${selected.symbol}）缺真实净值，折溢价相关分析不可用。`
+              : '暂无 ETF 数据，无法分析。'}
+          </Text>
         )}
       </Card>
     </div>

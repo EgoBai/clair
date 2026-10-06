@@ -7,8 +7,10 @@ export interface SentimentInputs {
   // 技术面
   advancers: number; // 上涨家数
   decliners: number; // 下跌家数
-  newHighs: number; // 新高家数
-  newLows: number; // 新低家数
+  /** 新高家数；行情源不提供时为 null（不可用 ≠ 0），使用前须判空 */
+  newHighs: number | null;
+  /** 新低家数；行情源不提供时为 null（不可用 ≠ 0），使用前须判空 */
+  newLows: number | null;
   
   // 成交量
   upVolume: number; // 上涨成交量
@@ -101,10 +103,16 @@ export function fearGreedIndex(inputs: SentimentInputs): {
     -100, 100, 0, 100
   );
 
-  const highLow = normalizeScore(
-    (inputs.newHighs - inputs.newLows) / Math.max(inputs.newHighs + inputs.newLows, 1) * 100,
-    -100, 100, 0, 100
-  );
+  // 诚实红线：新高/新低为 null（行情源不提供）时取中性 50 并排除出均值分母，
+  // 而不是让 (null - null) / 1 = 0 静默变成「新高新低最差」。
+  const hasNewHighLow = inputs.newHighs !== null && inputs.newLows !== null;
+  const highLow = !hasNewHighLow
+    ? 50
+    : normalizeScore(
+        ((inputs.newHighs as number) - (inputs.newLows as number)) /
+          Math.max((inputs.newHighs as number) + (inputs.newLows as number), 1) * 100,
+        -100, 100, 0, 100
+      );
 
   const volRatio = normalizeScore(
     inputs.upVolume / Math.max(inputs.upVolume + inputs.downVolume, 1) * 100,
@@ -135,7 +143,10 @@ export function fearGreedIndex(inputs: SentimentInputs): {
     limitRatio: { value: limitScore, rating: rateScore(limitScore) },
   };
 
-  const value = (advDec + highLow + volRatio + vixScore + mfScore + limitScore) / 6;
+  // 不可用维度不参与平均（分母只计真实可用项），避免中性占位分摊总分
+  const scoreParts = [advDec, volRatio, vixScore, mfScore, limitScore];
+  if (hasNewHighLow) scoreParts.push(highLow);
+  const value = scoreParts.reduce((s, x) => s + x, 0) / scoreParts.length;
 
   return {
     value,
@@ -222,12 +233,14 @@ export function calculateOBVSentiment(
 
 function calculateBreadthScore(inputs: SentimentInputs): number {
   const advDecRatio = inputs.advancers / Math.max(inputs.decliners, 1);
-  const highLowRatio = inputs.newHighs / Math.max(inputs.newLows, 1);
-  
+
   // 归一化到 -100 到 100
   const advDecScore = normalizeScore(advDecRatio, 0.2, 5, -100, 100);
+  // 新高新低不可用时该子项不计分（调用方据此按剩余可用项加权），而非按 0 家算
+  if (inputs.newHighs === null || inputs.newLows === null) return advDecScore;
+  const highLowRatio = inputs.newHighs / Math.max(inputs.newLows, 1);
   const highLowScore = normalizeScore(highLowRatio, 0.2, 5, -100, 100);
-  
+
   return advDecScore * 0.6 + highLowScore * 0.4;
 }
 
