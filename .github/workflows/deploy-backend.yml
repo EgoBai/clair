@@ -110,6 +110,12 @@ jobs:
     name: Post-deploy smoke & version check
     runs-on: ubuntu-latest
     needs: build-image
+    # 主理人修正（2026-10-06）：原先本 job 在 smoke_base 为空时走 `exit 0`，
+    # 会在 GitHub 上显示为**绿色 success** —— 这正是最坏的一种误导：
+    # 看起来「后端部署链路已就绪且通过」，实际上一行烟测都没跑。
+    # 改为 job 级 if：未配置目标地址时整个 job 呈现为 **skipped（灰色）**，
+    # 一眼可辨「没配」，且不会伪造通过信号。配好 vars.BACKEND_SMOKE_BASE_URL 后自动转为真跑。
+    if: ${{ inputs.smoke_base != '' || vars.BACKEND_SMOKE_BASE_URL != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -119,18 +125,19 @@ jobs:
 
       - name: Run production smoke
         env:
-          SMOKE_BASE_URL: ${{ inputs.smoke_base }}
+          # 输入优先；未输入则回落到仓库级 variable
+          SMOKE_BASE_URL: ${{ inputs.smoke_base || vars.BACKEND_SMOKE_BASE_URL }}
           EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit }}
+          BUILD_IMAGE_REF: ${{ needs.build-image.outputs.image_ref }}
         run: |
-          if [ -z "${{ inputs.smoke_base }}" ]; then
-            echo "::notice::本仓库后端尚无部署目标（deploy.yml 只发前端，deploy-worker.yml 只发 Worker）。"
-            echo "::notice::本job 被跳过 —— 这意味着**后端目前没有任何自动部署链路**，"
-            echo "::notice::线上 /api/* 的可用性完全依赖人工。平台选型确定后请补齐本 job 的执行条件。"
-            exit 0
-          fi
+          set -euo pipefail
+          # 用镜像 tag 里带的 short sha 作为默认期望值，避免人工填错
+          EXPECT="${EXPECTED_COMMIT_SHA:-${BUILD_IMAGE_REF##*-}}"
+          echo "烟测目标: ${SMOKE_BASE_URL}"
+          echo "期望 commit: ${EXPECT}（来自镜像 tag，可被 expected_commit 覆盖）"
           node scripts/smoke/production-smoke.mjs \
-            --base "${{ inputs.smoke_base }}" \
-            ${EXPECTED_COMMIT_SHA:+--expect-commit "$EXPECTED_COMMIT_SHA"} \
+            --base "${SMOKE_BASE_URL}" \
+            --expect-commit "${EXPECT}" \
             --strict
 
       - name: Upload smoke report
