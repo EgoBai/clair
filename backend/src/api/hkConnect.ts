@@ -85,14 +85,19 @@ async function fetchQuotes(secids: string): Promise<Record<string, any>> {
   return map;
 }
 
-/** 取 A 股实时价（f2 / 100） */
-function aSharePrice(d: any): number {
-  return d ? (Number(d.f2) || 0) / 100 : 0;
+/**
+ * 取 A 股实时价（f2 / 100）。**缺失一律返回 null**，绝不返回 0 ——
+ * 0 是一个合法的价格量级（如 0.01 元极低价股），用 0 顶替缺失会让「拿不到」与「真实低价」不可区分。
+ */
+function aSharePrice(d: any): number | null {
+  const n = numOrNull(d?.f2);
+  return n === null ? null : n / 100;
 }
 
-/** 取 H 股实时价（f2 / 1000） */
-function hSharePrice(d: any): number {
-  return d ? (Number(d.f2) || 0) / 1000 : 0;
+/** 取 H 股实时价（f2 / 1000）。缺失一律 null，理由同 {@link aSharePrice} */
+function hSharePrice(d: any): number | null {
+  const n = numOrNull(d?.f2);
+  return n === null ? null : n / 1000;
 }
 
 async function buildAhPremium(): Promise<AhPremiumRow[]> {
@@ -106,7 +111,8 @@ async function buildAhPremium(): Promise<AhPremiumRow[]> {
   for (const c of AH_CATALOG) {
     const pa = aSharePrice(aMap[c.codeA]);
     const ph = hSharePrice(hMap[c.codeH]);
-    if (pa <= 0 || ph <= 0) continue; // 任一侧价格缺失则跳过该行（不编造）
+    // 任一侧价格缺失（null）或非正 → 跳过该行，不编造、不用 0 顶替
+    if (pa === null || ph === null || pa <= 0 || ph <= 0) continue;
     const phCny = ph * HKD_TO_CNY;
     const premium = +(((pa - phCny) / phCny) * 100).toFixed(2);
     rows.push({
@@ -162,28 +168,133 @@ router.get(
 );
 
 /**
- * 今日沪深港通实时额度/净买（真实源）
+ * 今日沪深港通（真实源 + 诚实缺口标注）
  * GET /api/hk-connect/summary
+ *
+ * ★ 字段 ↔ 口径对应（2026-10-07 本机双源交叉验证，命名反直觉，勿按字面理解）：
+ *     upstream `hk2sh` / `hk2sz` = **北向**（沪股通 / 深股通）
+ *     upstream `sh2hk` / `sz2hk` = **南向**（港股通沪 / 港股通深）
+ *   证据 ①（额度常量）：hk2sh/hk2sz 的 dayAmtThreshold=5200000 万元 = 520 亿，
+ *           正是沪/深股通每日额度；sh2hk/sz2hk 为 4200000 万元 = 420 亿，正是港股通每日额度。
+ *   证据 ②（成交额配对，权威源 RPT_MUTUAL_DEAL_HISTORY 2026-09-30，单位百万元）：
+ *           hk2sh.buySellAmt/100 = 101257.87 ≈ 001(沪股通) DEAL_AMT=101257.88
+ *           hk2sz.buySellAmt/100 = 106683.74 ≈ 003(深股通) DEAL_AMT=106683.74
+ *           sh2hk.buySellAmt/100 =  46015.40 ≈ 002(港股通沪) DEAL_AMT=46015.39
+ *           sz2hk.buySellAmt/100 =  23911.48 ≈ 004(港股通深) DEAL_AMT=23911.48
+ *
+ * ★★ 已修正的历史红线违规（原实现把不可得/错值当真实值返回）：
+ *   1. **口径字段错用**：原实现取 `dayNetAmtIn` 当「当日净买」。该字段并非净买额 ——
+ *      南向两腿的 dayNetAmtIn 恒等于其 dayAmtThreshold（420 亿），是**额度占位值**，
+ *      导致原实现把南向净买报成 420+420=**840 亿**，而真实值约 **68.6 亿**（虚高约 12 倍）。
+ *      真正的当日净买额是 `netBuyAmt`（已用权威源逐位核对：
+ *      sh2hk 509433.04 万元 == 002 的 NET_DEAL_AMT 5094.33 百万元；
+ *      且恒等式 netBuyAmt == buyAmt - sellAmt 成立）。
+ *   2. **0 顶替缺失**：北向两腿的买入额/卖出额/净买额/额度余额恒为 0（成交额却非 0），
+ *      这是「买入卖出拆分口径已停止披露」的指纹，绝不能用 0 冒充（0 是合法真实值）。
+ *      故北向所有资金流字段一律 null。
+ *   3. **额度余额 `dayAmtRemain` 四腿恒为 0**，权威源 QUOTA_BALANCE 亦为 null
+ *      → 额度余额对南北向**均**不可得，一律 null。
+ *
+ * ★ 关于 `status: 4`：**不是**「已停止披露」标记，不可用于可得性判断。
+ *   实测四腿 status 全为 4，而南向两腿在 status=4 下 buyAmt/sellAmt/netBuyAmt 均为真实值。
+ *   故本实现**不**依赖 status，改为按字段级证据判定（有成交额却无买入卖出拆分 ⇒ 拆分口径停披露）。
+ *   status 仅作原样留档。
+ *
+ * 真实可得 / 不可得清单：
+ *   - 成交额 dealAmount（buySellAmt）：南北向**均真实可得**（权威源 DEAL_AMT 可配对）
+ *   - 买入额 buyIn / 卖出额 sellOut / 净买额 dayNetIn（netBuyAmt）：**仅南向可得**，北向 null
+ *   - 额度余额 remain：南北向**均不可得** → null
+ *   - 每日额度 threshold：南北向均为真实常量（520 亿 / 420 亿）
+ *   - monthNetAmtIn / yearNetAmtIn：**额度派生占位值，非真实累计净买**，故不对外暴露
  */
 interface ConnectLeg {
-  dayNetIn: number; // 当日净买(亿元)
-  remain: number; // 当日额度余额(亿元)
-  threshold: number; // 当日总额度(亿元)
+  /** 当日净买额（亿元）—— 北向已停止披露，恒为 null */
+  dayNetIn: number | null;
+  /** 当日买入额（亿元）—— 北向已停止披露，恒为 null */
+  buyIn: number | null;
+  /** 当日卖出额（亿元）—— 北向已停止披露，恒为 null */
+  sellOut: number | null;
+  /** 当日成交额（亿元）—— 南北向均真实可得 */
+  dealAmount: number | null;
+  /** 当日额度余额（亿元）—— 南北向均不可得，恒为 null */
+  remain: number | null;
+  /** 每日额度（亿元）—— 真实常量（沪/深股通 520 亿，港股通 420 亿） */
+  threshold: number | null;
+  /** 该腿资金流（买入/卖出/净买）口径是否仍在披露 */
+  netFlowDisclosed: boolean;
+  /** 上游 status 原样留档（非披露标记，见上方说明） */
+  upstreamStatus: number | null;
   date: string;
-}
-interface ConnectSummary {
-  date: string;
-  northbound: ConnectLeg; // 北向（沪股通+深股通）
-  southbound: ConnectLeg; // 南向（港股通沪+港股通深）
 }
 
-function legFromKamt(node: any): ConnectLeg {
-  const wanToYi = (v: number) => +(Number(v) / 10000).toFixed(2); // 东方财富单位：万元 → 亿元
+interface ConnectSummary {
+  date: string;
+  northbound: ConnectLeg; // 北向（沪股通 + 深股通）= upstream hk2sh + hk2sz
+  southbound: ConnectLeg; // 南向（港股通沪 + 港股通深）= upstream sh2hk + sz2hk
+}
+
+/** 数值安全转换：**缺失/非有限一律返回 null，绝不返回 0**。0 是合法真实值，用 0 顶替缺失即造假。 */
+function numOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 万元 → 亿元（东方财富 kamt 单位为万元） */
+function wanToYi(v: unknown): number | null {
+  const n = numOrNull(v);
+  return n === null ? null : +(n / 10000).toFixed(2);
+}
+
+/** 仅在两值均可得时求和，任一不可得则返回 null（绝不用 0 顶替） */
+function addOrNull(a: number | null, b: number | null): number | null {
+  return a === null || b === null ? null : +(a + b).toFixed(2);
+}
+
+/** 上游 kamt 单位为万元；两个独立腿相加 */
+function sumWanToYi(a: unknown, b: unknown): number | null {
+  const x = numOrNull(a);
+  const y = numOrNull(b);
+  if (x === null || y === null) return null;
+  return +((x + y) / 10000).toFixed(2);
+}
+
+/** 合并同向的两条腿（北向: hk2sh+hk2sz；南向: sh2hk+sz2hk） */
+function mergeLegs(legs: any[]): ConnectLeg {
+  const [a, b] = legs;
+  const dealAmount = sumWanToYi(a?.buySellAmt, b?.buySellAmt);
+  const buyIn = sumWanToYi(a?.buyAmt, b?.buyAmt);
+  const sellOut = sumWanToYi(a?.sellAmt, b?.sellAmt);
+  const threshold = sumWanToYi(a?.dayAmtThreshold, b?.dayAmtThreshold);
+  const netBuyRaw = sumWanToYi(a?.netBuyAmt, b?.netBuyAmt);
+
+  // 披露判定（字段级证据，不依赖 status）：存在真实成交额、但买入/卖出拆分全为 0
+  // ⇒ 该口径已被停止披露，0 是「拿不到」而非「真的是 0」。
+  const hasTurnover = dealAmount !== null && dealAmount > 0;
+  const hasSplit = buyIn !== null && buyIn > 0 && sellOut !== null && sellOut > 0;
+  const netFlowDisclosed = hasTurnover && hasSplit;
+
+  // 净买额自校验：上游满足 netBuyAmt == buyAmt - sellAmt。若偏差过大则不予采信（返回 null），
+  // 避免上游脏值被当作真实净买额 —— 这正是原实现踩过的坑。
+  let dayNetIn: number | null = null;
+  if (netFlowDisclosed && netBuyRaw !== null && buyIn !== null && sellOut !== null) {
+    const implied = +(buyIn - sellOut).toFixed(2);
+    if (Math.abs(netBuyRaw - implied) <= Math.max(0.05, Math.abs(implied) * 0.01)) {
+      dayNetIn = netBuyRaw;
+    }
+  }
+
   return {
-    dayNetIn: wanToYi(node?.dayNetAmtIn ?? 0),
-    remain: wanToYi(node?.dayAmtRemain ?? 0),
-    threshold: wanToYi(node?.dayAmtThreshold ?? 0),
-    date: node?.date2 ?? '',
+    dayNetIn,
+    buyIn: netFlowDisclosed ? buyIn : null,
+    sellOut: netFlowDisclosed ? sellOut : null,
+    dealAmount,
+    // 额度余额：四腿 dayAmtRemain 恒为 0，权威源 QUOTA_BALANCE 亦为 null → 不可得
+    remain: null,
+    threshold,
+    netFlowDisclosed,
+    upstreamStatus: numOrNull(a?.status ?? b?.status),
+    date: String(a?.date2 ?? b?.date2 ?? ''),
   };
 }
 
@@ -191,41 +302,58 @@ router.get(
   '/summary',
   asyncHandler(async (_req: Request, res: Response) => {
     try {
+      // f59..f63 为必需：f61 buyAmt / f62 sellAmt / f63 netBuyAmt（真实净买额）
       const url =
-        'https://push2.eastmoney.com/api/qt/kamt/get?fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54,f55,f56,f57,f58&klt=101&lmt=1';
+        'https://push2.eastmoney.com/api/qt/kamt/get?fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63&klt=101&lmt=1';
       const json = await fetchJson(url);
       const d = json?.data;
       if (!d || (!d.hk2sh && !d.sh2hk)) {
         return sendSuccess(res, {
           data: null,
           dataSource: 'unavailable',
+          message: '沪深港通额度源不可达：上游未返回任何数据，后端未接入任何兜底/编造数据',
           updatedAt: new Date().toISOString(),
         });
       }
       const summary: ConnectSummary = {
-        date: d.hk2sh?.date2 || d.sh2hk?.date2 || '',
-        northbound: {
-          dayNetIn: +(legFromKamt(d.hk2sh).dayNetIn + legFromKamt(d.hk2sz).dayNetIn).toFixed(2),
-          remain: +(legFromKamt(d.hk2sh).remain + legFromKamt(d.hk2sz).remain).toFixed(2),
-          threshold: +(legFromKamt(d.hk2sh).threshold + legFromKamt(d.hk2sz).threshold).toFixed(2),
-          date: d.hk2sh?.date2 || '',
-        },
-        southbound: {
-          dayNetIn: +(legFromKamt(d.sh2hk).dayNetIn + legFromKamt(d.sz2hk).dayNetIn).toFixed(2),
-          remain: +(legFromKamt(d.sh2hk).remain + legFromKamt(d.sz2hk).remain).toFixed(2),
-          threshold: +(legFromKamt(d.sh2hk).threshold + legFromKamt(d.sz2hk).threshold).toFixed(2),
-          date: d.sh2hk?.date2 || '',
-        },
+        date: String(d.hk2sh?.date2 ?? d.sh2hk?.date2 ?? ''),
+        northbound: mergeLegs([d.hk2sh, d.hk2sz]),
+        southbound: mergeLegs([d.sh2hk, d.sz2hk]),
       };
       sendSuccess(res, {
         data: summary,
         dataSource: 'real',
+        message:
+          '沪深港通「买入额 / 卖出额 / 净买额 / 额度余额」中：' +
+          '北向（沪股通+深股通）的买入卖出拆分口径已被停止披露，故其净买额/买入额/卖出额一律为 null，' +
+          '绝不用 0 冒充、绝不以成交额倒算；南向（港股通沪+港股通深）该口径仍在披露，为真实值。' +
+          '额度余额对南北向均不可得，一律为 null。成交额与每日额度为真实可得值。',
+        netFlowDisclosure: {
+          northboundDisclosed: summary.northbound.netFlowDisclosed,
+          southboundDisclosed: summary.southbound.netFlowDisclosed,
+          note:
+            '北向买入/卖出拆分口径自交易所停止披露后恒为 0（而成交额非 0），据此判定为「不可得」而非「真实为 0」。' +
+            '上游 status=4 并非披露标记（四腿皆为 4，但南向仍有真实值），故本实现不依赖 status 判定。' +
+            '另：上游 dayNetAmtIn 并非净买额（南向两腿恒等于其额度阈值 420 亿），真实净买额取自 netBuyAmt。',
+        },
+        quotaDisclosure: {
+          remainAvailable: false,
+          note:
+            '额度余额（dayAmtRemain）四腿恒为 0，权威源 RPT_MUTUAL_DEAL_HISTORY 的 QUOTA_BALANCE 亦为 null，' +
+            '判定为不可得，故 remain 一律为 null。',
+        },
+        legMapping: {
+          northbound: 'upstream hk2sh(沪股通) + hk2sz(深股通)，每日额度各 520 亿',
+          southbound: 'upstream sh2hk(港股通沪) + sz2hk(港股通深)，每日额度各 420 亿',
+          note: 'upstream 键名与直觉相反，已用额度常量与权威源成交额双源交叉验证，勿按字面互换。',
+        },
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
       sendSuccess(res, {
         data: null,
         dataSource: 'unavailable',
+        message: '沪深港通额度源不可达：后端未接入任何兜底/编造数据',
         error: e instanceof Error ? e.message : 'unknown',
       });
     }
