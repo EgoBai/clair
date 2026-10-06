@@ -345,18 +345,59 @@ const alertUpdateSchema = Joi.object({
   indicatorParams: Joi.object().optional(),
 });
 
+// 【P0-ALERTSCOPE】/api/alerts 的 handler 只认单数symbol（精确等值匹配）。
+// 但三处前端调用（hooks/useWatchlistData.ts、pages/WatchlistPage.tsx、
+// components/Stock/WatchlistPanel.tsx）都在拼**复数** `?symbols=a,b,c`。
+//
+// 根因：`validateQuery` 用 `stripUnknown: true`，schema 未声明的键会被静默剥离且**不报错**
+// （HTTP 200）→ handler 读到的 `symbol` 恒为 undefined → 整个 symbol 过滤条件消失，
+// 端点退化成「返回该user 的全量预警」。实测（2026-10-07，3417 端口，内存态60 条预警）：
+//   ?symbols=000001.SZ,000002.SZ → 200，返回全部 60 条（totalCount=60）
+//   ?symbols=000001.SZ           → 200，返回全部 60 条（totalCount=60）
+//   ?symbol=000001.SZ            → 200，正确返回 1 条
+// 前端把「N 只股票的结果」当成了这 60 条在用——静默扩大查询范围且返回了不该返回的数据，
+// 用户与前端都无从察觉（同 P0-SCHEMA 的stripUnknown 根因，但危害更高：不是参数失效，
+// 而是范围被静默放大）。
+//
+// 修法选择：这里**只做显式 400，不做静默兼容**。理由：
+// - 「静默取第一个」和「静默当全表」都是错的：前者仍返回错误范围的数据，后者更糟。
+// - 在 schema 层 forbidden 能拦住全部三种形态（复数逗号串、复数单值、qs 数组形态），
+//   且**不需要改 alerts.ts**（该文件正由另一 worker 在改），改动面最小。
+// - 前端侧逐个请求的改造（3 个调用点，均在 pages/ 与 components/ 下）超出本工单文件域，
+//   已上报主理人协调。改造完成前返回 400 是刻意的：宁可显式失败，也不返回错误范围的数据。
+const alertSymbolField = Joi.string()
+  .max(20)
+  // 顺带堵住「复数参数名写错成单数」的变体：?symbol=a,b 同样是多标的查询，
+  // 精确等值匹配必然0 条，若放行会被前端误读成「这些股票没有预警」。
+  .pattern(/^[^,]+$/)
+  .messages({
+    'string.pattern.base':
+      'symbol 只接受单个标的代码，不支持逗号分隔的多标的查询；批量查询请对每个代码分别请求后合并',
+  })
+  .optional();
+
 const alertQuerySchema = Joi.object({
   userId: Joi.number().integer().positive().default(1),
   isActive: Joi.string().valid('true', 'false').optional(),
-  symbol: Joi.string().max(20).optional(),
+  symbol: alertSymbolField,
+  // 显式禁掉复数形态，而非任其被 stripUnknown 静默剥离成全表。
+  symbols: Joi.forbidden().messages({
+    'any.unknown':
+      '不支持多标的查询（?symbols=...）。/api/alerts 仅支持单个 ?symbol=<code>，批量请对每个代码分别请求后合并',
+  }),
   page: Joi.number().integer().min(1).max(10000).default(1),
   pageSize: Joi.number().integer().min(1).max(100).default(20),
 });
 
+// /api/alerts/history 与 /alerts 同构（handler 也只认单数 symbol），同根因同处理。
 const alertHistorySchema = Joi.object({
   page: Joi.number().integer().min(1).max(10000).default(1),
   pageSize: Joi.number().integer().min(1).max(100).default(20),
-  symbol: Joi.string().max(20).optional(),
+  symbol: alertSymbolField,
+  symbols: Joi.forbidden().messages({
+    'any.unknown':
+      '不支持多标的查询（?symbols=...）。/api/alerts/history 仅支持单个 ?symbol=<code>，批量请对每个代码分别请求后合并',
+  }),
 });
 
 const alertBatchDeleteSchema = Joi.object({
