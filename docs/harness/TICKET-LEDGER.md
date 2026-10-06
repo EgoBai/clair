@@ -80,7 +80,8 @@
   - **但注意**：`/api/health` 在 `backend/src/docs/apiDocs.ts:241` 与 `__tests__/apiGateway.test.ts:301,309` 有声明/断言——**清理时这三处需一并处理**，否则 CI 会红（不是简单删一条路由）。
 - **命名陷阱（双前缀 17 处的认知源头）**：`config/apiBase.ts` 的 `resolveApiBase()` 返回**含 `/api`** 的值却叫 "Base"，而 `API_ORIGIN`（`resolveApiOrigin()`）叫 "Origin" 却**不含**后缀——**命名与语义相反**。worker 建议「统一为 API_ORIGIN + 调用处带 /api」以根除复发，**主理人已否决**（牵动全仓 17 处 + 全部消费方 + 全部测试，风险远超收益）。改为**结构不动 + 护栏防复发**：`frontend/src/__tests__/apiPrefixGuard.test.ts` 含「守住前提」用例（断言 `API_BASE_URL` 必须以 `/api` 结尾，否则整组断言退化为空断言）。命名陷阱登记为技术债。
 - **`BlockTradesPage.tsx` 绕过可撤销**：`api.ts` 双前缀根因已修（`bdcdf6fcc`），该页为躲 404 而自行调 `apiService.get('/block-trades')` 的绕行前提已消失，可切回 `fetchBlockTrades`（待激活单处理）。
-- **vitest 全仓性环境故障（未闭环）**：沙箱内 vitest worker 60s 起不来，连 `expect(1+1).toBe(2)` 与既有测试同样超时（`--pool` 三种模式、`--maxWorkers 1` 均为 144等）⟹ 环境问题非代码。`apiPrefixGuard.test.ts`、`nullAdapt.test.tsx` 等**尚未经CI 验证**，收口时须复跑。
+- **vitest 沙箱跑不动 —— ✅ 已闭环，非「未验证」**（更正本行旧表述）：根因是沙箱注入 `NODE_OPTIONS` shim（见上「沙箱 NODE_OPTIONS 量化结论」），**不是代码问题**。正确姿势 `env -u NODE_OPTIONS <vitest 命令>`（**单变量即充分**）。已用它真实跑通并验证：`apiPrefixGuard` 44/44、`hkConnectNullAdapt` 19/19、`nullAdapt` 25/25、`aiEndpointsFinal` 21/21、`halfHonestZeroToNull` 15/15、`blockTradesContract` 19、`alertsQueryScopeContract` 14。⟹ **这些用例均已真跑通过，不再是「未经 CI 验证」的挂账项**。
+- **⚠️ 不得再引用「58s 优化目标」**（旧台账曾用其作为「有性能问题」的例证，该前提**已失效**）：`honesty-scan` 无 shim 基线为 **0.14~0.46s**（三方独立复现），「58s」是 shim 环境下测出的**放大值**。`fix-blocktrades` 已撤回「加 shim 自检 / exit 2」的提议，理由正确：**CI 上永不触发，等于把沙箱问题写进产品代码**。
 - **两类静默降级须区分**：`risk-center.ts:41-42` / `fund-flow.ts:228-230` / `ai-market-pulse.ts:106,138` 的 `catch → []` **不能批量改unavailable**——须区分「上游失败」与「本来就空」，否则会把「真的没有」也标成「拿不到」，**诚实红线是双向的**。留待下一批逐个实测。
 - **`getMarketSummary` 可空契约（方向已确认，待只读核查结论）**：`Database.ts:483-485` 明确 `if (dailyQuotes.length === 0) return null;`（**有意契约**），而 `ai-market-pulse.ts:153` 直接属性访问**未判空** ⟹ 根因是**类型契约未兑现**，非降级写法不当。已派 `audit-null-contract` 全量普查调用方。
 
