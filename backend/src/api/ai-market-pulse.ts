@@ -62,7 +62,9 @@ function computeTemperature(risingRatio: number, topThemeScore: number, limitUp:
 }
 
 function buildRuleNarrative(
-  temperature: { score: number; label: string },
+  // score 可为 null：降级分支（:244）诚实返回 null 而非 0。
+  // 类型必须跟随运行时，否则调用方会被 TS 骗到以为它一定是 number。
+  temperature: { score: number | null; label: string },
   themes: ThemeHit[],
   risks: RiskSignal[],
 ): string {
@@ -72,8 +74,10 @@ function buildRuleNarrative(
   const riskLine = risks.length
     ? risks.map((r) => r.label).join('、')
     : '未见显著风险信号';
+  // score 为 null 时不渲染 "/100"，否则会输出「(null/100)」这种既不像数据也不像文案的串
+  const scoreText = temperature.score === null ? '' : `(${temperature.score}/100)`;
   return [
-    `当前市场温度「${temperature.label}」(${temperature.score}/100)。`,
+    `当前市场温度「${temperature.label}」${scoreText}。`,
     `资金主线集中在：${themeLine}。`,
     `需关注的风险：${riskLine}。`,
     `（规则引擎结论 · LLM 观点生成暂不可用）`,
@@ -204,7 +208,7 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
           role: 'user' as const,
           content: `基于以下实时市场信号，用 3-4 句中文给出今日 A 股「诊脉」观点，先结论后依据，专业克制，结尾必须带 ⚠️ 风险提示。不要荐股、不预测点位。
 
-市场温度：${temperature.label}(${temperature.score}/100)
+市场温度：${temperature.label}${temperature.score === null ? '' : `(${temperature.score}/100)`}
 上涨/下跌家数：${rising}/${falling}（占比 ${(risingRatio * 100).toFixed(1)}%）
 涨停：${limitUp} 只
 主线行业：${themeSummary}
