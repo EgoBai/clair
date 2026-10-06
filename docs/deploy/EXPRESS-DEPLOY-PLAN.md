@@ -77,3 +77,119 @@
 3. **WebSocket 与长连接**：托管平台可能有闲置杀连；需实测订阅是否掉线。
 4. **定时任务**：`DataSyncService` 每 300s 拉腾讯 API（本机实测已 403），生产环境网络策略不同，可能更严；需在生产重测并配降级标记。
 5. **前端构建产物切换**：`VITE_API_BASE` 变更需重新构建前端并验证 SPA 全路径（注意 `curl` 对 SPA 全路径恒 200，**不能**用 curl 判可用，必须渲染断言）。
+6. **配置双源残留（P0-CONFIG 现状）**：代码侧的 pages.dev 默认值已删除，但 `.github/workflows/deploy.yml:33` 仍写着 `vars.VITE_API_BASE || 'https://clair-api.pages.dev'`。即**GitHub variable 缺失时不会构建失败，而是回落到 Worker 地址**。这是本清单第 5 步必须收口的原因（见 §九.3）。
+
+---
+
+## 九、后端切换上线清单（Checklist）
+
+> 目标：把 Express 后端真正切到线上，并让「本地 = 线上」可核验。
+> **顺序不可颠倒。** 每步都给了可验证判据；判据不通过就停在当前步，不要往下走。
+> 前置阅读：§三（部署基本面）、§六（四证）、§七（回滚条件）。
+
+### 步骤 0：切换前的硬性禁止项（任一命中即**不允许**开始切换）
+
+| # | 禁止条件 | 为什么 |
+|---|---|---|
+| 1 | 生产烟测未通过（存在 NOT_FOUND / ERROR / MALFORMED / UNREACHABLE / VERSION_MISMATCH 任一） | 切过去等于把已知坏状态推给用户 |
+| 2 | 数据未迁移、`DATABASE_URL` 未指向托管 PG | 进程不崩但**退回内存库 → 全站诚实空态**，比现在更差（现在 Worker 尚有 24 路由数据） |
+| 3 | `JWT_SECRET` 未配置 | 重启即全体令牌失效；生产缺失时后端直接 FATAL 拒绝启动 |
+| 4 | 前端 `VITE_API_BASE` 未指向新后端 | **这一步不做，前面全白做**（详见步骤 5 的警告） |
+| 5 | 托管平台国内可达性未实测 | Clair 面向国内用户，打不开等于把 404 换成超时 |
+
+### 步骤 1：托管平台 + 托管 PostgreSQL 就绪
+
+- 平台侧创建服务，绑定 PG 实例；确认平台支持 WebSocket（后端 `ws://` 已启用）。
+- 配置平台环境变量：`DATABASE_URL`、`JWT_SECRET`、`NODE_ENV=production`（完整清单见根目录 `.env.example`）。
+- **判据**：
+  - `GET /health` 返回 `dbType: "postgres"` 且 `connected: true`（若为内存库，说明 `DATABASE_URL` 没生效）。
+  - `GET /health` 返回 `service: "clair-backend"`（若返回 `clair-worker`，说明请求还打在 Worker 上，尚未切换）。
+- 数据迁移（**必须在切换前完成**）：`pg_dump` 本机 `localhost:5432` → 导入托管 PG，保留回退脚本。
+  - 本机现有数据规模参考：`daily_quotes` coverage 5541 / observations 639108。
+  - 迁移后**在托管 PG 上直接核对**行数与最新日期，不要只看导入命令的退出码。
+
+### 步骤 2：部署后端容器
+
+- 已实测可用的产物路径：`npm run build:prod`（esbuild bundle → `dist/server.cjs`）+ `backend/Dockerfile`。
+- 镜像构建走 `deploy-backend.yml`（`workflow_dispatch`，产物推 GHCR，tag 携带 commit）。
+- 镜像构建参数已包含 `GIT_COMMIT_SHA`（`deploy-backend.yml` 的 `build-args`）。
+- **判据**：容器 `/health` healthy；平台日志无启动即崩。
+  - ⚠️ 勿改回 tsc 产物直接运行（§二「踩过的三堵墙」记录了路径/扩展名/别名三个坑）。
+
+### 步骤 3：版本一致性核对（自报 commit == 镜像 tag 的 sha）
+
+```bash
+curl -s https://<新后端>/api/version
+```
+
+- **判据**：
+  - `commit` 非 null，且等于镜像 tag 里的短 sha（`deploy-backend.yml` 用 `${image_ref##*-}` 作为默认期望值）。
+  - `commitKnown: true`、`commitShort` 与 tag 一致。
+  - `service: "clair-backend"`。
+- 若 `commit` 为 `null`：说明 `GIT_COMMIT_SHA` 没注入。后端**绝不伪造** commit（这是有意的），此时版本一致性无从核对，必须先修注入再继续。
+
+### 步骤 4：跑生产烟测（切换前端**之前**）
+
+```bash
+node scripts/smoke/production-smoke.mjs --base https://<新后端> --expect-commit <短sha> --strict
+```
+
+- **判据**：退出码 0；报告中 NOT_FOUND / ERROR / MALFORMED / UNREACHABLE / VERSION_MISMATCH 均为 0。
+- `--strict` 下任一类命中即失败，不允许「先切了再慢慢看」。
+- 建议先把 `BACKEND_SMOKE_BASE_URL` 配成 GitHub 仓库级 Actions variable，让这条烟测在每次部署后自动跑（未配置时该 job 呈 **skipped**，不会伪装成绿色）。
+
+### 步骤 5：切换前端 `VITE_API_BASE` 并重新构建部署（**最容易被跳过、后果最严重的一步**）
+
+> ⚠️ **警告：后端部署好了 ≠ 线上生效了。**
+> 前端把 `/api/*` 重定向到后端靠的是构建期注入的 `VITE_API_BASE`。
+> 如果前端仍指向 `https://clair-api.pages.dev`（Worker），
+> 那么用户在页面上看到的仍是 Worker 的 24 路由 + 其余全 404，
+> **而后端部署等于完全白做**，且没有任何报错提示你。
+
+- 做法（任选其一，建议 ①）：
+  1. 在 GitHub 仓库 Actions variable 里把 `VITE_API_BASE` 改为新后端域名，push 触发 `deploy.yml` 自动构建部署；
+  2. 本地 `VITE_API_BASE=https://<新后端> npx vite build --mode github` 后部署 `dist/`。
+- **顺带收口 §八.6 的残留双源**：把 `deploy.yml:33` 的
+  `vars.VITE_API_BASE || 'https://clair-api.pages.dev'`
+  改成**不回落的写法**（直接用 `${{ vars.VITE_API_BASE }}`）。
+  理由：`main.tsx` 侧的默认值已删除、生产构建已强制显式配置，
+  工作流里再留一个 pages.dev 兜底，等于把「漏配静默回落」的后门重新装上。
+  （此文件属`.github/workflows/**`，需由该域负责人改动。）
+- **判据**：构建**成功**。漏配时构建会**直接失败**并打印：
+  `[UNRESOLVED_IMPORT] ... VITE_API_BASE 未注入：生产构建必须显式指定后端地址`
+  ——这正是预期的快速失败，不要用加兜底的方式"修好"它。
+
+### 步骤 6：切换后二次核验
+
+- **判据（全部满足才算上线完成）**：
+  1. 对**新后端**再跑一次步骤 4 的烟测，仍全部通过；
+  2. 浏览器打开线上站点，页面版本指示器显示的 commit == 镜像 tag 的 sha；
+  3. 此前 14 个 404 端点在页面上可正常取数（或显示诚实的 `dataSource:'unavailable'` 标注）；
+  4. Network 面板里 `/api/*` 请求的 `Host` 是**新后端**，不是 `clair-api.pages.dev`；
+  5. WebSocket 连的是 `wss://<新后端>/ws`（`VITE_WS_URL` 未配时会回落 `127.0.0.1:3001`，实时功能静默失效）。
+- ⚠️ 页面版本指示器依赖 `VITE_GIT_COMMIT_SHA`；`deploy.yml` 目前**没有**注入它，
+  只能靠运行期回退读 `/api/version`。步骤 5 完成前这条路读不通，
+  故建议同时在 `deploy.yml` 注入 `VITE_GIT_COMMIT_SHA` 与 `VITE_BUILD_TIME`。
+
+### 步骤 7：回滚方案
+
+- **回滚触发条件**：切换后出现① 烟测大面积失败；② 关键页面空白/报500；③ 数据异常（迁移不完整）；④ 国内访问超时。
+- **回滚动作（按代价从低到高）**：
+  1. 前端把 `VITE_API_BASE` 切回 `https://clair-api.pages.dev` 并重新构建部署 —— 一改一构即回旧态，**秒级级恢复可用**；
+  2. 容器保留旧镜像，需要时再启一次；
+  3. 数据侧若迁移有问题，用 `pg_dump` 回退脚本还原。
+- **保留 Worker 兜底的判断条件**：托管平台冷启动、账单事故、数据迁移窗口期内，一律**保持 Worker 在线**。
+  仅当§七「退役条件」三条同时满足才下线 Worker。
+
+### §九.3 单一真源现状（配置收敛小结）
+
+| 环境变量 | 真源位置 | 漏配后果 |
+|---|---|---|
+| `VITE_API_BASE` | 构建时注入（GitHub Actions variable /本地 shell） | ✅ **生产构建直接失败**（`main.tsx` 已强制，无代码侧默认值） |
+| `VITE_API_BASE_URL` | 同上（可选，回落 `/api`） | axios 走相对路径，由 fetch wrapper 兜住 |
+| `VITE_WS_URL` | 同上（可选） | ⚠️ 回落到 `127.0.0.1:3001`，线上静默失效 |
+| `DATABASE_URL` / `JWT_SECRET` | 平台环境变量 / Secrets | 见根目录 `.env.example`逐条说明 |
+| `BACKEND_SMOKE_BASE_URL` | GitHub Actions variable | smoke job 呈 skipped（灰色），非绿色 |
+| `pages.dev` 默认地址 | ⚠️ 仅剩 `deploy.yml:33` 一处兜底 | 建议按步骤 5 收口为不回落的写法 |
+
+完整变量契约（用途 / 必填性 / 缺失后果 / 示例）见仓库根目录 **`.env.example`**。
