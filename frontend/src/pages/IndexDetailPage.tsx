@@ -1,10 +1,21 @@
 /**
  * 指数详情页 — 富途/同花顺风格
- * 显示指数K线图、技术指标、成分股涨跌榜
+ * 显示指数K线图、成分股涨跌榜
+ *
+ * 数据来源（2026-10-06 死链清算，逐一实测 HTTP 状态后改接）：
+ * - 指数快照 ← GET /api/market/indices（app.ts:119 → stock.ts:282，腾讯实时源，dataSource:'real'）
+ * - 指数 K 线 ← GET /api/market/kline?symbol=&days=（app.ts:119 → market.ts:63，东方财富日线）
+ * - 成分股涨跌榜 ← GET /api/market/top-gainers|top-losers（stock.ts:306/316，本地真实行情库）
+ *
+ * 旧实现调用的 `/api/index/:symbol`、`/api/index/:symbol/kline`、`/api/index/:symbol/strategy`
+ * 三条路径后端**从未注册**（实测均404），故本页面此前永远停在「指数数据不可用」空态。
+ * `/api/index/:symbol/strategy`（技术分析）经查无等价端点：`/api/indicators/:symbol` 只认个股
+ * （实测传 000001.SH 返回 404「股票未找到」），`/api/tech/batch` 对指数返回 dataSource:'unavailable'。
+ * 因此技术分析卡片改为显式说明「未接入」而非展示 0 值。
  */
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Breadcrumb, Tag, Typography, Card, Statistic, Skeleton } from 'antd';
+import { Breadcrumb, Typography, Card, Skeleton, Alert } from 'antd';
 import { EmptyState } from '../components/Common/StateComponents';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined, CompassOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
@@ -25,7 +36,14 @@ interface IndexDetail {
   symbol: string; name: string; displaySymbol: string;
   closePrice: number; changePercent: number; volume: number; turnover: number;
   highPrice: number; lowPrice: number; openPrice: number;
-  topGainers: any[]; topLosers: any[];
+  /** 成分股涨跌榜 —— 后端无「指数成分股」端点，此处承载的是全市场涨跌榜（见 fetchData 注释） */
+  topGainers: Constituent[]; topLosers: Constituent[];
+}
+
+/** 涨跌榜条目（/api/market/top-gainers|top-losers 的行形状，snake_case） */
+interface Constituent {
+  symbol: string; name: string;
+  close_price: string; change_percent: string;
 }
 
 interface KLineQuote {
@@ -33,38 +51,109 @@ interface KLineQuote {
   highPrice: number; lowPrice: number; volume: number;
 }
 
-interface StrategyData {
-  symbol: string; name?: string; currentPrice: number; changePercent: number;
-  score?: number; position?: string; positionPct?: number;
-  stopLoss?: number; takeProfit?: number;
-  maAlignment?: string; crossover?: string; macdSignal?: string;
-  rsi?: number; supportLevel?: number; resistanceLevel?: number;
-  summary?: string; note?: string;
-}
-
 const IndexDetailPage: React.FC = () => {
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
   const [detail, setDetail] = useState<IndexDetail | null>(null);
   const [kline, setKline] = useState<KLineQuote[]>([]);
-  const [strategy, setStrategy] = useState<StrategyData | null>(null);
   const [loading, setLoading] = useState(true);
+  /** 诚实标注：哪些子区块因无后端支撑而未展示 */
+  const [unavailable, setUnavailable] = useState<string[]>([]);
 
   useEffect(() => {
     if (!symbol) return;
+    const ac = new AbortController();
     (async () => {
       setLoading(true);
-      const apiBase = '/api/index';
-      const [dRes, kRes, sRes] = await Promise.all([
-        fetch(`${apiBase}/${symbol}`).then(r => r.json()).catch(() => null),
-        fetch(`${apiBase}/${symbol}/kline`).then(r => r.json()).catch(() => null),
-        fetch(`${apiBase}/${symbol}/strategy`).then(r => r.json()).catch(() => null),
-      ]);
-      if (dRes?.data) setDetail(dRes.data);
-      if (kRes?.data?.quotes) setKline(kRes.data.quotes);
-      if (sRes?.data) setStrategy(sRes.data);
+      setDetail(null);
+      setKline([]);
+      setUnavailable([]);
+
+      const opts = { signal: ac.signal };
+      const missing: string[] = [];
+
+      // ---- 1) 指数快照：/api/market/indices 返回全部指数，按 symbol 过滤出当前这一条 ----
+      let detailData: IndexDetail | null = null;
+      try {
+        const res = await fetch('/api/market/indices', opts);
+        const body = await res.json();
+        const list: any[] = body?.data?.indices || [];
+        const hit = list.find(i => i.symbol === symbol);
+        if (hit) {
+          detailData = {
+            symbol: hit.symbol,
+            name: hit.name,
+            displaySymbol: hit.symbol,
+            closePrice: Number(hit.closePrice),
+            changePercent: Number(hit.changePercent),
+            volume: Number(hit.volume),
+            turnover: Number(hit.turnover),
+            highPrice: Number(hit.highPrice),
+            lowPrice: Number(hit.lowPrice),
+            openPrice: Number(hit.openPrice),
+            topGainers: [],
+            topLosers: [],
+          };
+        } else if (list.length === 0) {
+          missing.push('指数快照：后端实时指数源不可达（dataSource=unavailable）');
+        } else {
+          missing.push(`指数快照：后端返回的 ${list.length} 条指数中没有 ${symbol}，该代码可能已不支持`);
+        }
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        missing.push('指数快照：/api/market/indices 请求失败');
+      }
+
+      // ---- 2) 涨跌榜：后端无「指数成分股」端点，只有全市场榜，语义如实标注为全市场 ----
+      if (detailData) {
+        const [gRes, lRes] = await Promise.allSettled([
+          fetch('/api/market/top-gainers?limit=10', opts).then(r => r.json()),
+          fetch('/api/market/top-losers?limit=10', opts).then(r => r.json()),
+        ]);
+        if (ac.signal.aborted) return;
+        const pick = (r: PromiseSettledResult<any>, key: string): Constituent[] =>
+          r.status === 'fulfilled' && Array.isArray(r.value?.data?.[key])
+            ? r.value.data[key]
+            : [];
+        const gainers = pick(gRes, 'topGainers');
+        const losers = pick(lRes, 'topLosers');
+        if (gainers.length === 0 && losers.length === 0) {
+          missing.push('涨跌榜：后端本地行情库无当日涨跌数据（非交易日或未同步）');
+        }
+        detailData = { ...detailData, topGainers: gainers, topLosers: losers };
+      }
+
+      // ---- 3) 指数 K 线：/api/market/kline 返回并行数组，需转成 candlestick 所需的行数组 ----
+      try {
+        const res = await fetch(`/api/market/kline?symbol=${encodeURIComponent(symbol)}&days=120`, opts);
+        const body = await res.json();
+        const d = body?.data;
+        if (body?.dataSource === 'real' && Array.isArray(d?.dates) && d.dates.length > 0) {
+          setKline(d.dates.map((date: string, i: number) => ({
+            tradeDate: date,
+            openPrice: Number(d.opens?.[i] ?? 0),
+            closePrice: Number(d.prices?.[i] ?? 0),
+            highPrice: Number(d.highs?.[i] ?? 0),
+            lowPrice: Number(d.lows?.[i] ?? 0),
+            volume: Number(d.volumes?.[i] ?? 0),
+          })));
+        } else {
+          missing.push(`K线图：${d?.message || '后端 K 线源不可达'}`);
+        }
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        missing.push('K线图：/api/market/kline 请求失败');
+      }
+
+      // ---- 4) 技术分析：确认后端无等价端点，如实告知未接入（不展示任何 0 值/推测值） ----
+      missing.push('技术分析（综合评分/仓位建议/RSI）：后端暂无指数技术分析端点，功能未接入');
+
+      if (ac.signal.aborted) return;
+      setDetail(detailData);
+      setUnavailable(missing);
       setLoading(false);
     })();
+    return () => ac.abort();
   }, [symbol]);
 
   if (loading) return (
@@ -92,15 +181,6 @@ const IndexDetailPage: React.FC = () => {
       type: 'candlestick',
       data: klineValues,
       itemStyle: { color: COLOR_UP, color0: COLOR_DOWN, borderColor: COLOR_UP, borderColor0: COLOR_DOWN },
-      markLine: {
-        silent: true,
-        symbol: 'none',
-        label: { fontSize: 10 },
-        data: strategy?.supportLevel && strategy?.resistanceLevel ? [
-          { yAxis: strategy.supportLevel, lineStyle: { color: '#22c55e', type: 'dashed', width: 1 }, label: { formatter: `支撑 ${strategy.supportLevel.toFixed(1)}` } },
-          { yAxis: strategy.resistanceLevel, lineStyle: { color: '#ef4444', type: 'dashed', width: 1 }, label: { formatter: `压力 ${strategy.resistanceLevel.toFixed(1)}` } },
-        ] : [],
-      },
     }],
   };
 
@@ -159,45 +239,26 @@ const IndexDetailPage: React.FC = () => {
           </Card>
         )}
 
-        {/* Strategy Card */}
-        {strategy && strategy.score !== undefined && (
-          <Card
-            title={<span style={{ fontWeight: 600 }}>技术分析</span>}
-            style={{ marginBottom: 16, borderRadius: 12, border: '1px solid #e2e8f0' }}
-          >
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 16 }}>
-              <Statistic title="综合评分" value={strategy.score} suffix="/100"
-                valueStyle={{ color: strategy.score >= 60 ? COLOR_UP : strategy.score >= 40 ? '#f59e0b' : COLOR_DOWN, fontSize: 24 }} />
-              <Statistic title="仓位建议" value={strategy.position || '-'}
-                valueStyle={{ fontSize: 20 }} />
-              <Statistic title="建议仓位" value={strategy.positionPct !== undefined ? `${strategy.positionPct}%` : '-'}
-                valueStyle={{ fontSize: 20 }} />
-              {strategy.rsi !== null && strategy.rsi !== undefined && (
-                <Statistic title="RSI(14)" value={strategy.rsi.toFixed(1)}
-                  valueStyle={{ color: strategy.rsi > 70 ? COLOR_UP : strategy.rsi < 30 ? COLOR_DOWN : TEXT, fontSize: 20 }} />
-              )}
-            </div>
-            {(strategy.supportLevel || strategy.resistanceLevel) && (
-              <div style={{ marginTop: 12, display: 'flex', gap: 24 }}>
-                {strategy.supportLevel && <Tag color="green">支撑位 {strategy.supportLevel.toFixed(2)}</Tag>}
-                {strategy.resistanceLevel && <Tag color="red">压力位 {strategy.resistanceLevel.toFixed(2)}</Tag>}
-                {strategy.stopLoss && <Tag color="orange">止损 {strategy.stopLoss.toFixed(2)}</Tag>}
-                {strategy.takeProfit && <Tag color="blue">止盈 {strategy.takeProfit.toFixed(2)}</Tag>}
-              </div>
-            )}
-            {strategy.summary && (
-              <div style={{ marginTop: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, fontSize: 13, color: TEXT, lineHeight: 1.7 }}>
-                {strategy.summary}
-              </div>
-            )}
-          </Card>
+        {/* 未接入/不可用区块的诚实说明：不展示 0 值、不留空白 */}
+        {unavailable.length > 0 && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="本指数的部分数据暂不可用"
+            description={
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.8 }}>
+                {unavailable.map(u => <li key={u}>{u}</li>)}
+              </ul>
+            }
+          />
         )}
 
-        {/* Top Gainers / Losers */}
+        {/* Top Gainers / Losers —— 后端只有全市场涨跌榜，无「指数成分股」端点，故标题如实标注为全市场 */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {detail.topGainers?.length > 0 && (
             <Card
-              title={<span style={{ fontWeight: 600, color: COLOR_UP }}><RiseOutlined /> 领涨成分股</span>}
+              title={<span style={{ fontWeight: 600, color: COLOR_UP }}><RiseOutlined /> 全市场涨幅榜 TOP10</span>}
               style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
               bodyStyle={{ padding: '8px 16px' }}
             >
@@ -205,14 +266,14 @@ const IndexDetailPage: React.FC = () => {
                 <div key={s.symbol} onClick={() => navigate(`/stocks/${s.symbol}`)}
                   style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < 9 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', fontSize: 13 }}>
                   <span style={{ color: TEXT }}>{s.name}</span>
-                  <span style={{ color: COLOR_UP, fontWeight: 600, fontFamily: 'monospace' }}>+{s.changePercent.toFixed(2)}%</span>
+                  <span style={{ color: COLOR_UP, fontWeight: 600, fontFamily: 'monospace' }}>+{Number(s.change_percent).toFixed(2)}%</span>
                 </div>
               ))}
             </Card>
           )}
           {detail.topLosers?.length > 0 && (
             <Card
-              title={<span style={{ fontWeight: 600, color: COLOR_DOWN }}><FallOutlined /> 领跌成分股</span>}
+              title={<span style={{ fontWeight: 600, color: COLOR_DOWN }}><FallOutlined /> 全市场跌幅榜 TOP10</span>}
               style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
               bodyStyle={{ padding: '8px 16px' }}
             >
@@ -220,7 +281,7 @@ const IndexDetailPage: React.FC = () => {
                 <div key={s.symbol} onClick={() => navigate(`/stocks/${s.symbol}`)}
                   style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < 9 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', fontSize: 13 }}>
                   <span style={{ color: TEXT }}>{s.name}</span>
-                  <span style={{ color: COLOR_DOWN, fontWeight: 600, fontFamily: 'monospace' }}>{s.changePercent.toFixed(2)}%</span>
+                  <span style={{ color: COLOR_DOWN, fontWeight: 600, fontFamily: 'monospace' }}>{Number(s.change_percent).toFixed(2)}%</span>
                 </div>
               ))}
             </Card>

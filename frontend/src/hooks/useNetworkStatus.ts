@@ -30,7 +30,7 @@ export interface NetworkStatus {
 export interface UseNetworkStatusOptions {
   /** 是否启用ping检测 */
   enablePing?: boolean;
-  /** ping目标URL */
+  /** ping目标URL（必须是后端真实注册的 /api/* 端点，见下方 DEFAULT_PING_URL 注释） */
   pingUrl?: string;
   /** ping间隔 (ms) */
   pingInterval?: number;
@@ -50,6 +50,24 @@ type NetworkConnection = {
   addEventListener?: (type: string, listener: () => void) => void;
   removeEventListener?: (type: string, listener: () => void) => void;
 };
+
+/**
+ * 默认 ping 目标。
+ *
+ * 历史坑：本值曾是 `/api/health` —— 后端**从未注册**该路径（真实健康检查是根路径 `/health`，
+ * 不带 /api 前缀），实测 `GET /api/health` → 404，故这条 ping 恒定失败。
+ *
+ * 为什么不用 `/health`：前端 dev 经 Vite proxy 只代理 `/api` 与 `/ws`（见 frontend/vite.config.ts），
+ * 生产经 main.tsx 的 window.fetch 劫持也只改写 `/api/` 前缀（见 frontend/src/main.tsx:13）。
+ * 也就是说 `/health` 在前端两侧都**不会**到达后端：dev 下会被 Vite 当 SPA 路由兜底返回
+ * index.html 并带 HTTP 200 + Content-Type: text/html（实测已验证），那是个「假在线」信号——
+ * 比 404 更危险：后端真的挂了时仍会被判定为在线。
+ *
+ * 选用 `/api/stats/cache` 的理由：后端 app.ts 真实注册（app.ts:275），是纯内存 queryCache 统计，
+ * 不打数据库、不受行情源可达性影响，作为「后端进程是否活着」的探针语义上比行情端点更干净
+ * （行情端点可能因东财/腾讯源抖动而假阴性）。实测 HTTP 200 application/json。
+ */
+const DEFAULT_PING_URL = '/api/stats/cache';
 
 /** 获取网络连接信息 */
 function getConnectionInfo(): Pick<NetworkStatus, 'effectiveType' | 'downlink' | 'rtt' | 'saveData'> {
@@ -103,7 +121,7 @@ function computeQuality(isOnline: boolean, rtt: number, effectiveType: NetworkTy
 export function useNetworkStatus(options: UseNetworkStatusOptions = {}) {
   const {
     enablePing = false,
-    pingUrl = '/api/health',
+    pingUrl = DEFAULT_PING_URL,
     pingInterval = 30000,
     onChange,
     onOffline,
@@ -166,11 +184,24 @@ export function useNetworkStatus(options: UseNetworkStatusOptions = {}) {
     prevOnlineRef.current = isOnline;
   }, [onChange, onOffline, onReconnect, status.lastOnlineAt]);
 
-  /** 执行ping检测 */
+  /**
+   * 执行 ping 检测，返回往返时延（ms），失败返回 -1。
+   *
+   * 诚实性要点（此处曾有真实缺陷）：
+   * 1. `fetch` 只在**网络层**失败（DNS/连接中断/CORS 被拦）时 reject；HTTP 404/500 会被**正常 resolve**。
+   *    旧实现只要 fetch 没抛异常就返回时延，于是「端点 404」会被记成一次成功 ping，
+   *    反而把 rtt/quality 刷成「优秀」——死链被掩盖成健康信号。
+   * 2. 前端 dev 下任何未代理路径都会被 Vite 以 SPA 兜底返回 index.html + HTTP 200。
+   *    所以额外校验 content-type 必须是 JSON，否则 HTML 兜底页会被误判为「后端在线」。
+   * 现在只有「2xx 且响应体是 JSON」才算一次有效 ping。
+   */
   const ping = useCallback(async (): Promise<number> => {
     const start = performance.now();
     try {
-      await fetch(pingUrl, { method: 'HEAD', cache: 'no-store' });
+      const res = await fetch(pingUrl, { method: 'GET', cache: 'no-store' });
+      if (!res.ok) return -1;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('json')) return -1;
       return performance.now() - start;
     } catch {
       return -1;
@@ -205,13 +236,20 @@ export function useNetworkStatus(options: UseNetworkStatusOptions = {}) {
 
     const runPing = async () => {
       const latency = await ping();
-      if (latency >= 0) {
-        setStatus(prev => ({
-          ...prev,
-          rtt: Math.round(latency),
-          quality: computeQuality(true, latency, prev.effectiveType),
-        }));
-      }
+      setStatus(prev => {
+        if (latency >= 0) {
+          return {
+            ...prev,
+            rtt: Math.round(latency),
+            quality: computeQuality(true, latency, prev.effectiveType),
+          };
+        }
+        // ping 失败（后端不可达 / 端点非 JSON）：诚实降级为 poor，
+        // 而不是保留上一次成功 ping 的「优秀」读数假装一切正常。
+        // 注意不改isOnline —— 浏览器层面的在线与否由 navigator.onLine 负责，
+        // 单次探针失败不足以宣称用户离线。
+        return { ...prev, rtt: 0, quality: 'poor' };
+      });
     };
 
     runPing();

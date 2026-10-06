@@ -423,14 +423,26 @@ const ScreenerPage: React.FC = () => {
 
       // 2) 兜底：生产 Worker 未暴露 /api/stocks 全量端点时，
       //    用实时涨跌榜(gainers+losers)保证默认页有真实非空数据，而非空白。
+      //    死链清算（2026-10-06）：旧代码打的 `/api/stocks/top` 后端**从未注册**（实测 404），
+      //    该兜底分支实际从未生效。现改接后端真实注册的
+      //    GET /api/market/top-gainers 与 GET /api/market/top-losers（app.ts:122 → stock.ts:306/316，
+      //    本地真实行情库，dataSource:'real'|'unavailable'），并按其真实字段名 topGainers/topLosers 取值。
       if (merged.length === 0) {
         try {
-          const resp = await fetch('/api/stocks/top');
-          if (resp.ok) {
-            const top = await resp.json();
-            const d = top?.data ?? {};
-            merged = toStockData([...(d.gainers ?? []), ...(d.losers ?? [])]);
-          }
+          const [gRes, lRes] = await Promise.all([
+            fetch('/api/market/top-gainers?limit=30'),
+            fetch('/api/market/top-losers?limit=30'),
+          ]);
+          const readList = async (r: Response, key: 'topGainers' | 'topLosers') => {
+            if (!r.ok) return [] as any[];
+            const body = await r.json();
+            return Array.isArray(body?.data?.[key]) ? body.data[key] : [];
+          };
+          const [gainers, losers] = await Promise.all([
+            readList(gRes, 'topGainers'),
+            readList(lRes, 'topLosers'),
+          ]);
+          merged = toStockData([...gainers, ...losers]);
         } catch { /* ignore */ }
       }
 

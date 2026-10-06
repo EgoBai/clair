@@ -223,6 +223,19 @@ export const LazyWithPerf = <T extends React.ComponentType<any>>(
 
 /**
  * 报告性能问题
+ *
+ * 死链清算（2026-10-06）：
+ * 旧实现 sendBeacon 到 `/api/performance/report` —— 后端**从未注册**该路径（实测 404），
+ * 是一条纯死链，上报内容全部石沉大海。现改指向后端真实注册的
+ * POST /api/performance/frontend（app.ts:144 → performance.ts:95）。
+ *
+ * 已知后端缺陷（本次未修，超出前端文件域，已上报）：
+ * 该端点的 Joi schema（middleware/validation.ts:397）要求 `{ metric, value, page?, timestamp? }`，
+ * 而 handler（performance.ts:96）解构的是 `{ metrics, url, userAgent, timestamp }`；
+ * 又因 validateBody 开了 `stripUnknown: true`，`metrics` 会被当作未知字段剥掉，
+ * 于是 handler 里的 `!metrics` 恒成立 → **任何 payload 都返回 400「无效的性能指标」**（已实测三种payload 均400）。
+ * 因此这里按 schema 契约（metric/value）发送：后端修好后即可直接生效，
+ * 在此之前上报会被静默丢弃——但这是后端 bug，不是前端指向了不存在的端点。
  */
 function reportPerformanceIssue(data: {
   componentName: string;
@@ -231,14 +244,20 @@ function reportPerformanceIssue(data: {
   timestamp: number;
 }): void {
   if (typeof window !== 'undefined' && 'sendBeacon' in navigator) {
-    const report = {
-      type: 'performance_issue',
-      ...data,
-      url: window.location.href,
-      userAgent: navigator.userAgent,
+    const payload = {
+      // schema 约定的字段名：metric 为指标名，value 为耗时毫秒
+      metric: `${data.componentName}_render_time`,
+      value: Math.max(0, Math.min(3600000, Math.round(data.renderTime))),
+      page: typeof window !== 'undefined' ? window.location.href : '',
+      timestamp: data.timestamp,
     };
-    
-    navigator.sendBeacon('/api/performance/report', JSON.stringify(report));
+
+    // sendBeacon 以 text/plain 发送 Blob 会被后端 express.json 忽略，
+    // 故显式指定 application/json 的 Blob，保证请求体能被解析。
+    navigator.sendBeacon(
+      '/api/performance/frontend',
+      new Blob([JSON.stringify(payload)], { type: 'application/json' })
+    );
   }
 }
 

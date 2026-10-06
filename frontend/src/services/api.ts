@@ -632,22 +632,23 @@ export async function fetchBlockTradeHistory(symbol: string, days = 30) {
 
 // ==================== 股东增减持 ====================
 
-export async function fetchShareholderChanges(params: { symbol?: string; type?: string; page?: number; pageSize?: number } = {}) {
-  const query = new URLSearchParams();
-  if (params.symbol) query.set('symbol', params.symbol);
-  if (params.type) query.set('type', params.type);
-  if (params.page) query.set('page', String(params.page));
-  if (params.pageSize) query.set('pageSize', String(params.pageSize));
-  return rawGet(`/api/shareholder-changes?${query}`);
-}
-
-export async function fetchShareholderChangeOverview() {
-  return rawGet('/api/shareholder-changes/overview');
-}
-
-export async function fetchShareholderChangeHistory(symbol: string, days = 90) {
-  return rawGet(`/api/shareholder-changes/${symbol}?days=${days}`);
-}
+/**
+ * 股东增减持：后端无支撑，三个函数已移除（死链清算 2026-10-06）。
+ *
+ * 事实依据：`/api/shareholder-changes`、`/api/shareholder-changes/overview`、
+ * `/api/shareholder-changes/:symbol` 三条路径后端**从未 mount**——唯一实现
+ * backend/src/api/_archived/shareholder-changes.ts 位于 _archived 目录，app.ts 的 import/mount
+ * 列表里没有它（app.ts:406 只是在端点清单里留了一个字符串）。实测三条路径均返回 404。
+ *后端也无任何等价端点可改指（`/api/lockup/*` 是限售解禁，语义不同，不能拿来冒充）。
+ *
+ * 为何是删除而非保留一个报错的函数：
+ * 这三个导出全仓**零调用点**（唯一用过股东数据的 ShareholderChangesPage.tsx 本身也在
+ * _archived 下，且它走自己的 apiService.get，不调这三个函数）。保留只会让下一位开发者
+ * 以为「股东增减持已接入」，一旦被调用就是静默 404 —— 这正是本次要清除的死链类型。
+ *若日后后端补齐该模块，请按真实契约重新实现并同步恢复导出。
+ *
+ * 已上报：后端需在 app.ts mount 该 router（或明确标注该功能不做），见交接报告。
+ */
 
 // ==================== 限售股解禁 ====================
 
