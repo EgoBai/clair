@@ -12,14 +12,18 @@
  * 正是最容易漏改的场景。现改为：**代码里不再有任何默认地址**，真源唯一就是
  * 构建时注入的 VITE_API_BASE（来源见 .env.example）。
  *
- * 漏配时的行为是「快速失败」而不是「猜一个地址」。两道防线：
- *   1) 构建期：缺失时下面的 `import()` 指向一个不存在的模块。Vite/rolldown 在
- *      建图阶段解析动态 import 会报 UNRESOLVED_IMPORT 并**以非 0 退出**，
- *      于是「漏配」从「线上静默用错后端」变成「CI 当场构建失败」。
- *      （已实测：单纯 `throw` 是**无效**的——构建期不执行模块顶层代码。）
- *   2) 运行期：万一产物被绕过构建期检查（例如手工拼装），页面立刻显示
- *      可读错误横幅并抛错中断启动，且**绝不安装 fetch 重定向**，
+ * 漏配时的行为是「快速失败」而不是「猜一个地址」：
+ *   1) 构建期：由 frontend/vite.config.ts 的 `clair-require-api-base` plugin
+ *      在 buildStart 阶段校验并throw，使构建非 0 退出。
+ *   2) 运行期：本文件保留一道兜底——万一产物绕过构建期检查（例如手工拼装），
+ *      页面立刻显示可读错误横幅并抛错中断启动，且**绝不安装 fetch 重定向**，
  *      不会向任何一个未知后端发请求。
+ *
+ * ⚠️ 不要把构建期校验搬回本文件。曾用「缺失分支里 import 一个不存在的模块」
+ * 让构建失败，构建期确实生效，但**dev server 会白屏**：`vite dev` 的
+ * import-analysis 会静态解析所有 import（dev 不做 DCE / 常量折叠），
+ * 于是 /src/main.tsx 直接 500。即「build 通过 ≠ dev 能跑」，教训已记在
+ * vite.config.ts 的 plugin 注释里。
  */
 
 /** 构建期注入的后端地址。**刻意没有默认值**——这正是本段代码存在的全部意义。 */
@@ -47,35 +51,7 @@ if (!isDev && !RAW_API_BASE.trim()) {
       root.replaceChildren(box);
     }
   }
-  // ---- 构建期防线：让漏配真正变成一次构建失败 ----
-  // 下面这行只在「生产构建且未注入 VITE_API_BASE」时才可达：条件里的
-  // import.meta.env 被 Vite 静态替换为常量后，整个分支被常量折叠 + DCE 掉，
-  // 因此**配置正确时它根本不会进入构建图**（实测：配置正确→ 构建成功 exit 0）。
-  // 一旦漏配，它在 rolldown 建图阶段触发 UNRESOLVED_IMPORT，使构建非 0 退出。
-  // 模块名刻意写成一句可读的报错，让 CI 日志直接能看懂缺什么。
-  //
-  // 两个必须保留的实现细节（均已实测，改动前请重测）：
-  //  1) **不能加 @vite-ignore** —— 加了之后 rolldown 跳过解析，构建照样成功，
-  //     防线直接失效（实测 exit 0）。
-  //  2) **必须是顶层 await** —— 写成 `void import(...)` 时分支不会被 DCE，
-  //     即便配置正确也会构建失败（实测 exit 1）。
-  //
-  // 这里的 @ts-expect-error 只为压制 tsc 的 TS2307（模块故意不存在）。
-  // deploy.yml 的构建命令是 `npx tsc && npx vite build`——tsc 先跑，
-  // 若不压制，**配置完全正确**时也会因 TS2307 让整条流水线失败，
-  // 那就变成了「永远部署不出去」而不是「漏配时失败」。
-  //
-  // 为什么是 @ts-expect-error 而不是 @ts-ignore：eslint 的
-  // @typescript-eslint/ban-ts-comment 规则会拒绝 @ts-ignore（CI lint 阻断级）。
-  // 改用 @ts-expect-error 后需确认「该指令一定被用上」，否则 tsc 会报
-  // TS2578（Unused '@ts-expect-error' directive）。这里是安全的：tsc 不做
-  // rolldown那种常量折叠/DCE，`import.meta.env.VITE_API_BASE` 对 tsc 而言
-  // 永远是普通string，该分支代码恒存在 ⟹ TS2307 恒成立 ⟹ 指令恒被使用。
-  // @ts-expect-error -- 模块故意不存在，用于把「漏配」变成构建期失败
-  await import(
-    './VITE_API_BASE 未注入：生产构建必须显式指定后端地址，见 .env.example'
-  );
-
+  // 运行期兜底：抛错中断启动（构建期校验见 vite.config.ts 的 plugin）
   throw new Error(message);
 }
 
