@@ -619,13 +619,14 @@ ${stockSummary}
     });
   } catch (error) {
     logger.error('Watchlist summary error:', error as Error);
-    res.status(500).json({
-      success: false,
-      dataSource: 'unavailable',
-      error: '追踪总结生成失败',
-      message: 'LLM 不可用，未生成任何自选股总结',
-      timestamp: new Date().toISOString(),
-    });
+    // LLM 网关不可用（余额不足/超时/模型错误）= 业务性降级，非服务端崩溃 → 200。
+    // 关键：绝不用「空字符串总结」冒充真实结果，dataSource:'unavailable' + 中文
+    // message 让前端据此渲染诚实空态。详见 sendUnavailable 注释。
+    sendUnavailable(
+      res,
+      '追踪总结生成失败：AI 服务不可用',
+      'LLM 不可用，未生成任何自选股总结',
+    );
   }
 }));
 

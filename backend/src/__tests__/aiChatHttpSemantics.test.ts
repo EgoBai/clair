@@ -211,20 +211,54 @@ describe('ai-chat 端点状态码语义：业务性不可用 ≠ 服务端崩溃
     });
   });
 
+  describe('POST /api/ai/watchlist-summary', () => {
+    it('LLM 不可用 → 200 + dataSource:unavailable（此前是 500）', async () => {
+      (aiService.chat as any).mockRejectedValue(new Error('LLM gateway 502'));
+
+      const res = await request(buildApp())
+        .post('/api/ai/watchlist-summary')
+        .send({ symbols: ['600519'], quotes: [{ price: 1500, changePercent: 1 }] });
+
+      assertHonestDegraded(res, 'watchlist-summary');
+      expect(res.body.message).toContain('未生成任何自选股总结');
+      // 诚实红线：绝不用空串/「暂无总结」冒充真实 LLM 产出
+      expect(res.body.summary).toBeUndefined();
+    });
+
+    it('LLM 可用 → 200 且 dataSource:real', async () => {
+      (aiService.chat as any).mockResolvedValue({ content: '自选组合今日整体走强。' });
+
+      const res = await request(buildApp())
+        .post('/api/ai/watchlist-summary')
+        .send({ symbols: ['600519'], quotes: [{ price: 1500, changePercent: 1 }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.dataSource).toBe('real');
+      expect(res.body.summary).toBe('自选组合今日整体走强。');
+    });
+
+    it('symbols 缺失 → 400（客户端错误，不滑进 catch 谎报为上游不可用）', async () => {
+      const res = await request(buildApp()).post('/api/ai/watchlist-summary').send({});
+
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('回归：状态码语义在源文件中不得回退', () => {
     /**
-     * 只扫本工单负责的三个端点。
+     * 只扫本工单负责的端点。
      * 同文件内其它端点（diagnose / daily-briefing / market-insight /
-     * watchlist-summary / market-insight-llm）仍存在同类 500 分支，
+     * market-insight-llm）仍存在同类 500 分支，
      * 已开清单交由主理人统一派发，不在本工单文件域断言范围内。
      */
     const OWNED_ROUTES = [
       "router.get('/ai/market-analysis'",
       "router.post('/ai/strategy'",
       "router.post('/ai/trade-analysis'",
+      "router.post('/ai/watchlist-summary'",
     ];
 
-    it('三个端点的处理函数内不再有 res.status(500)', async () => {
+    it('各端点的处理函数内不再有 res.status(500)', async () => {
       const { readFileSync } = await import('fs');
       const { fileURLToPath } = await import('url');
       const { dirname, join } = await import('path');
@@ -232,7 +266,7 @@ describe('ai-chat 端点状态码语义：业务性不可用 ≠ 服务端崩溃
       const src = readFileSync(join(here, '../api/ai-chat.ts'), 'utf-8');
 
       const routeOffsets = OWNED_ROUTES.map((r) => src.indexOf(r));
-      // 三个端点都得找得到，否则说明路由被改名/删除，本测试失去意义
+      // 各端点都得找得到，否则说明路由被改名/删除，本测试失去意义
       routeOffsets.forEach((off, i) => {
         expect(off, `未找到路由 ${OWNED_ROUTES[i]}`).toBeGreaterThan(-1);
       });
