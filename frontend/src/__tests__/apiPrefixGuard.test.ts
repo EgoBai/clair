@@ -24,50 +24,69 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-/** 捕获到的 axios 请求：baseURL + 调用点传入的 path。 */
-interface CapturedRequest {
-  baseURL: string;
-  url: string;
-  /** axios 实际会发出的完整 URL（复刻其拼接语义：baseURL + url）。 */
-  resolved: string;
-}
+/**
+ * ⚠️ 必须用 `vi.hoisted`：`vi.mock('axios', factory)` 会被 vitest **提升**到
+ * 文件顶部，早于普通 `const`/`let` 声明。若把 mock 状态写在 hoist 层之外，
+ * factory 执行时会撞上 TDZ，报
+ * `ReferenceError: Cannot access 'defaultBaseURL' before initialization`。
+ *（这是本文件真实踩过的坑，不是理论防御。）
+ */
+const h = vi.hoisted(() => {
+  /** 捕获到的 axios 请求：baseURL + 调用点传入的 path。 */
+  type Captured = { baseURL: string; url: string; resolved: string };
+  const captured: Captured[] = [];
+  /** axios.create 时捕获到的实例级 baseURL。 */
+  let defaultBaseURL = '';
 
-const captured: CapturedRequest[] = [];
+  /** 复刻 axios 的 baseURL + url 拼接语义。 */
+  function resolveUrl(baseURL: string | undefined, url: string): string {
+    if (!baseURL) return url;
+    if (/^https?:\/\//i.test(url)) return url; // 绝对 URL 覆盖 baseURL
+    return `${baseURL.replace(/\/+$/, '')}/${url.replace(/^\/+/, '')}`;
+  }
 
-/** 复刻 axios 的 baseURL + url 拼接语义。 */
-function resolveUrl(baseURL: string | undefined, url: string): string {
-  if (!baseURL) return url;
-  if (/^https?:\/\//i.test(url)) return url; // 绝对 URL 覆盖 baseURL
-  return `${baseURL.replace(/\/+$/, '')}/${url.replace(/^\/+/, '')}`;
-}
-
-const fakeClient = {
-  interceptors: {
-    request: { use: vi.fn() },
-    response: { use: vi.fn() },
-  },
-  get: vi.fn(async (url: string, config?: { baseURL?: string; params?: object }) => {
-    // `healthCheck` 显式传 baseURL: '' —— 那是有意绕过 baseURL 直连相对路径，
+  function record(url: string, config?: { baseURL?: string }) {
+    // `healthCheck` 显式传 baseURL: ''—— 那是有意绕过 baseURL 直连相对路径，
     // 必须原样保留，故这里取 config.baseURL ?? 实例默认 baseURL。
     const baseURL = config && 'baseURL' in config ? config.baseURL : defaultBaseURL;
     captured.push({ baseURL: baseURL ?? '', url, resolved: resolveUrl(baseURL, url) });
-    return { data: { success: true, data: {}, status: 'healthy' } };
-  }),
-  post: vi.fn(async () => ({ data: { success: true, data: {} } })),
-  put: vi.fn(async () => ({ data: { success: true, data: {} } })),
-  delete: vi.fn(async () => ({ data: { success: true, data: {} } })),
-};
+  }
 
-/** axios.create 时捕获到的实例级baseURL。 */
-let defaultBaseURL = '';
+  const fakeClient = {
+    interceptors: {
+      request: { use: vi.fn() },
+      response: { use: vi.fn() },
+    },
+    get: vi.fn(async (url: string, config?: { baseURL?: string }) => {
+      record(url, config);
+      return { data: { success: true, data: { rank: [] }, status: 'healthy' } };
+    }),
+    post: vi.fn(async () => ({ data: { success: true, data: {} } })),
+    put: vi.fn(async () => ({ data: { success: true, data: {} } })),
+    delete: vi.fn(async () => ({ data: { success: true, data: {} } })),
+  };
+
+  return {
+    captured,
+    fakeClient,
+    resolveUrl,
+    getDefaultBaseURL: () => defaultBaseURL,
+    setDefaultBaseURL: (v: string) => {
+      defaultBaseURL = v;
+    },
+  };
+});
+
+const captured = h.captured;
+const fakeClient = h.fakeClient;
 
 vi.mock('axios', () => {
   const isAxiosError = () => false;
   return {
     default: {
       create: vi.fn((cfg: { baseURL?: string }) => {
-        defaultBaseURL = cfg?.baseURL ?? '';
-        return fakeClient;
+        h.setDefaultBaseURL(cfg?.baseURL ?? '');
+        return h.fakeClient;
       }),
       isAxiosError,
       interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
@@ -157,13 +176,10 @@ const CASES: Array<{ name: string; call: () => Promise<unknown>; expected: strin
 
 describe('P0-DUALPREFIX: axios 请求路径必须是单 /api 前缀', () => {
   beforeEach(() => {
+    // 只清调用记录，不重置实现—— fakeClient.get 的实现已在 vi.hoisted 里装好，
+    // 它会把每次请求写进 captured。
     captured.length = 0;
     vi.clearAllMocks();
-    fakeClient.get.mockImplementation(async (url: string, config?: { baseURL?: string }) => {
-      const baseURL = config && 'baseURL' in config ? config.baseURL : defaultBaseURL;
-      captured.push({ baseURL: baseURL ?? '', url, resolved: resolveUrl(baseURL, url) });
-      return { data: { success: true, data: { rank: [] }, status: 'healthy' } };
-    });
   });
 
   it('baseURL 本身已含 /api（守住本测试的前提）', () => {
@@ -192,7 +208,7 @@ describe('P0-DUALPREFIX: axios 请求路径必须是单 /api 前缀', () => {
   it('双前缀形态会被本测试抓住（反向自检：/api/top-traders/overview 必须失败）', () => {
     // 这条不是形式主义断言：它证明上面的断言对「多一层 /api」真的敏感，
     // 而不是恒真。若将来 resolveUrl 的语义变了，这里会先报警。
-    expect(resolveUrl('/api', '/api/top-traders/overview')).toContain('/api/api');
-    expect(resolveUrl('/api', '/top-traders/overview')).not.toContain('/api/api');
+    expect(h.resolveUrl('/api', '/api/top-traders/overview')).toContain('/api/api');
+    expect(h.resolveUrl('/api', '/top-traders/overview')).not.toContain('/api/api');
   });
 });
