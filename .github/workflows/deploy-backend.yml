@@ -1,0 +1,142 @@
+# ============================================================================
+# 后端部署 + 部署后自动烟测（P0-VER）
+# ----------------------------------------------------------------------------
+# 为什么需要这个文件：
+#   仓库原本只有两条部署工作流，且触发条件**不对称**——
+#     deploy.yml         每次 push main 都触发，但只构建 frontend/ 部署到 GitHub Pages
+#     deploy-worker.yml  仅 clair-worker/** 变更时才触发，部署 Cloudflare Worker
+#   于是 backend/src/ 里的 Express 端点**没有任何部署路径**：线上 /health 实测返回
+#   {"service":"clair-worker"}，/api/industries 等一律 404。前端每次 push 自动上线、
+#   后端永不上线，两端版本必然错配，且用户在页面上无从判断。
+#
+# 本工作流是**占位 + 烟测入口**：平台选型（自托管 VPS / Fly / Railway / K8s …）尚未确定，
+# 故先把手工触发、镜像构建、烟测这三段骨架搭好，平台相关部分全部走 workflow_dispatch
+# 输入与 repo/org 级 variable，**不硬编码任何凭据、不写死任何主机名**。
+# 选型定了以后只需补 deploy 段的实现或改几个变量即可真用。
+#
+# 刻意**不修改** deploy.yml / deploy-worker.yml / ci.yml —— 那三条正在自动运行的
+# 发布链路由他人维护，改坏会直接影响线上发布。
+# ============================================================================
+name: Deploy Backend + Smoke
+
+on:
+  # 仅手动触发：平台选型未定，自动触发等于"往一个不知道该部署到哪的目标推送"。
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '部署环境标识（仅用于日志与镜像 tag 命名，不含任何凭据）'
+        required: true
+        default: 'staging'
+      smoke_base:
+        description: '部署后烟测的目标基地址（留空则跳过烟测）'
+        required: false
+        default: ''
+      expected_commit:
+        description: '期望的 commit sha（7 位短 sha 即可，留空则跳过版本比对）'
+        required: false
+        default: ''
+
+# 手动触发已足够，无需 GITHUB_TOKEN 之外的权限。
+permissions:
+  contents: read
+  packages: write   # 推送镜像到 GHCR；用满权限会违反最小权限原则，故限定到 packages
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) 构建后端镜像并推送到 GHCR
+  #    平台未定，故这一段刻意**只到镜像为止**：构建产物先落地为可追溯的不可变镜像，
+  #    后续无论部署到哪家平台都直接复用这个产物，避免「各自构建、版本漂移」。
+  #    镜像标签同时携带 commit，保证「线上跑的是哪份代码」在镜像层就不可含糊。
+  # ---------------------------------------------------------------------------
+  build-image:
+    name: Build & push backend image
+    runs-on: ubuntu-latest
+    outputs:
+      image_ref: ${{ steps.meta.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 需要完整 git 历史以解析 commit
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        name: Resolve image ref & commit
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          COMMIT="$(git rev-parse HEAD)"
+          SHORT="$(git rev-parse --short=7 HEAD)"
+          # 包名走 registry变量，仓库名走 github.repository —— 不硬编码 org 名
+          PACKAGE="$(echo "${IMAGE_NAME:-${{ github.event.repository.name }}}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${PACKAGE}"
+          {
+            echo "commit=${COMMIT}"
+            echo "short=${SHORT}"
+            echo "image_ref=${IMAGE}:${ENVIRONMENT}-${SHORT}"
+          } >> "$GITHUB_OUTPUT"
+          echo "构建目标镜像: ${IMAGE}:${ENVIRONMENT}-${SHORT}"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_ref }}
+            ${{ steps.meta.outputs.image_ref }}-latest
+          build-args: |
+            GIT_COMMIT_SHA=${{ steps.meta.outputs.commit }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.meta.outputs.commit }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+  # ---------------------------------------------------------------------------
+  # 2) 部署后自动烟测 + 版本一致性校验
+  #    这里是本工作流真正的价值点：不是「构建成功」就算部署成功，而是
+  #    **部署完立刻打一批关键端点，并核对目标实例自报的 commit**。
+  #    前端每次 push 自动上线、后端不上线这个不对称，正是靠这一段被机器化拦住。
+  #
+  #    注意本job 在 smoke_base 为空时**不会静默通过**：它会明确报 SKIPPED 并附上
+  #    「平台选型未定」这一事实，避免 CI 绿灯制造"后端已有部署链路"的错觉。
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: Post-deploy smoke & version check
+    runs-on: ubuntu-latest
+    needs: build-image
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run production smoke
+        env:
+          SMOKE_BASE_URL: ${{ inputs.smoke_base }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit }}
+        run: |
+          if [ -z "${{ inputs.smoke_base }}" ]; then
+            echo "::notice::本仓库后端尚无部署目标（deploy.yml 只发前端，deploy-worker.yml 只发 Worker）。"
+            echo "::notice::本job 被跳过 —— 这意味着**后端目前没有任何自动部署链路**，"
+            echo "::notice::线上 /api/* 的可用性完全依赖人工。平台选型确定后请补齐本 job 的执行条件。"
+            exit 0
+          fi
+          node scripts/smoke/production-smoke.mjs \
+            --base "${{ inputs.smoke_base }}" \
+            ${EXPECTED_COMMIT_SHA:+--expect-commit "$EXPECTED_COMMIT_SHA"} \
+            --strict
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-smoke-report-${{ inputs.environment }}
+          path: scripts/smoke/
+          retention-days: 14

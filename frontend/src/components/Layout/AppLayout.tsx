@@ -12,6 +12,7 @@ import FloatingChat from '../AI/FloatingChat';
 import { apiService, type StockSearchParams } from '../../services/api';
 import { getRoutePath } from '../../routes/paths';
 import { searchPages } from '../../config/pageIndex';
+import { resolveBuildInfo, formatBuildInfoLabel, type BuildInfo } from '../../config/buildInfo';
 import '../../styles/responsive.css';
 
 const { Text, Link } = Typography;
@@ -19,7 +20,18 @@ const { Text, Link } = Typography;
 export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const _navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // P0-VER：全局「当前版本」指示器。取不到 commit 时 formatBuildInfoLabel 显式渲染「未知」，
+  // 不显示空白、更不显示伪造 sha。数据源：构建期 VITE_GIT_COMMIT_SHA，缺则退守运行期 /api/version。
+  const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null);
   useWatchlistSync(); // 自动同步localStorage→后端
+
+  useEffect(() => {
+    let cancelled = false;
+    resolveBuildInfo().then((info) => {
+      if (!cancelled) setBuildInfo(info);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Cmd/Ctrl+K 全局快捷键聚焦搜索
   useEffect(() => {
@@ -81,6 +93,29 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
           </div>
         </main>
 
+        {/* P0-VER：全局版本指示器（页脚常驻，无需点击）。
+            选这里而不是只放在「关于」弹窗里：本单要解决的是「用户无法判断线上是不是最新」，
+            而弹窗需要用户主动点开齿轮才能看到 —— 那等于没有。页脚是全局唯一无需交互、
+            所有路由都在的位置。点击可打开「关于澄观」查看完整构建信息。 */}
+        <div
+          data-testid="global-version-indicator"
+          onClick={() => setSettingsOpen(true)}
+          title={buildInfo?.fullCommit ? `commit ${buildInfo.fullCommit}` : 'commit 未知（构建期未注入构建信息）'}
+          style={{
+            position: 'fixed', bottom: 8, left: 12, zIndex: 900,
+            fontSize: 11, lineHeight: '16px', padding: '2px 8px',
+            borderRadius: 4, cursor: 'pointer',
+            color: 'var(--text-tertiary, #94a3b8)',
+            background: 'var(--bg-primary, #fff)',
+            border: '1px solid var(--border-subtle, #e2e8f0)',
+            opacity: 0.7, transition: 'opacity .2s', userSelect: 'none',
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+          onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}
+        >
+          {formatBuildInfoLabel(buildInfo)}
+        </div>
+
         {/* AI 浮动对话入口 */}
         <FloatingChat />
 
@@ -122,7 +157,23 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
           <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16, marginTop: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
               <Text type="secondary">版本</Text>
-              <Text>v2.0.0</Text>
+              {/* P0-VER：此前此处是硬编码字面量 'v2.0.0'，与后端自报的 APP_VERSION 完全无关 ——
+                  属典型「令牌双真源」：页面上看得到的版本号是假的。现改为读真实构建信息。 */}
+              <Text data-testid="app-version" code>
+                {buildInfo ? (buildInfo.appVersion ? `v${buildInfo.appVersion}` : '版本未知') : '版本未知'}
+              </Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text type="secondary">构建 Commit</Text>
+              <Text data-testid="app-commit" code>
+                {buildInfo?.commitLabel ?? '未知'}
+              </Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text type="secondary">构建时间</Text>
+              <Text data-testid="app-build-time">
+                {buildInfo?.buildTime ? new Date(buildInfo.buildTime).toLocaleString('zh-CN') : '未知'}
+              </Text>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
               <Text type="secondary">核心循环</Text>

@@ -78,6 +78,75 @@ import { enhancedSecurityHeaders } from './middleware/securityHeaders';
 // 同一进程对外自报两个版本号，监控/告警与前端版本比对全部失效。
 // 任何一处再出现字面量版本号，都属于「令牌/常量双真源」回归。
 const APP_VERSION = '1.7.0';
+
+// ==================== 构建信息（版本一致性校验的单一真源）====================
+// 背景（P0-VER）：仓库长期存在「前端每次 push main 自动上线、后端无任何部署路径」
+// 的不对称（deploy.yml 无条件触发只发 frontend/，deploy-worker.yml 仅 clair-worker/** 变更才触发），
+// 于是线上跑的 backend 可能是任意老版本，而 /health 从不暴露 commit，事后无法判定。
+// 制度性解法：让部署实例自报 commit，部署后烟测拿它与期望值比对。
+//
+// 诚实红线（不可放宽）：
+//   1. commit 只从环境变量读取，**取不到就是 null，绝不伪造一个看起来真实的 sha**。
+//      一个假 sha 比没有 sha 危险得多——它会让版本校验门禁永远显示"通过"。
+//   2. 非 sha 形状的值（空串 / 'unknown' / 占位符 / 任意脏字符串）一律视为"未注入"。
+//   3. buildTime 同理：未注入为 null，不用进程启动时间冒充"构建时间"。
+//      进程启动时间另行以 startedAt 如实暴露（那是可核验的事实，不是构建事实）。
+const UNKNOWN_COMMIT = null;
+
+function resolveBuildCommit(): string | null {
+  const candidates = [
+    process.env.GIT_COMMIT_SHA,
+    process.env.BUILD_COMMIT,
+    process.env.SOURCE_COMMIT,
+    // Cloudflare Pages / Workers 会自动注入这两个；后端跑在 Pages Functions 上时也能用
+    process.env.CF_PAGES_COMMIT_SHA,
+    process.env.VERCEL_GIT_COMMIT_SHA,
+  ];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const sha = raw.trim().toLowerCase();
+    // 只接受 7–40 位十六进制 —— 即 git 对象名的合法形状
+    if (/^[0-9a-f]{7,40}$/.test(sha)) return sha;
+  }
+  return UNKNOWN_COMMIT;
+}
+
+function resolveBuildTime(): string | null {
+  const raw = (process.env.BUILD_TIME || process.env.BUILD_TIMESTAMP || '').trim();
+  if (!raw) return null;
+  // 支持两种注入形态：ISO 字符串，或 SOURCE_DATE_EPOCH 风格的秒级时间戳
+  const asNumber = Number(raw);
+  const date = Number.isFinite(asNumber) && /^\d+$/.test(raw)
+    ? new Date(asNumber * 1000)
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+const BUILD_COMMIT = resolveBuildCommit();
+const BUILD_TIME = resolveBuildTime();
+// 进程启动时间是可核验的事实（与 buildTime 语义不同，不可互相冒充）
+const STARTED_AT = new Date().toISOString();
+
+/** 构建信息快照。/health 与 /api/version 共用同一份，避免两处漂移。 */
+function buildInfo() {
+  return {
+    /** git commit sha；未注入构建信息时为 null（绝不伪造） */
+    commit: BUILD_COMMIT,
+    /** commit 是否真实可得。false 时前端/烟测必须显示"未知"而非空白 */
+    commitKnown: BUILD_COMMIT !== UNKNOWN_COMMIT,
+    commitShort: BUILD_COMMIT ? BUILD_COMMIT.slice(0, 7) : null,
+    /** 构建时间（ISO）；未注入为 null */
+    buildTime: BUILD_TIME,
+    /** 复用 app.ts 内唯一的 APP_VERSION 常量，不新造第二个版本常量 */
+    appVersion: APP_VERSION,
+    /** 进程启动时间（始终可得，与 buildTime 语义不同） */
+    startedAt: STARTED_AT,
+    nodeEnv: process.env.NODE_ENV || 'unknown',
+    nodeVersion: process.version,
+    service: 'clair-backend',
+  };
+}
 import { performanceMonitor } from './middleware/performanceMonitor';
 import { sanitizeInput } from './middleware/validation';
 import { requestLogger } from './middleware/requestLogger';
@@ -112,6 +181,13 @@ app.use(requestLogger({
   slowThreshold: 1000,
   mediumThreshold: 500,
 }));
+
+// ==================== 构建信息端点（P0-VER）====================
+// 必须挂在所有 `app.use('/api', xxxRouter)` **之前**：stockRouter 等存在 `/:symbol`
+// 形式的通配路由，若版本端点注册在其后会被抢先匹配成「股票代码 version」。
+app.get('/api/version', (_req, res) => {
+  res.json(buildInfo());
+});
 
 // ==================== API 路由 ====================
 // 首页核心路由 — 添加响应缓存 (市场数据 30s, 新闻 60s)
@@ -298,6 +374,9 @@ app.get('/health', async (_req, res) => {
       status: degraded ? 'degraded' : health.healthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
       version: APP_VERSION,
+      // P0-VER：把构建信息挂到 /health，部署后烟测既可读 /api/version 也可退守读这里。
+      // 与 /api/version 同源（同一个 buildInfo()），不存在两个真源。
+      build: buildInfo(),
       database: {
         connected: degraded ? false : health.healthy,
         dbType: dbStatus.type,
@@ -330,6 +409,8 @@ app.get('/health', async (_req, res) => {
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
       error: 'Health check failed',
+      // 降级路径也必须能回答「你跑的是哪个 commit」——否则线上挂了就查不出版本。
+      build: buildInfo(),
     });
   }
 });
@@ -382,6 +463,7 @@ app.get('/', (_req, res) => {
     },
     endpoints: {
       health: '/health',
+      version: '/api/version',
       stocks: '/api/stocks',
       indicators: '/api/indicators/:symbol',
       sectors: '/api/sectors',
