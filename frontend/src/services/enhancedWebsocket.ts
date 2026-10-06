@@ -77,9 +77,25 @@ export interface EnhancedWSConfig {
   gapFillBatchSize: number;     // 每次补全最大消息数
 }
 
+import { API_ORIGIN, IS_DEV } from '../config/apiBase';
+
+/**
+ * 主 WebSocket 地址：取自唯一真源 `config/apiBase.ts`。
+ *
+ * 诚实红线（此前违反）：原写法 `|| 'ws://localhost:3001/ws'` 会在生产
+ * 漏配 `VITE_WS_URL` 时**默默去连用户自己电脑的 3001 端口**——不报错、
+ * CI 不红，用户只看到"实时推送一直没数据"，比直接报错更难排查。
+ *
+ * 现在：显式配置 `VITE_WS_URL` 优先；否则按环境派生——
+ * dev 走相对 `/ws`（vite.config.ts 已配`/ws` → `ws://127.0.0.1:3001`），
+ * 生产用 `API_ORIGIN`（根地址，无 `/api`）+ `/ws`。
+ */
+const WS_PRIMARY: string =
+  (import.meta.env.VITE_WS_URL as string) || (IS_DEV ? '/ws' : `${API_ORIGIN}/ws`);
+
 const DEFAULT_CONFIG: EnhancedWSConfig = {
   sources: [
-    { name: 'primary', url: (import.meta.env.VITE_WS_URL as string) || 'ws://localhost:3001/ws' },
+    { name: 'primary', url: WS_PRIMARY },
     { name: 'backup', url: (import.meta.env.VITE_WS_BACKUP_URL as string) || '' },
   ],
   initialRetryDelay: 1000,
