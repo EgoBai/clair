@@ -138,7 +138,12 @@ const IndexDetailPage: React.FC = () => {
             volume: Number(d.volumes?.[i] ?? 0),
           })));
         } else {
-          missing.push(`K线图：${d?.message || '后端 K 线源不可达'}`);
+          // 后端 dataSource='unavailable' 时会把上游错误原文（如 "fetch failed"）塞进 message，
+          // 直接抛给用户不友好；这里保留其作为归因线索，但用中文说明白「是什么坏了」。
+          const reason = typeof d?.message === 'string' && d.message.trim() && d.message !== 'fetch failed'
+            ? `（后端归因：${d.message.trim()}）`
+            : '（后端历史 K 线源当前不可达）';
+          missing.push(`K线图：真实历史 K 线源不可达，本页不展示任何 K 线数据${reason}`);
         }
       } catch (e) {
         if (ac.signal.aborted) return;
