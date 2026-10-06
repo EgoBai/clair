@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import logger from '../utils/logger';
+import { API_BASE_URL as AXIOS_BASE_URL } from '../config/apiBase';
 import {
   type ApiResponse,
   type StockWithQuote,
@@ -132,7 +133,13 @@ const cache = new ApiCache();
 
 // ==================== API 配置 ====================
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+/**
+ * axios baseURL 来自单一真源 config/apiBase.ts（内部读 VITE_API_BASE）。
+ * 不要再引入 `VITE_API_BASE_URL` 这类同义异名变量——历史上正是它与
+ * `VITE_API_BASE` 指同一件事却各自解析，切后端时只改一个会导致
+ * 「fetch 走新后端、axios 走老后端，页面一半新一半旧且不报错」。
+ */
+const API_BASE_URL = AXIOS_BASE_URL;
 const REQUEST_TIMEOUT = 15000;
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY = 1000; // 1秒基础延迟
