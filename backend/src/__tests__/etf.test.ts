@@ -34,6 +34,7 @@ const realEtfItem = {
   name: '沪深300ETF',
   type: 'index',
   benchmark: '沪深300',
+  price: 4.7282,
   nav: 4.7258,
   preNav: 4.7633,
   changePercent: -0.65,

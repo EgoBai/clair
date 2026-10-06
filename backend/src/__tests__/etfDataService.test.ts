@@ -1,21 +1,22 @@
 /**
  * etfDataService 真实 ETF 数据服务测试（诚实数据版）
  *
- * 注意：etfDataService.ts 为在途未跟踪文件，本测试只读它、不修改它。
- *
- * 数据源：
- * - 实时行情：东方财富 push2 ulist（f2=价×1000, f3=涨跌幅×100, f20=总市值, f6=成交量）
- * - 单位净值：东方财富 fundf10 lsjz（Data.LSJZList）
+ * 数据源（P0-5A 换源后）：
+ * - 实时行情：腾讯 qt.gtimg.cn（GBK 文本；[3]现价 [6]成交量(手) [32]涨跌幅% [37]成交额(万) [45]总市值(亿)）
+ *   —— 原为东方财富 push2 ulist，该 host 从本机网络不可达（HTTP 000）
+ * - 单位净值：东方财富 fundf10 lsjz（Data.LSJZList）—— 本机可达，**未换源**
  *
  * 约定：
  * - 行情源失败 → 抛 EtfUnavailableError（由路由层降级诚实空）；
- * - 净值源失败 → 不影响行情展示（premiumRate 退化为 0）；
+ * - 净值源失败 → 不影响行情展示，但 premiumRate 置 null（缺真实净值，折溢价不可计算）；
  * - 未知 symbol → 返回 null（非错误）。
  *
  * 策略：stub 全局 fetch 按 URL 分发，绝不访问真实外网。
+ * 行情字节按 GBK 编码（与真实回包一致），以验证生产的 GBK 解码路径。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as iconv from 'iconv-lite';
 import {
   getEtfList,
   getEtfDetail,
@@ -33,18 +34,32 @@ function jsonResponse(body: unknown, init?: { ok?: boolean; status?: number }) {
   } as Response;
 }
 
-/** 为目录内全部 ETF 构造行情 diff（覆盖所有 symbol，避免逐只补抓） */
-function buildFullQuotesDiff() {
-  return ETF_CATALOG.map((c) => ({
-    f12: c.symbol,
-    f14: c.name,
-    f2: 4725, // 价 ×1000 → 4.725
-    f3: -65, // 涨跌幅 ×100 → -0.65
-    f4: -31,
-    f6: 2_000_000, // 成交量（份）
-    f20: 117_543_694_897, // 总市值（元）
-    f21: 9_450_000,
-  }));
+/**
+ * 构造腾讯格式行情文本（生产代码按 GBK 解码后 `~` 分隔，下标与真实返回一致）：
+ * [1]名称 [2]代码 [3]现价 [4]昨收 [6]成交量(手) [32]涨跌幅% [37]成交额(万) [45]总市值(亿)
+ */
+function txLine(code: string, name: string, price: number, chgPct: number, volumeLot: number, amountWan: number, capYi: number): string {
+  const f = new Array(49).fill('');
+  f[1] = name;
+  f[2] = code;
+  f[3] = String(price);
+  f[4] = String(+(price / (1 + chgPct / 100)).toFixed(4));
+  f[6] = String(volumeLot);
+  f[32] = String(chgPct);
+  f[37] = String(amountWan);
+  f[45] = String(capYi);
+  return `v_${code}="${f.join('~')}";`;
+}
+
+/**
+ * 为目录内全部 ETF 构造腾讯行情（覆盖所有 symbol）。
+ * 数值对齐原东财 fixture 的语义：价 4.725、涨跌幅 -0.65%、成交量 20000 手、
+ * 成交额 9,450,000 元 → 945万、总市值 1175.43694897 亿。
+ */
+function buildTencentQuotesText() {
+  return ETF_CATALOG.map((c) =>
+    txLine(c.symbol, c.name, 4.725, -0.65, 20_000, 945, 1175.43694897),
+  ).join('\n');
 }
 
 const NAV_PAYLOAD = {
@@ -56,7 +71,7 @@ const NAV_PAYLOAD = {
   },
 };
 
-/** 按 URL 分发：ulist → 行情；lsjz → 净值 */
+/** 按 URL 分发：qt.gtimg.cn → 行情（GBK 文本）；api.fund.eastmoney.com → 净值 */
 function stubFetch(opts: {
   quotesBody?: unknown;
   quotesOk?: boolean;
@@ -66,11 +81,20 @@ function stubFetch(opts: {
 }) {
   const fn = vi.fn().mockImplementation(async (url: string) => {
     const u = String(url);
-    if (u.includes('push2.eastmoney.com')) {
-      return jsonResponse(opts.quotesBody ?? { data: { diff: buildFullQuotesDiff() } }, {
-        ok: opts.quotesOk ?? true,
-        status: opts.quotesStatus ?? 200,
-      });
+    if (u.includes('qt.gtimg.cn')) {
+      const ok = opts.quotesOk ?? true;
+      const status = opts.quotesStatus ?? 200;
+      if (!ok) {
+        return { ok: false, status } as Response;
+      }
+      const text = (opts.quotesBody as string | undefined) ?? buildTencentQuotesText();
+      // 腾讯真实回包是 GBK 字节；必须按 GBK 编码，否则中文名在生产解码后成乱码
+      const buf = iconv.encode(text, 'gbk');
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+      } as unknown as Response;
     }
     if (u.includes('api.fund.eastmoney.com')) {
       return jsonResponse(opts.navBody ?? NAV_PAYLOAD, { ok: opts.navOk ?? true });
@@ -91,24 +115,27 @@ describe('etfDataService (honest-data)', () => {
   });
 
   describe('(a) 真实样例响应 → 字段映射正确', () => {
-    it('getEtfList 行情 f2/f3 正确缩放并合并净值计算溢价率', async () => {
+    it('getEtfList 行情按腾讯字段解析并合并净值计算溢价率', async () => {
       stubFetch({});
       const list = await getEtfList();
 
       expect(list).toHaveLength(ETF_CATALOG.length);
       const item = list.find((e) => e.symbol === '510300')!;
       expect(item.name).toBe('沪深300ETF');
-      // f2=4725 → price 4.725（内部）, f3=-65 → changePercent -0.65
+      // 腾讯 [3] 现价=4.725 直接是真值（非 ×1000 缩放）；[32] 涨跌幅 -0.65
+      expect(item.price).toBe(4.725);
       expect(item.changePercent).toBe(-0.65);
-      expect(item.totalAssets).toBe(117_543_694_897);
+      // [45] 总市值 1175.43694897 亿 → 元
+      expect(item.totalAssets).toBeCloseTo(117_543_694_897, -2);
+      // [6] 成交量 20000 手 → ×100 = 2,000,000 份
       expect(item.volume).toBe(2_000_000);
+      // [37] 成交额 945 万元 → 元
+      expect(item.turnover).toBe(9_450_000);
       // nav=4.72, preNav=4.7575（历史第二条）
       expect(item.nav).toBe(4.72);
       expect(item.preNav).toBe(4.7575);
       // premiumRate = (4.725 - 4.72) / 4.72 * 100 ≈ 0.11
       expect(item.premiumRate).toBeCloseTo(0.11, 2);
-      // turnover = price * volume = 4.725 * 2,000,000
-      expect(item.turnover).toBe(4.725 * 2_000_000);
       // 静态目录字段透传
       expect(item.expenseRatio).toBe(0.15);
       expect(item.holdings).toBe(300);
@@ -160,13 +187,15 @@ describe('etfDataService (honest-data)', () => {
       expect(detail!.symbol).toBe('159915');
     });
 
-    it('净值源失败时行情仍返回，premiumRate 退化为 0（诚实降级）', async () => {
+    it('净值源失败时行情仍返回，premiumRate 为 null（诚实不可用，非 0）', async () => {
       stubFetch({ navBody: {}, navOk: false });
       const list = await getEtfList();
       const item = list.find((e) => e.symbol === '510300')!;
       expect(item.nav).toBe(0);
-      expect(item.premiumRate).toBe(0);
+      // 无真实净值 → 折溢价不可计算 → null；置 0 会被读成「折溢价为 0」这一市场结论
+      expect(item.premiumRate).toBeNull();
       expect(item.changePercent).toBe(-0.65); // 行情不受影响
+      expect(item.price).toBe(4.725);
     });
   });
 

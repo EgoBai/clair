@@ -2,8 +2,9 @@
  * ETF 数据服务（真实源版）
  *
  * 数据来源：
- * - 实时行情：东方财富 push2 ulist（免 key），价格/涨跌幅/规模/成交额
- * - 单位净值(NAV) 与净值历史：东方财富 fundf10 lsjz（免 key）
+ * - 实时行情：腾讯财经 qt.gtimg.cn（免key，GBK），价格/涨跌幅/成交额/总市值
+ *   （原为东方财富 push2 ulist；该host 从本机网络不可达 —— HTTP 000，故已换源）
+ * - 单位净值(NAV) 与净值历史：东方财富 fundf10 lsjz（免 key，本机可达，保持不变）
  *
  * 静态分类（代码/名称/跟踪标的/费率）为公开事实参考目录，非模拟数据。
  *
@@ -46,10 +47,13 @@ export interface EtfItem {
   name: string;
   type: EtfType;
   benchmark: string;
+  /** 二级市场真实成交价（元，腾讯行情）。无报价时为 0 —— 请配合 dataSource/quoteCoverage 判读 */
+  price: number;
   nav: number;
   preNav: number;
   changePercent: number;
-  premiumRate: number;
+  /** 折溢价率 %；缺真实行情或真实净值时为 null（诚实不可用，非 0） */
+  premiumRate: number | null;
   totalAssets: number;
   trackingError: number;
   dividendYield: number;
@@ -132,53 +136,116 @@ async function fetchFundNav(symbol: string, days: number): Promise<EtfNav> {
   return entry;
 }
 
-/** 批量抓取实时报价（东方财富 ulist）。f2=价×1000, f3=涨跌幅×100, f20=总市值(元), f6=成交量(份) */
-async function fetchQuotesBatch(secids: string): Promise<Record<string, any>> {
-  const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fields=f12,f14,f2,f3,f4,f6,f20,f21&secids=${secids}&pz=100`;
-  const json = await fetchJson(url, { 'User-Agent': 'Mozilla/5.0' });
-  const diff: any[] = json?.data?.diff ?? [];
-  const map: Record<string, any> = {};
-  for (const d of diff) map[String(d.f12)] = d;
+/**
+ * 腾讯行情原始返回中我们使用的字段下标（GBK 解码后按 `~` 切分）。
+ * 换源依据见文件头注释；净值段仍走 api.fund.eastmoney.com（未改动）。
+ */
+const TX = {
+  NAME: 1,
+  /** 纯 6 位代码（回包 key 是带市场前缀的，故以本字段为业务主键） */
+  CODE: 2,
+  PRICE: 3,
+  /** 涨跌幅 % */
+  CHANGE_PERCENT: 32,
+  /** 成交量（手） */
+  VOLUME_LOT: 6,
+  /** 成交额（万元） */
+  AMOUNT_WAN: 37,
+  /** 总市值（亿元） */
+  TOTAL_MARKET_CAP_YI: 45,
+} as const;
+
+interface TencentEtfQuote {
+  /** 源侧真实名称（如「沪深300ETF华泰柏瑞」），优于静态目录简称 */
+  name: string;
+  price: number;
+  changePercent: number;
+  /** 成交量（份）= 手 × 100 */
+  volume: number;
+  /** 成交额（元）= 万元 × 10000 */
+  turnover: number;
+  /** 总市值（元）= 亿元 × 1e8 */
+  totalAssets: number;
+}
+
+/** 目录里的 eastmoney secid 市场（'1'=上交所 '0'=深交所）→ 腾讯行情前缀 */
+function toTencentPrefix(market: '1' | '0'): 'sh' | 'sz' {
+  return market === '1' ? 'sh' : 'sz';
+}
+
+/**
+ * 批量抓取实时报价（腾讯 qt.gtimg.cn，免 key）。
+ * GBK 必须显式解码，否则中文名乱码。
+ * 目录仅十几只，单请求即可，无需分批。
+ */
+async function fetchQuotesBatch(): Promise<Record<string, TencentEtfQuote>> {
+  const symbols = ETF_CATALOG.map((c) => `${toTencentPrefix(c.market)}${c.symbol}`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  let text: string;
+  try {
+    const resp = await fetch(`https://qt.gtimg.cn/q=${symbols.join(',')}`, {
+      signal: ctrl.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        Referer: 'https://finance.qq.com',
+      },
+    });
+    if (!resp.ok) throw new Error(`腾讯行情 HTTP ${resp.status}`);
+    text = new TextDecoder('gbk').decode(await resp.arrayBuffer());
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const map: Record<string, TencentEtfQuote> = {};
+  for (const m of text.matchAll(/v_(\w+)="([^"]*)"/g)) {
+    const f = m[2].split('~');
+    if (f.length <= TX.TOTAL_MARKET_CAP_YI) continue;
+    const code = f[TX.CODE] ?? '';
+    const price = Number(f[TX.PRICE]);
+    // 源侧无报价时不写入 map —— 让buildEtf 走「无行情」分支，绝不用 0 冒充价格
+    if (!/^\d{6}$/.test(code) || !(price > 0)) continue;
+    const lot = Number(f[TX.VOLUME_LOT]);
+    map[code] = {
+      name: f[TX.NAME] ?? '',
+      price,
+      changePercent: Number(f[TX.CHANGE_PERCENT]) || 0,
+      volume: Number.isFinite(lot) ? lot * 100 : 0,
+      turnover: (Number(f[TX.AMOUNT_WAN]) || 0) * 10_000,
+      totalAssets: (Number(f[TX.TOTAL_MARKET_CAP_YI]) || 0) * 1e8,
+    };
+  }
   return map;
 }
 
-async function fetchAllQuotes(): Promise<Record<string, any>> {
-  const secids = ETF_CATALOG.map((c) => `${c.market}.${c.symbol}`).join(',');
-  const map = await fetchQuotesBatch(secids);
-  const missing = ETF_CATALOG.filter((c) => !map[c.symbol]);
-  await Promise.all(
-    missing.map(async (c) => {
-      const m = await fetchQuotesBatch(`${c.market}.${c.symbol}`);
-      Object.assign(map, m);
-    }),
-  );
-  return map;
+async function fetchAllQuotes(): Promise<Record<string, TencentEtfQuote>> {
+  return fetchQuotesBatch();
 }
 
-function buildEtf(cat: EtfCatalog, quote: any, navEntry: EtfNav): EtfItem {
-  const price = quote ? (Number(quote.f2) || 0) / 1000 : 0;
-  const changePercent = quote ? (Number(quote.f3) || 0) / 100 : 0;
+function buildEtf(cat: EtfCatalog, quote: TencentEtfQuote | undefined, navEntry: EtfNav): EtfItem {
+  const price = quote?.price ?? 0;
+  const changePercent = quote?.changePercent ?? 0;
   const nav = navEntry?.nav ?? 0;
   const preNav = navEntry?.preNav ?? nav;
-  const premiumRate = nav > 0 ? ((price - nav) / nav) * 100 : 0;
-  const totalAssets = quote ? Number(quote.f20) || 0 : 0; // 元
-  const volume = quote ? Number(quote.f6) || 0 : 0; // 份
-  const turnover = price > 0 && volume > 0 ? price * volume : 0; // 元
+  //折溢价：仅在「有真实行情 且 有真实净值」时才计算；任一缺失 → null（诚实不可用）
+  const premiumRate = quote && nav > 0 ? +(((price - nav) / nav) * 100).toFixed(2) : null;
   return {
     symbol: cat.symbol,
-    name: cat.name,
+    // 名称优先用源侧真实全称，退化到静态目录简称
+    name: quote?.name || cat.name,
     type: cat.type,
     benchmark: cat.benchmark,
+    price,
     nav: +nav.toFixed(4),
     preNav: +preNav.toFixed(4),
     changePercent: +changePercent.toFixed(2),
-    premiumRate: +premiumRate.toFixed(2),
-    totalAssets,
+    premiumRate,
+    totalAssets: quote?.totalAssets ?? 0,
     trackingError: cat.trackingError,
     dividendYield: cat.dividendYield,
     expenseRatio: cat.expenseRatio,
-    volume,
-    turnover,
+    volume: quote?.volume ?? 0,
+    turnover: quote?.turnover ?? 0,
     holdings: cat.holdings,
   };
 }
@@ -190,13 +257,17 @@ function buildEtf(cat: EtfCatalog, quote: any, navEntry: EtfNav): EtfItem {
 export async function getEtfList(): Promise<EtfItem[]> {
   try {
     const quotes = await fetchAllQuotes();
+    // 诚实红线：一只都取不到报价 → 整列表视为不可用（而非返回一串 0 价格条目）
+    if (Object.keys(quotes).length === 0) {
+      throw new EtfUnavailableError('腾讯行情源未返回任何 ETF 报价');
+    }
     return await Promise.all(
       ETF_CATALOG.map(async (cat) => {
         let navEntry: EtfNav = { nav: 0, preNav: 0, history: [] };
         try {
           navEntry = await fetchFundNav(cat.symbol, 2);
         } catch {
-          /* 净值缺失不影响行情展示，premiumRate 退化为 0 */
+          /* 净值缺失不影响行情展示；premiumRate 由 buildEtf 置 null（诚实不可用） */
         }
         return buildEtf(cat, quotes[cat.symbol], navEntry);
       }),
@@ -214,9 +285,10 @@ export async function getEtfDetail(symbol: string): Promise<EtfItem | null> {
   const bare = toBareCode(symbol);
   const cat = ETF_CATALOG.find((c) => c.symbol === bare);
   if (!cat) return null;
-  let quote: any;
+  let quote: TencentEtfQuote | undefined;
   try {
-    quote = (await fetchQuotesBatch(`${cat.market}.${cat.symbol}`))[cat.symbol];
+    quote = (await fetchQuotesBatch())[cat.symbol];
+    if (!quote) throw new EtfUnavailableError(`腾讯行情源无 ${bare} 的报价`);
   } catch (e) {
     throw new EtfUnavailableError(e instanceof Error ? e.message : 'ETF 行情源不可用');
   }
