@@ -23,11 +23,21 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package*.json ./backend/
 COPY shared/ ./shared/
+# 根依赖（前端构建工具等）
 RUN npm ci --ignore-scripts
+# backend 依赖（express/knex/pg 等）。
+# 为什么必须单独装（2026-10-08 实测复现的 Railway 构建失败根因）：
+# 根 package.json **没有 workspaces 字段**，所以 /app 里的 npm ci **不会**进入
+# backend/ 安装它的依赖；而 build 阶段 `cd backend && npm run build:prod`
+# 用的 esbuild 只存在于 backend 的依赖树里 —— 缺这一步会得到
+#   sh: esbuild: command not found
+# 本地能跑通是因为 backend/node_modules 早就被手工装好了，**不代表 Dockerfile 能构建**。
+RUN cd backend && npm ci --ignore-scripts
 
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/backend/node_modules ./backend/node_modules
 COPY package.json package-lock.json ./
 COPY backend/ ./backend/
 COPY shared/ ./shared/
@@ -38,7 +48,11 @@ WORKDIR /app/backend
 ENV NODE_ENV=production
 ENV PORT=3001
 
-COPY package.json ./
+COPY package.json package-lock.json ./
+# npm ci 强制要求 package-lock.json 存在（只 COPY package.json 会报
+# "can only install with an existing package-lock.json"）。
+# 这里装的是 backend 的生产依赖（express/knex/pg 等）；
+# esbuild 用 --packages=external bundle，故运行时不需要 devDeps。
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/backend/dist/server.cjs ./dist/server.cjs
 
