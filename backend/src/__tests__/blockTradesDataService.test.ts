@@ -227,7 +227,7 @@ describe('Block-trades API routes (honest-data)', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.dataSource).toBe('unavailable');
     expect(res.body.data.trades).toEqual([]);
-    expect(res.body.data.summary.totalAmount).toBe(0);
+    expect(res.body.data.summary.totalAmount).toBeNull();
     // 关键：绝不回填伪造 / 随机记录
     expect(JSON.stringify(res.body).includes('营业部')).toBe(false);
   });
@@ -257,7 +257,7 @@ describe('Block-trades API routes (honest-data)', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.dataSource).toBe('unavailable');
-    expect(res.body.data.totalTrades).toBe(0);
+    expect(res.body.data.totalTrades).toBeNull();
     expect(res.body.data.industryDistribution).toEqual([]);
   });
 
@@ -281,7 +281,7 @@ describe('Block-trades API routes (honest-data)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.dataSource).toBe('unavailable');
     expect(res.body.data.trades).toEqual([]);
-    expect(res.body.data.total).toBe(0);
+    expect(res.body.data.total).toBeNull();
   });
 
   it('诚实红线回归：任何路径都不返回随机编造的营业部编号', async () => {

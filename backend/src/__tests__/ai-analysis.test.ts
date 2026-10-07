@@ -147,7 +147,7 @@ describe('AI Analysis API (honest-data)', () => {
         expect(res.body.success).toBe(true);
         expect(res.body.data.dataSource).toBe('unavailable');
         expect(res.body.data.stocks).toEqual([]);
-        expect(res.body.data.confidence).toBe(0);
+        expect(res.body.data.confidence).toBeNull();
         expect(res.body.data.message).toContain('失败');
       } finally {
         restore();
@@ -228,7 +228,7 @@ describe('AI Analysis API (honest-data)', () => {
         expect(res.status).toBe(200);
         expect(res.body.data.dataSource).toBe('unavailable');
         expect(res.body.data.alerts).toEqual([]);
-        expect(res.body.data.total).toBe(0);
+        expect(res.body.data.total).toBeNull();
       } finally {
         restore();
       }
@@ -303,7 +303,7 @@ describe('AI Analysis API (honest-data)', () => {
         expect(res.status).toBe(200);
         expect(res.body.data.dataSource).toBe('unavailable');
         expect(res.body.data.sentiment).toBe('数据源暂不可用');
-        expect(res.body.data.bullishCount).toBe(0);
+        expect(res.body.data.bullishCount).toBeNull();
       } finally {
         restore();
       }

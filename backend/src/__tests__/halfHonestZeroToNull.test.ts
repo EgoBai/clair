@@ -234,7 +234,7 @@ describe('P0-HONESTY2 · ai-market-pulse：市场温度不可用时 score 不是
     const res = await request(app).get('/api/ai/market-pulse');
 
     // 关键区别：旧实现**省略**这两个字段，前端拿到 undefined 后 React 渲染成空串，
-    // 显示「上涨　/　下跌　（占比　%）」「涨停　只」这种残缺文案。
+    // 显示「上涨/下跌（占比%）」「涨停只」这种残缺文案。
     // 显式 null 才能让前端区分「不可用」与「字段不存在」。
     expect(res.body.data).toHaveProperty('breadth');
     expect(res.body.data).toHaveProperty('limitUp');
