@@ -80,6 +80,56 @@
  * 写入用 `ON CONFLICT (stock_id, trade_date) DO NOTHING`——已存在的行一律不动，
  * 重跑不会覆盖既有数据，也不会产生重复。
  *
+ * ## 除权除息：送转股必须做除法换算（2026-10-09 实战修正）
+ * A 股除权除息**除派息外还有送转股**，两者算法不同：
+ * - 派息：`前收盘 − 每股派息`（减法）
+ * - 送转股：`前收盘 ÷ (1 + 转/送比例)`（**除法**，如 10转4股 → ÷1.4）
+ *
+ * 只按派息做减法，会把除权当天算成腰斩级假跌幅。实测两例：
+ * | 标的 | 日期 | 方案 | 错误 cp | 正确 cp |
+ * |---|---|---|---|---|
+ * | 300980.SZ | 2026-09-30 | 10转4股 | -30.22% | **-2.31%** |
+ * | 688808.SH | 2026-09-29 | 10转4.8股 | -31.22% | **+1.80%** |
+ *
+ * 该bar 自身是除权日时，腾讯在下标 6 挂 `{nd, fh_sh, djr, cqr, FHcontent}`，
+ * `cqr` == 该 bar 日期即为除权日，`FHcontent` 形如 `10转4.8股派2元`。
+ * ⚠️ 解析前**必须先 `rg '^-+$'` 过滤等宽横线形态**（`--`/`——`），
+ * 否则 `10--4` 这类异刻写法会被误读成负数比例。
+ *
+ * `amplitude` 的基数**同样是除权后前收**（不是开盘价）——由库内既有行反推确认
+ * （601390 @2026-10-08「10派0.6374」change/cp/amp 三项同时命中才算口径成立）。
+ *
+ * ⚠️ **舍入顺序也是口径的一部分**：先把除权后前收舍入到 2 位，**再**用它派生
+ * `change_percent` / `amplitude`，不能拿未舍入的基准直接算。
+ * 实测踩过：300980.SZ@09-30 用未舍入 base(16.357142…) 得 cp=-2.3057，
+ * 用舍入后 base(16.36) 得 **-2.3227**（库内约定值）。差值虽小但会让
+ * 「重跑是否幂等」的校验失败，进而掩盖真实的口径分歧。
+ *
+ * ⚠️ **`cp` / `amplitude` 的有效精度是 2 位，不是列声明的 4 位**。
+ * 两列在 PG 里是 `numeric(8,4)`，但**库内既有行只经得起 2 位**：
+ * 旧实时路径写入的 000001.SZ@10-08（高 11.87 / 低 11.54 / 前收基准 11.57），
+ * round2 得 **2.85**（= 库内值 ✓），round4 得 2.8522（✗）。
+ * 写入 2 位后 PG 会补零成 `2.8500`，**看起来**像 4 位精度，别被误导。
+ * 我曾据「列是 numeric(8,4)」把这两项改成 round4，等于让新旧数据精度口径分叉——
+ * 实测后发现是错的，已回退。**这两项必须用 round2。**
+ *
+ * ### 与 `fix-exdiv-derived-fields.cjs` 的关系（**可叠加，实测幂等**）
+ * 那是一次性修正脚本：按上游除权记录**从raw 前收重新算**再 UPDATE，
+ * 因此重复运行收敛到同一结果，**不会二次乘算**。
+ * 实测：对已修正的 300980 / 688808 两行复算，其change/cp/amp 与库内现值
+ * **逐位一致**（cp=-2.3227 / +1.7971），故本脚本与它**可先后跑、也可重复跑**，
+ * 无需二选一。（注：这份幂等性是在把上述舍入顺序修正之后才成立的。）
+ *
+ * ## 并发守卫（写入前强制检查）
+ * 写入前会确认库里没有别的进程正在改动数据，否则**拒绝执行**：
+ * - 信号1：`pg_stat_activity` 里有其他会话持有未提交事务；
+ * - 信号2：`daily_quotes` 行数 / `MAX(created_at)` 在 2 秒采样间隔内变化。
+ *
+ * 教训（2026-10-09 实测）：本脚本跑完核对行数时全库从 355777 掉到 335649，
+ * 一度误判为「别的 worker 在插数据」，实际是 `scrub-stale-daily-quotes`
+ * 在按 `open_price=0 AND volume=0` 清洗退市股陈旧价。**任何基于行数的校验
+ * 在并发下都会得出错误结论**，故把「库是否静止」前置成硬闸门。
+ * 确认无并发时可加 `--skip-concurrency-check` 跳过。
  * ## 用法
  * ```bash
  * # 干跑（默认）：只报告将要写什么，不动数据库
@@ -134,6 +184,11 @@ const OUT = opt('out');
 const RESUME = opt('resume');
 /** 只写入该 TSV 产物（配合 --apply），不再重新抓取上游 */
 const WRITE_FROM = opt('write-file');
+/**
+ * 跳过并发守卫（默认不跳）。
+ * 仅在「明知库里没有其他写者」时使用，例如单机离线补数。
+ */
+const SKIP_CONCURRENCY_CHECK = flag('skip-concurrency-check');
 
 if (DATES.length === 0) {
   console.error('必须显式指定 --dates=YYYY-MM-DD,...（本脚本拒绝猜测要补哪天）');
@@ -149,6 +204,61 @@ function sql(query: string): string[][] {
     .split('\n')
     .filter((l) => l.trim())
     .map((l) => l.split('|'));
+}
+
+/**
+ * 检测库是否正在被其他进程改动。
+ *
+ * 两个独立信号，任一命中即视为「不静止」：
+ * 1. `pg_stat_activity` 里有**别的**会话持有未提交事务（`xact_start IS NOT NULL`）；
+ * 2. `daily_quotes` 的行数与 `MAX(created_at)` 在两次采样间隔内发生变化。
+ *
+ * ## 为什么信号 1 是「任何未提交事务」而不是「正在跑 insert 的会话」
+ * 最初写成 `query ~* 'insert|update|delete.*daily_quotes'`，实测**漏判**：
+ * 清洗脚本分批提交时，采样点很可能落在它两次提交之间的空闲窗口，
+ * 此时 `state='idle'` 且 query 为上一条，匹配不到任何写语句。
+ * 而「有没有未提交事务」是稳定可判的——只要有别的进程在动这张表，
+ * 它就必然在某处开着事务。
+ *
+ * 实测现场（2026-10-09 05:1x）：另一 worker 正在跑
+ * `TRUNCATE _pre_detail, _post_detail, _verify_pre, _bak_p0stalepx_clean`，
+ * 同期 11 个会话持有未提交事务。此时任何基于「当前 query 文本」的判定都会失准。
+ *
+ * 代价是**可能误报**（别的库无关工作也会被拦）。这是刻意选择的偏保守方向：
+ * 维护脚本宁可多问一次 `--skip-concurrency-check`，也不要在别人正在改库时写入。
+ */
+function isDbQuiescent(): boolean {
+  // 信号 1：其他会话是否持有未提交事务
+  const writers = sql(
+    `SELECT count(*) FROM pg_stat_activity
+     WHERE datname = current_database()
+       AND pid <> pg_backend_pid()
+       AND xact_start IS NOT NULL
+       AND state <> 'idle'`
+  );
+  if (Number(writers[0]?.[0] ?? '0') > 0) {
+    console.log(`并发守卫: 检测到 ${writers[0][0]} 个其他会话持有未提交事务`);
+    return false;
+  }
+
+  // 信号 2：行数 / 最新写入时间是否在变
+  const probe = () =>
+    sql(`SELECT count(*)::text, COALESCE(MAX(created_at)::text, '-') FROM daily_quotes`)[0];
+  const first = probe();
+  // 同步阻塞采样（Atomics.wait 避免忙等）
+  const wait = (ms: number) => {
+    const sab = new SharedArrayBuffer(4);
+    Atomics.wait(new Int32Array(sab), 0, 0, ms);
+  };
+  wait(2000);
+  const second = probe();
+  if (first[0] !== second[0] || first[1] !== second[1]) {
+    console.log(
+      `并发守卫: 2秒内库在变化 (行数 ${first[0]}→${second[0]}, created_at ${first[1]}→${second[1]})`
+    );
+    return false;
+  }
+  return true;
 }
 
 // ───────────────────────交易日校验（复用唯一真源） ───────────────────────
@@ -507,6 +617,21 @@ async function main() {
     process.exit(2);
   }
   console.log(`\n备份已确认存在: ${BACKUP}`);
+
+  // ── 并发守卫：库正在被别人改动时拒绝写入 ──
+  // 教训（2026-10-09 实测）：本脚本跑完核对行数时，全库总量从 355777 掉到 335649，
+  // 一度以为是别的 worker 在插数据。实际是 `scrub-stale-daily-quotes` 在按
+  // `open_price=0 AND volume=0` 清洗退市股陈旧价（已删 20128 行）。
+  // 两个进程同时读写同一张表时，「我看到的行数」随时在变，任何基于行数的校验都会
+  // 得出错误结论。故写入前必须确认没有其他写者在动这张表。
+  if (!SKIP_CONCURRENCY_CHECK && !isDbQuiescent()) {
+    console.error(
+      '\n✗ 拒绝写入：检测到其他进程正在改动 daily_quotes。' +
+        '\n  本脚本基于「抓取时的库状态」决定写哪些行，若库正在被清洗/改写，' +
+        '\n  写入结果无法校验。确认无误可加 --skip-concurrency-check 强行执行。',
+    );
+    process.exit(2);
+  }
 
   // ── 写入来源：本次抓取的内存数据，或 --write-file 指定的已落盘产物 ──
   let rows: Pending[] = pending;
