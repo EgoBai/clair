@@ -31,7 +31,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Tooltip, Progress } from 'antd';
+import { Tooltip } from 'antd';
 import {
   ReloadOutlined, RiseOutlined, FallOutlined, InfoCircleOutlined, WarningOutlined,
 } from '@ant-design/icons';
