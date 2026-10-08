@@ -72,12 +72,16 @@ function tencentResp(sym: string, rows: Row[]) {
 const RAW_601390: Row[] = [
   ['2026-09-29', '4.22', '4.25', '4.26', '4.20', '593115.00', {}, '0.29', '25311.51'],
   ['2026-09-30', '4.25', '4.33', '4.34', '4.24', '640447.00', {}, '0.32', '27362.10'],
-  ['2026-10-08', '4.28', '4.28', '4.31', '4.26', '809988.00', {}, '0.40', '34697.20'],
+  ['2026-10-08', '4.28', '4.28', '4.31', '4.26', '809988.00',
+    { nd: '2026', fh_sh: '0.6374', djr: '2026-09-30', cqr: '2026-10-08', FHcontent: '10派0.6374元' },
+    '0.40', '34697.20'],
 ];
 const QFQ_601390: Row[] = [
   ['2026-09-29', '4.16', '4.19', '4.20', '4.14', '593115.00', {}, '0.29', '25311.51'],
   ['2026-09-30', '4.19', '4.27', '4.28', '4.18', '640447.00', {}, '0.32', '27362.10'],
-  ['2026-10-08', '4.28', '4.28', '4.31', '4.26', '809988.00', {}, '0.40', '34697.20'],
+  ['2026-10-08', '4.28', '4.28', '4.31', '4.26', '809988.00',
+    { nd: '2026', fh_sh: '0.6374', djr: '2026-09-30', cqr: '2026-10-08', FHcontent: '10派0.6374元' },
+    '0.40', '34697.20'],
 ];
 
 /** 取出 axios 调用参数里的 param 字符串 */
@@ -140,11 +144,15 @@ describe('P0-QFQ · K线不复权口径', () => {
     expect(p).not.toContain('hfq');
   });
 
-  it('成交额取 index 8（万元→元），不取 index 6 的除权对象', async () => {
+  it('成交额取 index 8，且按「万元四舍五入到整」与实时路径对齐（psql 实测库内口径）', async () => {
     axiosGet.mockResolvedValue({ data: tencentResp('sh601390', RAW_601390) });
     const rows = await priv.fetchTencentKLine('601390.SH', 10);
-    // 2026-10-08 实测成交额 34697.20 万元 → 346972000 元
-    expect(rows.find((r) => r.tradeDate === '2026-10-08')!.turnover).toBe(346972000);
+    // 2026-10-08 成交额 34697.20 万元 → round 到整万元 34697 → ×10000 = 346,970,000 元
+    // 库内 601390@2026-10-08 turnover=346970000.00（psql 实测）——必须逐位一致，
+    // 否则同一天同一标的，实时路径写346970000、K线路径写 346972000，出现两个值。
+    expect(rows.find((r) => r.tradeDate === '2026-10-08')!.turnover).toBe(346970000);
+    //旧实现（不取整）会得 346972000，故这条断言即口径锁
+    expect(rows.find((r) => r.tradeDate === '2026-10-08')!.turnover).not.toBe(346972000);
     // 旧实现把 index 6 的 {} 喂给 parseFloat → NaN → 0
     expect(rows.every((r) => r.turnover > 0)).toBe(true);
   });
@@ -207,7 +215,9 @@ describe('P0-QFQ · 端点降级', () => {
 describe('P0-QFQ · 日期真源与不兜底', () => {
   it('非法日期的行被丢弃，绝不退回本地时钟', async () => {
     const bad: Row[] = [
-      ['2026-10-08', '4.28', '4.28', '4.31', '4.26', '809988.00', {}, '0.40', '34697.20'],
+      ['2026-10-08', '4.28', '4.28', '4.31', '4.26', '809988.00',
+    { nd: '2026', fh_sh: '0.6374', djr: '2026-09-30', cqr: '2026-10-08', FHcontent: '10派0.6374元' },
+    '0.40', '34697.20'],
       ['not-a-date', '1', '2', '3', '4', '5', {}, '1', '1'],
       ['2026-13-45', '1', '2', '3', '4', '5', {}, '1', '1'],
     ];
@@ -260,9 +270,6 @@ describe('P0-QFQ · syncKLineData 写入路径', () => {
   });
 
   it('change_amount = 收 − 前收盘（不是收 − 开）', async () => {
-    // 2026-09-30：不复权收 4.33，前一交易日（09-29）收 4.25，当日开盘 4.25
-    // → 正确口径 4.33−4.25=0.08；错误口径（收−开）恰好也是 0.08，故**改用 09-29 行做区分**：
-    // 09-29 收 4.25、开 4.22，前收盘是更早一日，故用10-08 行验证「首行无前收盘 → null」。
     axiosGet.mockResolvedValue({ data: tencentResp('sh601390', RAW_601390) });
     await svc.syncKLineData('601390.SH', 10);
 
@@ -274,23 +281,100 @@ describe('P0-QFQ · syncKLineData 写入路径', () => {
     expect(byDay(29).change).toBeNull();
     expect(byDay(29).changePercent).toBeNull();
 
-    // 09-30：前收盘 = 09-29 收盘 4.25 → 4.33 − 4.25 = 0.08
+    // 09-30 是普通交易日：前收盘 = 09-29 收盘 4.25 → 4.33 − 4.25 = 0.08
     expect(byDay(30).change).toBeCloseTo(0.08, 4);
     expect(byDay(30).changePercent).toBeCloseTo((0.08 / 4.25) * 100, 3);
-    // 收−开 = 4.33−4.25 = 0.08（本例两值巧合相同），故用 10-08 行做真正区分：
-    // 前收盘 09-30 收 4.33，当日开 4.28 收 4.28 → 收−开 = 0，但 收−前收盘 = −0.05
-    expect(byDay(8).change).toBeCloseTo(-0.05, 4);
-    expect(byDay(8).change).not.toBe(0);
-    expect(byDay(8).changePercent).toBeCloseTo((-0.05 / 4.33) * 100, 3);
+
+    // 🔴 10-08 是【除权日】（10派0.6374，上游 index6 有 fh_sh=0.6374）
+    // 「前收盘」在除权日必须用**除权参考价**，不是上一交易日收盘：
+    //   参考价 = (前收 4.33 − 每股派息 0.06374) = 4.2663 → 舍入 2 位 = 4.27
+    //   涨跌额 = 4.28 − 4.27 = +0.01，涨跌幅 = +0.23%
+    // 若错用上一交易日收盘 4.33，会算出 −0.05 / −1.15% —— 假腰斩。
+    // 库内既有锚点：601390 @10-08 change_amount=0.01、change_percent=0.2300（实测 psql）。
+    expect(byDay(8).change).toBeCloseTo(0.01, 4);
+    expect(byDay(8).change).not.toBeCloseTo(-0.05, 4);
+    expect(byDay(8).changePercent).toBeCloseTo((0.01 / 4.27) * 100, 2);
   });
 
-  it('amplitude = (高−低)/开 × 100', async () => {
-    axiosGet.mockResolvedValue({ data: tencentResp('sh601390', RAW_601390) });
-    await svc.syncKLineData('601390.SH', 10);
-    const arg = createDailyQuote.mock.calls
+it('送转股除权日：参考价用除法而非减法（10转4股 / 10转4.8股）', async () => {
+    // 实测真实报文（backfill-kline 提供并已修库内值）
+    // 300980.SZ 2026-09-30 「10转4股」：前收 22.90 → 参考价 (22.90−0)/(1+0.4)=16.3571→16.36
+    //   正确涨跌 = (15.98−16.36)/16.36 = −2.32%；错用减法则是 −30.22%（假腰斩）
+    // 688808.SH 2026-09-29 「10转4.8股」：前收 2174.99 → (2174.99)/(1+0.48)=1469.5878→1469.59
+    //   正确涨跌 = (1496.00−1469.59)/1469.59 = +1.80%；错用减法则是 −31.22%
+    axiosGet.mockImplementation(async () => {
+      const last = axiosGet.mock.calls.length - 1;
+      if (last === 0) {
+        return {
+          data: {
+            code: 0, msg: '',
+            data: {
+              sz300980: {
+                day: [
+                  ['2026-09-29', '22.87', '22.90', '23.28', '22.75', '27456.00', {}, '2.75', '6323.03'],
+                  ['2026-09-30', '16.63', '15.98', '16.69', '15.87', '52446.00',
+                    { nd: '2026', fh_sh: '0', djr: '2026-09-29', cqr: '2026-09-30', FHcontent: '10转4股' },
+                    '3.78', '8519.99'],
+                ],
+              },
+            },
+          },
+        };
+      }
+      return {
+        data: {
+          code: 0, msg: '',
+          data: {
+            sh688808: {
+              day: [
+                ['2026-09-28', '2211.01', '2174.99', '2245.00', '2125.00', '654899.00', {}, '3.39', '141703.58'],
+                ['2026-09-29', '1461.00', '1496.00', '1528.00', '1438.02', '1091986.00',
+                  { nd: '2026', fh_sh: '0', djr: '2026-09-28', cqr: '2026-09-29', FHcontent: '10转4.8股' },
+                  '3.82', '162945.11'],
+              ],
+            },
+          },
+        },
+      };
+    });
+
+    // 300980：10转4股
+    await svc.syncKLineData('300980.SZ', 10);
+    const a1 = createDailyQuote.mock.calls
       .map((c) => c[0] as Record<string, number | Date>)
       .find((a) => (a.tradeDate as Date).getDate() === 30)!;
-    expect(arg.amplitude).toBeCloseTo(((4.34 - 4.24) / 4.25) * 100, 3);
+    expect(a1.changePercent).toBeCloseTo(((15.98 - 16.36) / 16.36) * 100, 1);
+    expect(a1.changePercent).not.toBeCloseTo(-30.22, 1);
+    // 振幅基数同样是参考价 16.36（库内既有锚点 5.0122）
+    expect(a1.amplitude).toBeCloseTo(((16.69 - 15.87) / 16.36) * 100, 2);
+
+    createDailyQuote.mockClear();
+
+    // 688808：10转4.8股（非整数比例）
+    await svc.syncKLineData('688808.SH', 10);
+    const a2 = createDailyQuote.mock.calls
+      .map((c) => c[0] as Record<string, number | Date>)
+      .find((a) => (a.tradeDate as Date).getDate() === 29)!;
+    expect(a2.changePercent).toBeCloseTo(((1496.0 - 1469.59) / 1469.59) * 100, 1);
+    expect(a2.changePercent).not.toBeCloseTo(-31.22, 1);
+    expect(a2.amplitude).toBeCloseTo(((1528.0 - 1438.02) / 1469.59) * 100, 2);
+  });
+
+  it('amplitude = (高−低)/基数 × 100：普通日用开盘价，除权日用除权参考价', async () => {
+    axiosGet.mockResolvedValue({ data: tencentResp('sh601390', RAW_601390) });
+    await svc.syncKLineData('601390.SH', 10);
+    const byDay = (day: number) =>
+      createDailyQuote.mock.calls
+        .map((c) => c[0] as Record<string, number | Date>)
+        .find((a) => (a.tradeDate as Date).getDate() === day)!;
+
+    // 普通交易日 09-30：基数 = 开盘价 4.25（库内既有锚点 2.3529）
+    expect(byDay(30).amplitude).toBeCloseTo(((4.34 - 4.24) / 4.25) * 100, 3);
+    // 🔴 除权日 10-08：基数必须是除权参考价 4.27，不是开盘价 4.28
+    //   (4.31−4.26)/4.27 = 1.1710 %  ← 正确
+    //   (4.31−4.26)/4.28 = 1.1682 %  ← 用开盘价则错
+    expect(byDay(8).amplitude).toBeCloseTo(((4.31 - 4.26) / 4.27) * 100, 3);
+    expect(byDay(8).amplitude).not.toBeCloseTo(((4.31 - 4.26) / 4.28) * 100, 3);
   });
 
   it('不编造 market_cap / pe / pb', async () => {
