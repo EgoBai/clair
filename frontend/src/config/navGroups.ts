@@ -34,6 +34,7 @@ import {
   ProfileOutlined,
   ThunderboltOutlined,
   RocketOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import { ROUTE_PATHS } from '../routes/paths';
 
@@ -98,6 +99,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'macro-hub', label: '宏观资金全景', path: ROUTE_PATHS.MACRO_HUB, icon: DashboardOutlined },
       { id: 'macro', label: '宏观仪表盘', path: ROUTE_PATHS.MACRO, icon: GlobalOutlined },
       { id: 'fund-flow', label: '资金流向', path: ROUTE_PATHS.FUND_FLOW, icon: FundOutlined },
+      // 大宗交易 = 场外协议转让的成交/折溢价，属资金面口径，故与「资金流向/北向资金」同组
+      { id: 'block-trades', label: '大宗交易', path: ROUTE_PATHS.BLOCK_TRADES, icon: SwapOutlined },
       { id: 'north-bound', label: '北向资金', path: ROUTE_PATHS.NORTH_BOUND, icon: ArrowLeftOutlined },
       { id: 'margin-trading', label: '融资融券', path: ROUTE_PATHS.MARGIN_TRADING, icon: BankOutlined },
       { id: 'etf', label: 'ETF中心', path: ROUTE_PATHS.ETF, icon: PieChartOutlined },
