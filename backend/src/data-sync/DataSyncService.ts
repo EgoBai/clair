@@ -782,15 +782,32 @@ export class DataSyncService {
         const finalChangePct = Number.isFinite(changePct) ? changePct :
           (prevClose > 0 ? (change / prevClose) * 100 : 0);
 
+        const openPrice = v(5);
+        const volume = v(6);
+
+        // ── P0-STALEPX 守卫：当日零成交的标的没有行情，不写这一行 ──
+        // 退市 / 长期停牌标的，腾讯实时接口仍会返回一行数据：开盘价与成交量都是 0，
+        // 价格是「最后一次已知收盘价」的陈旧值，但 `parts[30]` 给的session
+        // 时间戳却是**当天**（实测 600005 已退市，parts[30]=20261008090000）。
+        // 于是上面的交易日守卫会放行，把陈旧价当成当天行情写进 daily_quotes
+        // （实测 476 只标的 / 21558 行）。
+        //
+        // 判据用 open 与 volume **两个**字段：任一为 0 都说明当天没有真实成交，
+        // 这时开盘价与成交量根本无从取值。缺行= 数据缺失，是诚实的；
+        // 写陈旧价 + 0 开盘价则会让「最新价」变成假数据。
+        if (openPrice === 0 || volume === 0) {
+          continue;
+        }
+
         quotes.push({
           symbol: `${rawSymbol}.${market}`,
           name: parts[1],
           currentPrice,
-          openPrice: v(5),
+          openPrice,
           highPrice: v(33) || currentPrice,
           lowPrice: v(34) || currentPrice,
           prevClose,
-          volume: v(6),
+          volume,
           turnover: v(37),
           change,
           changePercent: finalChangePct,
