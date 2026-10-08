@@ -101,3 +101,12 @@
   - 当前基线（主理人实测）：未豁免 RED **0** / YELLOW **53** / 规则B CONTRACT-MISSING **24 文件** / allowlist 13 未命中 0 ⟹ `--strict` **exit 0**。
 - **⚠️ 防误杀（`fix-hkconnect-page` 实测，当前仍有 11 个门禁进程在跑）**：`pkill -f honesty-scan` 会打断他人运行，且 `ps eww` **读不到别session 的 `CODEBUDDY_SESSION_ID`**（返回空）⟹「先 pgrep 再按 session 挑着 kill」在本环境**不可行**（不是顺序问题）。**唯一安全做法：用任务停止接口按 task_id 停自己启动的后台任务**；若只能用 pkill，则 `pgrep` 数量不为 1 就**放弃 kill**。
 - **协作纪律（源自今晚多次自我纠错）**：跑对照实验时**必须记录当次的「是否带 shim / 是否带 env -u / 是否并发 / 负载如何」**，与结果一起记（一行即可）。否则事后只能靠残缺信息重建现场 ⟹ 每次都在重新猜。今晚三次环境误判（单次观察当因果/拿污染值定优化目标/计时脚本本身写错）全部源于此。
+
+## 2026-10-09 03:20 · Git 推送通道故障与 Git Data API 推送机制（重要，后续必读）
+- **症状**：用户 VPN 使 `api.github.com` 可达但 `github.com:443` 的 CONNECT 隧道 502 ⟹ `git push` 全失败。
+- **方案**：`/tmp/push-via-api.mjs` 用 GitHub Git Data API（blob→tree→commit→ref）逐层重建提交推送。
+- **⚠️ 必知副作用**：API 重建会产生**同名不同 sha** 的 commit（内容逐字节一致，但 sha 不同）。
+  例：本地 `104630f8e` ⟶ 远端 `1c41e73f`，已用 `shasum` 验证 `InMemoryDatabase.ts` 两边内容 hash 均为 `1ffbb58c67c9c3c1`。
+- **⚠️ 因此每次API 推送后必须**：`git update-ref refs/remotes/origin/main $(git rev-parse HEAD)`（对齐到本地等价 commit）。
+  否则本地 origin/main 会持续落后，后续任何 `git push` / `git status` 判断都会错位。
+- **远端历史链完整性已验证**：连续 6 个 commit 父子关系连续无断裂。
