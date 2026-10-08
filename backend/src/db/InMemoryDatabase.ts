@@ -257,6 +257,34 @@ class InMemoryDatabase {
     }
   }
 
+  /**
+   * 取「最新一条行情」—— **P0-LATESTQUOTE**。
+   *
+   * 正确判据是**按 tradeDate 取最大**，而**不是**「数组最后一条」。
+   * 后者等价于假设「每个 symbol 的行情数组插入顺序 == 日期升序」，
+   * 而该前提无人保证：`createDailyQuote` 只做 push，从不按日期插入。
+   * 实测两条乱序来源（非理论构造）：
+   *   1. DataSyncService 有两个写入者日期跨度不同——`syncRealtimeQuotes` 只写「今天」，
+   *      `syncKLineData` 一次写 120 天历史（回补入口 /api/history/backfill 随时可调）。
+   *      「先实时同步、后K 线回补」即得[今天, ...历史]，末元素是回补区间最早那天。
+   *   2. `getDailyQuotes` 曾对 backing array做 **in-place sort**，一个纯读取动作
+   *      就能把存储顺序反转，使后续所有「取最后一条」返回**最旧**那条。
+   *
+   * 取最大用单次线性扫描（O(n)）而非排序（O(n log n)），故批量路径
+   * （getStocksWithLatestQuotes / getTopGainers 等按 symbol 循环调用）**不会**重复排序。
+   * 本方法**不做原地修改**，不会污染 this.quotes 的存储顺序。
+   */
+  private static latestQuote(quotes: DailyQuote[] | undefined): DailyQuote | undefined {
+    if (!quotes || quotes.length === 0) return undefined;
+    let latest = quotes[0];
+    for (let i = 1; i < quotes.length; i++) {
+      const q = quotes[i];
+      //同一天重复写入时取后出现的那条，与既有push 语义一致
+      if (q.tradeDate.getTime() >= latest.tradeDate.getTime()) latest = q;
+    }
+    return latest;
+  }
+
   /** 重新分类所有股票行业 */
   reclassifyAll(): number {
     let changed = 0;
@@ -382,8 +410,8 @@ class InMemoryDatabase {
   getTopGainers(limit: number = 10) {
     this.refuseFabricatedQuotes('getTopGainers');
     return this.stocks.map((s): StockWithLatestQuote => {
-      const quotes = this.quotes.get(s.symbol);
-      const latest = quotes ? quotes[quotes.length - 1] : undefined;
+      // P0-LATESTQUOTE：按 tradeDate 取最大，而非 quotes[quotes.length - 1]
+      const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol));
       return { ...s, latestQuote: latest };
     })
     .filter((s): s is StockWithLatestQuote => s.latestQuote !== undefined)
@@ -394,8 +422,8 @@ class InMemoryDatabase {
   getTopLosers(limit: number = 10) {
     this.refuseFabricatedQuotes('getTopLosers');
     return this.stocks.map((s): StockWithLatestQuote => {
-      const quotes = this.quotes.get(s.symbol);
-      const latest = quotes ? quotes[quotes.length - 1] : undefined;
+      // P0-LATESTQUOTE：按 tradeDate 取最大，而非 quotes[quotes.length - 1]
+      const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol));
       return { ...s, latestQuote: latest };
     })
     .filter((s): s is StockWithLatestQuote => s.latestQuote !== undefined)
@@ -460,7 +488,11 @@ class InMemoryDatabase {
       const endStr = typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0];
       quotes = quotes.filter(q => q.tradeDate <= new Date(endStr));
     }
-    quotes.sort((a, b) => b.tradeDate.getTime() - a.tradeDate.getTime());
+    // ⚠️ P0-LATESTQUOTE：必须先拷贝再排序。无条件 filter 时 `quotes` 仍是
+    // this.quotes 里的同一个数组引用，原地 sort 会把存储顺序真的重排成降序——
+    // 令后续所有「取最后一条即最新」的路径返回**最旧**那条（纯读取动作即可触发）。
+    // 返回顺序（降序）保持不变，仅不再污染存储。
+    quotes = [...quotes].sort((a, b) => b.tradeDate.getTime() - a.tradeDate.getTime());
     if (limit) quotes = quotes.slice(0, limit);
     return quotes;
   }
@@ -469,16 +501,15 @@ class InMemoryDatabase {
     this.refuseFabricatedQuotes('getLatestDailyQuote');
     const stock = this.stocks.find(s => s.id === stockId);
     if (!stock) return null;
-    const quotes = this.quotes.get(stock.symbol) || [];
-    return quotes.length > 0 ? quotes[quotes.length - 1] : null;
+    // P0-LATESTQUOTE：按 tradeDate 取最大，而非 quotes[quotes.length - 1]
+    return InMemoryDatabase.latestQuote(this.quotes.get(stock.symbol)) || null;
   }
 
   async getStockWithLatestQuote(symbol: string): Promise<StockWithQuotes | null> {
     this.refuseFabricatedQuotes('getStockWithLatestQuote');
     const stock = this.stocks.find(s => s.symbol === symbol);
     if (!stock) return null;
-    const quotes = this.quotes.get(symbol) || [];
-    const latestQuote = quotes.length > 0 ? quotes[quotes.length - 1] : undefined;
+    const latestQuote = InMemoryDatabase.latestQuote(this.quotes.get(symbol));
     // R1 诚实空态：无行情时**省略 latestQuote 键**（不置 null/undefined）——
     // `StockWithQuotes.latestQuote?` 本就可选，缺席即「无行情」。
     return latestQuote ? { ...stock, latestQuote } : { ...stock };
@@ -490,8 +521,8 @@ class InMemoryDatabase {
       .map(symbol => {
         const stock = this.stocks.find(s => s.symbol === symbol);
         if (!stock) return null;
-        const quotes = this.quotes.get(symbol) || [];
-        const latestQuote = quotes.length > 0 ? quotes[quotes.length - 1] : undefined;
+        // 批量路径：latestQuote 是 O(n) 线性扫描，不做排序，故循环内无重复排序开销
+        const latestQuote = InMemoryDatabase.latestQuote(this.quotes.get(symbol));
         // R1 诚实空态：无行情时省略 latestQuote 键（同 getStockWithLatestQuote）
         return (latestQuote ? { ...stock, latestQuote } : { ...stock }) as StockWithQuotes;
       })
@@ -543,8 +574,7 @@ class InMemoryDatabase {
     this.refuseFabricatedQuotes('getIndustryPerformance');
     const industryMap = new Map<string, IndustryStats>();
     this.stocks.forEach(s => {
-      const quotes = this.quotes.get(s.symbol);
-      const latest = quotes ? quotes[quotes.length - 1] : null;
+      const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol)) || null;
       if (!latest || !s.industry) return;
       const existing = industryMap.get(s.industry) || { count: 0, totalChange: 0, totalCap: 0 };
       existing.count++;
@@ -566,8 +596,8 @@ class InMemoryDatabase {
     this.refuseFabricatedQuotes('getTopTurnover');
     return this.stocks
       .map((s): StockWithLatestQuote => {
-        const quotes = this.quotes.get(s.symbol);
-        const latest = quotes ? quotes[quotes.length - 1] : undefined;
+        // P0-LATESTQUOTE：按 tradeDate 取最大，而非 quotes[quotes.length - 1]
+        const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol));
         return { ...s, latestQuote: latest };
       })
       .filter((s): s is StockWithLatestQuote => s.latestQuote !== undefined)
@@ -672,8 +702,7 @@ class InMemoryDatabase {
     this.refuseFabricatedQuotes('getMarketSummaryInternal');
     const latest = this.stocks
       .map(s => {
-        const quotes = this.quotes.get(s.symbol);
-        return quotes ? quotes[quotes.length - 1] : null;
+        return InMemoryDatabase.latestQuote(this.quotes.get(s.symbol)) || null;
       })
       .filter((q): q is DailyQuote => q !== null);
 
@@ -705,8 +734,7 @@ class InMemoryDatabase {
     const rows = this.stocks
       .filter(s => s.industry === industry || (industry === '其他' && !s.industry))
       .map(s => {
-        const quotes = this.quotes.get(s.symbol);
-        const latest = quotes && quotes.length ? quotes[quotes.length - 1] : undefined;
+        const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol));
         // R1 诚实空态：无行情时**省略 latestQuote 键**（不置 undefined/null），缺席即「无行情」。
         // 且**绝不能再 filter 掉无行情的成分股**——删除生成器后那会退化成 `[]`，
         // 谎称「该板块无成分股」（成分股身份来自真实分类，我们确实知道集合成员）。
@@ -735,8 +763,7 @@ class InMemoryDatabase {
       totalCap: number; limitUp: number;
     }>();
     this.stocks.forEach(s => {
-      const quotes = this.quotes.get(s.symbol);
-      const latest = quotes ? quotes[quotes.length - 1] : null;
+      const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol)) || null;
       if (!latest) return;
       const ind = s.industry || '其他';
       if (!map.has(ind)) map.set(ind, { count: 0, totalChange: 0, totalTurnover: 0, totalCap: 0, limitUp: 0 });
@@ -822,8 +849,7 @@ class InMemoryDatabase {
       parent: string; count: number; totalChange: number; totalTurnover: number; totalCap: number;
     }>();
     for (const s of this.stocks) {
-      const quotes = this.quotes.get(s.symbol);
-      const latest = quotes && quotes.length ? quotes[quotes.length - 1] : null;
+      const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol)) || null;
       if (!latest) continue;
       const rawL1 = (s.industry && s.industry !== '综合' && s.industry !== '未分类') ? s.industry : undefined;
       const { industry, subIndustry } = classifyStock(rawL1, s.name);
@@ -860,8 +886,7 @@ class InMemoryDatabase {
       const rawL1 = (s.industry && s.industry !== '综合' && s.industry !== '未分类') ? s.industry : undefined;
       const { industry, subIndustry } = classifyStock(rawL1, s.name);
       if (subIndustry !== subName) continue;
-      const quotes = this.quotes.get(s.symbol);
-      const latest = quotes && quotes.length ? quotes[quotes.length - 1] : null;
+      const latest = InMemoryDatabase.latestQuote(this.quotes.get(s.symbol)) || null;
       // R1 诚实空态：实体清单必须保留（symbol/name/l1/l2 是真实的分类结果）——
       // 这里**不得** `if (!latest) continue`：那会退化成 `[]`，谎称「该二级行业无股票」。
       // 行情派生字段一律置 `null`；也**不得**用 `|| 0` 顶替——「0 元市值 / 0% 涨跌」
