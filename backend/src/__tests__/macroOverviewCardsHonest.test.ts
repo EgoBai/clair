@@ -274,7 +274,14 @@ describe('P0-MACROCARDS · /api/macro/overview：dataSource 必须由「卡片�
     beforeEach(() => {
       // 非交易日/全平盘的真实场景：确实 0 只涨、0 只跌。此时 0 是**事实**
       dbMock.getMarketSummary.mockImplementation(async (d: Date) => {
-        const back = Math.round((Date.now() - d.getTime()) / 86400000);
+        // ⚠️ 同样必须按「日历日」算 back，不能用 Date.now() 直接减
+        // （理由同场景 A：Date.now() 是时刻、d 被归零到午夜，不足一天会被 round 成 1，
+        //   导致「今天」被错算成 back=1、序列少一个点）。该缺陷曾在 CI 上表现为
+        //   `expected [ +0 ] to deeply equal [ +0, +0 ]`。
+        const utcDay = (x: Date) =>
+          Date.UTC(x.getFullYear(), x.getMonth(), x.getDate());
+        const now = new Date();
+        const back = Math.round((utcDay(now) - utcDay(d)) / 86400000);
         if (back > 1) return null;
         return {
           date: d,

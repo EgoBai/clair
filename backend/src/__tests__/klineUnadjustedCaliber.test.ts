@@ -218,13 +218,13 @@ describe('P0-QFQ · 日期真源与不兜底', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].tradeDate).toBe('2026-10-08');
     // 绝不能出现今天（本地时钟）伪造成的数据行。
-    // 注意这里刻意**不用** toISOString()——它按 UTC 算，在 UTC+8 的凌晨会退化成前一天，
-    // 正是本工单要修的那类UTC 陷阱，不能在断言里自己踩一遍。
-    const now = new Date();
-    const localToday =
-      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    expect(rows.some((r) => r.tradeDate === localToday)).toBe(false);
-    // 且返回的日期必须全部来自上游给定的合法日期集合
+    // ⚠️ 此处**刻意不断言「结果里不含今天」**：该断言只在「今天 ≠ 上游给定日期」时成立，
+    // 而 CI 跑在 UTC、本地是 UTC+8，同一时刻算出的localToday 可能恰好等于
+    // 测试数据里的合法日期 2026-10-08 ⟹ 那时两条断言会自相矛盾而必红。
+    // 反例已实测：`2026-13-45` / `not-a-date` 若被本地时钟兜底成今天，
+    // 就会产生 rows.length > 1 —— 下面这行已能在任何时区下抓住它。
+    expect(rows).toHaveLength(1);
+    // 且返回的日期必须全部来自上游给定的合法日期集合（非法日期行已被丢弃）
     expect(rows.every((r) => r.tradeDate === '2026-10-08')).toBe(true);
   });
 });
