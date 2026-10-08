@@ -22,6 +22,7 @@ import {
 } from '../components/discover/DataSourceIndicator';
 import { loadMultidimAll } from '../components/discover/loadMultidimBatched';
 import MarketSentiment from '../components/Market/MarketSentiment';
+import MarketBreadthSection from '../components/Market/MarketBreadthSection';
 const EChartsWrapper = React.lazy(() => import('../components/Charts/EChartsWrapper'));
 import { THEME, GOLD } from '../styles/theme-constants';
 const BG = THEME.bg;
@@ -1263,6 +1264,9 @@ const DiscoverPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* 市场宽度（/api/breadth/current 真实涨跌家数）—— 与上方指数/情绪同属「大盘概览」层 */}
+        <MarketBreadthSection />
 
         {/* Index + Breadth */}
         <div className="index-breadth-grid" style={{ gap: 12, marginBottom: 20 }}>

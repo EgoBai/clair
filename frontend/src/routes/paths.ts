@@ -49,6 +49,8 @@ export const ROUTE_PATHS = {
   SECTOR_DETAIL: '/sectors/:symbol',
   RADAR: '/radar',
   KNOWLEDGE: '/knowledge',
+  // P0-ACTIVATE：大宗交易（后端 /api/block-trades 已就绪，此前前端零入口）
+  BLOCK_TRADES: '/block-trades',
 } as const;
 
 // 路由配置类型

@@ -33,6 +33,8 @@ const LockupCalendarPage = lazy(() => import('../pages/LockupCalendarPage'));
 const TopTradersPage = lazy(() => import('../pages/TopTradersPage'));
 const MarginTradingPage = lazy(() => import('../pages/MarginTradingPage'));
 const PortfolioPage = lazy(() => import('../pages/PortfolioPage'));
+// P0-ACTIVATE：大宗交易（后端 /api/block-trades 已就绪，此前前端零入口）
+const BlockTradesPage = lazy(() => import('../pages/BlockTradesPage'));
 
 // Sprint 2 整合页
 const MacroPage = lazy(() => import('../pages/MacroPage'));
@@ -111,6 +113,9 @@ export const AppRoutes = () => {
         <Route path="fund-flow" element={<LazyPage component={FundFlowPage} name="资金流向" />} />
         <Route path="macro-hub" element={<LazyPage component={MacroHubPage} name="宏观资金全景" />} />
         <Route path="journey" element={<LazyPage component={JourneyPage} name="成长中心" />} />
+
+        {/* P0-ACTIVATE 大宗交易（后端已就绪，此前前端零入口） */}
+        <Route path="block-trades" element={<LazyPage component={BlockTradesPage} name="大宗交易" />} />
 
         <Route path="knowledge" element={<LazyPage component={KnowledgeBase} name="投资笔记" />} />
         <Route path="strategies" element={<LazyPage component={StrategyTemplatesPage} name="策略模板" />} />
