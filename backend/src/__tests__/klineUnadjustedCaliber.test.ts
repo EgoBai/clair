@@ -144,11 +144,15 @@ describe('P0-QFQ · K线不复权口径', () => {
     expect(p).not.toContain('hfq');
   });
 
-  it('成交额取 index 8（万元→元），不取 index 6 的除权对象', async () => {
+  it('成交额取 index 8，且按「万元四舍五入到整」与实时路径对齐（psql 实测库内口径）', async () => {
     axiosGet.mockResolvedValue({ data: tencentResp('sh601390', RAW_601390) });
     const rows = await priv.fetchTencentKLine('601390.SH', 10);
-    // 2026-10-08 实测成交额 34697.20 万元 → 346972000 元
-    expect(rows.find((r) => r.tradeDate === '2026-10-08')!.turnover).toBe(346972000);
+    // 2026-10-08 成交额 34697.20 万元 → round 到整万元 34697 → ×10000 = 346,970,000 元
+    // 库内 601390@2026-10-08 turnover=346970000.00（psql 实测）——必须逐位一致，
+    // 否则同一天同一标的，实时路径写346970000、K线路径写 346972000，出现两个值。
+    expect(rows.find((r) => r.tradeDate === '2026-10-08')!.turnover).toBe(346970000);
+    //旧实现（不取整）会得 346972000，故这条断言即口径锁
+    expect(rows.find((r) => r.tradeDate === '2026-10-08')!.turnover).not.toBe(346972000);
     // 旧实现把 index 6 的 {} 喂给 parseFloat → NaN → 0
     expect(rows.every((r) => r.turnover > 0)).toBe(true);
   });

@@ -81,6 +81,13 @@ export interface RawKLineData {
   turnover: number;
   /** 换手率，单位 %（上游 index 7） */
   turnoverRate: number;
+  /**
+   * 该行的除权除息信息；`null` 表示**普通交易日**（上游 `item[6]` 为空对象）。
+   *
+   * 除权日的涨跌额/涨跌幅/振幅基数都必须用**除权参考价**而非上一交易日收盘，
+   * 详见 {@link parseExDividend}。
+   */
+  exDividend: ExDividendInfo | null;
 }
 
 /**
@@ -128,6 +135,68 @@ const KLINE_ENDPOINTS = [
   'https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get',
   'https://web.ifzq.gtimg.cn/appstock/app/newfqkline/get',
 ] as const;
+
+/**
+ * 上游给��的除权除息信息（腾讯 `newfqkline` 的 `item[6]`）。
+ *
+ * 形状实测（仅在**除权日**有内容，其余交易日是 `{}`）：
+ * ```json
+ * {"nd":"2026","fh_sh":"0.6374","djr":"2026-09-30","cqr":"2026-10-08","FHcontent":"10派0.6374元"}
+ * {"nd":"2026","fh_sh":"0",    "djr":"2026-09-29","cqr":"2026-09-30","FHcontent":"10转4股"}
+ * {"nd":"2026","fh_sh":"0",    "djr":"2026-09-28","cqr":"2026-09-29","FHcontent":"10转4.8股"}
+ * ```
+ */
+export interface ExDividendInfo {
+  /** 每股派息（元）。`fh_sh` 是「10 派 X 元」，故除以 10；送转股时为 0。 */
+  cashPerShare: number;
+  /** 每股送转比例（无送转时 0）。「10 转 4 股」→ 0.4。 */
+  shareRatio: number;
+  /** 上游原始文案（如 `10转4.8股`），仅用于日志与排查。 */
+  raw: string;
+}
+
+/**
+ * 解析 `item[6]` 的除权信息。
+ *
+ * ## 为什么必须解析它（除权日派生字段的根因）
+ * 除权除息日的「前收盘」在交易所口径下是**除权参考价**，不是上一交易日收盘：
+ *
+ * ```
+ * 参考价 = (上一交易日收盘 − 每股派息) ÷ (1 + 每股送转比例)
+ * ```
+ *
+ * 漏掉这一步会算出**假腰斩**（实测真实样本）：
+ * - 601390@10-08「10派0.6374」：错算 −1.15%，正确 **+0.23%**
+ * - 300980@09-30「10转4股」：错算 **−30.22%**，正确 **−2.32%**
+ * - 688808@09-29「10转4.8股」：错算 **−31.22%**，正确 **+1.80%**
+ *
+ * 送转是**除法**不是减法，且比例可以是小数（4.8 股），故不能按整数解析。
+ * `FHcontent` 只作辅助——优先用结构化推导，避免依赖文案格式。
+ *
+ * @returns 非除权日或字段缺失时返回 null（调用方据此判断「这是普通交易日」）
+ */
+function parseExDividend(raw: unknown): ExDividendInfo | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const text = typeof obj.FHcontent === 'string' ? obj.FHcontent : '';
+  const fhStr = typeof obj.fh_sh === 'string' ? obj.fh_sh : typeof obj.fh_sh === 'number' ? String(obj.fh_sh) : '';
+  if (!fhStr && !text) return null;
+
+  const fh = parseFloat(fhStr);
+  const cashPerShare = Number.isFinite(fh) ? fh / 10 : 0;
+
+  // 送转比例：只从文案里取「10 转/送 X 股」的 X，支持小数（4.8）
+  let shareRatio = 0;
+  const m = /(?:10\s*[转送]\s*)([0-9]+(?:\.[0-9]+)?)/.exec(text);
+  if (m) {
+    const r = parseFloat(m[1]);
+    if (Number.isFinite(r)) shareRatio = r / 10;
+  }
+
+  // 无派息也无送转 → 不是除权日
+  if (cashPerShare === 0 && shareRatio === 0) return null;
+  return { cashPerShare, shareRatio, raw: text };
+}
 
 /**
  * 数据同步服务
@@ -386,11 +455,28 @@ export class DataSyncService {
             continue;
           }
 
-          const change = prevClose === null ? null : kline.closePrice - prevClose;
+          // ── 前收盘基准：除权日必须换成「除权参考价」──
+          // 除权除息日的涨跌基准在交易所口径下不是上一交易日收盘，而是除权参考价：
+          //   参考价 = (上一收盘 − 每股派息) ÷ (1 + 每股送转比例)，再舍入到 2 位
+          // 直接用上一收盘会算出假腰斩（实测 300980「10转4股」错算 −30.22%，正确 −2.32%）。
+          let basePrice: number | null = prevClose;
+          if (prevClose !== null && kline.exDividend) {
+            const { cashPerShare, shareRatio } = kline.exDividend;
+            const reference = (prevClose - cashPerShare) / (1 + shareRatio);
+            // 参考价按交易所惯例取 2 位（库内既有值即此口径）
+            basePrice = Number.isFinite(reference) ? Math.round(reference * 100) / 100 : prevClose;
+          }
+
+          const change = basePrice === null ? null : kline.closePrice - basePrice;
           const changePercent =
-            change !== null && prevClose !== null && prevClose > 0 ? (change / prevClose) * 100 : null;
+            change !== null && basePrice !== null && basePrice > 0 ? (change / basePrice) * 100 : null;
+
+          // ── 振幅基数：普通交易日用开盘价，除权日用除权参考价 ──
+          // 库内既有锚点实测：300980@09-30 = (16.69−15.87)/16.36 = 5.0122（用参考价），
+          // 若用开盘价 16.63 会得 4.9308 —— 口径不符。
+          const amplitudeBase = basePrice !== null && basePrice > 0 ? basePrice : kline.openPrice;
           const amplitude =
-            kline.openPrice > 0 ? ((kline.highPrice - kline.lowPrice) / kline.openPrice) * 100 : null;
+            amplitudeBase > 0 ? ((kline.highPrice - kline.lowPrice) / amplitudeBase) * 100 : null;
 
           if (change === null) {
             // 首行无前收盘：仍写入 OHLCV，但涨跌口径留 NULL，不编造
@@ -785,6 +871,14 @@ export class DataSyncService {
         };
 
         // 成交额单位：上游万元 → 本库元（daily_quotes.turnover 与实时行情路径同口径）
+        //
+        // ⚠️ 口径对齐（实测 6 只标的，2026-10-08）：
+        // 实时路径 `parts[37]` = round(K线 idx8)，即**先把万元四舍五入到整数万元**再 ×10000。
+        // 库内既有 turnover_rate/turnover 全部沿用该口径（psql 逐值核对 6/6 命中）。
+        //   600519 idx8=314541.32 → round=314541 → 库内 3,145,410,000.00✓
+        //   000002 idx8=304890.64 → round=304891 → 库内 3,048,910,000.00 ✓
+        // 若直接用 idx8×10000（不取整），与库内最多差 3800 元（同一天同一标的两个值）。
+        // 故这里必须先 round，保持与实时路径**逐位一致**。
         const turnoverWan = k(8);
 
         result.push({
@@ -795,8 +889,9 @@ export class DataSyncService {
           highPrice: k(3),
           lowPrice: k(4),
           volume: k(5),
-          turnover: turnoverWan * 10000,
+          turnover: Math.round(turnoverWan) * 10000,
           turnoverRate: k(7),
+          exDividend: parseExDividend(item[6]),
         });
       }
     } catch (error) {
