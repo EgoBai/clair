@@ -202,20 +202,27 @@ router.get('/ai/market-analysis', asyncHandler(async (_req: Request, res: Respon
     // 直连真实行情源（腾讯指数 + 东方财富涨跌分布），绝不回填演示/硬编码数据
     const real = await getRealMarketData();
     const breadth = real.breadth;
+    // 【诚实红线 · P0-REALCLAIM 同族】breadth 为 null 时原写 `0`，于是
+    // 送进 LLM 的 prompt 里就是「涨跌比: 0/0」「涨停: 0只」——LLM 会照着
+    // 「零涨跌零涨停」写出一篇市场解读，再由下方 dataSource:'real' 背书。
+    // 查不到就渲染成「不可用」，并保留 note 显式告知 AI 不要臆测。
+    // 注意 aiService.analyzeMarket 的 prompt 直接把本对象插值成字符串，
+    // 故此处给字符串而非裸 null（否则 prompt 里会出现字面量 "null"）。
+    const na = '不可用';
     const marketData = {
       shanghai: { price: String(real.shanghai.price), change: String(real.shanghai.changePct) },
       shenzhen: { price: String(real.shenzhen.price), change: String(real.shenzhen.changePct) },
       chinext: { price: String(real.chinext.price), change: String(real.chinext.changePct) },
-      advanceCount: breadth ? breadth.up : 0,
-      declineCount: breadth ? breadth.down : 0,
-      limitUp: breadth ? breadth.limitUp : 0,
-      limitDown: breadth ? breadth.limitDown : 0,
-      turnover: breadth ? breadth.turnoverYi : 0,
+      advanceCount: breadth ? String(breadth.up) : na,
+      declineCount: breadth ? String(breadth.down) : na,
+      limitUp: breadth ? String(breadth.limitUp) : na,
+      limitDown: breadth ? String(breadth.limitDown) : na,
+      turnover: breadth ? String(breadth.turnoverYi) : na,
     };
     // 涨跌分布暂不可用时显式告知 AI，避免伪装成真实数值
     const note = breadth
       ? ''
-      : '\n注意：涨跌分布/成交额数据当前暂不可用，请仅基于上方三大指数数据进行客观分析，不要臆测涨跌家数。';
+      : '\n注意：涨跌分布/成交额数据当前不可用（下方对应字段显示为「不可用」），请仅基于上方三大指数数据进行客观分析，不要臆测涨跌家数。';
 
     const analysis = await aiService.analyzeMarket(marketData, note);
     res.json({
@@ -460,107 +467,182 @@ router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Respons
 /**
  * 规则引擎生成市场解读（DiscoverPage 前端契约：summary / points / metrics + 兼容字段）
  * LLM 不可用时的统一降级来源
+ *
+ * 【诚实红线 · P0-REALCLAIM】本函数**不保证**有数据可解读。三类数据源各自独立可空：
+ *   - breadth : db.getMarketSummary()—— 当日无行情时返回 **null**（Database.ts:483）
+ *   - sectors : db.getSectorMomentumScore()—— 无数据时返回 **[]**（Database.ts:597）
+ *   - limitUp : db.getSectorPerformanceEnhanced()—— 无数据时返回 **[]**
+ * 任何一类缺失都**不得**用 0 / 空串冒充：此前 `summary?.risingStocks ?? 0` 把null
+ * 吞成 0，再由 upPct=0 反推出「弱势调整 / 市场情绪偏谨慎，0只个股下跌」，
+ * 外层还硬编码 `sendHonest(res, 'real', ...)` 给这段编造解读盖上真实背书。
+ *
+ * 因此返回 `{ insight, hasMarketData }`：hasMarketData 反映 breadth 是否**真的**拿到，
+ * 调用方必须据此推导 dataSource（有→ 'real' / 无 → 'unavailable'），**禁止硬编码 'real'**。
+ * 字段语义：真实但确实为 0 → 0；查不到 → null。两者不可互换。
  */
-async function buildRuleInsight(db: any) {
-  // 获取真实个股涨跌数据
+async function buildRuleInsight(db: any): Promise<{ insight: Record<string, unknown>; hasMarketData: boolean }> {
+  // 三类数据源分别取，任何一个缺失都不影响其余两个的可用性判定
   const marketSummary: any = await db.getMarketSummary(new Date());
-  const risingStocks = marketSummary?.risingStocks ?? 0;
-  const fallingStocks = marketSummary?.fallingStocks ?? 0;
-  const unchangedStocks = marketSummary?.unchangedStocks ?? 0;
-  const totalStocks = marketSummary?.totalStocks ?? (risingStocks + fallingStocks + unchangedStocks);
-  const totalTurnover = Number(marketSummary?.totalTurnover) || 0;
+  const sectorScores: any[] = (await db.getSectorMomentumScore()) || [];
+  const enhancedSectors: any[] = (await db.getSectorPerformanceEnhanced()) || [];
 
-  // 获取板块数据（领涨板块、涨停分布）
-  const sectorScores = await db.getSectorMomentumScore();
-  const scores = sectorScores || [];
-  const top3 = scores.slice(0, 3);
-  const topNames = top3.map((s: any) => `${s.industry}(${s.score}分${Number(s.avg_change_percent) >= 0 ? '+' : ''}${Number(s.avg_change_percent).toFixed(1)}%)`).join('、');
-  const hotSectors = scores.filter((s: any) => (s.limit_up_count || 0) >= 2);
-  const hotNames = hotSectors.map((s: any) => `${s.industry}${s.limit_up_count}只涨停`).join('、');
+  // ---- 先判可用，再取值；不可用一律 null，绝不 ?? 0 ----
+  const breadthSum = marketSummary
+    ? Number(marketSummary.risingStocks) + Number(marketSummary.fallingStocks) + Number(marketSummary.unchangedStocks)
+    : 0;
+  const hasMarketData = !!marketSummary && (Number(marketSummary.totalStocks) > 0 || breadthSum > 0);
+  const hasSectorData = sectorScores.length > 0;
+  const hasLimitUpData = enhancedSectors.length > 0;
 
-  // 涨停数（从板块增强数据汇总，MarketSummary不含limitUpCount）
-  const enhancedSectors = await db.getSectorPerformanceEnhanced();
-  const limitUpCount = (enhancedSectors || []).reduce((sum: number, s: any) => sum + (Number(s.limit_up_count) || 0), 0);
+  // 以下数值字段仅在对应数据源可用时才有值，否则为 null（= 查不到，不是 0）
+  const risingStocks = hasMarketData ? Number(marketSummary.risingStocks) || 0 : null;
+  const fallingStocks = hasMarketData ? Number(marketSummary.fallingStocks) || 0 : null;
+  const unchangedStocks = hasMarketData ? Number(marketSummary.unchangedStocks) || 0 : null;
+  const totalStocks = hasMarketData
+    ? Number(marketSummary.totalStocks) || (risingStocks! + fallingStocks! + unchangedStocks!)
+    : null;
+  const totalTurnover = hasMarketData ? Number(marketSummary.totalTurnover) || 0 : null;
 
-  // 基于个股数据的涨跌比例
-  const upPct = totalStocks > 0 ? Math.round((risingStocks / totalStocks) * 100) : 0;
+  // 板块数据（领涨板块、涨停分布）
+  const top3 = sectorScores.slice(0, 3);
+  const topNames = hasSectorData
+    ? top3.map((s: any) => `${s.industry}(${s.score}分${Number(s.avg_change_percent) >= 0 ? '+' : ''}${Number(s.avg_change_percent).toFixed(1)}%)`).join('、')
+    : null;
+  const hotSectors = hasSectorData ? sectorScores.filter((s: any) => (s.limit_up_count || 0) >= 2) : [];
+  const hotNames = hasSectorData
+    ? (hotSectors.map((s: any) => `${s.industry}${s.limit_up_count}只涨停`).join('、') || '今日无集中涨停板块')
+    : null;
 
-  // 成交额格式化
-  const turnoverStr = totalTurnover > 1e12
-    ? `${(totalTurnover / 1e12).toFixed(2)}万亿`
-    : totalTurnover > 1e8
-      ? `${(totalTurnover / 1e8).toFixed(0)}亿`
-      : totalTurnover > 0 ? `${(totalTurnover / 1e4).toFixed(0)}万` : '暂无数据';
+  // 涨停数（从板块增强数据汇总，MarketSummary 不含 limitUpCount）
+  const limitUpCount = hasLimitUpData
+    ? enhancedSectors.reduce((sum: number, s: any) => sum + (Number(s.limit_up_count) || 0), 0)
+    : null;
 
-  // 规则引擎即时生成（基于个股真实数据）
-  let mood: string, moodEmoji: string, overview: string;
-  if (upPct >= 65) {
-    mood = '强势上攻'; moodEmoji = '🔥';
-    overview = `市场做多情绪高涨，${risingStocks}只上涨、${fallingStocks}只下跌。`;
-  } else if (upPct >= 45) {
-    mood = '温和上行'; moodEmoji = '📈';
-    overview = `市场结构性行情，${risingStocks}只上涨${fallingStocks}只下跌，资金聚焦热点。`;
-  } else if (upPct >= 30) {
-    mood = '震荡整理'; moodEmoji = '📊';
-    overview = `市场分化明显，${risingStocks}只上涨${fallingStocks}只下跌，存量博弈特征突出。`;
+  // 基于个股数据的涨跌比例（totalStocks>0 由 hasMarketData 保证）
+  const upPct = hasMarketData && totalStocks! > 0
+    ? Math.round(((risingStocks as number) / totalStocks!) * 100)
+    : null;
+
+  // 成交额格式化（不可用 → null，不落到「暂无数据」这种含糊文案上）
+  const turnoverStr = totalTurnover == null ? null
+    : totalTurnover > 1e12 ? `${(totalTurnover / 1e12).toFixed(2)}万亿`
+    : totalTurnover > 1e8 ? `${(totalTurnover / 1e8).toFixed(0)}亿`
+    : `${(totalTurnover / 1e4).toFixed(0)}万`;
+
+  // ---- 文案层的可用性占位（避免把 null 插值成 "null" / "0"）----
+  const cnt = (v: number | null) => (v == null ? '不可用' : String(v));
+  const pct = (v: number | null) => (v == null ? '不可用' : `${v}%`);
+  const limitUpText = limitUpCount == null ? '不可用' : `${limitUpCount}家`;
+  const turnoverText = turnoverStr ?? '不可用';
+  const topNamesText = topNames ?? '板块数据不可用';
+  const focusText = hasSectorData ? topNames!.split('、').slice(0, 2).join('、') : '板块数据不可用';
+
+  // ---- 规则引擎即时生成（仅在 breadth 真的拿到时才生成解读）----
+  const sections: Array<{ icon: string; title: string; text: string }> = [];
+  let mood: string | null = null;
+  let moodEmoji: string | null = null;
+  let overview: string | null = null;
+  let points: string[];
+
+  if (hasMarketData) {
+    const up = upPct as number;
+    if (up >= 65) {
+      mood = '强势上攻'; moodEmoji = '🔥';
+      overview = `市场做多情绪高涨，${risingStocks}只上涨、${fallingStocks}只下跌。`;
+    } else if (up >= 45) {
+      mood = '温和上行'; moodEmoji = '📈';
+      overview = `市场结构性行情，${risingStocks}只上涨${fallingStocks}只下跌，资金聚焦热点。`;
+    } else if (up >= 30) {
+      mood = '震荡整理'; moodEmoji = '📊';
+      overview = `市场分化明显，${risingStocks}只上涨${fallingStocks}只下跌，存量博弈特征突出。`;
+    } else {
+      mood = '弱势调整'; moodEmoji = '📉';
+      overview = `市场情绪偏谨慎，${fallingStocks}只个股下跌，防御策略为主。`;
+    }
+
+    sections.push(
+      {
+        icon: '📊', title: '市场情绪',
+        text: `**${mood}** · ${overview}\n\n**领涨板块**：${topNamesText}\n涨停${limitUpText}，集中：${hotNames ?? '涨停分布不可用'}`
+      },
+      {
+        icon: '💰', title: '资金流向',
+        text: `上涨**${cnt(risingStocks)}**只，下跌**${cnt(fallingStocks)}**只，平盘**${cnt(unchangedStocks)}**只\n\n**成交额**：${turnoverText}\n**涨停**：${limitUpText}\n**资金聚焦方向**：${focusText}\n操作建议：${up >= 45 ? '可适度参与强势板块，设好止损' : '控制仓位，等待右侧信号'}`
+      },
+      {
+        icon: '📰', title: '策略参考',
+        text: `${up >= 45 ? '· 关注景气度>70的高景气板块\n· 注意板块轮动节奏\n· 强势板块回调可关注' : '· 防御型配置为主\n· 关注低估值高股息品种\n· 等待市场企稳信号'}\n\n⚠️ 以上为规则引擎分析，不构成投资建议`
+      },
+    );
+
+    points = [
+      `**市场情绪**：${mood}${moodEmoji}，${overview}`,
+      `**领涨板块**：${topNamesText}`,
+      `**涨停集中**：${hotNames ?? '涨停分布不可用'}`,
+      `**成交额**：${turnoverText}，上涨占比 **${upPct}%**`,
+      up >= 45 ? '· 操作建议：可适度参与强势板块，设好止损' : '· 操作建议：控制仓位，等待右侧信号',
+    ];
   } else {
-    mood = '弱势调整'; moodEmoji = '📉';
-    overview = `市场情绪偏谨慎，${fallingStocks}只个股下跌，防御策略为主。`;
+    // breadth 不可得：**不输出任何由 0 反推的情绪/操作结论**。
+    // 板块数据若可用则如实保留（它是独立数据源），否则同样标注不可用。
+    const sectorNote = hasSectorData
+      ? `\n\n**领涨板块（板块数据可用）**：${topNames}`
+      : '\n\n**领涨板块**：板块数据亦不可用';
+    sections.push({
+      icon: '⚠️', title: '数据不可用',
+      text: `当日行情数据源不可用：涨跌家数与成交额均未取到，未生成市场情绪、资金流向与操作建议。${sectorNote}`,
+    });
+    points = [
+      '**市场解读未生成**：当日行情数据源不可用（涨跌家数 / 成交额未取到），不据此推断市场情绪',
+      ...(hasSectorData ? [`**领涨板块**：${topNames}`] : []),
+    ];
   }
 
-  const sections = [
-    {
-      icon: '📊', title: '市场情绪',
-      text: `**${mood}** · ${overview}\n\n**领涨板块**：${topNames}\n涨停${limitUpCount}家，集中：${hotNames || '今日无集中涨停板块'}`
-    },
-    {
-      icon: '💰', title: '资金流向',
-      text: `上涨**${risingStocks}**只，下跌**${fallingStocks}**只，平盘**${unchangedStocks}**只\n\n**成交额**：${turnoverStr}\n**涨停**：${limitUpCount}家\n**资金聚焦方向**：${topNames.split('、').slice(0, 2).join('、')}\n操作建议：${upPct >= 45 ? '可适度参与强势板块，设好止损' : '控制仓位，等待右侧信号'}`
-    },
-    {
-      icon: '📰', title: '策略参考',
-      text: `${upPct >= 45 ? '· 关注景气度>70的高景气板块\n· 注意板块轮动节奏\n· 强势板块回调可关注' : '· 防御型配置为主\n· 关注低估值高股息品种\n· 等待市场企稳信号'}\n\n⚠️ 以上为规则引擎分析，不构成投资建议`
-    },
-  ];
-
-  return {
+  const insight = {
     mood, moodEmoji,
     overview,
     topSectors: topNames,
-    hotSectors: hotNames || '无',
+    hotSectors: hotNames,
     risingStocks, fallingStocks, unchangedStocks, upPct,
     limitUpCount,
     totalTurnover: turnoverStr,
     _rawTotalTurnover: totalTurnover,
-    source: 'rule',
+    source: hasMarketData ? 'rule' : 'unavailable',
     // ---- 前端契约字段（DiscoverPage v3 渲染依赖）----
-    summary: overview,
-    points: [
-      `**市场情绪**：${mood}${moodEmoji}，${overview}`,
-      `**领涨板块**：${topNames}`,
-      hotNames ? `**涨停集中**：${hotNames}` : '**涨停集中**：今日无集中涨停板块',
-      `**成交额**：${turnoverStr}，上涨占比 **${upPct}%**`,
-      upPct >= 45 ? '· 操作建议：可适度参与强势板块，设好止损' : '· 操作建议：控制仓位，等待右侧信号',
-    ],
-    metrics: {
-      '上涨家数': String(risingStocks),
-      '下跌家数': String(fallingStocks),
-      '平盘家数': String(unchangedStocks),
-      '上涨占比': `${upPct}%`,
-      '涨停': `${limitUpCount} 家`,
-      '成交额': turnoverStr,
-    },
+    summary: overview ?? '当日行情数据源不可用，未生成市场解读',
+    points,
+    metrics: hasMarketData
+      ? {
+          '上涨家数': cnt(risingStocks),
+          '下跌家数': cnt(fallingStocks),
+          '平盘家数': cnt(unchangedStocks),
+          '上涨占比': pct(upPct),
+          '涨停': limitUpCount == null ? '不可用' : `${limitUpCount} 家`,
+          '成交额': turnoverText,
+        }
+      : {
+          '上涨家数': '不可用',
+          '下跌家数': '不可用',
+          '平盘家数': '不可用',
+          '上涨占比': '不可用',
+          '涨停': limitUpCount == null ? '不可用' : `${limitUpCount} 家`,
+          '成交额': '不可用',
+        },
     sections,
   };
+
+  return { insight, hasMarketData };
 }
 
 router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const { getDb } = await import('../db/dbFactory');
     const db = getDb();
-    const insight = await buildRuleInsight(db);
-    // buildRuleInsight 全部指标来自本地真实行情库（getMarketSummary + 板块景气度）
-    sendHonest(res, 'real', insight as Record<string, unknown>);
+    const { insight, hasMarketData } = await buildRuleInsight(db);
+    // dataSource 由**实际数据可用性**推导，不再硬编码 'real'：
+    // 此前无论 getMarketSummary() 是否返回 null 都声称 real，等于给
+    // 「弱势调整 / 0只个股下跌」这类凭空生成的解读盖上真实背书。
+    sendHonest(res, hasMarketData ? 'real' : 'unavailable', insight);
   } catch (error) {
     console.error('[AIChat] 获取市场洞察失败:', error);
     res.status(500).json({
@@ -587,9 +669,13 @@ router.post('/ai/watchlist-summary', asyncHandler(async (req: Request, res: Resp
 
   try {
     // 构建股票数据摘要
+    // 【诚实红线 · P0-REALCLAIM 同族】原写 `q.changePercent || 0` / `q.turnoverRate || 0`：
+    // 缺字段时 prompt 里就成了「涨跌幅0%」，LLM 会据此写「该股平盘」这类结论。
+    // 缺就是缺，写「不可用」。
     const stockSummary = symbols.map((sym: string, i: number) => {
       const q = quotes?.[i] || {};
-      return `- ${sym}: 价格${q.price || 'N/A'}, 涨跌幅${q.changePercent || 0}%, 换手率${q.turnoverRate || 0}%`;
+      const num = (v: unknown) => (v == null ? '不可用' : String(v));
+      return `- ${sym}: 价格${q.price ?? '不可用'}, 涨跌幅${num(q.changePercent)}%, 换手率${num(q.turnoverRate)}%`;
     }).join('\n');
 
     const prompt = `请为以下自选股组合生成追踪总结报告。
@@ -703,6 +789,13 @@ router.get('/ai/market-insight-llm', asyncHandler(async (_req: Request, res: Res
     
     // 获取板块数据
     const sectors = await db.getSectorMomentumScore();
+    // 【诚实红线 · P0-REALCLAIM 同族】板块库为空时，下面 upSectors/downSectors/avgChange/
+    // totalLimitUp 全都会被算成 0（分母用 `|| 1` 兜底），LLM 会照着
+    //「上涨板块 0 个 / 板块平均涨幅 0%」凭空写一整篇市场解读。
+    // 此时直接跳到规则引擎降级（它会按可用性诚实标注），绝不让 LLM 拿全 0 编造。
+    if (!Array.isArray(sectors) || sectors.length === 0) {
+      throw new Error('板块景气度数据为空，拒绝以全 0 数据生成 LLM 市场解读');
+    }
     const topSectors = sectors.slice(0, 10);
     const bottomSectors = sectors.slice(-5).reverse();
     
@@ -791,16 +884,20 @@ ${topSectors.map(s => `- ${s.industry}: 景气度${s.score}分, 涨幅${s.avg_ch
     // 解析LLM输出，生成结构化数据
     const insight = parseMarketInsight(aiResponse.content, marketData);
 
-    // LLM 文本 + 板块景气度/涨跌家数（本地真实行情库）→ real
+    // LLM 文本 + 板块景气度/涨跌家数（本地真实行情库，上面已确保 sectors 非空）→ real
     sendHonest(res, 'real', { ...insight, source: 'llm' });
   } catch (error) {
-    // LLM 不可用（余额不足/超时/模型错误等）时降级为规则引擎结果，保证前端始终有内容可展示
+    // LLM 不可用（余额不足/超时/模型错误等）或板块数据为空时，降级为规则引擎结果。
+    // 注意：降级源是否够格叫 'real' 取决于规则引擎**实际**拿到的数据，
+    // 故此处同样按buildRuleInsight 回传的 hasMarketData 推导，不硬编码 'real'。
     logger.error('LLM market insight failed, falling back to rule engine:', error as Error);
     try {
       const db = getDb();
-      const fallback = await buildRuleInsight(db);
-      // 降级源仍是本地真实行情库，只是解读方式由 LLM 换成规则引擎 → 仍为 real（如实标注 source:'rule'）
-      sendHonest(res, 'real', { ...fallback, source: 'rule' });
+      const { insight: fallback, hasMarketData } = await buildRuleInsight(db);
+      sendHonest(res, hasMarketData ? 'real' : 'unavailable', {
+        ...fallback,
+        source: hasMarketData ? 'rule' : 'unavailable',
+      });
     } catch (fallbackErr) {
       logger.error('Rule engine fallback also failed:', fallbackErr as Error);
       res.status(500).json({
@@ -929,7 +1026,11 @@ function parseMarketInsight(llmOutput: string, marketData: any) {
       avgChange: s.avgChange,
     })),
     limitUpCount: marketData.limitUp,
-    limitDownCount: 0,
+    // 【诚实红线 · P0-REALCLAIM 同族】本函数的 marketData 只来自
+    // getSectorMomentumScore()（板块维度），**不含跌停家数**。
+    // 此处原写死 0 = 「今天 0 家跌停」，是一个凭空的业务结论，
+    // 且随 dataSource:'real' 出街。查不到就写 null。
+    limitDownCount: null,
     timestamp: Date.now(),
   };
 }
