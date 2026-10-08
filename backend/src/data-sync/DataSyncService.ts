@@ -538,14 +538,27 @@ export class DataSyncService {
     for (const line of lines) {
       let rawSymbol = '';
       try {
-        const match = line.match(/v_\w+="(.+)"/);
+        /**
+         * 匹配时**捕获响应 key**（如 `sh000001`），因为它是上游给出的、
+         * 唯一无歧义的交易所归属信息。
+         *
+         * 为什么必须用它（P0-IDXBLEED）：`parts[2]` 只有 6 位数字代码，而
+         * **指数与个股共用数字代码**——`sh000001`(上证指数) 与
+         * `sz000001`(平安银行) 的 parts[2] 都是 '000001'。若再按数字前缀反推
+         * 交易所，`000001` 以 `0` 开头会被判成 SZ，于是**上证指数点位被写进
+         * 「000001.SZ 平安银行」那一行**。
+         * 实测：平安银行曾出现 close=4068.57，恰为上证指数同日收盘点位。
+         */
+        const match = line.match(/v_(\w+)="(.+)"/);
         if (!match) continue;
 
-        const parts = match[1].split('~');
+        const respSymbol = match[1];
+        const parts = match[2].split('~');
         if (parts.length < 45) continue;
 
         rawSymbol = parts[2];
-        const market = this.getMarketFromSymbol(rawSymbol);
+        // 交易所归属优先取响应 key 前缀（sh/sz/bj），仅当 key 无前缀时才退回数字推断
+        const market = this.marketFromResponseKey(respSymbol) ?? this.getMarketFromSymbol(rawSymbol);
         if (market === 'UNKNOWN') continue;
 
         const v = (idx: number) => { const x = parseFloat(parts[idx]); return Number.isFinite(x) ? x : 0; };
@@ -646,6 +659,20 @@ export class DataSyncService {
   /**
    * 转换为腾讯格式的股票代码
    */
+  /**
+   * 从腾讯响应的 key 提取交易所（`sh000001` → `SH`）。
+   *
+   * 这是**唯一无歧义**的交易所来源：数字代码本身无法区分交易所
+   * （`000001` 既是上证指数代码、也是平安银行代码），而 key 前缀由上游明确给出。
+   *
+   * @returns `SH` / `SZ` / `BJ`；key 无交易所前缀时返回 null（交由调用方退回数字推断）
+   */
+  private marketFromResponseKey(respSymbol: string): string | null {
+    const m = /^(sh|sz|bj)/i.exec(respSymbol.trim());
+    if (!m) return null;
+    return m[1].toUpperCase();
+  }
+
   private toTencentSymbol(symbol: string): string {
     const code = symbol.replace(/\.(SZ|SH|BJ)$/i, '');
     if (code.startsWith('6') || code.startsWith('9')) {
