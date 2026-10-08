@@ -170,6 +170,8 @@ interface Bar {
   amountWan: number;
   /** 该bar 本身是除权日时的每股派息（非除权日为 0） */
   exDivPerShare: number;
+  /** 该 bar 本身是除权日时的每股送转股比例（10转4股 → 0.4；非除权日为 0） */
+  shareRatio: number;
 }
 
 /**
@@ -248,8 +250,10 @@ function parseBars(rows: any[]): Bar[] {
       turnoverRate: num(7),
       amountWan: num(8),
       // 下标 6 附带除权信息 { nd, fh_sh, djr, cqr, FHcontent }，cqr = 除权日。
-      // 若该bar 本身是除权日，前收盘需按每股派息下调，否则派生字段与库内口径不一致。
+      // 若该 bar 本身是除权日，前收盘需按派息下调**并**按送转比例除权，
+      // 否则派生字段会算出假腰斩（见 readShareRatio 的实测两例）。
       exDivPerShare: readExDiv(r),
+      shareRatio: readShareRatio(r),
     });
   }
   return bars;
@@ -264,6 +268,35 @@ function readExDiv(r: any[]): number {
   if (!meta || typeof meta !== 'object' || meta.cqr !== r[0] || !meta.fh_sh) return 0;
   const per = parseFloat(meta.fh_sh) / 10;
   return Number.isFinite(per) ? per : 0;
+}
+
+/**
+ * 取该 bar 的「每股送转股比例」。仅当 bar 自身是除权日时返回 >0。
+ *
+ * ## 为什么必须单独处理（实测踩过的坑）
+ * `FHcontent` 形如 `10转4股` / `10转4.8股` / `10派0.6374元` / `10转4股派0.5元`。
+ * **送转股不是减法，而是除法**：10 转 4 股 ⇒ 每股成本价除以 (1 + 4/10) = 1.4。
+ * 只按派息减法处理（`readExDiv`）会让送转股的「前收盘基准」严重偏大，
+ * 从而把除权当天下算出腰斩级的假跌幅。
+ *
+ * 实测两例（补09-30 时被自检抓到）：
+ * - 300980.SZ 2026-09-30 `10转4股`：raw 前收 22.90 → 应为 22.90/1.4 = 16.36，
+ *   收盘 15.98 → 真实涨跌约 -2.3%；若不做换算则为 -30.2%（假腰斩）。
+ * - 688808.SH 2026-09-29 `10转4.8股`：raw 前收 2174.99 → 应为 2174.99/1.48 = 1469.59，
+ *   收盘 1496.00 → 真实 +1.8%；不做换算则为 -31.2%（假腰斩）。
+ *
+ * @returns 每股送转股比例（0.4 表示 10 转 4 股）；无送转返回 0
+ */
+function readShareRatio(r: any[]): number {
+  const meta = r[6];
+  if (!meta || typeof meta !== 'object' || meta.cqr !== r[0]) return 0;
+  const text = String(meta.FHcontent ?? '');
+  // 匹配「10转4股」/「10送2股」/「10转4.8股」；转与送可同时出现（如 10转2送1股）
+  const m = /10\s*([转送])([\d.]+)\s*股/.exec(text);
+  if (!m) return 0;
+  const perTen = parseFloat(m[2]);
+  if (!Number.isFinite(perTen) || perTen <= 0) return 0;
+  return perTen / 10;
 }
 
 /**
@@ -395,11 +428,14 @@ async function main() {
             continue;
           }
           const base = prevClose.get(b.tradeDate);
-          // 前收盘基准：上一根 K 线的收盘；若该 bar 自身是除权日，按每股派息下调
-          // （实测 601390 在 10-08 除权，raw 前收 4.33 → 基准 4.27，
+          // 前收盘基准：上一根 K 线的收盘，按该 bar 自身的除权事件换算
+          // （实测 601390 在 10-08 除权「10派0.6374」：raw 前收 4.33 → 基准 4.27，
           //   change 0.01 / cp 0.23 / amp 1.17，与库内既有行完全一致）
+          //送转股必须**除**（10转4股 ⇒ ÷1.4），不是减（详见 readShareRatio）。
           let prev = base !== undefined && base > 0 ? base : b.open;
-          if (b.exDivPerShare > 0) prev = round2(prev - b.exDivPerShare);
+          if (b.exDivPerShare > 0) prev = prev - b.exDivPerShare;
+          if (b.shareRatio > 0) prev = prev / (1 + b.shareRatio);
+          prev = round2(prev);
           const rec: Pending = {
             stockId: stock.id,
             tradeDate: b.tradeDate,
