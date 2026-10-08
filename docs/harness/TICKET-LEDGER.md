@@ -110,3 +110,14 @@
 - **⚠️ 因此每次API 推送后必须**：`git update-ref refs/remotes/origin/main $(git rev-parse HEAD)`（对齐到本地等价 commit）。
   否则本地 origin/main 会持续落后，后续任何 `git push` / `git status` 判断都会错位。
 - **远端历史链完整性已验证**：连续 6 个 commit 父子关系连续无断裂。
+
+### ⚠️ 补充：已产生一个空提交 `a166db9c`（无文件变更，仅污染历史）
+- **成因**：`git push` 因VPN 不可用，改用 API 推送。首次推送后 `git update-ref refs/remotes/origin/main <远端sha>`
+  **失败**（远端对象不在本地库）⟹ 本地 ref 仍指向旧 commit⟹ 下次推送把已推内容重复计入 ⟹ 产生空提交。
+- **影响**：`files` 列表为空 ⟹ **代码内容完全无影响**，仅历史多一个节点。
+- **正确纪律（后续必守）**：
+  1. 推送前先把 `origin/main` 对齐到「远端已含的最后一个**本地** commit」：
+     `git update-ref refs/remotes/origin/main <那个本地 commit>`
+  2. 推送后**立刻校验**：`gh api repos/EgoBai/clair/commits?per_page=1 --jq '.[0].files|length'`
+     若返回 0 说明产生了空提交，立刻排查。
+  3. `git update-ref` 指向「本地不存在的 sha」必然失败 ⟹ 不要用它指向远端 sha，只能指向本地 commit。
