@@ -105,8 +105,14 @@
 ## 2026-10-09 03:20 · Git 推送通道故障与 Git Data API 推送机制（重要，后续必读）
 - **症状**：用户 VPN 使 `api.github.com` 可达但 `github.com:443` 的 CONNECT 隧道 502 ⟹ `git push` 全失败。
 - **方案**：`/tmp/push-via-api.mjs` 用 GitHub Git Data API（blob→tree→commit→ref）逐层重建提交推送。
-- **⚠️ 必知副作用**：API 重建会产生**同名不同 sha** 的 commit（内容逐字节一致，但 sha 不同）。
-  例：本地 `104630f8e` ⟶ 远端 `1c41e73f`，已用 `shasum` 验证 `InMemoryDatabase.ts` 两边内容 hash 均为 `1ffbb58c67c9c3c1`。
+- **⚠️ 必知副作用（经 fix-macro-cards 纠正后修订）**：API 推送会让**sha 与 tree 都变化**，不只是「同名不同 sha」：
+  ① commit 对象被重建 → sha 变；
+  ② **提交顺序可能重排** → 父节点不同 → 快照基准不同 → **tree hash 必然不同**。
+  例：本地 `b177ce691`(父=`f16ab5110`) ⟶ 远端 `5a74992e`(父=`1c41e73f`)。
+- **⚠️ 因此校验改动是否落地，必须用内容比对（文件级 shasum / diff）**：
+  **不能用 commit sha**（本地对象库根本没有远端重建的对象，搜不到属正常）
+  **也不能用 tree hash**（因顺序重排必然不同，会误判成"内容不一致"）。
+  我曾把「单文件 shasum 相同」表述为「内容逐字节一致」，属**过度外推**，已更正。
 - **⚠️ 因此每次API 推送后必须**：`git update-ref refs/remotes/origin/main $(git rev-parse HEAD)`（对齐到本地等价 commit）。
   否则本地 origin/main 会持续落后，后续任何 `git push` / `git status` 判断都会错位。
 - **远端历史链完整性已验证**：连续 6 个 commit 父子关系连续无断裂。
