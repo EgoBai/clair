@@ -77,7 +77,10 @@ export interface RawKLineData {
   highPrice: number;
   lowPrice: number;
   volume: number;
+  /** 成交额，单位**元**（上游给万元，此处已换算） */
   turnover: number;
+  /** 换手率，单位 %（上游 index 7） */
+  turnoverRate: number;
 }
 
 /**
@@ -103,6 +106,28 @@ function sessionDateToLocalNoon(dateStr: string): Date {
   }
   return probe;
 }
+
+/**
+ * K 线端点候选（按优先级降级，P0-QFQ）。
+ *
+ * ## 为什么必须是 `newfqkline` 而不是老的 `fqkline`
+ * 老 `fqkline` 响应**不含成交额**，而 `daily_quotes.turnover` 是 NOT NULL，
+ * 只能写 0 糊过去。`newfqkline` 的 index 8 带成交额（万元），正好补齐该列。
+ *
+ * ## 实测可达性（2026-10-09，逐个 curl 验证，非推断）
+ * - `web.ifzq.gtimg.cn/appstock/app/fqkline/get`（**老路径**）→ **HTTP 501**，
+ *   响应体是腾讯 WAF 拦截页 `waf.tencent.com/501page.html`。
+ *   注意：501 是**老 fqkline 路径**被拦，**不是** `web.ifzq.gtimg.cn` 整域不可用。
+ * - `proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get` → HTTP 200，连测 3 次稳定。
+ * - `web.ifzq.gtimg.cn/appstock/app/newfqkline/get` → HTTP 200，连测 3 次稳定。
+ *   （`proxy.finance.qq.com/appstock/...` 不带 `ifzqgtimg` 前缀会404，勿用该路径）
+ *
+ * 因此主备都取 `newfqkline`，仅 host 不同，用来做互相兜底。
+ */
+const KLINE_ENDPOINTS = [
+  'https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get',
+  'https://web.ifzq.gtimg.cn/appstock/app/newfqkline/get',
+] as const;
 
 /**
  * 数据同步服务
@@ -335,31 +360,63 @@ export class DataSyncService {
         return result;
       }
 
+      // 前收盘基准：K 线响应按日期升序，`prevClose` = 上一交易日的收盘价。
+      // 首行没有前收盘（响应窗口被截断），此时涨跌额无意义 —— 留null，不拿开盘价顶替。
+      let prevClose: number | null = null;
+      let skippedNonTrading = 0;
+      let skippedBadDate = 0;
+      let skippedNoPrevClose = 0;
+
       for (const kline of klineData) {
         try {
-          const change = kline.closePrice - kline.openPrice;
-          const changePercent = kline.openPrice > 0
-            ? (change / kline.openPrice) * 100
-            : 0;
-          const amplitude = kline.openPrice > 0
-            ? ((kline.highPrice - kline.lowPrice) / kline.openPrice) * 100
-            : 0;
+          // ── 非交易日守卫：复用 tradingCalendar 唯一真源（P0-5D）──
+          // 腾讯在休市日可能返回假期区间的行，直接写库就是 P0-SMEARED 抹布行。
+          if (!isTradingDay(kline.tradeDate)) {
+            skippedNonTrading++;
+            continue;
+          }
+
+          let tradeDate: Date;
+          try {
+            // 复用 syncRealtimeQuotes 路径的同一helper：
+            // `new Date('2026-09-30')` 按 UTC 解析，负时区会退化成前一天。
+            tradeDate = sessionDateToLocalNoon(kline.tradeDate);
+          } catch {
+            skippedBadDate++;
+            continue;
+          }
+
+          const change = prevClose === null ? null : kline.closePrice - prevClose;
+          const changePercent =
+            change !== null && prevClose !== null && prevClose > 0 ? (change / prevClose) * 100 : null;
+          const amplitude =
+            kline.openPrice > 0 ? ((kline.highPrice - kline.lowPrice) / kline.openPrice) * 100 : null;
+
+          if (change === null) {
+            // 首行无前收盘：仍写入 OHLCV，但涨跌口径留 NULL，不编造
+            skippedNoPrevClose++;
+          }
 
           await db.createDailyQuote({
             stockId: stock.id,
-            tradeDate: new Date(kline.tradeDate),
+            tradeDate,
             openPrice: kline.openPrice,
             closePrice: kline.closePrice,
             highPrice: kline.highPrice,
             lowPrice: kline.lowPrice,
             volume: kline.volume,
             turnover: kline.turnover,
-            change: parseFloat(change.toFixed(4)),
-            changePercent: parseFloat(changePercent.toFixed(4)),
-            amplitude: parseFloat(amplitude.toFixed(4)),
-            turnoverRate: 0,
+            change: change === null ? null : parseFloat(change.toFixed(4)),
+            changePercent: changePercent === null ? null : parseFloat(changePercent.toFixed(4)),
+            amplitude: amplitude === null ? null : parseFloat(amplitude.toFixed(4)),
+            turnoverRate: kline.turnoverRate,
+            // K 线不含市值/估值：留NULL，绝不编造
+            marketCap: null,
+            peRatio: null,
+            pbRatio: null,
           });
 
+          prevClose = kline.closePrice;
           result.quotesSaved++;
         } catch (error) {
           // 忽略重复数据错误
@@ -367,6 +424,20 @@ export class DataSyncService {
             result.errors.push(`保存K线失败: ${(error as Error).message}`);
           }
         }
+      }
+
+      if (skippedNonTrading > 0) {
+        const msg = `跳过 ${skippedNonTrading} 行非交易日数据（交易日历判定）`;
+        result.errors.push(msg);
+        console.warn(`[DataSync] ${symbol} ${msg}`);
+      }
+      if (skippedBadDate > 0) {
+        result.errors.push(`跳过 ${skippedBadDate} 行非法日期数据`);
+      }
+      if (skippedNoPrevClose > 0) {
+        console.warn(
+          `[DataSync] ${symbol} ${skippedNoPrevClose} 行缺少前收盘基准（响应窗口首行），涨跌额/幅留 NULL`,
+        );
       }
 
       result.success = result.quotesSaved > 0;
@@ -508,24 +579,59 @@ export class DataSyncService {
   }
 
   /**
-   * 从腾讯API获取K线数据
+   * 从腾讯API获取K线数据（**不复权**口径）
+   *
+   * ## 口径：为什么不复权（P0-QFQ 根因）
+   * 本库 `daily_quotes` 存的是**不复权价**（实测 601390.SH 2026-09-24 收 4.25、
+   * 2026-09-30 收 4.33，与腾讯 newfqkline 不复权一致；库内**无一行**等于前复权值）。
+   * 而旧实现请求 `...,qfq`（前复权）——除权除息日之前的整段历史都会被写成前复权价，
+   * 与库内既有口径不一致，导致同一只股票的历史序列在除权日「跳变」、收益率算错。
+   * 故此处 `fq` 位**留空**（腾讯约定：空 = 不复权）。
+   *
+   * ## 端点降级
+   * 逐个尝试 {@link KLINE_ENDPOINTS}，任一成功即返回；WAF 拦截页（HTML/501）
+   * 同样视为该端点失败继续降级。全部失败才抛错——**绝不返回空数组冒充成功**。
    */
   private async fetchTencentKLine(symbol: string, days: number): Promise<RawKLineData[]> {
     const tencentSymbol = this.toTencentSymbol(symbol);
-    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get`;
+    // 末位 fq 留空 = 不复权（切勿填 qfq/hfq，否则与本库口径冲突）
+    const param = `${tencentSymbol},day,,,${days},`;
 
-    const response = await axios.get(url, {
-      params: {
-        param: `${tencentSymbol},day,,,${days},qfq`,
-      },
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://finance.qq.com',
-      },
-    });
+    const failures: string[] = [];
 
-    return this.parseKLineResponse(response.data, symbol);
+    for (const url of KLINE_ENDPOINTS) {
+      try {
+        const response = await axios.get(url, {
+          params: { param },
+          timeout: 15000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://finance.qq.com',
+          },
+        });
+
+        // 腾讯 WAF 拦截会返回 HTTP 200 + HTML 页面（实测老 fqkline 路径为 501 + HTML）。
+        // 若不识别，`parseKLineResponse` 会静默返回空数组 → 上层误判「同步成功但0 条」。
+        const body = response?.data;
+        if (typeof body === 'string' || body?.code !== 0) {
+          throw new Error(
+            `响应非预期 code=${body?.code} data=${typeof body === 'string' ? body.slice(0, 80) : 'object'}`,
+          );
+        }
+
+        const parsed = this.parseKLineResponse(body, symbol);
+        if (parsed.length === 0) {
+          throw new Error('解析后0 行（响应结构异常或该窗口无数据）');
+        }
+        return parsed;
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        failures.push(`${new URL(url).host}: ${msg}`);
+        console.warn(`[DataSync] K线端点失败，降级重试 (${new URL(url).host}): ${msg}`);
+      }
+    }
+
+    throw new Error(`K线全部端点失败: ${failures.join(' | ')}`);
   }
 
   /**
@@ -623,31 +729,75 @@ export class DataSyncService {
   }
 
   /**
-   * 解析K线响应
+   * 解析K线响应（腾讯 `newfqkline`）
+   *
+   * ## 日期真源（P0-QFQ）
+   * 是响应数组的 **`item[0]`**（形如 `"2026-09-30"`），它本来就是上游给的真实交易日。
+   *
+   * **不要用 `parts[30]`** —— 那是腾讯**实时行情**接口（`qt` 行情串）的字段，
+   * K 线响应里根本没有这回事。它只在 {@link parseTencentResponse} 里成立。
+   *
+   * 非法日期（脏数据/结构变化）一律**丢弃该行**，绝不退回本地时钟。
+   *
+   * ## 字段下标（实测 newfqkline，勿凭记忆改动）
+   * ```
+   * 0=日期  1=开  2=收  3=高  4=低  5=成交量(手)
+   * 6=除权信息**对象**（除权日才有内容，其余为 {}）← 不是数字，别喂parseFloat
+   * 7=换手率%   8=成交额(万元)
+   * ```
+   * 旧实现把 index 6喂给 `parseFloat` → NaN → 成交额恒为 0（P0-QFQ 附带缺陷）。
    */
   private parseKLineResponse(data: any, symbol: string): RawKLineData[] {
     const result: RawKLineData[] = [];
 
     try {
-      const stockData = data?.data?.[symbol] || data?.data?.[`qfq${symbol}`] || data?.data?.[`sh${symbol.slice(0, 6)}`] || data?.data?.[`sz${symbol.slice(0, 6)}`];
-      const dayData = stockData?.day || stockData?.qfqday;
+      //响应 key 用腾讯原样给的带市场前缀形式（`sh601390`）。刻意**不**查 `qfq${symbol}`：
+      // 那是前复权响应的 key，本库存不复权，查它等于把两种口径混在一起（正是 P0-QFQ 根因）。
+      const stockData =
+        data?.data?.[symbol] ||
+        data?.data?.[`sh${symbol.slice(0, 6)}`] ||
+        data?.data?.[`sz${symbol.slice(0, 6)}`] ||
+        data?.data?.[`bj${symbol.slice(0, 6)}`];
+      // 只认不复权的 `day`。**刻意不接受 `qfqday`**：
+      // 上游一旦返回前复权（key 为 qfqday），宁可当解析失败降级到别的口径，也不静默混库。
+      const dayData = stockData?.day;
 
       if (!dayData) return result;
 
       for (const item of dayData) {
-        if (item.length >= 5) {
-          const k = (idx: number) => { const v = parseFloat(item[idx]); return Number.isFinite(v) ? v : 0; };
-          result.push({
-            symbol,
-            tradeDate: item[0],
-            openPrice: k(1),
-            closePrice: k(2),
-            highPrice: k(3),
-            lowPrice: k(4),
-            volume: k(5),
-            turnover: k(6),
-          });
+        if (!Array.isArray(item) || item.length < 5) continue;
+
+        const tradeDate = typeof item[0] === 'string' ? item[0].trim() : '';
+        // 复用 sessionDateToLocalNoon 做校验：它同时检查格式与「是否真实存在的日历日」，
+        // 故 `2026-13-45` 这类能过正则但非法的日期也会被拒。校验不过即丢弃，**不退回本地时钟**。
+        try {
+          sessionDateToLocalNoon(tradeDate);
+        } catch {
+          console.warn(
+            `[DataSync] ${symbol} K线行日期非法（item[0]=${JSON.stringify(item[0])}），丢弃该行`,
+          );
+          continue;
         }
+
+        const k = (idx: number): number => {
+          const v = parseFloat(item[idx]);
+          return Number.isFinite(v) ? v : 0;
+        };
+
+        // 成交额单位：上游万元 → 本库元（daily_quotes.turnover 与实时行情路径同口径）
+        const turnoverWan = k(8);
+
+        result.push({
+          symbol,
+          tradeDate,
+          openPrice: k(1),
+          closePrice: k(2),
+          highPrice: k(3),
+          lowPrice: k(4),
+          volume: k(5),
+          turnover: turnoverWan * 10000,
+          turnoverRate: k(7),
+        });
       }
     } catch (error) {
       console.error(`[DataSync] 解析K线数据失败: ${symbol}`, error);
