@@ -46,11 +46,40 @@ interface Candidate {
   peRatio: number | null;
 }
 
-/** 市场温度：由广度 + 主线行业强度综合打分 */
-function computeTemperature(risingRatio: number, topThemeScore: number, limitUp: number): {
-  score: number;
-  label: string;
-} {
+/**
+ * 「上涨占比」是否**可计算**——本单最核心的红线判据（P0-PULSE）。
+ *
+ * 两种「上涨占比为 0」必须严格区分：
+ *   1. **真的是 0%**  → rising=0 且 falling>0（今天全市场只有跌的）→ 可计算，是**真实结论**
+ *   2. **0/0 不可计算** → rising=0 且 falling=0（当日全部平盘/ 无涨跌样本）
+ *      或广度数据整体缺失（getMarketSummary 返回 null）→ 不可计算
+ *
+ * 第2 种若被当成第 1 种（旧代码 `rising + falling || 1` 就是这么干的），
+ * 会凭空生成「普跌/恐慌：上涨个股占比仅 0.0%」——把「查不到」谎报成「市场极弱」。
+ */
+function risingRatioAvailable(hasMarketData: boolean, denominator: number): boolean {
+  return hasMarketData && denominator > 0;
+}
+
+/**
+ * 市场温度：由广度 + 主线行业强度综合打分。
+ *
+ * 两个入参任一不可得 → score 为 null（不可用），**绝不**用 0顶替。
+ * 原因：0 分在下面恰好对应 label「弱势」，是个**真实但完全错误**的市场结论；
+ * 前端 P0-TEMPGAUGE 已把 null 渲染为中性灰「不可用」，不会误读。
+ *
+ * risingRatio 为 null 表示「上涨占比**不可计算**」——最典型的是 0/0：
+ * rising 与 falling 都是 0（当日全部平盘）。此时若把 0/0 当成 0，
+ * 会凭空造出「普跌/恐慌：上涨个股占比仅 0.0%」（详见 buildRisks）。
+ * 「查不到」与「真的是 0%」语义完全不同，绝不可互换。
+ */
+function computeTemperature(
+  risingRatio: number | null,
+  topThemeScore: number | null,
+): { score: number | null; label: string } {
+  if (risingRatio === null || topThemeScore === null) {
+    return { score: null, label: '未知' };
+  }
   const score = Math.round(risingRatio * 60 + Math.min(topThemeScore, 100) * 0.4);
   let label = '中性';
   if (score >= 75) label = '强势';
@@ -61,16 +90,66 @@ function computeTemperature(risingRatio: number, topThemeScore: number, limitUp:
   return { score: Math.max(0, Math.min(100, score)), label };
 }
 
+/**
+ * 风险信号：**只从真实拿到的数据推导**。
+ *
+ * P0-PULSE 缺陷③：旧实现无条件执行 `if (risingRatio < 0.4)`，而 risingRatio 在
+ * `getMarketSummary()` 返回 null（Database.ts:483 `if (dailyQuotes.length === 0)
+ * return null`）时被 `?? 0` 吞成 0，0 < 0.4 成立 → 凭空生成
+ * 「普跌/恐慌：上涨个股占比仅 0.0%」。空库不是「市场极弱」，它是**查不到**。
+ *
+ * 因此每个信号都各自带可用性前置条件：
+ *   - 广度类信号（普跌/分化）→ 仅当 risingRatio !== null，即真的算出了占比
+ *   - 板块类信号（弱势板块拖累）→ 仅当真有板块数据且该板块均跌幅 <= -2%
+ *   - 「结构平稳」这个**否定性结论**同样需要数据支撑：没有数据时
+ *     「未见显著风险信号」是另一种谎报（它断言了「确实查过了且没查到」）
+ */
+function buildRisks(
+  risingRatio: number | null,
+  sortedSectors: Array<{ industry: string; avg_change_percent: number }>,
+): RiskSignal[] {
+  const risks: RiskSignal[] = [];
+
+  // 广度类信号：只在上涨占比**真的算出来**时才判断
+  if (risingRatio !== null) {
+    if (risingRatio < 0.4) {
+      risks.push({ level: 'high', label: '普跌/恐慌', detail: `上涨个股占比仅 ${(risingRatio * 100).toFixed(1)}%，市场情绪偏弱` });
+    } else if (risingRatio < 0.5) {
+      risks.push({ level: 'medium', label: '分化加剧', detail: `上涨占比 ${(risingRatio * 100).toFixed(1)}%，涨跌接近均衡` });
+    }
+  }
+
+  // 板块类信号：只在真有板块数据时判断
+  const weakest = sortedSectors[sortedSectors.length - 1];
+  if (weakest && Number(weakest.avg_change_percent) <= -2) {
+    risks.push({ level: 'medium', label: '弱势板块拖累', detail: `${weakest.industry} 平均跌幅 ${Number(weakest.avg_change_percent).toFixed(2)}%` });
+  }
+
+  if (risks.length === 0) {
+    // 「未见显著风险」是一个**需要证据支撑的否定结论**。
+    // 广度与板块都拿不到时，不能宣称「确实没有风险」——那是在编造一个市场判断。
+    if (risingRatio === null && sortedSectors.length === 0) {
+      risks.push({ level: 'low', label: '数据暂不可用', detail: '市场广度与板块数据均不可得，未生成风险判定' });
+    } else {
+      risks.push({ level: 'low', label: '结构平稳', detail: '当前未见显著系统性风险信号' });
+    }
+  }
+  return risks;
+}
+
 function buildRuleNarrative(
-  // score 可为 null：降级分支（:244）诚实返回 null 而非 0。
+  // score 可为 null：数据不可得时诚实返回 null 而非 0（见 computeTemperature 注释）。
   // 类型必须跟随运行时，否则调用方会被 TS 骗到以为它一定是 number。
   temperature: { score: number | null; label: string },
   themes: ThemeHit[],
   risks: RiskSignal[],
+  // 板块数据是否真的拿到。false 时不能写「暂无清晰主线」——
+  // 那是在把「查不到」说成「没有主线」。
+  hasSectorData: boolean,
 ): string {
   const themeLine = themes.length
     ? themes.slice(0, 3).map((t) => `${t.industry}(${t.avgChangePercent >= 0 ? '+' : ''}${t.avgChangePercent.toFixed(2)}%)`).join('、')
-    : '暂无清晰主线';
+    : (hasSectorData ? '暂无清晰主线' : '板块数据不可用');
   const riskLine = risks.length
     ? risks.map((r) => r.label).join('、')
     : '未见显著风险信号';
@@ -149,19 +228,42 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
     const db = getDb();
 
     // 1) 真实信号源
-    const [summary, sectorRows] = await Promise.all([
+    //    getMarketSummary() 在当日无行情时返回 **null**（Database.ts:483
+    //    `if (dailyQuotes.length === 0) return null`；InMemoryDatabase
+    //    getMarketSummaryInternal 同契约）。P0-PULSE 缺陷①：旧代码写
+    //    `summary.risingStocks`（裸访问）→ null 时抛 TypeError，只能靠 catch
+    //    兜底成 unavailable，等于每次请求白跑一趟 + log.error 刷屏，
+    //    且走的是降级分支而非正常路径。
+    const [summaryRaw, sectorRowsRaw] = await Promise.all([
       db.getMarketSummary(new Date()),
       db.getSectorMomentumScore(),
     ]);
+    const summary: any = summaryRaw;
+    const sectorRows: any[] = Array.isArray(sectorRowsRaw) ? sectorRowsRaw : [];
 
-    const rising = Number(summary.risingStocks ?? 0);
-    const falling = Number(summary.fallingStocks ?? 0);
-    const total = rising + falling || 1;
-    const risingRatio = rising / total;
-    const limitUp = Number(summary.limitUpCount ?? 0);
+    // ---- 先判可用，再取值；「查不到」一律 null，绝不 ?? 0 ----
+    // breadthSum 与 totalStocks 两个判据任一为正即认为广度**真的**拿到了
+    // （与 ai-chat.ts buildRuleInsight 的 hasMarketData 口径一致）。
+    const breadthSum = summary
+      ? Number(summary.risingStocks) + Number(summary.fallingStocks) + Number(summary.unchangedStocks)
+      : 0;
+    const hasMarketData = !!summary && (Number(summary.totalStocks) > 0 || breadthSum > 0);
+    const hasSectorData = sectorRows.length > 0;
+
+    const rising = hasMarketData ? Number(summary.risingStocks) || 0 : null;
+    const falling = hasMarketData ? Number(summary.fallingStocks) || 0 : null;
+    const limitUp = hasMarketData ? Number(summary.limitUpCount) || 0 : null;
+
+    // 上涨占比。**分母为 0 时是 0/0 = 不可计算**，不是「真的是 0%」。
+    // 旧代码 `rising + falling || 1` 把它强行变成 0，直接导致缺陷③的假「普跌」。
+    const breadthDenominator = rising !== null && falling !== null ? rising + falling : 0;
+    const risingRatio: number | null =
+      risingRatioAvailable(hasMarketData, breadthDenominator)
+        ? (rising as number) / breadthDenominator
+        : null;
 
     // 2) 主线行业（取景气度前 3）
-    const sorted = [...(sectorRows || [])].sort((a, b) => Number(b.score) - Number(a.score));
+    const sorted = [...sectorRows].sort((a, b) => Number(b.score) - Number(a.score));
     const topThemes = sorted.slice(0, 3);
     const themes: ThemeHit[] = await Promise.all(
       topThemes.map(async (t) => ({
@@ -174,65 +276,69 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
       })),
     );
 
-    const temperature = computeTemperature(risingRatio, topThemes[0]?.score ?? 0, limitUp);
+    const temperature = computeTemperature(risingRatio, hasSectorData ? Number(topThemes[0].score) : null);
 
-    // 3) 风险信号（由真实数据判定）
-    const risks: RiskSignal[] = [];
-    if (risingRatio < 0.4) {
-      risks.push({ level: 'high', label: '普跌/恐慌', detail: `上涨个股占比仅 ${(risingRatio * 100).toFixed(1)}%，市场情绪偏弱` });
-    } else if (risingRatio < 0.5) {
-      risks.push({ level: 'medium', label: '分化加剧', detail: `上涨占比 ${(risingRatio * 100).toFixed(1)}%，涨跌接近均衡` });
-    }
-    const weakest = sorted[sorted.length - 1];
-    if (weakest && Number(weakest.avg_change_percent) <= -2) {
-      risks.push({ level: 'medium', label: '弱势板块拖累', detail: `${weakest.industry} 平均跌幅 ${weakest.avg_change_percent.toFixed(2)}%` });
-    }
-    if (risks.length === 0) {
-      risks.push({ level: 'low', label: '结构平稳', detail: '当前未见显著系统性风险信号' });
-    }
+    // 3) 风险信号（只在真实数据支撑下才生成，见 buildRisks注释）
+    const risks = buildRisks(risingRatio, sorted);
 
     // 4) 候选标的（主线行业领涨股，去重）
     const leaderSymbols = Array.from(new Set(themes.flatMap((t) => t.leaderSymbols.map((l) => l.symbol))));
     const candidates = await fetchCandidateCards(leaderSymbols.slice(0, 8));
 
     // 5) LLM 撰写观点（可用时）；不可用则规则结论
-    let narrative = buildRuleNarrative(temperature, themes, risks);
+    let narrative = buildRuleNarrative(temperature, themes, risks, hasSectorData);
     let llmUsed = false;
-    try {
-      const themeSummary = themes.map((t) =>
-        `${t.industry} 景气度${t.score}，平均涨跌${t.avgChangePercent.toFixed(2)}%，涨停${t.limitUpCount}只`,
-      ).join('；');
-      const riskSummary = risks.map((r) => `${r.label}：${r.detail}`).join('；');
-      const ai = await aiService.chat({
-        messages: [{
-          role: 'user' as const,
-          content: `基于以下实时市场信号，用 3-4 句中文给出今日 A 股「诊脉」观点，先结论后依据，专业克制，结尾必须带 ⚠️ 风险提示。不要荐股、不预测点位。
+    // 诚实红线（P0-PULSE 缺陷④）：广度不可得时**不调用 LLM**。
+    // 否则等于把编造的「上涨/下跌 0/0（占比 0.0%）」喂给 LLM，
+    // 让它照着编出一篇市场解读，再由 dataSource:'real' 背书交给用户。
+    if (hasMarketData) {
+      try {
+        const themeSummary = themes.length
+          ? themes.map((t) =>
+              `${t.industry} 景气度${t.score}，平均涨跌${t.avgChangePercent.toFixed(2)}%，涨停${t.limitUpCount}只`,
+            ).join('；')
+          : '板块数据不可用';
+        const riskSummary = risks.map((r) => `${r.label}：${r.detail}`).join('；');
+        const ai = await aiService.chat({
+          messages: [{
+            role: 'user' as const,
+            content: `基于以下实时市场信号，用 3-4 句中文给出今日 A 股「诊脉」观点，先结论后依据，专业克制，结尾必须带 ⚠️ 风险提示。不要荐股、不预测点位。
 
 市场温度：${temperature.label}${temperature.score === null ? '' : `(${temperature.score}/100)`}
-上涨/下跌家数：${rising}/${falling}（占比 ${(risingRatio * 100).toFixed(1)}%）
-涨停：${limitUp} 只
+上涨/下跌家数：${rising}/${falling}（占比 ${risingRatio === null ? '不可用' : `${(risingRatio * 100).toFixed(1)}%`}）
+涨停：${limitUp === null ? '不可用' : `${limitUp} 只`}
 主线行业：${themeSummary}
 风险信号：${riskSummary}`,
-        }],
-        temperature: 0.5,
-        maxTokens: 400,
-      });
-      if (ai?.content) { narrative = ai.content; llmUsed = true; }
-    } catch (e) {
-      log.warn('LLM 观点生成不可用，降级为规则结论:', { error: (e as Error).message });
+          }],
+          temperature: 0.5,
+          maxTokens: 400,
+        });
+        if (ai?.content) { narrative = ai.content; llmUsed = true; }
+      } catch (e) {
+        log.warn('LLM 观点生成不可用，降级为规则结论:', { error: (e as Error).message });
+      }
     }
+
+    // dataSource 由**实际可用性**推导，禁止硬编码 'real'（P0-PULSE 缺陷②）
+    const dataSource = hasMarketData ? 'real' : 'unavailable';
 
     sendSuccess(res, {
       data: {
         temperature,
-        breadth: { rising, falling, risingRatio: Number((risingRatio * 100).toFixed(1)) },
+        // breadth 三字段均为业务量：不可得时是 null（=查不到），不是 0
+        breadth: risingRatio === null
+          ? null
+          : { rising, falling, risingRatio: Number((risingRatio * 100).toFixed(1)) },
         limitUp,
         themes,
         risks,
         candidates,
         narrative,
         llmUsed,
-        dataSource: 'real',
+        dataSource,
+        // 分块可用性：让前端/下游能区分「广度缺失」与「板块缺失」，
+        // 而不是只看到一个笼统的 unavailable
+        availability: { breadth: hasMarketData && risingRatio !== null, sectors: hasSectorData },
         generatedAt: new Date().toISOString(),
       },
     });
@@ -260,6 +366,7 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
         narrative: '市场信号暂不可用，请稍后重试。',
         llmUsed: false,
         dataSource: 'unavailable',
+        availability: { breadth: false, sectors: false },
       },
       timestamp: new Date().toISOString(),
     });
