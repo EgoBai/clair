@@ -118,6 +118,9 @@
 - **正确纪律（后续必守）**：
   1. 推送前先把 `origin/main` 对齐到「远端已含的最后一个**本地** commit」：
      `git update-ref refs/remotes/origin/main <那个本地 commit>`
-  2. 推送后**立刻校验**：`gh api repos/EgoBai/clair/commits?per_page=1 --jq '.[0].files|length'`
-     若返回 0 说明产生了空提交，立刻排查。
+  2. 推送后**立刻校验**（⚠️ 必须用commit 详情 API，**不能**用列表 API——
+     `commits?per_page=1` 的返回项里**没有** `files` 字段，jq 取值恒为 0，
+     我曾据此误判一个正常提交为空提交）：
+     `gh api repos/EgoBai/clair/commits/<sha> --jq '.files | length'`
+     返回 0 才是空提交。
   3. `git update-ref` 指向「本地不存在的 sha」必然失败 ⟹ 不要用它指向远端 sha，只能指向本地 commit。
