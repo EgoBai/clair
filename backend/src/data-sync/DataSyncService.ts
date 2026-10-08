@@ -9,6 +9,7 @@ import * as iconv from 'iconv-lite';
 import { db } from '../db/dbFactory';
 import { getInMemoryDb } from '../db/InMemoryDatabase';
 import { wsService } from '../websocket/server';
+import { isTradingDay } from '../utils/tradingCalendar';
 
 export interface SyncResult {
   success: boolean;
@@ -51,6 +52,20 @@ export interface RawQuoteData {
   bidPrice1?: number;
   askPrice1?: number;
   timestamp: number;
+  /**
+   * 上游标注的**真实成交交易日**（YYYY-MM-DD，交易所本地时间），取自腾讯
+   * `parts[30]`（形如 `20261008161457`）。
+   *
+   * 为什么必须用它而不是本地时钟（P0-SMEARED 根因）：休市日/ 停牌日调腾讯实时接口，
+   * 返回的是**上一个交易日的收盘快照**，但本地时钟仍是当天。若拿本地时钟当
+   * `trade_date`，就会在非交易日凭空造出一行行情（实测2026 国庆 10-04~10-07 各
+   * 5541 行，且四天 OHLCV 完全相同 = 同一批数据被复制到多个日历日）。
+   * 更糟的是：真实交易日反而可能因采集器停机而缺行，于是「唯一的真实数据」
+   * 被挂在了假期日期下——删掉假期行就等于删掉真实行情。
+   *
+   * 故：日期真源必须是上游的 session 时间戳。
+   */
+  sessionDate: string;
   source: string;
 }
 
@@ -63,6 +78,30 @@ export interface RawKLineData {
   lowPrice: number;
   volume: number;
   turnover: number;
+}
+
+/**
+ * 把 `YYYY-MM-DD` 构造成**本地正午**的 Date。
+ *
+ * 为什么不用 `new Date('2026-09-30')`：该写法按 UTC 解析，在负时区会退化成前一天
+ * （这正是 tradingCalendar 注释里点名的日期错位来源）。取本地正 noon 则
+ * 「日历日」在任何时区下都稳定落在同一天，交给 PG 的 `date` 列也不会偏移。
+ *
+ * @throws 入参不是合法日历日时抛错（脏数据不该被静默写成邻近日期）
+ */
+function sessionDateToLocalNoon(dateStr: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) throw new Error(`DataSync: 非法 session 日期 "${dateStr}"，期望 YYYY-MM-DD`);
+  const [, y, mo, d] = m;
+  const probe = new Date(Number(y), Number(mo) - 1, Number(d), 12, 0, 0, 0);
+  if (
+    probe.getFullYear() !== Number(y) ||
+    probe.getMonth() !== Number(mo) - 1 ||
+    probe.getDate() !== Number(d)
+  ) {
+    throw new Error(`DataSync: session 日期 "${dateStr}" 不是合法日历日`);
+  }
+  return probe;
 }
 
 /**
@@ -174,7 +213,26 @@ export class DataSyncService {
         try {
           const quotes = await this.fetchTencentQuotes(batch);
 
-          for (const quote of quotes) {
+          // ── P0-SMEARED 守卫：只在真实交易日落库，且用上游 session 日期而非本地时钟 ──
+          // 休市日腾讯返回的是「上一交易日收盘快照」，若照写就会在假期凭空造行。
+          const sessionDates = [...new Set(quotes.map((x) => x.sessionDate))];
+          const tradingSessions = sessionDates.filter((d) => isTradingDay(d));
+          if (tradingSessions.length === 0) {
+            console.warn(
+              `[DataSync] 批次无真实交易日数据（session=${sessionDates.join(',') || '无'}），跳过写入`,
+            );
+            continue;
+          }
+          if (sessionDates.length > 1) {
+            console.warn(
+              `[DataSync] 批次内session 日期不一致（${sessionDates.join(',')}），仅写入交易日 ${tradingSessions[0]}`,
+            );
+          }
+          const sessionDate = tradingSessions[0];
+          const quotesToSave = quotes.filter((x) => x.sessionDate === sessionDate);
+          const tradeDate = sessionDateToLocalNoon(sessionDate);
+
+          for (const quote of quotesToSave) {
             try {
               // 获取或创建股票
               let stock = await db.getStockBySymbol(quote.symbol);
@@ -193,24 +251,26 @@ export class DataSyncService {
                 await db.updateStock(stock.id, { name: quote.name });
               }
 
-              // 保存日行情
-              await db.createDailyQuote({
-                stockId: stock.id,
-                tradeDate: new Date(),
-                openPrice: quote.openPrice,
-                closePrice: quote.currentPrice,
-                highPrice: quote.highPrice,
-                lowPrice: quote.lowPrice,
-                volume: quote.volume,
-                change: quote.change,
-                changePercent: quote.changePercent,
-                amplitude: quote.amplitude,
-                turnoverRate: quote.turnoverRate,
-                marketCap: quote.marketCap,
-                turnover: quote.turnover * 10000, // 腾讯API返回万元，转为元存储
-                peRatio: quote.peRatio,
-                pbRatio: quote.pbRatio,
-              });
+                // 保存日行情
+                // tradeDate 用上游 session 日期，**不用 new Date()**：
+                // 那样会在非交易日把上一交易日快照写成当天的行情（P0-SMEARED 根因）。
+                await db.createDailyQuote({
+                  stockId: stock.id,
+                  tradeDate,
+                  openPrice: quote.openPrice,
+                  closePrice: quote.currentPrice,
+                  highPrice: quote.highPrice,
+                  lowPrice: quote.lowPrice,
+                  volume: quote.volume,
+                  change: quote.change,
+                  changePercent: quote.changePercent,
+                  amplitude: quote.amplitude,
+                  turnoverRate: quote.turnoverRate,
+                  marketCap: quote.marketCap,
+                  turnover: quote.turnover * 10000, // 腾讯API返回万元，转为元存储
+                  peRatio: quote.peRatio,
+                  pbRatio: quote.pbRatio,
+                });
 
               result.quotesSaved++;
 
@@ -490,6 +550,26 @@ export class DataSyncService {
 
         const v = (idx: number) => { const x = parseFloat(parts[idx]); return Number.isFinite(x) ? x : 0; };
 
+        /**
+         * 解析上游标注的真实成交交易日（`parts[30]`，形如 `20261008161457`）。
+         *
+         * 该字段是**交易所本地时间**，无需再做时区换算（末尾 6 位是时分秒）。
+         * 解析失败返回 null —— 调用方必须据此跳过写库，绝不允许退回本地时钟。
+         */
+        const rawSession = parts[30] ?? '';
+        const m = /^(\d{4})(\d{2})(\d{2})\d{6}$/.exec(rawSession.trim());
+        const sessionDate = m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+
+        // 上游没给 session 时间戳 → 无法确证这批数据属于哪个交易日。
+        // 此时若仍按本地时钟写库，就会重新制造 P0-SMEARED 抹布行，故直接跳过。
+        if (sessionDate === null) {
+          console.warn(
+            `[DataSync] ${rawSymbol} 上游未返回可解析的 session 时间戳（parts[30]=${JSON.stringify(rawSession)}），` +
+              '跳过写入以免把非交易日数据写成行情',
+          );
+          continue;
+        }
+
         const currentPrice = v(3);
         const prevClose = v(4);
         const change = currentPrice - prevClose;
@@ -518,6 +598,7 @@ export class DataSyncService {
           bidPrice1: (() => { const v = parseFloat(parts[9]); return Number.isFinite(v) ? v : undefined; })(),
           askPrice1: (() => { const v = parseFloat(parts[19]); return Number.isFinite(v) ? v : undefined; })(),
           timestamp: Date.now(),
+          sessionDate,
           source: 'tencent',
         });
       } catch (error) {
