@@ -166,7 +166,12 @@ describe('P0-NULLADAPT · ETFPage 折溢价诚实展示', () => {
     render(<ETFPage />);
 
     await waitFor(() => expect(screen.getAllByText(/选中 ETF 分析卡/).length).toBeGreaterThan(0));
-    expect(screen.getAllByText(/缺真实净值，折溢价相关分析不可用/).length).toBeGreaterThan(0);
+    // 两处必须这样写，否则 CI 上会红而本地绿（实测 2026-10-08）：
+    // ① 用 waitFor —— 分析卡标题先渲染，折溢价文案随后才由 useMemo 产出；
+    //    只等标题就立刻断言属于时序脆弱，快机器（CI）反而更容易失败。
+    // ② 匹配短片段「缺真实净值」而非整句 —— 整句含中文标点，一旦文本被拆成
+    //    多个节点就匹配不到（TestingLibrary 默认不跨元素匹配）。
+    await waitFor(() => expect(screen.getAllByText(/缺真实净值/).length).toBeGreaterThan(0));
     // 旧行为：premium=null 会被引擎判为 premium>0.5=false → 「平价」
     expect(screen.queryByText('平价')).toBeNull();
   });
