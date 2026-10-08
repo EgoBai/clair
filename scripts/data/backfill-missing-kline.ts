@@ -132,6 +132,8 @@ const LIMIT = Number(opt('limit') ?? '0');
 const OUT = opt('out');
 /** 断点续跑：跳过该文件里已处理过的 symbol */
 const RESUME = opt('resume');
+/** 只写入该 TSV 产物（配合 --apply），不再重新抓取上游 */
+const WRITE_FROM = opt('write-file');
 
 if (DATES.length === 0) {
   console.error('必须显式指定 --dates=YYYY-MM-DD,...（本脚本拒绝猜测要补哪天）');
@@ -470,11 +472,54 @@ async function main() {
   }
   console.log(`\n备份已确认存在: ${BACKUP}`);
 
+  // ── 写入来源：本次抓取的内存数据，或 --write-file 指定的已落盘产物 ──
+  let rows: Pending[] = pending;
+  if (WRITE_FROM) {
+    if (!existsSync(WRITE_FROM)) {
+      console.error(`\n✗ --write-file 指向的文件不存在: ${WRITE_FROM}`);
+      process.exit(2);
+    }
+    rows = [];
+    const seen = new Set<string>();
+    for (const line of readFileSync(WRITE_FROM, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      const p = line.split('\t');
+      if (p.length < 13) continue;
+      const [, stockId, tradeDate, o, c, h, l, v, t, ca, cp, amp, tr] = p;
+      // 三重校验之三：产物里的日期必须仍在本次显式指定的白名单内
+      if (!target.has(tradeDate)) {
+        console.error(`\n✗ 产物含白名单外的日期 ${tradeDate}，拒绝写入`);
+        process.exit(2);
+      }
+      const key = `${stockId}|${tradeDate}`;
+      if (seen.has(key)) continue; // 同键重复（断点续跑可能重叠）→ 只写一次
+      seen.add(key);
+      rows.push({
+        stockId: Number(stockId),
+        tradeDate,
+        open: Number(o), close: Number(c), high: Number(h), low: Number(l),
+        volume: Number(v), turnover: Number(t),
+        changeAmount: Number(ca), changePercent: Number(cp),
+        amplitude: Number(amp), turnoverRate: Number(tr),
+      });
+    }
+    console.log(`从产物读入 ${rows.length} 行（去重后），来源 ${WRITE_FROM}`);
+    const byFile = new Map<string, number>();
+    for (const r of rows) byFile.set(r.tradeDate, (byFile.get(r.tradeDate) ?? 0) + 1);
+    for (const d of DATES) console.log(`  ${d}: ${byFile.get(d) ?? 0} 行`);
+    // OHLC 完整性最后一道闸：不允许把 0 价写进库
+    const bad = rows.filter((r) => !(r.open > 0 && r.close > 0 && r.high > 0 && r.low > 0));
+    if (bad.length) {
+      console.error(`\n✗ 产物中有 ${bad.length} 行 OHLC 非正，拒绝写入`);
+      process.exit(2);
+    }
+  }
+
   // 分批写入，ON CONFLICT DO NOTHING 保证既有行不被覆盖
   const CHUNK = 500;
   let written = 0;
-  for (let i = 0; i < pending.length; i += CHUNK) {
-    const chunk = pending.slice(i, i + CHUNK);
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
     const values = chunk
       .map(
         (p) =>
@@ -487,7 +532,7 @@ async function main() {
       ON CONFLICT (stock_id, trade_date) DO NOTHING`;
     sql(query);
     written += chunk.length;
-    if (written % 2000 === 0) process.stdout.write(`  ...已写 ${written}/${pending.length}\n`);
+    if (written % 2000 === 0) console.log(`  ...已写 ${written}/${rows.length}`);
   }
   console.log(`\n写入完成: 提交 ${written} 行（含被 ON CONFLICT 跳过的既有行）`);
 }
