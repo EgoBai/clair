@@ -23,8 +23,18 @@
  * 重复跑不会误删：
  * 1. 只删「非交易日」的行 → 跑第二遍时这些行已不存在，删 0 行；
  * 2. 不依赖任何「上一次状态」，无计数器、无偏移；
- * 3. 内置载荷指纹守卫：把抹布日按「载荷指纹」分组，交易日也持有该指纹的整组才删，
- *    指纹独一无二的那组保留最早一天（详见下节）。
+ * 3. 🔒 **白名单硬约束**：裁决保护的 5 个日期在所有分支之后统一收口，
+ *    任何路径（含 `--force-unique`）都删不到它们，除非显式
+ *    `--override-leadership-decision`。
+ *
+ * ## 三层防线（从硬到软）
+ * 1. 🔒 **白名单**（`PROTECTED_DATES`）：人的裁决，硬约束，优先级最高；
+ * 2. 载荷指纹分组：区分「纯复制行」与「唯一载体行」，后者默认不删；
+ * 3. `--apply` 强制要求 `--backup` 指向已存在的备份文件。
+ *
+ * 之所以要有第 1 层：**「保留载体日」是裁决（不可变量），载荷指纹是算出来的
+ * 变量**。用变量保障不可变量是脆弱的——补数改变载体日载荷后指纹可能变重复，
+ * 第2 层就会把它当纯复制行删掉，裁决被一个算出来的量推翻。
  *
  * ## 关键教训：不是所有抹布行都能直接删（P0-SMEARED 实测）
  * 抹布行的本质是「同一批数据被复制到多个日历日」，但**并非每个抹布日都是冗余的**。
@@ -38,10 +48,10 @@
  * 若无差别删除 10-04，就等于**删掉了全库唯一的 09-30 真实行情**。
  * 故本脚本对「载荷唯一」的抹布日默认**只报告不删**，需显式 `--force-unique`。
  *
- * ## ⚠️ 主理人裁决：5 个唯一载体日「保留，不删」
+ * ## 🔒 主理人裁决：5 个日期「保留，不删」
  * 下列日期**明知是非交易日、却必须保留**，禁止「顺手清理」：
  *
- * | 日期| 载荷实为 | 行数 |
+ * | 日期 | 载荷实为 | 行数 |
  * |---|---|---|
  * | 2026-05-30 | 唯一载体（另含指数串位，见下） | 109 |
  * | 2026-06-06 | 唯一载体（另含指数串位，见下） | 109 |
@@ -49,14 +59,14 @@
  * | 2026-09-06 | 真实 2026-09-04 收盘 | 5,541 |
  * | 2026-10-04 | 真实 2026-09-30 收盘 | 5,541 |
  *
- * 裁决理由（team-lead，commit `c56ad2b0b` 收口时定）：
+ * 裁决理由（team-lead）：
  * 1. 删的代价**不可逆**（丢真实行情），留的代价只是「非交易日行仍在库」；
  * 2. 项目当前核心矛盾是**缺数据**，不是「多几行脏数据」，为清理而丢真实行情是本末倒置；
  * 3. 它们仍是非交易日，端点若直接 `MAX(trade_date)` 可能命中 —— 但这**应靠
  *    `resolveQueryDate()` 的交易日校验解决，不是靠删数据解决**；
- * 4. 待补数把它们转正到正确日期后，用 `--force-unique` 一条命令即可清掉。
+ * 4. 待补数把它们转正到正确日期后，用 `--override-leadership-decision` 清理。
  *
- * 计划：先重跑 K 线同步补齐 09-28/29/30 等缺口，再执行 `--force-unique`。
+ * 计划：先重跑 K 线同步补齐 09-28/29/30 等缺口，再清理。
  *
  * 另注：`2026-05-30` / `2026-06-06` 那 109 行内含**指数串位**
  * （`000001 平安银行` 收 4068.57 实为沪深300 指数点位，指数被写进了个股行）。
@@ -84,8 +94,12 @@
  * # 只看某段时间
  * npx tsx scripts/data/scrub-smeared-daily-quotes.ts --from=2026-10-01 --to=2026-10-09
  *
- * # 连「载荷唯一」的抹布日一并删（⚠️ 会丢失其承载的真实交易日数据）
+ * # 连「载荷唯一」的抹布日一并删（白名单仍受保护）
  * npx tsx scripts/data/scrub-smeared-daily-quotes.ts --apply --force-unique \
+ *   --backup=/tmp/clair-backups/clair-before-scrub.sql
+ *
+ * # ⚠️⚠️ 连裁决保护的 5 个载体日也删（推翻主理人裁决，仅在明确授权时用）
+ * npx tsx scripts/data/scrub-smeared-daily-quotes.ts --apply --override-leadership-decision \
  *   --backup=/tmp/clair-backups/clair-before-scrub.sql
  * ```
  *
@@ -113,6 +127,40 @@ const APPLY = flag('apply');
 const ALL_YEARS = flag('all-years');
 /** 连「载荷唯一」的抹布日也删（⚠️ 会丢失其承载的真实交易日数据） */
 const FORCE_UNIQUE = flag('force-unique');
+/**
+ * 显式覆盖「保留载体日」裁决（⚠️⚠️ 极危险，仅供主理人推翻自己裁决时使用）
+ *
+ * 存在理由：白名单是**人的裁决**，而载荷指纹是**算出来的变量**。
+ * 若补数改变了某载体日的载荷、使其指纹与其他日期重复，旧的「载荷唯一才保留」
+ * 机制就会把它当纯复制行删掉——用变量保障不可变量本身是脆弱的。
+ */
+const OVERRIDE_DECISION = flag('override-leadership-decision');
+
+/**
+ * ## 🔒 白名单：主理人裁决「永不删除」的日期（硬约束）
+ *
+ * 这些日期**无论载荷指纹如何变化、无论是否出现新的重复载荷，一律不删**。
+ *
+ * ## 为什么必须是显式白名单，而不是「载荷唯一才保留」
+ * 「保留载体日」是**人的裁决**（不可变量），而载荷指纹是**算出来的变量**。
+ * 用变量保障不可变量是脆弱的：补数覆盖了载体日内某些行后，其指纹可能变得
+ * 与其他日期重复，旧的「载荷唯一才保留」机制就会把它当纯复制行删掉——
+ * **裁决会被一个算出来的量推翻**。
+ *
+ * 叠加 P0-IDXBLEED 后这个风险更现实：载体日同时又是「含坏数据的可疑日」，
+ * 补数时极易顺手整日删除，那会连带丢掉 105 / 59 行真实行情。
+ *
+ * 依据：team-lead裁决（commit c56ad2b0b 收口、320e6b080 批准加固）。
+ * 若要推翻这条裁决，必须显式传 `--override-leadership-decision`，
+ * 且脚本会打出二次警告——**绕过裁决应当是刻意行为，而非默认行为**。
+ */
+const PROTECTED_DATES: ReadonlySet<string> = new Set([
+  '2026-05-30',
+  '2026-06-06',
+  '2026-07-11',
+  '2026-09-06',
+  '2026-10-04',
+]);
 const FROM = opt('from');
 const TO = opt('to');
 const BACKUP = opt('backup');
@@ -297,17 +345,58 @@ async function main(): Promise<void> {
     );
     console.log('采集器在 09-28~09-30 停机，真实数据被挂到了 10-04。');
     if (!FORCE_UNIQUE) {
-      console.log('\n主理人裁决（commit c56ad2b0b 收口）：这 5 个唯一载体日【保留，不删】。');
-      console.log('理由：删除不可逆（丢真实行情），而项目当前核心矛盾是缺数据；');
-      console.log('      非交易日残留应由 resolveQueryDate() 的交易日校验解决，不是靠删数据。');
-      console.log('计划：先重跑 K 线同步补齐缺口、把数据转正到正确日期，再用 --force-unique 清理。');
-      console.log('\n未加 --force-unique → 上述唯一载体行原样保留，只删纯复制日。\n');
+      console.log('\n以上唯一载体日同时也在 🔒 白名单中（主理人裁决，见下节），双重保护。');
+      console.log('计划：先重跑 K 线同步补齐缺口、把数据转正到正确日期，再考虑清理。\n');
     }
   }
 
-  const toDelete = FORCE_UNIQUE ? smeared : deletable;
+  const deleteCandidates = FORCE_UNIQUE ? smeared : deletable;
+
+  // ── 🔒 白名单硬约束：裁决保护的日期一律不删，且在所有分支之后统一收口 ──
+  // 放在最后是刻意的：无论前面走了「载荷唯一」「--force-unique」还是
+  // 「交易日也持有该指纹」哪条路径，白名单都不可被绕过。
+  const whitelistKept = deleteCandidates.filter((s) => PROTECTED_DATES.has(s.date));
+  const toDelete = OVERRIDE_DECISION
+    ? deleteCandidates
+    : deleteCandidates.filter((s) => !PROTECTED_DATES.has(s.date));
+
+  // 白名单里「库中已不存在」的日期也要报出来：说明它已被别的清洗删过，属异常
+  const absentFromDb = [...PROTECTED_DATES].filter(
+    (d) => !smeared.some((s) => s.date === d),
+  );
+
+  console.log('━━━ 🔒 白名单：主理人裁决「永不删除」 ━━━');
+  console.log('以下日期无论指纹如何变化、无论是否出现新的重复载荷，一律不删：\n');
+  console.log('日期          星期  库内行数   状态');
+  console.log('─'.repeat(58));
+  for (const d of [...PROTECTED_DATES].sort()) {
+    const hit = smeared.find((s) => s.date === d);
+    const dow = weekdayCn(d);
+    if (hit) {
+      console.log(
+        `${d}  周${dow}  ${Number(hit.rows).toLocaleString('en-US').padStart(9)}   在库· 本次受保护${
+          whitelistKept.some((k) => k.date === d) ? '（原会被列入删除，已拦截）' : ''
+        }`,
+      );
+    } else {
+      console.log(`${d}  周${dow}  ${'—'.padStart(9)}   ⚠️ 库中已无此日（应保留，请核查是否被误删）`);
+    }
+  }
+  if (absentFromDb.length > 0) {
+    console.log(`\n⚠️ 白名单中有 ${absentFromDb.length} 天在库中已不存在：${absentFromDb.join(', ')}`);
+    console.log('   这说明它们可能已被其它清洗删除——若非有意，请从备份恢复。');
+  }
+  if (OVERRIDE_DECISION) {
+    console.log('\n╔══════════════════════════════════════════════════════════╗');
+    console.log('║ ⚠️⚠️  已启用 --override-leadership-decision                ║');
+    console.log('║ 本次将**无视白名单**，连裁决保护的载体日也一并删除。      ║');
+    console.log('║ 这会永久丢失真实交易日数据，且不可逆。                    ║');
+    console.log('╚══════════════════════════════════════════════════════════╝');
+  }
+  console.log('');
+
   if (toDelete.length === 0) {
-    console.log('✓ 没有可安全删除的纯复制行（唯一载体行需 --force-unique）。');
+    console.log('✓ 本次无可删除的日期（白名单之外的纯复制行已全部清完）。');
     return;
   }
 
