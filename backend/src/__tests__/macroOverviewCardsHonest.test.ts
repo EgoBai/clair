@@ -165,8 +165,16 @@ describe('P0-MACROCARDS · /api/macro/overview：dataSource 必须由「卡片�
   describe('场景 A｜db.getMarketSummary() 返回真实数据', () => {
     beforeEach(() => {
       dbMock.getMarketSummary.mockImplementation(async (d: Date) => {
-        // 逐日回溯：给最近 3 个自然日返回数据，第 4 天起返回 null
-        const back = Math.round((Date.now() - d.getTime()) / 86400000);
+        // 逐日回溯：给最近 3 个交易日返回数据，第 4 天起返回 null。
+        // ⚠️ 必须按「日历日」算back，不能用 Date.now() 直接减：
+        // d 已被生产代码 setHours(0,0,0,0) 归零，而 Date.now() 是当前时刻
+        // （例如 13:20），两者相差不足 1 天，`Math.round(0.55) = 1`
+        // 会让「今天」被错算成 back=1，索引整体错位且提前命中 back>2，
+        // 最终只回溯出 2 天 —— 该缺陷曾表现为 CI 单测失败。
+        const utcDay = (x: Date) =>
+          Date.UTC(x.getFullYear(), x.getMonth(), x.getDate());
+        const now = new Date();
+        const back = Math.round((utcDay(now) - utcDay(d)) / 86400000);
         if (back > 2) return null;
         const rising = [1622, 2338, 1074][back];
         const falling = [3448, 2691, 3983][back];
