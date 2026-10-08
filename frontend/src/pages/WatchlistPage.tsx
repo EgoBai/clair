@@ -12,7 +12,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Input, Modal, message, Tag, Space, Typography,
-  Popconfirm, Card, Row, Col, Statistic, Badge, Tooltip,
+  Popconfirm, Card, Row, Col, Statistic, Badge, Tooltip, Alert,
 } from 'antd';
 import { LoadingStateDetail, EmptyState, EmptySearch } from '../components/Common/StateComponents';
 import {
@@ -27,6 +27,7 @@ import { apiFetch } from '../utils/api';
 import {
   fetchAlertsForSymbols,
   describeAlertsOutcome,
+  STRATEGY_SIGNALS_UNAVAILABLE_NOTICE,
 } from '../hooks/useWatchlistData';
 import { renderMarkdown } from '../utils/markdown';
 import type { ColumnsType } from 'antd/es/table';
@@ -89,6 +90,9 @@ interface StrategySignal {
   signal: 'buy' | 'sell' | 'hold';
   score: number;
 }
+
+/** 策略信号恒定不可用（P0-DEADLINK）：后端从未注册该端点，故恒为空对象 */
+const EMPTY_STRATEGY_SIGNALS: Record<string, StrategySignal> = Object.freeze({});
 
 /* ─── Helper: default groups ─── */
 function getDefaultGroups(): WatchlistGroup[] {
@@ -165,6 +169,8 @@ function generateRuleBasedSummary(
   }
 
   // 策略信号
+  // P0-DEADLINK：signals 恒为空（死链已删），此处过去会因空对象而整段跳过，
+  // 让人误以为「组合无买入/卖出信号」。现显式说明未接入，不静默省略。
   if (Object.keys(signals).length > 0) {
     const buySignals = Object.entries(signals).filter(([, s]) => s.signal === 'buy');
     const sellSignals = Object.entries(signals).filter(([, s]) => s.signal === 'sell');
@@ -176,6 +182,8 @@ function generateRuleBasedSummary(
       const list = sellSignals.map(([sym, s]) => `${quotes[sym]?.name || sym}(**${s.score}分**)`).join('、');
       parts.push(`\n**⚠️ 卖出信号**：${list}`);
     }
+  } else {
+    parts.push(`\n**ℹ️ 策略信号**：尚未接入（后端未提供个股策略信号接口），本摘要不含买入/卖出信号与评分。`);
   }
 
   // 异动提醒
@@ -494,7 +502,8 @@ const WatchlistPage: React.FC = () => {
   const [alertsLoading, setAlertsLoading] = useState(false);
   /** 部分标的查询失败 / 截断的说明；null = 查询完整成功（P0-ALERTFE 诚实红线） */
   const [alertsNotice, setAlertsNotice] = useState<string | null>(null);
-  const [signals, setSignals] = useState<Record<string, StrategySignal>>({});
+  // P0-DEADLINK：signals 恒空（死链已删），signalsNotice 恒为「未接入」说明。
+  // 二者均在下方 fetchSignals 原位置以常量声明，见该处注释。
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [aiSummary, setAiSummary] = useState<string>('');
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
@@ -588,28 +597,14 @@ const WatchlistPage: React.FC = () => {
     }
   }, [symbols.join(','), currentGroup]);
 
-  /* ─── Fetch strategy signals ─── */
-  const fetchSignals = useCallback(async () => {
-    if (symbols.length === 0) { setSignals({}); return; }
-    const newSignals: Record<string, StrategySignal> = {};
-    await Promise.allSettled(
-      symbols.map(async (sym) => {
-        try {
-          const resp = await apiFetch(`/api/stocks/${sym}/strategy`);
-          const data = await resp.json();
-          if (data.success && data.data) {
-            newSignals[sym] = {
-              signal: data.data.signal || 'hold',
-              score: data.data.score ?? 50,
-            };
-          }
-        } catch {
-          // fail silently per spec
-        }
-      }),
-    );
-    setSignals(newSignals);
-  }, [symbols.join(',')]);
+  /* ─── 策略信号：后端无此能力，恒定不可用（P0-DEADLINK）───
+ * 原实现在此 fetch `/api/stocks/${sym}/strategy`，但后端 routeAutoRegistry
+ * 从未注册该路径，实测恒 404，被 catch 静默吞掉后 signals 恒为 {}——
+ * 用户看到「这些股票没有信号」，实际是「没有数据源」，属静默误导。
+ * 现删除该请求：signals 恒空，并由 signalsNotice 常驻说明「未接入」。
+ * 下游三处消费（表格「信号」列、策略信号概览卡、AI 摘要）均已适配为诚实展示。 */
+  const signals = EMPTY_STRATEGY_SIGNALS;
+  const signalsNotice = STRATEGY_SIGNALS_UNAVAILABLE_NOTICE;
 
   /* ─── Fetch AI summary (with rule-based fallback) ─── */
   const fetchAiSummary = useCallback(async () => {
@@ -699,18 +694,16 @@ const WatchlistPage: React.FC = () => {
   useEffect(() => {
     fetchQuotes();
     fetchAlerts();
-    fetchSignals();
 
     fetchTimerRef.current = setInterval(() => {
       fetchQuotes();
       fetchAlerts();
-      fetchSignals();
     }, 30000);
 
     return () => {
       if (fetchTimerRef.current) clearInterval(fetchTimerRef.current);
     };
-  }, [fetchQuotes, fetchAlerts, fetchSignals]);
+  }, [fetchQuotes, fetchAlerts]);
 
   /* ─── Auto-fetch AI recommendations after quotes load ─── */
   useEffect(() => {
@@ -727,10 +720,9 @@ const WatchlistPage: React.FC = () => {
   }, [quotes, fetchAiSummary]);
 
   /* ─── Manual refresh ─── */
-  const handleManualRefresh = () => {
-    fetchQuotes();
+const handleManualRefresh = () => {
+ fetchQuotes();
     fetchAlerts();
-    fetchSignals();
     message.success('已刷新');
   };
 
@@ -793,7 +785,8 @@ const WatchlistPage: React.FC = () => {
       stocks: g.stocks.filter(s => s.symbol !== symbol),
     })));
     setQuotes(prev => { const n = { ...prev }; delete n[symbol]; return n; });
-    setSignals(prev => { const n = { ...prev }; delete n[symbol]; return n; });
+    // P0-DEADLINK：原先这里还 setSignals(...) 清理缓存，
+    // 但 signals 已是恒空常量、无 setter（死链删除后不再有信号缓存可清），故移除。
     toast('已从自选股移除', { type: 'info' });
   }, []);
 
@@ -967,12 +960,20 @@ const WatchlistPage: React.FC = () => {
       },
     },
     {
-      title: '信号',
-      width: 70,
+      title: '信号（未接入）',
+      width: 90,
       align: 'center' as const,
       render: (_: unknown, r: WatchlistStock) => {
         const sig = signals[r.symbol];
-        if (!sig) return <Text type="secondary" style={{ fontSize: 11, color: TEXT_SEC }}>—</Text>;
+        // P0-DEADLINK：signals 恒空。原来的「—」会被读成「该股无信号」，
+        // 实为「无数据源」，故改为带提示的「未接入」，并把列名说清楚。
+        if (!sig) {
+          return (
+            <Tooltip title={signalsNotice}>
+              <Text type="secondary" style={{ fontSize: 11, color: TEXT_SEC, cursor: 'help' }}>未接入</Text>
+            </Tooltip>
+          );
+        }
         const colorMap: Record<string, { bg: string; text: string; label: string }> = {
           buy: { bg: 'rgba(207,42,42,0.15)', text: COLOR_UP, label: '买入' },
           sell: { bg: 'rgba(29,180,104,0.15)', text: COLOR_DOWN, label: '卖出' },
@@ -1199,8 +1200,11 @@ const WatchlistPage: React.FC = () => {
           </Col>
         </Row>
 
-        {/* ── 策略信号概览 ── */}
-        {symbols.length > 0 && Object.keys(signals).length > 0 && (
+        {/* ── 策略信号概览 ──
+            P0-DEADLINK：原先条件是 Object.keys(signals).length > 0，而 signals 因死链恒为空，
+            该卡片永不渲染 → 页面上「策略信号」整块静默消失，用户无从判断是「没信号」还是「没这功能」。
+            现改为常驻说明卡，明确告知未接入；不伪造任何信号标签。 */}
+        {symbols.length > 0 && (
           <Card
             style={{
               background: CARD_BG,
@@ -1210,39 +1214,17 @@ const WatchlistPage: React.FC = () => {
             }}
             styles={{ body: { padding: '16px 20px' } }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <LineChartOutlined style={{ color: ACCENT, fontSize: 16 }} />
               <Text strong style={{ color: TEXT, fontSize: 14 }}>策略信号</Text>
-              <Text style={{ color: TEXT_SEC, fontSize: 12 }}>基于技术分析的交易建议</Text>
+              <Text style={{ color: TEXT_SEC, fontSize: 12 }}>买入 / 卖出 / 评分</Text>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {Object.entries(signals).map(([sym, sig]) => {
-                const signalColor = sig.signal === 'buy' ? COLOR_UP : sig.signal === 'sell' ? COLOR_DOWN : TEXT_SEC;
-                const signalText = sig.signal === 'buy' ? '买入' : sig.signal === 'sell' ? '卖出' : '持有';
-                return (
-                  <div
-                    key={sym}
-                    onClick={() => navigate(`/stocks/${sym}`)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '8px 12px', background: 'var(--bg-surface)',
-                      border: `1px solid ${CARD_BORDER}`, borderRadius: 6,
-                      cursor: 'pointer', transition: 'border-color .15s',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = CARD_BORDER}
-                  >
-                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: TEXT, fontSize: 13 }}>
-                      {sym.replace(/\.(SH|SZ)$/, '')}
-                    </span>
-                    <Tag color={signalColor} style={{ margin: 0, fontSize: 11 }}>{signalText}</Tag>
-                    <span style={{ fontFamily: 'monospace', color: signalColor, fontSize: 12, fontWeight: 600 }}>
-                      {sig.score}分
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <Alert
+              type="info"
+              showIcon
+              message="策略信号尚未接入"
+              description={signalsNotice}
+            />
           </Card>
         )}
 

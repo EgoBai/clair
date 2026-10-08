@@ -107,8 +107,20 @@ export interface WatchlistDataState {
    * 用来把「查询失败」与「这些股票确实没有预警」区分开。
    */
   alertsNotice: string | null;
-  /** Strategy signals map: symbol → signal */
+  /**
+   * 策略信号 map: symbol → signal。
+   * P0-DEADLINK：后端**从未注册** `/api/stocks/:symbol/strategy`（实测 404，
+   * `rg "stocks/.*strategy" backend/src` 零命中），原实现在此拉取后被
+   * `.catch(() => null)` 吞成空对象，用户看到「无信号」却实为「无数据源」。
+   * 现已删除该请求，故本字段恒为空对象，**恒定不可用**。
+   * 请配合 signalsNotice 展示「未接入」说明，不要把它读成「该股无信号」。
+   */
   signals: Record<string, StrategySignal>;
+  /**
+   * 策略信号不可用说明（P0-DEADLINK）。
+   * 非 null 时必须展示给用户看，用来把「功能未接入」与「确实无信号」区分开。
+   */
+  signalsNotice: string | null;
   /** Last refresh timestamp */
   lastRefresh: Date;
   /** Manual refresh trigger */
@@ -122,6 +134,15 @@ export interface WatchlistDataState {
 /* ------------------------------------------------------------------ */
 
 const STORAGE_KEY = 'astock_watchlist_v2';
+
+/**
+ * 策略信号「未接入」统一说明（P0-DEADLINK）。
+ * 后端从未实现个股策略信号端点，前端不再请求；这里给UI 一句可直接展示的文案，
+ * 避免把「没有数据源」静默渲染成「这些股票没有信号」。
+ */
+export const STRATEGY_SIGNALS_UNAVAILABLE_NOTICE =
+  '策略信号（买入/卖出/评分）尚未接入：后端未提供个股策略信号接口，'
+  + '本页不展示任何信号，避免把「无数据源」误读为「无信号」。';
 
 function readWatchlistGroups(): WatchlistGroup[] {
   try {
@@ -307,7 +328,13 @@ export function useWatchlistData(autoRefreshMs = 0): WatchlistDataState {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsNotice, setAlertsNotice] = useState<string | null>(null);
-  const [signals, setSignals] = useState<Record<string, StrategySignal>>({});
+  // ---- 策略信号：后端无此能力，恒定不可用（P0-DEADLINK）----
+  // 原实现在此 fetch `/api/stocks/${sym}/strategy`，但后端 routeAutoRegistry
+  // 从未注册该路径，实测恒 404，被 catch 吞掉后 signals 恒为 {}——
+  // 用户看到「无信号」，实际是「没有数据源」，属静默误导。
+  // 现删除请求，改为显式置空 + 给出未接入说明，由UI 如实展示。
+  const signalsNotice = STRATEGY_SIGNALS_UNAVAILABLE_NOTICE;
+  const [signals] = useState<Record<string, StrategySignal>>({});
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
@@ -419,36 +446,14 @@ export function useWatchlistData(autoRefreshMs = 0): WatchlistDataState {
     }
   }, [symbolsKey, nameOf]);
 
-  // ---- Fetch strategy signals ----
-  const fetchSignals = useCallback(async () => {
-    if (allSymbols.length === 0) {
-      setSignals({});
-      return;
-    }
-    const newSignals: Record<string, StrategySignal> = {};
-    await Promise.allSettled(
-      allSymbols.map(async (sym) => {
-        try {
-          const resp = await apiFetch(`/api/stocks/${sym}/strategy`);
-          const data = await resp.json();
-          if (data.success && data.data) {
-            newSignals[sym] = {
-              signal: data.data.signal || 'hold',
-              score: data.data.score ?? 50,
-            };
-          }
-        } catch {
-          // fail silently
-        }
-      }),
-    );
-    setSignals(newSignals);
-  }, [symbolsKey]);
+  // ---- 策略信号：不再发请求（P0-DEADLINK）----
+  // 死链 `/api/stocks/:symbol/strategy` 已删除，signals 恒为空、signalsNotice 恒为未接入说明。
+  // 详见 signalsNotice 字段注释。
 
   // ---- Initial load + refresh ----
   const loadAll = useCallback(async () => {
-    await Promise.all([fetchQuotes(), fetchAlerts(), fetchSignals()]);
-  }, [fetchQuotes, fetchAlerts, fetchSignals]);
+    await Promise.all([fetchQuotes(), fetchAlerts()]);
+  }, [fetchQuotes, fetchAlerts]);
 
   useEffect(() => {
     loadAll();
@@ -473,9 +478,10 @@ export function useWatchlistData(autoRefreshMs = 0): WatchlistDataState {
     quotesLoading,
     alerts,
     alertsLoading,
-    alertsNotice,
-    signals,
-    lastRefresh,
+alertsNotice,
+  signals,
+  signalsNotice,
+  lastRefresh,
     refresh: loadAll,
     autoRefreshMs,
   };
@@ -492,6 +498,7 @@ export const EMPTY_WATCHLIST_DATA: WatchlistDataState = {
   alertsLoading: false,
   alertsNotice: null,
   signals: {},
+  signalsNotice: STRATEGY_SIGNALS_UNAVAILABLE_NOTICE,
   lastRefresh: new Date(),
   refresh: () => {},
   autoRefreshMs: 0,
