@@ -45,7 +45,9 @@ router.get(
   asyncHandler(async (_req, res) => {
     try {
       const data = await getRealMarketData();
-      sendHonest(res, 'real', data);
+      // RealMarketData 为具体 interface（无索引签名），不能直接赋给 Record<string, unknown>；
+      // 展开为普通对象即可，字段与运行期行为完全不变。
+      sendHonest(res, 'real', { ...data });
     } catch (e) {
       // 诚实降级：指数源失败时如实标注不可达，不编造数据
       sendHonest(res, 'unavailable', {
@@ -83,7 +85,10 @@ router.get(
         () => getKline(symbol, days),
         10 * 60 * 1000 // 日线数据 TTL 10 分钟
       );
-      sendHonest(res, 'real', { symbol, ...data });
+      // KlineData 自带归一化后的 symbol（getKline 返回 norm.digits），
+      // 原 `{ symbol, ...data }` 会让 data.symbol 静默覆盖入参 symbol。
+      // 此处显式以 data.symbol 为准，行为与改前完全一致，仅消除 TS2783 重复键告警。
+      sendHonest(res, 'real', { ...data, symbol: data.symbol ?? symbol });
     } catch (e) {
       if (e instanceof KlineUnavailableError) {
         sendHonest(res, 'unavailable', {

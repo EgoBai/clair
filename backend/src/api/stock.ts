@@ -537,7 +537,10 @@ router.get('/data/freshness', asyncHandler(async (_req, res) => {
   }, 60000); // 60秒缓存
 
   // 数据新鲜度本身即「真实库有无数据」的如实反映：无任何真实行时置 unavailable
-  const hasRealRows = latestTradeDate !== null || stockCount > 0;
+  // 注意：latestTradeDate / stockCount 声明在 queryCache.query() 闭包**内部**，
+  // 闭包外不可见（此前直接引用致请求命中即 ReferenceError → HTTP 500）。
+  // 正确做法：取闭包返回值 result 上的同名字段。
+  const hasRealRows = result.latestTradeDate !== null || result.stockCount > 0;
   sendHonest(res, hasRealRows ? 'real' : 'unavailable', {
     ...result,
     ...(hasRealRows

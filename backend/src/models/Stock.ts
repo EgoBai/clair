@@ -42,6 +42,34 @@ export interface DailyQuote {
   updatedAt: Date;
 }
 
+/**
+ * 日行情**写入**入参（诚实红线专用）。
+ *
+ * 与 DailyQuote 的差异：派生字段 change/changePercent/amplitude 与估值字段
+ * peRatio/pbRatio/marketCap 允许显式传 `null`，表示「该口径本次不可算 / 本源不含该字段」，
+ * 而非用 0 顶替。schema 中这些列均可空，故库内如实落 NULL。
+ * 读取侧仍用 DailyQuote（读出时库内 NULL 会被 toNum 等归一），此处只放宽写入边界。
+ */
+export type DailyQuoteInput = Omit<
+  DailyQuote,
+  | 'id'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'change'
+  | 'changePercent'
+  | 'amplitude'
+  | 'peRatio'
+  | 'pbRatio'
+  | 'marketCap'
+> & {
+  change: number | null;
+  changePercent: number | null;
+  amplitude: number | null;
+  peRatio?: number | null;
+  pbRatio?: number | null;
+  marketCap?: number | null;
+};
+
 export interface MinuteQuote {
   id: number;
   stockId: number;

@@ -4,7 +4,7 @@
  */
 
 import knex, { Knex } from 'knex';
-import { Stock, DailyQuote, StockSearchParams, StockWithQuotes } from '../models/Stock';
+import { Stock, DailyQuote, DailyQuoteInput, StockSearchParams, StockWithQuotes } from '../models/Stock';
 import { classifyStock } from '@shared/industryClassification';
 
 export class Database {
@@ -339,7 +339,7 @@ export class Database {
   /**
    * 创建日行情
    */
-  async createDailyQuote(quote: Omit<DailyQuote, 'id' | 'createdAt' | 'updatedAt'>): Promise<DailyQuote> {
+  async createDailyQuote(quote: DailyQuoteInput): Promise<DailyQuote> {
     const insertData: Record<string, unknown> = {
       stock_id: quote.stockId,
       trade_date: quote.tradeDate,
@@ -349,9 +349,13 @@ export class Database {
       low_price: quote.lowPrice,
       volume: quote.volume,
       turnover: quote.turnover,
-      change_amount: quote.change || 0,
-      change_percent: quote.changePercent || 0,
-      amplitude: quote.amplitude || 0,
+      // 诚实红线：change/changePercent/amplitude 的 null 表示「首行无前收盘、口径不可算」，
+      // 必须原样落 NULL。此前 `quote.change || 0` 会把 null 静默变成 0，
+      // 使「不可算」被读成「涨跌恰为 0」——零值顶替空态，属比空数组更隐蔽的谎报。
+      // schema 中三列均可空，故此处 ?? null：null 保持 null，仅 undefined 归一为 null。
+      change_amount: quote.change ?? null,
+      change_percent: quote.changePercent ?? null,
+      amplitude: quote.amplitude ?? null,
       turnover_rate: quote.turnoverRate || 0,
       market_cap: quote.marketCap,
       pe_ratio: quote.peRatio ?? null,

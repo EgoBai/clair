@@ -156,7 +156,7 @@ interface DatabaseProxy {
   getStockById(id: number): Promise<import('../models/Stock').Stock | null>;
   createStock(stock: Omit<import('../models/Stock').Stock, 'id' | 'createdAt' | 'updatedAt'>): Promise<import('../models/Stock').Stock>;
   updateStock(id: number, updates: Partial<Omit<import('../models/Stock').Stock, 'id' | 'createdAt' | 'updatedAt'>>): Promise<import('../models/Stock').Stock | null>;
-  createDailyQuote(quote: Omit<import('../models/Stock').DailyQuote, 'id' | 'createdAt' | 'updatedAt'>): Promise<import('../models/Stock').DailyQuote>;
+  createDailyQuote(quote: import('../models/Stock').DailyQuoteInput): Promise<import('../models/Stock').DailyQuote>;
   getMarketSummary(date: Date): Promise<Record<string, unknown>>;
   getIndustryPerformance(date: Date): Promise<Record<string, unknown>[]>;
   getTopGainers(date: Date, limit?: number): Promise<Record<string, unknown>[]>;
