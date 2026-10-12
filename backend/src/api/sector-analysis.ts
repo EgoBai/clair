@@ -1,210 +1,423 @@
 /**
  * 行业板块深度分析 API
  * 成分股、权重、估值、资金流向
+ *
+ * 诚实红线（P0-FABRICATE）：
+ *   本文件此前用 `seed = def.code.charCodeAt(0)` 派生 avgPE/avgPB/avgROE/changePercent/
+ *   turnover/fundFlow/peDistribution/marketCapDistribution 全部指标 —— 实测返回值
+ *   （avgPE:11 / avgPB:3.3 / avgROE:30）全为整数，明显是算出来的，且**无 dataSource 标注**。
+ *   现已整体删除 charCodeAt 生成逻辑：
+ *     - 板块划分改为数据库真实申万一级行业（stocks.industry）
+ *     - 估值/涨跌/市值/换手来自本地真实行情库 daily_quotes（PE 仅对 pe_ratio>0 求均值，
+ *       亏损股不参与；亏损家数单独返回，避免均值被负 PE 拉偏）
+ *     - 成分股权重按真实总市值占比计算（原先的 35/20/10 为编造权重）
+ *     - 资金流向接东方财富行业板块资金流真实源；源不可达则 fundFlow 为 null
+ *     - avgROE 无本地真实来源（daily_quotes 无 ROE 字段）→ null + 明确说明
  */
 
 import { Request, Response, Router } from 'express';
-import { validateQuery, validateParams, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
+import { getDb } from '../db/dbFactory';
+import type { StockWithQuotes } from '../models/Stock';
+import { asyncHandler } from '../utils/apiResponse';
 
 const router = Router();
 
 interface SectorStock {
   symbol: string;
   name: string;
-  weight: number;
-  price: number;
-  changePercent: number;
-  marketCap: number;
-  pe: number;
-  pb: number;
-  turnover: number;
+  weight: number | null;
+  price: number | null;
+  changePercent: number | null;
+  marketCap: number | null;
+  pe: number | null;
+  pb: number | null;
+  turnover: number | null;
 }
 
-interface SectorDetail {
-  name: string;
-  code: string;
-  stockCount: number;
-  totalMarketCap: number;
-  avgPE: number;
-  avgPB: number;
-  avgROE: number;
-  changePercent: number;
-  turnover: number;
-  fundFlow: number;
-  topStocks: SectorStock[];
-  peDistribution: { range: string; count: number }[];
-  marketCapDistribution: { range: string; count: number; total: number }[];
+interface SectorPeBucket {
+  range: string;
+  count: number;
 }
 
-const SECTORS: Record<string, SectorDetail> = {};
+/** DB 直读行的 meta：有数据=live，无数据=unavailable */
+function dbMeta(rowCount: number, emptyReason: string) {
+  return rowCount > 0
+    ? { meta: { source: 'live' as const, updatedAt: new Date().toISOString() }, dataSource: 'real' as const }
+    : { meta: { source: 'unavailable' as const, updatedAt: null, error: emptyReason }, dataSource: 'unavailable' as const };
+}
 
-function initSectors() {
-  const sectorDefs = [
-    { name: '白酒', code: 'BJ', stocks: [
-      { symbol: '600519', name: '贵州茅台', weight: 35 },
-      { symbol: '000858', name: '五粮液', weight: 20 },
-      { symbol: '002304', name: '洋河股份', weight: 10 },
-      { symbol: '000568', name: '泸州老窖', weight: 10 },
-      { symbol: '000596', name: '古井贡酒', weight: 5 },
-    ]},
-    { name: '新能源汽车', code: 'NEV', stocks: [
-      { symbol: '300750', name: '宁德时代', weight: 25 },
-      { symbol: '002594', name: '比亚迪', weight: 20 },
-      { symbol: '002466', name: '天齐锂业', weight: 10 },
-      { symbol: '002460', name: '赣锋锂业', weight: 8 },
-      { symbol: '603799', name: '华友钴业', weight: 7 },
-    ]},
-    { name: '半导体', code: 'SEMI', stocks: [
-      { symbol: '688981', name: '中芯国际', weight: 20 },
-      { symbol: '002371', name: '北方华创', weight: 15 },
-      { symbol: '688012', name: '中微公司', weight: 10 },
-      { symbol: '603501', name: '韦尔股份', weight: 8 },
-      { symbol: '300782', name: '卓胜微', weight: 7 },
-    ]},
-    { name: '银行', code: 'BANK', stocks: [
-      { symbol: '601398', name: '工商银行', weight: 15 },
-      { symbol: '601939', name: '建设银行', weight: 12 },
-      { symbol: '600036', name: '招商银行', weight: 12 },
-      { symbol: '601288', name: '农业银行', weight: 10 },
-      { symbol: '601988', name: '中国银行', weight: 8 },
-    ]},
-    { name: '医药', code: 'MED', stocks: [
-      { symbol: '600276', name: '恒瑞医药', weight: 12 },
-      { symbol: '300760', name: '迈瑞医疗', weight: 12 },
-      { symbol: '000538', name: '云南白药', weight: 8 },
-      { symbol: '603259', name: '药明康德', weight: 10 },
-      { symbol: '002821', name: '凯莱英', weight: 6 },
-    ]},
-    { name: '光伏', code: 'PV', stocks: [
-      { symbol: '601012', name: '隆基绿能', weight: 18 },
-      { symbol: '300274', name: '阳光电源', weight: 15 },
-      { symbol: '688599', name: '天合光能', weight: 10 },
-      { symbol: '002129', name: '中环股份', weight: 10 },
-      { symbol: '603806', name: '福斯特', weight: 6 },
-    ]},
-    { name: '消费电子', code: 'CE', stocks: [
-      { symbol: '002415', name: '海康威视', weight: 15 },
-      { symbol: '002475', name: '立讯精密', weight: 14 },
-      { symbol: '601231', name: '环旭电子', weight: 8 },
-      { symbol: '002241', name: '歌尔股份', weight: 8 },
-      { symbol: '002236', name: '大华股份', weight: 6 },
-    ]},
-    { name: '地产', code: 'RE', stocks: [
-      { symbol: '000002', name: '万科A', weight: 15 },
-      { symbol: '600048', name: '保利发展', weight: 14 },
-      { symbol: '001979', name: '招商蛇口', weight: 10 },
-      { symbol: '600383', name: '金地集团', weight: 7 },
-      { symbol: '600606', name: '绿地控股', weight: 6 },
-    ]},
-  ];
-
-  sectorDefs.forEach(def => {
-    const seed = def.code.charCodeAt(0);
-    const topStocks: SectorStock[] = def.stocks.map(s => ({
-      ...s,
-      price: +(10 + (seed + s.symbol.charCodeAt(0)) % 200).toFixed(2),
-      changePercent: +(seed % 20 - 10 + s.symbol.charCodeAt(0) % 10 - 5).toFixed(2),
-      marketCap: +((seed % 500 + 50) * s.weight * 10).toFixed(2),
-      pe: +(8 + (seed % 40)).toFixed(2),
-      pb: +(0.8 + (seed % 6) * 0.5).toFixed(2),
-      turnover: +(2 + (seed % 10)).toFixed(2),
-    }));
-
-    const avgPE = +(topStocks.reduce((s, t) => s + t.pe, 0) / topStocks.length).toFixed(2);
-    const avgPB = +(topStocks.reduce((s, t) => s + t.pb, 0) / topStocks.length).toFixed(2);
-
-    SECTORS[def.code] = {
-      name: def.name,
-      code: def.code,
-      stockCount: def.stocks.length * 8 + (seed % 30),
-      totalMarketCap: +(topStocks.reduce((s, t) => s + t.marketCap, 0) * 1.5).toFixed(2),
-      avgPE,
-      avgPB,
-      avgROE: +(avgPB / avgPE * 100).toFixed(2),
-      changePercent: +(seed % 15 - 7).toFixed(2),
-      turnover: +(1 + (seed % 8)).toFixed(2),
-      fundFlow: +(seed % 100 - 50).toFixed(2),
-      topStocks,
-      peDistribution: [
-        { range: '<10', count: seed % 10 + 2 },
-        { range: '10-20', count: seed % 15 + 5 },
-        { range: '20-30', count: seed % 12 + 3 },
-        { range: '30-50', count: seed % 8 + 2 },
-        { range: '>50', count: seed % 5 + 1 },
-      ],
-      marketCapDistribution: [
-        { range: '<100亿', count: seed % 20 + 5, total: +(seed % 500 + 200).toFixed(2) },
-        { range: '100-500亿', count: seed % 10 + 3, total: +(seed % 1500 + 500).toFixed(2) },
-        { range: '500-1000亿', count: seed % 5 + 1, total: +(seed % 3000 + 1000).toFixed(2) },
-        { range: '>1000亿', count: seed % 3 + 1, total: +(seed % 5000 + 2000).toFixed(2) },
-      ],
-    };
+/** 诚实发送器：顶层 dataSource 与 data.dataSource 由同一入参派生，结构上不可能矛盾 */
+function sendHonest(res: Response, dataSource: 'real' | 'unavailable', data: Record<string, unknown>): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
   });
 }
 
-initSectors();
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function round(v: number | null, digits = 2): number | null {
+  return v === null ? null : +v.toFixed(digits);
+}
+
+/** PE 分桶（对真实 pe_ratio 分桶；亏损/无 PE 的个股不计入任何桶） */
+function bucketPe(pe: number): SectorPeBucket['range'] {
+  if (pe <= 0) return '亏损/无有效PE';
+  if (pe < 10) return '<10';
+  if (pe < 20) return '10-20';
+  if (pe < 30) return '20-30';
+  if (pe < 50) return '30-50';
+  return '>50';
+}
+
+const PE_BUCKET_ORDER = ['<10', '10-20', '20-30', '30-50', '>50', '亏损/无有效PE'];
+
+/**
+ * 行业资金流（东方财富行业板块，真实源）。
+ * 源不可达 → 返回 null，绝不返回 0 冒充「零净流入」。
+ */
+async function fetchIndustryFundFlow(): Promise<Map<string, number> | null> {
+  try {
+    const url = 'https://push2.eastmoney.com/api/qt/clist/get';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const resp = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com' },
+      });
+      if (!resp.ok) return null;
+      const json: any = await resp.json();
+      const diff = json?.data?.diff;
+      if (!Array.isArray(diff) || diff.length === 0) return null;
+      const map = new Map<string, number>();
+      for (const it of diff) {
+        const name = String(it?.f14 ?? '').trim();
+        const inflow = num(it?.f62);
+        if (name && inflow !== null) map.set(name, inflow);
+      }
+      return map.size > 0 ? map : null;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 行业估值聚合（真实库直查，一次查询覆盖全部行业）。
+ *
+ * 为何不用 db.getSectorStocks() 的 latestQuote：
+ *   该访问器的 latestQuote 字段映射里**没有 peRatio/pbRatio**（见 Database.getSectorStocks），
+ *   而 stocks 表的 pe_ratio/pb_ratio 列在库内整体为 NULL，
+ *   故估值只能直接从 daily_quotes 取。
+ *
+ * 源不可达 / 内存库诚实空态（拒绝供行情）→ 返回空 Map，路由层据此把
+ * avgPE/avgPB 置 null 并在 fieldSources 标注，绝不用 0 或编造值顶替。
+ */
+async function loadIndustryValuation(): Promise<Map<string, { avgPE: number | null; avgPB: number | null; stockCount: number; validPeCount: number; lossOrNoPeCount: number }>> {
+  const out = new Map<string, { avgPE: number | null; avgPB: number | null; stockCount: number; validPeCount: number; lossOrNoPeCount: number }>();
+  try {
+    const knex = getDb().connection;
+    const rows: any[] = await (knex('daily_quotes as dq') as any)
+      .join('stocks as s', 's.id', '=', 'dq.stock_id')
+      .where('s.is_active', true)
+      .whereNotNull('s.industry')
+      .whereRaw('dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)')
+      .select(
+        's.industry',
+        knex.raw('COUNT(*) as stock_count'),
+        knex.raw('ROUND(AVG(dq.pe_ratio) FILTER (WHERE dq.pe_ratio > 0)::numeric, 2) as avg_pe'),
+        knex.raw('ROUND(AVG(dq.pb_ratio) FILTER (WHERE dq.pb_ratio > 0)::numeric, 2) as avg_pb'),
+        knex.raw('COUNT(*) FILTER (WHERE dq.pe_ratio > 0) as valid_pe_count'),
+        knex.raw('COUNT(*) FILTER (WHERE dq.pe_ratio IS NULL OR dq.pe_ratio <= 0) as loss_or_no_pe_count'),
+      )
+      .groupBy('s.industry');
+    for (const r of rows) {
+      out.set(String(r.industry), {
+        avgPE: num(r.avg_pe),
+        avgPB: num(r.avg_pb),
+        stockCount: Number(r.stock_count ?? 0),
+        validPeCount: Number(r.valid_pe_count ?? 0),
+        lossOrNoPeCount: Number(r.loss_or_no_pe_count ?? 0),
+      });
+    }
+  } catch (e) {
+    console.warn('[sectors/analysis] 估值聚合查询失败（估值将诚实置 null）:', e instanceof Error ? e.message : e);
+  }
+  return out;
+}
+
+/**
+ * 单个行业成分股的真实 PE/PB（来自 daily_quotes 最新交易日）。
+ * 源不可达 → 返回空 Map，调用方据此把 pe/pb 置 null。
+ */
+async function loadMemberValuation(
+  industry: string,
+): Promise<Map<string, { peRatio: number | null; pbRatio: number | null }>> {
+  const out = new Map<string, { peRatio: number | null; pbRatio: number | null }>();
+  try {
+    const knex = getDb().connection;
+    const rows: any[] = await (knex('daily_quotes as dq') as any)
+      .join('stocks as s', 's.id', '=', 'dq.stock_id')
+      .where('s.industry', industry)
+      .where('s.is_active', true)
+      .whereRaw('dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)')
+      .select('s.symbol', 'dq.pe_ratio', 'dq.pb_ratio');
+    for (const r of rows) {
+      out.set(String(r.symbol), { peRatio: num(r.pe_ratio), pbRatio: num(r.pb_ratio) });
+    }
+  } catch (e) {
+    console.warn(`[sectors/analysis] ${industry} 成分股估值查询失败（pe/pb 将置 null）:`, e instanceof Error ? e.message : e);
+  }
+  return out;
+}
+
+/**
+ * 行业成分股（真实）—— 走 dbFactory 抽象访问器：
+ *   - Database：PostgreSQL DISTINCT ON 取每只股票最新行情
+ *   - InMemoryDatabase：诚实空态（无行情 → 空数组）
+ * 返回已按市值降序排列。
+ */
+async function loadSectorMembers(industry: string): Promise<StockWithQuotes[]> {
+  const rows = await getDb().getSectorStocks(industry);
+  const cap = (r: any) => num(r.latestQuote?.marketCap ?? r.marketCap) ?? 0;
+  return [...rows].sort((a, b) => cap(b) - cap(a));
+}
+
+/** 从真实成分股聚合行业指标（不引入任何编造） */
+async function aggregateSectors() {
+  const db = getDb();
+
+  // 行业层面的涨跌幅/市值/换手/家数：已有聚合访问器，直接复用（口径与 /api/sectors 一致）
+  const enhanced = await db.getSectorPerformanceEnhanced();
+  // 估值：单独一次真实库查询（getSectorStocks 的 latestQuote 不含 peRatio/pbRatio）
+  const valuation = await loadIndustryValuation();
+
+  const sectors = [];
+  for (const row of enhanced) {
+    const industry = String(row.industry);
+    let members: StockWithQuotes[] = [];
+    try {
+      members = await loadSectorMembers(industry);
+    } catch (e) {
+      console.warn(`[sectors/analysis] ${industry} 成分股查询失败:`, e instanceof Error ? e.message : e);
+    }
+
+    let changeSum = 0;
+    let changeCount = 0;
+    let turnoverSum = 0;
+    let turnoverCount = 0;
+    let totalMarketCap = 0;
+    for (const m of members) {
+      const q: any = m.latestQuote ?? null;
+      const chg = num(q?.changePercent ?? m.changePercent);
+      if (chg !== null) { changeSum += chg; changeCount++; }
+      const tr = num(q?.turnoverRate ?? m.turnoverRate);
+      if (tr !== null) { turnoverSum += tr; turnoverCount++; }
+      const cap = num(q?.marketCap ?? m.marketCap);
+      if (cap !== null) totalMarketCap += cap;
+    }
+
+    const val = valuation.get(industry);
+    // stockCount 以「最新交易日有行情」为口径（与 validPeCount/lossOrNoPeCount 同源，
+    // 三者必须自洽：stockCount === validPeCount + lossOrNoPeCount）。
+    // members.length 是「库内有任意历史行情」的股票数，可能含非最新交易日的，
+    // 故单列为 quotedStockCount，不与估值口径混用。
+    const stockCount = val?.stockCount ?? members.length ?? 0;
+
+    sectors.push({
+      name: industry,
+      code: industry,
+      stockCount,
+      quotedStockCount: members.length,
+      avgPE: val?.avgPE ?? null,
+      avgPB: val?.avgPB ?? null,
+      // 本地行情库无 ROE 字段，无真实来源 → 诚实置 null
+      avgROE: null as number | null,
+      changePercent: changeCount > 0 ? round(changeSum / changeCount) : num(row.avg_change_percent),
+      turnover: turnoverCount > 0 ? round(turnoverSum / turnoverCount) : null,
+      totalMarketCap: totalMarketCap > 0 ? totalMarketCap : num(row.total_market_cap),
+      validPeCount: val?.validPeCount ?? 0,
+      lossOrNoPeCount: val?.lossOrNoPeCount ?? 0,
+      limitUpCount: Number(row.limit_up_count ?? 0),
+      members,
+    });
+  }
+  return sectors;
+}
 
 /**
  * 获取行业板块列表
  * GET /api/sectors/analysis
  */
-router.get('/sectors/analysis', async (_req: Request, res: Response) => {
+router.get('/sectors/analysis', asyncHandler(async (_req: Request, res: Response) => {
+  let sectors: Awaited<ReturnType<typeof aggregateSectors>> = [];
   try {
-    const list = Object.values(SECTORS).map(s => ({
-      name: s.name,
-      code: s.code,
-      stockCount: s.stockCount,
-      avgPE: s.avgPE,
-      avgPB: s.avgPB,
-      avgROE: s.avgROE,
-      changePercent: s.changePercent,
-      totalMarketCap: s.totalMarketCap,
-      turnover: s.turnover,
-      fundFlow: s.fundFlow,
-    }));
-
-    list.sort((a, b) => b.changePercent - a.changePercent);
-
-    res.json({
-      success: true,
-      data: {
-        sectors: list,
-        summary: {
-          totalSectors: list.length,
-          upCount: list.filter(s => s.changePercent > 0).length,
-          downCount: list.filter(s => s.changePercent < 0).length,
-          avgChange: +(list.reduce((s, d) => s + d.changePercent, 0) / list.length).toFixed(2),
-          topGainer: list[0]?.name,
-          topLoser: list[list.length - 1]?.name,
-        },
-      },
-    });
-  } catch (error) {
-    console.error('获取行业板块失败:', error);
-    res.status(500).json({ success: false, message: '获取行业板块失败' });
+    sectors = await aggregateSectors();
+  } catch (e) {
+    console.error('[sectors/analysis] 行业聚合查询失败:', e instanceof Error ? e.message : e);
   }
-});
+
+  const { meta, dataSource } = dbMeta(
+    sectors.length,
+    '本地真实行情库无可用行业聚合数据（daily_quotes 为空或未同步）',
+  );
+
+  const fundFlowMap = await fetchIndustryFundFlow();
+
+  const list = sectors.map((s) => ({
+    name: s.name,
+    code: s.code,
+    stockCount: s.stockCount,
+    quotedStockCount: s.quotedStockCount,
+    avgPE: s.avgPE,
+    avgPB: s.avgPB,
+    avgROE: s.avgROE,
+    changePercent: s.changePercent,
+    totalMarketCap: s.totalMarketCap,
+    turnover: s.turnover,
+    // 真实源不可达 → null（不回落 0，否则会被读成「今日零净流入」）
+    fundFlow: fundFlowMap ? (fundFlowMap.get(s.name) ?? null) : null,
+    lossOrNoPeCount: s.lossOrNoPeCount,
+    validPeCount: s.validPeCount,
+    limitUpCount: s.limitUpCount,
+  }));
+
+  const changes = list.map((s) => s.changePercent).filter((v): v is number => v !== null);
+
+  sendHonest(res, dataSource, {
+    sectors: list,
+    count: list.length,
+    summary: {
+      totalSectors: list.length,
+      upCount: changes.filter((c) => c > 0).length,
+      downCount: changes.filter((c) => c < 0).length,
+      avgChange: changes.length > 0 ? round(changes.reduce((a, b) => a + b, 0) / changes.length) : null,
+      topGainer: list[0]?.name ?? null,
+      topLoser: list[list.length - 1]?.name ?? null,
+    },
+    fieldSources: {
+      stockCount: 'db:stocks+daily_quotes',
+      avgPE: 'db:daily_quotes.pe_ratio（仅 pe_ratio>0 的个股参与均值）',
+      avgPB: 'db:daily_quotes.pb_ratio（仅 pb_ratio>0 的个股参与均值）',
+      avgROE: 'unavailable（本地行情库无 ROE 字段，未接入真实财报聚合）',
+      changePercent: 'db:daily_quotes.change_percent',
+      totalMarketCap: 'db:daily_quotes.market_cap',
+      turnover: 'db:daily_quotes.turnover_rate',
+      fundFlow: fundFlowMap ? 'eastmoney:行业板块资金流' : 'unavailable（东财行业资金流源不可达）',
+    },
+    meta,
+  });
+}));
 
 /**
  * 获取行业板块详情
  * GET /api/sectors/analysis/:code
+ *
+ * :code 为数据库真实行业名（申万一级，支持 URL 编码，如 %E9%93%B6%E8%A1%8C）
  */
-router.get('/sectors/analysis/:code', validateParams(schemas.stockSymbol), async (req: Request, res: Response) => {
-  try {
-    const sector = SECTORS[req.params.code.toUpperCase()];
-    if (!sector) {
-      return res.status(404).json({ success: false, message: '行业板块不存在' });
-    }
+router.get('/sectors/analysis/:code', asyncHandler(async (req: Request, res: Response) => {
+  const code = decodeURIComponent(req.params.code);
 
-    res.json({
-      success: true,
-      data: sector,
-    });
-  } catch (error) {
-    console.error('获取板块详情失败:', error);
-    res.status(500).json({ success: false, message: '获取板块详情失败' });
+  let sectors: Awaited<ReturnType<typeof aggregateSectors>> = [];
+  try {
+    sectors = await aggregateSectors();
+  } catch (e) {
+    console.error('[sectors/analysis/:code] 行业聚合查询失败:', e instanceof Error ? e.message : e);
   }
-});
+
+  if (sectors.length === 0) {
+    sendHonest(res, 'unavailable', {
+      message: '本地真实行情库无可用行业聚合数据，未返回任何编造板块指标',
+      code,
+    });
+    return;
+  }
+
+  const sector = sectors.find((s) => s.name === code || s.code === code);
+  if (!sector) {
+    return res.status(404).json({
+      success: false,
+      message: '行业板块不存在（code 须为数据库真实行业名，如 银行 / 电子）',
+      available: sectors.slice(0, 30).map((s) => s.name),
+    });
+  }
+
+  const totalCap = sector.totalMarketCap ?? 0;
+  const members = sector.members;
+
+  // 成分股估值：getSectorStocks 的 latestQuote 不含 peRatio/pbRatio，
+  // 故逐只从 daily_quotes 取真实 PE/PB（取不到则为 null，不编造）。
+  const valBySymbol = await loadMemberValuation(sector.name);
+
+  // 成分股：真实行情 + 权重按真实总市值占比
+  const topStocks: SectorStock[] = members.slice(0, 20).map((m: any) => {
+    const q: any = m.latestQuote ?? null;
+    const cap = num(q?.marketCap ?? m.marketCap);
+    const v = valBySymbol.get(m.symbol);
+    const pe = num(v?.peRatio);
+    return {
+      symbol: m.symbol,
+      name: (m.name || '').trim(),
+      weight: cap !== null && totalCap > 0 ? round((cap / totalCap) * 100, 4) : null,
+      price: round(num(q?.closePrice ?? m.currentPrice)),
+      changePercent: round(num(q?.changePercent ?? m.changePercent)),
+      marketCap: round(cap, 0),
+      pe: pe !== null && pe > 0 ? round(pe) : null,
+      pb: round(num(v?.pbRatio)),
+      turnover: round(num(q?.turnoverRate ?? m.turnoverRate)),
+    };
+  });
+
+  // PE 分桶：只对有正 PE 的成分股分桶（亏损股单列，不混入估值区间）
+  const peBuckets = new Map<string, number>();
+  for (const m of members) {
+    const pe = num(valBySymbol.get(m.symbol)?.peRatio);
+    const key = pe !== null && pe > 0 ? bucketPe(pe) : '亏损/无有效PE';
+    peBuckets.set(key, (peBuckets.get(key) ?? 0) + 1);
+  }
+
+  const fundFlowMap = await fetchIndustryFundFlow();
+
+  // 只有真正取到成分股行情才标 real；否则诚实降级（不返回 0 值假成分股）
+  sendHonest(res, topStocks.length > 0 ? 'real' : 'unavailable', {
+    name: sector.name,
+    code: sector.code,
+    stockCount: sector.stockCount,
+    quotedStockCount: sector.quotedStockCount,
+    totalMarketCap: sector.totalMarketCap,
+    avgPE: sector.avgPE,
+    avgPB: sector.avgPB,
+    avgROE: sector.avgROE,
+    changePercent: sector.changePercent,
+    turnover: sector.turnover,
+    fundFlow: fundFlowMap ? (fundFlowMap.get(sector.name) ?? null) : null,
+    lossOrNoPeCount: sector.lossOrNoPeCount,
+    validPeCount: sector.validPeCount,
+    limitUpCount: sector.limitUpCount,
+    topStocks,
+    peDistribution: PE_BUCKET_ORDER
+      .filter((r) => (peBuckets.get(r) ?? 0) > 0)
+      .map((range) => ({ range, count: peBuckets.get(range)! })),
+    // 市值分布需要全量成分股口径，topStocks 仅取前 20，未取到的部分不做假分布
+    marketCapDistribution: null,
+    fieldSources: {
+      avgROE: 'unavailable（本地行情库无 ROE 字段）',
+      fundFlow: fundFlowMap ? 'eastmoney:行业板块资金流' : 'unavailable（东财行业资金流源不可达）',
+      marketCapDistribution: 'unavailable（需全量成分股市值分档，当前仅返回市值前 20 成分股）',
+      topStocks: 'db:daily_quotes（权重=该股市值/行业总市值）',
+    },
+    meta: { source: 'live' as const, updatedAt: new Date().toISOString() },
+  });
+}));
 
 export default router;

@@ -1,10 +1,20 @@
 /**
  * 产业链 API
- * 
+ *
  * 提供产业链列表、详情、环节、公司等数据
  * 参考同花顺产业地图设计
- * 
+ *
  * v2: DB驱动的数据引擎 — segment通过stockFilter从数据库实时获取公司数据
+ *
+ * 诚实红线（P0-FABRICATE）：
+ *   各 *ChainDetail 的 companies 静态常量中，marketCap/currentPrice/changePercent
+ *   全部是写死的编造行情（实测中际旭创 currentPrice:120.5，库内真实 close=724.47，差 6 倍），
+ *   且 :id/stocks 与 :id/hot-stocks 曾直接 flatten 这些常量返回，**无 dataSource 标注**。
+ *   现已：① 删除常量中的全部行情数字（仅保留 symbol/name/position 等可核查的静态事实）；
+ *        ② :id/stocks 与 :id/hot-stocks 改走 queryStocksByConcept 真实查库；
+ *        ③ :id/segments 原样 spread segment 会连带吐出常量 companies，
+ *           同样改为真实查库填充。
+ *   环节定义（name/description/upstreamTo/…）属静态业务口径，保留不变。
  */
 
 import { Router, Request, Response } from 'express';
@@ -347,7 +357,7 @@ const aiComputingChainDetail = {
           description: '电子元器件基础，支撑芯片封装',
           layerId: 'upstream',
           companies: [
-            { symbol: '002916', name: '深南电路', marketCap: 500, changePercent: 2.15, currentPrice: 98.3, position: 'leader', competitiveAdvantage: '高端PCB龙头' },
+            { symbol: '002916', name: '深南电路', position: 'leader', competitiveAdvantage: '高端PCB龙头' },
           ],
           characteristics: {
             marketSize: '2025年预计3000亿元',
@@ -374,8 +384,8 @@ const aiComputingChainDetail = {
           description: '光电转换核心器件，数据中心互联关键',
           layerId: 'midstream',
           companies: [
-            { symbol: '300308', name: '中际旭创', marketCap: 1200, changePercent: 5.23, currentPrice: 120.5, position: 'leader', competitiveAdvantage: '全球800G光模块龙头' },
-            { symbol: '300502', name: '新易盛', marketCap: 800, changePercent: 4.12, currentPrice: 85.6, position: 'challenger', competitiveAdvantage: '高速光模块领先' },
+            { symbol: '300308', name: '中际旭创', position: 'leader', competitiveAdvantage: '全球800G光模块龙头' },
+            { symbol: '300502', name: '新易盛', position: 'challenger', competitiveAdvantage: '高速光模块领先' },
           ],
           characteristics: {
             marketSize: '2025年预计800亿元',
@@ -393,7 +403,7 @@ const aiComputingChainDetail = {
           description: '网络核心设备，数据中心流量枢纽',
           layerId: 'midstream',
           companies: [
-            { symbol: '000063', name: '中兴通讯', marketCap: 1500, changePercent: 1.85, currentPrice: 32.5, position: 'leader', competitiveAdvantage: '全球通信设备龙头' },
+            { symbol: '000063', name: '中兴通讯', position: 'leader', competitiveAdvantage: '全球通信设备龙头' },
           ],
           characteristics: {
             marketSize: '2025年预计600亿元',
@@ -411,8 +421,8 @@ const aiComputingChainDetail = {
           description: '算力载体，AI训练和推理基础',
           layerId: 'midstream',
           companies: [
-            { symbol: '000977', name: '浪潮信息', marketCap: 800, changePercent: 3.25, currentPrice: 45.8, position: 'leader', competitiveAdvantage: 'AI服务器龙头' },
-            { symbol: '603019', name: '中科曙光', marketCap: 600, changePercent: 2.78, currentPrice: 52.3, position: 'challenger', competitiveAdvantage: '国产算力龙头' },
+            { symbol: '000977', name: '浪潮信息', position: 'leader', competitiveAdvantage: 'AI服务器龙头' },
+            { symbol: '603019', name: '中科曙光', position: 'challenger', competitiveAdvantage: '国产算力龙头' },
           ],
           characteristics: {
             marketSize: '2025年预计2000亿元',
@@ -439,7 +449,7 @@ const aiComputingChainDetail = {
           description: '算力基础设施，AI应用载体',
           layerId: 'downstream',
           companies: [
-            { symbol: '603881', name: '数据港', marketCap: 200, changePercent: 4.56, currentPrice: 35.2, position: 'leader', competitiveAdvantage: '第三方IDC龙头' },
+            { symbol: '603881', name: '数据港', position: 'leader', competitiveAdvantage: '第三方IDC龙头' },
           ],
           characteristics: {
             marketSize: '2025年预计5000亿元',
@@ -457,7 +467,7 @@ const aiComputingChainDetail = {
           description: 'AI技术落地，创造商业价值',
           layerId: 'downstream',
           companies: [
-            { symbol: '688111', name: '金山办公', marketCap: 1200, changePercent: 2.35, currentPrice: 320.5, position: 'leader', competitiveAdvantage: 'AI办公龙头' },
+            { symbol: '688111', name: '金山办公', position: 'leader', competitiveAdvantage: 'AI办公龙头' },
           ],
           characteristics: {
             marketSize: '2025年预计10000亿元',
@@ -507,9 +517,9 @@ const semiconductorChainDetail = {
           description: '芯片设计环节，定义芯片功能和性能，是半导体产业链附加值最高的环节之一',
           layerId: 'upstream',
           companies: [
-            { symbol: '603501', name: '韦尔股份', marketCap: 1500, changePercent: 3.21, currentPrice: 105.8, position: 'leader', competitiveAdvantage: '全球CIS芯片龙头，收购豪威科技后产品线全覆盖' },
-            { symbol: '603986', name: '兆易创新', marketCap: 800, changePercent: 2.85, currentPrice: 120.5, position: 'leader', competitiveAdvantage: '存储+MCU双轮驱动，NOR Flash国内龙头' },
-            { symbol: '300223', name: '北京君正', marketCap: 350, changePercent: 4.12, currentPrice: 72.3, position: 'challenger', competitiveAdvantage: '收购ISSI后成为存储+处理器平台型公司' },
+            { symbol: '603501', name: '韦尔股份', position: 'leader', competitiveAdvantage: '全球CIS芯片龙头，收购豪威科技后产品线全覆盖' },
+            { symbol: '603986', name: '兆易创新', position: 'leader', competitiveAdvantage: '存储+MCU双轮驱动，NOR Flash国内龙头' },
+            { symbol: '300223', name: '北京君正', position: 'challenger', competitiveAdvantage: '收购ISSI后成为存储+处理器平台型公司' },
           ],
           characteristics: {
             marketSize: '2025年预计6000亿元',
@@ -527,8 +537,8 @@ const semiconductorChainDetail = {
           description: '电子设计自动化工具和半导体IP核，是芯片设计的基础工具和核心资产',
           layerId: 'upstream',
           companies: [
-            { symbol: '301269', name: '华大九天', marketCap: 500, changePercent: 5.67, currentPrice: 92.4, position: 'leader', competitiveAdvantage: '国内EDA龙头，全流程覆盖能力最强' },
-            { symbol: '688206', name: '概伦电子', marketCap: 120, changePercent: 3.45, currentPrice: 28.6, position: 'challenger', competitiveAdvantage: '器件建模和电路仿真领域国际领先' },
+            { symbol: '301269', name: '华大九天', position: 'leader', competitiveAdvantage: '国内EDA龙头，全流程覆盖能力最强' },
+            { symbol: '688206', name: '概伦电子', position: 'challenger', competitiveAdvantage: '器件建模和电路仿真领域国际领先' },
           ],
           characteristics: {
             marketSize: '2025年预计200亿元',
@@ -546,8 +556,8 @@ const semiconductorChainDetail = {
           description: '晶圆制造的核心支撑，包括光刻机、刻蚀机、薄膜沉积等关键设备',
           layerId: 'upstream',
           companies: [
-            { symbol: '002371', name: '北方华创', marketCap: 2000, changePercent: 4.56, currentPrice: 380.2, position: 'leader', competitiveAdvantage: '国内半导体设备龙头，产品线最全' },
-            { symbol: '688012', name: '中微公司', marketCap: 1000, changePercent: 3.78, currentPrice: 162.5, position: 'leader', competitiveAdvantage: '刻蚀设备国际领先，MOCVD设备龙头' },
+            { symbol: '002371', name: '北方华创', position: 'leader', competitiveAdvantage: '国内半导体设备龙头，产品线最全' },
+            { symbol: '688012', name: '中微公司', position: 'leader', competitiveAdvantage: '刻蚀设备国际领先，MOCVD设备龙头' },
           ],
           characteristics: {
             marketSize: '2025年预计1500亿元',
@@ -565,8 +575,8 @@ const semiconductorChainDetail = {
           description: '半导体制造的基础材料，包括硅片、光刻胶、电子气体、CMP抛光液等',
           layerId: 'upstream',
           companies: [
-            { symbol: '688126', name: '沪硅产业', marketCap: 600, changePercent: 2.34, currentPrice: 22.8, position: 'leader', competitiveAdvantage: '国内大硅片龙头，300mm硅片产能领先' },
-            { symbol: '605358', name: '立昂微', marketCap: 200, changePercent: 1.89, currentPrice: 45.6, position: 'challenger', competitiveAdvantage: '半导体硅片+功率器件双主业' },
+            { symbol: '688126', name: '沪硅产业', position: 'leader', competitiveAdvantage: '国内大硅片龙头，300mm硅片产能领先' },
+            { symbol: '605358', name: '立昂微', position: 'challenger', competitiveAdvantage: '半导体硅片+功率器件双主业' },
           ],
           characteristics: {
             marketSize: '2025年预计800亿元',
@@ -593,8 +603,8 @@ const semiconductorChainDetail = {
           description: '将设计好的芯片图案转移到硅片上，是半导体产业链资本和技术密集度最高的环节',
           layerId: 'midstream',
           companies: [
-            { symbol: '688981', name: '中芯国际', marketCap: 4000, changePercent: 2.15, currentPrice: 50.8, position: 'leader', competitiveAdvantage: '国内晶圆代工龙头，14nm量产' },
-            { symbol: '688347', name: '华虹半导体', marketCap: 800, changePercent: 1.56, currentPrice: 48.2, position: 'challenger', competitiveAdvantage: '特色工艺平台，功率器件代工领先' },
+            { symbol: '688981', name: '中芯国际', position: 'leader', competitiveAdvantage: '国内晶圆代工龙头，14nm量产' },
+            { symbol: '688347', name: '华虹半导体', position: 'challenger', competitiveAdvantage: '特色工艺平台，功率器件代工领先' },
           ],
           characteristics: {
             marketSize: '2025年预计5000亿元',
@@ -621,9 +631,9 @@ const semiconductorChainDetail = {
           description: '将制造好的晶圆切割、封装成可用芯片并进行测试，是半导体产业链的重要环节',
           layerId: 'downstream',
           companies: [
-            { symbol: '600584', name: '长电科技', marketCap: 600, changePercent: 3.45, currentPrice: 33.8, position: 'leader', competitiveAdvantage: '全球封测龙头，先进封装技术领先' },
-            { symbol: '002156', name: '通富微电', marketCap: 350, changePercent: 2.78, currentPrice: 23.5, position: 'challenger', competitiveAdvantage: 'AMD核心封测伙伴，高端封装能力突出' },
-            { symbol: '002185', name: '华天科技', marketCap: 280, changePercent: 2.12, currentPrice: 10.2, position: 'challenger', competitiveAdvantage: '国内封测第三，SiP封装布局领先' },
+            { symbol: '600584', name: '长电科技', position: 'leader', competitiveAdvantage: '全球封测龙头，先进封装技术领先' },
+            { symbol: '002156', name: '通富微电', position: 'challenger', competitiveAdvantage: 'AMD核心封测伙伴，高端封装能力突出' },
+            { symbol: '002185', name: '华天科技', position: 'challenger', competitiveAdvantage: '国内封测第三，SiP封装布局领先' },
           ],
           characteristics: {
             marketSize: '2025年预计3000亿元',
@@ -641,7 +651,7 @@ const semiconductorChainDetail = {
           description: '半导体芯片的终端应用场景，涵盖消费电子、汽车电子、工业控制、通信等领域',
           layerId: 'downstream',
           companies: [
-            { symbol: '002230', name: '科大讯飞', marketCap: 1000, changePercent: 1.89, currentPrice: 43.5, position: 'leader', competitiveAdvantage: 'AI语音芯片+应用生态' },
+            { symbol: '002230', name: '科大讯飞', position: 'leader', competitiveAdvantage: 'AI语音芯片+应用生态' },
           ],
           characteristics: {
             marketSize: '2025年预计30000亿元',
@@ -1681,423 +1691,234 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 /**
- * 获取产业链环节列表
- * GET /api/industry-chains/:id/segments
+ * 产业链环节/公司数据查询辅助（P0-FABRICATE）
+ *
+ * companies 静态常量中的行情数字已全部删除；公司数据一律走 queryStocksByConcept 真实查库。
  */
-router.get('/:id/segments', (req: Request, res: Response) => {
-  const { id } = req.params;
-  
-  if (id === 'ai-computing') {
-    const segments = aiComputingChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-  
-  if (id === 'semiconductor') {
-    const segments = semiconductorChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-  
 
-  // 医药生物
-  if (id === 'medical-pharma') {
-    const segments = medicalPharmaChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-
-  // 消费电子
-  if (id === 'consumer-electronics') {
-    const segments = consumerElectronicsChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-
-  // 国防军工
-  if (id === 'defense-military') {
-    const segments = defenseMilitaryChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-
-  // 风电
-  if (id === 'wind-power') {
-    const segments = windPowerChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-
-  // 新能源汽车
-  if (id === 'new-energy-vehicle') {
-    const segments = newEnergyVehicleChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-
-  // AI机器人
-  if (id === 'ai-robot') {
-    const segments = aiRobotChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-
-  // 光伏
-  if (id === 'photovoltaic') {
-    const segments = photovoltaicChainDetail.layers.flatMap(layer => 
-      layer.segments.map(segment => ({
-        ...segment,
-        layerType: layer.type,
-        layerName: layer.name,
-      }))
-    );
-    return sendSuccess(res, { segments, total: segments.length });
-  }
-  sendSuccess(res, { segments: [], total: 0 });
-});
+/** 按 chainId 取该链全部环节定义（各 *ChainDetail.layers） */
+function getChainLayers(chainId: string): any[] | null {
+  const map: Record<string, any> = {
+    'ai-computing': aiComputingChainDetail,
+    semiconductor: semiconductorChainDetail,
+    'medical-pharma': medicalPharmaChainDetail,
+    'consumer-electronics': consumerElectronicsChainDetail,
+    'defense-military': defenseMilitaryChainDetail,
+    'wind-power': windPowerChainDetail,
+    'new-energy-vehicle': newEnergyVehicleChainDetail,
+    'ai-robot': aiRobotChainDetail,
+    photovoltaic: photovoltaicChainDetail,
+  };
+  return map[chainId]?.layers ?? null;
+}
 
 /**
- * 获取产业链公司列表
- * GET /api/industry-chains/:id/stocks
+ * 诚实降级响应：无真实成分股时明确标注来源与原因，绝不返回静态常量里的编造行情。
  */
-router.get('/:id/stocks', (req: Request, res: Response) => {
+function sendChainStocksHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  payload: Record<string, unknown>,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: {
+      ...payload,
+      dataSource,
+      source: 'db:daily_quotes+stocks（本地真实行情库）',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
+ * 从真实数据库聚合产业链成分股（复用 /:id 详情路径的 queryStocksByConcept）。
+ * 绝不读 companies 静态常量。
+ */
+async function queryChainStocks(chainId: string): Promise<Array<Record<string, unknown>>> {
+  const layers = getChainLayers(chainId);
+  if (!layers) return [];
+
+  const out: Array<Record<string, unknown>> = [];
+  for (const layer of layers) {
+    for (const segment of layer.segments) {
+      let stocks: DbStock[] = [];
+      try {
+        stocks = await queryStocksByConcept(chainId, segment.id);
+      } catch (err) {
+        console.error(`[产业链] 查询 ${chainId}/${segment.id} 失败:`, err);
+        continue;
+      }
+      const leaderCount = (segment.stockFilter as any)?.leaderCount || 3;
+      const companies = dbStocksToCompanies(stocks, leaderCount);
+      for (const c of companies) {
+        out.push({
+          ...c,
+          segmentId: segment.id,
+          segmentName: segment.name,
+          layerType: layer.type,
+          layerName: layer.name,
+        });
+      }
+    }
+  }
+
+  // 去重（同一公司可能出现在多个环节），保留首次出现的位置
+  const seen = new Set<string>();
+  return out.filter((s) => {
+    const sym = s.symbol as string;
+    if (seen.has(sym)) return false;
+    seen.add(sym);
+    return true;
+  });
+}
+
+/**
+ * 获取产业链环节列表
+ * GET /api/industry-chains/:id/segments
+ *
+ * 诚实红线（P0-FABRICATE）：原实现 `{ ...segment, ... }` 原样 spread，
+ * 会连带吐出 companies 静态常量里的编造行情（marketCap/currentPrice/changePercent），
+ * 且返回内容取决于此前是否访问过 /:id（该路由会用真实数据**原地覆盖**同一个静态常量对象），
+ * 属典型的「冷启动顺序依赖」缺陷。
+ * 现改为：环节定义仍取静态常量（name/description/upstreamTo 属业务口径），
+ * companies 一律走 queryStocksByConcept 真实查库填充。
+ */
+router.get('/:id/segments', asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const layers = getChainLayers(id);
+  if (!layers) {
+    return sendNotFound(res, '产业链未找到');
+  }
+
+  const segments = await Promise.all(
+    layers.map(async (layer: any) => ({
+      ...layer,
+      layerType: layer.type,
+      layerName: layer.name,
+      segments: await Promise.all(
+        (layer.segments as any[]).map(async (segment: any) => {
+          let companies: any[] = [];
+          try {
+            companies = dbStocksToCompanies(
+              await queryStocksByConcept(id, segment.id),
+              (segment.stockFilter as any)?.leaderCount || 3,
+            );
+          } catch (err) {
+            console.error(`[产业链] 查询 ${id}/${segment.id} 失败:`, err);
+            companies = [];
+          }
+          return { ...segment, companies };
+        }),
+      ),
+    })),
+  );
+
+  const flat = segments.flatMap((layer: any) => layer.segments);
+  const withStocks = flat.filter((s: any) => s.companies.length > 0).length;
+  const dataSource = withStocks > 0 ? 'real' : 'unavailable';
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: {
+      layers: segments,
+      segments: flat,
+      total: flat.length,
+      segmentsWithRealStocks: withStocks,
+      dataSource,
+      source: 'db:daily_quotes+stocks（本地真实行情库）',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+router.get('/:id/stocks', asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   const { segmentId, position, sortBy = 'changePercent', sortOrder = 'desc' } = req.query;
-  
-  if (id === 'ai-computing') {
-    let stocks = aiComputingChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    
-    // 按环节筛选
-    if (segmentId) {
-      stocks = stocks.filter(s => s.segmentId === segmentId);
-    }
-    
-    // 按地位筛选
-    if (position) {
-      stocks = stocks.filter(s => s.position === position);
-    }
-    
-    // 去重（同一公司可能出现在多个环节）
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    
-    // 排序
-    uniqueStocks.sort((a, b) => {
-      const aVal = (a as any)[sortBy as string] || 0;
-      const bVal = (b as any)[sortBy as string] || 0;
-      return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
+
+  if (!getChainLayers(id)) {
+    return sendNotFound(res, '产业链未找到');
+  }
+
+  let stocks = await queryChainStocks(id);
+
+  // 按环节筛选
+  if (segmentId) {
+    stocks = stocks.filter((s) => s.segmentId === segmentId);
+  }
+
+  // 按地位筛选
+  if (position) {
+    stocks = stocks.filter((s) => s.position === position);
+  }
+
+  // 排序（缺值排在末尾，不当作 0 参与比较）
+  const dir = sortOrder === 'desc' ? -1 : 1;
+  stocks = [...stocks].sort((a, b) => {
+    const av = a[sortBy as string];
+    const bv = b[sortBy as string];
+    const aNull = av === null || av === undefined;
+    const bNull = bv === null || bv === undefined;
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+    return ((av as number) - (bv as number)) * dir;
+  });
+
+  if (stocks.length === 0) {
+    return sendChainStocksHonest(res, 'unavailable', {
+      stocks: [],
+      total: 0,
+      message: '该产业链的环节在本地真实行情库中未匹配到任何成分股，未返回任何编造行情',
     });
-    
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-  
-  if (id === 'semiconductor') {
-    let stocks = semiconductorChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    
-    // 按环节筛选
-    if (segmentId) {
-      stocks = stocks.filter(s => s.segmentId === segmentId);
-    }
-    
-    // 按地位筛选
-    if (position) {
-      stocks = stocks.filter(s => s.position === position);
-    }
-    
-    // 去重（同一公司可能出现在多个环节）
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    
-    // 排序
-    uniqueStocks.sort((a, b) => {
-      const aVal = (a as any)[sortBy as string] || 0;
-      const bVal = (b as any)[sortBy as string] || 0;
-      return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
-    });
-    
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-  
-
-  if (id === 'medical-pharma') {
-    let stocks = medicalPharmaChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
-    if (position) stocks = stocks.filter(s => s.position === position);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
   }
 
-  if (id === 'consumer-electronics') {
-    let stocks = consumerElectronicsChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
-    if (position) stocks = stocks.filter(s => s.position === position);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-
-  if (id === 'defense-military') {
-    let stocks = defenseMilitaryChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
-    if (position) stocks = stocks.filter(s => s.position === position);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-
-  if (id === 'wind-power') {
-    let stocks = windPowerChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
-    if (position) stocks = stocks.filter(s => s.position === position);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-
-  if (id === 'new-energy-vehicle') {
-    let stocks = newEnergyVehicleChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
-    if (position) stocks = stocks.filter(s => s.position === position);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-
-  if (id === 'ai-robot') {
-    let stocks = aiRobotChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
-    if (position) stocks = stocks.filter(s => s.position === position);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-
-  if (id === 'photovoltaic') {
-    let stocks = photovoltaicChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => 
-        (segment.companies as any[]).map((company: any) => ({
-          ...company,
-          segmentId: segment.id,
-          segmentName: segment.name,
-          layerType: layer.type,
-        }))
-      )
-    );
-    if (segmentId) stocks = stocks.filter(s => s.segmentId === segmentId);
-    if (position) stocks = stocks.filter(s => s.position === position);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[sortBy as string] || 0; const bVal = (b as any)[sortBy as string] || 0; return sortOrder === 'desc' ? bVal - aVal : aVal - bVal; });
-    return sendSuccess(res, { stocks: uniqueStocks, total: uniqueStocks.length });
-  }
-  sendSuccess(res, { stocks: [], total: 0 });
-});
+  sendChainStocksHonest(res, 'real', { stocks, total: stocks.length });
+}));
 
 /**
  * 获取产业链热点股票
  * GET /api/industry-chains/:id/hot-stocks
+ *
+ * 同 /:id/stocks：原实现 flatten 静态常量（含编造 currentPrice/changePercent/marketCap），
+ * 现改为真实查库。
  */
-router.get('/:id/hot-stocks', (req: Request, res: Response) => {
+router.get('/:id/hot-stocks', asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   const { limit = 10, metric = 'changePercent' } = req.query;
-  
-  if (id === 'ai-computing') {
-    const stocks = aiComputingChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => segment.companies)
-    );
-    
-    // 去重
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    
-    // 排序
-    uniqueStocks.sort((a, b) => {
-      const aVal = (a as any)[metric as string] || 0;
-      const bVal = (b as any)[metric as string] || 0;
-      return bVal - aVal;
+
+  if (!getChainLayers(id)) {
+    return sendNotFound(res, '产业链未找到');
+  }
+
+  const all = await queryChainStocks(id);
+  const dir = -1; // 热点恒按降序
+  const sorted = [...all].sort((a, b) => {
+    const av = a[metric as string];
+    const bv = b[metric as string];
+    const aNull = av === null || av === undefined;
+    const bNull = bv === null || bv === undefined;
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+    return ((av as number) - (bv as number)) * dir;
+  });
+
+  const limitN = Math.max(1, Number(limit) || 10);
+
+  if (sorted.length === 0) {
+    return sendChainStocksHonest(res, 'unavailable', {
+      stocks: [],
+      message: '该产业链在本地真实行情库中未匹配到任何成分股，未返回任何编造行情',
     });
-    
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-  
-  if (id === 'semiconductor') {
-    const stocks = semiconductorChainDetail.layers.flatMap(layer => 
-      layer.segments.flatMap(segment => segment.companies)
-    );
-    
-    // 去重
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    
-    // 排序
-    uniqueStocks.sort((a, b) => {
-      const aVal = (a as any)[metric as string] || 0;
-      const bVal = (b as any)[metric as string] || 0;
-      return bVal - aVal;
-    });
-    
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-  
-
-  if (id === 'medical-pharma') {
-    const stocks = (medicalPharmaChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
   }
 
-  if (id === 'consumer-electronics') {
-    const stocks = (consumerElectronicsChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-
-  if (id === 'defense-military') {
-    const stocks = (defenseMilitaryChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-
-  if (id === 'wind-power') {
-    const stocks = (windPowerChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-
-  if (id === 'new-energy-vehicle') {
-    const stocks = (newEnergyVehicleChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-
-  if (id === 'ai-robot') {
-    const stocks = (aiRobotChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-
-  if (id === 'photovoltaic') {
-    const stocks = (photovoltaicChainDetail.layers.flatMap(layer => layer.segments.flatMap(segment => segment.companies)) as any[]);
-    const uniqueStocks = Array.from(new Map(stocks.map(s => [s.symbol, s])).values());
-    uniqueStocks.sort((a, b) => { const aVal = (a as any)[metric as string] || 0; const bVal = (b as any)[metric as string] || 0; return bVal - aVal; });
-    return sendSuccess(res, { stocks: uniqueStocks.slice(0, Number(limit)) });
-  }
-  sendSuccess(res, { stocks: [] });
-});
+  sendChainStocksHonest(res, 'real', { stocks: sorted.slice(0, limitN), metric, total: sorted.length });
+}));
 
 /**
  * 获取产业链AI分析
