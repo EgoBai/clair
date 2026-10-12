@@ -222,3 +222,32 @@
 `timeout 60 xxx` 在本机会报 `command not found: timeout` 后**直接退出**，脚本等于没跑。
 **空跑比不跑更危险**：它会让人误以为「已执行、无报错 = 通过」。
 替代：用工具的 `run_in_background` + 轮询，或 `gtimeout`（coreutils）。
+
+## 2026-10-12 · 两条环境坑 + 一个结构性盲区（backfill-kline 实测）
+### ⚠️ 环境坑 1：`npx tsx` 在本机会挂起
+`npx tsx` 会弹「是否安装」交互确认 → 沙箱内无响应。**正确写法**：
+```bash
+cd backend && ./node_modules/.bin/tsx <script>
+```
+**且必须在 `backend/` 目录下跑** —— `@shared/*` 路径别名只在 backend 的 tsconfig 下解析，否则 `MODULE_NOT_FOUND`。
+
+### ⚠️ 环境坑 2：函数真实名字
+除权解析是 **`readExDiv`(约 :388) + `readShareRatio`(约 :412)** 两个函数，不是 `parseExDividend`。
+（我曾按错名字派工，worker 按真名保护才没出事。）
+
+### 🔴 结构性盲区：所有校验只看价格，成交额是盲区
+实测发现 **1,472 行 / 283 个日期** 是「**OHLCV 与上游逐位一致、但 `turnover = 0`**」：
+```
+库内 600519@05-28: O=1290.00 H=1304.00 L=1271.00 C=1275.98 V=45890  turnover=0.00
+上游   sh600519   : 完全相同                                   额=589547.50 万
+```
+**为什么危险**：任何"校验 OHLCV"的检查都判它合格 ⟹ **永远发现不了成交额缺失**。
+且补数脚本的 `existing` 判据只看 `(stock_id, trade_date)` 是否存在 ⟹ **会跳过它们，永远补不上**。
+
+**处置（已裁决）**：单独修复脚本只补 `turnover` 字段，**绝不碰 OHLCV**（价格已验证正确）。
+- 必须用精确 `UPDATE ... WHERE stock_id=$1 AND trade_date=$2`（现有写入是 `ON CONFLICT DO NOTHING`，无法更新已有行）
+- 补前导出 `stock_id/trade_date/turnover` 三列即可回滚
+
+**待补门禁规则（尚未实现）**：
+`turnover = 0 AND volume > 0` ⟹ 可疑（真实成交必产生成交额）。
+这类"结构性盲区"应由 `scripts/guard/honesty-scan.mjs` 机器拦住，而非一次性人工清洗。
