@@ -11,6 +11,7 @@ import {
   asyncHandler, sendPaginated, sendNotFound,
 } from '../utils/apiResponse';
 import { queryCache } from '../utils/queryCache';
+import { normalizeSymbol } from '../utils/symbolUtils';
 import { dataSyncService } from '../data-sync/DataSyncService';
 import { AppError } from '../middleware/errorHandler';
 
@@ -37,18 +38,8 @@ function sendHonest(
   });
 }
 
-/** 标准化股票代码: 000001 → 000001.SZ, 600519 → 600519.SH */
-function normalizeSymbol(symbol: string): string {
-  if (!symbol) return symbol;
-  if (/^\d{6}\.(SH|SZ|BJ)$/i.test(symbol)) return symbol.toUpperCase();
-  if (/^\d{6}$/.test(symbol)) {
-    if (symbol.startsWith('6')) return `${symbol}.SH`;
-    if (symbol.startsWith('0') || symbol.startsWith('3')) return `${symbol}.SZ`;
-    if (symbol.startsWith('8') || symbol.startsWith('4')) return `${symbol}.BJ`;
-    return `${symbol}.SZ`;
-  }
-  return symbol;
-}
+// P0-SYMBOL：本文件此前的 normalizeSymbol 副本已删除，改为复用 utils/symbolUtils。
+// 符号规范化的**唯一真源**是 symbolUtils —— 规范化逻辑不允许出现第三份。
 
 // ==================== 股票查询 ====================
 
@@ -100,8 +91,9 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
 router.get('/stocks/:symbol/quotes', validateParams(schemas.stockSymbol), validateQuery(schemas.quoteQuery), asyncHandler(async (req, res) => {
   const rawSymbol = req.params.symbol;
   const symbol = normalizeSymbol(rawSymbol);
-  let stock = await db.getStockBySymbol(symbol);
-  if (!stock && symbol !== rawSymbol) stock = await db.getStockBySymbol(rawSymbol);
+  // P0-SYMBOL：规范化已收口到 db 层（getStockBySymbol 自行接受裸码/带后缀/sh.600519），
+  // 路由不再需要「查不到再回退原始写法」的补丁式二次查询。
+  const stock = await db.getStockBySymbol(symbol);
   if (!stock) return sendNotFound(res, '股票');
   const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
   const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
@@ -121,7 +113,7 @@ router.get('/stocks/:symbol/quotes', validateParams(schemas.stockSymbol), valida
 router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
   const rawSymbol = req.params.symbol;
   const symbol = normalizeSymbol(rawSymbol);
-  const stockWithQuote = await db.getStockWithLatestQuote(symbol) || await db.getStockWithLatestQuote(rawSymbol);
+  const stockWithQuote = await db.getStockWithLatestQuote(symbol);
   if (!stockWithQuote) return sendNotFound(res, '股票');
   // 无最新行情时只回股票档案 + 显式空态，不用 0 冒充现价
   if (!stockWithQuote.latestQuote) {
@@ -138,11 +130,8 @@ router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncH
 router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
   const rawSymbol = req.params.symbol;
   const symbol = normalizeSymbol(rawSymbol);
-  // 尝试标准化格式，如果找不到则尝试原始格式
-  let stock = await db.getStockBySymbol(symbol);
-  if (!stock && symbol !== rawSymbol) {
-    stock = await db.getStockBySymbol(rawSymbol);
-  }
+  // P0-SYMBOL：符号规范化由 db 层负责，路由不再做补丁式回退查询
+  const stock = await db.getStockBySymbol(symbol);
   if (!stock) return sendNotFound(res, '股票');
   const latestQuote = await db.getLatestDailyQuote(stock.id);
   if (!latestQuote) {
@@ -163,11 +152,8 @@ router.get('/stocks/:symbol/kline', validateParams(schemas.stockSymbol), asyncHa
   const period = (req.query.period as string) || 'daily'; // daily/weekly/monthly
   const limit = Math.min(parseInt(req.query.limit as string) || 250, 1000);
 
-  // 查找股票
-  let stock = await db.getStockBySymbol(symbol);
-  if (!stock && symbol !== rawSymbol) {
-    stock = await db.getStockBySymbol(rawSymbol);
-  }
+  // P0-SYMBOL：符号规范化由 db 层负责
+  const stock = await db.getStockBySymbol(symbol);
   if (!stock) return sendNotFound(res, '股票');
 
   // 查询日K数据

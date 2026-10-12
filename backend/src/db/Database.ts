@@ -6,6 +6,52 @@
 import knex, { Knex } from 'knex';
 import { Stock, DailyQuote, DailyQuoteInput, StockSearchParams, StockWithQuotes } from '../models/Stock';
 import { classifyStock } from '@shared/industryClassification';
+import { symbolCandidates } from '../utils/symbolUtils';
+
+// ==================== 行映射（snake_case → camelCase） ====================
+// ⚠️ P0-SYMBOL：映射必须**只有这一处**。历史上 getStocksWithLatestQuotes 读
+// camelCase 的 `quote.stockId`、而 knex `.raw()` 返回的是 snake_case 的
+// `stock_id`，两处各写各的字段名 ⟹ latestQuote 恒为 null。故集中到模块级函数，
+// 任何读 PG 原始行的路径都必须走它。
+
+/**
+ * PostgreSQL DECIMAL/BIGINT 经 knex 返回的是**字符串**（如 "1262.95"），
+ * 数值列需显式转 number；而**可空列的 null 必须原样保留为 null**，
+ * 绝不能 `|| 0` 或 `?? 0`——那会把「口径不可算」谎报成「数值恰为 0」。
+ */
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
+}
+
+/** snake_case 行 → models/DailyQuote（camelCase），null 原样保留 */
+function mapDailyQuoteRow(row: Record<string, unknown>): DailyQuote {
+  return {
+    id: Number(row.id),
+    stockId: Number(row.stock_id ?? row.stockId),
+    tradeDate: (row.trade_date ?? row.tradeDate) as unknown as Date,
+    openPrice: num(row.open_price ?? row.openPrice) as number,
+    closePrice: num(row.close_price ?? row.closePrice) as number,
+    highPrice: num(row.high_price ?? row.highPrice) as number,
+    lowPrice: num(row.low_price ?? row.lowPrice) as number,
+    volume: num(row.volume) as number,
+    turnover: num(row.turnover) as number,
+    // 库列名为 change_amount，DailyQuote 字段名为 change
+    change: num(row.change_amount ?? row.change) as number,
+    changePercent: num(row.change_percent ?? row.changePercent) as number,
+    amplitude: num(row.amplitude) as number,
+    turnoverRate: num(row.turnover_rate ?? row.turnoverRate) as number,
+    peRatio: num(row.pe_ratio ?? row.peRatio) as number | undefined,
+    pbRatio: num(row.pb_ratio ?? row.pbRatio) as number | undefined,
+    marketCap: num(row.market_cap ?? row.marketCap) as number | undefined,
+    circulatingMarketCap: num(
+      row.circulating_market_cap ?? row.circulatingMarketCap
+    ) as number | undefined,
+    createdAt: (row.created_at ?? row.createdAt) as unknown as Date,
+    updatedAt: (row.updated_at ?? row.updatedAt) as unknown as Date,
+  };
+}
 
 export class Database {
   private knexInstance: Knex;
@@ -205,10 +251,25 @@ export class Database {
 
   /**
    * 根据代码获取股票
+   *
+   * P0-SYMBOL：规范化收口在**数据层**（而非各路由）。
+   * 库里 symbol 写法不唯一（PG 全带后缀 / 内存库全裸码），而调用方
+   * （前端既有契约、AI 选股、外部脚本）传什么格式都有。逐个路由补
+   * normalizeSymbol 只能救「已知的 N 处」，新增路由必然重踩；
+   * 收口到这里则一处生效、全路由受益。
+   *
+   * 复用 utils/symbolUtils 的 symbolCandidates（由既有 normalizeSymbol /
+   * toBareCode 派生），不新建第三套规范化规则。
    */
   async getStockBySymbol(symbol: string): Promise<Stock | null> {
+    const candidates = symbolCandidates(symbol);
+    if (candidates.length === 0) return null;
+
     const stock = await this.knexInstance<Stock>('stocks')
-      .where('symbol', symbol)
+      .whereIn('symbol', candidates)
+      // 多个候选同时命中时（如库里同时存在 600519 与 600519.SH）取规范化形式优先，
+      // 保证同一输入恒定解析到同一只股票，不随数据顺序抖动。
+      .orderByRaw('CASE WHEN symbol = ? THEN 0 ELSE 1 END', [candidates[0]])
       .first();
     return stock ?? null;
   }
@@ -281,6 +342,13 @@ export class Database {
 
   /**
    * 获取股票日行情
+   *
+   * P0-SYMBOL：此前直接返回 knex 原始行（snake_case），与本方法**声明的返回类型**
+   * `DailyQuote[]`（camelCase）不符。所有调用方都按 camelCase 读字段，于是：
+   *   - /api/indicators/* 里 `new Date(q.tradeDate).toISOString()` → Invalid time value → 500
+   *   - /api/tech/batch 里 `quotes.map(q => Number(q.closePrice))` → 全 NaN 被 filter 掉
+   *     → closes.length < 5 → 静默 unavailable
+   * 映射在数据层做一处，所有行情类调用方同时恢复。
    */
   async getDailyQuotes(stockId: number, startDate?: Date, endDate?: Date, limit?: number): Promise<DailyQuote[]> {
     const query = this.knexInstance<DailyQuote>('daily_quotes')
@@ -299,7 +367,8 @@ export class Database {
       query.limit(limit);
     }
 
-    return query;
+    const rows = await query;
+    return rows.map(row => mapDailyQuoteRow(row as unknown as Record<string, unknown>));
   }
 
   /**
@@ -310,30 +379,10 @@ export class Database {
       .where('stock_id', stockId)
       .orderBy('trade_date', 'desc')
       .first();
-    
+
     if (!quote) return null;
-    
-    // PostgreSQL 返回 snake_case，DailyQuote 类型为 camelCase，需安全转换
-     
-    const q = quote as any;
-    return {
-      id: q.id,
-      stockId: q.stock_id || q.stockId,
-      tradeDate: q.trade_date || q.tradeDate,
-      openPrice: q.open_price || q.openPrice,
-      closePrice: q.close_price || q.closePrice,
-      highPrice: q.high_price || q.highPrice,
-      lowPrice: q.low_price || q.lowPrice,
-      volume: q.volume,
-      turnover: q.turnover,
-      change: q.change_amount || q.change,
-      changePercent: q.change_percent || q.changePercent,
-      amplitude: q.amplitude,
-      turnoverRate: q.turnover_rate || q.turnoverRate,
-      marketCap: q.market_cap || q.marketCap,
-      createdAt: q.created_at || q.createdAt,
-      updatedAt: q.updated_at || q.updatedAt,
-    };
+
+    return mapDailyQuoteRow(quote as unknown as Record<string, unknown>);
   }
 
   /**
@@ -435,10 +484,18 @@ export class Database {
 
   /**
    * 获取多个股票的最新行情
+   *
+   * P0-SYMBOL：symbol 在数据层统一规范化（裸码/带后缀/`sh.600519` 都能命中），
+   * 调用方无需各自处理后缀。
    */
   async getStocksWithLatestQuotes(symbols: string[]): Promise<StockWithQuotes[]> {
+    // 逐个展开候选写法后去重：裸码 600519 → ['600519.SH','600519']，
+    // 与带后缀输入 600519.SH 展开出同一组候选，故不会重复命中同一只股票。
+    const candidates = Array.from(new Set((symbols ?? []).flatMap(symbolCandidates)));
+    if (candidates.length === 0) return [];
+
     const stocks = await this.knexInstance<Stock>('stocks')
-      .whereIn('symbol', symbols)
+      .whereIn('symbol', candidates)
       .where('is_active', true);
 
     if (stocks.length === 0) {
@@ -446,7 +503,7 @@ export class Database {
     }
 
     const stockIds = stocks.map(stock => stock.id);
-    
+
     // 获取每个股票的最新行情
     const latestQuotes = await this.knexInstance.raw(`
       SELECT DISTINCT ON (stock_id) *
@@ -456,8 +513,12 @@ export class Database {
     `);
 
     const quoteMap = new Map<number, DailyQuote>();
-    latestQuotes.rows.forEach((quote: DailyQuote) => {
-      quoteMap.set(quote.stockId as unknown as number, quote);
+    latestQuotes.rows.forEach((row: Record<string, unknown>) => {
+      // P0-SYMBOL：knex .raw() 返回的是**数据库原样**的 snake_case 行，
+      // 此处曾读 camelCase 的 `quote.stockId`，恒为 undefined ⟹ quoteMap 键全为
+      // undefined ⟹ latestQuote 永远取不到（页面靠 `s.latestQuote || s` 兜底没崩，
+      // 但 K 线当日 OHLC 实际从未被用上）。必须复用同一套行映射，不可另写字段名。
+      quoteMap.set(Number(row.stock_id), mapDailyQuoteRow(row));
     });
 
     return stocks.map(stock => ({
