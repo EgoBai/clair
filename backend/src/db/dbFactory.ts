@@ -9,6 +9,34 @@ import { isFabricatedQuoteRefusalActive } from './FabricatedDataRefusedError';
 
 export type DbType = 'postgres' | 'memory';
 
+/**
+ * knex 3.x 对「unix-socket host 参数」连接串（如 postgresql://user@/db?host=/tmp）
+ * 的 parse-connection 链路会丢失 database（parse 产物含 port:''，pg.Pool 据此回退到
+ * user 同名库，报 database "user" does not exist），表现为 testConnection() 静默 false
+ * → 降级内存库——本地开发/测试因此从未真正连上 PG（2026-10-12 探针实验定位）。
+ * 仅对该形态预解析成对象配置（pg 直连与 knex 对象路径均已验证 OK）；
+ * 常规 tcp 连接串保持原样传给 knex，生产路径行为不变。
+ */
+function toKnexConnection(pgUrl: string): string | Record<string, unknown> {
+  // 注意：不能用 new URL() —— WHATWG URL 对非特殊协议（postgresql:）带
+  // userinfo+空 host 的形态直接 throw Invalid URL（实测 2026-10-12）。
+  const qIndex = pgUrl.indexOf('?');
+  if (qIndex === -1) return pgUrl;
+  const socketHost = new URLSearchParams(pgUrl.slice(qIndex + 1)).get('host');
+  if (!socketHost) return pgUrl;
+  // 形态：scheme://[user[:password]@][tcpHost]/database?host=/unixSocketDir
+  const head = pgUrl.slice(0, qIndex);
+  const m = head.match(/^[a-zA-Z][\w+.-]*:\/\/(?:([^:@/]*)(?::([^@/]*))?@)?[^/]*\/(.*)$/);
+  if (!m || !m[3]) return pgUrl;
+  const conn: Record<string, unknown> = {
+    host: socketHost,
+    database: decodeURIComponent(m[3]),
+  };
+  if (m[1]) conn.user = decodeURIComponent(m[1]);
+  if (m[2]) conn.password = decodeURIComponent(m[2]);
+  return conn;
+}
+
 let currentType: DbType = 'memory';
 let dbInstance: Database | InMemoryDatabase | null = null;
 
@@ -31,8 +59,8 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
     try {
       const config = {
         client: 'pg',
-        connection: pgUrl,
-        pool: { 
+        connection: toKnexConnection(pgUrl),
+        pool: {
           min: 2, 
           max: 20,
           acquireTimeoutMillis: 30000,
@@ -55,6 +83,7 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
         return { db: pgDb, type: 'postgres' };
       }
       pgUnavailableReason = 'testConnection() 返回 false';
+      console.warn('⚠️ PostgreSQL testConnection() 返回 false，降级到内存数据库');
     } catch (error) {
       pgUnavailableReason = (error as Error).message;
       console.warn('⚠️ PostgreSQL 连接失败，降级到内存数据库:', pgUnavailableReason);
