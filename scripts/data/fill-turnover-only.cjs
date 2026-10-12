@@ -15,35 +15,35 @@
  * 而且它卡在补数逻辑的缝里 —— `existing` 判据只看 `(stock_id, trade_date)` 是否存在，
  * 所以补数脚本会永远跳过它们，不补。
  *
- * ## ⚠️ 单位口径：按「元」补（`Math.round(上游idx8) * 10000`），实测+代码双重依据
+ * ## ⚠️ 单位口径：按「万元」补，不乘任何系数（team-lead 裁决）
  *
- * 我最初判断"应补万元"（理由：同批次邻居行是万元，避免同一天内单位分裂）。
- * **这个判断是错的，已纠正。** 推翻它的是代码证据：
+ * ## 背景：这里有过一次判断反转，完整记录以免后人重踩
  *
- * `backend/src/data-sync/DataSyncService.ts` 有两条写库路径，**都乘 10000**：
+ * **第一版判断：应补「元」** —— 依据是代码两条写库路径都乘 10000：
  * ```
- * 364:  turnover: quote.turnover * 10000,        // 腾讯API返回万元，转为元存储
- * 909:  turnover: Math.round(turnoverWan) * 10000,   // K线路径
+ * DataSyncService.ts:364  turnover: quote.turnover * 10000        // 实时→库
+ * DataSyncService.ts:909  turnover: Math.round(turnoverWan) * 10000 // K线→库
  * ```
- * 且 909 上方注释明确写了取整理由：
- * ```
- * // 600519 idx8=314541.32 → round=314541 → 库内 3,145,410,000.00 ✓
- * // 若直接用 idx8×10000（不取整），与库内最多差 3800 元
- * // 故这里必须先 round，保持与实时路径逐位一致
- * ```
- * ⟹ **代码约定是「元」，且必须先 round 再乘。**
+ * 且 909 注释说明"先 round 再乘，与实时路径逐位一致"。
+ * 万元行写入时间 2026-06-05~06-09，而口径修复 commit `16ede6613` 落地
+ * 2026-10-09（**晚于写入**）⟹ 万元是 pre-fix 遗留。
  *
- * 那批"万元"行是**修复前的遗留**，时间线可证：
- * ```
- * 万元行写入时间      : 2026-06-05 23:53 ~ 2026-06-09 15:02（约12 天）
- * 口径修复 commit     : 16ede6613（2026-10-09）"成交额口径与实时路径对齐"
- * ```
- * 修复**晚于**那些行写入，所以它们是 pre-fix 遗留，不是当前约定。
- * 采集器现在写的近期行实测也全是元（茅台 10-08/10-09/10-12）。
+ * **第二版判断（最终执行）：应补「万元」** —— team-lead 裁决，依据是我没有的信息：
+ * > `fix-qfq-caliber` 将做**全库单位统一**：把采集器+补数的 ×1e4 去掉，统一为万元。
+ * > 这才是普适解法；X 类属万元批次，现在按万元补与统一方向一致，不会白做。
  *
- * 按万元补会让这批新行**延续已修复的旧口径**；按元补才与代码一致。
- * 代价是 06-04/06-05 两天会同时存在"我补的元"与"遗留的万元"——
- * 但遗留万元行本身已是待修缺陷，不该为迁就它而写错新数据。
+ * 即：**"元"是代码当前行为，"万元"是已定的目标口径。** 既然库要统一到万元，
+ * 新数据就该按万元写，否则统一时又要再改一次。
+ *
+ * ⚠️ 残留风险（已明示给 team-lead）：若全库统一**未执行**，这 42 行会与
+ * 采集器继续产出的「元」不一致。回滚文件见 `--rollback-out`，可随时还原。
+ *
+ * 实测同批次邻居行（支持万元）：
+ * ```
+ * 600519.SH  写入日 2026-05-31  邻居 → 万元 9/12
+ * 688008.SH  写入日 2026-06-01  邻居 → 万元 9/12
+ * 688036.SH  写入日 2026-06-01  邻居 → 万元 9/12
+ * ```
  *
  * ## 安全边界（team-lead 定的四条）
  * 1. 只 UPDATE `turnover` 一列，**绝不碰 OHLCV**
@@ -160,8 +160,8 @@ async function main() {
       Math.abs(+bar[3] - +h) < E && Math.abs(+bar[4] - +l) < E;
     const volOK = Math.abs(+bar[5] - +v) < 1;
     if (priceOK && volOK) {
-      // 单位口径：代码约定是「元」，且必须先 round 再乘（与 DataSyncService:909 逐位一致）
-      fixable.push({ symbol, stockId, date, newTurnover: Math.round(+bar[8]) * 10000 });
+      // 单位口径：team-lead 裁决按「万元」补（全库将统一为万元，见文件头说明）
+      fixable.push({ symbol, stockId, date, newTurnover: +bar[8] });
     } else {
       rejected.push({
         symbol, date,
@@ -197,7 +197,7 @@ async function main() {
     console.log('\n干跑结束（未加 --apply，数据库未被修改）。');
     console.log(`将补 ${fixable.length} 行，样例:`);
     fixable.slice(0, 8).forEach((f) =>
-      console.log(`  ${f.symbol} ${f.date}  turnover: 0 → ${f.newTurnover}（元口径 = round(idx8)×10000）`));
+      console.log(`  ${f.symbol} ${f.date}  turnover: 0 → ${f.newTurnover}（万元口径 = 上游 idx8，不乘系数）`));
     return;
   }
 
@@ -251,6 +251,25 @@ async function main() {
      WHERE trade_date BETWEEN '${FROM}' AND '${TO}'
        AND turnover = 0 AND volume > 0 AND open_price > 0`);
   console.log(`  剩余 turnover=0 且价对的行: ${filled[0][0]}`);
+
+  // ── team-lead 要求的第⑤项：抽 3 行与上游 idx8 比对，证明单位正确 ──
+  console.log(`\n--- 抽 3 行与上游 idx8 比对（证明是万元值，既没 ×1e4 也没漏乘）---`);
+  for (const f of [fixable[0], fixable[Math.floor(fixable.length / 2)], fixable[fixable.length - 1]]) {
+    if (!f) continue;
+    const tx = toTx(f.symbol);
+    const day = await fetchUnadjusted(tx, needDays);
+    const bar = day?.find((r) => r[0] === f.date);
+    if (!bar) { console.log(`  ${f.symbol} ${f.date}: 上游无该日，跳过`); continue; }
+    const now = sql(
+      `SELECT turnover FROM daily_quotes WHERE stock_id = ${f.stockId} AND trade_date = '${f.date}'`)[0][0];
+    const upWan = +bar[8];
+    const asYuan = Math.abs(+now - upWan * 1e4) / (upWan * 1e4) < 0.001;
+    const asWan = Math.abs(+now - upWan) / upWan < 0.001;
+    console.log(`  ${f.symbol} ${f.date}`);
+    console.log(`    库内 turnover = ${now}`);
+    console.log(`    上游 idx8(万元) = ${upWan}    ×1e4 = ${upWan * 1e4}`);
+    console.log(`    ⟹ ${asWan ? '✓ 等于上游万元值（正确）' : asYuan ? '✗ 等于 ×1e4 后的元值（单位错了）' : '✗ 两者都不等，需检查'}`);
+  }
 }
 
 main().catch((e) => { console.error('失败:', e); process.exit(1); });
