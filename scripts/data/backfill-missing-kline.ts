@@ -190,6 +190,27 @@ const PSQL = process.env.PSQL_BIN ?? '/opt/homebrew/opt/postgresql@15/bin/psql';
 const CONCURRENCY = Number(opt('concurrency') ?? '6');
 /** 只处理前N 只标的（冒烟测试用）；0 = 全量 */
 const LIMIT = Number(opt('limit') ?? '0');
+/**
+ * 上游K 线的回溯根数（`param={sym},day,,,{DAYS},`）。
+ *
+ * ## 为什么必须有这个参数（硬阻塞，曾导致补数静默产出 0 行）
+ * 腾讯该接口返回的是**最近 N 根**日 K，是个滑动窗口，不是按日期检索。
+ * 写死 30 根时窗口只回溯到 ~2026-08-21，于是补 2026-05-28/29、06-04/05
+ * （scrub-smeared-rows 的目标四天）会**一根都取不到**——
+ * 脚本不报错、只是安静地产出 0 行待写，极易被误读成「上游没数据」。
+ *
+ * 实测（同一时刻同一标的）：
+ * ```
+ * days=30→ 31根，最早 2026-08-21，目标四天命中 0
+ * days=200 → 201 根，最早 2025-12-09，目标四天全部命中 ✓
+ * ```
+ *
+ * 取值原则：窗口必须能回溯到**目标日期最早的那天**（可用 `--dates` 里
+ * 最早的日期粗估：约需 (今天 − 目标日)/0.68 根，÷0.68 是把自然日折成交易日）。
+ * 窗口不足时脚本会照常「0 行待写」——故这里额外校验并在不足时报错，
+ * 避免「静默产出 0 行」这种最难发现的失败模式。
+ */
+const DAYS = Number(opt('days') ?? '30');
 /** 分批落盘：每批把pending 追加写到该文件，避免长跑进程内存膨胀/被kill 后全丢 */
 const OUT = opt('out');
 /** 断点续跑：跳过该文件里已处理过的 symbol */
@@ -495,6 +516,39 @@ async function main() {
   }
   console.log(`已存在的正确日期行: ${existing.size} 行（将被跳过）\n`);
 
+  /**
+   * 窗口是否够回溯到最早的目标日期。
+   *
+   * 这是为了把「窗口不足→ 静默产出 0 行」变成**显式报错**。
+   *
+   * 系数由实测标定而非拍脑袋：取 600519 的 401 根K线，
+   * 覆盖 2025-02-17~2026-10-12 = 602 自然日 ⟹ **真实系数 = 0.6645 交易日/自然日**
+   * （含春节/国庆等所有长假，不是「平均交易日数」的粗估）。
+   * 再乘 1.25 余量兜住停牌密集期。反例：我最初用「÷0.68 × 1.35」，
+   * 对 2026-05-28 算出需 272 根，而实测 **92 根就够** —— 高估近 3 倍，
+   * 会把本可接受的 `--days=200` 误判为「窗口不足」而拒跑。
+   */
+  const TRADING_DAYS_PER_CALENDAR_DAY = 0.6645;
+  const SAFETY_MARGIN = 1.25;
+  const earliest = [...allowed].sort()[0];
+  const neededDays = Math.ceil(
+    ((Date.now() - new Date(`${earliest}T00:00:00Z`).getTime()) / 86_400_000) *
+      TRADING_DAYS_PER_CALENDAR_DAY *
+      SAFETY_MARGIN,
+  );
+  if (DAYS < neededDays) {
+    console.error(
+      `\n✗ 窗口不足：--days=${DAYS} 只能回溯约 ${DAYS} 个交易日，` +
+        `但目标日期 ${earliest} 距今需要约 ${neededDays} 根。\n` +
+        `  继续跑会**静默产出 0 行待写**（不是上游没数据，是取不到那段历史）。\n` +
+        `  请改用 --days=${Math.ceil(neededDays / 10) * 10} 或更大。`,
+    );
+    process.exit(2);
+  }
+  console.log(
+    `K线窗口: --days=${DAYS}（目标最早日期 ${earliest}，估算需 ≥${neededDays} 根）`,
+  );
+
   interface Pending {
     stockId: number;
     tradeDate: string;
@@ -528,7 +582,7 @@ async function main() {
         continue;
       }
       try {
-        const bars = await fetchUnadjustedDaily(tx, 30);
+        const bars = await fetchUnadjustedDaily(tx, DAYS);
         stats.fetched++;
         stats.barsTotal += bars.length;
         // 建立 日期 → 前收盘 的映射（change_amount 要用前收盘，不是开盘价）
