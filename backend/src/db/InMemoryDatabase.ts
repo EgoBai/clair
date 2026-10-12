@@ -22,6 +22,7 @@ import {
   FabricatedDataRefusedError,
   isFabricatedQuoteRefusalActive,
 } from './FabricatedDataRefusedError';
+import { symbolCandidates } from '../utils/symbolUtils';
 
 // ==================== 内部类型定义 ====================
 
@@ -433,8 +434,17 @@ class InMemoryDatabase {
 
   // ==================== Database兼容方法 ====================
 
+  /**
+   * P0-SYMBOL：与 Database.getStockBySymbol 保持同一套规范化（复用
+   * utils/symbolUtils.symbolCandidates）。内存库清单存的是**裸码**
+   * （all_stocks_compact.json 5541/5541 无后缀），而 PostgreSQL 存的是
+   * 带后缀 —— 两套数据源方向相反，所以两边都必须接受两种写法，
+   * 否则同一请求在 PG 下有数据、在降级内存库下却查不到。
+   */
   async getStockBySymbol(symbol: string): Promise<Stock | null> {
-    return this.stocks.find(s => s.symbol === symbol) || null;
+    const candidates = symbolCandidates(symbol);
+    if (candidates.length === 0) return null;
+    return this.stocks.find(s => candidates.includes(s.symbol)) || null;
   }
 
   async getStockById(id: number): Promise<Stock | null> {
@@ -507,9 +517,11 @@ class InMemoryDatabase {
 
   async getStockWithLatestQuote(symbol: string): Promise<StockWithQuotes | null> {
     this.refuseFabricatedQuotes('getStockWithLatestQuote');
-    const stock = this.stocks.find(s => s.symbol === symbol);
+    // P0-SYMBOL：先按候选写法解析出真实 symbol，再取行情
+    // （quotes 以清单里的 symbol 为键，不能用调用方传入的原始写法直接查）
+    const stock = await this.getStockBySymbol(symbol);
     if (!stock) return null;
-    const latestQuote = InMemoryDatabase.latestQuote(this.quotes.get(symbol));
+    const latestQuote = InMemoryDatabase.latestQuote(this.quotes.get(stock.symbol));
     // R1 诚实空态：无行情时**省略 latestQuote 键**（不置 null/undefined）——
     // `StockWithQuotes.latestQuote?` 本就可选，缺席即「无行情」。
     return latestQuote ? { ...stock, latestQuote } : { ...stock };
@@ -517,7 +529,9 @@ class InMemoryDatabase {
 
   async getStocksWithLatestQuotes(symbols: string[]): Promise<StockWithQuotes[]> {
     this.refuseFabricatedQuotes('getStocksWithLatestQuotes');
-    return symbols
+    const candidates = new Set((symbols ?? []).flatMap(symbolCandidates));
+    if (candidates.size === 0) return [];
+    return Array.from(candidates)
       .map(symbol => {
         const stock = this.stocks.find(s => s.symbol === symbol);
         if (!stock) return null;
