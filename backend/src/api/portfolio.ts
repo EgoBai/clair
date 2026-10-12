@@ -2,13 +2,21 @@
  * 投资组合管理 API 路由
  * 持仓管理、收益计算、资产配置
  * 参考雪球投资组合功能
+ *
+ * 诚实红线（P0-FABRICATE）：
+ *   本模块此前通过 initDefaultPortfolios() 硬编码 4 个「持仓」（数量/成本价/买入日期
+ *   全为编造），却被 risk-center 以 dataSource:'real' 返回并注明
+ *   「持仓行情与历史收益来自本地真实行情库」—— 价格真实、仓位与成本编造，
+ *   二者混在同一个 real 标签下。
+ *   事实：数据库中**不存在 portfolio / portfolio_position 表**，
+ *   本模块的持仓只是进程内 Map，重启即失，**不是任何用户的真实持仓**。
+ *   故此处不再注入任何默认组合：持仓只能由用户经鉴权接口自行录入（真实用户输入），
+ *   组合风控（risk-center）拿不到真实持仓时必须诚实降级为 dataSource:'unavailable'。
  */
 
 import { Router, Request, Response } from 'express';
 import { db } from '../db/dbFactory';
-import { queryCache } from '../utils/queryCache';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
-import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
@@ -19,7 +27,6 @@ const router = Router();
 // 仅收敛到 '/portfolio' 路径，避免误伤挂载于本路由之后的其它 /api 子路由
 // （如风险中心 risk-center 通过 getDefaultPortfolio() 函数直连、不经路由，不受影响）。
 router.use('/portfolio', authMiddleware);
-
 // ==================== 类型 ====================
 
 interface PortfolioPosition {
@@ -75,31 +82,18 @@ interface PortfolioData {
   createdAt: string;
 }
 
-// ==================== 模拟数据存储（实际应用中用数据库表）====================
-
+// ==================== 持仓存储（进程内，非持久化）====================
+//
+// 诚实红线（P0-FABRICATE）：此处原先有 initDefaultPortfolios() 硬编码 4 个持仓
+// （000001.SZ×1000@12.50 / 600519.SH×100@1680 / 000858.SZ×200@155 / 300750.SZ×300@195，
+// 买入日期与备注一并编造）。这些数字被 risk-center 以 dataSource:'real' 吐给用户，
+// 而「成本价/数量/买入日期」纯属虚构，**不属任何真实用户的持仓**。
+//
+// 事实：数据库无 portfolio 表，本模块持仓仅存于进程内 Map（重启即失）。
+// 故此处**不再注入任何默认组合**——组合只能由用户经鉴权接口自行录入（真实用户输入），
+// 且组合 ID 从 1 起由用户自建顺序决定，不再占用 id=1 作为「我的主仓位」。
 const portfolios = new Map<number, PortfolioData>();
 let nextId = 1;
-
-// 默认投资组合
-function initDefaultPortfolios() {
-  if (portfolios.size === 0) {
-    portfolios.set(1, {
-      id: 1,
-      name: '我的主仓位',
-      description: '长期价值投资组合',
-      cashBalance: 50000,
-      positions: [
-        { symbol: '000001.SZ', name: '平安银行', quantity: 1000, costPrice: 12.50, buyDate: '2026-01-15', notes: '银行板块龙头' },
-        { symbol: '600519.SH', name: '贵州茅台', quantity: 100, costPrice: 1680.00, buyDate: '2026-02-01', notes: '消费白马' },
-        { symbol: '000858.SZ', name: '五粮液', quantity: 200, costPrice: 155.00, buyDate: '2026-02-10', notes: '白酒板块' },
-        { symbol: '300750.SZ', name: '宁德时代', quantity: 300, costPrice: 195.00, buyDate: '2026-03-01', notes: '新能源龙头' },
-      ],
-      createdAt: '2026-01-15',
-    });
-    nextId = 2;
-  }
-}
-initDefaultPortfolios();
 
 // ==================== 获取投资组合列表 ====================
 
@@ -357,11 +351,17 @@ async function enrichPositionsWithQuotes(positions: RawPosition[]): Promise<Port
   });
 }
 
-/** 供组合风控中心复用：返回默认组合（id=1）的持仓（已 enrich 实时行情） */
-export async function getDefaultPortfolio() {
-  const pf = portfolios.get(1);
-  if (!pf) return [];
-  return enrichPositionsWithQuotes(pf.positions);
+/**
+ * 供组合风控中心复用。
+ *
+ * 诚实红线（P0-FABRICATE）：数据库无 portfolio 表，持仓不存在任何持久化的真实来源，
+ * 本函数此前返回的是 initDefaultPortfolios() 里**编造的 4 个持仓**（数量/成本/买入日期
+ * 全为虚构），却被 risk-center 标为 dataSource:'real'。
+ * 现固定返回空数组：组合风控拿不到真实持仓时必须诚实降级为 'unavailable'，
+ * 而不是拿编造仓位冒充真实持仓。**不做「退化返回默认持仓」的处理。**
+ */
+export async function getDefaultPortfolio(): Promise<PortfolioPosition[]> {
+  return [];
 }
 
 function calculateAllocation(positions: PortfolioPosition[], cashBalance: number) {
