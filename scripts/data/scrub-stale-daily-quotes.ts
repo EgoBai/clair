@@ -36,17 +36,21 @@ const APPLY = process.argv.includes('--apply');
 const SCRUB_CONDITION = 'open_price = 0 AND volume = 0';
 
 /**
- * 🔒 主理人裁决保护的 5 个「载体日」—— **本脚本一律不碰**。
+ * 🔒 主理人裁决保护的「载体日」—— **本脚本一律不碰**。
  *
  * 为什么不因为「它们也是伪行」就顺带删掉：载体日的保护理由与本工单**无关**。
  * 载体日受保护是因为「其载荷对应的真实交易日在库中残缺，载体日是那几天行情的
  * 唯一完整记录」（见 scripts/data/scrub-smeared-daily-quotes.ts 的裁决说明）。
  * 哪怕这些行同时命中本工单的判据，删除载体日数据仍是**另一个裁决**的事，
  * 不该由一个陈旧价清洗工单顺手带走。需要处理请由主理人单独裁决。
+ *
+ * 2026-10-12 更新：`2026-05-30` / `2026-06-06` 已移出本白名单 —— 两者均为周六
+ * 休市日（isTradingDay=false），且真身（05-29 / 06-05）已被 backfill-kline 补齐，
+ * 载体日完全冗余，已由 P0-IDXBLEED-CLEANUP 整日删除（库内 0 行，无数据可保护）。
+ * 归档见表 `archive_carrier_days_216`；与 scrub-smeared-daily-quotes.ts 的
+ * PROTECTED_DATES 保持同源，改一处必须同步另一处。
  */
 const PROTECTED_DATES = [
-  '2026-05-30',
-  '2026-06-06',
   '2026-07-11',
   '2026-09-06',
   '2026-10-04',
