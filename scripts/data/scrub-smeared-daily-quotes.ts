@@ -201,8 +201,9 @@ const OVERRIDE_DECISION = flag('override-leadership-decision');
  * 且脚本会打出二次警告——**绕过裁决应当是刻意行为，而非默认行为**。
  */
 const PROTECTED_DATES: ReadonlySet<string> = new Set([
-  '2026-05-30',
-  '2026-06-06',
+  // 2026-05-30 / 2026-06-06 已于 2026-10-12 移出：两者均为周六休市日，且其真身
+  // （05-29 / 06-05）已被 backfill-kline 补齐，载体日已完全冗余 ⟹ 整日删除
+  // （详见 P0-IDXBLEED-CLEANUP，commit e6669f0f8 之后的 carrier-day-audit）。
   '2026-07-11',
   '2026-09-06',
   '2026-10-04',
