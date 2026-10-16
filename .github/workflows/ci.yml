@@ -78,13 +78,21 @@ jobs:
         working-directory: backend
         run: |
           npm ci
-          npx vitest run
+          npx vitest run --retry=2
 
       - name: Frontend - install & test
         working-directory: frontend
         run: |
           npm ci
-          npx vitest run
+          npx vitest run --retry=2
+
+  # --retry=2 说明（2026-10-16，用户要求根治"push 后反复收失败邮件"）：
+  # CI 共享 runner 的真实时间断言/端口竞态类测试存在环境抖动，单次运行
+  # 会随机红（实例：virtualScrollEngine 缓存基准 2.69ms > 1.88ms 阈值）。
+  # --retry=2 只重试失败用例最多 2 次：环境抖动重试后转绿；真实回归
+  # 3 连红依旧失败 —— R0'-2.2 的阻断语义不变（continue-on-error 仍然禁止，
+  # 见 scripts/guard/README.md §4.4）。已知的确定性断言缺陷另行修复，
+  # 不依赖 retry 掩盖（本次同批修 virtualScrollEngine）。
 
   # ---------------------------------------------------------------
   # 诚实红线门禁 (阻断级)
