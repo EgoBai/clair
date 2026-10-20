@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import iconv from 'iconv-lite';
 import { getRealMarketData } from '../services/realMarketData';
 
 // 腾讯指数文本样例：f[1]=名称 f[3]=现价 f[4]=昨收
@@ -51,6 +52,24 @@ function buildBreadthList(): BreadthItem[] {
   return list;
 }
 
+/**
+ * 【P0-GBK C-1】真实腾讯指数字节响应 stub：按 **GBK 编码** 返回字节流。
+ * 此前该 helper 用 `text()` 返回 UTF-8 字符串——真实上游 qqt.gtimg.cn 给的是
+ * GBK 字节，UTF-8 假响应会把"乱码"这个缺陷完完全全掩盖掉（测试全绿但线上乱码）。
+ * 现在 stub 与生产一样只提供 `arrayBuffer()`，生产代码必须显式 GBK 解码才能解析。
+ */
+function gbkResponse(text: string, init?: { ok?: boolean; status?: number }) {
+  const bytes = iconv.encode(text, 'gbk');
+  return {
+    ok: init?.ok ?? true,
+    status: init?.status ?? 200,
+    arrayBuffer: () =>
+      Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer),
+    text: () => Promise.reject(new Error('stub: 只提供 GBK 字节，无 UTF-8 text()')),
+    json: () => Promise.reject(new Error('not json')),
+  } as Response;
+}
+
 function jsonResponse(body: unknown, init?: { ok?: boolean; status?: number }) {
   return {
     ok: init?.ok ?? true,
@@ -60,16 +79,7 @@ function jsonResponse(body: unknown, init?: { ok?: boolean; status?: number }) {
   } as Response;
 }
 
-function textResponse(text: string, init?: { ok?: boolean; status?: number }) {
-  return {
-    ok: init?.ok ?? true,
-    status: init?.status ?? 200,
-    text: () => Promise.resolve(text),
-    json: () => Promise.reject(new Error('not json')),
-  } as Response;
-}
-
-/** 按 URL 分发 mock：qt.gtimg.cn → 指数文本；push2 → 涨跌分布 JSON */
+/** 按 URL 分发 mock：qt.gtimg.cn → 指数 GBK 字节；push2 → 涨跌分布 JSON */
 function stubFetch(handlers: {
   indices?: Response | (() => Promise<Response>);
   breadth?: Response | (() => Promise<Response>);
@@ -102,7 +112,7 @@ describe('realMarketData (honest-data)', () => {
   describe('(a) 真实样例响应 → 字段映射正确', () => {
     it('腾讯指数文本正确解析为三大指数行情', async () => {
       stubFetch({
-        indices: textResponse(TENCENT_TEXT),
+        indices: gbkResponse(TENCENT_TEXT),
         breadth: jsonResponse({ data: { diff: buildBreadthList() } }),
       });
       const data = await getRealMarketData();
@@ -121,7 +131,7 @@ describe('realMarketData (honest-data)', () => {
 
     it('东财 push2 涨跌分布正确聚合（家数/涨跌停/成交额/量能比）', async () => {
       stubFetch({
-        indices: textResponse(TENCENT_TEXT),
+        indices: gbkResponse(TENCENT_TEXT),
         breadth: jsonResponse({ data: { diff: buildBreadthList() } }),
       });
       const data = await getRealMarketData();
@@ -147,7 +157,7 @@ describe('realMarketData (honest-data)', () => {
 
     it('兼容 data.list 字段（diff 缺失时兜底）', async () => {
       stubFetch({
-        indices: textResponse(TENCENT_TEXT),
+        indices: gbkResponse(TENCENT_TEXT),
         breadth: jsonResponse({ data: { list: buildBreadthList() } }),
       });
       const data = await getRealMarketData();
@@ -158,13 +168,13 @@ describe('realMarketData (honest-data)', () => {
 
   describe('(b) 源不可达 → 指数抛出 / 宽度降级 null', () => {
     it('指数源 HTTP 非 2xx（4xx 不重试）→ getRealMarketData reject', async () => {
-      stubFetch({ indices: textResponse('', { ok: false, status: 403 }) });
+      stubFetch({ indices: gbkResponse('', { ok: false, status: 403 }) });
       await expect(getRealMarketData()).rejects.toThrow(/HTTP 403/);
     });
 
     it('指数文本缺失三大指数 → reject（解析失败）', async () => {
       stubFetch({
-        indices: textResponse('v_sh000001="1~上证指数~000001~3234.56~3220.10";'),
+        indices: gbkResponse('v_sh000001="1~上证指数~000001~3234.56~3220.10";'),
       });
       await expect(getRealMarketData()).rejects.toThrow(/指数行情解析失败/);
     });
@@ -172,7 +182,7 @@ describe('realMarketData (honest-data)', () => {
     it('涨跌分布源失败 → breadth 为 null，指数仍真实返回', async () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       stubFetch({
-        indices: textResponse(TENCENT_TEXT),
+        indices: gbkResponse(TENCENT_TEXT),
         breadth: jsonResponse({}, { ok: false, status: 403 }),
       });
       const data = await getRealMarketData();
@@ -184,7 +194,7 @@ describe('realMarketData (honest-data)', () => {
     it('涨跌分布数据不完整（<1000 条）→ breadth 为 null', async () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       stubFetch({
-        indices: textResponse(TENCENT_TEXT),
+        indices: gbkResponse(TENCENT_TEXT),
         breadth: jsonResponse({ data: { diff: [{ f3: 1, f6: 1e8, f12: '600000' }] } }),
       });
       const data = await getRealMarketData();
@@ -195,7 +205,7 @@ describe('realMarketData (honest-data)', () => {
     it('涨跌分布 fetch reject（网络不可达）→ breadth 为 null 不抛出', async () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       stubFetch({
-        indices: textResponse(TENCENT_TEXT),
+        indices: gbkResponse(TENCENT_TEXT),
         breadth: () => Promise.reject(new Error('network down')),
       });
       const data = await getRealMarketData();
@@ -206,13 +216,44 @@ describe('realMarketData (honest-data)', () => {
   });
 
   describe('(c) 边界映射', () => {
+    it('【P0-GBK C-1】GBK 字节流 → 指数名为可读汉字（修复前为替换字符）', async () => {
+      // 回归锁定：生产必须走 arrayBuffer + TextDecoder('gbk')。
+      // 修复前 `resp.text()` 按 UTF-8 解 → name = "��ָ֤��"，是本单的缺陷现场。
+      stubFetch({
+        indices: gbkResponse(TENCENT_TEXT),
+        breadth: jsonResponse({}, { ok: false, status: 403 }),
+      });
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const data = await getRealMarketData();
+      errSpy.mockRestore();
+
+      expect(data.shanghai.name).toBe('上证指数');
+      expect(data.shenzhen.name).toBe('深证成指');
+      expect(data.chinext.name).toBe('创业板指');
+      // 数值不受编码影响，仍是真实值
+      expect(data.shanghai.price).toBe(3234.56);
+      expect(data.chinext.changePct).toBeCloseTo(-2.22, 2);
+    });
+
+    it('【P0-GBK C-1】响应里出现 UTF-8 解码的乱码名 → 抛错不标 real', async () => {
+      // 把 GBK 字节按 UTF-8 解错的形态喂进去：名称含替换字符 → 必须走 unavailable，
+      // 绝不允许「乱码冒充 real」（本单红线）。三大指数都要给，避免先命中缺失校验。
+      const bad = (s: string) => iconv.encode(s, 'gbk').toString('latin1');
+      const text =
+        `v_sh000001="1~${bad('上证指数')}~000001~3234.56~3220.10";\n` +
+        `v_sz399001="1~${bad('深证成指')}~399001~11000.00~10900.00";\n` +
+        `v_sz399006="1~${bad('创业板指')}~399006~2200.00~2250.00";`;
+      stubFetch({ indices: gbkResponse(text) });
+      await expect(getRealMarketData()).rejects.toThrow(/指数名称解码异常/);
+    });
+
     it('昨收为 0 时 changePct 诚实置 0（避免除零）', async () => {
       const text =
         'v_sh000001="1~上证指数~000001~3234.56~0~";\n' +
         'v_sz399001="1~深证成指~399001~11000.00~10900.00~";\n' +
         'v_sz399006="1~创业板指~399006~2200.00~2250.00~";';
       stubFetch({
-        indices: textResponse(text),
+        indices: gbkResponse(text),
         breadth: jsonResponse({}, { ok: false, status: 403 }),
       });
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -229,7 +270,7 @@ describe('realMarketData (honest-data)', () => {
         f12: `600${String(i).padStart(3, '0')}`,
       }));
       stubFetch({
-        indices: textResponse(TENCENT_TEXT),
+        indices: gbkResponse(TENCENT_TEXT),
         breadth: jsonResponse({ data: { diff: list } }),
       });
       const data = await getRealMarketData();

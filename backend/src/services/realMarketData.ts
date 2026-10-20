@@ -1,7 +1,8 @@
 /**
  * 真实市场行情数据源（后端直连实时接口）
- * - 指数：腾讯财经 qt.gtimg.cn（已在沙箱与生产的同源 client 验证可用）
- * - 涨跌分布/成交额/涨跌停：东方财富 push2（标准行情源，需 egress 至 push2.eastmoney.com）
+ * - 指数：腾讯财经 qt.gtimg.cn（已在沙箱与生产的同源 client 验证可用，
+ *   **响应为 GBK 编码**，必须显式按 GBK 解码，见 fetchIndices）
+ * - 涨跌分布/成交额/涨跌停：东方财富 push2（标准行情源，需 egress 至 push2.eastmoney.com，JSON/UTF-8）
  *
  * 设计原则：只返回真实数据。指数源失败直接抛出；涨跌分布源失败则降级为 null
  * （绝不回填演示/硬编码数据，遵守项目「诚实数据」红线）。
@@ -75,7 +76,12 @@ async function fetchWithRetry(url: string, retries = RETRY_MAX): Promise<Respons
 async function fetchIndices(): Promise<Record<string, IndexQuote>> {
   const url = 'https://qt.gtimg.cn/q=sh000001,sz399001,sz399006';
   const resp = await fetchWithRetry(url);
-  const txt = await resp.text();
+  // 【P0-GBK C-1】腾讯 qt.gtimg.cn 返回的是 **GBK** 字节流，此前用
+  // `resp.text()` 按 UTF-8 解码 → 指数名全变成替换字符（"��ָ֤��"），
+  // 而价格/涨跌幅是 ASCII 数字所以不受影响。结果就是「乱码冒充 real」：
+  // 价格真实、dataSource:'real'，唯独用户看得见的名字是乱码。
+  // 修法与 etfDataService.ts:195 同一风格：按字节取回后显式 GBK 解码。
+  const txt = new TextDecoder('gbk').decode(await resp.arrayBuffer());
   const out: Record<string, IndexQuote> = {};
   for (const line of txt.split(';')) {
     const m = line.match(/v_(\w+)="([^"]*)"/);
@@ -88,6 +94,14 @@ async function fetchIndices(): Promise<Record<string, IndexQuote>> {
   }
   if (!out.sh000001 || !out.sz399001 || !out.sz399006) {
     throw new Error('指数行情解析失败或缺失三大指数');
+  }
+  // 【P0-GBK C-1】诚实校验：名称必须含至少一个可读汉字。若上游更换了编码
+  // 而这里的 GBK 解码失配（或源侧异常），宁可抛错走 unavailable 降级，
+  // 也绝不让替换字符/乱码带 dataSource:'real' 出街。
+  for (const [k, v] of Object.entries(out)) {
+    if (!/[一-龥]/.test(v.name)) {
+      throw new Error(`指数名称解码异常（无有效汉字）: key=${k} raw=${JSON.stringify(v.name)}`);
+    }
   }
   return out;
 }
