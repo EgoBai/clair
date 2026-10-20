@@ -188,6 +188,11 @@ const DB_URL = opt('db') ?? process.env.DATABASE_URL ?? 'clair';
 const PSQL = process.env.PSQL_BIN ?? '/opt/homebrew/opt/postgresql@15/bin/psql';
 /** 上游请求并发数（腾讯限流不宜过高） */
 const CONCURRENCY = Number(opt('concurrency') ?? '6');
+/**
+ * 每次上游请求后的间隔 ms（默认 0 不改变既有行为）。
+ * 批B 限流实测：3 路并发 + 150ms 间隔才稳定；提高并发会撞 429/WAF。
+ */
+const DELAY_MS = Number(opt('delay') ?? '0');
 /** 只处理前N 只标的（冒烟测试用）；0 = 全量 */
 const LIMIT = Number(opt('limit') ?? '0');
 /**
@@ -583,6 +588,7 @@ async function main() {
       }
       try {
         const bars = await fetchUnadjustedDaily(tx, DAYS);
+        if (DELAY_MS > 0) await new Promise((r) => setTimeout(r, DELAY_MS));
         stats.fetched++;
         stats.barsTotal += bars.length;
         // 建立 日期 → 前收盘 的映射（change_amount 要用前收盘，不是开盘价）
@@ -620,7 +626,10 @@ async function main() {
             high: b.high,
             low: b.low,
             volume: Math.round(b.volume),
-            turnover: round2(b.amountWan * 10000),
+            // 元口径：先 round 再乘（team-lead 批B 裁决）——与 DataSyncService:909
+            // 及既有两批迁移（60,266+7,922 行）的「库值=round(idx8)×1e4」
+            // 单一对账公式逐位一致，保证未来审计可机器复验零歧义。
+            turnover: Math.round(b.amountWan) * 10000,
             // 三个派生字段统一以「前收盘」为基数（实测 09-24 抽样 56/56 命中库内口径；
             // 若改用开盘价作基数，amplitude 只能命中 25/56）
             changeAmount: round2(b.close - prev),
