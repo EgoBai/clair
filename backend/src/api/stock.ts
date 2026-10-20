@@ -15,6 +15,7 @@ import { normalizeSymbol } from '../utils/symbolUtils';
 import { dataSyncService } from '../data-sync/DataSyncService';
 import { AppError } from '../middleware/errorHandler';
 import { resolveMarketQueryDate, type MarketQueryDate } from '../utils/tradingCalendar';
+import { WAN_TO_YUAN } from '../utils/turnoverUnit';
 
 /**
  * P0-CALWIRE：把交易日历解析结果展开为响应字段（7 个日频端点共用）。
@@ -385,7 +386,7 @@ async function fetchMarketIndices() {
       lowPrice: parseFloat(parts[34]) || 0,
       changePercent: parseFloat(parts[32]) || 0,
       volume: parseInt(parts[6]) || 0,
-      turnover: parseInt(parts[37]) || 0,
+      turnover: (parseInt(parts[37]) || 0) * WAN_TO_YUAN,
       category: cfg.category,
     });
   }

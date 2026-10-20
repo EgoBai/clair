@@ -10,6 +10,7 @@ import { db } from '../db/dbFactory';
 import { getInMemoryDb } from '../db/InMemoryDatabase';
 import { wsService } from '../websocket/server';
 import { isTradingDay } from '../utils/tradingCalendar';
+import { WAN_TO_YUAN } from '../utils/turnoverUnit';
 
 export interface SyncResult {
   success: boolean;
@@ -361,7 +362,7 @@ export class DataSyncService {
                   amplitude: quote.amplitude,
                   turnoverRate: quote.turnoverRate,
                   marketCap: quote.marketCap,
-                  turnover: quote.turnover * 10000, // 腾讯API返回万元，转为元存储
+                  turnover: quote.turnover * WAN_TO_YUAN, // 腾讯API返回万元，转为元存储
                   peRatio: quote.peRatio,
                   pbRatio: quote.pbRatio,
                 });
@@ -808,7 +809,7 @@ export class DataSyncService {
           lowPrice: v(34) || currentPrice,
           prevClose,
           volume,
-          turnover: v(37),
+          turnover: v(37) * WAN_TO_YUAN,
           change,
           changePercent: finalChangePct,
           amplitude: v(43),
@@ -906,7 +907,7 @@ export class DataSyncService {
           highPrice: k(3),
           lowPrice: k(4),
           volume: k(5),
-          turnover: Math.round(turnoverWan) * 10000,
+          turnover: Math.round(turnoverWan) * WAN_TO_YUAN,
           turnoverRate: k(7),
           exDividend: parseExDividend(item[6]),
         });
