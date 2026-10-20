@@ -29,6 +29,7 @@ import {
   calendarPrecisionOfYear,
   reconcileCalendarWithQuotes,
   candidateTradingDaysWithData,
+  resolveMarketQueryDate,
 } from '../utils/tradingCalendar';
 
 /**
@@ -359,6 +360,81 @@ describe('tradingCalendar（生产实现）', () => {
         new Set(['2026-09-18', '2026-09-22', '2026-09-23', '2026-09-24']),
       );
       expect(r.consecutiveEvidence).toBe(3); // 09-22~09-24 连续 3 天
+    });
+  });
+
+  describe('resolveMarketQueryDate —— API 端点接入层（P0-CALWIRE）', () => {
+    it('【关键】非交易日输入 → 回退最近交易日，asOf/date/isFallback 全部如实', async () => {
+      const q = await resolveMarketQueryDate('2026-10-06');
+      expect(q.asOf).toBe('2026-09-30');
+      expect(q.isFallback).toBe(true);
+      expect(q.dateRequested).toBe('2026-10-06');
+      expect(q.note).toMatch(/回退/);
+      // 传给 db 层的 Date 必须落在 asOf 当天（UTC 零点，与既有 ?date= 行为一致）
+      expect(q.date.toISOString()).toMatch(/^2026-09-30T00:00:00\.000Z$/);
+    });
+
+    it('【关键】Joi 转换后的 Date 对象输入 → 与字符串输入等价', async () => {
+      // Joi date() 校验后 req.query.date 是 Date，不是字符串
+      const fromStr = await resolveMarketQueryDate('2026-10-06');
+      const fromDate = await resolveMarketQueryDate(new Date('2026-10-06T00:00:00Z'));
+      expect(fromDate.asOf).toBe(fromStr.asOf);
+      expect(fromDate.isFallback).toBe(fromStr.isFallback);
+      expect(fromDate.dateRequested).toBe('2026-10-06');
+    });
+
+    it('交易日且库可达有数据 → isFallback=false，不误报回退', async () => {
+      const q = await resolveMarketQueryDate('2026-10-08');
+      if (q.note?.includes('行情库不可用')) {
+        // PG 不可用的测试环境：日历判定 10-08 是交易日 → 不回退
+        expect(q.isFallback).toBe(false);
+        expect(q.asOf).toBe('2026-10-08');
+        return;
+      }
+      // PG 可用且 10-08 有数据 → 原样使用
+      expect(q.isFallback).toBe(false);
+      expect(q.asOf).toBe('2026-10-08');
+    });
+
+    it('PG 不可用时 note 必须声明按内置表推算（不得静默假装已交叉校验）', async () => {
+      const q = await resolveMarketQueryDate('2026-10-06');
+      // 测试环境 DB 未初始化 → 走内存库降级路径
+      if (q.note?.includes('行情库不可用')) {
+        expect(q.note).toContain('按内置节假日表推算');
+      }
+    });
+
+    it('无数据库佐证时不得把「交易日」误判成「有数据」', async () => {
+      // 2026-10-08 是交易日；测试环境 PG 不可用 → dataAvailable 未知，
+      // 不得回退（回退需要数据证据），也不得声称有数据
+      const q = await resolveMarketQueryDate('2026-10-08');
+      expect(q.asOf).toBe('2026-10-08');
+      expect(q.isFallback).toBe(false);
+    });
+
+    it('显式日期回退时 dateRequested 必须保留原始请求（asOf 可与之一致或更早）', async () => {
+      const q = await resolveMarketQueryDate('2026-10-06');
+      expect(q.dateRequested).toBe('2026-10-06');
+      expect(q.asOf <= '2026-10-06').toBe(true); // 只会向过去回退
+    });
+
+    it('非法日期应抛错（Joi 已拦截绝大多数，这里兜底显式失败）', async () => {
+      await expect(resolveMarketQueryDate('not-a-date')).rejects.toThrow();
+    });
+
+    it('null/undefined 输入不抛错（表示「用户要今天」）', async () => {
+      const q1 = await resolveMarketQueryDate(undefined);
+      const q2 = await resolveMarketQueryDate(null);
+      expect(q1.asOf).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(q2.asOf).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(q1.dateRequested).toBeNull();
+      // 今天是交易日时不得回退；休市时必须回退且标注
+      if (isTradingDay(today())) {
+        expect(q1.isFallback).toBe(false);
+      } else {
+        expect(q1.isFallback).toBe(true);
+        expect(q1.asOf).toBe(latestTradingDay(today()));
+      }
     });
   });
 });

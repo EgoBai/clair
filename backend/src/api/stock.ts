@@ -14,6 +14,26 @@ import { queryCache } from '../utils/queryCache';
 import { normalizeSymbol } from '../utils/symbolUtils';
 import { dataSyncService } from '../data-sync/DataSyncService';
 import { AppError } from '../middleware/errorHandler';
+import { resolveMarketQueryDate, type MarketQueryDate } from '../utils/tradingCalendar';
+
+/**
+ * P0-CALWIRE：把交易日历解析结果展开为响应字段（7 个日频端点共用）。
+ *
+ * - `asOf`：实际使用的交易日——「你看的数据是哪一天的」唯一真源；
+ * - `isFallback`：是否发生了回退；前端据此可提示「当前展示的是 X 日数据」；
+ * - `note`：回退原因/精度来源的中文说明，仅在需要告知时存在。
+ *
+ * 注意 `date` 字段不在本函数内：各端点既有的 `date` 形态不同（Date 对象或字符串），
+ * 保持原形态以免破坏前端兼容，由各 handler 用解析结果赋值。
+ */
+function calendarFields(q: MarketQueryDate): Record<string, unknown> {
+  return {
+    asOf: q.asOf,
+    dateRequested: q.dateRequested,
+    isFallback: q.isFallback,
+    ...(q.note ? { note: q.note } : {}),
+  };
+}
 
 const router = Router();
 
@@ -243,12 +263,14 @@ router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHand
 // ==================== 市场数据 ====================
 
 router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date as string) : new Date();
-  const summary = await db.getMarketSummary(date);
+  // P0-CALWIRE：未指定日期→回退最近有数据的交易日；指定日无数据→同样回退（asOf 如实标注）
+  const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
+  const summary = await db.getMarketSummary(q.date);
   if (!summary) {
     sendHonest(res, 'unavailable', {
-      date: date.toISOString().split('T')[0],
-      message: '本地真实行情库无当日市场聚合数据（未同步或非交易日），未返回任何涨跌家数',
+      date: q.asOf,
+      ...calendarFields(q),
+      message: '本地真实行情库无最近交易日的市场聚合数据（未同步），未返回任何涨跌家数',
     });
     return;
   }
@@ -261,6 +283,7 @@ router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(a
   // indices 来自腾讯实时源，失败时主数据仍为真实 → 整体仍是 real，但显式告知 indices 缺失
   sendHonest(res, 'real', {
     ...summary,
+    ...calendarFields(q),
     ...(indicesAvailable ? {} : { message: '市场聚合数据为真实值；实时指数源不可达，indices 为空' }),
   });
 }));
@@ -278,44 +301,51 @@ router.get('/market/indices', asyncHandler(async (_req, res) => {
 }));
 
 router.get('/market/industries', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date as string) : new Date();
-  const industries = await db.getIndustryPerformance(date);
+  const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
+  const industries = await db.getIndustryPerformance(q.date);
   sendHonest(res, industries.length > 0 ? 'real' : 'unavailable', {
-    date,
+    date: q.date,
+    ...calendarFields(q),
     industries,
     ...(industries.length > 0
       ? {}
-      : { message: '本地真实行情库无该交易日的行业聚合数据（未同步或非交易日）' }),
+      : { message: '本地真实行情库无最近交易日的行业聚合数据（未同步）' }),
   });
 }));
 
 router.get('/market/top-gainers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date as string) : new Date();
+  const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const limit = parseInt(req.query.limit as string) || 10;
-  const topGainers = await db.getTopGainers(date, limit);
+  const topGainers = await db.getTopGainers(q.date, limit);
   sendHonest(res, topGainers.length > 0 ? 'real' : 'unavailable', {
-    date, topGainers,
-    ...(topGainers.length > 0 ? {} : { message: '本地真实行情库无该交易日的涨幅榜数据' }),
+    date: q.date,
+    ...calendarFields(q),
+    topGainers,
+    ...(topGainers.length > 0 ? {} : { message: '本地真实行情库无最近交易日的涨幅榜数据' }),
   });
 }));
 
 router.get('/market/top-losers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date as string) : new Date();
+  const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const limit = parseInt(req.query.limit as string) || 10;
-  const topLosers = await db.getTopLosers(date, limit);
+  const topLosers = await db.getTopLosers(q.date, limit);
   sendHonest(res, topLosers.length > 0 ? 'real' : 'unavailable', {
-    date, topLosers,
-    ...(topLosers.length > 0 ? {} : { message: '本地真实行情库无该交易日的跌幅榜数据' }),
+    date: q.date,
+    ...calendarFields(q),
+    topLosers,
+    ...(topLosers.length > 0 ? {} : { message: '本地真实行情库无最近交易日的跌幅榜数据' }),
   });
 }));
 
 router.get('/market/top-turnover', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date as string) : new Date();
+  const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const limit = parseInt(req.query.limit as string) || 10;
-  const topTurnover = await db.getTopTurnover(date, limit);
+  const topTurnover = await db.getTopTurnover(q.date, limit);
   sendHonest(res, topTurnover.length > 0 ? 'real' : 'unavailable', {
-    date, topTurnover,
-    ...(topTurnover.length > 0 ? {} : { message: '本地真实行情库无该交易日的换手率榜数据' }),
+    date: q.date,
+    ...calendarFields(q),
+    topTurnover,
+    ...(topTurnover.length > 0 ? {} : { message: '本地真实行情库无最近交易日的换手率榜数据' }),
   });
 }));
 

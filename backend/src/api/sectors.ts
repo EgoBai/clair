@@ -18,8 +18,22 @@ import {
   type KnexLike,
 } from '../services/conceptBoardService';
 import type { ResponseMeta } from '@shared/types';
+import { resolveMarketQueryDate, type MarketQueryDate } from '../utils/tradingCalendar';
 
 const router = Router();
+
+/**
+ * P0-CALWIRE：把交易日历解析结果展开为响应字段（/sectors 与 /sectors/ranking 共用）。
+ * `asOf` 是「你看的数据是哪一天的」唯一真源；`isFallback`/`note` 如实标注回退。
+ */
+function calendarFields(q: MarketQueryDate): Record<string, unknown> {
+  return {
+    asOf: q.asOf,
+    dateRequested: q.dateRequested,
+    isFallback: q.isFallback,
+    ...(q.note ? { note: q.note } : {}),
+  };
+}
 
 /**
  * 数据库直读类接口的 meta：有数据=live，无数据=unavailable（DB 无"历史缓存"层）
@@ -59,18 +73,20 @@ function getKnexLike(): KnexLike | null {
 }
 
 router.get('/sectors', validateQuery(schemas.sectorQuery), asyncHandler(async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date as string) : new Date();
+  // P0-CALWIRE：未指定日期→回退最近有数据的交易日；指定日无数据→同样回退（asOf 如实标注）
+  const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const sortBy = (req.query.sortBy as string) || 'avgChangePercent';
   const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
-  const industries = await db.getIndustryPerformance(date);
+  const industries = await db.getIndustryPerformance(q.date);
   industries.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
     const aVal = (a[sortBy] as number) ?? 0;
     const bVal = (b[sortBy] as number) ?? 0;
     return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
   });
-  const { meta, dataSource } = dbMeta(industries.length, '该交易日无行业聚合数据（可能未同步或非交易日）');
+  const { meta, dataSource } = dbMeta(industries.length, '最近交易日无行业聚合数据（可能未同步）');
   sendHonest(res, dataSource, {
-    date: date.toISOString().split('T')[0],
+    date: q.asOf,
+    ...calendarFields(q),
     sectors: industries,
     count: industries.length,
     meta,
@@ -120,18 +136,19 @@ router.get('/sectors/:industry/stocks', asyncHandler(async (req, res) => {
 }));
 
 router.get('/sectors/ranking', validateQuery(schemas.sectorQuery), asyncHandler(async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date as string) : new Date();
+  const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const type = (req.query.type as string) || 'gainers';
   const limit = parseInt(req.query.limit as string) || 10;
-  const industries = await db.getIndustryPerformance(date);
+  const industries = await db.getIndustryPerformance(q.date);
   const sorted = [...industries].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
     type === 'gainers'
       ? ((b.avg_change_percent as number) ?? 0) - ((a.avg_change_percent as number) ?? 0)
       : ((a.avg_change_percent as number) ?? 0) - ((b.avg_change_percent as number) ?? 0)
   );
-  const { meta, dataSource } = dbMeta(sorted.length, '该交易日无行业聚合数据（可能未同步或非交易日）');
+  const { meta, dataSource } = dbMeta(sorted.length, '最近交易日无行业聚合数据（可能未同步）');
   sendHonest(res, dataSource, {
-    date: date.toISOString().split('T')[0],
+    date: q.asOf,
+    ...calendarFields(q),
     type,
     ranking: sorted.slice(0, limit),
     meta,

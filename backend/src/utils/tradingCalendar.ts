@@ -789,3 +789,68 @@ export async function resolveQueryDate(
     calendarSource: pgConsulted ? 'pg-cross-checked' : 'builtin-holiday-table',
   };
 }
+
+// ────────────────────────── API 端点接入层（P0-CALWIRE） ──────────────────────────
+
+/**
+ * 日频查询端点的统一日期解析结果（供路由层直接展开进响应）。
+ */
+export interface MarketQueryDate {
+  /**
+   * 实际使用的交易日（`YYYY-MM-DD`）。**响应里必须以 `asOf` 字段透出**：
+   * 这是「你看的数据是哪一天的」的唯一真源，绝不允许把它渲染成「今天」。
+   */
+  readonly asOf: DateStr;
+  /**
+   * 传给 db 层的 Date（UTC 零点构造，与既有端点显式传 `?date=` 的行为完全一致，
+   * 因此不会改变 `trade_date = ?` 的匹配语义）。
+   */
+  readonly date: Date;
+  /** 是否发生了回退（未指定日期落到别的交易日 / 指定日非交易日 / 指定日无数据） */
+  readonly isFallback: boolean;
+  /** 调用方原始请求的日期；未指定为 null */
+  readonly dateRequested: DateStr | null;
+  /** 中文说明（回退原因 / 精度来源）；仅在需要告知用户时存在 */
+  readonly note?: string;
+}
+
+/**
+ * **日频查询端点的统一日期入口**（P0-CALWIRE）。
+ *
+ * 语义（与 {@link resolveQueryDate} 一致，这里做的是路由层适配）：
+ * 1. 未指定日期 → 取今天；今天休市 → 回退最近交易日；
+ * 2. 指定日期是交易日 → 原样使用；
+ * 3. 指定/解析出的交易日**库中无数据** → 继续回退到「既是交易日、库中又有数据」的
+ *    最近交易日（候选窗口 20 个交易日），note 如实说明两层原因。
+ *
+ * **为什么显式传日期也回退而不是诚实空态**：这是 P0-CALWIRE 的裁决——
+ * 空屏的根因是「日期对了但数据没同步」，此时用户要的是「最近能看的数据」，
+ * 而 `asOf + isFallback + note` 已经把真实口径完整带出，不存在冒充今天的问题；
+ * 若返回空态，用户只会看到白屏，比「如实标注的旧数据」更不诚实。
+ *
+ * @param raw 路由层的 `req.query.date`。注意 Joi `date()` 校验后它是 **Date 对象**
+ *            （不是字符串），所以本函数两种形态都收。
+ * @throws raw 存在但无法解析为日历日（Joi 已拦截绝大多数，这里兜底显式失败）
+ */
+export async function resolveMarketQueryDate(
+  raw?: Date | string | null,
+): Promise<MarketQueryDate> {
+  const requested =
+    raw === undefined || raw === null
+      ? undefined
+      : raw instanceof Date
+        ? dateInMarketTz(raw)
+        : toDateString(raw);
+
+  const resolved = await resolveQueryDate(requested, { useDatabase: true });
+
+  return {
+    asOf: resolved.date,
+    // UTC 零点：与既有端点对显式 ?date= 的解析行为逐字节一致（new Date('YYYY-MM-DD')
+    // 本就是 UTC 零点），保证 knex `trade_date = ?` 的匹配语义不变。
+    date: new Date(`${resolved.date}T00:00:00Z`),
+    isFallback: resolved.isFallback,
+    dateRequested: resolved.requestedDate,
+    note: resolved.note,
+  };
+}
