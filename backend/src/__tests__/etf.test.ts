@@ -40,12 +40,19 @@ const realEtfItem = {
   changePercent: -0.65,
   premiumRate: 0.05,
   totalAssets: 117543694897,
-  trackingError: 0.03,
-  dividendYield: 2.1,
-  expenseRatio: 0.15,
+  // 【P0-LEAK C-3】无真实源字段恒为 null + 字段级来源标注（不再有静态目录值）
+  trackingError: null,
+  dividendYield: null,
+  expenseRatio: null,
   volume: 2541400132,
   turnover: 12015739824.096,
-  holdings: 300,
+  holdings: null,
+  fieldSources: {
+    trackingError: 'unavailable',
+    dividendYield: 'unavailable',
+    expenseRatio: 'unavailable',
+    holdings: 'unavailable',
+  },
 };
 
 const realNavHistory = {

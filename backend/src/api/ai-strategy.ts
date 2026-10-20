@@ -15,6 +15,21 @@ const router = Router();
 // F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
 router.use(aiTiming);
 
+/**
+ * 【P0-LEAK C-2 同族】错误文案脱敏。
+ * 本端点走 chatStream → gatewayFetch：上游 401 时 HttpStatusError.message
+ * 内含「上游 body 前 500 字符」，即掩码 key（实测 "****0a09"）。
+ * 与 ai-filter.ts 的 redactSecrets 同款正则（两文件各自内联，避免 API 层
+ * 互相 import）；响应体经此脱敏，不留任何 key 指纹——连掩码都不留。
+ */
+function redactSecrets(input: string): string {
+  return input
+    .replace(/\b(?:sk|rk|dk|fk)-[A-Za-z0-9_-]{4,}/g, '[REDACTED]')
+    .replace(/\*{2,}[0-9a-zA-Z]{2,}/g, '[REDACTED]')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '[REDACTED]');
+}
+
 // ==================== AI策略推荐 ====================
 
 router.post('/ai/strategy-recommend', asyncHandler(async (req: Request, res: Response) => {
@@ -122,12 +137,17 @@ ${industrySummary}
       }
     }
   } catch (error) {
-    console.error('AI策略推荐失败:', error);
+    // 【P0-LEAK C-2 同族】message 可能是 HttpStatusError 的「上游 401 body」，
+    // 内含掩码 key——**响应体不透传上游 message**（与 ai-filter 外层 catch 同标准：
+    // 不透传比正则脱敏更稳，无形态漏网）；日志经 redactSecrets 后落盘。
+    // 另：上方已 setHeader('text/event-stream')，若不在 JSON 前覆盖回
+    // application/json，这段错误体会带着 SSE 头出街（前端 res.json() 解析失败）。
+    console.error('AI策略推荐失败:', redactSecrets(error instanceof Error ? error.message : String(error)));
     if (!res.headersSent) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.status(500).json({
         success: false,
-        error: 'AI策略推荐失败',
-        details: error instanceof Error ? error.message : '未知错误'
+        error: 'AI策略推荐失败，请稍后重试',
       });
     }
   }

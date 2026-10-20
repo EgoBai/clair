@@ -6,7 +6,10 @@
  *   （原为东方财富 push2 ulist；该host 从本机网络不可达 —— HTTP 000，故已换源）
  * - 单位净值(NAV) 与净值历史：东方财富 fundf10 lsjz（免 key，本机可达，保持不变）
  *
- * 静态分类（代码/名称/跟踪标的/费率）为公开事实参考目录，非模拟数据。
+ * 静态目录仅保留「公开事实标识」：代码/名称/类型/跟踪标的/市场前缀。
+ * 【P0-LEAK C-3】费率/跟踪误差/股息率/持仓数无真实源 → 字段已从目录移除，
+ * EtfItem 中恒为 null 并以 fieldSources:'unavailable' 标注（原为静态估计值
+ * 混入 dataSource:'real' 响应，属「静态字段冒充真实」红线违规）。
  *
  * 遵守「诚实数据」红线：行情/净值源不可达 → 抛出 EtfUnavailableError，
  * 由路由层降级为 dataSource:'unavailable'，绝不回填演示/正弦/随机伪造数据。
@@ -22,10 +25,9 @@ export interface EtfCatalog {
   type: EtfType;
   benchmark: string;
   market: '1' | '0'; // secid 市场：1=上交所 0=深交所
-  expenseRatio: number;
-  trackingError: number;
-  dividendYield: number;
-  holdings: number;
+  // 【P0-LEAK C-3 诚实红线】原目录还带 expenseRatio/trackingError/dividendYield/holdings
+  // 四个**编撰时的静态估计值**，经 buildEtf 原样进入 dataSource:'real' 响应，
+  // 属「静态字段冒充真实」。现从目录整体删除：没有真实源，就不该有这个数字。
 }
 
 export interface EtfQuote {
@@ -42,6 +44,12 @@ export interface EtfNav {
   history: { date: string; nav: number; accNav: number; changePercent: number }[];
 }
 
+/** 字段级来源标注：real=真实源取到；unavailable=无真实源，值为 null */
+export type EtfFieldSources = Record<
+  'trackingError' | 'dividendYield' | 'expenseRatio' | 'holdings',
+  'unavailable'
+>;
+
 export interface EtfItem {
   symbol: string;
   name: string;
@@ -55,12 +63,16 @@ export interface EtfItem {
   /** 折溢价率 %；缺真实行情或真实净值时为 null（诚实不可用，非 0） */
   premiumRate: number | null;
   totalAssets: number;
-  trackingError: number;
-  dividendYield: number;
-  expenseRatio: number;
+  /** 【P0-LEAK C-3】无真实源 → 恒为 null（原为静态目录估计值，冒充 real） */
+  trackingError: number | null;
+  dividendYield: number | null;
+  expenseRatio: number | null;
   volume: number;
   turnover: number;
-  holdings: number;
+  /** 持仓数量。无真实源 → null（原为「跟踪标的成分数」的静态抄写，非真实持仓数） */
+  holdings: number | null;
+  /** 字段级来源标注：上述 4 字段当前全部 unavailable */
+  fieldSources: EtfFieldSources;
 }
 
 /**
@@ -74,24 +86,24 @@ export class EtfUnavailableError extends Error {
   }
 }
 
-/** 真实 ETF 参考目录（代码/名称/跟踪标的/费率为公开事实，非模拟时间序列） */
+/** 真实 ETF 参考目录（代码/名称/类型/跟踪标的为公开事实标识；费率等无真实源的字段已整体移除） */
 export const ETF_CATALOG: EtfCatalog[] = [
-  { symbol: '510300', name: '沪深300ETF', type: 'index', benchmark: '沪深300', market: '1', expenseRatio: 0.15, trackingError: 0.03, dividendYield: 2.1, holdings: 300 },
-  { symbol: '510500', name: '中证500ETF', type: 'index', benchmark: '中证500', market: '1', expenseRatio: 0.15, trackingError: 0.04, dividendYield: 1.8, holdings: 500 },
-  { symbol: '159915', name: '创业板ETF', type: 'index', benchmark: '创业板指', market: '0', expenseRatio: 0.15, trackingError: 0.05, dividendYield: 0.8, holdings: 100 },
-  { symbol: '588000', name: '科创50ETF', type: 'index', benchmark: '科创50', market: '1', expenseRatio: 0.20, trackingError: 0.06, dividendYield: 0.5, holdings: 50 },
-  { symbol: '512000', name: '券商ETF', type: 'sector', benchmark: '证券公司', market: '1', expenseRatio: 0.50, trackingError: 0.08, dividendYield: 1.2, holdings: 50 },
-  { symbol: '512880', name: '证券ETF', type: 'sector', benchmark: '证券公司', market: '1', expenseRatio: 0.50, trackingError: 0.04, dividendYield: 1.5, holdings: 50 },
-  { symbol: '515030', name: '新能源ETF', type: 'sector', benchmark: '新能源指数', market: '1', expenseRatio: 0.50, trackingError: 0.07, dividendYield: 0.6, holdings: 50 },
-  { symbol: '512760', name: '芯片ETF', type: 'sector', benchmark: '中证半导体', market: '1', expenseRatio: 0.50, trackingError: 0.06, dividendYield: 0.4, holdings: 50 },
-  { symbol: '513100', name: '纳指ETF', type: 'qdii', benchmark: '纳斯达克100', market: '1', expenseRatio: 0.60, trackingError: 0.12, dividendYield: 0.4, holdings: 100 },
-  { symbol: '513500', name: '标普500ETF', type: 'qdii', benchmark: '标普500', market: '1', expenseRatio: 0.60, trackingError: 0.10, dividendYield: 1.2, holdings: 500 },
-  { symbol: '518880', name: '黄金ETF', type: 'commodity', benchmark: 'Au99.99', market: '1', expenseRatio: 0.20, trackingError: 0.01, dividendYield: 0, holdings: 1 },
-  { symbol: '159934', name: '黄金ETF', type: 'commodity', benchmark: 'Au99.99', market: '0', expenseRatio: 0.20, trackingError: 0.01, dividendYield: 0, holdings: 1 },
-  { symbol: '511260', name: '国债ETF', type: 'bond', benchmark: '上证国债', market: '1', expenseRatio: 0.15, trackingError: 0.02, dividendYield: 2.0, holdings: 0 },
-  { symbol: '511010', name: '国债ETF', type: 'bond', benchmark: '上证5年国债', market: '1', expenseRatio: 0.15, trackingError: 0.02, dividendYield: 1.8, holdings: 0 },
-  { symbol: '515000', name: '科技ETF', type: 'theme', benchmark: '中证科技', market: '1', expenseRatio: 0.40, trackingError: 0.05, dividendYield: 0.9, holdings: 50 },
-  { symbol: '512690', name: '酒ETF', type: 'theme', benchmark: '中证酒', market: '1', expenseRatio: 0.50, trackingError: 0.06, dividendYield: 1.5, holdings: 30 },
+  { symbol: '510300', name: '沪深300ETF', type: 'index', benchmark: '沪深300', market: '1' },
+  { symbol: '510500', name: '中证500ETF', type: 'index', benchmark: '中证500', market: '1' },
+  { symbol: '159915', name: '创业板ETF', type: 'index', benchmark: '创业板指', market: '0' },
+  { symbol: '588000', name: '科创50ETF', type: 'index', benchmark: '科创50', market: '1' },
+  { symbol: '512000', name: '券商ETF', type: 'sector', benchmark: '证券公司', market: '1' },
+  { symbol: '512880', name: '证券ETF', type: 'sector', benchmark: '证券公司', market: '1' },
+  { symbol: '515030', name: '新能源ETF', type: 'sector', benchmark: '新能源指数', market: '1' },
+  { symbol: '512760', name: '芯片ETF', type: 'sector', benchmark: '中证半导体', market: '1' },
+  { symbol: '513100', name: '纳指ETF', type: 'qdii', benchmark: '纳斯达克100', market: '1' },
+  { symbol: '513500', name: '标普500ETF', type: 'qdii', benchmark: '标普500', market: '1' },
+  { symbol: '518880', name: '黄金ETF', type: 'commodity', benchmark: 'Au99.99', market: '1' },
+  { symbol: '159934', name: '黄金ETF', type: 'commodity', benchmark: 'Au99.99', market: '0' },
+  { symbol: '511260', name: '国债ETF', type: 'bond', benchmark: '上证国债', market: '1' },
+  { symbol: '511010', name: '国债ETF', type: 'bond', benchmark: '上证5年国债', market: '1' },
+  { symbol: '515000', name: '科技ETF', type: 'theme', benchmark: '中证科技', market: '1' },
+  { symbol: '512690', name: '酒ETF', type: 'theme', benchmark: '中证酒', market: '1' },
 ];
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -241,12 +253,23 @@ function buildEtf(cat: EtfCatalog, quote: TencentEtfQuote | undefined, navEntry:
     changePercent: +changePercent.toFixed(2),
     premiumRate,
     totalAssets: quote?.totalAssets ?? 0,
-    trackingError: cat.trackingError,
-    dividendYield: cat.dividendYield,
-    expenseRatio: cat.expenseRatio,
+    // ---- 【P0-LEAK C-3 诚实红线】----
+    // 此前这 4 个字段来自静态目录的**编撰估计值**（如「沪深300ETF 跟踪误差 0.03、
+    // 股息率 2.1%」），却随 dataSource:'real' 出街 = 静态字段冒充真实。
+    // 后端尚未接入任何真实费率/跟踪误差/股息/持仓源，故恒为 null + 字段级标注，
+    // 绝不允许在接入真实源之前回填任何目录值或随机值。
+    trackingError: null,
+    dividendYield: null,
+    expenseRatio: null,
     volume: quote?.volume ?? 0,
     turnover: quote?.turnover ?? 0,
-    holdings: cat.holdings,
+    holdings: null,
+    fieldSources: {
+      trackingError: 'unavailable',
+      dividendYield: 'unavailable',
+      expenseRatio: 'unavailable',
+      holdings: 'unavailable',
+    },
   };
 }
 

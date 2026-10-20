@@ -15,6 +15,32 @@ const router = Router();
 // F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
 router.use(aiTiming);
 
+// ============================================================
+// 秘密脱敏（P0-LEAK C-2：安全红线）
+// ============================================================
+/**
+ * 错误文案脱敏：清除一切 API key 指纹/后缀（**连掩码都不留**）。
+ *
+ * 泄露链路（audit 实测 "****0a09" 出街）：
+ *   gatewayFetch 上游 401 时把响应体前 500 字符塞进 HttpStatusError.message
+ *   （llmGateway.ts:21），而 DeepSeek/OpenAI 的 401 body 恰好携带掩码 key：
+ *   `Incorrect API key provided: sk-xxxx...****0a09. You can find your API key at ...`
+ *   此前本文件 catch 层把 error.message 原样放 `details` 返回给客户端。
+ *
+ * 覆盖形态：
+ *   - sk-/rk-/dk-/fk- 前缀的全量 key（OpenAI/DeepSeek/自建网关惯例）
+ *   - `****0a09` 这类掩码后缀（上游 401 body 的默认格式）
+ *   - Authorization: Bearer xxx
+ *   - 32+ 位连续 hex（自建网关/第三方平台常见的无前缀 key）
+ */
+export function redactSecrets(input: string): string {
+  return input
+    .replace(/\b(?:sk|rk|dk|fk)-[A-Za-z0-9_-]{4,}/g, '[REDACTED]')
+    .replace(/\*{2,}[0-9a-zA-Z]{2,}/g, '[REDACTED]')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '[REDACTED]');
+}
+
 interface FilterCondition {
   field: string;
   operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'between' | 'in';
@@ -125,10 +151,12 @@ ${watchlistContext}
         .replace(/,\s*]/g, ']'); // 移除数组尾逗号
       parsed = JSON.parse(jsonStr);
     } catch (e) {
+      // details 是「AI 返回内容前 100 字 / JSON.parse 报错」，正常不含 key；
+      // 但防御性统一过 redactSecrets，保证任何路径都不可能带出 key 指纹。
       res.status(500).json({
         success: false,
         error: 'AI解析失败，请换个说法试试',
-        details: (e as Error).message,
+        details: redactSecrets((e as Error).message),
       });
       return;
     }
@@ -225,11 +253,17 @@ ${watchlistContext}
       },
     });
   } catch (error) {
-    console.error('对话式筛选失败:', (error as Error).message);
+    // 【P0-LEAK C-2 安全红线】此前这里把 error.message 原样放 `details` 出街，
+    // 而 message 可能是 HttpStatusError 的「上游 401 body 前 500 字符」，
+    // 内含掩码 key（实测 "****0a09"）。修复：
+    //   1. 响应体**完全不透传**上游错误 message——响应里连掩码指纹都不留，
+    //      比任何正则脱敏更稳（正则总有形态漏网：非 sk- 前缀的自建 key、
+    //      DB 连接串里的密码等都可能进 message）；
+    //   2. 服务端日志同样脱敏后再落盘，避免 stdout 里留全量/半量 key。
+    console.error('对话式筛选失败:', redactSecrets((error as Error).message));
     res.status(500).json({
       success: false,
       error: '筛选失败，请稍后重试',
-      details: (error as Error).message,
     });
   }
 }));

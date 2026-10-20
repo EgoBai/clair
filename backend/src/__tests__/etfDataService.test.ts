@@ -136,9 +136,27 @@ describe('etfDataService (honest-data)', () => {
       expect(item.preNav).toBe(4.7575);
       // premiumRate = (4.725 - 4.72) / 4.72 * 100 ≈ 0.11
       expect(item.premiumRate).toBeCloseTo(0.11, 2);
-      // 静态目录字段透传
-      expect(item.expenseRatio).toBe(0.15);
-      expect(item.holdings).toBe(300);
+      // 【P0-LEAK C-3】无真实源的静态字段必须为 null（不再是目录估计值冒充 real）
+      expect(item.expenseRatio).toBeNull();
+      expect(item.trackingError).toBeNull();
+      expect(item.dividendYield).toBeNull();
+      expect(item.holdings).toBeNull();
+      expect(item.fieldSources).toEqual({
+        trackingError: 'unavailable',
+        dividendYield: 'unavailable',
+        expenseRatio: 'unavailable',
+        holdings: 'unavailable',
+      });
+    });
+
+    it('【C-3】ETF_CATALOG 已不再携带费率/跟踪误差/股息/持仓静态值', () => {
+      // 目录只允许保留公开事实标识；编造数字的源头必须在目录层就消失
+      for (const cat of ETF_CATALOG as unknown as Record<string, unknown>[]) {
+        expect(cat, `${cat.symbol} 仍带 expenseRatio`).not.toHaveProperty('expenseRatio');
+        expect(cat, `${cat.symbol} 仍带 trackingError`).not.toHaveProperty('trackingError');
+        expect(cat, `${cat.symbol} 仍带 dividendYield`).not.toHaveProperty('dividendYield');
+        expect(cat, `${cat.symbol} 仍带 holdings`).not.toHaveProperty('holdings');
+      }
     });
 
     it('getEtfDetail 返回单只 ETF 完整字段', async () => {
