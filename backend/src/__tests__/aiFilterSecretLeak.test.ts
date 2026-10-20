@@ -168,7 +168,9 @@ describe('P0-LEAK C-2 · ai-strategy 同链路同款修复', () => {
   });
 
   it('chatStream 首帧前抛 401（含掩码key）→ JSON 错误体无 key 片段', async () => {
-    (chatStream as any).mockImplementation(function* () {
+    // 注意：mock 用普通函数而非 generator——「首帧前抛错」在调用语句处同步触发，
+    // 与 generator throw 行为等价，且避免 eslint require-yield（CI 曾因此红）
+    (chatStream as any).mockImplementation(() => {
       throw new Error(LEAKY_401_MESSAGE);
     });
 
