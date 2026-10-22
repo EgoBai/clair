@@ -35,6 +35,35 @@ function sendHonest(
   });
 }
 
+/**
+ * 业务性降级发送器：LLM 不可用 / 数据库查询失败（**不是本服务崩溃**）
+ *
+ * 语义判据与 ai-chat.ts 的 sendUnavailable 完全一致：HTTP 状态码表达的是
+ * 「服务端有没有正常处理这个请求」，而不是「业务上有没有拿到结论」。
+ *
+ * 为什么这里必须从 500 改成 200（qa 蜂群连续追踪 6+ 日的 P1-②）：
+ * 前端所有 AI 调用点写的都是 `if (!res.ok) throw`，5xx 会让它们在**解析响应体
+ * 之前**就进 catch 分支，于是响应体里诚实标注的 dataSource / message 永远读不到，
+ * 用户看到的只有页面报错或空白。响应体早已诚实，是状态码把诚实信息挡住了。
+ *
+ * ⚠️ 边界（重要）：只用于**已知业务性失败**（LLM 调用抛错、JSON 解析失败、
+ * DB 查询抛错）。真正的代码 bug / 未捕获异常仍走 500，由 asyncHandler →
+ * globalErrorHandler 统一出错误码——那种响应体不得声称是数据问题。
+ * 本文件通过**收窄 try 范围**实现该区分：三个上游依赖各自独立 try/catch
+ * 降级，外层 catch 只兜真正意外的崩溃。
+ */
+function sendUnavailable(res: Response, error: string, message: string): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: false,
+    dataSource: 'unavailable',
+    code: 'UPSTREAM_UNAVAILABLE',
+    error,
+    message,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 // ============================================================
 // 秘密脱敏（P0-LEAK C-2：安全红线）
 // ============================================================
@@ -161,11 +190,27 @@ ${watchlistContext}
 返回纯JSON格式（不要markdown代码块）:
 {"conditions": [{...}], "sortBy": "changePercent", "sortOrder": "desc", "limit": 50, "explanation": "一句话解释筛选逻辑"}`;
 
-    const aiResponse = await aiService.chat({
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
-      maxTokens: 200,
-    });
+    // 用AI解析自然语言为筛选条件
+    // ── 上游依赖 1：LLM 调用 ──
+    // 独立 try/catch：LLM 网关不可用是**业务性**失败（本服务已正常走完流程、
+    // 如实回报一条真实数据都没拿到），故降级为 200 + unavailable，
+    // 不能让它落进外层 catch 被当成服务端崩溃返回 500。
+    let aiResponse: Awaited<ReturnType<typeof aiService.chat>>;
+    try {
+      aiResponse = await aiService.chat({
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0,
+        maxTokens: 200,
+      });
+    } catch (e) {
+      console.error('对话式筛选 LLM 调用失败:', redactSecrets((e as Error).message));
+      sendUnavailable(
+        res,
+        'AI服务暂时不可用',
+        '自然语言解析服务（LLM）当前不可用，未能生成筛选条件，未执行任何数据库查询'
+      );
+      return;
+    }
 
     // 解析AI返回的JSON
     let parsed: ParsedFilter;
@@ -182,15 +227,15 @@ ${watchlistContext}
         .replace(/,\s*]/g, ']'); // 移除数组尾逗号
       parsed = JSON.parse(jsonStr);
     } catch (e) {
-      // details 是「AI 返回内容前 100 字 / JSON.parse 报错」，正常不含 key；
-      // 但防御性统一过 redactSecrets，保证任何路径都不可能带出 key 指纹。
-      res.status(500).json({
-        success: false,
-        dataSource: 'unavailable',
-        error: 'AI解析失败，请换个说法试试',
-        details: redactSecrets((e as Error).message),
-        message: 'LLM 未能把自然语言解析成有效筛选条件，未执行任何数据库查询',
-      });
+      // LLM 没能把自然语言解析成有效 JSON：这是**业务性**失败（上游输出不可用），
+      // 不是本服务崩溃。故回 200 + unavailable，让前端能渲染诚实空态；
+      // 此前这里返回 500，前端 `if (!res.ok) throw` 在解析响应体前就抛，
+      // 响应体里诚实的 dataSource / message 永远读不到（P1-② 的机制）。
+      sendUnavailable(
+        res,
+        'AI解析失败，请换个说法试试',
+        'LLM 未能把自然语言解析成有效筛选条件，未执行任何数据库查询'
+      );
       return;
     }
 
@@ -272,7 +317,22 @@ ${watchlistContext}
     // 限制结果数
     queryBuilder = queryBuilder.limit(parsed.limit || 50);
 
-    const results = await queryBuilder;
+    // ── 上游依赖 2：数据库查询 ──
+    // 同样独立 try/catch：库不可用/查询异常是业务性失败，降级为 200 + unavailable。
+    // 只包住 `await queryBuilder` 这一行（真正的 I/O 点），查询**构建**段的代码
+    // bug 仍落外层 catch 走 500——避免把编程错误误报成「数据不可用」。
+    let results: any[];
+    try {
+      results = await queryBuilder;
+    } catch (e) {
+      console.error('对话式筛选 DB 查询失败:', redactSecrets((e as Error).message));
+      sendUnavailable(
+        res,
+        '行情库查询失败',
+        '本地真实行情库查询异常，未能执行筛选，未返回任何筛选结果'
+      );
+      return;
+    }
 
     // 诚实契约：先探测真实行情库是否真有当日行情（与本次筛选条件无关），
     // 否则「results 为空」会被误读成「今天没有股票符合你的条件」。
@@ -308,6 +368,11 @@ ${watchlistContext}
       watchlistCount: isWatchlistQuery ? watchlistSymbols.length : undefined,
     });
   } catch (error) {
+    // 能走到这里说明是**真正意外的崩溃**（查询构建段代码 bug、未预期异常等），
+    // 不是已识别的业务性降级——那三类（LLM 调用 / JSON 解析 / DB 查询）都在
+    // 上方各自独立 try/catch 里返回 200 + unavailable 了。
+    // 故这里保持 500，且不得声称是数据问题（会误导排查方向）。
+    //
     // 【P0-LEAK C-2 安全红线】此前这里把 error.message 原样放 `details` 出街，
     // 而 message 可能是 HttpStatusError 的「上游 401 body 前 500 字符」，
     // 内含掩码 key（实测 "****0a09"）。修复：
