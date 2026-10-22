@@ -76,12 +76,36 @@ function toNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// ============ DemoProvider —— 确定性演示兜底（链尾恒可用） ============
+// ============ DemoProvider —— 已拆除引信的演示兜底 ============
+//
+// 🔴 诚实红线（2026-10-23 处置，qa 蜂群 P2-⑧）
+//
+// 这个类用 **LCG 线性同余伪随机**生成「主力/超大单/大单/中单/小单净流入」，
+// 数值与真实资金流毫无关系。它原本是两个隐患的叠加：
+//   1. `isAvailable()` 恒返回 true → 作为链尾恒被选中；
+//   2. `EastmoneyProvider.fetchFlowHistory` 直接委托它 → 东财这条
+//      「真实源」实际上从不抓数，永远吐伪数据。
+// 一旦 `resolveProviderChain()` 被接到任何端点，用户就会看到**看起来专业
+// 的假数字**，且因为链尾恒可用，永远不会降级、永远发现不了。
+//
+// 处置方式（拆除引信，保留实体）：
+//   - `isAvailable()` 改为 **false**：即使将来有人接线，链路解析也不会选它；
+//   - `resolveProviderChain()` 不再把它 push 进链；
+//   - `EastmoneyProvider.fetchFlowHistory` 改为诚实返回空数组。
+// 类本身保留（不删 export），避免破坏潜在 import；但新增调用会立刻发现
+// 它永远不被选中——这正是想要的效果。
+//
+// ⚠️ 若未来确需「演示模式」，必须满足：响应显式带 `dataSource:'demo'`
+// 且 UI 有不可忽略的「演示数据」水印；不得复用这个类的恒可用语义。
 
 class DemoProvider implements FundFlowProvider {
   name = 'demo' as const;
+  /**
+   * 恒 false：演示数据**不得**参与真实供数链路。
+   * 见上方🔴红线说明。
+   */
   isAvailable(): boolean {
-    return true;
+    return false;
   }
 
   async fetchStockFlow(symbol: string): Promise<StockFlowResult | null> {
@@ -361,14 +385,29 @@ class EastmoneyProvider implements FundFlowProvider {
   async fetchStockFlow(): Promise<StockFlowResult | null> {
     return null; // 实时抓取由 api/fund-flow.ts 的 fetchFundFlow 负责
   }
-  async fetchFlowHistory(symbol: string, days: number): Promise<StockFlowResult[]> {
-    return new DemoProvider().fetchFlowHistory(symbol, days);
+  /**
+   * 历史资金流：东财无免 key 的历史资金流接口，**诚实返回空**。
+   *
+   * 此前这里 `return new DemoProvider().fetchFlowHistory(...)` —— 把 LCG
+   * 伪数据当东财真实历史返回，是「真实源从不抓数、永远吐假数」的隐蔽形态
+   * （qa 蜂群 P2-⑧）。缺数据就缺数据，返回空数组让上层标 unavailable，
+   * 绝不能拿伪数据顶替。
+   */
+  async fetchFlowHistory(): Promise<StockFlowResult[]> {
+    return [];
   }
 }
 
 // ============ 链路解析与诊断 ============
 
-/** 按优先级解析可用链：tushare → akshare → eastmoney → demo；无 key 者不入链，demo 恒在链尾 */
+/**
+ * 按优先级解析可用链：tushare → akshare → eastmoney。
+ *
+ * ⚠️ 链尾**不再**放 DemoProvider（2026-10-23，qa P2-⑧）：
+ * 演示数据的 `isAvailable()` 已恒为 false，且它本就不该进真实供数链——
+ * 链尾恒可用会让「上游全失败」被伪装成「成功返回数据」。
+ * 真实源全部不可用时，上层应走 dataSource:'unavailable' 诚实空态。
+ */
 export function resolveProviderChain(): FundFlowProvider[] {
   const chain: FundFlowProvider[] = [];
   const t = new TushareProvider();
@@ -377,7 +416,6 @@ export function resolveProviderChain(): FundFlowProvider[] {
   if (a.isAvailable()) chain.push(a);
   const e = new EastmoneyProvider();
   if (e.isAvailable()) chain.push(e);
-  chain.push(new DemoProvider());
   return chain;
 }
 
@@ -390,7 +428,8 @@ export function getFundFlowMeta() {
       akshare: !!process.env.AKSHARE_PROXY_URL,
       alphavantage: !!process.env.ALPHAVANTAGE_KEY,
       eastmoney: true,
-      demo: true,
+      // 演示 provider 已不参与供数链，恒定 false（见🔴红线说明）
+      demo: false,
     },
   };
 }
