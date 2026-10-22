@@ -118,6 +118,12 @@ router.get('/future-value/discover', validateDiscoverQuery, asyncHandler(async (
   const start = (page - 1) * pageSize;
   const paged = results.slice(start, start + pageSize);
 
+  // 诚实契约（qa 蜂群 P2-④）：本端点数据源是**内存 scoreCache**——
+  // 只有当用户先 POST /future-value/score 评分后，缓存里才有数据。
+  // 空列表的两种含义必须区分：① 真的没有符合条件的标的；② 缓存里根本还没评分。
+  // 此前此处无任何 dataSource 字段，前端无法区分，只能看到空白列表。
+  // 故恒定透出 dataSource + message 说明空列表的真实原因。
+  const cacheEmpty = scoreCache.size === 0;
   sendSuccess(res, {
     items: paged.map(r => ({
       symbol: r.symbol,
@@ -135,6 +141,13 @@ router.get('/future-value/discover', validateDiscoverQuery, asyncHandler(async (
       totalCount,
       totalPages: Math.ceil(totalCount / pageSize),
     },
+    dataSource: cacheEmpty ? 'unavailable' : 'real',
+    ...(cacheEmpty
+      ? {
+          message:
+            '评分缓存为空：本端点的数据来自内存 scoreCache，需先经 POST /api/future-value/score 对标的评分后才有数据；空列表不代表「没有潜力标的」',
+        }
+      : {}),
   });
 }));
 

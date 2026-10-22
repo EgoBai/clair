@@ -19,8 +19,16 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import { getDefaultPortfolio } from './portfolio';
+import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
+
+// 鉴权口径对齐（qa 蜂群 P2-②）：组合风控是**用户私有数据**，游客不应可触达。
+// 与 portfolio.ts / watchlist.ts 同一范式——且同样必须把范围收敛到
+// '/risk-center' 路径：本路由挂在 '/api' 前缀下，若写 router.use(authMiddleware)
+// （无路径），Express 会让所有落入本路由的 /api/* 请求先过鉴权，误伤挂载在
+// 本路由之后的其它子路由（watchlist.ts:16 与 portfolio.ts:29 都记载过这个坑）。
+router.use('/risk-center', authMiddleware);
 
 const TRADING_DAYS = 252;
 
@@ -60,8 +68,12 @@ router.get('/risk-center/portfolio', asyncHandler(async (_req: Request, res: Res
   try {
     const positions = await getDefaultPortfolio();
     if (!positions || positions.length === 0) {
-      res.json({
+      // 诚实契约：顶层与 data 内**同时**标 unavailable（此前只有 data 内有，
+      // 顶层缺失，前端按顶层判定时会误判为有数据——qa 蜂群 P2-⑨ 同类问题）。
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.status(200).json({
         success: true,
+        dataSource: 'unavailable',
         data: {
           holdings: [],
           dataSource: 'unavailable',
@@ -88,11 +100,15 @@ router.get('/risk-center/portfolio', asyncHandler(async (_req: Request, res: Res
     );
 
     const withReturns = enriched.filter((h) => h.returns.length >= 2);
-    res.json({
+    const ds = withReturns.length ? 'real' : 'partial';
+    // 顶层与 data 内同标（qa P2-⑩ 同类：顶层不得缺 dataSource）
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.status(200).json({
       success: true,
+      dataSource: ds,
       data: {
         holdings: withReturns,
-        dataSource: withReturns.length ? 'real' : 'partial',
+        dataSource: ds,
         notes: withReturns.length
           ? '持仓由用户经鉴权接口自行录入，收益序列来自本地真实行情库（daily_quotes）'
           : '持仓存在但本地行情库无足够历史收益数据',
@@ -100,11 +116,13 @@ router.get('/risk-center/portfolio', asyncHandler(async (_req: Request, res: Res
       timestamp: new Date().toISOString(),
     });
   } catch (e) {
-    res.json({
+    // 顶层与 data 内同标 unavailable；error 改中文说明，不透传上游细节
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.status(200).json({
       success: false,
-      data: { holdings: [] },
       dataSource: 'unavailable',
-      error: e instanceof Error ? e.message : 'unknown',
+      data: { holdings: [], dataSource: 'unavailable' },
+      error: '组合风控计算失败',
       timestamp: new Date().toISOString(),
     });
   }
