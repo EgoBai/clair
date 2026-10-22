@@ -10,6 +10,28 @@ import { FabricatedDataRefusedError } from '../db/FabricatedDataRefusedError';
 import { queryCache } from '../utils/queryCache';
 import { validateBody, schemas } from '../middleware/validation';
 
+/**
+ * 诚实数据契约发送器（本文件统一出口）：顶层 dataSource 与 data 内同源。
+ *
+ * 用于本文件的**静态目录类端点**（/templates、/fields）——它们返回的是
+ * 代码内置的筛选配置定义，不是行情数据，故标 'unavailable' 并在 message
+ * 说明性质，避免前端把配置目录当成「真实选股产出」。
+ * 与 backtest-routes.ts 的 /backtest/presets 同口径。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 const router = Router();
 
 // ==================== 类型定义 ====================
@@ -682,14 +704,16 @@ router.get('/screener/templates', async (req: Request, res: Response) => {
     ...Array.from(customTemplates.values()),
   ];
 
-  res.json({
-    success: true,
-    data: {
-      presets,
-      customs: Array.from(customTemplates.values()),
-      categories: ['value', 'growth', 'momentum', 'technical', 'income'],
-      total: allTemplates.length,
-    },
+  // 诚实契约：这是**静态策略模板目录**，是代码内置的配置定义，
+  // 不含任何行情数据、不含任何选股结果。故标 'unavailable' 并在 message
+  // 说明性质，避免前端把它当成「真实选股产出」（与 backtest/presets 同口径）。
+  // 此前该端点顶层与 data 内均无 dataSource（qa 蜂群 P2-⑨）。
+  sendHonest(res, 'unavailable', {
+    presets,
+    customs: Array.from(customTemplates.values()),
+    categories: ['value', 'growth', 'momentum', 'technical', 'income'],
+    total: allTemplates.length,
+    message: '静态策略模板目录：代码内置的筛选条件定义，不含任何行情数据或选股结果',
   });
 });
 
@@ -845,13 +869,14 @@ router.delete('/screener/templates/:id', async (req: Request, res: Response) => 
  * GET /api/screener/fields
  */
 router.get('/screener/fields', async (_req: Request, res: Response) => {
-  res.json({
-    success: true,
-    data: {
-      fields: FIELD_META,
-      operators: OPERATORS,
-      categories: [...new Set(FIELD_META.map(f => f.category))],
-    },
+  // 诚实契约：这是**可筛选字段的元数据目录**（字段名/类型/可用运算符），
+  // 是筛选器的配置定义，不是行情数据。标 'unavailable' + 说明性质，
+  // 与 /screener/templates 及 backtest/presets 同口径（qa 蜂群 P2-⑨）。
+  sendHonest(res, 'unavailable', {
+    fields: FIELD_META,
+    operators: OPERATORS,
+    categories: [...new Set(FIELD_META.map(f => f.category))],
+    message: '可筛选字段元数据目录：筛选器的字段与运算符定义，不含任何行情数据',
   });
 });
 

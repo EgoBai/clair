@@ -241,10 +241,25 @@ async function fetchIndustryFlow(): Promise<IndustryFlowData[]> {
  * 资金流适配器诊断元信息
  * GET /api/fund-flow/meta
  * 返回当前生效的 provider 链与各 env key 配置状态，供前端/运维排查。
+ *
+ * 诚实契约：这是**基础设施诊断信息**，反映本服务真实配置状态
+ * （哪些 provider 在链上、哪些 key 已配置），**不是**行情/资金流数据。
+ * 故顶层标 'real'（状态是真实测量的）并在 message 说明性质，避免前端
+ * 把它当成资金流数值消费（qa 蜂群 P2-⑨：此前顶层无 dataSource）。
  */
 router.get('/fund-flow/meta', (_req: Request, res: Response) => {
   try {
-    res.json({ success: true, data: getFundFlowMeta() });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.status(200).json({
+      success: true,
+      dataSource: 'real',
+      data: {
+        ...getFundFlowMeta(),
+        dataSource: 'real' as const,
+        message: '资金流 provider 链诊断信息：反映本服务真实配置状态，不含任何行情/资金流数值',
+      },
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     console.error('获取资金流元信息失败:', error);
     res.status(500).json({ success: false, error: '获取资金流元信息失败' });

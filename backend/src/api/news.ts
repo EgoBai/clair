@@ -165,7 +165,12 @@ router.get('/news', validateQuery(schemas.newsQuery), asyncHandler(async (req: R
     sourceCredibility: getSourceCredibility(n.source),
   }));
 
-  sendPaginated(res, itemsWithCred, page, pageSize, total);
+  // dataSource 显式透出：成功路径此前只走 sendPaginated 的默认形态，
+  // 顶层与 data 内都没有该字段，前端无法判定这批新闻是真实源还是空态
+  // （qa 蜂群 P2-⑨）。不可用路径已在 data 内标 'unavailable'，此处对齐。
+  sendPaginated(res, itemsWithCred, page, pageSize, total, {
+    dataSource: dataSource === 'unavailable' ? 'unavailable' : 'real',
+  });
 }));
 
 // ==================== 获取个股相关新闻 ====================

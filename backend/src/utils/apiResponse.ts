@@ -59,12 +59,21 @@ export function sendCreated<T>(res: Response, data: T): void {
   sendSuccess(res, data, 201);
 }
 
+/**
+ * 分页成功响应。
+ *
+ * @param extra 附加字段（会展开进 `data`）。用于让调用方补 `dataSource`
+ *              等诚实契约字段——分页端点同样可能供数，缺 dataSource 会让
+ *              前端无法判定「这是真实数据还是空态」（qa 蜂群 P2-⑨）。
+ *              不传时行为与改前完全一致（不破坏既有调用方）。
+ */
 export function sendPaginated<T>(
   res: Response,
   items: T[],
   page: number,
   pageSize: number,
-  totalCount: number
+  totalCount: number,
+  extra?: Record<string, unknown>
 ): void {
   sendSuccess(res, {
     items,
@@ -74,6 +83,7 @@ export function sendPaginated<T>(
       totalCount,
       totalPages: Math.ceil(totalCount / pageSize),
     },
+    ...extra,
   } as PaginatedData<T>);
 }
 
