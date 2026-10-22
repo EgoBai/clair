@@ -187,12 +187,32 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
     }));
 
     // 执行回测
+    // ⚠️ initialCapital 必须**显式**从顶层传入，不能只靠 ...params 展开：
+    // Joi schema（validation.ts:417）把 initialCapital 定义在**顶层**字段
+    // （与 strategy/symbol/startDate 平级），而前端回测页的「初始本金」输入框
+    // 也发在顶层。此前这里只展开 params，顶层 initialCapital 被静默丢弃，
+    // 引擎回退到默认 1000000 —— 用户输入 50 万却按 100 万算，
+    // 收益率/最终资产/回撤全部按错误本金计算，属**事实性错误**（qa P2-③）。
+    //
+    // 兼容两种调用形态：顶层 initialCapital（schema 正规形态）优先，
+    // params.initialCapital（历史/内部调用形态）作兜底。
+    const requestedCapital = Number(
+      (req.body as { initialCapital?: unknown }).initialCapital
+      ?? params.initialCapital
+      ?? 0,
+    );
     const result = runBacktest(klineData, {
       ...params,
+      // 用户显式给了本金就必须用它；没给才让引擎用默认值
+      ...(requestedCapital > 0 ? { initialCapital: requestedCapital } : {}),
       type: engineStrategy,
     });
 
     result.symbol = symbol;
+
+    // 把实际生效的本金回显，前端可校验「我输入的」与「系统用的」一致
+    (result as unknown as Record<string, unknown>).requestedInitialCapital =
+      requestedCapital > 0 ? requestedCapital : undefined;
 
     sendHonest(res, 'real', result as unknown as Record<string, unknown>);
   } catch (error) {
@@ -279,11 +299,17 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
     }));
 
     // 运行所有策略
+    // 与 /backtest/run 同修：initialCapital 在 schema 里是**顶层**字段，
+    // 只展开 strat.params 会把它静默丢弃 → 全部策略按默认 100 万算（qa P2-③）。
+    const compareCapital = Number(
+      (req.body as { initialCapital?: unknown }).initialCapital ?? 0,
+    );
     const results = strategies.map((strat: { name: string; description: string; type: string; params: Record<string, unknown> }) => {
       try {
         const result = runBacktest(klineData, {
           type: strat.type as StrategyType,
           ...strat.params,
+          ...(compareCapital > 0 ? { initialCapital: compareCapital } : {}),
         });
         result.symbol = symbol;
         return result;
@@ -295,7 +321,11 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
       }
     });
 
-    sendHonest(res, 'real', { symbol, results });
+    sendHonest(res, 'real', {
+      symbol,
+      ...(compareCapital > 0 ? { initialCapital: compareCapital } : {}),
+      results,
+    });
   } catch (error) {
     console.error('策略对比失败:', error);
     res.status(500).json({

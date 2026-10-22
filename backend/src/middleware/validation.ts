@@ -415,6 +415,28 @@ const backtestRunSchema = Joi.object({
   startDate: Joi.date().iso().required(),
   endDate: Joi.date().iso().required(),
   initialCapital: Joi.number().min(10000).max(1e12).default(1000000),
+  /**
+   * 引擎参数对象。
+   *
+   * ⚠️ 此前**未声明**该字段，而 `validateBody` 用 `stripUnknown: true`
+   * （:543）→ 客户端传来的 `params` 被整体静默剥离。而
+   * `backtest-routes.ts` 的 handler 一直在读 `req.body.params`，
+   * 于是「params 里的 initialCapital / shortPeriod / longPeriod」等
+   * 全部静默失效，用户与前端都无从察觉（同 P0-SCHEMA stripUnknown 根因，
+   * 见 :145 与 :352 的历史记录）。
+   *
+   * 注意顶层 initialCapital 仍以顶层为准（:417 的权威形态），
+   * params.initialCapital 是历史/内部调用形态的兜底，二者都在
+   * backtest-routes.ts 里做了「顶层优先」合并。
+   */
+  params: Joi.object({
+    initialCapital: Joi.number().min(10000).max(1e12).optional(),
+    shortPeriod: Joi.number().integer().min(1).max(100).optional(),
+    longPeriod: Joi.number().integer().min(1).max(300).optional(),
+    rsiPeriod: Joi.number().integer().min(1).max(100).optional(),
+    rsiOverbought: Joi.number().min(50).max(100).optional(),
+    rsiOversold: Joi.number().min(0).max(50).optional(),
+  }).optional(),
   parameters: Joi.object({
     shortPeriod: Joi.number().integer().min(1).max(100).optional(),
     longPeriod: Joi.number().integer().min(1).max(300).optional(),
