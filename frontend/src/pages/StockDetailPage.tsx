@@ -20,6 +20,7 @@ const IndicatorPanel = React.lazy(() => import('../components/Charts/IndicatorPa
 import { useStockActions, useWatchlist } from '../store/useStockStore';
 import { analyze } from '../utils/strategy';
 import { computeIndicatorSeries } from '../utils/indicatorCalc';
+import { getNthTradingDay, countTradingDays } from '../utils/tradingCalendarEngine';
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 import ValuationPanel from '../components/valuation/ValuationPanel';
 import CapitalFlowPanel from '../components/Market/CapitalFlowPanel';
@@ -64,6 +65,15 @@ interface QuoteData {
   marketCap: number;
   circulatingMarketCap: number;
   amplitude: number;
+  /**
+   * 该行行情对应的**交易日**（后端 mapDailyQuoteRow 一直返回，此前前端接口漏声明）。
+   *
+   * 必须展示出来：退市 / 长期停牌标的的最后一行真实成交可能远在今天之前
+   * （实测 14 只，最远 PT金田A 停在 2002-01-25、ST星源 停在 2024-03-05）。
+   * 不披露 as-of 日期，用户会把陈旧收盘价误当成「当前价」——这属于
+   * 诚实数据红线（数据是真的，但时效被隐瞒了）。
+   */
+  tradeDate?: string;
 }
 
 const StockDetailPage: React.FC = () => {
@@ -341,6 +351,49 @@ const StockDetailPage: React.FC = () => {
               ) : (
                 <Text style={{ color: TEXT_SECONDARY }}>暂无行情数据</Text>
               )}
+
+              {/* ── 数据时效披露（诚实红线）─────────────────────────────
+                  退市 / 长期停牌标的的最后一行真实成交可能远在今天之前：
+                  实测 14 只（PT金田A 2002-01-25、ST星源 2024-03-05 等）。
+                  价格本身是真实的，但不披露 as-of 日期，用户就会把陈旧收盘价
+                  当成「当前价」。故这里恒定展示数据截止交易日，非本日时
+                  额外给出醒目提示。
+
+                  ⚠️ 日期必须**本地化**后再取 YYYY-MM-DD：后端返回的是 ISO UTC
+                  （实测 "2024-03-04T16:00:00.000Z" = 北京时间 03-05）。
+                  若直接 slice(0,10) 会少一天，显示错误日期比不显示更糟。 */}
+              {latestQuote && (() => {
+                const toLocalDateStr = (v: string | Date): string | null => {
+                  const d = v instanceof Date ? v : new Date(v);
+                  if (Number.isNaN(d.getTime())) return null;
+                  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                };
+                const tdStr = latestQuote.tradeDate ? toLocalDateStr(latestQuote.tradeDate) : null;
+                const now = new Date();
+                const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+                // 陈旧判据：数据日期早于「今天往前第 1 个交易日」才算陈旧。
+                // 不能用「不等于今天」——周末/节假日/以及今天尚未收盘同步时，
+                // 上一个交易日本就是最新数据，那样会误报（实测 600519.SH
+                // 数据日期 2026-10-22、当天查询即被误判为「1 天未更新」）。
+                // 复用项目既有 tradingCalendarEngine，不新造第二套交易日规则。
+                const prevTradingDay = getNthTradingDay(todayStr, -1);
+                const isStale = !!tdStr && tdStr < prevTradingDay;
+                const staleTradingDays = isStale && tdStr
+                  ? Math.abs(countTradingDays(tdStr, prevTradingDay))
+                  : 0;
+
+                return (
+                  <div style={{ marginTop: 6, fontSize: 12, color: TEXT_SECONDARY }}>
+                    数据截至 {tdStr || '未知日期'}
+                    {isStale && (
+                      <Tag color="warning" style={{ marginLeft: 8, fontSize: 11, borderRadius: 4 }}>
+                        非最新行情，已 {staleTradingDays} 个交易日未更新（可能已退市或长期停牌）
+                      </Tag>
+                    )}
+                  </div>
+                );
+              })()}
             </Col>
 
             <Col xs={24} md={6} style={{ textAlign: 'right' }}>
