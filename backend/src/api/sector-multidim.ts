@@ -10,7 +10,11 @@
  *   5. 回补程度 (0-20): 近5日 vs 近20日动量对比
  */
 
-import { Router } from 'express';
+// ⚠️ Response 必须从 express 导入：不导入的话 TS 会解析成**全局 fetch API 的
+// Response**（Node 18+ 内置），于是 `res.setHeader` 报 TS2339、
+// `res.status(200)` 报 TS2349（status 是 number 属性而非方法）、
+// 传参报 TS2345。sector-multidim-v3.ts 一直是正确写法，此处对齐。
+import { Router, Response } from 'express';
 import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 
