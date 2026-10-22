@@ -41,6 +41,12 @@ export interface RawQuoteData {
   lowPrice: number;
   prevClose: number;
   volume: number;
+  /**
+   * 成交额，单位**万元**（上游 `parts[37]` 原值，**未换算**）。
+   *
+   * 万元→元的换算只发生在持久化侧（`syncRealtimeQuotes` 里的
+   * `quote.turnover * WAN_TO_YUAN`）。这里若也乘，就会双乘放大 1e4 倍。
+   */
   turnover: number;
   change: number;
   changePercent: number;
@@ -222,6 +228,22 @@ export class DataSyncService {
   private readonly MAX_CONSECUTIVE_FAILURES: number = 3;
   /** 缓存最近一次成功的行情数据（降级时使用） */
   private cachedQuotes: RawQuoteData[] = [];
+
+  /**
+   * 上一次**真正向腾讯发出请求**的时间戳（ms）。
+   *
+   * 降级态下用它决定何时发起一次「恢复探测」。
+   * 没有它，降级就是不可逆的死锁——见 {@link fetchTencentQuotes} 的注释。
+   */
+  private lastTencentAttemptAt: number = 0;
+
+  /**
+   * 降级态下的重试间隔（秒）。
+   *
+   * 300s 的同步周期下，每 60s 探测一次代价可忽略（每 5 次同步里 1 次真实请求），
+   * 但能把「上游恢复」的发现延迟从「永久」压到 60s 内。
+   */
+  private readonly DEGRADED_RETRY_SECONDS: number = 60;
 
   /**
    * 启动定时同步 (默认每5分钟)
@@ -588,11 +610,15 @@ export class DataSyncService {
 
   /**
    * 手动清除降级标记（用于运维恢复）
+   *
+   * 同时清零 `lastTencentAttemptAt`，让下一次调用**立即**放行真实请求，
+   * 而不是被降级重试间隔再挡 60s。
    */
   clearDegradation(): void {
     this.syncState.degraded = false;
     this.tencentFailureCount = 0;
     this.syncState.consecutiveFailures = 0;
+    this.lastTencentAttemptAt = 0;
     console.log('[DataSync] 降级标记已清除，恢复API调用');
   }
 
@@ -600,15 +626,53 @@ export class DataSyncService {
 
   /**
    * 从腾讯API获取实时行情
+   *
+   * ## 两个已修复的缺陷（2026-10-21 实测定位）
+   *
+   * ### 缺陷一：axios 走系统环境代理 → 上游返回 HTTP 400
+   * axios（1.x）会自动读取 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。
+   * 本机存在 `HTTPS_PROXY=http://127.0.0.1:62897`，而该代理对
+   * `qt.gtimg.cn` 返回 **400**（不是 502/超时，是明确的 400），
+   * 于是 `fetchTencentQuotes` 连续三次 400 → 触发降级 → 同步彻底停摆。
+   *
+   * 实测对照（`proxy: false` 即直连）：
+   * - axios 默认配置 → `Request failed with status code 400`
+   * - axios + `proxy: false` → HTTP 200，正常返回 GBK 行情
+   * - 同一 URL 用 `curl` → HTTP 200
+   * - 同一 URL 用原生 `fetch`（`api/stock.ts:369`，不读 env 代理）→ 正常
+   *
+   * ⟹ 这里显式 `proxy: false` 与项目里既有的原生 fetch 路径**行为对齐**
+   * （都是直连）。腾讯 `qt.gtimg.cn` 是境内域名，直连是正确路径；
+   * 若将来部署环境强制要求代理出网，改这一处即可。
+   *
+   * ### 缺陷二：降级态是死锁，永不恢复
+   * 原实现在函数开头就 `if (degraded) return 缓存`，**在任何网络请求之前**返回，
+   * 因此降级后永远不再发出请求，永远触发不到下面的「退出降级模式」逻辑。
+   * 实测表现：进程一旦进入降级，日志就无限刷「降级中，使用缓存数据 (0 条)」，
+   * 即使上游早已恢复也不会自愈——只能重启进程。
+   *
+   * 修法：降级态下每 {@link DEGRADED_RETRY_SECONDS} 秒仍放行一次真实请求
+   * （「恢复探测」）。成功 → 退出降级；失败 → 继续降级。
    */
   private async fetchTencentQuotes(symbols: string[]): Promise<RawQuoteData[]> {
-    // 降级模式：使用缓存数据
+    const symbolSet = new Set(symbols.map(s => s.toLowerCase()));
+    const fromCache = () => this.cachedQuotes.filter(q => symbolSet.has(q.symbol.toLowerCase()));
+
+    // ── 降级态：不是死锁，周期性探测恢复 ──
     if (this.syncState.degraded) {
-      console.warn(`[DataSync] 腾讯API降级中，使用缓存数据 (${this.cachedQuotes.length} 条)`);
-      // 过滤出请求的 symbols
-      const symbolSet = new Set(symbols.map(s => s.toLowerCase()));
-      return this.cachedQuotes.filter(q => symbolSet.has(q.symbol.toLowerCase()));
+      const sinceSeconds = (Date.now() - this.lastTencentAttemptAt) / 1000;
+      if (sinceSeconds < this.DEGRADED_RETRY_SECONDS) {
+        console.warn(
+          `[DataSync] 腾讯API降级中，使用缓存数据 (${this.cachedQuotes.length} 条)，` +
+            `${Math.ceil(this.DEGRADED_RETRY_SECONDS - sinceSeconds)}s 后探测恢复`,
+        );
+        return fromCache();
+      }
+      console.warn(
+        `[DataSync] 腾讯API降级中，距上次真实请求 ${Math.floor(sinceSeconds)}s，发起一次恢复探测`,
+      );
     }
+    this.lastTencentAttemptAt = Date.now();
 
     const symbolStr = symbols.join(',');
     const url = `https://qt.gtimg.cn/q=${symbolStr}`;
@@ -616,6 +680,9 @@ export class DataSyncService {
     try {
       const response = await axios.get(url, {
         timeout: 10000,
+        // 禁用代理：见上方「缺陷一」。不加这一项，环境里的 HTTP_PROXY 会让
+        // 上游返回 400，整个同步链路静默失效。
+        proxy: false,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Referer': 'https://finance.qq.com',
@@ -657,8 +724,7 @@ export class DataSyncService {
       // 有缓存数据则返回缓存
       if (this.cachedQuotes.length > 0) {
         console.warn(`[DataSync] 降级使用缓存数据 (${this.cachedQuotes.length} 条)`);
-        const symbolSet = new Set(symbols.map(s => s.toLowerCase()));
-        return this.cachedQuotes.filter(q => symbolSet.has(q.symbol.toLowerCase()));
+        return fromCache();
       }
 
       throw error; // 无缓存数据，抛出错误
@@ -809,7 +875,12 @@ export class DataSyncService {
           lowPrice: v(34) || currentPrice,
           prevClose,
           volume,
-          turnover: v(37) * WAN_TO_YUAN,
+          // ⚠️ 这里是**上游原值（万元）**，不要在这里乘 WAN_TO_YUAN！
+          // 万元→元的换算只允许发生在**持久化侧**（syncRealtimeQuotes 的
+          // `quote.turnover * WAN_TO_YUAN`）。历史上曾两处都乘，导致 turnover
+          // 被放大 1e4 倍（实测 r=turnover/(close×volume) 从 ~100 变成 ~1e6）。
+          // 单一转换点是 turnoverUnit.ts 立此常量的目的。
+          turnover: v(37),
           change,
           changePercent: finalChangePct,
           amplitude: v(43),
