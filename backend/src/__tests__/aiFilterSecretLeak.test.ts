@@ -102,14 +102,30 @@ describe('P0-LEAK C-2 · ai-filter 错误路径不得泄露 API key', () => {
     dbState.rows = [];
   });
 
-  it('LLM 网关 401（含掩码key的上游body）→ 500 响应体无任何 key 片段', async () => {
+  /**
+   * LLM 网关 401（含掩码 key 的上游 body）
+   *
+   * ⚠️ 2026-10-23 状态码断言从 500 改为 200，**不是放水**，理由：
+   * P1-② 修复把「上游 LLM 不可用」从服务端崩溃语义（500）改为业务性降级
+   * 语义（200 + dataSource:'unavailable' + code:'UPSTREAM_UNAVAILABLE'）。
+   * 原断言坚持 500，等于在测试层面**阻止**该修复落地。
+   *
+   * 安全契约一行未减，反而更强：响应体连 `details` 字段都不再有
+   * （此前靠 redactSecrets 脱敏，现在直接不透传，形态漏网风险归零）。
+   */
+  it('LLM 网关 401（含掩码key的上游body）→ 200 unavailable，响应体无任何 key 片段', async () => {
     (aiService.chat as any).mockRejectedValue(new Error(LEAKY_401_MESSAGE));
 
     const res = await request(buildApp(aiFilterRouter))
       .post('/api/ai/filter')
       .send({ query: '涨跌幅大于5%的股票' });
 
-    expect(res.status).toBe(500);
+    // 业务性降级：200 + 诚实标注（P1-②）
+    expect(res.status).toBe(200);
+    expect(res.body.dataSource).toBe('unavailable');
+    expect(res.body.code).toBe('UPSTREAM_UNAVAILABLE');
+
+    // 安全红线：一行都不放松
     assertNoKeyFingerprint(res.body, 'ai/filter LLM 401');
     // 响应体不再透传 details（不透传比正则脱敏更稳，形态漏网零风险）
     expect(res.body.details).toBeUndefined();
@@ -130,8 +146,18 @@ describe('P0-LEAK C-2 · ai-filter 错误路径不得泄露 API key', () => {
     expect(res.body.details).toBeUndefined();
   });
 
-  it('AI 返回非 JSON（inner catch）→ details 保留但经脱敏', async () => {
-    // LLM 输出里混入一段（假想的）带 key 的文本，验证 inner catch 的脱敏兜底
+  /**
+   * AI 返回非 JSON（inner catch）
+   *
+   * ⚠️ 2026-10-23 两处断言随 P1-② 演进：
+   *   状态码 500 → 200（LLM 输出不可用是业务性失败，不是服务端崩溃）；
+   *   `details` 由「保留但脱敏」改为「完全不返回」。
+   * 后者让安全性从「依赖正则脱敏」升级为「不透传」，形态漏网风险归零，
+   * 代价是失去前端调试细节——这是有意的取舍，已在 ai-filter.ts 注释说明。
+   * 安全断言 assertNoKeyFingerprint 原样保留。
+   */
+  it('AI 返回非 JSON（inner catch）→ 200 unavailable，响应体无 key 片段', async () => {
+    // LLM 输出里混入一段（假想的）带 key 的文本，验证 inner catch 的兜底
     (aiService.chat as any).mockResolvedValue({
       content: '抱歉，我的密钥是 sk-deadbeefdeadbeefdeadbeefdeadbeef ****abcd，无法解析',
     });
@@ -140,10 +166,11 @@ describe('P0-LEAK C-2 · ai-filter 错误路径不得泄露 API key', () => {
       .post('/api/ai/filter')
       .send({ query: '涨超5%' });
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
+    expect(res.body.dataSource).toBe('unavailable');
     expect(res.body.error).toBe('AI解析失败，请换个说法试试');
-    // details 保留（调试价值），但 key 指纹必须被清掉
-    expect(res.body.details).toBeDefined();
+    // details 不再返回：上游错误细节一律不出街
+    expect(res.body.details).toBeUndefined();
     assertNoKeyFingerprint(res.body, 'ai/filter inner catch');
   });
 
