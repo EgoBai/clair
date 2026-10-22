@@ -5,7 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { db } from '../db/dbFactory';
-import { asyncHandler, sendSuccess, sendValidationError } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 import { chatStream, type AIMessage } from '../services/aiService';
 
 import { aiTiming } from '../middleware/aiTiming';
@@ -43,6 +43,8 @@ router.post('/ai/strategy-recommend', asyncHandler(async (req: Request, res: Res
 
   // 获取市场数据摘要
   let marketSummary = '';
+  // 诚实契约：真实行情是否成功注入 prompt（下面两段均为 best-effort，失败不静默）
+  let marketDataInjected = false;
   try {
     // 获取涨跌统计
     const stats = await db.connection('daily_quotes')
@@ -66,6 +68,8 @@ router.post('/ai/strategy-recommend', asyncHandler(async (req: Request, res: Res
 - 平均涨跌幅：${parseFloat(stats?.avg_change || '0').toFixed(2)}%
 - 平均换手率：${parseFloat(stats?.avg_turnover || '0').toFixed(2)}%
 `;
+    // 有真实聚合行才算注入成功（stats 为 undefined 时上面会是全 0 的伪市场概况）
+    if (stats && parseInt(stats.total) > 0) marketDataInjected = true;
   } catch (e) {
     console.warn('获取市场数据失败:', e);
   }
@@ -128,11 +132,18 @@ ${industrySummary}
     res.setHeader('Connection', 'keep-alive');
 
     const stream = chatStream({ messages });
-    
+
+    // 诚实契约：SSE 无顶层 JSON，把 dataSource 放进每一帧（done 帧必带）。
+    // marketDataInjected=false 表示真实行情未能注入，此时 AI 输出未基于真实市场数据。
+    const dataSource = marketDataInjected ? 'real' : 'unavailable';
+
     for await (const chunk of stream) {
-      res.write(`data: ${JSON.stringify({ content: chunk.content, done: chunk.done })}\n\n`);
-      
+      res.write(`data: ${JSON.stringify({ content: chunk.content, done: chunk.done, dataSource })}\n\n`);
+
       if (chunk.done) {
+        if (!marketDataInjected) {
+          res.write(`data: ${JSON.stringify({ content: '', done: true, dataSource, message: '本地真实行情库未取到当日市场数据，本次策略推荐未基于真实市场统计' })}\n\n`);
+        }
         res.end();
       }
     }
@@ -147,13 +158,32 @@ ${industrySummary}
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.status(500).json({
         success: false,
+        dataSource: 'unavailable',
         error: 'AI策略推荐失败，请稍后重试',
+        message: 'LLM 网关不可用，未生成任何策略推荐',
       });
     }
   }
 }));
 
 // ==================== 获取市场洞察 ====================
+
+/**
+ * 诚实数据契约发送器（本文件统一出口）：顶层 dataSource 与 data 内同源。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
 
 router.get('/ai/market-insights', asyncHandler(async (_req: Request, res: Response) => {
   try {
@@ -162,8 +192,18 @@ router.get('/ai/market-insights', asyncHandler(async (_req: Request, res: Respon
       .max('trade_date as date')
       .first();
 
+    // 诚实空态：真实行情库无任何交易日 → unavailable，不用空 insights 冒充「今日无洞察」
     if (!latestDate?.date) {
-      return sendSuccess(res, { insights: [], date: null });
+      res.status(200).json({
+        success: true,
+        dataSource: 'unavailable',
+        data: {
+          insights: [], date: null, dataSource: 'unavailable',
+          message: '本地真实行情库无任何交易日数据（daily_quotes 为空或未同步），未生成任何市场洞察',
+        },
+        timestamp: new Date().toISOString(),
+      });
+      return;
     }
 
     // 获取市场统计数据
@@ -220,26 +260,38 @@ router.get('/ai/market-insights', asyncHandler(async (_req: Request, res: Respon
         });
       }
 
-      // 强势股洞察
-      const strongUpRatio = (parseInt(stats.strong_up) / parseInt(stats.total_stocks)) * 100;
-      if (strongUpRatio > 20) {
-        insights.push({
-          type: 'opportunity',
-          title: '强势股活跃',
-          description: `${strongUpRatio.toFixed(1)}% 的股票涨幅超过3%`,
-          suggestion: '可关注动量策略，把握强势股机会'
-        });
-      }
+    // 强势股洞察
+    const totalStocks = parseInt(stats.total_stocks) || 0;
+    const strongUpRatio = totalStocks > 0
+      ? (parseInt(stats.strong_up) / totalStocks) * 100
+      : 0;
+    if (strongUpRatio > 20) {
+      insights.push({
+        type: 'opportunity',
+        title: '强势股活跃',
+        description: `${strongUpRatio.toFixed(1)}% 的股票涨幅超过3%`,
+        suggestion: '可关注动量策略，把握强势股机会'
+      });
+    }
     }
 
-    sendSuccess(res, {
+    sendHonest(res, 'real', {
       date: latestDate.date,
       stats,
       insights
     });
   } catch (error) {
+    // 诚实红线：查询失败不能返回 {insights:[], date:null} 冒充「已查询但无洞察」
     console.error('获取市场洞察失败:', error);
-    sendSuccess(res, { insights: [], date: null });
+    res.status(200).json({
+      success: true,
+      dataSource: 'unavailable',
+      data: {
+        insights: [], date: null, dataSource: 'unavailable',
+        message: '本地真实行情库查询失败，未生成任何市场洞察',
+      },
+      timestamp: new Date().toISOString(),
+    });
   }
 }));
 

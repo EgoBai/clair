@@ -50,6 +50,25 @@ function toDateStr(value: unknown): string | null {
 const dayDiff = (start: string, end: string) =>
   Math.round((Date.parse(end) - Date.parse(start)) / 86400000);
 
+/**
+ * 诚实数据契约发送器：顶层 dataSource 与 data 内同源。
+ * backtest/presets 返回的是**静态策略参数目录**（无任何行情数据），
+ * 故置 unavailable 并说明，避免前端把「内置策略清单」当成「真实回测结果」。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 // ==================== 运行回测 ====================
 
 router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res) => {
@@ -58,15 +77,30 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
     const symbol = normalizeSymbol(rawSymbol);
 
     if (!symbol) {
-      return res.status(400).json({ success: false, error: '缺少股票代码' });
+      return res.status(400).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '缺少股票代码',
+        message: '缺少必需参数 symbol，未查询任何 K 线数据',
+      });
     }
     if (!strategy) {
-      return res.status(400).json({ success: false, error: '缺少策略类型' });
+      return res.status(400).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '缺少策略类型',
+        message: '缺少必需参数 strategy，未执行任何回测',
+      });
     }
 
     const engineStrategy = STRATEGY_ALIAS[strategy];
     if (!engineStrategy) {
-      return res.status(400).json({ success: false, error: `不支持的策略类型: ${strategy}` });
+      return res.status(400).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: `不支持的策略类型: ${strategy}`,
+        message: '策略类型不在引擎支持范围内，未执行任何回测',
+      });
     }
 
     // ---------- 回测区间校验（失败均返回可读原因，不静默兜底） ----------
@@ -74,12 +108,19 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
     const end = toDateStr(endDate);
 
     if (!start || !end) {
-      return res.status(400).json({ success: false, error: '回测区间无效，起止日期需为 YYYY-MM-DD 格式' });
+      return res.status(400).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '回测区间无效，起止日期需为 YYYY-MM-DD 格式',
+        message: '起止日期缺失或格式非法，未查询任何 K 线数据',
+      });
     }
     if (start > end) {
       return res.status(400).json({
         success: false,
+        dataSource: 'unavailable',
         error: `回测起始日期（${start}）不能晚于结束日期（${end}）`,
+        message: '回测区间起止倒置，未查询任何 K 线数据',
       });
     }
 
@@ -88,7 +129,9 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
     if (end > today) {
       return res.status(400).json({
         success: false,
+        dataSource: 'unavailable',
         error: `回测结束日期（${end}）不能晚于今天（${today}）`,
+        message: '回测区间包含未来日期，未查询任何 K 线数据',
       });
     }
 
@@ -124,9 +167,12 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
       .limit(Math.min(Number(params.limit) || MAX_KLINE_ROWS, MAX_KLINE_ROWS));
 
     if (klineRows.length < MIN_KLINE_ROWS) {
+      // 诚实空态：真实 K 线不足 → 无法回测，不用空结果冒充「已回测但无信号」
       return res.status(400).json({
         success: false,
+        dataSource: 'unavailable',
         error: `${start} 至 ${end} 区间内仅有 ${klineRows.length} 条K线数据，不足 ${MIN_KLINE_ROWS} 条，请扩大回测区间或更换股票`,
+        message: '本地真实行情库在该区间内 K 线条数不足，未执行任何回测',
       });
     }
 
@@ -148,16 +194,15 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
 
     result.symbol = symbol;
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    sendHonest(res, 'real', result as unknown as Record<string, unknown>);
   } catch (error) {
     console.error('回测执行失败:', error);
     res.status(500).json({
       success: false,
+      dataSource: 'unavailable',
       error: '回测执行失败',
       details: error instanceof Error ? error.message : '未知错误',
+      message: '回测流程异常（K 线查询或引擎执行失败），未产出任何回测结果',
     });
   }
 });
@@ -165,9 +210,11 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
 // ==================== 获取策略预设 ====================
 
 router.get('/backtest/presets', (_req, res) => {
-  res.json({
-    success: true,
-    data: { presets: STRATEGY_PRESETS },
+  // 诚实契约：这是**静态策略参数目录**，不含任何行情/回测结果数据，
+  // 置 unavailable 以免前端把它当成「真实回测产出」。
+  sendHonest(res, 'unavailable', {
+    presets: STRATEGY_PRESETS,
+    message: '返回的是内置静态策略参数目录，不含任何行情或回测结果数据',
   });
 });
 
@@ -181,14 +228,18 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
     if (!symbol || !Array.isArray(strategies) || strategies.length === 0) {
       return res.status(400).json({
         success: false,
+        dataSource: 'unavailable',
         error: '需要股票代码和至少一个策略配置',
+        message: '缺少必需参数 symbol/strategies，未查询任何 K 线数据',
       });
     }
 
     if (strategies.length > 5) {
       return res.status(400).json({
         success: false,
+        dataSource: 'unavailable',
         error: '最多同时对比5个策略',
+        message: '策略数量超限，未执行任何对比',
       });
     }
 
@@ -211,7 +262,9 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
     if (klineRows.length < 20) {
       return res.status(400).json({
         success: false,
+        dataSource: 'unavailable',
         error: 'K线数据不足',
+        message: '本地真实行情库该股票 K 线条数不足 20，未执行任何对比回测',
       });
     }
 
@@ -242,15 +295,14 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
       }
     });
 
-    res.json({
-      success: true,
-      data: { symbol, results },
-    });
+    sendHonest(res, 'real', { symbol, results });
   } catch (error) {
     console.error('策略对比失败:', error);
     res.status(500).json({
       success: false,
+      dataSource: 'unavailable',
       error: '策略对比失败',
+      message: '对比流程异常（K 线查询或引擎执行失败），未产出任何对比结果',
     });
   }
 });

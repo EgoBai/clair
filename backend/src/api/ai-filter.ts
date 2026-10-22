@@ -15,6 +15,26 @@ const router = Router();
 // F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
 router.use(aiTiming);
 
+/**
+ * 诚实数据契约发送器：顶层 dataSource 与 data 内同源。
+ * results 为空有两种截然不同的含义，必须区分，不可一律当成「筛选结果为空」：
+ *   - 真实行情库有数据、只是无标的命中条件 → real（这是真实结论）
+ *   - 真实行情库本身无行情 → unavailable（零值顶替即造假）
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 // ============================================================
 // 秘密脱敏（P0-LEAK C-2：安全红线）
 // ============================================================
@@ -63,7 +83,12 @@ router.post('/ai/filter', asyncHandler(async (req: Request, res: Response) => {
   const { query, watchlistSymbols } = req.body;
 
   if (!query || typeof query !== 'string') {
-    res.status(400).json({ success: false, error: '请提供筛选条件描述' });
+    res.status(400).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '请提供筛选条件描述',
+      message: '缺少必需参数 query，未执行任何筛选',
+    });
     return;
   }
 
@@ -76,9 +101,15 @@ router.post('/ai/filter', asyncHandler(async (req: Request, res: Response) => {
     
     // 空自选股直接返回
     if (Array.isArray(watchlistSymbols) && watchlistSymbols.length === 0 && /自选|我的股票|我的持仓/.test(query)) {
-      res.json({
-        success: true,
-        data: { query, filter: { conditions: [], explanation: '自选股列表为空' }, results: [], total: 0, isWatchlistQuery: true, watchlistCount: 0 }
+      // 诚实空态：自选股为空 = 无真实标的可筛，不是「筛选结果为 0」
+      sendHonest(res, 'unavailable', {
+        query,
+        filter: { conditions: [], explanation: '自选股列表为空' },
+        results: [],
+        total: 0,
+        isWatchlistQuery: true,
+        watchlistCount: 0,
+        message: '用户自选股列表为空，本地真实行情库无标的可供筛选',
       });
       return;
     }
@@ -155,8 +186,10 @@ ${watchlistContext}
       // 但防御性统一过 redactSecrets，保证任何路径都不可能带出 key 指纹。
       res.status(500).json({
         success: false,
+        dataSource: 'unavailable',
         error: 'AI解析失败，请换个说法试试',
         details: redactSecrets((e as Error).message),
+        message: 'LLM 未能把自然语言解析成有效筛选条件，未执行任何数据库查询',
       });
       return;
     }
@@ -241,16 +274,38 @@ ${watchlistContext}
 
     const results = await queryBuilder;
 
-    res.json({
-      success: true,
-      data: {
+    // 诚实契约：先探测真实行情库是否真有当日行情（与本次筛选条件无关），
+    // 否则「results 为空」会被误读成「今天没有股票符合你的条件」。
+    let marketHasData = true;
+    try {
+      const probe = await (knex as any)('daily_quotes')
+        .whereRaw('trade_date = (SELECT MAX(trade_date) FROM daily_quotes)')
+        .first();
+      marketHasData = !!probe;
+    } catch {
+      marketHasData = false;
+    }
+
+    if (!marketHasData) {
+      sendHonest(res, 'unavailable', {
         query,
         filter: parsed,
-        results,
-        total: results.length,
+        results: [],
+        total: 0,
         isWatchlistQuery,
         watchlistCount: isWatchlistQuery ? watchlistSymbols.length : undefined,
-      },
+        message: '本地真实行情库无任何当日行情记录，筛选未在真实数据上执行，空结果不代表「无标的符合条件」',
+      });
+      return;
+    }
+
+    sendHonest(res, 'real', {
+      query,
+      filter: parsed,
+      results,
+      total: results.length,
+      isWatchlistQuery,
+      watchlistCount: isWatchlistQuery ? watchlistSymbols.length : undefined,
     });
   } catch (error) {
     // 【P0-LEAK C-2 安全红线】此前这里把 error.message 原样放 `details` 出街，
@@ -263,7 +318,9 @@ ${watchlistContext}
     console.error('对话式筛选失败:', redactSecrets((error as Error).message));
     res.status(500).json({
       success: false,
+      dataSource: 'unavailable',
       error: '筛选失败，请稍后重试',
+      message: '筛选流程失败（LLM 或数据库查询异常），未返回任何筛选结果',
     });
   }
 }));

@@ -18,7 +18,7 @@
  */
 
 import { Router } from 'express';
-import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 
 const router = Router();
@@ -428,6 +428,25 @@ function calcSpreadDegree(limitUpCount: number, totalStocks: number): DimensionR
 
 // ============= 主路由 =============
 
+/**
+ * 诚实数据契约发送器：顶层 dataSource 与 data 内同源。
+ * stockQuotes 为空 = 真实行情库无该板块任何行情，此时各维度评分全为 0，
+ * 照常返回即等于「零值顶替空态」，必须显式置 unavailable。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 router.get('/sectors/:code/multidim-v2', asyncHandler(async (req, res) => {
   const { code: industry } = req.params;
   const decodedIndustry = decodeURIComponent(industry);
@@ -445,8 +464,13 @@ router.get('/sectors/:code/multidim-v2', asyncHandler(async (req, res) => {
     stockQuery = stockQuery.where('industry', decodedIndustry);
   }
   const stocks = await stockQuery.select('id', 'symbol', 'name');
+  // 诚实空态：真实股票库无该板块成分股 → unavailable，不用零值结果冒充
   if (stocks.length === 0) {
-    return sendNotFound(res, `板块 "${decodedIndustry}" 无数据`);
+    sendHonest(res, 'unavailable', {
+      industry: decodedIndustry,
+      message: `本地真实股票库无「${decodedIndustry}」板块的成分股，未生成任何多维评分`,
+    });
+    return;
   }
   const stockIds: number[] = stocks.map((s: any) => s.id);
 
@@ -482,6 +506,16 @@ router.get('/sectors/:code/multidim-v2', asyncHandler(async (req, res) => {
   for (const s of stocks) {
     const q = quoteMap.get(s.id);
     if (q) stockQuotes.push(q);
+  }
+
+  // 诚实空态：有成分股但真实行情库一行行情都没有 → 各维度必然全 0，
+  // 这不是「该板块今日不活跃」，是「没有数据」。必须分开标注。
+  if (stockQuotes.length === 0) {
+    sendHonest(res, 'unavailable', {
+      industry: decodedIndustry,
+      message: `「${decodedIndustry}」板块有 ${stocks.length} 只成分股，但本地真实行情库无任何行情记录，未生成任何多维评分`,
+    });
+    return;
   }
 
   // 3. 全行业PE (用于拥挤度百分位)
@@ -735,7 +769,7 @@ router.get('/sectors/:code/multidim-v2', asyncHandler(async (req, res) => {
     },
   };
 
-  sendSuccess(res, result);
+  sendHonest(res, 'real', result as unknown as Record<string, unknown>);
 }));
 
 export default router;

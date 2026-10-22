@@ -10,6 +10,67 @@ import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../u
 
 const router = Router();
 
+/**
+ * 诚实数据契约发送器（本文件统一出口）：顶层 dataSource 与 data 内同源。
+ *
+ * 关键：**保持 `data` 的原有形状**（对象仍是对象、数组仍是数组），
+ * 只在顶层补 dataSource、在对象型载荷内部补同名行级字段 —— 不破坏既有前端契约。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: unknown,
+  statusCode = 200,
+  extra?: Record<string, unknown>,
+): void {
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? { ...(data as Record<string, unknown>), dataSource }
+      : data;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(statusCode).json({
+    success: true,
+    dataSource,
+    data: payload,
+    timestamp: new Date().toISOString(),
+    ...(extra ?? {}),
+  });
+}
+
+/**
+ * 失败响应统一出口：**保留原 HTTP 语义**（400/401/404/409/500 不变），
+ * 只补顶层 dataSource，避免调用方在失败路径上无从判定诚实级别。
+ */
+function sendUnavailable(
+  res: Response,
+  statusCode: number,
+  error: string,
+  message?: string,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(statusCode).json({
+    success: false,
+    dataSource: 'unavailable',
+    error,
+    ...(message !== undefined ? { message } : {}),
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
+ * 本模块的诚实口径：**固定 unavailable**。
+ *
+ * 原因：`users`（4 个）与 `mockComments`（3 条）是**代码内硬编码的模拟数据** ——
+ * 关注数 1280 / 5600 / 3200 / 890、点赞 45 / 28 / 12、以及带具体目标价与止损位的
+ * 「股评」全是写死的常量，不是真实社区数据。标 'real' 就是造假。
+ * 另：本模块在前端零消费点（孤儿模块），未接线。
+ *
+ * 说明：这里**不删除**那些模拟数据（超出本次契约改造的授权范围），
+ * 只保证它们**不被标成真实数据**，并在 message 里如实披露来源。
+ */
+const MOCK_MODULE_NOTE =
+  '本模块返回的是代码内置的模拟用户与模拟评论（硬编码造数），不是真实社区数据；模块当前在前端零消费点（未接线）';
+
 // ==================== 内存存储（生产环境应用数据库） ====================
 
 interface Comment {
@@ -163,9 +224,10 @@ router.get('/social/comments', validateQuery(schemas.commentQuery), (req: Reques
     replyCount: comments.filter(r => r.parentId === c.id).length,
   }));
 
-  res.json({
-    success: true,
-    data: {
+  sendHonest(
+    res,
+    'unavailable',
+    {
       comments: enriched,
       pagination: {
         page: Number(page),
@@ -174,7 +236,9 @@ router.get('/social/comments', validateQuery(schemas.commentQuery), (req: Reques
         totalPages: Math.ceil(topLevel.length / pageSize),
       },
     },
-  });
+    200,
+    { message: MOCK_MODULE_NOTE },
+  );
 });
 
 /**
@@ -187,10 +251,7 @@ router.get('/social/comments/:id/replies', (req: Request, res: Response) => {
     .filter(c => c.parentId === commentId)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  res.json({
-    success: true,
-    data: { replies },
-  });
+  sendHonest(res, 'unavailable', { replies }, 200, { message: MOCK_MODULE_NOTE });
 });
 
 /**
@@ -234,10 +295,7 @@ router.post('/social/comments', validateBody(schemas.commentCreate), (req: Reque
     if (parent) parent.replies++;
   }
 
-  res.status(201).json({
-    success: true,
-    data: comment,
-  });
+  sendHonest(res, 'unavailable', comment, 201, { message: MOCK_MODULE_NOTE });
 });
 
 /**
@@ -250,7 +308,7 @@ router.post('/social/comments/:id/like', (req: Request, res: Response) => {
 
   const comment = comments.find(c => c.id === commentId);
   if (!comment) {
-    return res.status(404).json({ success: false, error: '评论不存在' });
+    return sendUnavailable(res, 404, '评论不存在');
   }
 
   const likedIdx = comment.likedBy.indexOf(userId);
@@ -264,13 +322,16 @@ router.post('/social/comments/:id/like', (req: Request, res: Response) => {
     comment.likes++;
   }
 
-  res.json({
-    success: true,
-    data: {
+  sendHonest(
+    res,
+    'unavailable',
+    {
       likes: comment.likes,
       isLiked: comment.likedBy.includes(userId),
     },
-  });
+    200,
+    { message: MOCK_MODULE_NOTE },
+  );
 });
 
 /**
@@ -283,12 +344,12 @@ router.delete('/social/comments/:id', (req: Request, res: Response) => {
 
   const idx = comments.findIndex(c => c.id === commentId);
   if (idx === -1) {
-    return res.status(404).json({ success: false, error: '评论不存在' });
+    return sendUnavailable(res, 404, '评论不存在');
   }
 
   const comment = comments[idx];
   if (comment.userId !== userId) {
-    return res.status(403).json({ success: false, error: '无权删除此评论' });
+    return sendUnavailable(res, 403, '无权删除此评论');
   }
 
   // 同时删除所有子回复
@@ -299,7 +360,10 @@ router.delete('/social/comments/:id', (req: Request, res: Response) => {
     }
   }
 
-  res.json({ success: true, message: '评论已删除' });
+  sendHonest(res, 'unavailable', { message: '评论已删除' }, 200, {
+    message: '评论已删除',
+    note: MOCK_MODULE_NOTE,
+  });
 });
 
 // ==================== 用户/分析师 API ====================
@@ -328,10 +392,7 @@ router.get('/social/users', (req: Request, res: Response) => {
       filtered.sort((a, b) => b.followers - a.followers);
   }
 
-  res.json({
-    success: true,
-    data: { users: filtered },
-  });
+  sendHonest(res, 'unavailable', { users: filtered }, 200, { message: MOCK_MODULE_NOTE });
 });
 
 /**
@@ -343,7 +404,7 @@ router.get('/social/users/:username', validateParams(schemas.userProfile), (req:
   const user = users.find(u => u.username === username);
 
   if (!user) {
-    return res.status(404).json({ success: false, error: '用户不存在' });
+    return sendUnavailable(res, 404, '用户不存在');
   }
 
   // 获取用户最近评论
@@ -357,14 +418,17 @@ router.get('/social/users/:username', validateParams(schemas.userProfile), (req:
     .filter(f => f.followeeId === user.id)
     .map(f => f.followerId);
 
-  res.json({
-    success: true,
-    data: {
+  sendHonest(
+    res,
+    'unavailable',
+    {
       profile: user,
       recentComments,
       followerIds,
     },
-  });
+    200,
+    { message: MOCK_MODULE_NOTE },
+  );
 });
 
 // ==================== 关注 API ====================
@@ -377,12 +441,12 @@ router.post('/social/follow', validateBody(schemas.follow), (req: Request, res: 
   const { followerId, followeeId } = req.body;
 
   if (followerId === followeeId) {
-    return res.status(400).json({ success: false, error: '不能关注自己' });
+    return sendUnavailable(res, 400, '不能关注自己');
   }
 
   const followee = users.find(u => u.id === followeeId);
   if (!followee) {
-    return res.status(404).json({ success: false, error: '用户不存在' });
+    return sendUnavailable(res, 404, '用户不存在');
   }
 
   const existingIdx = followRelations.findIndex(
@@ -397,10 +461,13 @@ router.post('/social/follow', validateBody(schemas.follow), (req: Request, res: 
     const follower = users.find(u => u.id === followerId);
     if (follower) follower.following = Math.max(0, follower.following - 1);
 
-    res.json({
-      success: true,
-      data: { isFollowing: false, followers: followee.followers },
-    });
+    sendHonest(
+      res,
+      'unavailable',
+      { isFollowing: false, followers: followee.followers },
+      200,
+      { message: MOCK_MODULE_NOTE },
+    );
   } else {
     // 关注
     followRelations.push({
@@ -413,10 +480,13 @@ router.post('/social/follow', validateBody(schemas.follow), (req: Request, res: 
     const follower = users.find(u => u.id === followerId);
     if (follower) follower.following++;
 
-    res.json({
-      success: true,
-      data: { isFollowing: true, followers: followee.followers },
-    });
+    sendHonest(
+      res,
+      'unavailable',
+      { isFollowing: true, followers: followee.followers },
+      200,
+      { message: MOCK_MODULE_NOTE },
+    );
   }
 });
 
@@ -429,17 +499,14 @@ router.get('/social/follow/status', validateQuery(schemas.followStatusQuery), (r
   const followeeId = parseInt(req.query.followeeId as string);
 
   if (!followeeId) {
-    return res.status(400).json({ success: false, error: '缺少 followeeId 参数' });
+    return sendUnavailable(res, 400, '缺少 followeeId 参数');
   }
 
   const isFollowing = followRelations.some(
     f => f.followerId === followerId && f.followeeId === followeeId
   );
 
-  res.json({
-    success: true,
-    data: { isFollowing },
-  });
+  sendHonest(res, 'unavailable', { isFollowing }, 200, { message: MOCK_MODULE_NOTE });
 });
 
 /**
@@ -449,9 +516,10 @@ router.get('/social/follow/status', validateQuery(schemas.followStatusQuery), (r
 router.get('/social/stats', (_req: Request, res: Response) => {
   const analystCount = users.filter(u => u.role === 'analyst' || u.role === 'vip').length;
 
-  res.json({
-    success: true,
-    data: {
+  sendHonest(
+    res,
+    'unavailable',
+    {
       totalUsers: users.length,
       analystCount,
       totalComments: comments.length,
@@ -461,7 +529,9 @@ router.get('/social/stats', (_req: Request, res: Response) => {
         return c.createdAt.startsWith(today);
       }).length,
     },
-  });
+    200,
+    { message: MOCK_MODULE_NOTE },
+  );
 });
 
 export default router;

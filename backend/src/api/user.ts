@@ -12,6 +12,83 @@ import { validateBody, validateQuery, schemas } from '../middleware/validation';
 
 const router = Router();
 
+/**
+ * 诚实数据契约发送器（本文件统一出口）：顶层 dataSource 与 data 内同源。
+ *
+ * 关键：**保持 `data` 的原有形状**（对象仍是对象、数组仍是数组），
+ * 只在顶层补 dataSource、在对象型载荷内部补同名行级字段 —— 不破坏既有前端契约
+ * （`/api/user/profile` → `data.data`；`/api/user/history` → `data.data.items`；
+ *   登录/注册 → `data.data.token` / `data.data.user`）。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: unknown,
+  statusCode = 200,
+  extra?: Record<string, unknown>,
+): void {
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? { ...(data as Record<string, unknown>), dataSource }
+      : data;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(statusCode).json({
+    success: true,
+    dataSource,
+    data: payload,
+    timestamp: new Date().toISOString(),
+    ...(extra ?? {}),
+  });
+}
+
+/**
+ * 失败响应统一出口：**保留原 HTTP 语义**（400/401/404/409/500 不变），
+ * 只补顶层 dataSource。`message` 字段保持存在（原实现只用 message，前端读它）。
+ */
+function sendUnavailable(
+  res: Response,
+  statusCode: number,
+  error: string,
+  message?: string,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(statusCode).json({
+    success: false,
+    dataSource: 'unavailable',
+    error,
+    message: message ?? error,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
+ * 用户数据存于**服务进程内存**（未落库，见上方 users/tokens/sessions Map）——
+ * 成功响应统一附带的性质说明。
+ */
+const STORAGE_NOTE =
+  '用户数据存于服务进程内存（未落库），服务重启即丢失；返回的是当前进程内的真实用户数据';
+
+/**
+ * 对外暴露用户信息时的脱敏投影。
+ *
+ * 安全：绝不外泄 `passwordHash`（bcrypt 摘要）、`mfaSecret`、`lockedUntil`
+ * 等内部字段。注册/登录/资料页一律走这个投影。
+ */
+function publicUser(user: User): Record<string, unknown> {
+  return {
+    id: user.id,
+    email: maskEmail(user.email),
+    nickname: user.nickname,
+    avatar: user.avatar,
+    roles: user.roles,
+    status: user.status,
+    settings: user.settings,
+    mfaEnabled: user.mfaEnabled,
+    createdAt: user.createdAt,
+    lastLoginAt: user.lastLoginAt,
+  };
+}
+
 // ==================== 内存用户存储（生产环境应使用数据库）====================
 
 interface User {
@@ -188,22 +265,22 @@ router.post('/user/register', async (req: Request, res: Response) => {
     const { email, phone, password, nickname } = req.body;
 
     if (!email && !phone) {
-      return res.status(400).json({ success: false, message: '请提供邮箱或手机号' });
+      return sendUnavailable(res, 400, '请提供邮箱或手机号');
     }
     if (!password || password.length < 6) {
-      return res.status(400).json({ success: false, message: '密码至少6位' });
+      return sendUnavailable(res, 400, '密码至少6位');
     }
     if (!nickname || nickname.length < 2) {
-      return res.status(400).json({ success: false, message: '昵称至少2个字符' });
+      return sendUnavailable(res, 400, '昵称至少2个字符');
     }
 
     // 检查邮箱重复
     for (const user of users.values()) {
       if (email && user.email === email) {
-        return res.status(409).json({ success: false, message: '邮箱已注册' });
+        return sendUnavailable(res, 409, '邮箱已注册');
       }
       if (phone && user.phone === phone) {
-        return res.status(409).json({ success: false, message: '手机号已注册' });
+        return sendUnavailable(res, 409, '手机号已注册');
       }
     }
 
@@ -233,9 +310,10 @@ router.post('/user/register', async (req: Request, res: Response) => {
     const accessToken = signAccessToken({ sub: userId, email: email || '', roles: user.roles });
     const refreshToken = generateRefreshToken(userId, email || '');
 
-    res.status(201).json({
-      success: true,
-      data: {
+    sendHonest(
+      res,
+      'real',
+      {
         user: {
           id: user.id,
           email: maskEmail(user.email),
@@ -249,10 +327,12 @@ router.post('/user/register', async (req: Request, res: Response) => {
         refreshToken,           // 刷新令牌
         expiresIn: 900,
       },
-    });
+      201,
+      { storageNote: STORAGE_NOTE },
+    );
   } catch (error) {
     console.error('注册失败:', error);
-    res.status(500).json({ success: false, message: '注册失败' });
+    sendUnavailable(res, 500, '注册失败');
   }
 });
 
@@ -265,7 +345,7 @@ router.post('/user/login', async (req: Request, res: Response) => {
     const { email, phone, password } = req.body;
 
     if (!password) {
-      return res.status(400).json({ success: false, message: '请输入密码' });
+      return sendUnavailable(res, 400, '请输入密码');
     }
 
     let foundUser: User | undefined;
@@ -277,7 +357,7 @@ router.post('/user/login', async (req: Request, res: Response) => {
     // F06: 必须校验密码；用户不存在时也走一次等时比对，响应文案保持一致
     const passwordOk = await verifyPassword(password, foundUser?.passwordHash);
     if (!foundUser || !passwordOk) {
-      return res.status(401).json({ success: false, message: '用户不存在或密码错误' });
+      return sendUnavailable(res, 401, '用户不存在或密码错误');
     }
 
     // 生成本地 token（旧格式兼容）
@@ -303,19 +383,22 @@ router.post('/user/login', async (req: Request, res: Response) => {
       lastLoginAt: foundUser.lastLoginAt,
     };
 
-    res.json({
-      success: true,
-      data: {
+    sendHonest(
+      res,
+      'real',
+      {
         user: safeUser,
         token,                  // 旧格式兼容
         accessToken,            // JWT 访问令牌
         refreshToken,           // 刷新令牌
         expiresIn: 900,         // 15分钟（秒）
       },
-    });
+      200,
+      { storageNote: STORAGE_NOTE },
+    );
   } catch (error) {
     console.error('登录失败:', error);
-    res.status(500).json({ success: false, message: '登录失败' });
+    sendUnavailable(res, 500, '登录失败');
   }
 });
 
@@ -327,9 +410,10 @@ router.get('/user/profile', authMiddleware, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   const user = users.get(userId);
   if (!user) {
-    return res.status(404).json({ success: false, message: '用户不存在' });
+    return sendUnavailable(res, 404, '用户不存在');
   }
-  res.json({ success: true, data: user });
+  // 脱敏投影：绝不外泄 passwordHash / mfaSecret 等内部字段
+  sendHonest(res, 'real', publicUser(user), 200, { storageNote: STORAGE_NOTE });
 });
 
 /**
@@ -340,7 +424,7 @@ router.put('/user/settings', authMiddleware, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   const user = users.get(userId);
   if (!user) {
-    return res.status(404).json({ success: false, message: '用户不存在' });
+    return sendUnavailable(res, 404, '用户不存在');
   }
 
   const { theme, language, notifications, display } = req.body;
@@ -349,7 +433,9 @@ router.put('/user/settings', authMiddleware, (req: Request, res: Response) => {
   if (notifications) user.settings.notifications = { ...user.settings.notifications, ...notifications };
   if (display) user.settings.display = { ...user.settings.display, ...display };
 
-  res.json({ success: true, data: user.settings });
+  sendHonest(res, 'real', user.settings as unknown as Record<string, unknown>, 200, {
+    storageNote: STORAGE_NOTE,
+  });
 });
 
 /**
@@ -361,7 +447,7 @@ router.post('/user/history', authMiddleware, (req: Request, res: Response) => {
   const { type, target, detail } = req.body;
 
   if (!type || !target) {
-    return res.status(400).json({ success: false, message: '缺少必要参数' });
+    return sendUnavailable(res, 400, '缺少必要参数');
   }
 
   const action: UserAction = {
@@ -379,7 +465,9 @@ router.post('/user/history', authMiddleware, (req: Request, res: Response) => {
   if (history.length > 500) history.length = 500;
   actionHistory.set(userId, history);
 
-  res.json({ success: true, data: action });
+  sendHonest(res, 'real', action as unknown as Record<string, unknown>, 200, {
+    storageNote: STORAGE_NOTE,
+  });
 });
 
 /**
@@ -400,13 +488,16 @@ router.get('/user/history', authMiddleware, (req: Request, res: Response) => {
   const total = history.length;
   const data = history.slice((page - 1) * pageSize, page * pageSize);
 
-  res.json({
-    success: true,
-    data: {
+  sendHonest(
+    res,
+    'real',
+    {
       items: data,
       pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     },
-  });
+    200,
+    { storageNote: STORAGE_NOTE },
+  );
 });
 
 /**
@@ -416,7 +507,7 @@ router.get('/user/history', authMiddleware, (req: Request, res: Response) => {
 router.post('/user/logout', authMiddleware, (req: Request, res: Response) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (token) tokens.delete(token);
-  res.json({ success: true, message: '已登出' });
+  sendHonest(res, 'real', { message: '已登出' }, 200, { message: '已登出' });
 });
 
 export { authMiddleware, users, tokens };

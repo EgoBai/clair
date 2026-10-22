@@ -15,6 +15,26 @@ import conceptMappings from './industryChainConcepts';
 
 const router = Router();
 
+/**
+ * 诚实数据契约发送器：顶层 dataSource 与 data 内同源。
+ * dataSource:'real' 表示「真实行情库确实被扫描过」——告警为空可能是
+ * 「今天真的没有触发阈值的异动」（真实结论），也可能是「库里没数据」，
+ * 故用 scannedRows 区分，不把后者冒充成前者。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 interface Alert {
   type: 'surge' | 'plunge' | 'volume_spike' | 'limit_up' | 'leader_move';
   severity: 'high' | 'medium' | 'low';
@@ -38,6 +58,8 @@ interface Alert {
 router.get('/industry-alerts', asyncHandler(async (_req: Request, res: Response) => {
   const db = getDb();
   const alerts: Alert[] = [];
+  // 真实扫描到的行情行数：用于区分「无异动」与「库里没数据」
+  let scannedRows = 0;
 
   // 遍历所有产业链和segment
   for (const concept of conceptMappings) {
@@ -60,6 +82,7 @@ router.get('/industry-alerts', asyncHandler(async (_req: Request, res: Response)
       );
 
     if (rows.length === 0) continue;
+    scannedRows += rows.length;
 
     const changes = rows.map((r: any) => Number(r.change_percent) || 0);
     const turnovers = rows.map((r: any) => Number(r.turnover) || 0);
@@ -139,13 +162,22 @@ router.get('/industry-alerts', asyncHandler(async (_req: Request, res: Response)
     return (sev[b.severity] || 0) - (sev[a.severity] || 0);
   });
 
-  res.json({
-    success: true,
-    data: {
-      alerts: alerts.slice(0, 20),
-      total: alerts.length,
-      timestamp: new Date().toISOString(),
-    },
+  // 诚实红线：真实行情库一行都没扫到时置 unavailable，不用空告警列表
+  // 冒充「已扫描且今日无异动」。
+  if (scannedRows === 0) {
+    sendHonest(res, 'unavailable', {
+      alerts: [],
+      total: 0,
+      scannedRows: 0,
+      message: '本地真实行情库无产业链成分股的行情记录，未扫描到任何数据，空告警列表不代表「今日无异动」',
+    });
+    return;
+  }
+
+  sendHonest(res, 'real', {
+    alerts: alerts.slice(0, 20),
+    total: alerts.length,
+    scannedRows,
   });
 }));
 

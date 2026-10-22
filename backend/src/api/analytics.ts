@@ -4,10 +4,31 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 import { createLogger } from '../utils/logger';
 
 const router = Router();
+
+/**
+ * 诚实数据契约发送器（本文件统一出口）：顶层 dataSource 与 data 内同源。
+ *
+ * 本文件是**前端埋点内存缓冲**，不涉及行情/财务数据。
+ * 事件缓冲为空 = 尚未采集到任何埋点，不是「昨日真的没有访问」，
+ * 故空态一律置 unavailable。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
 const log = createLogger('AnalyticsAPI');
 
 // ==================== 内存存储 (生产环境应使用数据库) ====================
@@ -34,7 +55,12 @@ router.post('/analytics', asyncHandler(async (req: Request, res: Response) => {
   const { events: batchEvents, sessionId, userId } = req.body;
 
   if (!Array.isArray(batchEvents)) {
-    res.status(400).json({ success: false, error: 'Invalid events format' });
+    res.status(400).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: 'Invalid events format',
+      message: 'events 必须是数组，未接收任何埋点事件',
+    });
     return;
   }
 
@@ -59,7 +85,7 @@ router.post('/analytics', asyncHandler(async (req: Request, res: Response) => {
 
   log.info(`Received ${batchEvents.length} analytics events`, { sessionId, userId });
 
-  sendSuccess(res, { received: batchEvents.length });
+  sendHonest(res, 'real', { received: batchEvents.length });
 }));
 
 /**
@@ -101,7 +127,7 @@ router.get('/analytics/summary', asyncHandler(async (_req: Request, res: Respons
   const sessions = new Set(events.map(e => e.sessionId).filter(Boolean)).size;
   const avgEventsPerSession = sessions > 0 ? totalEvents / sessions : 0;
 
-  sendSuccess(res, {
+  sendHonest(res, events.length > 0 ? 'real' : 'unavailable', {
     totalEvents,
     uniqueUsers,
     pageViews,
@@ -110,7 +136,8 @@ router.get('/analytics/summary', asyncHandler(async (_req: Request, res: Respons
     topEvents,
     topPages,
     last24h: last24h.length,
-    last7d: last7d.length
+    last7d: last7d.length,
+    ...(events.length > 0 ? {} : { message: '埋点缓冲为空（尚未采集到任何事件），以上计数均为 0 而非真实访问统计' }),
   });
 }));
 
@@ -133,7 +160,10 @@ router.get('/analytics/events', asyncHandler(async (req: Request, res: Response)
   const limitNum = parseInt(limit as string, 10);
   const recent = filtered.slice(-limitNum).reverse();
 
-  sendSuccess(res, { events: recent });
+  sendHonest(res, recent.length > 0 ? 'real' : 'unavailable', {
+    events: recent,
+    ...(recent.length > 0 ? {} : { message: '埋点缓冲中无匹配事件，空列表不代表「昨日真的没有事件」' }),
+  });
 }));
 
 /**
@@ -169,7 +199,10 @@ router.get('/analytics/funnel', asyncHandler(async (_req: Request, res: Response
     };
   });
 
-  sendSuccess(res, { funnel: results });
+  sendHonest(res, results.length > 0 ? 'real' : 'unavailable', {
+    funnel: results,
+    ...(results.length > 0 ? {} : { message: '埋点缓冲为空，未计算任何漏斗转化' }),
+  });
 }));
 
 /**
@@ -192,14 +225,24 @@ router.get('/analytics/performance', asyncHandler(async (_req: Request, res: Res
     metric,
     count: values.length,
     avg: values.reduce((a, b) => a + b, 0) / values.length,
-    min: Math.min(...values),
-    max: Math.max(...values),
+    min: values.length > 0 ? Math.min(...values) : null,
+    max: values.length > 0 ? Math.max(...values) : null,
     p50: percentile(values, 50),
     p95: percentile(values, 95),
     p99: percentile(values, 99)
   }));
 
-  sendSuccess(res, { metrics: stats });
+  // 诚实空态：无任何性能埋点时 min/max 曾是 -Infinity/Infinity（伪数值），
+  // 现直接置 unavailable，不输出任何统计量。
+  if (stats.length === 0) {
+    sendHonest(res, 'unavailable', {
+      metrics: [],
+      message: '埋点缓冲中无 performance 事件，未计算任何性能指标',
+    });
+    return;
+  }
+
+  sendHonest(res, 'real', { metrics: stats });
 }));
 
 // ==================== 辅助函数 ====================

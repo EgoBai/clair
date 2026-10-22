@@ -17,11 +17,33 @@ const router = Router();
 // F12/A-07: AI 接口耗时日志（端点/状态/耗时/首字节）
 router.use(aiTiming);
 
+/**
+ * 诚实数据契约发送器：顶层 dataSource 与 data 内同源。
+ * note 正文由 LLM 基于**真实行情库**的自选股数据生成，故正常路径为 real。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 router.post('/ai/investment-note', asyncHandler(async (req: Request, res: Response) => {
   const { symbols = [] } = req.body;
 
+  // 诚实空态：无自选股 → 无真实数据可复盘，不用固定文案冒充「已生成笔记」
   if (symbols.length === 0) {
-    res.json({ success: true, data: { note: '请先添加自选股以生成投资笔记。' } });
+    sendHonest(res, 'unavailable', {
+      note: '请先添加自选股以生成投资笔记。',
+      message: '未提供任何自选股代码，本地真实行情库无标的可供复盘',
+    });
     return;
   }
 
@@ -45,8 +67,22 @@ router.post('/ai/investment-note', asyncHandler(async (req: Request, res: Respon
       'dq.market_cap'
     );
 
+  // 诚实空态：真实行情库查不到这些自选股 → unavailable，不用固定文案冒充
   if (stocks.length === 0) {
-    res.json({ success: true, data: { note: '暂无行情数据' } });
+    sendHonest(res, 'unavailable', {
+      note: '暂无行情数据',
+      message: '本地真实行情库无这些自选股的行情记录，未生成任何复盘笔记',
+    });
+    return;
+  }
+
+  // 有真实行情行，但其中无一行带涨跌幅 → 无法做任何统计（零值顶替即造假）
+  const withQuote = stocks.filter((s: any) => s.change_percent != null);
+  if (withQuote.length === 0) {
+    sendHonest(res, 'unavailable', {
+      note: '暂无行情数据',
+      message: '自选股在真实行情库中无当日行情（change_percent 全为 null），未生成任何复盘统计',
+    });
     return;
   }
 
@@ -57,8 +93,8 @@ router.post('/ai/investment-note', asyncHandler(async (req: Request, res: Respon
     return `${s.name}(${s.industry}) 价格${s.price} ${change >= 0 ? '+' : ''}${change.toFixed(2)}% 市值${(cap / 1e4).toFixed(0)}亿`;
   }).join('\n');
 
-  const upCount = stocks.filter((s: any) => Number(s.change_percent) > 0).length;
-  const downCount = stocks.filter((s: any) => Number(s.change_percent) < 0).length;
+  const upCount = withQuote.filter((s: any) => Number(s.change_percent) > 0).length;
+  const downCount = withQuote.filter((s: any) => Number(s.change_percent) < 0).length;
 
   const prompt = `你是澄观AI投资研究助手。请基于以下自选股实时数据，生成一份简洁的复盘笔记。
 
@@ -84,26 +120,22 @@ ${stockSummary}
       maxTokens: 400,
     });
 
-    res.json({
-      success: true,
-      data: {
-        note: aiResponse?.content || '复盘笔记生成中...',
-        summary: {
-          total: stocks.length,
-          up: upCount,
-          down: downCount,
-          avgChange: (stocks.reduce((sum: number, s: any) => sum + (Number(s.change_percent) || 0), 0) / stocks.length).toFixed(2),
-        },
+    sendHonest(res, 'real', {
+      note: aiResponse?.content || '复盘笔记生成中...',
+      summary: {
+        total: stocks.length,
+        up: upCount,
+        down: downCount,
+        avgChange: (withQuote.reduce((sum: number, s: any) => sum + (Number(s.change_percent) || 0), 0) / withQuote.length).toFixed(2),
       },
     });
   } catch (e) {
     console.warn('[AIInvestmentNote] 生成投资笔记失败:', e);
-    res.json({
-      success: true,
-      data: {
-        note: `今日自选股共${stocks.length}只，${upCount}涨${downCount}跌。AI服务暂时不可用，请稍后重试生成笔记。`,
-        summary: { total: stocks.length, up: upCount, down: downCount },
-      },
+    // 诚实降级：行情统计仍是真实值，但 AI 正文未生成 → 如实说明而非静默兜底
+    sendHonest(res, 'unavailable', {
+      note: `今日自选股共${stocks.length}只，${upCount}涨${downCount}跌。AI服务暂时不可用，请稍后重试生成笔记。`,
+      summary: { total: stocks.length, up: upCount, down: downCount },
+      message: '行情统计来自真实行情库，但 LLM 不可用，AI 复盘正文未生成',
     });
   }
 }));

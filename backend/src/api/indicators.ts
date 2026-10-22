@@ -28,6 +28,26 @@ const FORWARD_APP_ERROR = (error: unknown, next: NextFunction): boolean => {
 const router = Router();
 
 /**
+ * 诚实数据契约发送器（本文件统一出口）：顶层 dataSource 与 data 内同源。
+ *
+ * 本文件的取数链是 db.getDailyQuotes → calculateAllIndicators，
+ * 指标**完全由真实行情推导**，无任何随机/兜底成分，故成功路径一律 real。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
  * 获取股票技术指标
  * GET /api/indicators/:symbol
  */
@@ -38,12 +58,22 @@ router.get('/indicators/:symbol', validateParams(schemas.stockSymbol), validateQ
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
-      return res.status(404).json({ success: false, error: '股票未找到' });
+      return res.status(404).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '股票未找到',
+        message: '本地真实股票库无此代码，未计算任何技术指标',
+      });
     }
 
     const quotes = await db.getDailyQuotes(stock.id, undefined, undefined, limit);
     if (quotes.length === 0) {
-      return res.status(404).json({ success: false, error: '无行情数据' });
+      return res.status(404).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '无行情数据',
+        message: '本地真实行情库无该股票的日线记录，未计算任何技术指标',
+      });
     }
 
     // 按日期正序排列
@@ -62,21 +92,20 @@ router.get('/indicators/:symbol', validateParams(schemas.stockSymbol), validateQ
 
     const indicators = calculateAllIndicators(ohlcvData);
 
-    res.json({
-      success: true,
-      data: {
-        stock: { symbol: stock.symbol, name: stock.name },
-        indicators,
-        count: indicators.length,
-      },
+    sendHonest(res, 'real', {
+      stock: { symbol: stock.symbol, name: stock.name },
+      indicators,
+      count: indicators.length,
     });
   } catch (error) {
     if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取技术指标失败:', error);
     res.status(500).json({
       success: false,
+      dataSource: 'unavailable',
       error: '获取技术指标失败',
       details: error instanceof Error ? error.message : '未知错误',
+      message: '指标计算流程异常，未产出任何技术指标',
     });
   }
 });
@@ -93,10 +122,25 @@ router.get('/indicators/:symbol/ma', validateParams(schemas.stockSymbol), valida
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
-      return res.status(404).json({ success: false, error: '股票未找到' });
+      return res.status(404).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '股票未找到',
+        message: '本地真实股票库无此代码，未计算任何技术指标',
+      });
     }
 
     const quotes = await db.getDailyQuotes(stock.id, undefined, undefined, limit);
+    // 诚实空态（T-2604-06 / 任务#39）：无日线即无指标，置 unavailable，
+    // 不用空 values 数组冒充「已计算但今日无数据」。
+    if (quotes.length === 0) {
+      sendHonest(res, 'unavailable', {
+        symbol,
+        values: [],
+        message: '本地真实行情库无该股票的日线记录，未计算任何技术指标',
+      });
+      return;
+    }
     const sorted = [...quotes].sort((a, b) =>
       new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
     );
@@ -111,14 +155,16 @@ router.get('/indicators/:symbol/ma', validateParams(schemas.stockSymbol), valida
       ma: maValues[i],
     }));
 
-    res.json({
-      success: true,
-      data: { symbol, period, values: result },
-    });
+    sendHonest(res, 'real', { symbol, period, values: result });
   } catch (error) {
     if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取MA失败:', error);
-    res.status(500).json({ success: false, error: '获取MA失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '获取MA失败',
+      message: '指标计算流程异常，未产出任何技术指标',
+    });
   }
 });
 
@@ -133,10 +179,25 @@ router.get('/indicators/:symbol/macd', validateParams(schemas.stockSymbol), vali
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
-      return res.status(404).json({ success: false, error: '股票未找到' });
+      return res.status(404).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '股票未找到',
+        message: '本地真实股票库无此代码，未计算任何技术指标',
+      });
     }
 
     const quotes = await db.getDailyQuotes(stock.id, undefined, undefined, limit);
+    // 诚实空态（T-2604-06 / 任务#39）：无日线即无指标，置 unavailable，
+    // 不用空 values 数组冒充「已计算但今日无数据」。
+    if (quotes.length === 0) {
+      sendHonest(res, 'unavailable', {
+        symbol,
+        values: [],
+        message: '本地真实行情库无该股票的日线记录，未计算任何技术指标',
+      });
+      return;
+    }
     const sorted = [...quotes].sort((a, b) =>
       new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
     );
@@ -153,14 +214,16 @@ router.get('/indicators/:symbol/macd', validateParams(schemas.stockSymbol), vali
       histogram: macd.histogram[i],
     }));
 
-    res.json({
-      success: true,
-      data: { symbol, values: result },
-    });
+    sendHonest(res, 'real', { symbol, values: result });
   } catch (error) {
     if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取MACD失败:', error);
-    res.status(500).json({ success: false, error: '获取MACD失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '获取MACD失败',
+      message: '指标计算流程异常，未产出任何技术指标',
+    });
   }
 });
 
@@ -175,10 +238,25 @@ router.get('/indicators/:symbol/kdj', validateParams(schemas.stockSymbol), valid
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
-      return res.status(404).json({ success: false, error: '股票未找到' });
+      return res.status(404).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '股票未找到',
+        message: '本地真实股票库无此代码，未计算任何技术指标',
+      });
     }
 
     const quotes = await db.getDailyQuotes(stock.id, undefined, undefined, limit);
+    // 诚实空态（T-2604-06 / 任务#39）：无日线即无指标，置 unavailable，
+    // 不用空 values 数组冒充「已计算但今日无数据」。
+    if (quotes.length === 0) {
+      sendHonest(res, 'unavailable', {
+        symbol,
+        values: [],
+        message: '本地真实行情库无该股票的日线记录，未计算任何技术指标',
+      });
+      return;
+    }
     const sorted = [...quotes].sort((a, b) =>
       new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
     );
@@ -197,14 +275,16 @@ router.get('/indicators/:symbol/kdj', validateParams(schemas.stockSymbol), valid
       j: kdj.j[i],
     }));
 
-    res.json({
-      success: true,
-      data: { symbol, values: result },
-    });
+    sendHonest(res, 'real', { symbol, values: result });
   } catch (error) {
     if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取KDJ失败:', error);
-    res.status(500).json({ success: false, error: '获取KDJ失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '获取KDJ失败',
+      message: '指标计算流程异常，未产出任何技术指标',
+    });
   }
 });
 
@@ -220,10 +300,25 @@ router.get('/indicators/:symbol/rsi', validateParams(schemas.stockSymbol), valid
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
-      return res.status(404).json({ success: false, error: '股票未找到' });
+      return res.status(404).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '股票未找到',
+        message: '本地真实股票库无此代码，未计算任何技术指标',
+      });
     }
 
     const quotes = await db.getDailyQuotes(stock.id, undefined, undefined, limit);
+    // 诚实空态（T-2604-06 / 任务#39）：无日线即无指标，置 unavailable，
+    // 不用空 values 数组冒充「已计算但今日无数据」。
+    if (quotes.length === 0) {
+      sendHonest(res, 'unavailable', {
+        symbol,
+        values: [],
+        message: '本地真实行情库无该股票的日线记录，未计算任何技术指标',
+      });
+      return;
+    }
     const sorted = [...quotes].sort((a, b) =>
       new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
     );
@@ -238,14 +333,16 @@ router.get('/indicators/:symbol/rsi', validateParams(schemas.stockSymbol), valid
       rsi: rsiValues[i],
     }));
 
-    res.json({
-      success: true,
-      data: { symbol, period, values: result },
-    });
+    sendHonest(res, 'real', { symbol, period, values: result });
   } catch (error) {
     if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取RSI失败:', error);
-    res.status(500).json({ success: false, error: '获取RSI失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '获取RSI失败',
+      message: '指标计算流程异常，未产出任何技术指标',
+    });
   }
 });
 
@@ -261,10 +358,25 @@ router.get('/indicators/:symbol/boll', validateParams(schemas.stockSymbol), vali
 
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
-      return res.status(404).json({ success: false, error: '股票未找到' });
+      return res.status(404).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '股票未找到',
+        message: '本地真实股票库无此代码，未计算任何技术指标',
+      });
     }
 
     const quotes = await db.getDailyQuotes(stock.id, undefined, undefined, limit);
+    // 诚实空态（T-2604-06 / 任务#39）：无日线即无指标，置 unavailable，
+    // 不用空 values 数组冒充「已计算但今日无数据」。
+    if (quotes.length === 0) {
+      sendHonest(res, 'unavailable', {
+        symbol,
+        values: [],
+        message: '本地真实行情库无该股票的日线记录，未计算任何技术指标',
+      });
+      return;
+    }
     const sorted = [...quotes].sort((a, b) =>
       new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
     );
@@ -281,14 +393,16 @@ router.get('/indicators/:symbol/boll', validateParams(schemas.stockSymbol), vali
       lower: boll.lower[i],
     }));
 
-    res.json({
-      success: true,
-      data: { symbol, period, values: result },
-    });
+    sendHonest(res, 'real', { symbol, period, values: result });
   } catch (error) {
     if (FORWARD_APP_ERROR(error, next)) return;
     console.error('获取布林带失败:', error);
-    res.status(500).json({ success: false, error: '获取布林带失败' });
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '获取布林带失败',
+      message: '指标计算流程异常，未产出任何技术指标',
+    });
   }
 });
 

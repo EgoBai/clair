@@ -75,6 +75,56 @@ const alertHistory: Array<{
 const pushedAlerts: Set<number> = new Set();
 
 /**
+ * 诚实数据契约发送器（本文件统一出口）：顶层 dataSource 与 data 内同源。
+ *
+ * 本文件的规则集合**存于进程内存**（见上方 alertRules / alertHistory，注释自承
+ * 「生产环境应使用数据库」）。返回的内容确实是用户真实创建的（不是造数），
+ * 但**不具持久性**：服务重启即丢失。故成功路径标 'real'，同时用 `storageNote`
+ * 写明存储性质，避免调用方把它当成已落库的持久数据。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>,
+  statusCode = 200,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(statusCode).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/** 成功响应统一附带的存储性质说明（内存态、未落库） */
+const STORAGE_NOTE = '预警规则与触发历史存于服务进程内存（未落库），服务重启即丢失；返回的是当前进程内的真实数据';
+
+/**
+ * 失败响应统一出口：**保留原 HTTP 语义**（400/404/500 不变），
+ * 但补上顶层 `dataSource`，避免前端在拿不到数据时无从判定诚实级别。
+ */
+function sendUnavailable(res: Response, statusCode: number, error: string): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(statusCode).json({
+    success: false,
+    dataSource: 'unavailable',
+    error,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
+ * 最近一次 `checkAlerts()` 的可观测计数。
+ *
+ * 动机：旧实现在「股票不存在 / 最新行情取不到」时是**静默 `continue`**，
+ * 而 `/api/alerts/check` 仍回报 `checked: alertRules.size`，调用方无法区分
+ * 「真的逐条判过了、结论是 0 条触发」与「行情全不可得、一条也没判成」——
+ * 后者被当成前者就是伪结论。故把判定覆盖率显式记下来并由端点如实披露。
+ */
+let lastCheckStats = { rulesScanned: 0, quotesResolved: 0, quotesMissing: 0, unevaluable: 0 };
+
+/**
  * 创建预警规则
  * POST /api/alerts
  */
@@ -85,36 +135,24 @@ router.post('/alerts', validateBody(schemas.alertCreate), async (req: Request, r
 
     // 验证必填字段
     if (!symbol || !alertType || threshold === undefined) {
-      return res.status(400).json({
-        success: false,
-        error: '缺少必填字段: symbol, alertType, threshold',
-      });
+      return sendUnavailable(res, 400, '缺少必填字段: symbol, alertType, threshold');
     }
 
     // 验证 alertType
     const validTypes = ['price_above', 'price_below', 'change_above', 'change_below', 
       'volume_surge', 'indicator', 'composite'];
     if (!validTypes.includes(alertType)) {
-      return res.status(400).json({
-        success: false,
-        error: `无效的预警类型，支持: ${validTypes.join(', ')}`,
-      });
+      return sendUnavailable(res, 400, `无效的预警类型，支持: ${validTypes.join(', ')}`);
     }
 
     // 验证指标告警
     if (alertType === 'indicator' && !indicatorType) {
-      return res.status(400).json({
-        success: false,
-        error: '指标告警必须指定 indicatorType',
-      });
+      return sendUnavailable(res, 400, '指标告警必须指定 indicatorType');
     }
 
     // 验证 threshold
     if (typeof threshold !== 'number' || isNaN(threshold)) {
-      return res.status(400).json({
-        success: false,
-        error: 'threshold 必须是数字',
-      });
+      return sendUnavailable(res, 400, 'threshold 必须是数字');
     }
 
     const userId = parseInt(req.body.userId as string) || 1;
@@ -122,10 +160,8 @@ router.post('/alerts', validateBody(schemas.alertCreate), async (req: Request, r
     // 验证股票是否存在
     const stock = await db.getStockBySymbol(symbol);
     if (!stock) {
-      return res.status(404).json({
-        success: false,
-        error: `股票 ${symbol} 不存在`,
-      });
+      // 该标的在库中不可得 → 无法为其建立可判定的预警，诚实降级而非静默失败
+      return sendUnavailable(res, 404, `股票 ${symbol} 不存在`);
     }
 
     const alert: AlertRule = {
@@ -150,16 +186,10 @@ router.post('/alerts', validateBody(schemas.alertCreate), async (req: Request, r
 
     alertRules.set(alert.id, alert);
 
-    res.status(201).json({
-      success: true,
-      data: alert,
-    });
+    sendHonest(res, 'real', { ...alert, storageNote: STORAGE_NOTE }, 201);
   } catch (error) {
     console.error('创建预警失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '创建预警失败',
-    });
+    sendUnavailable(res, 500, '创建预警失败');
   }
 });
 
@@ -192,24 +222,20 @@ router.get('/alerts', validateQuery(schemas.alertQuery), async (req: Request, re
     const start = (page - 1) * pageSize;
     const pagedAlerts = alerts.slice(start, start + pageSize);
 
-    res.json({
-      success: true,
-      data: {
-        alerts: pagedAlerts,
-        pagination: {
-          page,
-          pageSize,
-          totalCount,
-          totalPages: Math.ceil(totalCount / pageSize),
-        },
+    // 列表为空是**真实结论**（该用户确实没有匹配规则），不是数据不可得 → real
+    sendHonest(res, 'real', {
+      alerts: pagedAlerts,
+      pagination: {
+        page,
+        pageSize,
+        totalCount,
+        totalPages: Math.ceil(totalCount / pageSize),
       },
+      storageNote: STORAGE_NOTE,
     });
   } catch (error) {
     console.error('查询预警列表失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '查询预警列表失败',
-    });
+    sendUnavailable(res, 500, '查询预警列表失败');
   }
 });
 
@@ -222,16 +248,10 @@ router.get('/alerts/:id', validateParams(schemas.alertId), async (req: Request, 
   const alert = alertRules.get(id);
 
   if (!alert) {
-    return res.status(404).json({
-      success: false,
-      error: '预警规则不存在',
-    });
+    return sendUnavailable(res, 404, '预警规则不存在');
   }
 
-  res.json({
-    success: true,
-    data: alert,
-  });
+  sendHonest(res, 'real', { ...alert, storageNote: STORAGE_NOTE });
 });
 
 /**
@@ -243,20 +263,14 @@ router.put('/alerts/:id', validateParams(schemas.alertId), validateBody(schemas.
   const alert = alertRules.get(id);
 
   if (!alert) {
-    return res.status(404).json({
-      success: false,
-      error: '预警规则不存在',
-    });
+    return sendUnavailable(res, 404, '预警规则不存在');
   }
 
   const { threshold, isActive, message, triggerMode, channels, indicatorType, indicatorParams } = req.body;
 
   if (threshold !== undefined) {
     if (typeof threshold !== 'number' || isNaN(threshold)) {
-      return res.status(400).json({
-        success: false,
-        error: 'threshold 必须是数字',
-      });
+      return sendUnavailable(res, 400, 'threshold 必须是数字');
     }
     alert.threshold = threshold;
   }
@@ -292,10 +306,7 @@ router.put('/alerts/:id', validateParams(schemas.alertId), validateBody(schemas.
 
   alertRules.set(id, alert);
 
-  res.json({
-    success: true,
-    data: alert,
-  });
+  sendHonest(res, 'real', { ...alert, storageNote: STORAGE_NOTE });
 });
 
 /**
@@ -306,19 +317,13 @@ router.delete('/alerts/:id', validateParams(schemas.alertId), async (req: Reques
   const id = parseInt(req.params.id);
 
   if (!alertRules.has(id)) {
-    return res.status(404).json({
-      success: false,
-      error: '预警规则不存在',
-    });
+    return sendUnavailable(res, 404, '预警规则不存在');
   }
 
   alertRules.delete(id);
   pushedAlerts.delete(id);
 
-  res.json({
-    success: true,
-    data: { deleted: true, id },
-  });
+  sendHonest(res, 'real', { deleted: true, id, storageNote: STORAGE_NOTE });
 });
 
 /**
@@ -329,10 +334,7 @@ router.post('/alerts/batch-delete', validateBody(schemas.alertBatchDelete), asyn
   const { ids } = req.body;
 
   if (!Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'ids 必须是非空数组',
-    });
+    return sendUnavailable(res, 400, 'ids 必须是非空数组');
   }
 
   let deleted = 0;
@@ -344,10 +346,7 @@ router.post('/alerts/batch-delete', validateBody(schemas.alertBatchDelete), asyn
     }
   }
 
-  res.json({
-    success: true,
-    data: { deleted, total: ids.length },
-  });
+  sendHonest(res, 'real', { deleted, total: ids.length, storageNote: STORAGE_NOTE });
 });
 
 /**
@@ -371,42 +370,60 @@ router.get('/alerts/history', validateQuery(schemas.alertHistory), async (req: R
   const start = (page - 1) * pageSize;
   const pagedHistory = history.slice(start, start + pageSize);
 
-  res.json({
-    success: true,
-    data: {
-      history: pagedHistory,
-      pagination: {
-        page,
-        pageSize,
-        totalCount,
-        totalPages: Math.ceil(totalCount / pageSize),
-      },
+  sendHonest(res, 'real', {
+    history: pagedHistory,
+    pagination: {
+      page,
+      pageSize,
+      totalCount,
+      totalPages: Math.ceil(totalCount / pageSize),
     },
+    storageNote: STORAGE_NOTE,
   });
 });
 
 /**
  * 手动检查预警（测试用）
  * POST /api/alerts/check
+ *
+ * 诚实要点：触发判定**消费真实行情**（checkAlerts → db.getLatestDailyQuote）。
+ * 行情不可得时，旧实现静默跳过却仍回报 `checked: alertRules.size`，
+ * 等价于把「一条都没判成」伪装成「判过了、0 条触发」。现在按判定覆盖率分流：
+ *   - 无规则可判            → unavailable（没做判定）
+ *   - 有规则但行情全不可得  → unavailable（判不了）
+ *   - 部分标的行情缺失      → real，但在 data 里如实带上缺失数
  */
 router.post('/alerts/check', async (req: Request, res: Response) => {
   try {
     const triggered = await checkAlerts();
+    const { rulesScanned, quotesResolved, quotesMissing, unevaluable } = lastCheckStats;
 
-    res.json({
-      success: true,
-      data: {
-        checked: alertRules.size,
-        triggered: triggered.length,
-        alerts: triggered,
-      },
+    let dataSource: 'real' | 'unavailable' = 'real';
+    let message: string;
+    if (rulesScanned === 0) {
+      dataSource = 'unavailable';
+      message = '当前没有处于可判定状态的预警规则（无规则 / 全部未启用 / 均已在触发模式下跳过），未执行任何触发判定';
+    } else if (quotesResolved === 0) {
+      dataSource = 'unavailable';
+      message = `共 ${rulesScanned} 条规则待判，但所有对应标的最新行情均不可得，无法完成触发判定`;
+    } else if (quotesMissing > 0 || unevaluable > 0) {
+      message = `已基于真实行情判定 ${quotesResolved} 条规则，触发 ${triggered.length} 条；另有 ${quotesMissing} 条因最新行情不可得、${unevaluable} 条因均量不可得而未参与判定`;
+    } else {
+      message = `已基于真实行情判定 ${quotesResolved} 条规则，触发 ${triggered.length} 条`;
+    }
+
+    sendHonest(res, dataSource, {
+      checked: rulesScanned,
+      quotesResolved,
+      quotesMissing,
+      unevaluable,
+      triggered: triggered.length,
+      alerts: triggered,
+      message,
     });
   } catch (error) {
     console.error('预警检查失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '预警检查失败',
-    });
+    sendUnavailable(res, 500, '预警检查失败');
   }
 });
 
@@ -433,10 +450,8 @@ router.get('/alerts/stats', async (req: Request, res: Response) => {
     historyCount: alertHistory.length,
   };
 
-  res.json({
-    success: true,
-    data: stats,
-  });
+  // 全 0 是**真实计数结论**（该用户确实没建规则/没触发过），不是拿不到数据 → real
+  sendHonest(res, 'real', { ...stats, storageNote: STORAGE_NOTE });
 });
 
 // ==================== 工具函数 ====================
@@ -470,6 +485,9 @@ export async function checkAlerts(): Promise<AlertRule[]> {
   const now = new Date().toISOString();
   const todayBar = now.substring(0, 10); // YYYY-MM-DD 用于 once_per_bar
 
+  // 判定覆盖率计数：让「没判成」与「判过了、结论是不触发」可被区分
+  lastCheckStats = { rulesScanned: 0, quotesResolved: 0, quotesMissing: 0, unevaluable: 0 };
+
   for (const [id, alert] of alertRules) {
     if (!alert.isActive) continue;
     // once 模式：已触发则跳过
@@ -477,12 +495,14 @@ export async function checkAlerts(): Promise<AlertRule[]> {
     // once_per_bar：同日已触发则跳过
     if (alert.triggerMode === 'once_per_bar' && alert.lastTriggerBar === todayBar) continue;
 
+    lastCheckStats.rulesScanned++;
     try {
       const stock = await db.getStockBySymbol(alert.symbol);
-      if (!stock) continue;
+      if (!stock) { lastCheckStats.quotesMissing++; continue; }
 
       const quote = await db.getLatestDailyQuote(stock.id);
-      if (!quote) continue;
+      if (!quote) { lastCheckStats.quotesMissing++; continue; }
+      lastCheckStats.quotesResolved++;
 
       let isTriggered = false;
       let actualValue = 0;
@@ -524,6 +544,8 @@ export async function checkAlerts(): Promise<AlertRule[]> {
             // 以「倍」为单位的阈值比——只要有成交量就必然误触发。
             // 现在按「不可评估」处理：不触发，且不写入伪造的 actualValue。
             if (avgVolume === null || avgVolume <= 0) {
+              // 均量不可得（含真实为 0 的除零）→ 倍数无从计算，记为「不可评估」
+              lastCheckStats.unevaluable++;
               isTriggered = false;
               break;
             }

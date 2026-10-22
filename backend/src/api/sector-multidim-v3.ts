@@ -29,7 +29,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 
 const router = Router();
@@ -800,6 +800,25 @@ async function computeSectorV3(
 
 // ============= 路由 =============
 
+/**
+ * 诚实数据契约发送器：顶层 dataSource 与 data 内同源。
+ * 单板块查询返回 null（无成分股或无行情）时，各维度评分全为 0，
+ * 照常返回即等于「零值顶替空态」，必须显式置 unavailable。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 // GET /api/sectors/:code/multidim-v3 - 单板块查询
 router.get('/sectors/:code/multidim-v3', asyncHandler(async (req: Request, res: Response) => {
   const { code: industry } = req.params;
@@ -808,17 +827,27 @@ router.get('/sectors/:code/multidim-v3', asyncHandler(async (req: Request, res: 
   const knex = db.connection;
 
   const result = await computeSectorV3(decodedIndustry, knex);
+  // 诚实空态：无成分股或无行情 → unavailable，不用零值评分冒充「该板块今日不活跃」
   if (!result) {
-    return sendNotFound(res, `板块 "${decodedIndustry}" 无数据`);
+    sendHonest(res, 'unavailable', {
+      industry: decodedIndustry,
+      message: `本地真实行情库无「${decodedIndustry}」板块的成分股或行情记录，未生成任何多维评分`,
+    });
+    return;
   }
-  sendSuccess(res, result);
+  sendHonest(res, 'real', result as unknown as Record<string, unknown>);
 }));
 
 // POST /api/sectors/multidim-v3/batch - 批量查询
 router.post('/sectors/multidim-v3/batch', asyncHandler(async (req: Request, res: Response) => {
   const { codes } = req.body;
   if (!Array.isArray(codes) || codes.length === 0) {
-    return sendSuccess(res, { sectors: [] });
+    // 诚实空态：未提供任何板块代码 → 无真实数据可算
+    sendHonest(res, 'unavailable', {
+      sectors: [],
+      message: '未提供任何板块代码（codes 为空数组），未查询任何多维评分',
+    });
+    return;
   }
 
   const db = getDb();
@@ -845,7 +874,17 @@ router.post('/sectors/multidim-v3/batch', asyncHandler(async (req: Request, res:
     if (result) results.push(result);
   }
 
-  sendSuccess(res, { sectors: results });
+  // 诚实契约：请求了 N 个板块但一个都没算出来 → 不是「这些板块都没分」，
+  // 而是真实行情库无数据。零结果时置 unavailable 并如实说明。
+  if (results.length === 0) {
+    sendHonest(res, 'unavailable', {
+      sectors: [],
+      message: `请求了 ${codes.length} 个板块，但本地真实行情库均无对应成分股或行情，未生成任何多维评分`,
+    });
+    return;
+  }
+
+  sendHonest(res, 'real', { sectors: results });
 }));
 
 export default router;

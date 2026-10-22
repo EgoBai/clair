@@ -25,6 +25,47 @@ function dbMeta(rowCount: number, emptyReason: string): ResponseMeta {
 /** 静态行业树（来自 shared/industryClassification 常量，不依赖 DB） */
 const STATIC_META: ResponseMeta = { source: 'live', updatedAt: null };
 
+/**
+ * 顶层 dataSource ← 由 meta.source 派生（与 api/sectors.ts 同一映射）。
+ * 顶层与行级由**同一个入参**决定，结构上杜绝 IP-20 式两级矛盾：
+ *   live → real    unavailable → unavailable
+ */
+function topDataSource(meta: ResponseMeta): 'real' | 'unavailable' {
+  return meta.source === 'live' ? 'real' : 'unavailable';
+}
+
+/**
+ * 诚实数据契约发送器：顶层 dataSource + data 内 dataSource 同源。
+ * 前端从顶层即可判定，不必先钻进 data 里找 meta。
+ */
+function sendHonest(res: Response, data: Record<string, unknown>): void {
+  const meta = (data.meta as ResponseMeta | undefined) ?? STATIC_META;
+  const dataSource = topDataSource(meta);
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: { ...data, dataSource },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
+ * 数组型载荷专用出口：保持 `data` **仍然是数组**（既有前端/测试契约就是这样，
+ * 包成对象会把 `res.body.data` 从数组变成对象，属破坏性变更）。
+ * 因此只在**顶层**补 dataSource，行级无从插入（数组无字段位），不伪造内部字段。
+ */
+function sendHonestArray(res: Response, arr: unknown[], meta: ResponseMeta): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource: topDataSource(meta),
+    data: arr,
+    meta,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 /** 市值(元) → 人类可读字符串（万亿/亿/万） */
 function formatCap(yuan: number): string {
   if (!isFinite(yuan) || yuan <= 0) return '0';
@@ -51,45 +92,45 @@ router.get('/industries', asyncHandler(async (req: Request, res: Response) => {
       avg_turnover: r.avg_turnover_percent.toFixed(2),
       total_cap: formatCap(r.total_market_cap),
     }));
-    res.json({
-      success: true,
-      data: {
+    sendHonest(res, {
         standard: '申万2021 二级(自研分类引擎 v3)',
         level: 2,
         count: industries.length,
         industries,
         meta: dbMeta(industries.length, '无二级行业聚合数据（stocks 表为空或未同步行情）'),
-      },
-    });
+      });
     return;
   }
 
   // Default: L1 theoretical tree (backward-compatible)
-  res.json({
-    success: true,
-    data: {
+  sendHonest(res, {
       standard: '申万2021',
       primaryCount: Object.keys(SW_INDUSTRY_MAP).length,
       subCount: getAllSubIndustries().length,
       tree: SW_INDUSTRY_MAP,
       meta: STATIC_META,
-    },
-  });
+    });
 }));
 
 // 所有二级行业
 router.get('/industries/sub', asyncHandler(async (_req: Request, res: Response) => {
-  res.json({ success: true, data: getAllSubIndustries(), meta: STATIC_META });
+  sendHonestArray(res, getAllSubIndustries(), STATIC_META);
 }));
 
 // 某一级下的子行业
 router.get('/industries/:industry/sub', asyncHandler(async (req: Request, res: Response) => {
   const subs = getSubIndustries(req.params.industry);
   if (subs.length === 0) {
-    res.status(404).json({ success: false, error: `未找到行业: ${req.params.industry}` });
+    // 诚实空态：分类树无此行业 → unavailable，不用空数组冒充"该行业无子行业"
+    res.status(404).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: `未找到行业: ${req.params.industry}`,
+      message: '申万2021 分类树中不存在该一级行业，未返回任何子行业',
+    });
     return;
   }
-  res.json({ success: true, data: subs, meta: STATIC_META });
+  sendHonestArray(res, subs, STATIC_META);
 }));
 
 // 子行业景气度（实时计算）
@@ -122,14 +163,11 @@ router.get('/industries/sub-sector/momentum', asyncHandler(async (_req: Request,
   }
   
   // 按父行业评分排序，同一父行业下保持顺序
-  res.json({
-    success: true,
-    data: {
+  sendHonest(res, {
       subSectors,
       total: subSectors.length,
       meta: dbMeta(subSectors.length, '无板块景气度数据（stocks/daily_quotes 为空或未同步）'),
-    },
-  });
+    });
 }));
 
 // 按子行业查询股票
@@ -142,7 +180,12 @@ router.get('/industries/sub-sector/:subIndustry/stocks', asyncHandler(async (req
     .find(([_, subs]) => subs.includes(subIndustry))?.[0];
   
   if (!parentIndustry) {
-    res.status(404).json({ success: false, error: `未找到子行业: ${subIndustry}` });
+    res.status(404).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: `未找到子行业: ${subIndustry}`,
+      message: '申万2021 分类树中不存在该二级行业，未返回任何成分股',
+    });
     return;
   }
   
@@ -161,9 +204,7 @@ router.get('/industries/sub-sector/:subIndustry/stocks', asyncHandler(async (req
     filtered.map((st: any) => st.symbol)
   );
   
-  res.json({
-    success: true,
-    data: {
+  sendHonest(res, {
       subIndustry,
       parentIndustry,
       count: filtered.length,
@@ -177,24 +218,26 @@ router.get('/industries/sub-sector/:subIndustry/stocks', asyncHandler(async (req
         turnoverRate: st.latestQuote?.turnoverRate,
         marketCap: st.latestQuote?.marketCap,
       })),
-    },
-  });
+    });
 }));
 
 // 按二级行业查询股票（实时分类，模式无关）
 router.get('/industries/level2/stocks', asyncHandler(async (req: Request, res: Response) => {
   const name = req.query.name as string;
   if (!name) {
-    res.status(400).json({ success: false, error: '请提供 ?name=二级行业名称' });
+    res.status(400).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '请提供 ?name=二级行业名称',
+      message: '缺少必需参数 name，无法查询任何成分股',
+    });
     return;
   }
 
   const db = getDb();
   const stocks = await db.getStocksBySubIndustry(name);
 
-  res.json({
-    success: true,
-    data: {
+  sendHonest(res, {
       industry: name,
       count: stocks.length,
       meta: dbMeta(stocks.length, `二级行业 ${name} 无匹配股票（分类引擎未命中或行情未同步）`),
@@ -209,8 +252,7 @@ router.get('/industries/level2/stocks', asyncHandler(async (req: Request, res: R
         changePercent: s.changePercent,
         turnoverRate: s.turnoverRate,
       })),
-    },
-  });
+    });
 }));
 
 export default router;
