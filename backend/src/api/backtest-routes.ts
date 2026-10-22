@@ -176,6 +176,20 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
       });
     }
 
+    // ── P2-⑦ 区间截断披露 ──
+    // 查询带 .limit(MAX_KLINE_ROWS) 且按 trade_date **升序**，因此超长区间下
+    // 只会保留**最早**的 N 条，后半段被静默丢弃。用户请求 2015→2026，
+    // 实际只回测了 2015→2019，而响应此前没有任何提示——回测区间与请求
+    // 不符却看不出来，属**事实性错误**（qa 蜂群 P2-⑦）。
+    // 判据：取到的行数触达 limit 即认为可能被截断（极少恰好相等，但保守
+    // 提示好过静默；实际区间用首尾 K 线日期算出，不猜）。
+    const truncated = klineRows.length >= Math.min(Number(params.limit) || MAX_KLINE_ROWS, MAX_KLINE_ROWS);
+    const actualStart = toDateStr(klineRows[0]?.tradeDate ?? klineRows[0]?.trade_date) ?? start;
+    const actualEnd = toDateStr(klineRows[klineRows.length - 1]?.tradeDate ?? klineRows[klineRows.length - 1]?.trade_date) ?? end;
+    const rangeNote = truncated
+      ? `注意：请求区间 ${start}~${end} 的 K 线超过单次上限 ${MAX_KLINE_ROWS} 条，本次实际仅回测最早的一段 ${actualStart}~${actualEnd}（共 ${klineRows.length} 条）；若需覆盖完整区间，请缩短时间范围后分段回测`
+      : `本次回测区间 ${actualStart}~${actualEnd}，共 ${klineRows.length} 条 K 线`;
+
     const klineData: KLineData[] = klineRows.map((r: Record<string, unknown>) => ({
       tradeDate: toDateStr(r.tradeDate ?? r.trade_date) ?? '',
       open: parseFloat(String(r.open)),
@@ -213,6 +227,15 @@ router.post('/backtest/run', validateBody(schemas.backtestRun), async (req, res)
     // 把实际生效的本金回显，前端可校验「我输入的」与「系统用的」一致
     (result as unknown as Record<string, unknown>).requestedInitialCapital =
       requestedCapital > 0 ? requestedCapital : undefined;
+    // P2-⑦：区间截断/实际覆盖范围必须透出，前端展示给用户
+    (result as unknown as Record<string, unknown>).requestedRange = { start, end };
+    (result as unknown as Record<string, unknown>).actualRange = {
+      start: actualStart,
+      end: actualEnd,
+      klineCount: klineRows.length,
+      truncated,
+    };
+    (result as unknown as Record<string, unknown>).rangeNote = rangeNote;
 
     sendHonest(res, 'real', result as unknown as Record<string, unknown>);
   } catch (error) {
