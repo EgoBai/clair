@@ -36,6 +36,12 @@ vi.mock('../services/aiService', () => ({
   },
 }));
 
+/** 让 /ai/market-insight-llm 恒定走「LLM 不可用 → 规则引擎降级」分支 */
+async function forceLlmFallback() {
+  const ai = (await import('../services/aiService')).default;
+  vi.mocked(ai.chat).mockRejectedValue(new Error('LLM 不可用（测试强制）'));
+}
+
 vi.mock('../services/realMarketData', () => ({
   getRealMarketData: vi.fn(),
 }));
@@ -182,5 +188,63 @@ describe('/api/ai/market-insight · dataSource 三态分级', () => {
     expect(res.body.data.topSectors).toBeNull();
     expect(res.body.data.hotSectors).toBeNull();
     expect(res.body.data.limitUpCount).toBeNull();
+  });
+});
+
+// ==================================================================
+// /ai/market-insight-llm 降级分支：必须与 /ai/market-insight 同一套三态契约
+// （两个端点共用同一个 buildRuleInsight，不允许再出现单判据定性）
+// ==================================================================
+describe('/api/ai/market-insight-llm · 降级后同样三态分级', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    await forceLlmFallback();
+  });
+
+  it('LLM 失败且三类齐全 → 降级结果仍是 real', async () => {
+    dbMock.getMarketSummary.mockResolvedValue(REAL_BREADTH);
+    dbMock.getSectorMomentumScore.mockResolvedValue(REAL_SECTORS);
+    dbMock.getSectorPerformanceEnhanced.mockResolvedValue(REAL_LIMITUP);
+
+    const res = await request(buildApp()).get('/api/ai/market-insight-llm');
+    expect(res.status).toBe(200);
+
+    expect(res.body.dataSource).toBe('real');
+    expect(res.body.data.dataSource).toBe('real');
+    expect(res.body.data.source).toBe('rule');
+    expect(res.body.data.dataAvailability).toEqual({ breadth: true, sectors: true, limitUp: true });
+    expect(res.body.data.degradedNote).toBeNull();
+  });
+
+  it('LLM 失败 + breadth 缺失、板块真实 → partial，且真实板块数据不被掩盖', async () => {
+    dbMock.getMarketSummary.mockResolvedValue(null);
+    dbMock.getSectorMomentumScore.mockResolvedValue(REAL_SECTORS);
+    dbMock.getSectorPerformanceEnhanced.mockResolvedValue(REAL_LIMITUP);
+
+    const res = await request(buildApp()).get('/api/ai/market-insight-llm');
+    expect(res.status).toBe(200);
+
+    // 这是本次修的同一处病：降级前整响标 unavailable，真实板块数据被连坐
+    expect(res.body.dataSource).toBe('partial');
+    expect(res.body.data.dataSource).toBe('partial');
+    expect(res.body.data.dataAvailability).toEqual({ breadth: false, sectors: true, limitUp: true });
+    expect(res.body.data.topSectors).toContain('电子');
+    expect(res.body.data.degradedNote).toContain('当日涨跌家数（breadth）');
+    expect(res.body.data.degradedNote).toContain('真实数据');
+  });
+
+  it('LLM 失败且三类全缺 → unavailable', async () => {
+    dbMock.getMarketSummary.mockResolvedValue(null);
+    dbMock.getSectorMomentumScore.mockResolvedValue([]);
+    dbMock.getSectorPerformanceEnhanced.mockResolvedValue([]);
+
+    const res = await request(buildApp()).get('/api/ai/market-insight-llm');
+    expect(res.status).toBe(200);
+
+    expect(res.body.dataSource).toBe('unavailable');
+    expect(res.body.data.dataSource).toBe('unavailable');
+    expect(res.body.data.dataAvailability).toEqual({ breadth: false, sectors: false, limitUp: false });
+    expect(typeof res.body.data.degradedNote).toBe('string');
+    expect(res.body.data.topSectors).toBeNull();
   });
 });

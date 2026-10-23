@@ -922,12 +922,17 @@ ${topSectors.map(s => `- ${s.industry}: 景气度${s.score}分, 涨幅${s.avg_ch
   } catch (error) {
     // LLM 不可用（余额不足/超时/模型错误等）或板块数据为空时，降级为规则引擎结果。
     // 注意：降级源是否够格叫 'real' 取决于规则引擎**实际**拿到的数据，
-    // 故此处同样按buildRuleInsight 回传的 hasMarketData 推导，不硬编码 'real'。
+    // 故此处按 buildRuleInsight 回传的**三类可用性**三态推导，既不硬编码 'real'，
+    // 也不因 breadth 单个判据就把整个响应降级掉。
     logger.error('LLM market insight failed, falling back to rule engine:', error as Error);
     try {
       const db = getDb();
-      const { insight: fallback, hasMarketData } = await buildRuleInsight(db);
-      sendHonest(res, hasMarketData ? 'real' : 'unavailable', {
+      // 与 /ai/market-insight 保持同一套三态契约：降级路径同样按三类数据源各自的
+      // 可用性分级。breadth 缺失但板块/涨停真实时必须叫 'partial'——整体标
+      // 'unavailable' 会把真实取到的板块数据一并掩盖，是同一种半诚实。
+      const { insight: fallback, hasMarketData, hasSectorData, hasLimitUpData } = await buildRuleInsight(db);
+      const fallbackDataSource = hasMarketData ? (hasSectorData && hasLimitUpData ? 'real' : 'partial') : (hasSectorData || hasLimitUpData ? 'partial' : 'unavailable');
+      sendHonest(res, fallbackDataSource, {
         ...fallback,
         source: hasMarketData ? 'rule' : 'unavailable',
       });
