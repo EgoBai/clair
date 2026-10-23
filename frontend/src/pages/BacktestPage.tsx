@@ -130,7 +130,9 @@ const BacktestPage: React.FC = () => {
           initialCapital,
         })
       });
-      const data = await resp.json() as Record<string, unknown>;
+      // 只标注 data 的形状，其余字段（success/error/details）保持 any，
+      // 否则下面 data.details || data.error 会被收窄成 {} 而报 TS2345
+      const data = await resp.json() as { data?: BacktestResult } & Record<string, any>;
       // 区间披露字段由后端附在 data 内（实测确认）；data ?? 顶层 兼容其它摆放方式
       const payload = (data.data ?? data) as BacktestResult;
 
