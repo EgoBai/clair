@@ -19,16 +19,23 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import { getDefaultPortfolio } from './portfolio';
-import { authMiddleware } from '../middleware/auth';
+import { optionalAuthMiddleware } from '../middleware/auth';
 
 const router = Router();
 
-// 鉴权口径对齐（qa 蜂群 P2-②）：组合风控是**用户私有数据**，游客不应可触达。
-// 与 portfolio.ts / watchlist.ts 同一范式——且同样必须把范围收敛到
-// '/risk-center' 路径：本路由挂在 '/api' 前缀下，若写 router.use(authMiddleware)
-// （无路径），Express 会让所有落入本路由的 /api/* 请求先过鉴权，误伤挂载在
-// 本路由之后的其它子路由（watchlist.ts:16 与 portfolio.ts:29 都记载过这个坑）。
-router.use('/risk-center', authMiddleware);
+// 鉴权口径：此处用 optionalAuthMiddleware 而非 authMiddleware（强制鉴权）。
+// 为什么不用 authMiddleware：本项目用户体系**尚未启用**（前端 authToken 恒为 null，
+// 请求不带 Authorization 头），authMiddleware 无 token 直接 401。本端点的强制鉴权
+// 是后加的，直接让 GET /api/risk-center/portfolio 对全部请求 401，并把 CI 的
+// Unit tests (vitest) 打红（fabricatedEndpointsRemoved.test.ts 断言该端点 200 +
+// dataSource:'unavailable'）——属功能回归。optionalAuthMiddleware 有 token 则解析、
+// 无 token 放行，恢复端点可用。
+// 必须保留 '/risk-center' 路径收敛写法：本路由挂在 '/api' 前缀下，
+// 若写 router.use(middleware)（无路径），会误伤挂载在其后的其它 /api 子路由
+// （watchlist.ts 与 portfolio.ts 的注释都记载过这个坑）。
+// TODO：用户体系正式启用（前端登录后会带 Authorization）时，必须切回
+// authMiddleware，否则任何人可读取他人持仓。
+router.use('/risk-center', optionalAuthMiddleware);
 
 const TRADING_DAYS = 252;
 

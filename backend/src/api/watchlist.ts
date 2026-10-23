@@ -8,16 +8,22 @@ import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound } from '../utils/apiResponse';
 import { queryCache } from '../utils/queryCache';
-import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { optionalAuthMiddleware, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
-// F05: 自选股全部为用户私有数据，强制 JWT 鉴权。
-// 注意：本路由挂在 '/api' 前缀下，若直接用 router.use(authMiddleware)（无路径）
-// 会让 Express 把“所有落入本路由的 /api/* 请求”都先做鉴权——这会误伤所有
-// 挂载在本路由之后的 /api 子路由（如 /api/breadth/*）并返回 401。
-// 因此把鉴权范围收敛到 '/watchlist' 路径，既保住 F05，又不挡其它公开接口。
-router.use('/watchlist', authMiddleware);
+// 鉴权口径：此处用 optionalAuthMiddleware 而非 authMiddleware（强制鉴权）。
+// 为什么不用 authMiddleware：本项目用户体系**尚未启用**（LoginPage 未挂路由），
+// 前端 services/api.ts 的 authToken 恒为 null，请求永远不带 Authorization 头；
+// 而 authMiddleware 在无 token 时直接 401，等于把自选股功能对**全部**请求关死
+// （实测 GET /api/watchlist 恒 401，功能完全不可用）。optionalAuthMiddleware
+// 有 token 则解析、无 token 放行，既能接住将来登录后的真实身份，又不误杀当前流量。
+// 注意：本路由挂在 '/api' 前缀下，若写成 router.use(middleware)（无路径），
+// Express 会让所有落入本路由的 /api/* 请求先过中间件，误伤挂载在其后的其它
+// /api 子路由——因此必须保留 '/watchlist' 路径收敛写法。
+// TODO：用户体系正式启用（前端登录后会带 Authorization）时，必须切回
+// authMiddleware，否则任何人可读取他人自选股。
+router.use('/watchlist', optionalAuthMiddleware);
 
 /**
  * 从已验证的 JWT 解析出数据库用户ID（F05）

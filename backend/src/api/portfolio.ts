@@ -17,16 +17,20 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
-import { authMiddleware } from '../middleware/auth';
+import { optionalAuthMiddleware } from '../middleware/auth';
 
 const router = Router();
 
-// F05（对齐 watchlist）：投资组合为私有数据，强制 JWT 鉴权。
-// 未登录游客此前可 GET /api/portfolio 直接读取默认组合（¥27万成本/浮亏/现金等），
-// 属越权信息泄露；现统一返回 401，与 watchlist 口径对齐。
-// 仅收敛到 '/portfolio' 路径，避免误伤挂载于本路由之后的其它 /api 子路由
-// （如风险中心 risk-center 通过 getDefaultPortfolio() 函数直连、不经路由，不受影响）。
-router.use('/portfolio', authMiddleware);
+// 鉴权口径：此处用 optionalAuthMiddleware 而非 authMiddleware（强制鉴权）。
+// 为什么不用 authMiddleware：本项目用户体系**尚未启用**（前端 authToken 恒为 null，
+// 请求不带 Authorization 头），而 authMiddleware 无 token 直接 401，等于把组合
+// 功能对**全部**请求关死（实测 GET /api/portfolio 恒 401，功能完全不可用）。
+// optionalAuthMiddleware 有 token 则解析、无 token 放行。
+// 必须保留 '/portfolio' 路径收敛写法：本路由挂在 '/api' 前缀下，
+// 若写 router.use(middleware)（无路径），会误伤挂载于本路由之后的其它 /api 子路由。
+// TODO：用户体系正式启用（前端登录后会带 Authorization）时，必须切回
+// authMiddleware，否则任何人可读取他人持仓。
+router.use('/portfolio', optionalAuthMiddleware);
 // ==================== 类型 ====================
 
 interface PortfolioPosition {
