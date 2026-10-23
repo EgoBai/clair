@@ -26,6 +26,20 @@ import path from 'path'
  * @param command vite 的启动命令：'build' | 'serve'
  * @param mode    当前的vite mode（如 'github' / 'production' / 'development'）
  */
+/**
+ * 后端地址格式校验（与 main.tsx 的运行期校验同一把尺子）。
+ *
+ * 只判「空」不够：仓库 Actions 变量曾被配成一段中文说明，非空 → 通过所有校验 →
+ * 构建上线，随后 window.fetch 被覆写成 `中文说明/api/...`，**每个后端请求都失败
+ * 且无横幅**。静默上线比构建失败糟得多，故构建期必须判「非空但不像 URL」。
+ *
+ * 放行 http://localhost:* / http://127.0.0.1:*，本地与自建构建不被卡死。
+ */
+const isHttpUrl = (v: string) => /^https?:\/\/[^\s/]+(:\d+)?(\/\S*)?$/.test(v);
+
+/** 回显实际值以便一眼定位配错位置；截断 120 字符避免刷爆 CI 日志 */
+const preview = (v: string) => (v.length > 120 ? `${v.slice(0, 120)}…` : v);
+
 function requireApiBasePlugin(command: string, mode: string): Plugin {
   // 只在生产构建时校验；serve（vite dev）永不阻断本地开发
   const isBuild = command === 'build'
@@ -45,7 +59,22 @@ function requireApiBasePlugin(command: string, mode: string): Plugin {
       if (!isBuild || isLocalMode) return
 
       const value = (process.env.VITE_API_BASE ?? fileEnv.VITE_API_BASE)?.trim()
-      if (value) return
+      if (value && isHttpUrl(value)) return
+
+      if (value) {
+        throw new Error(
+          [
+            '[config] VITE_API_BASE 不是合法的 http(s) 地址，已中止。',
+            '',
+            `  实际值："${preview(value)}"`,
+            '',
+            '  该值会被拼在每个 /api 请求前面（API_BASE + \'/api/...\'），填错会导致',
+            '  **所有**后端请求失败，且失败是静默的（无横幅、无提示）——比构建失败糟得多。',
+            '  正确示例：https://clair-api.pages.dev 、 http://127.0.0.1:3001',
+            '  注意：请检查仓库 Actions Variables 是否被填成了说明文字。',
+          ].join('\n'),
+        )
+      }
 
       // 说明为何不能「顺手给个默认值」——那正是这次要根治的病根
       throw new Error(

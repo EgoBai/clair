@@ -29,30 +29,67 @@
 /** 构建期注入的后端地址。**刻意没有默认值**——这正是本段代码存在的全部意义。 */
 const RAW_API_BASE = import.meta.env.VITE_API_BASE || '';
 const isDev = import.meta.env.DEV;
-if (!isDev && !RAW_API_BASE.trim()) {
-  const message =
-    '[config] 生产构建缺少 VITE_API_BASE，已中止启动。\n' +
-    '  线上前端必须显式指定后端地址，不要依赖代码里的默认兜底。\n' +
-    '  注入方式：构建时设置环境变量 VITE_API_BASE=https://<你的后端域名>\n' +
-    '  变量清单与缺失后果见仓库根目录 .env.example。';
 
-  // 先把错误画到页面上：terser 生产构建会 drop console.*，
-  // 抛出的异常只会进浏览器控制台，页面本身必须自带可读提示。
-  if (typeof document !== 'undefined') {
-    const root = document.getElementById('root');
-    if (root) {
-      const box = document.createElement('div');
-      box.setAttribute('data-config-error', 'VITE_API_BASE');
-      box.style.cssText =
-        'margin:48px auto;max-width:720px;padding:24px;border:1px solid #d4380d;' +
-        'border-radius:8px;background:#fff7e6;color:#a8071a;' +
-        'font:14px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;';
-      box.textContent = message;
-      root.replaceChildren(box);
-    }
+/**
+ * 后端地址格式校验。
+ *
+ * 只判「空」是不够的：曾有仓库 Actions 变量把 VITE_API_BASE 配成一段中文说明，
+ * 非空于是通过所有校验并构建上线，随后 window.fetch 被覆写成
+ * `中文说明/api/...` —— **每个后端请求都失败，且没有任何横幅**，用户只看到
+ * 页面空白/加载不出。静默失败比构建失败糟得多，故必须判「非空但不像 URL」。
+ *
+ * 放行 http://localhost:* 与 http://127.0.0.1:*：本地/自建构建拿不到域名时会
+ * 指回本机，不能把这类本地构建卡死。
+ */
+const isHttpUrl = (v: string) =>
+  /^https?:\/\/[^\s/]+(:\d+)?(\/\S*)?$/.test(v);
+
+/** 报错必须回显实际值（截断 120 字符，避免刷爆构建日志），否则下次配错还是查半天 */
+const preview = (v: string) => (v.length > 120 ? `${v.slice(0, 120)}…` : v);
+
+const buildConfigError = (raw: string): string | null => {
+  if (!raw.trim()) {
+    return (
+      '[config] 生产构建缺少 VITE_API_BASE，已中止启动。\n' +
+      '  线上前端必须显式指定后端地址，不要依赖代码里的默认兜底。\n' +
+      '  注入方式：构建时设置环境变量 VITE_API_BASE=https://<你的后端域名>\n' +
+      '  变量清单与缺失后果见仓库根目录 .env.example。'
+    );
   }
-  // 运行期兜底：抛错中断启动（构建期校验见 vite.config.ts 的 plugin）
-  throw new Error(message);
+  if (!isHttpUrl(raw.trim())) {
+    return (
+      '[config] VITE_API_BASE 不是合法的 http(s) 地址，已中止启动。\n' +
+      `  实际值："${preview(raw.trim())}"\n` +
+      '  该值会被拼在每个 /api 请求前面（API_BASE + \'/api/...\'），填错会导致\n' +
+      '  **所有**后端请求失败，且失败是静默的（无横幅、无提示），故此处快速失败。\n' +
+      '  正确示例：https://clair-api.pages.dev 、 http://127.0.0.1:3001\n' +
+      '  注入方式：构建时设置环境变量 VITE_API_BASE=https://<你的后端域名>'
+    );
+  }
+  return null;
+};
+
+if (!isDev) {
+  const configError = buildConfigError(RAW_API_BASE);
+  if (configError) {
+    // 先把错误画到页面上：terser 生产构建会 drop console.*，
+    // 抛出的异常只会进浏览器控制台，页面本身必须自带可读提示。
+    if (typeof document !== 'undefined') {
+      const root = document.getElementById('root');
+      if (root) {
+        const box = document.createElement('div');
+        box.setAttribute('data-config-error', 'VITE_API_BASE');
+        box.style.cssText =
+          'margin:48px auto;max-width:720px;padding:24px;border:1px solid #d4380d;' +
+          'border-radius:8px;background:#fff7e6;color:#a8071a;' +
+          'font:14px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;';
+        box.textContent = configError;
+        root.replaceChildren(box);
+      }
+    }
+    // 运行期兜底：抛错中断启动（构建期校验见 vite.config.ts 的 plugin）
+    throw new Error(configError);
+  }
 }
 
 /** 归一化后的后端地址：去掉尾部斜杠，避免拼接 `/api/...` 时出现 `//api/`。 */
