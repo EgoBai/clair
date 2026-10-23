@@ -167,6 +167,13 @@ const BacktestPage: React.FC = () => {
 
   // 获取当前策略信息
   const currentStrategy = STRATEGIES.find(s => s.id === strategy);
+  const requestedRange = result?.requestedRange;
+  const actualRange = result?.actualRange;
+  const hasRangeMismatch = Boolean(
+    requestedRange
+    && actualRange
+    && (requestedRange.start !== actualRange.start || requestedRange.end !== actualRange.end),
+  );
 
   return (
     <div className="backtest-page" style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
@@ -315,6 +322,32 @@ const BacktestPage: React.FC = () => {
         {/* 回测结果 */}
         {result && !loading && (
           <>
+            {/* 后端 K 线条数上限可能截断请求区间；仅在实际覆盖范围不一致时警示 */}
+            {hasRangeMismatch && requestedRange && actualRange && (
+              <Alert
+                type="warning"
+                showIcon
+                message="区间已截断：回测未覆盖完整请求范围"
+                description={
+                  <div style={{ color: TEXT_SEC, fontSize: 13 }}>
+                    <div>
+                      你请求的是 {requestedRange.start} ~ {requestedRange.end}，
+                      实际仅回测到 {actualRange.start} ~ {actualRange.end}。
+                      该结果仅代表实际覆盖区间，结论不代表完整请求区间。
+                    </div>
+                    {result.rangeNote && (
+                      <div style={{ marginTop: 6 }}>后端说明：{result.rangeNote}</div>
+                    )}
+                  </div>
+                }
+                style={{
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  border: '1px solid var(--color-warning, #F59E0B)',
+                  marginBottom: 16,
+                }}
+              />
+            )}
+
             {/* 策略信息 */}
             <Card 
               title={

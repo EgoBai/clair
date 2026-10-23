@@ -29,6 +29,17 @@ export interface BacktestResult {
   note?: string | null;
   warnings?: string[];
   source?: string;
+  /** 用户请求的完整回测区间 */
+  requestedRange?: { start: string; end: string };
+  /** 后端实际载入 K 线并执行回测的区间 */
+  actualRange?: {
+    start: string;
+    end: string;
+    klineCount: number;
+    truncated: boolean;
+  };
+  /** 后端生成的区间覆盖说明（含截断原因与 K 线上限） */
+  rangeNote?: string | null;
   trades: Array<{
     date: string;
     type: 'buy' | 'sell';
