@@ -130,10 +130,12 @@ const BacktestPage: React.FC = () => {
           initialCapital,
         })
       });
-      const data = await resp.json();
+      const data = await resp.json() as Record<string, unknown>;
+      // 区间披露字段由后端附在 data 内（实测确认）；data ?? 顶层 兼容其它摆放方式
+      const payload = (data.data ?? data) as BacktestResult;
 
-      if (data.success && data.data) {
-        setResult(data.data);
+      if (data.success && payload) {
+        setResult(payload);
         return;
       }
 
@@ -174,6 +176,8 @@ const BacktestPage: React.FC = () => {
     && actualRange
     && (requestedRange.start !== actualRange.start || requestedRange.end !== actualRange.end),
   );
+  // truncated=false 也可能是「数据起点晚于请求起点」（实测存在），不能用它单独判否
+  const rangeTruncated = Boolean(actualRange?.truncated);
 
   return (
     <div className="backtest-page" style={{ background: BG, minHeight: '100vh', padding: '24px' }}>
@@ -327,7 +331,9 @@ const BacktestPage: React.FC = () => {
               <Alert
                 type="warning"
                 showIcon
-                message="区间已截断：回测未覆盖完整请求范围"
+                message={rangeTruncated
+                  ? '区间已截断：回测未覆盖完整请求范围'
+                  : '区间未覆盖完整：实际回测区间与请求不一致'}
                 description={
                   <div style={{ color: TEXT_SEC, fontSize: 13 }}>
                     <div>
