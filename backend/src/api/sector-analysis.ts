@@ -189,7 +189,9 @@ async function loadMemberValuation(
  */
 async function loadSectorMembers(industry: string): Promise<StockWithQuotes[]> {
   const rows = await getDb().getSectorStocks(industry);
-  const cap = (r: any) => num(r.latestQuote?.marketCap ?? r.marketCap) ?? 0;
+  // 成员行自身无 marketCap 列（见 aggregateSectors 注释），`?? r.marketCap` 恒为 undefined，
+  // 属同类恒不可达回退，去除后结果完全一致（仍按 latestQuote.marketCap 降序，无行情者记 0）。
+  const cap = (r: any) => num(r.latestQuote?.marketCap) ?? 0;
   return [...rows].sort((a, b) => cap(b) - cap(a));
 }
 
@@ -218,12 +220,18 @@ async function aggregateSectors() {
     let turnoverCount = 0;
     let totalMarketCap = 0;
     for (const m of members) {
+      // 成分股行自身**不携带** changePercent/turnoverRate/marketCap：
+      // getSectorStocks 返回的是 `{...stocks 表行, latestQuote}`，PostgreSQL 的 stocks 表
+      // 无这三列（schema.sql / migrations 均未加列）；InMemoryDatabase 的成员是 Stock 形状，
+      // 同样没有 —— 实测成员顶层键仅 id/symbol/name/market/industry/subIndustry/isActive/...。
+      // 故原先的 `?? m.changePercent` 等回退恒不可达（死代码），此处删除而非用 as any 掩盖。
+      // 行情缺席时下面计数保持 0，由 :254/:256 的 row 级聚合诚实兜底。
       const q: any = m.latestQuote ?? null;
-      const chg = num(q?.changePercent ?? m.changePercent);
+      const chg = num(q?.changePercent);
       if (chg !== null) { changeSum += chg; changeCount++; }
-      const tr = num(q?.turnoverRate ?? m.turnoverRate);
+      const tr = num(q?.turnoverRate);
       if (tr !== null) { turnoverSum += tr; turnoverCount++; }
-      const cap = num(q?.marketCap ?? m.marketCap);
+      const cap = num(q?.marketCap);
       if (cap !== null) totalMarketCap += cap;
     }
 
@@ -345,11 +353,14 @@ router.get('/sectors/analysis/:code', asyncHandler(async (req: Request, res: Res
 
   const sector = sectors.find((s) => s.name === code || s.code === code);
   if (!sector) {
-    return res.status(404).json({
+    // 注意：不能 `return res.status(404).json(...)` —— asyncHandler 要求回调返回
+    // void | Promise<void>，返回 Response 会让 TS 报 TS2345。写成语句形式，响应行为完全一致。
+    res.status(404).json({
       success: false,
       message: '行业板块不存在（code 须为数据库真实行业名，如 银行 / 电子）',
       available: sectors.slice(0, 30).map((s) => s.name),
     });
+    return;
   }
 
   const totalCap = sector.totalMarketCap ?? 0;
@@ -360,21 +371,23 @@ router.get('/sectors/analysis/:code', asyncHandler(async (req: Request, res: Res
   const valBySymbol = await loadMemberValuation(sector.name);
 
   // 成分股：真实行情 + 权重按真实总市值占比
+  // 同 aggregateSectors：成员行不携带 marketCap/changePercent/turnoverRate/currentPrice，
+  // `?? m.xxx` 回退恒不可达，已去除（行为不变）。行情缺席时这些字段为 null，不用 0 顶替。
   const topStocks: SectorStock[] = members.slice(0, 20).map((m: any) => {
     const q: any = m.latestQuote ?? null;
-    const cap = num(q?.marketCap ?? m.marketCap);
+    const cap = num(q?.marketCap);
     const v = valBySymbol.get(m.symbol);
     const pe = num(v?.peRatio);
     return {
       symbol: m.symbol,
       name: (m.name || '').trim(),
       weight: cap !== null && totalCap > 0 ? round((cap / totalCap) * 100, 4) : null,
-      price: round(num(q?.closePrice ?? m.currentPrice)),
-      changePercent: round(num(q?.changePercent ?? m.changePercent)),
+      price: round(num(q?.closePrice)),
+      changePercent: round(num(q?.changePercent)),
       marketCap: round(cap, 0),
       pe: pe !== null && pe > 0 ? round(pe) : null,
       pb: round(num(v?.pbRatio)),
-      turnover: round(num(q?.turnoverRate ?? m.turnoverRate)),
+      turnover: round(num(q?.turnoverRate)),
     };
   });
 

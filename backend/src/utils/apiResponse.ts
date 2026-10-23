@@ -66,6 +66,10 @@ export function sendCreated<T>(res: Response, data: T): void {
  *              等诚实契约字段——分页端点同样可能供数，缺 dataSource 会让
  *              前端无法判定「这是真实数据还是空态」（qa 蜂群 P2-⑨）。
  *              不传时行为与改前完全一致（不破坏既有调用方）。
+ *
+ *   extra.dataSource 若存在，会**同时提升到响应顶层**：此前它只落在 data 内，
+ *   而前端的诚实契约是读顶层 dataSource，顶层缺失会让该字段形同虚设。
+ *   顶层与 data 内取自同一入参，结构上不可能矛盾（同 sendHonest 思路）。
  */
 export function sendPaginated<T>(
   res: Response,
@@ -75,16 +79,23 @@ export function sendPaginated<T>(
   totalCount: number,
   extra?: Record<string, unknown>
 ): void {
-  sendSuccess(res, {
-    items,
-    pagination: {
-      page,
-      pageSize,
-      totalCount,
-      totalPages: Math.ceil(totalCount / pageSize),
-    },
-    ...extra,
-  } as PaginatedData<T>);
+  const ds = extra?.dataSource;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    ...(ds !== undefined ? { dataSource: ds } : {}),
+    data: {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        totalCount,
+        totalPages: Math.ceil(totalCount / pageSize),
+      },
+      ...extra,
+    } as PaginatedData<T>,
+    timestamp: new Date().toISOString(),
+  } as ApiResponse<PaginatedData<T>>);
 }
 
 // ==================== 错误响应 ====================

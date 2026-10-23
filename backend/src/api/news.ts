@@ -108,10 +108,9 @@ router.get('/news', validateQuery(schemas.newsQuery), asyncHandler(async (req: R
   }
 
   if (dataSource === 'unavailable') {
-    // 诚实空：返回空 items + dataSource:'unavailable'，绝不 fallback 伪造 demo
-    sendSuccess(res, {
-      items: [],
-      pagination: { page, pageSize, totalCount: 0, totalPages: 0 },
+    // 诚实空：返回空 items + dataSource:'unavailable'，绝不 fallback 伪造 demo。
+    // 走同一个 sendPaginated，保证与成功路径的响应信封完全一致（顶层与 data 内都标注）。
+    sendPaginated(res, [], page, pageSize, 0, {
       dataSource: 'unavailable',
       message: unavailableMessage,
     });
@@ -167,10 +166,9 @@ router.get('/news', validateQuery(schemas.newsQuery), asyncHandler(async (req: R
 
   // dataSource 显式透出：成功路径此前只走 sendPaginated 的默认形态，
   // 顶层与 data 内都没有该字段，前端无法判定这批新闻是真实源还是空态
-  // （qa 蜂群 P2-⑨）。不可用路径已在 data 内标 'unavailable'，此处对齐。
-  sendPaginated(res, itemsWithCred, page, pageSize, total, {
-    dataSource: dataSource === 'unavailable' ? 'unavailable' : 'real',
-  });
+  // （qa 蜂群 P2-⑨）。不可用路径已在 data 内标 'unavailable' 并提前 return（:110），
+  // 故此处 dataSource 已被控制流收窄为 'real'，直接透出即为诚实值。
+  sendPaginated(res, itemsWithCred, page, pageSize, total, { dataSource });
 }));
 
 // ==================== 获取个股相关新闻 ====================
