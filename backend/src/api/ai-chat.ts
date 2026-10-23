@@ -476,11 +476,22 @@ router.get('/ai/daily-briefing', asyncHandler(async (_req: Request, res: Respons
  * 吞成 0，再由 upPct=0 反推出「弱势调整 / 市场情绪偏谨慎，0只个股下跌」，
  * 外层还硬编码 `sendHonest(res, 'real', ...)` 给这段编造解读盖上真实背书。
  *
- * 因此返回 `{ insight, hasMarketData }`：hasMarketData 反映 breadth 是否**真的**拿到，
- * 调用方必须据此推导 dataSource（有→ 'real' / 无 → 'unavailable'），**禁止硬编码 'real'**。
+ * 因此返回 `{ insight, hasMarketData, hasSectorData, hasLimitUpData }`：三个布尔分别反映
+ * 对应数据源是否**真的**拿到，调用方据此推导三态 dataSource
+ * （三类齐全 → 'real' ／ 部分可用 → 'partial' ／ 全缺 → 'unavailable'），**禁止硬编码 'real'**。
+ *
+ * 【为什么不能用单一判据定性】breadth / sectors / limitUp 是三条**互相独立**的查询，
+ * 只因 breadth 缺失就把整个响应标成 unavailable，会让真实取到的板块与涨停分布一起被
+ * 前端的空态掩盖——那是「把真实数据标成不可用」，同样违反诚实红线。故二者都做：
+ * 按分级给 dataSource，同时在 insight 内逐项标注 dataAvailability + degradedNote。
  * 字段语义：真实但确实为 0 → 0；查不到 → null。两者不可互换。
  */
-async function buildRuleInsight(db: any): Promise<{ insight: Record<string, unknown>; hasMarketData: boolean }> {
+async function buildRuleInsight(db: any): Promise<{
+  insight: Record<string, unknown>;
+  hasMarketData: boolean;
+  hasSectorData: boolean;
+  hasLimitUpData: boolean;
+}> {
   // 三类数据源分别取，任何一个缺失都不影响其余两个的可用性判定
   const marketSummary: any = await db.getMarketSummary(new Date());
   const sectorScores: any[] = (await db.getSectorMomentumScore()) || [];
@@ -598,6 +609,21 @@ async function buildRuleInsight(db: any): Promise<{ insight: Record<string, unkn
     ];
   }
 
+  // ---- 逐项可用性 + 缺失说明（无论哪一类缺失，都不连坐其余真实数据）----
+  const missingParts: string[] = [];
+  if (!hasMarketData) missingParts.push('当日涨跌家数（breadth）');
+  if (!hasSectorData) missingParts.push('板块动量（sectors）');
+  if (!hasLimitUpData) missingParts.push('涨停分布（limitUp）');
+  const availableParts: string[] = [];
+  if (hasMarketData) availableParts.push('涨跌家数');
+  if (hasSectorData) availableParts.push('板块');
+  if (hasLimitUpData) availableParts.push('涨停分布');
+  const degradedNote = missingParts.length === 0
+    ? null
+    : availableParts.length === 0
+      ? `${missingParts.join('、')}数据源均不可用，本次未取到任何真实市场数据`
+      : `${missingParts.join('、')}数据源不可用，${availableParts.join('与')}数据为真实数据`;
+
   const insight = {
     mood, moodEmoji,
     overview,
@@ -608,6 +634,9 @@ async function buildRuleInsight(db: any): Promise<{ insight: Record<string, unkn
     totalTurnover: turnoverStr,
     _rawTotalTurnover: totalTurnover,
     source: hasMarketData ? 'rule' : 'unavailable',
+    // ---- 三类数据源各自的可用性 + 人类可读缺失说明（前端可按项渲染，不全盘空态）----
+    dataAvailability: { breadth: hasMarketData, sectors: hasSectorData, limitUp: hasLimitUpData },
+    degradedNote,
     // ---- 前端契约字段（DiscoverPage v3 渲染依赖）----
     summary: overview ?? '当日行情数据源不可用，未生成市场解读',
     points,
@@ -631,18 +660,22 @@ async function buildRuleInsight(db: any): Promise<{ insight: Record<string, unkn
     sections,
   };
 
-  return { insight, hasMarketData };
+  return { insight, hasMarketData, hasSectorData, hasLimitUpData };
 }
 
 router.get('/ai/market-insight', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const { getDb } = await import('../db/dbFactory');
     const db = getDb();
-    const { insight, hasMarketData } = await buildRuleInsight(db);
-    // dataSource 由**实际数据可用性**推导，不再硬编码 'real'：
+    const { insight, hasMarketData, hasSectorData, hasLimitUpData } = await buildRuleInsight(db);
+    // dataSource 由**三类数据源各自的可用性**分级推导，不再硬编码 'real'：
     // 此前无论 getMarketSummary() 是否返回 null 都声称 real，等于给
     // 「弱势调整 / 0只个股下跌」这类凭空生成的解读盖上真实背书。
-    sendHonest(res, hasMarketData ? 'real' : 'unavailable', insight);
+    // 但也**不能只按 breadth 一个判据给整个响应定性**——那会把真实取到的
+    // 板块 / 涨停分布数据一并标成不可用，同样是失真。故三态：
+    //   三类齐全 → 'real' ／ 部分可用 → 'partial' ／ 三类全缺 → 'unavailable'
+    const dataSource = hasMarketData ? (hasSectorData && hasLimitUpData ? 'real' : 'partial') : (hasSectorData || hasLimitUpData ? 'partial' : 'unavailable');
+    sendHonest(res, dataSource, insight);
   } catch (error) {
     console.error('[AIChat] 获取市场洞察失败:', error);
     res.status(500).json({

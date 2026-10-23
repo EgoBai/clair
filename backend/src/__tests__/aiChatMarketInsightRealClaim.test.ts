@@ -85,13 +85,16 @@ describe('P0-REALCLAIM · /api/ai/market-insight：dataSource 必须由数据可
       dbMock.getMarketSummary.mockResolvedValue(null);
     });
 
-    it('dataSource 不得是 real', async () => {
+    it('dataSource 不得是 real（三态分级：缺失 breadth 但板块真实 → partial）', async () => {
       const res = await request(buildApp()).get('/api/ai/market-insight');
 
       expect(res.status).toBe(200);
-      expect(res.body.dataSource).toBe('unavailable');
-      // 顶层与 data 内必须一致（sendHonest 保证），杜绝两级矛盾
-      expect(res.body.data.dataSource).toBe('unavailable');
+      // 核心红线不变：绝不可声称 real
+      expect(res.body.dataSource).not.toBe('real');
+      // 三态分级：breadth 缺失、板块/涨停真实 → partial（不是 unavailable，
+      // 否则真实板块数据被整体降级掩盖，与本文件 :143 用例精神冲突）
+      expect(res.body.dataSource).toBe('partial');
+      expect(res.body.data.dataSource).toBe('partial');
     });
 
     it('绝不得出现由 0 反推出来的市场解读（核心断言）', async () => {
