@@ -29,11 +29,16 @@ const COMMIT_ENV_KEYS = [
   'BUILD_COMMIT',
   'SOURCE_COMMIT',
   'CF_PAGES_COMMIT_SHA',
+  // Render 托管平台自动注入（render.yaml 定义的 clair-api web service）。
+  // 必须进这个清单：cleanCommitEnv() 靠它逐个 delete，漏列会让注入值泄漏到后续用例，
+  // 造成「本该为 null 却读到了 sha」的假失败。
+  'RENDER_GIT_COMMIT_SHA',
   'VERCEL_GIT_COMMIT_SHA',
 ] as const;
 
 const HEX40 = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const HEX40_ALT = 'ffffffffffffffffffffffffffffffffffffffff';
+const RENDER_SHA = 'd3adb33fd3adb33fd3adb33fd3adb33fd3adb33f';
 
 function cleanCommitEnv(): Record<string, undefined> {
   const o: Record<string, undefined> = {};
@@ -209,6 +214,44 @@ describe('commit 解析的诚实性（动态重载 app.ts）', { timeout: 60_000
     a = await loadWithEnv({ ...cleanCommitEnv(), CF_PAGES_COMMIT_SHA: HEX40 });
     res = await request(a).get('/api/version');
     expect(res.body.commit).toBe(HEX40);
+  });
+
+  it('Render 平台：注入 RENDER_GIT_COMMIT_SHA 后 /health.build.commit 可读到真值', async () => {
+    // 为什么单独测 /health（而不是只测 /api/version）：Render 侧既没有 Pages 变量
+    // 也没有 Vercel 变量，/health 是部署后唯一能拿到的自报位置，
+    // 历史上它俩就是走同一个 buildInfo()，但部署后最常被 curl 的是 /health，
+    // 门禁也是读 /health.build.commit —— 必须在 /health 这一层把断言钉死。
+    const a = await loadWithEnv({ ...cleanCommitEnv(), RENDER_GIT_COMMIT_SHA: RENDER_SHA });
+
+    const healthRes = await request(a).get('/health');
+    // 无 DB 时 /health 走 503 降级分支，但降级分支同样必须带 build
+    expect([200, 503]).toContain(healthRes.status);
+    expect(healthRes.body.build.commit).toBe(RENDER_SHA);
+    expect(healthRes.body.build.commitKnown).toBe(true);
+    expect(healthRes.body.build.commitShort).toBe(RENDER_SHA.slice(0, 7));
+
+    // 同源性：与 /api/version 不得分歧
+    const versionRes = await request(a).get('/api/version');
+    expect(healthRes.body.build.commit).toBe(versionRes.body.commit);
+  });
+
+  it('Render 平台：RENDER_GIT_COMMIT_SHA 未注入时为诚实空值，脏值继续回退到 null', async () => {
+    // 全部候选未注入 → null + commitKnown:false（绝不伪造一个看起来真实的 sha）
+    const clean = await loadWithEnv(cleanCommitEnv());
+    const cleanRes = await request(clean).get('/health');
+    expect(cleanRes.body.build.commit).toBeNull();
+    expect(cleanRes.body.build.commitKnown).toBe(false);
+    expect(cleanRes.body.build.commitShort).toBeNull();
+
+    // 脏值（占位符 / 非 hex / 长度不足 7）一律视为未注入，不得透传
+    const dirty = await loadWithEnv({
+      ...cleanCommitEnv(),
+      RENDER_GIT_COMMIT_SHA: 'unknown',
+      VERCEL_GIT_COMMIT_SHA: 'abc12',
+    });
+    const dirtyRes = await request(dirty).get('/health');
+    expect(dirtyRes.body.build.commit).toBeNull();
+    expect(dirtyRes.body.build.commitKnown).toBe(false);
   });
 
   it('BUILD_TIME 支持 ISO 字符串与秒级时间戳，非法值返回 null', async () => {

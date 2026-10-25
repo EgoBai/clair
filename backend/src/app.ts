@@ -100,6 +100,8 @@ function resolveBuildCommit(): string | null {
     process.env.SOURCE_COMMIT,
     // Cloudflare Pages / Workers 会自动注入这两个；后端跑在 Pages Functions 上时也能用
     process.env.CF_PAGES_COMMIT_SHA,
+    // Render 托管平台自动注入（render.yaml 定义的 clair-api web service）
+    process.env.RENDER_GIT_COMMIT_SHA,
     process.env.VERCEL_GIT_COMMIT_SHA,
   ];
   for (const raw of candidates) {

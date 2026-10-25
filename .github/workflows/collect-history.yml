@@ -14,6 +14,20 @@ jobs:
       - name: Trigger collect-history
         run: |
           set -euo pipefail
+          # ⚠️ 这个 URL **必须继续打 Cloudflare Worker（clair-api.pages.dev）**，不要因为
+          #    主 API 切换到 Render 就顺手改成 Render 域名 —— 改了会静默 404。
+          #
+          #    原因（2026-10-26 实读核实）：
+          #      · `/api/cron/collect-history` 是 **Worker 专属端点**
+          #        （clair-worker/worker.js:4535 `if (path === '/api/cron/collect-history')`），
+          #        它把结果写进 **KV(STOCK_DATA)** 积累板块 K 线与板块 PE 中位数历史
+          #        （同文件 worker.js:3782 注释印证）。
+          #      · **Express 后端完全没有该路由**：`rg "collect-history" backend/src` 零命中。
+          #    因此改指 Render 域名 = 打到一个不存在的路由；而本 cron 是无人值守的
+          #    schedule（每交易日 UTC 07:30），失败不会立刻有人发现 —— 属典型的静默缺陷。
+          #
+          #    将来若要在 Render 侧承接：先在 Express 实现同名端点，并决定 KV 里已积累的
+          #    历史数据如何迁移/替代，两者都落地后再改这里。
           TOKEN="${{ secrets.CRON_TOKEN }}"
           if [ -n "$TOKEN" ]; then
             URL="https://clair-api.pages.dev/api/cron/collect-history?token=${TOKEN}"
