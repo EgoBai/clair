@@ -2330,60 +2330,132 @@ async function handleStockNews(symbol) {
 // ==================== Alerts API ====================
 
 /**
+ * 把请求的 symbol 解析成「市场+代码」联合 key（sh600519 / sz000001）。
+ *
+ * 【为什么不能只用纯代码匹配】000001 同时是上证指数(sh000001)与平安银行(sz000001)，
+ * 纯代码 find() 会按数组顺序命中错误的那只——异动提醒会报在**另一只股票**头上，
+ * 属事实性错误。故这里按「代码 → stockList 的市场归属」消歧，
+ * 查行情时用 quoteMapByTencent（带前缀 key），**绝不回退纯代码匹配**。
+ *
+ * 接受的输入形态（与前端自选股 symbol 的存储形态一致）：
+ *   600519      纯代码 → 走 stockList 查市场归属
+ *   600519.SH   带市场后缀
+ *   sh600519    带市场前缀
+ */
+function resolveAlertTencentKey(raw, stocks) {
+  const s = String(raw || '').trim();
+  const direct = toTencentKey(s);
+  if (direct) return direct;
+  const bare = s.match(/^(\d{6})$/);
+  if (!bare) return null;
+  const code = bare[1];
+  // 优先按 A 股列表的市场归属消歧（000001 → sz000001 平安银行）
+  const stock = stocks.find(x => x.symbol === code);
+  if (stock) {
+    const key = stockTencentKey(stock);
+    if (key) return key;
+  }
+  // 不在 A 股列表里 → 只能是指数（指数的 symbol 自带市场前缀）
+  const idx = INDEX_SYMBOLS.find(x => x.tencent === s.toLowerCase() || x.tencent.endsWith(code));
+  return idx ? idx.tencent : null;
+}
+
+/**
  * Watchlist alerts: check for significant price/volume changes
- * GET /api/alerts?symbols=600519,000001
+ * GET /api/alerts?symbol=600519
+ *
+ * 【契约统一】本端点此前只认复数 `?symbols=a,b,c`，而前端与本地 Express 后端
+ * 都用单数 `?symbol=<code>` → 参数名对不上，前端拿到 HTTP 200 + 空数组，
+ * 界面表现为「这些股票没有异动」，实为「查询根本没生效」，属静默误导。
+ * 现按本地 Express 的既有契约（backend/src/api/alerts.ts + validation.ts 的
+ * P0-ALERTSCOPE）统一为**单标的**语义：
+ *   - 只接受 `?symbol=<code>`；传复数 `?symbols=` 显式 400（不静默忽略）
+ *   - 返回体与本地 Express 同构：{ success, dataSource, data:{alerts,pagination}, timestamp }
+ *   - alerts 为**扁平**数组（本地 Express 也是扁平规则数组），前端一套解析路径吃下两侧
+ *
+ * 语义说明：本地 Express 的 alerts 是「用户创建的预警规则」，本 handler 产出的是
+ * 「由实时行情派生的异动」。两者业务语义不同，故各自保留自己的 alertType 词表，
+ * 但**信封、分页、字段名**统一；前端按 type 各自映射中文标签，不互相冒充。
  */
 async function handleAlerts(url) {
   try {
     const params = new URL(url).searchParams;
-    const symbolsStr = params.get('symbols') || '';
-    const symbols = symbolsStr.split(',').map(s => s.trim()).filter(Boolean);
-    
-    if (symbols.length === 0) {
-      return json({ data: [], note: 'No symbols provided' });
+
+    // 复数形态显式 400（与本地 Express 的 Joi forbidden 行为对齐）
+    if (params.get('symbols') !== null) {
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '不支持多标的查询（?symbols=...）。/api/alerts 仅支持单个 ?symbol=<code>，批量请对每个代码分别请求后合并',
+        timestamp: Date.now(),
+      }, 400);
     }
-    
-    const { quotes } = await getAllQuotes();
+
+    const symbol = (params.get('symbol') || '').trim();
+    if (!symbol) {
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        error: '缺少必填参数 symbol（单标的查询，如 /api/alerts?symbol=600519）',
+        timestamp: Date.now(),
+      }, 400);
+    }
+
+    const page = Math.max(parseInt(params.get('page') || '1', 10) || 1, 1);
+    const pageSize = Math.min(Math.max(parseInt(params.get('pageSize') || '100', 10) || 100, 1), 100);
+
+    const [{ quoteMapByTencent }, stocks] = await Promise.all([getAllQuotes(), getStockList()]);
+    const tencentKey = resolveAlertTencentKey(symbol, stocks);
+    const q = tencentKey ? quoteMapByTencent[tencentKey] : null;
+
     const alerts = [];
-    
-    for (const symbol of symbols) {
-      const q = quotes.find(qu => qu.symbol === symbol);
-      if (!q) continue;
-      
-      const stockAlerts = [];
+    if (q) {
       const pct = Math.abs(q.changePercent || 0);
       const name = q.name || symbol;
-      
-      // Price change alerts
+      const dir = q.changePercent > 0 ? '+' : '';
+
+      // 价格异动（阈值取自真实行情的涨跌幅，非编造）
       if (pct >= 9.5) {
-        stockAlerts.push({ type: 'limit_move', level: 'critical', message: `${name}逼近涨跌停(${q.changePercent > 0 ? '+' : ''}${q.changePercent}%)`, color: q.changePercent > 0 ? 'red' : 'green' });
+        alerts.push({ symbol, name, alertType: 'limit_move', level: 'critical', message: `${name}逼近涨跌停(${dir}${q.changePercent}%)`, price: q.price, changePercent: q.changePercent });
       } else if (pct >= 7) {
-        stockAlerts.push({ type: 'big_move', level: 'warning', message: `${name}大幅${q.changePercent > 0 ? '上涨' : '下跌'}(${q.changePercent > 0 ? '+' : ''}${q.changePercent}%)`, color: q.changePercent > 0 ? '#ff4d4f' : '#52c41a' });
+        alerts.push({ symbol, name, alertType: 'big_move', level: 'warning', message: `${name}大幅${q.changePercent > 0 ? '上涨' : '下跌'}(${dir}${q.changePercent}%)`, price: q.price, changePercent: q.changePercent });
       } else if (pct >= 5) {
-        stockAlerts.push({ type: 'notable_move', level: 'info', message: `${name}显著${q.changePercent > 0 ? '上涨' : '下跌'}(${q.changePercent > 0 ? '+' : ''}${q.changePercent}%)`, color: q.changePercent > 0 ? '#fa8c16' : '#1890ff' });
+        alerts.push({ symbol, name, alertType: 'notable_move', level: 'info', message: `${name}显著${q.changePercent > 0 ? '上涨' : '下跌'}(${dir}${q.changePercent}%)`, price: q.price, changePercent: q.changePercent });
       }
-      
-      // Volume spike (>3x average is notable, but we don't track avg here, so use turnover rate)
+
+      // 换手率异动（真实换手率，非编造）
       if (q.turnoverRate && q.turnoverRate > 15) {
-        stockAlerts.push({ type: 'volume_spike', level: 'warning', message: `${name}换手率异常(${q.turnoverRate}%)，资金博弈激烈`, color: '#fa8c16' });
+        alerts.push({ symbol, name, alertType: 'volume_spike', level: 'warning', message: `${name}换手率异常(${q.turnoverRate}%)，资金博弈激烈`, price: q.price, changePercent: q.changePercent });
       } else if (q.turnoverRate && q.turnoverRate > 8) {
-        stockAlerts.push({ type: 'volume_active', level: 'info', message: `${name}交投活跃(换手率${q.turnoverRate}%)`, color: '#1890ff' });
-      }
-      
-      if (stockAlerts.length > 0) {
-        alerts.push({
-          symbol,
-          name: q.name,
-          price: q.price,
-          changePercent: q.changePercent,
-          alerts: stockAlerts,
-        });
+        alerts.push({ symbol, name, alertType: 'volume_active', level: 'info', message: `${name}交投活跃(换手率${q.turnoverRate}%)`, price: q.price, changePercent: q.changePercent });
       }
     }
-    
-    return json({ data: alerts, count: alerts.length, timestamp: Date.now() });
+
+    const totalCount = alerts.length;
+    const paged = alerts.slice((page - 1) * pageSize, page * pageSize);
+
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: {
+        alerts: paged,
+        pagination: {
+          page,
+          pageSize,
+          totalCount,
+          totalPages: Math.ceil(totalCount / pageSize),
+        },
+      },
+      timestamp: Date.now(),
+    });
   } catch (e) {
-    return json({ data: [], error: e.message });
+    console.error('[alerts] 查询异动提醒失败:', e);
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '查询异动提醒失败：' + (e && e.message ? e.message : String(e)),
+      timestamp: Date.now(),
+    }, 500);
   }
 }
 
@@ -3279,6 +3351,9 @@ async function handleAiGems(request, env) {
 
 // POST /api/ai/filter — 自然语言筛选 (DeepSeek 把 NL 转结构化条件 → 在真实行情上确定性筛选)
 // 返回 { success, data: { results: [...], total, criteria, query } } 对齐 ScreenerPage.handleAiFilter
+// 【诚实契约】失败时返回 success:false + dataSource:'unavailable' + code:'UPSTREAM_UNAVAILABLE'
+// + 面向用户的中文 message；error 字段只放内部诊断（运维配置细节），**前端只读 message**，
+// 避免把「请在 Cloudflare Pages 设置 DEEPSEEK_API_KEY」这类运维指令当业务内容显示给用户。
 async function handleAiFilter(request, env) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -3286,7 +3361,15 @@ async function handleAiFilter(request, env) {
     const watchlistSymbols = Array.isArray(body.watchlistSymbols) ? body.watchlistSymbols : null;
     if (!query) return json({ success: false, error: '请输入筛选条件' }, 400);
     if (!env || !env.DEEPSEEK_API_KEY) {
-      return json({ success: false, error: 'AI筛选服务未配置：请在 Cloudflare Pages 设置 DEEPSEEK_API_KEY 环境变量' }, 200);
+      console.error('[ai/filter] DEEPSEEK_API_KEY 未配置，AI 筛选不可用');
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        code: 'UPSTREAM_UNAVAILABLE',
+        error: 'DEEPSEEK_API_KEY 未配置',
+        message: 'AI 筛选服务未接入，暂时无法使用自然语言筛选。请稍后再试。',
+        timestamp: Date.now(),
+      }, 200);
     }
 
     const fullStocks = await getStockList();
@@ -3363,12 +3446,25 @@ async function handleAiFilter(request, env) {
 
     return json({ success: true, data: { results: sliced, total: results.length, criteria: spec, query } });
   } catch (e) {
-    return error('AI筛选失败: ' + (e && e.message ? e.message : String(e)));
+    console.error('[ai/filter] 筛选失败:', e);
+    // 业务性失败（模型超时/返回异常）= 降级，非服务端崩溃 → 200 + success:false。
+    // message 面向用户，error 只放内部诊断。
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'UPSTREAM_UNAVAILABLE',
+      error: 'AI 筛选失败: ' + (e && e.message ? e.message : String(e)),
+      message: 'AI 筛选服务暂时不可用，请稍后再试。',
+      timestamp: Date.now(),
+    }, 200);
   }
 }
 
 // POST /api/ai/trade-analysis — 复盘 AI 分析 (移植 backend ai-chat trade-analysis prompt，适配 ReviewPage 自选股复盘字段)
 // 返回 { analysis } 对齐 ReviewPage.handleAiAnalysis (data.analysis)
+// 【诚实契约】与 handleAiWatchlistSummary 同款：成功带 success:true，失败带
+// success:false + dataSource:'unavailable' + code + 面向用户的中文 message，
+// 绝不把运维配置指令塞进 analysis 字段当业务内容。
 async function handleAiTradeAnalysis(request, env) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -3376,7 +3472,15 @@ async function handleAiTradeAnalysis(request, env) {
     const stats = body.stats || {};
 
     if (!env || !env.DEEPSEEK_API_KEY) {
-      return json({ analysis: '⚠️ AI分析服务未配置：请在 Cloudflare Pages 环境变量中设置 DEEPSEEK_API_KEY 后重试。' });
+      console.error('[ai/trade-analysis] DEEPSEEK_API_KEY 未配置，AI 复盘不可用');
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        code: 'UPSTREAM_UNAVAILABLE',
+        error: 'DEEPSEEK_API_KEY 未配置',
+        message: 'AI 复盘服务未接入，暂时无法生成复盘分析。',
+        timestamp: Date.now(),
+      }, 200);
     }
 
     const fmtPerf = (p) => p ? `${p.name || ''}(${p.symbol || ''}) ${Number(p.changePct) >= 0 ? '+' : ''}${Number(p.changePct || 0).toFixed(2)}%` : '—';
@@ -3410,14 +3514,35 @@ ${stockLines}
 结尾注明：以上为AI分析，不构成投资建议。`;
 
     const analysis = await callDeepSeek(env, sys, usr, { temperature: 0.6, maxTokens: 900 });
-    return json({ analysis });
+    return json({ success: true, dataSource: 'real', analysis, timestamp: Date.now() });
   } catch (e) {
-    return json({ analysis: '⚠️ AI分析暂时不可用：' + (e && e.message ? e.message : String(e)) });
+    console.error('[ai/trade-analysis] 生成失败:', e);
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'UPSTREAM_UNAVAILABLE',
+      error: 'AI 复盘分析失败: ' + (e && e.message ? e.message : String(e)),
+      message: 'AI 复盘服务暂时不可用，请稍后再试。',
+      timestamp: Date.now(),
+    }, 200);
   }
 }
 
 // POST /api/ai/watchlist-summary — 自选股 AI 追踪总结 (移植 backend ai-chat watchlist-summary，适配 WatchlistPage 契约)
 // 前端契约: body { symbols: string[], quotes: [{price, changePercent, turnoverRate}] }（按索引对应）→ 返回 { summary }
+//
+// 【诚实契约 · 本次修复的核心】
+// 此前**成功与失败都只返回 { summary }**，既无 success 也无 error：
+//   · 未配置密钥 → { summary: "⚠️ AI总结服务未配置：请在 Cloudflare Pages 环境变量中设置 DEEPSEEK_API_KEY 后重试。" }
+//   · 调用抛错   → { summary: "⚠️ AI总结暂时不可用：..." }
+// 前端只判 `if (data.summary)`，于是这行**运维配置指令被当作「AI 总结」渲染给用户**
+// （HTTP 200，内容却是运维提示 —— 比 404 更恶劣的撒谎形态）。
+//
+// 现按 backend/src/api/ai-chat.ts 的既有约定区分两种结局：
+//   · 成功 → { success:true, dataSource:'real', summary, timestamp }
+//   · 失败 → { success:false, dataSource:'unavailable', code:'UPSTREAM_UNAVAILABLE',
+//              error:<内部诊断>, message:<面向用户的中文>, timestamp }
+// error 字段保留运维诊断（便于排查），message 字段是前端唯一应展示给用户的内容。
 async function handleAiWatchlistSummary(request, env) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -3425,10 +3550,25 @@ async function handleAiWatchlistSummary(request, env) {
     const quotes = Array.isArray(body.quotes) ? body.quotes : [];
 
     if (symbols.length === 0) {
-      return json({ summary: '请先添加自选股后再生成追踪总结。' });
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        code: 'NO_SYMBOLS',
+        error: '请求未提供自选股列表',
+        message: '请先添加自选股后再生成追踪总结。',
+        timestamp: Date.now(),
+      }, 200);
     }
     if (!env || !env.DEEPSEEK_API_KEY) {
-      return json({ summary: '⚠️ AI总结服务未配置：请在 Cloudflare Pages 环境变量中设置 DEEPSEEK_API_KEY 后重试。' });
+      console.error('[ai/watchlist-summary] DEEPSEEK_API_KEY 未配置，AI 总结不可用');
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        code: 'UPSTREAM_UNAVAILABLE',
+        error: 'DEEPSEEK_API_KEY 未配置',
+        message: 'AI 总结服务未接入，暂时无法生成 AI 总结。',
+        timestamp: Date.now(),
+      }, 200);
     }
 
     const stockSummary = symbols.map((sym, i) => {
@@ -3452,9 +3592,17 @@ ${stockSummary}
 4. 操作建议（简短）`;
 
     const summary = await callDeepSeek(env, sys, usr, { temperature: 0.5, maxTokens: 600 });
-    return json({ summary });
+    return json({ success: true, dataSource: 'real', summary, timestamp: Date.now() });
   } catch (e) {
-    return json({ summary: '⚠️ AI总结暂时不可用：' + (e && e.message ? e.message : String(e)) });
+    console.error('[ai/watchlist-summary] 生成失败:', e);
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'UPSTREAM_UNAVAILABLE',
+      error: 'AI 总结失败: ' + (e && e.message ? e.message : String(e)),
+      message: 'AI 总结服务暂时不可用，请稍后再试。',
+      timestamp: Date.now(),
+    }, 200);
   }
 }
 
@@ -4349,7 +4497,7 @@ export default {
       return handleStockNews(stockNewsMatch[1]);
     }
 
-    // Watchlist alerts: /api/alerts?symbols=600519,000001
+    // Watchlist alerts: /api/alerts?symbol=600519（单标的，与本地 Express /api/alerts 契约一致）
     if (path === '/api/alerts') {
       return handleAlerts(url);
     }

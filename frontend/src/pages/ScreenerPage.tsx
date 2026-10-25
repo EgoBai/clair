@@ -10,6 +10,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
+import { classifyAiResponse } from '../utils/aiResponse';
 import { Card, Button, Tag, Table, Empty, Skeleton, Typography, message, Space, Tooltip } from 'antd';
 import {
   RiseOutlined, FireOutlined, ThunderboltOutlined,
@@ -546,23 +547,32 @@ const ScreenerPage: React.FC = () => {
         body: JSON.stringify({ query: aiFilterQuery, watchlistSymbols }),
       });
       const data = await resp.json();
-      if (data?.success && data.data) {
-        const results = (data.data.results || []) as any[];
-        const stocks: StockData[] = results.map((s: any) => ({
-          symbol: s.symbol || '', name: s.name || '',
-          price: Number(s.price || s.close_price || 0),
-          change: Number(s.change_amount || 0),
-          changePercent: Number(s.changePercent || s.change_percent || 0),
-          volume: s.volume || '—', marketCap: s.marketCap || s.market_cap || '—',
-          marketCapNum: Number(s.marketCap || s.market_cap || 0),
-          industry: s.industry || '—', pe: s.pe_ratio || s.pe,
-          turnoverRate: s.turnoverRate || s.turnover_rate || 0,
-        }));
-        if (stocks.length > 0) {
-          setAiFilterStocks(stocks);
-          setAiFilterResult(`找到 ${results.length} 只符合条件的股票`);
-        } else setAiFilterResult('未找到符合条件的股票');
+      // 结构化判据（HTTP 200 不代表业务成功）：
+      // 后端 success/dataSource/code 决定成败；失败时**不透传**后端 error
+      // （可能含 Cloudflare/DEEPSEEK 运维指令），改显示本地兜底的诚实中文提示。
+      const verdict = classifyAiResponse(data, {
+        unavailableMessage: 'AI 筛选服务未接入，暂时无法使用自然语言筛选。请稍后再试。',
+        errorMessage: 'AI 筛选执行失败，暂时无法完成本次筛选。请稍后再试。',
+      });
+      if (!verdict.ok) {
+        setAiFilterResult(verdict.message);
+        return;
       }
+      const results = (data?.data?.results || []) as any[];
+      const stocks: StockData[] = results.map((s: any) => ({
+        symbol: s.symbol || '', name: s.name || '',
+        price: Number(s.price || s.close_price || 0),
+        change: Number(s.change_amount || 0),
+        changePercent: Number(s.changePercent || s.change_percent || 0),
+        volume: s.volume || '—', marketCap: s.marketCap || s.market_cap || '—',
+        marketCapNum: Number(s.marketCap || s.market_cap || 0),
+        industry: s.industry || '—', pe: s.pe_ratio || s.pe,
+        turnoverRate: s.turnoverRate || s.turnover_rate || 0,
+      }));
+      if (stocks.length > 0) {
+        setAiFilterStocks(stocks);
+        setAiFilterResult(`找到 ${results.length} 只符合条件的股票`);
+      } else setAiFilterResult('未找到符合条件的股票');
     } catch { setAiFilterResult('筛选失败，请换个说法试试'); }
     finally { setAiFilterLoading(false); }
   }, [aiFilterQuery, watchlistStore.items]);

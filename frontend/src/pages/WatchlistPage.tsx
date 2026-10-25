@@ -27,8 +27,10 @@ import { apiFetch } from '../utils/api';
 import {
   fetchAlertsForSymbols,
   describeAlertsOutcome,
+  alertTypeLabel,
   STRATEGY_SIGNALS_UNAVAILABLE_NOTICE,
 } from '../hooks/useWatchlistData';
+import { readAiResponse } from '../utils/aiResponse';
 import { renderMarkdown } from '../utils/markdown';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -507,6 +509,11 @@ const WatchlistPage: React.FC = () => {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [aiSummary, setAiSummary] = useState<string>('');
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  /**
+   * AI 总结的诚实提示（服务未接入 / 生成失败）。
+   * null = 无提示（成功）；非 null = 展示该提示，且**不展示**任何运维配置指令。
+   */
+  const [aiSummaryNotice, setAiSummaryNotice] = useState<string | null>(null);
   const [aiRecommendations, setAiRecommendations] = useState<string>('');
   const [aiRecommendationsLoading, setAiRecommendationsLoading] = useState(false);
 
@@ -608,8 +615,9 @@ const WatchlistPage: React.FC = () => {
 
   /* ─── Fetch AI summary (with rule-based fallback) ─── */
   const fetchAiSummary = useCallback(async () => {
-    if (symbols.length === 0) { setAiSummary(''); return; }
+    if (symbols.length === 0) { setAiSummary(''); setAiSummaryNotice(null); return; }
     setAiSummaryLoading(true);
+    setAiSummaryNotice(null);
 
     // Generate rule-based fallback immediately
     const fallbackSummary = generateRuleBasedSummary(symbols, quotes, signals, alerts);
@@ -635,10 +643,22 @@ const WatchlistPage: React.FC = () => {
         body: JSON.stringify({ symbols, quotes: quoteData }),
       });
       const data = await resp.json();
-      if (data.summary) setAiSummary(data.summary);
-      // If API returns nothing, the fallback is already set above
+      // 结构化判据：后端 success/dataSource/code 决定成败。
+      // 失败时**不渲染**任何后端文案里的运维指令（那不是业务内容），
+      // 只显示本地兜底的诚实提示，并保留上面的规则化总结。
+      const verdict = readAiResponse(data, {
+        field: 'summary',
+        unavailableMessage: 'AI 总结服务未接入，暂时无法生成 AI 总结。下方显示的是基于实时行情的规则化总结。',
+        errorMessage: 'AI 总结生成失败，暂时无法生成 AI 总结。下方显示的是基于实时行情的规则化总结。',
+      });
+      if (verdict.ok) {
+        setAiSummary(verdict.text);
+      } else {
+        setAiSummaryNotice(verdict.message);
+      }
     } catch {
-      // Use the already-set rule-based fallback
+      // 请求本身失败：保留规则化总结，并说明真实原因
+      setAiSummaryNotice('AI 总结请求失败，暂时无法生成 AI 总结。下方显示的是基于实时行情的规则化总结。');
     } finally {
       setAiSummaryLoading(false);
     }
@@ -1303,14 +1323,7 @@ const handleManualRefresh = () => {
                         borderRadius: 4,
                       }}
                     >
-                      {a.type === 'price_above' ? '价格上穿'
-                        : a.type === 'price_below' ? '价格下穿'
-                          : a.type === 'change_above' ? '涨幅超限'
-                            : a.type === 'change_below' ? '跌幅超限'
-                              : a.type === 'volume_surge' ? '放量异动'
-                                : a.type === 'indicator' ? '指标触发'
-                                  : a.type === 'composite' ? '组合条件'
-                                    : '预警规则'}
+                      {alertTypeLabel(a.type)}
                     </Tag>
                     <Text style={{ color: '#9ca3af', fontSize: 12 }}>{a.message}</Text>
                   </div>
@@ -1496,18 +1509,27 @@ const handleManualRefresh = () => {
                 <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.6 }}>
                   AI 正在分析您的自选股组合...
                 </div>
-              ) : aiSummary ? (
-                <div
-                  style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(aiSummary) }}
-                />
               ) : (
-                <div
-                  style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}
-                  dangerouslySetInnerHTML={{
-                    __html: renderMarkdown(generateRuleBasedSummary(symbols, quotes, signals, alerts))
-                  }}
-                />
+                <>
+                  {/* 诚实提示：AI 服务未接入/失败时优先展示，绝不把后端运维指令当业务内容渲染 */}
+                  {aiSummaryNotice && (
+                    <div
+                      data-testid="ai-summary-notice"
+                      style={{
+                        color: '#d48806',
+                        fontSize: 13,
+                        lineHeight: 1.8,
+                        marginBottom: aiSummary ? 10 : 0,
+                      }}
+                    >
+                      {aiSummaryNotice}
+                    </div>
+                  )}
+                  <div
+                    style={{ color: TEXT, fontSize: 13, lineHeight: 1.8 }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(aiSummary) }}
+                  />
+                </>
               )}
             </div>
             <Tooltip title="基于行情数据的智能分析">

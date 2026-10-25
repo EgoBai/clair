@@ -30,6 +30,8 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { renderMarkdown } from '../utils/markdown';
+import { apiFetch } from '../utils/api';
+import { readAiResponse } from '../utils/aiResponse';
 import LookbackCard from '../components/review/LookbackCard';
 import {
   loadSnapshots,
@@ -236,6 +238,11 @@ const ReviewPage: React.FC = () => {
   const [dateRange, setDateRange] = useState<string>('30days');
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
+  /**
+   * AI 复盘的诚实提示（服务未接入 / 生成失败）。
+   * 非 null 时展示该提示，且**不展示**任何后端运维配置指令。
+   */
+  const [aiAnalysisNotice, setAiAnalysisNotice] = useState<string | null>(null);
 
   // Real data state
   const [stocks, setStocks] = useState<StockRecord[]>([]);
@@ -412,6 +419,7 @@ const ReviewPage: React.FC = () => {
   /* --- AI Analysis ------------------------------------------------- */
   const handleAiAnalysis = async () => {
     setAiAnalysisLoading(true);
+    setAiAnalysisNotice(null);
     try {
       // 构建自选股复盘摘要数据 (对齐 watchlist-summary 端点)
       const symbols = stocks.map(s => s.symbol);
@@ -422,15 +430,30 @@ const ReviewPage: React.FC = () => {
         changePercent: s.rangeChangePct ?? s.changePct ?? 0,
         turnoverRate: 0, // ReviewPage不展示换手率
       }));
-      const resp = await fetch('/api/ai/watchlist-summary', {
+      const resp = await apiFetch('/api/ai/watchlist-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols, quotes }),
       });
       const data = await resp.json();
-      if (data.summary) setAiAnalysis(data.summary);
+      // 结构化判据：后端 success/dataSource/code 决定成败；
+      // 失败时**不渲染**后端文案（那可能是运维配置指令，不是业务内容），
+      // 改显示本地兜底的诚实中文提示。
+      const verdict = readAiResponse(data, {
+        field: 'summary',
+        unavailableMessage: 'AI 复盘服务未接入，暂时无法生成复盘分析。',
+        errorMessage: 'AI 复盘分析生成失败，暂时无法生成复盘分析。',
+      });
+      if (verdict.ok) {
+        setAiAnalysis(verdict.text);
+      } else {
+        setAiAnalysis('');
+        setAiAnalysisNotice(verdict.message);
+      }
     } catch {
-      // silent fail
+      // 请求本身失败：给出真实原因，绝不静默
+      setAiAnalysis('');
+      setAiAnalysisNotice('AI 复盘请求失败，暂时无法生成复盘分析。');
     } finally {
       setAiAnalysisLoading(false);
     }
@@ -1130,6 +1153,23 @@ const ReviewPage: React.FC = () => {
             >
               {aiAnalysisLoading ? '分析中...' : '开始分析'}
             </Button>
+            {aiAnalysisNotice && (
+              <div
+                data-testid="ai-analysis-notice"
+                style={{
+                  marginTop: 16,
+                  padding: 16,
+                  background: 'rgba(15,23,42,0.5)',
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.cardBorder}`,
+                  color: '#d48806',
+                  fontSize: 13,
+                  lineHeight: 1.8,
+                }}
+              >
+                {aiAnalysisNotice}
+              </div>
+            )}
             {aiAnalysis && (
               <div
                 style={{

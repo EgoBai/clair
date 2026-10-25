@@ -44,17 +44,17 @@ export interface AlertItem {
   symbol: string;
   name: string;
   alerts: Array<{
-    /** 后端 AlertRule.alertType 原值（price_above/volume_surge/...） */
+    /** 后端 alertType 原值（本地规则 price_above/volume_surge/...；Worker 异动 limit_move/...） */
     type: string;
-    /** 由后端 isTriggered 派生的展示档位，非后端字段，见 fetchAlertsForSymbols 注释 */
+    /** 展示档位：优先后端给的 level，无则按 isTriggered/isActive 派生，见 fetchAlertsForSymbols 注释 */
     level: string;
     message: string;
   }>;
 }
 
 /**
- * 后端 /api/alerts 的单条预警规则（backend/src/api/alerts.ts 的 AlertRule，节选实际用到的字段）。
- * 注意：后端返回的是**扁平规则数组**，不含 name / alerts 嵌套字段。
+ * 后端 /api/alerts 的单条预警（backend/src/api/alerts.ts 的 AlertRule，节选实际用到的字段）。
+ * 注意：后端返回的是**扁平数组**，不含 name / alerts 嵌套字段。
  */
 export interface AlertRule {
   id?: number;
@@ -65,13 +65,19 @@ export interface AlertRule {
   isTriggered?: boolean;
   message?: string;
   createdAt?: string;
+  /**
+   * 后端给出的展示档位（critical/warning/info）。
+   * 本地 Express 的 AlertRule **没有**该字段（前端从 isTriggered 派生）；
+   * Worker 的行情派生异动**有**该字段（它按涨跌幅/换手率真实分档）。
+   * 有则用后端的（更精确），无才派生 —— 两端共用同一解析路径。
+   */
+  level?: string;
 }
 
 /** 一次「逐标的拉取 + 合并」的完整结果，含失败/截断的诚实记账 */
 export interface AlertsFetchOutcome {
   /** 按标的分组、组内按时间倒序的预警，供 UI 直接渲染 */
-  items: AlertItem[];
-  /** 服务端声明的真实总条数（各标的 pagination.totalCount 之和），可能 > returnedCount */
+  items: AlertItem[];  /** 服务端声明的真实总条数（各标的 pagination.totalCount 之和），可能 > returnedCount */
   totalCount: number;
   /** 实际取到的条数 */
   returnedCount: number;
@@ -181,8 +187,18 @@ function readWatchlistGroups(): WatchlistGroup[] {
  * 由调用方渲染成「部分标的查询失败」，与真正的「无预警」区分开。
  */
 
-/** 后端 alertType 取值（backend/src/api/alerts.ts）→ 中文标签。未知值回落到原文，不编造。 */
-const ALERT_TYPE_LABEL: Record<string, string> = {
+/**
+ * 后端 alertType 取值 → 中文标签。未知值回落到原文，不编造。
+ *
+ * 两套词表并存（两侧后端业务语义不同，但信封/分页/字段名已统一）：
+ *  - 本地 Express（backend/src/api/alerts.ts）：**用户创建的预警规则**
+ *    price_above / price_below / change_above / change_below / volume_surge / indicator / composite
+ *  - Worker（clair-worker/worker.js）：**由实时行情派生的异动**
+ *    limit_move / big_move / notable_move / volume_spike / volume_active
+ * 缺标签时回落为原文（而非编造一个像样的中文名），由 UI 决定如何展示未知类型。
+ */
+export const ALERT_TYPE_LABEL: Record<string, string> = {
+  // 本地 Express：用户创建的预警规则
   price_above: '价格上穿',
   price_below: '价格下穿',
   change_above: '涨幅超限',
@@ -190,7 +206,23 @@ const ALERT_TYPE_LABEL: Record<string, string> = {
   volume_surge: '放量异动',
   indicator: '指标触发',
   composite: '组合条件',
+  // Worker：实时行情派生的异动
+  limit_move: '逼近涨跌停',
+  big_move: '大幅异动',
+  notable_move: '显著异动',
+  volume_spike: '换手率异常',
+  volume_active: '交投活跃',
 };
+
+/**
+ * alertType → 中文标签；未知类型返回原文（不编造）。
+ * 三处渲染点（WatchlistPage / WatchlistPanel / 本模块的消息兜底）统一走这里，
+ * 避免各写一份内联三元链导致「worker 的异动类型落进『预警规则』」这种误标。
+ */
+export function alertTypeLabel(alertType: string | undefined): string {
+  if (!alertType) return '预警规则';
+  return ALERT_TYPE_LABEL[alertType] ?? alertType;
+}
 
 /**
  * 后端 AlertRule **没有** `name` 字段，用调用方提供的自选股名称解析器补齐；
@@ -235,7 +267,17 @@ export async function fetchAlertsForSymbols(
       if (!data?.success) {
         throw new Error(data?.error || `HTTP ${resp.status}`);
       }
-      return { symbol, payload: data.data ?? {} };
+      // 形状校验：成功体必须含 data.alerts 数组。
+      // 旧 Worker 曾返回 { data: [ {symbol, alerts:[...]} ] }（嵌套数组，非本契约），
+      // 若不校验就会把 `const {alerts} = payload` 解析成 undefined → rows=[] →
+      // 「查询成功但零条」——用户会误读成「这些股票没有异动」，实为「契约不兼容」。
+      // 形状不符必须显式失败，交给 failedSymbols 记账，绝不静默变空。
+      const payload = data?.data;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+        || !Array.isArray(payload.alerts)) {
+        throw new Error('响应结构不符合 /api/alerts 契约（缺少 data.alerts 数组）');
+      }
+      return { symbol, payload };
     }),
   );
 
@@ -279,11 +321,13 @@ export async function fetchAlertsForSymbols(
     }
     item.alerts.push({
       type: rule.alertType ?? 'unknown',
-      // level 是**前端派生**的展示档位：后端 AlertRule 无 level 字段。
-      // 只依据后端真实的 isTriggered / isActive 推导，不臆造严重程度。
-      level: rule.isTriggered ? 'critical' : rule.isActive === false ? 'inactive' : 'warning',
+      // level 优先用后端给的档位（Worker 的行情派生异动按涨跌幅/换手率真实分档）；
+      // 后端没给（本地 Express 的 AlertRule 无此字段）才按 isTriggered/isActive 派生。
+      // 两种来源都是后端真实依据，不臆造严重程度。
+      level: rule.level
+        ?? (rule.isTriggered ? 'critical' : rule.isActive === false ? 'inactive' : 'warning'),
       message: rule.message
-        || `${ALERT_TYPE_LABEL[rule.alertType ?? ''] ?? '预警规则'}（阈值 ${rule.threshold ?? '—'}）`,
+        || `${alertTypeLabel(rule.alertType)}（阈值 ${rule.threshold ?? '—'}）`,
     });
   }
   const items = uniq
@@ -478,10 +522,10 @@ export function useWatchlistData(autoRefreshMs = 0): WatchlistDataState {
     quotesLoading,
     alerts,
     alertsLoading,
-alertsNotice,
-  signals,
-  signalsNotice,
-  lastRefresh,
+    alertsNotice,
+    signals,
+    signalsNotice,
+    lastRefresh,
     refresh: loadAll,
     autoRefreshMs,
   };

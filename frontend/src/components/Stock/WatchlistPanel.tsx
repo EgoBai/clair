@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons';
 import { safeGetItem, safeSetItem } from '../../utils/safeStorage';
 import { apiFetch } from '../../utils/api';
-import { fetchAlertsForSymbols, describeAlertsOutcome } from '../../hooks/useWatchlistData';
+import { fetchAlertsForSymbols, describeAlertsOutcome, alertTypeLabel } from '../../hooks/useWatchlistData';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Text } = Typography;
@@ -216,14 +216,7 @@ const WatchlistPanel: React.FC<{ onStockClick?: (symbol: string) => void }> = Re
                 onClick={() => onStockClick?.(stock.symbol)}>{stock.name}</span>
               <Tag color={a.level === 'critical' ? 'red' : a.level === 'warning' ? 'orange' : a.level === 'inactive' ? 'default' : 'blue'}
                 style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                {a.type === 'price_above' ? '价格上穿'
-                  : a.type === 'price_below' ? '价格下穿'
-                    : a.type === 'change_above' ? '涨幅超限'
-                      : a.type === 'change_below' ? '跌幅超限'
-                        : a.type === 'volume_surge' ? '放量异动'
-                          : a.type === 'indicator' ? '指标触发'
-                            : a.type === 'composite' ? '组合条件'
-                              : '预警规则'}
+                {alertTypeLabel(a.type)}
               </Tag>
               <span style={{ color: '#555' }}>{a.message}</span>
             </div>
