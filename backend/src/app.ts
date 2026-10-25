@@ -9,7 +9,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { corsMiddleware, corsStatusEndpoint } from './middleware/corsConfig';
 import { createServer } from 'http';
-import { initDatabase, db, getDb, isMemoryMode, getDbStatus } from './db/dbFactory';
+import { initDatabase, db, getDb, isMemoryMode, getDbStatus, deriveHealthContract } from './db/dbFactory';
 import { isFabricatedQuoteRefusalActive } from './db/FabricatedDataRefusedError';
 import { InMemoryDatabase } from './db/InMemoryDatabase';
 import { createLogger } from './utils/logger';
@@ -370,8 +370,20 @@ app.get('/health', async (_req, res) => {
     const degraded = dbStatus.degraded;
     const refusalActive = isFabricatedQuoteRefusalActive();
 
+    // 运维契约三字段（唯一真源见 dbFactory.deriveHealthContract）：
+    //   dbType    : 'postgresql' | 'memory' —— 真正在服务的数据库类型
+    //   degraded  : 是否处于降级态（内存库 = 降级）
+    //   dataSource: 'real' | 'unavailable' —— 行情/估值类数据是否真实可得
+    // 这三个字段是「PG 连不上 → 全站静默吐伪数据」这条红线的**唯一机器可观测出口**：
+    // 降级时 dataSource='unavailable'，运维/探针一眼可判，不必翻日志。
+    const contract = deriveHealthContract(dbStatus);
+
     res.json({
       status: degraded ? 'degraded' : health.healthy ? 'healthy' : 'unhealthy',
+      // —— 运维契约三字段（顶层，便于 curl / 探针 / 监控直接读取）——
+      dbType: contract.dbType,
+      degraded: contract.degraded,
+      dataSource: contract.dataSource,
       timestamp: new Date().toISOString(),
       version: APP_VERSION,
       // P0-VER：把构建信息挂到 /health，部署后烟测既可读 /api/version 也可退守读这里。
@@ -379,8 +391,10 @@ app.get('/health', async (_req, res) => {
       build: buildInfo(),
       database: {
         connected: degraded ? false : health.healthy,
-        dbType: dbStatus.type,
-        degraded,
+        // database 块内的 dbType 与顶层契约同源同值（都是 deriveHealthContract 的产物），
+        // 避免同一语义出现两种拼写/两个真源。
+        dbType: contract.dbType,
+        degraded: contract.degraded,
         // 降级态下二选一，且**必须**能区分：
         //   refusalActive=true      → 行情读方法抛 FabricatedDataRefusedError（诚实，端点返回 503 unavailable）
         //   fabricationAllowed=true → 逃生开关已打开：行情读方法返回诚实空态（省略键/空数组）而非抛错。

@@ -3,7 +3,7 @@
  * 健康检查服务 - 系统状态监控
  */
 
-import { getDbStatus } from '../db/dbFactory';
+import { getDbStatus, deriveHealthContract } from '../db/dbFactory';
 
 export interface HealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -137,15 +137,26 @@ export function createDefaultHealthCheck(version?: string): HealthCheckService {
     };
   });
 
-  // 数据库降级可观测性：内存模式即降级态（行情为 Math.random 伪造数据）
+  // 数据库降级可观测性：内存模式即降级态。
+  // ⚠️ 措辞更正（R0'-9 之后）：内存库**不再**生成任何行情/估值
+  //    （伪造生成器已删除），它只持有真实股票清单；行情类读取走诚实空态
+  //    （生产环境由 InMemoryDatabase 升级为显式失败 FabricatedDataRefusedError）。
+  //    故此处不能说「行情为伪造数据」，只能说「无真实行情来源」。
+  //    三字段取值统一走 dbFactory.deriveHealthContract()（唯一真源）。
   service.register('database', async () => {
-    const { type: dbType, degraded, stockCount } = getDbStatus();
+    const { degraded, stockCount } = getDbStatus();
+    const contract = deriveHealthContract();
     return {
       status: degraded ? 'warn' : 'pass',
       message: degraded
-        ? '数据库已降级为内存库，行情/估值为伪造数据，禁止视为真实数据'
+        ? '数据库已降级为内存库，无真实行情/估值来源（dataSource=unavailable），禁止视为真实数据'
         : undefined,
-      details: { dbType, degraded, stockCount },
+      details: {
+        dbType: contract.dbType,
+        degraded: contract.degraded,
+        dataSource: contract.dataSource,
+        stockCount,
+      },
     };
   });
 

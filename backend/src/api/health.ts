@@ -8,6 +8,7 @@
 
 import { Router } from 'express';
 import { createDefaultHealthCheck } from '../services/healthCheck';
+import { deriveHealthContract } from '../db/dbFactory';
 import { asyncHandler } from '../utils/apiResponse';
 
 const router = Router();
@@ -19,15 +20,25 @@ const router = Router();
  * 自己也注明「健康检查端点本就不供数」属误报）。但其 status 是真实测量值
  * （含内存库降级态的诚实暴露），故标 'real' 并在 message 里说明性质，
  * 避免前端把它当成行情数据端点。
+ *
+ * ⚠️ 降级态例外：PG 不可用而退到内存库时，**整站没有真实行情/估值来源**，
+ *    此时 dataSource 必须是 'unavailable'（不是 'real'）——否则这个字段
+ *    就在说谎：探针本身是真实测量，但被测系统的数据源不可得。
+ *    取值统一走 dbFactory.deriveHealthContract()（唯一真源）。
  */
 function sendHonest(res: any, data: Record<string, unknown>): void {
+  const contract = deriveHealthContract();
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(200).json({
     success: true,
-    dataSource: 'real',
+    dataSource: contract.dataSource,
+    dbType: contract.dbType,
+    degraded: contract.degraded,
     data: {
       ...data,
-      dataSource: 'real',
+      dataSource: contract.dataSource,
+      dbType: contract.dbType,
+      degraded: contract.degraded,
       message: '基础设施健康探针：返回的是真实测量的系统状态，不含任何行情/业务数据',
     },
     timestamp: new Date().toISOString(),
@@ -44,11 +55,16 @@ router.get(
   '/',
   asyncHandler(async (req: any, res: any) => {
     const health = await healthService.checkAll();
+    const contract = deriveHealthContract();
+    // 降级态仍返回 200：探针不能被打死，否则托管平台会反复重启容器。
+    // 降级信息由 body 里的 status='degraded' / dataSource='unavailable' 表达。
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.status(statusCode).json({
       ...health,
-      dataSource: 'real',
+      dbType: contract.dbType,
+      degraded: contract.degraded,
+      dataSource: contract.dataSource,
       message: '基础设施健康探针：返回的是真实测量的系统状态，不含任何行情/业务数据',
       timestamp: new Date().toISOString(),
     });

@@ -10,6 +10,30 @@ import { isFabricatedQuoteRefusalActive } from './FabricatedDataRefusedError';
 export type DbType = 'postgres' | 'memory';
 
 /**
+ * /health 对外暴露的数据库类型词表。
+ *
+ * ⚠️ 与内部 DbType（'postgres'）**故意不同**：内部沿用 'postgres' 是历史包袱
+ *    （tradingCalendar.ts / 各历史测试按 'postgres' 字面量比较，改动会波及
+ *    本工单文件域之外的文件）；对外契约统一用产品真名 'postgresql'，
+ *    避免运维把 PG / MySQL / SQLite 混为一谈。
+ *    两者之间**只经 deriveHealthContract() 单点映射**，杜绝同一语义出现两种拼写。
+ */
+export type HealthDbType = 'postgresql' | 'memory';
+
+/** /health 对外暴露的数据来源语义（与 API 层 dataSource 契约同源）。 */
+export type HealthDataSource = 'real' | 'unavailable';
+
+/** /health 的诚实降级契约三字段。 */
+export interface HealthContract {
+  /** 真正在服务的数据库类型（postgresql = 真 PG；memory = 内存库降级） */
+  dbType: HealthDbType;
+  /** 是否处于降级态（true = 正在用内存库，不是真 PG） */
+  degraded: boolean;
+  /** 数据来源是否真实可得（unavailable = 行情类数据不可得） */
+  dataSource: HealthDataSource;
+}
+
+/**
  * knex 3.x 对「unix-socket host 参数」连接串（如 postgresql://user@/db?host=/tmp）
  * 的 parse-connection 链路会丢失 database（parse 产物含 port:''，pg.Pool 据此回退到
  * user 同名库，报 database "user" does not exist），表现为 testConnection() 静默 false
@@ -140,6 +164,38 @@ export function getDbStatus(): { type: DbType; degraded: boolean; stockCount: nu
   const degraded = type === 'memory';
   const stockCount = degraded ? getMemoryStockCount(dbInstance) : -1;
   return { type, degraded, stockCount };
+}
+
+/**
+ * 推导 /health 的诚实降级契约三字段（**唯一真源**）。
+ *
+ * 为什么单独一个函数而不是让每个调用方自己拼：
+ *   这三个字段是运维判断「这台实例现在到底在服务真数据还是在降级兜底」的唯一依据。
+ *   之前 dbType 只在 app.ts 内联 handler 里出现（且用的是内部词表 'postgres'），
+ *   导致「同一语义两种拼写」+「契约无处可测」。这里收口后：
+ *     - app.ts 的 /health、api/health.ts 的 /health、services/healthCheck.ts 的
+ *       database 检查项，三处共用同一份推导，物理上不可能漂移。
+ *
+ * 语义：
+ *   - dbType: 'postgresql' 表示真 PG；'memory' 表示走了内存库降级。
+ *   - degraded: 与 getDbStatus().degraded 同源（内存库即降级）。
+ *   - dataSource: 降级态 → 'unavailable'（无真实行情/估值来源，前端据此拒绝把
+ *     降级数据当真实数据消费）；非降级态 → 'real'。
+ *     ⚠️ 注意：内存库本身**只**持有真实股票清单（R0'-9 起不再生成任何伪行情），
+ *     故此处的 'unavailable' 指「行情/估值类数据不可得」，不是「所有数据都不可得」。
+ *
+ * @param status 可选：显式传入状态（便于测试与纯函数式断言）；缺省读当前进程状态。
+ */
+export function deriveHealthContract(
+  status?: { type: DbType; degraded: boolean },
+): HealthContract {
+  const s = status ?? getDbStatus();
+  const degraded = s.degraded;
+  return {
+    dbType: s.type === 'postgres' ? 'postgresql' : 'memory',
+    degraded,
+    dataSource: degraded ? 'unavailable' : 'real',
+  };
 }
 
 /**
