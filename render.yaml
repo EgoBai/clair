@@ -1,0 +1,122 @@
+# =============================================================================
+# 澄观 Clair · Render Blueprint（基础设施即代码）
+#
+# 用途：把「完整 Express 后端（241 端点）+ 托管 PostgreSQL」一次性声明出来，
+#       替代只挂了约 24 条路由的 Cloudflare Worker（clair-api.pages.dev）。
+#
+# 用法：Render Dashboard → New → Blueprint → 选中本仓库 → Render 读取本文件
+#       自动创建 databases + services。repo / branch 由创建时所选仓库决定，
+#       故本文件不含 repo 字段（写了反而会与所选仓库冲突）。
+#
+# ⚠️ 创建后不可修改的字段（改了要重建 + 迁数据，务必第一次就选对）：
+#     databases[].name / databases[].postgresMajorVersion / databases[].region
+#     services[].type
+#   另：存储只能增加不能减少（diskSizeGB 单向递增）。
+#
+# 为什么这样配（逐条有依据）：
+#   dockerContext: .        —— backend/Dockerfile 里需要 COPY shared/ 与
+#                              clair-worker/all_stocks_compact.json，
+#                              这两个都在仓库根，所以构建上下文必须是根而不是 backend/。
+#   runtime: docker         —— 不用 Render 原生 Node runtime：本项目 build 依赖
+#                              esbuild bundle（npm run build:prod），Dockerfile 已固化该流程。
+#   plan: starter           —— 0.5 CPU / 512MB，最便宜档。⚠️ 512MB 偏紧，
+#                              若上线后 OOM 或响应慢，升 1c-2g（$25/mo）；这是一次性点击操作。
+#   PORT 不在此声明         —— Render 会自行注入 PORT 环境变量，写死会覆盖平台动态值。
+#   JWT_SECRET generateValue —— 后端在 NODE_ENV=production 下缺失或长度<32 会 fail-fast
+#                              启动失败；generateValue 产出 256-bit base64（44 字符）天然满足。
+#   DATABASE_URL fromDatabase —— 同区域走 Render 私有网络，不暴露公网。
+#                              必须配，否则静默降级内存库 → /health 报 degraded=true。
+#
+# 唯一环境变量契约真源：backend/.env.example（41 项）。
+# 本文件只挑其中的生产必填/常用项；其余留默认值。
+# =============================================================================
+
+databases:
+  - name: clair-db
+    # basic-1gb（2026-08 后的新 ID 为 0.5c-1g；legacy 名仍有效）：0.5 CPU / 1GB RAM / 100 连接。
+    # 选它而不是 basic-256mb($6/mo) 的理由是**算力与内存**，不是存储：
+    #   还原后整库仅约 112MB（daily_quotes 102MB，其中索引 36MB），1GB 存储绰绰有余；
+    #   但 basic-256mb 只有 256MB RAM —— 比 daily_quotes 的索引总量(36MB)+热数据还紧张，
+    #   50 万行的排序/聚合会频繁落盘，且 pg_restore 重建 4 个索引时极易顶到内存上限。
+    plan: basic-1gb
+    # 与本地源库同主版本（本地实测 15.17），把跨大版本还原的变量降到最低。
+    # Render 支持 13~18（见 render.com/docs/postgresql-creating-connecting）。
+    postgresMajorVersion: '15'
+    # Render 区域官方可选值：oregon(默认) / ohio / virginia / frankfurt / singapore。
+    # 选 singapore：面向国内用户，这是 Render 全部区域里到中国大陆物理距离最近的一个。
+    # ⚠️ 若 Dashboard 在该区域不提供 basic-1gb，退回 oregon 并在故障记录里说明原因。
+    region: singapore
+    # 磁盘是全实例级配额。**只能增加、不能减少**，首次创建就要定好。
+    # 实测还原后整库 112MB，5GB 已有 45 倍余量，足够历史继续回填；
+    # 给更大的（如 15GB）一旦落成账单就无法调回。扩容单价：$0.30/GB/月。
+    diskSizeGB: 5
+
+services:
+  - type: web
+    name: clair-api
+    runtime: docker
+    plan: starter
+    region: singapore
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    # 后端 app.ts:358 挂在根路径 GET /health（非 /api/health）。
+    # 健康判定要看响应体里的 dbType/degraded/dataSource，见 RENDER-DEPLOY.md 第 4 节。
+    healthCheckPath: /health
+    # 免费档实例闲置会休眠；paid plan 常驻。若后续改回 free，需另行处理冷启动。
+    envVars:
+      # ---------------- 运行契约（缺一不可） ----------------
+      # 生产模式：开启错误脱敏、CORS 生产白名单、拒供伪造数据等分支。
+      - key: NODE_ENV
+        value: production
+      # 容器内必须监听所有网卡，否则 Render 的 HTTP 探针连不上 → 部署卡在 health check。
+      - key: HOST
+        value: 0.0.0.0
+      # Render 支持的同名 property 只有 5 个，connectionString 是私有网络地址。
+      - key: DATABASE_URL
+        fromDatabase:
+          name: clair-db
+          property: connectionString
+
+      # ---------------- 安全（生产必填，fail-fast） ----------------
+      # 256-bit base64 = 44 字符 ≥ 32，通过 resolveJwtSecret 的长度校验。
+      - key: JWT_SECRET
+        generateValue: true
+      # 前端所在 origin（例如 https://clair.market）。内置静态白名单已有
+      # egobai.github.io / clair.market / vercel / railway 四项，
+      # Cloudflare Pages 的 *.pages.dev 域名必须通过这里追加，否则浏览器端被 CORS 拒。
+      - key: CORS_ORIGINS
+        sync: false
+
+      # ---------------- 连接池（按 Render 配额下调） ----------------
+      # Render 无内置连接池器；basic-1gb 上限 100 连接，0.5c-1g 实例若被单个 web
+      # 实例的 20 连接长期占用，后续扩容/另一个服务会撞上限。先压到 10。
+      - key: DB_POOL_MAX
+        value: '10'
+
+      # ---------------- 自报信息 ----------------
+      - key: APP_VERSION
+        value: 1.7.0
+      - key: LOG_LEVEL
+        value: info
+      # Build 信息：后端读取的 5 个候选变量是 GIT_COMMIT_SHA / BUILD_COMMIT /
+      # SOURCE_COMMIT / CF_PAGES_COMMIT_SHA / VERCEL_GIT_COMMIT_SHA，
+      # 都不含 Render 自有的 RENDER_GIT_COMMIT_SHA，故本机部署后
+      # /health.build.commit 与 buildTime 预期为 null —— 这是诚实空值，不伪造。
+      # （要填实需要改 backend 代码的候选列表，属后续工单，本工单文件域不含源码。）
+
+      # ---------------- AI / 数据源密钥（Dashboard 手填，不进 git） ----------------
+      - key: AI_PROVIDER
+        value: deepseek
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com/v1
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: TUSHARE_TOKEN
+        sync: false
+      # AKSHARE_PROXY_URL / ALPHAVANTAGE_KEY / OPENAI_* / CLAUDE_* / SENTRY_DSN
+      # 均为「配了才多一个可用数据源」，未配则诚实降级，故不预置。
+      # ALLOW_FABRICATED_MARKET_DATA 刻意不设：保持默认关闭，
+      # 让生产降级态显式暴露为 503 + dataSource='unavailable'，而不是被静默吞掉。
