@@ -1185,6 +1185,123 @@ async function handleStockSearch(q) {
   return json({ data: { items: results }, success: true });
 }
 
+// ==================== 全局搜索 /api/search ====================
+
+/**
+ * 股票搜索：GET /api/search?q=<关键词>&limit=<n>
+ *
+ * 【为什么必须有这条路由】前端「添加自选股」弹窗调用的是 /api/search?q=...
+ * （frontend/src/pages/WatchlistPage.tsx:333、components/Stock/WatchlistPanel.tsx:291），
+ * 而本 Worker 此前**没有注册该路径** → 线上直接 404，前端 `data.data?.results`
+ * 恒为 undefined，表现为「搜索框永远搜不到东西」的静默失败（P0）。
+ * 注意 /api/stocks/search 是**另一条**路径（useStockStore 用），两者不可互相替代。
+ *
+ * 【真源】Worker 内置的**真实** A 股清单 FULL_STOCK_LIST（5541 条，
+ * symbol/name/market/industry），来源 clair-worker/all_stocks_v3_compact.json，
+ * 由 clair-worker/fetch_stocks.py 调 akshare（stock_info_a_code_name() +
+ * 申万一级行业分类）抓取，快照日期 2026-06-22。
+ * **绝不生成/硬编码/随机造数据**：命中即为清单中真实存在的股票；
+ * 未命中即如实返回空并标 dataSource:'unavailable'。
+ *
+ * 【契约】信封 = { success, dataSource, data:{results,query,total}, results, total, timestamp }
+ *   - data.results 与本地 Express GET /api/search（backend/src/app.ts:277）**同构**：
+ *     前端消费点是 body.data.results（WatchlistPage.tsx:335 / WatchlistPanel.tsx:291），
+ *     故 results 必须挂在 data.results 下 —— 若把 data 本身做成数组，
+ *     body.data?.results 恒为 undefined，前端搜索框仍然恒空，等于没修。
+ *   - 顶层再平铺一份 results / total（与信封顶层字段要求一致），
+ *     便于不解析 data 就能直接取用数组与总数。
+ */
+async function handleSearch(url) {
+  const params = new URL(url).searchParams;
+  const q = (params.get('q') || '').trim();
+  const limitRaw = parseInt(params.get('limit') || '', 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 50) : 20;
+
+  if (!q) {
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '缺少搜索关键词 q',
+      message: '请提供 q 参数（股票代码或名称），例如 /api/search?q=600519',
+      data: { results: [], query: '', total: 0 },
+      results: [],
+      total: 0,
+      timestamp: Date.now(),
+    }, 400);
+  }
+
+  const matches = searchStockList(q, limit);
+  if (matches.length === 0) {
+    // 真实清单里确实没有匹配项 → 如实说明，不返回伪造结果
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      error: `未找到与「${q}」匹配的股票`,
+      message: `内置真实 A 股清单（5541 只，快照 2026-06-22）中无「${q}」的匹配项，请检查代码或简称`,
+      data: { results: [], query: q, total: 0 },
+      results: [],
+      total: 0,
+      timestamp: Date.now(),
+    });
+  }
+
+  return json({
+    success: true,
+    dataSource: 'real',
+    data: { results: matches, query: q, total: matches.length },
+    results: matches,
+    total: matches.length,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * 在**真实** A 股清单内检索（代码 / 名称 / 行业），按相关度排序。
+ *
+ * 排序分档与本地 Express GET /api/search 的 ORDER BY CASE 对齐：
+ *   代码完全匹配(100) > 代码前缀(90) > 名称完全匹配(80) > 名称前缀(70)
+ *   > 其余包含匹配（代码包含 / 名称包含 / 行业包含，50）
+ * 无任何命中时沿用 Express 的「逐字模糊匹配」兜底（名称需包含 q 的每个字符，10）。
+ *
+ * 【性能】刻意只对**命中项**做 reclassify/normalizeIndustry 归一，
+ * 不走 getFallbackStocks()（那会对 5541 条全量跑一遍正则重分类 + 概念生成，
+ * 搜索场景纯属浪费）。industry 口径与 /api/stocks、/api/stocks/search 保持一致。
+ */
+function searchStockList(keyword, limit) {
+  const q = keyword.trim().toLowerCase();
+  const scored = [];
+  for (const [symbol, name, market, rawIndustry] of FULL_STOCK_LIST) {
+    const symbolLower = symbol.toLowerCase();
+    const nameLower = name.toLowerCase();
+    const industryLower = String(rawIndustry || '').toLowerCase();
+    let score = 0;
+    if (symbolLower === q) score = 100;
+    else if (symbolLower.startsWith(q)) score = 90;
+    else if (nameLower === q) score = 80;
+    else if (nameLower.startsWith(q)) score = 70;
+    else if (symbolLower.includes(q) || nameLower.includes(q) || industryLower.includes(q)) score = 50;
+    if (score === 0) continue;
+    scored.push({ score, symbol, name, market, rawIndustry });
+  }
+  // 兜底：无命中且 q 长度 ≥ 2 时，按 Express 的逐字模糊匹配再试一次
+  if (scored.length === 0 && q.length >= 2) {
+    const chars = Array.from(q);
+    for (const [symbol, name, market, rawIndustry] of FULL_STOCK_LIST) {
+      const nameLower = name.toLowerCase();
+      if (chars.every(c => nameLower.includes(c))) {
+        scored.push({ score: 10, symbol, name, market, rawIndustry });
+      }
+    }
+  }
+  scored.sort((a, b) => (b.score - a.score) || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
+  return scored.slice(0, limit).map(({ symbol, name, market, rawIndustry }) => ({
+    symbol,
+    name,
+    market,
+    industry: normalizeIndustry(reclassify(name, rawIndustry)),
+  }));
+}
+
 // ==================== Phase 2: AI 市场解读 ====================
 
 function generateMarketInsight(indices, sectors, stocks, quotes) {
@@ -2928,7 +3045,60 @@ async function handleBacktestRun(request) {
     // 无亏损交易时盈亏比在数学上无定义 → 如实返回 null，由前端显示「—」
     const profitFactor = totalTrades === 0 ? null : (lossSum > 0 ? winSum / lossSum : null);
 
+    // ── 区间覆盖披露（P2-BACKTEST-RANGE，Worker 侧）──
+    // 背景：本地 Express 后端已在 6246b6fc9 修过同一问题，**Worker 侧遗漏** ——
+    // 用户请求 endDate=2026-10-24 而上游K线只到 10-23 时，响应里
+    // requestedRange 键名还用 startDate/endDate（前端读 .start/.end → 恒为
+    // undefined），且完全没有 actualRange / rangeNote，于是前端既无法比对
+    // 请求区间与实际区间、warnings 里也没有任何截断说明 → **区间被悄悄截断
+    // 而用户不可见**（HTTP 200 但内容误导，违反诚实数据红线）。
+    //
+    // 字段名与结构严格对齐 frontend/src/types/backtest.ts 的 BacktestResult
+    // （与 backend/src/api/backtest-routes.ts 的实际下发结构同源）：
+    //   requestedRange: { start, end }                       —— 用户请求的原始区间
+    //   actualRange:    { start, end, klineCount, truncated } —— 实际参与回测的区间
+    //   rangeNote:      string | null                        —— 区间覆盖说明
+    const requestedRange = { start: startDate, end: endDate };
+    // truncated 判据 = 「实际回测区间 ≠ 请求区间」，与前端 BacktestPage 的
+    // hasRangeMismatch（比对 requestedRange.start/end 与 actualRange.start/end）
+    // 完全同口径 —— 否则会出现「前端弹区间不一致、rangeNote 却说完整覆盖」的自相矛盾。
+    const endNotCovered = actualEndDate !== endDate;
+    const startNotCovered = actualStartDate !== startDate;
+    const truncated = endNotCovered || startNotCovered;
+    const actualRange = {
+      start: actualStartDate,
+      end: actualEndDate,
+      klineCount: tradingDays,
+      truncated,
+    };
+
+    // 起点后移有两种成因，文案必须分开，否则会把「预热窗口调整」误报成「数据缺失」：
+    //   a) actualIdx > startIdx：startDate 之前的可用K线不足 BT_WARMUP_DAYS 根预热窗口
+    //   b) actualIdx === startIdx：请求的起始日本身没有K线（如非交易日），自动顺延
+    const warmupShifted = actualIdx > startIdx;
+    const rangeNotes = [];
+    if (endNotCovered) {
+      rangeNotes.push(lastDate < endDate
+        ? `上游可用K线最新仅到 ${lastDate}，尚未更新到请求的结束日 ${endDate}`
+        : `请求的结束日 ${endDate} 无对应K线（可能非交易日），可用K线止于 ${actualEndDate}`);
+    }
+    if (startNotCovered) {
+      rangeNotes.push(warmupShifted
+        ? `可用K线在 ${startDate} 之前仅有 ${startIdx} 条，不足 ${BT_WARMUP_DAYS} 日指标预热窗口，实际回测起点由 ${startDate} 后移至 ${actualStartDate}`
+        : `请求的起始日 ${startDate} 无对应K线，实际回测自 ${actualStartDate} 开始`);
+    }
+    const rangeNote = truncated
+      ? `请求区间 ${startDate}~${endDate} 未被完整覆盖：${rangeNotes.join('；')}。实际回测使用 ${actualStartDate}~${actualEndDate}（共 ${tradingDays} 条K线），结论仅代表该实际区间。`
+      : `请求区间 ${startDate}~${endDate} 已被完整覆盖，实际回测使用 ${actualStartDate}~${actualEndDate}（共 ${tradingDays} 条K线）。`;
+
     const warnings = [];
+    // 截断必须出现在 warnings 里（前端会把它渲染成告警），不能只写在 note 中
+    if (endNotCovered) {
+      warnings.push(`可用K线止于 ${actualEndDate}，与请求的 ${endDate} 不一致，已按实际可用数据回测`);
+    }
+    if (startNotCovered) {
+      warnings.push(`实际回测起点为 ${actualStartDate}（请求 ${startDate}），已按实际可用数据回测`);
+    }
     const minBuyCost = Math.min(...closesAll.slice(actualIdx)) * 100;
     if (skippedBuyForCapital > 0) {
       warnings.push(`有 ${skippedBuyForCapital} 次买入信号因本金不足以买入 1 手（需约 ¥${Math.round(minBuyCost).toLocaleString('zh-CN')}）而被放弃，建议提高初始资金`);
@@ -2940,9 +3110,7 @@ async function handleBacktestRun(request) {
       warnings.push('所选区间内该策略未触发任何买入信号，可尝试更换策略或扩大区间');
     }
 
-    const note = actualStartDate > startDate
-      ? `历史K线最早仅到 ${uptoEnd[0].tradeDate}，已自动将回测起点调整为 ${actualStartDate}（保证 ${BT_WARMUP_DAYS} 日指标预热）`
-      : (lastDate < endDate ? `行情数据最新仅到 ${lastDate}` : null);
+    const note = `实际回测区间 ${actualStartDate}~${actualEndDate}，共 ${tradingDays} 个交易日K线（请求区间 ${startDate}~${endDate}）`;
 
     return json({
       success: true,
@@ -2953,7 +3121,9 @@ async function handleBacktestRun(request) {
         name: stock.name,
         startDate: actualStartDate,
         endDate: actualEndDate,
-        requestedRange: { startDate, endDate },
+        requestedRange,
+        actualRange,
+        rangeNote,
         totalDays: tradingDays,
         initialCapital: INITIAL_CAPITAL,
         finalValue,
@@ -4413,6 +4583,12 @@ export default {
     // Stock search: /api/stocks/search?q=
     if (path === '/api/stocks/search') {
       return handleStockSearch(url.searchParams.get('q'));
+    }
+
+    // 全局搜索: /api/search?q=  （前端「添加自选股」调用的是这条路径，
+    // 此前未注册 → 线上 404，搜索框永远搜不到东西）
+    if (path === '/api/search') {
+      return handleSearch(url);
     }
 
     // Top movers: /api/stocks/top
