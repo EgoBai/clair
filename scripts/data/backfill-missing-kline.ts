@@ -195,6 +195,13 @@ const CONCURRENCY = Number(opt('concurrency') ?? '6');
 const DELAY_MS = Number(opt('delay') ?? '0');
 /** 只处理前N 只标的（冒烟测试用）；0 = 全量 */
 const LIMIT = Number(opt('limit') ?? '0');
+/** 只处理指定标的（逗号分隔的 symbol）；空 = 全量 */
+const SYMBOL_FILTER = new Set(
+  (opt('symbols') ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 /**
  * 上游K 线的回溯根数（`param={sym},day,,,{DAYS},`）。
  *
@@ -469,8 +476,31 @@ function round2(x: number): number {
   return x < 0 ? -v : v;
 }
 
+/**
+ * 指数标的的**显式**上游代码映射（不可用数字前缀推导）。
+ *
+ * 背景（实测）：`000300.SZ`（沪深300）在 stocks 表里后缀是 `.SZ`，但它是
+ * **上交所**指数，腾讯代码是 `sh000300`。按数字前缀推导会得到 `sz000300`
+ * —— 该标的上游不存在，脚本于是**静默跳过**（表现为「无法识别代码 0 /
+ * 抓取失败 0」，但该股一行都没写）。
+ * src 侧权威代码也是 `000300.SH`（MarketIndex.ts / api/stock.ts /
+ * engineOrchestrator.ts 一致）。
+ *
+ * 映射由**逐值对拍**确定（不靠名称/前缀猜测）：
+ *   000300.SZ@2026-06-01 库内 O=4897.90 C=4844.26 V=296134051
+ *                     ↔ sh000300 同日 O=4897.90 C=4844.26 V=296134051 ✓ 逐位相同
+ *   399001.SZ ↔ sz399001、399006.SZ ↔ sz399006 同法逐位相同
+ */
+const INDEX_UPSTREAM_CODE: Record<string, string> = {
+  '000300.SZ': 'sh000300',
+  '399001.SZ': 'sz399001',
+  '399006.SZ': 'sz399006',
+};
+
 /** '600519.SH' → 'sh600519'；腾讯小写市场前缀 */function toTencentSymbol(symbol: string): string | null {
   const code = symbol.replace(/\.(SZ|SH|BJ)$/i, '');
+  const explicit = INDEX_UPSTREAM_CODE[symbol.toUpperCase()];
+  if (explicit) return explicit;
   if (code.startsWith('6') || code.startsWith('9')) return `sh${code}`;
   if (code.startsWith('0') || code.startsWith('3')) return `sz${code}`;
   if (code.startsWith('4') || code.startsWith('8')) return `bj${code}`;
@@ -509,7 +539,19 @@ async function main() {
     }
     console.log(`断点续跑: ${RESUME} 已完成 ${done.size} 只`);
   }
-  const stocks = LIMIT > 0 ? allStocks.slice(0, LIMIT) : allStocks.filter((s) => !done.has(s.symbol));
+  const filtered = SYMBOL_FILTER.size
+    ? allStocks.filter((s) => SYMBOL_FILTER.has(s.symbol.toUpperCase()))
+    : allStocks;
+  if (SYMBOL_FILTER.size) {
+    const found = new Set(filtered.map((s) => s.symbol));
+    const missing = [...SYMBOL_FILTER].filter((s) => !found.has(s));
+    if (missing.length) {
+      console.error(`\n✗ --symbols 中有 ${missing.length} 只不在活跃标的表: ${missing.join(', ')}`);
+      process.exit(2);
+    }
+    console.log(`--symbols 过滤: 只处理 ${filtered.length} 只（${[...found].join(', ')}）`);
+  }
+  const stocks = LIMIT > 0 ? filtered.slice(0, LIMIT) : filtered.filter((s) => !done.has(s.symbol));
   console.log(`活跃标的: ${allStocks.length} 只，本次处理 ${stocks.length} 只\n`);
 
   // 已是正确日期的行不再重算（ON CONFLICT DO NOTHING 也会兜底，这里提前跳过省请求）

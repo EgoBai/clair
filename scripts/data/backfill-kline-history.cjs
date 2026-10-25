@@ -57,15 +57,31 @@
  * 依赖唯一约束 `daily_quotes_stock_id_trade_date_key (stock_id, trade_date)`，
  * 用 `ON CONFLICT DO NOTHING`。已存在行**一律不改**（存量口径问题不在本脚本范围）。
  *
+ * ## ⚠️ 回填行的 market_cap / pe_ratio / pb_ratio 恒为 NULL（下游必须判空）
+ * 同花顺日线不提供总市值、市盈率、市净率，按诚实数据红线**不估算、不留 0**，一律写 NULL。
+ * 副作用：**同一只股票会出现「存量行有 market_cap、回填行 NULL」的前后不一致**
+ * （以 600519.SH 为例：2025-11-27 起有值，2025-11-26 及之前为 NULL）。
+ * 任何依赖 market_cap / pe_ratio / pb_ratio 的指标或因子，在跨越回填边界时**必须判空**，
+ * 否则会遇到 NULL 传播或静默少算。此不一致是刻意接受的（宁缺勿伪），
+ * 根治需另开工单补估值源，不在本脚本范围。
+ *
+ * ## ⚠️ 退市股上游无数据（NO_DATA_UPSTREAM）
+ * 同花顺对已退市标的的年份文件**永久 404**（实测 000004/300029/600421/605081 全 404）。
+ * 这类标的按裁决**跳过不补**：退市股对回测无价值，且 turnover 是 NOT NULL，
+ * 为它们改造 schema 或留 NULL 是拿真实约束换无价值数据。
+ * 脚本记入 `upstreamMissing` 清单后继续，不中断、不重试到死。
+ *
  * ## 用法
  *   node scripts/data/backfill-kline-history.cjs                      # dry-run，默认 20 只
  *   node scripts/data/backfill-kline-history.cjs --apply              # 真写库
  *   node scripts/data/backfill-kline-history.cjs --symbols 600519.SH,000001.SZ
- *   node scripts/data/backfill-kline-history.cjs --limit 5210         # 全量（需授权）
+ *   node scripts/data/backfill-kline-history.cjs --apply --limit 500 --offset 0    # 全量第 1 批
+ *   node scripts/data/backfill-kline-history.cjs --apply --limit 500 --offset 500  # 全量第 2 批
  */
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const path = require('node:path');
 
 const PSQL = process.env.PSQL_BIN || '/opt/homebrew/opt/postgresql@15/bin/psql';
 const DB = process.env.DB_NAME || 'clair';
@@ -81,12 +97,15 @@ const val = (f, d) => {
 const APPLY = has('--apply');
 const DRY_RUN = !APPLY;
 const LIMIT = Number(val('--limit', '20'));
+const OFFSET = Number(val('--offset', '0')); // 分批推进用
 const START = val('--start', '2020-01-01');
 const CALIBER = val('--caliber', 'align'); // align | standard
 const CONCURRENCY = Number(val('--concurrency', '4'));
 const SLEEP_MS = Number(val('--sleep-ms', '350'));
-const REPORT = val('--report', '/tmp/backfill-kline-history-report.json');
-const RESUME = val('--resume-file', '/tmp/backfill-kline-history-resume.json');
+// checkpoint / 报告落在仓库内持久路径（不放 /tmp，重启会丢）；均不 commit
+const SCRIPT_DIR = __dirname;
+const REPORT = val('--report', path.join(SCRIPT_DIR, '.backfill-kline-history.report.json'));
+const RESUME = val('--resume-file', path.join(SCRIPT_DIR, '.backfill-kline-history.checkpoint.json'));
 const SYMBOLS_ARG = val('--symbols', '');
 const LOG_EVERY = Number(val('--log-every', '5'));
 
