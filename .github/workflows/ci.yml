@@ -40,8 +40,17 @@ jobs:
           npm ci
           npm run lint
           npm run build
+        # 后端地址取单一真源：GitHub Actions 仓库 Variables 的 VITE_API_BASE。
+        #
+        # ⚠️ 这里**刻意不写硬编码兜底值**（历史上写过 `vars.VITE_API_BASE || 'https://clair-api.pages.dev'`）。
+        # 教训来自两处同步的默认值：main.tsx 的运行时兜底 与 deploy.yml 的 `vars.X || '<url>'`
+        # 各写一份，漏改任一处都**不报错**，只会让前端静默指向错误后端 ——
+        # 而「后端换域名」恰恰是所有变更里最容易漏改的那一次。
+        # 变量未配时，vite.config.ts 的构建期守卫会**显式失败**（报错信息直接指明三处注入方式），
+        # 诚实失败优于静默指向错误后端。
+        # 与 deploy.yml:40 保持同一写法，不再出现第二份地址。
         env:
-          VITE_API_BASE: https://clair-api.pages.dev
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
 
       # 前端质量门禁: UI 守卫(静态 AST + 数据基线扫描)
       # 发现 ERROR 级问题时进程非零退出，使 CI 失败
