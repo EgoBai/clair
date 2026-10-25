@@ -200,14 +200,22 @@ const OVERRIDE_DECISION = flag('override-leadership-decision');
  * 若要推翻这条裁决，必须显式传 `--override-leadership-decision`，
  * 且脚本会打出二次警告——**绕过裁决应当是刻意行为，而非默认行为**。
  */
-const PROTECTED_DATES: ReadonlySet<string> = new Set([
-  // 2026-05-30 / 2026-06-06 已于 2026-10-12 移出：两者均为周六休市日，且其真身
-  // （05-29 / 06-05）已被 backfill-kline 补齐，载体日已完全冗余 ⟹ 整日删除
-  // （详见 P0-IDXBLEED-CLEANUP，commit e6669f0f8 之后的 carrier-day-audit）。
-  '2026-07-11',
-  '2026-09-06',
-  '2026-10-04',
-]);
+/**
+ * 🔒 白名单的**唯一真源**在 `scripts/data/protected-dates.ts`。
+ *
+ * 历史上本文件与 `scrub-stale-daily-quotes.ts` **各抄了一份** `PROTECTED_DATES`，
+ * 于是「改一处必须记得同步另一处」——这个漏洞已真实发生过一次
+ * （`05-30`/`06-06` 移出时漏改了另一处，后由 commit `0bbb6fb7a` 补上）。
+ *
+ * ⟹ 现改为 import 单一真源：「成对维护」从人的纪律变成结构保证。
+ * 完整语义（载体日语义、台账、退役语义）见该模块文件头。
+ */
+import {
+  PROTECTED_DATES,
+  PROTECTED_DATE_SET,
+  CARRIER_DAY_LEDGER,
+  assertLedgerConsistency,
+} from './protected-dates.ts';
 const FROM = opt('from');
 const TO = opt('to');
 const BACKUP = opt('backup');
@@ -262,7 +270,28 @@ async function main(): Promise<void> {
       new Date().getUTCFullYear(),
     )} 精度）`,
   );
+  console.log(`白名单真源: scripts/data/protected-dates.ts（${PROTECTED_DATES.length} 个受保护日期）`);
   console.log(`模式      : ${APPLY ? '⚠️  --apply（将真的删除数据）' : '干跑 dry-run（不动数据）'}\n`);
+
+  // ── 0. 台账自校验：名单与台账不一致 ⟹ 立刻停，不带着矛盾继续跑 ──
+  // 存在理由：名单与台账是同一语义的两个投影，两者若不一致，
+  // 说明有人只改了一处 —— 这正是本模块要消灭的那类「靠记得」的漏洞。
+  // 把它变成会阻断的检查，而不是留待人工发现。
+  // 分级：errors（可能删错数据 ⟹ 必须停）/ warnings（该清理了 ⟹ 提示但不拦）。
+  const { errors: ledgerErrors, warnings: ledgerWarnings } = assertLedgerConsistency();
+  if (ledgerErrors.length > 0) {
+    console.error('✗ 白名单台账自校验失败，已中止（不执行任何删除）：\n');
+    for (const p of ledgerErrors) console.error(`   • ${p}`);
+    console.error(
+      '\n   请修 scripts/data/protected-dates.ts（唯一真源，两处脚本共用，无需改两处）。',
+    );
+    process.exit(2);
+  }
+  if (ledgerWarnings.length > 0) {
+    console.log('ℹ️ 白名单台账提示（不影响本次执行）：');
+    for (const w of ledgerWarnings) console.log(`   • ${w}`);
+    console.log('');
+  }
 
   // ── 1. 摸清现状 ──
   let candidates = sql(
@@ -402,21 +431,27 @@ async function main(): Promise<void> {
   // ── 🔒 白名单硬约束：裁决保护的日期一律不删，且在所有分支之后统一收口 ──
   // 放在最后是刻意的：无论前面走了「载荷唯一」「--force-unique」还是
   // 「交易日也持有该指纹」哪条路径，白名单都不可被绕过。
-  const whitelistKept = deleteCandidates.filter((s) => PROTECTED_DATES.has(s.date));
+  const whitelistKept = deleteCandidates.filter((s) => PROTECTED_DATE_SET.has(s.date));
   const toDelete = OVERRIDE_DECISION
     ? deleteCandidates
-    : deleteCandidates.filter((s) => !PROTECTED_DATES.has(s.date));
+    : deleteCandidates.filter((s) => !PROTECTED_DATE_SET.has(s.date));
 
-  // 白名单里「库中已不存在」的日期也要报出来：说明它已被别的清洗删过，属异常
-  const absentFromDb = [...PROTECTED_DATES].filter(
+  // 白名单里「库中已不存在」的日期也要报出来。
+  // 但必须**区分两种原因**（否则会把「有意退役」误报成「可能被误删」）：
+  //   - 台账 status=retired → 有意整日删除（真身已覆盖，载体日冗余）⟹ 正常；
+  //   - 台账 status=protected → 应当存在却没了 ⟹ 异常，需从备份恢复。
+  const ledgerByDate = new Map(CARRIER_DAY_LEDGER.map((e) => [e.date, e]));
+  const absentFromDb = [...PROTECTED_DATE_SET].filter(
     (d) => !smeared.some((s) => s.date === d),
   );
+  const absentUnexpected = absentFromDb.filter((d) => ledgerByDate.get(d)?.status !== 'retired');
+  const absentRetired = absentFromDb.filter((d) => ledgerByDate.get(d)?.status === 'retired');
 
   console.log('━━━ 🔒 白名单：主理人裁决「永不删除」 ━━━');
   console.log('以下日期无论指纹如何变化、无论是否出现新的重复载荷，一律不删：\n');
   console.log('日期          星期  库内行数   状态');
   console.log('─'.repeat(58));
-  for (const d of [...PROTECTED_DATES].sort()) {
+  for (const d of [...PROTECTED_DATE_SET].sort()) {
     const hit = smeared.find((s) => s.date === d);
     const dow = weekdayCn(d);
     if (hit) {
@@ -426,12 +461,27 @@ async function main(): Promise<void> {
         }`,
       );
     } else {
-      console.log(`${d}  周${dow}  ${'—'.padStart(9)}   ⚠️ 库中已无此日（应保留，请核查是否被误删）`);
+      const entry = ledgerByDate.get(d);
+      const status =
+        entry?.status === 'retired'
+          ? `已退役（${entry.archiveTable} 归档 ${entry.deletedRows} 行 · 真身覆盖 ${entry.coverage}）`
+          : '⚠️ 库中已无此日（应保留，请核查是否被误删）';
+      console.log(`${d}  周${dow}  ${'—'.padStart(9)}   ${status}`);
     }
   }
-  if (absentFromDb.length > 0) {
-    console.log(`\n⚠️ 白名单中有 ${absentFromDb.length} 天在库中已不存在：${absentFromDb.join(', ')}`);
-    console.log('   这说明它们可能已被其它清洗删除——若非有意，请从备份恢复。');
+  if (absentRetired.length > 0) {
+    console.log(
+      `\nℹ️ 白名单中有 ${absentRetired.length} 天已**有意退役**（整日删除，真身已覆盖）：` +
+        `${absentRetired.join(', ')}`,
+    );
+    console.log('   详见 scripts/data/protected-dates.ts 的 CARRIER_DAY_LEDGER（归档表可回滚）。');
+  }
+  if (absentUnexpected.length > 0) {
+    console.log(
+      `\n⚠️ 白名单中有 ${absentUnexpected.length} 天在库中已不存在且**未登记为退役**：` +
+        `${absentUnexpected.join(', ')}`,
+    );
+    console.log('   这说明它们可能已被其它清洗误删——若非有意，请从备份恢复。');
   }
   if (OVERRIDE_DECISION) {
     console.log('\n╔══════════════════════════════════════════════════════════╗');
