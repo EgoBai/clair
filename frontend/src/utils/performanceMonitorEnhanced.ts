@@ -496,10 +496,43 @@ export class PerformanceMonitorEnhanced {
   }
 
   private sendReport(report: PerfReport): void {
-    // 这里可以发送到后端进行存储和分析
+    /**
+     * 死链清算（P0-B）：
+     * 旧实现 sendBeacon 到 `/api/performance/report` —— 后端**从未注册**该路径
+     * （实测 `POST /api/performance/report` → 404），是一条纯死链，上报内容全部石沉大海。
+     * 后端真实注册的是 `POST /api/performance/frontend`
+     * （app.ts:220 挂载 performanceRouter → performance.ts:95）。
+     *
+     * 该端点的 Joi schema（middleware/validation.ts:466）要求
+     *   { metric: string(必填), value: number(必填, 0~3600000), page?, timestamp? }
+     * 而 handler（performance.ts:96）解构的是
+     *   { metrics, url, userAgent, timestamp }，并要求 metrics 必须是**数组**
+     * 又因 validateBody 开了 `stripUnknown: true`，`metrics` 会被当作未知字段剥掉，
+     * 于是 handler 里的 `!metrics` 恒成立 → **任何 payload 都返回 400**
+     * （已实测三种 payload 均 400：{metric,value} → 400「无效的性能指标」；
+     *   {metrics:[...]} → 400「"metric" is required; "value" is required」）。
+     *
+     * 这属于后端缺陷（schema 与 handler 契约互斥），不在本工单文件域内，已上报。
+     * 前端按 schema 契约发送，后端修好后即可直接生效；
+     * 在此之前上报会被静默丢弃——但这是后端 bug，不是前端指向了不存在的端点。
+     *
+     * 与 components/Common/PerformanceMonitor.tsx 的修法保持一致（同一后端端点）。
+     */
     if (typeof navigator.sendBeacon === 'function') {
-      const blob = new Blob([JSON.stringify(report)], { type: 'application/json' });
-      navigator.sendBeacon('/api/performance/report', blob);
+      // 单一可上报的指标：平均渲染耗时（ms），并裁剪到 schema 允许的 [0, 3600000]
+      const value = Math.max(0, Math.min(3600000, Math.round(report.metrics?.rendering?.totalRenderTime ?? 0)));
+      const payload = {
+        metric: 'frontend_render_total_time',
+        value,
+        page: typeof window !== 'undefined' ? window.location.href : '',
+        timestamp: Date.now(),
+      };
+      // sendBeacon 以 text/plain 发送 Blob 会被后端 express.json 忽略，
+      // 故显式指定 application/json 的 Blob，保证请求体能被解析。
+      navigator.sendBeacon(
+        '/api/performance/frontend',
+        new Blob([JSON.stringify(payload)], { type: 'application/json' })
+      );
     }
   }
 
