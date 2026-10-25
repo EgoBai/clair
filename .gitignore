@@ -73,3 +73,15 @@ frontend/checkApiBase*.mjs
 # 因此禁止任何 `vite.config.*-temp*` / `*-verify*` 形态的配置文件入库。
 vite.config.*-temp.*
 frontend/vite.config.bt-temp.ts
+
+# ⚠️ 数据脚本的 checkpoint / report 产物（2026-10-25 补）
+# `backfill-kline-history.cjs` 默认把断点续跑状态写到**仓库内**：
+#   scripts/data/.backfill-kline-history.checkpoint.json
+#   scripts/data/.backfill-kline-history.report.json
+# 这两个是**一次性运行产物**（跑一次就产生），不是数据快照、不是基线、不是可复现输入。
+# 但它们落在仓库内且未被忽略，于是：任何人跑一次脚本 → 产生未跟踪文件 → 污染 `git status`
+# → `git add -A` 一把卷进提交 → 后来者误以为「这是某次数据快照」，甚至照着它当基准做比对。
+# 危害等级与上面的 vite.config.* 同级：CI 不红、脚本不报错，只有工作树被悄悄弄脏。
+# 同一目录下其他脚本（stale-px-*.mjs / probe-*.ts / backfill-missing-kline.ts 等）
+# 的产物默认都落在 /tmp/，只有本脚本默认落在仓库内 —— 故只针对本脚本的模式收口，不扩大化。
+scripts/data/.backfill-kline-history.*

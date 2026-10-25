@@ -172,7 +172,9 @@ if (!APPLY) {
 
 // ── 真删：单事务，条件即上方 DELETE_CONDITION ──
 console.log('\n执行删除（单事务）…');
-const deleted = psql(
+// 用 num() 而非裸 psql()：删除行数要参与下方 `before.total - deleted` 的算术，
+// psql() 返回字符串（number - string 会触发 TS2363），num() 与其余各计数口径一致。
+const deleted = num(
   `WITH d AS (DELETE FROM daily_quotes WHERE ${DELETE_CONDITION} RETURNING 1)
    SELECT count(*) FROM d;`,
 );
