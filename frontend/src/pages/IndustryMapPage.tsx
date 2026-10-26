@@ -98,19 +98,62 @@ const API_BASE = API_ORIGIN;
 
 // ============= 自定义节点组件 =============
 
-/** 产业链环节节点 */
-const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => {
-  const segment = data.segment;
-  const layerType = data.layerType;
-  const color = LAYER_COLORS[layerType] || '#1890ff';
+/**
+ * 产业链环节节点
+ *
+ * 对 data / data.segment / segment.* 全链路做防御：后端返回形态不一致或字段缺失时
+ * 渲染「数据不完整」最小节点，绝不抛异常（历史上一次 undefined 就让整页渲染失败）。
+ * 导出是为了让单测能直接按三种数据形态断言（见 src/__tests__/IndustryMapSegmentNode.test.tsx）。
+ */
+export const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => {
+  const segment = data?.segment;
+  const layerType = data?.layerType;
+  const color = LAYER_COLORS[layerType as LayerType] || '#1890ff';
   const _navigate = useNavigate();
-  
-  const leaderCount = segment.companies.filter(c => c.position === 'leader').length;
-  const hasCompanies = segment.companies.length > 0;
+
+  // 数据兜底：data 或 data.segment 缺失时渲染最小节点，绝不抛异常
+  // （后端返回形态不一致/字段缺失时，不能让整页被 React 冒泡成「渲染失败」）
+  if (!segment) {
+    return (
+      <div
+        style={{
+          padding: '12px 16px',
+          borderRadius: 8,
+          border: `2px solid ${selected ? 'var(--accent-solid)' : color}`,
+          background: selected ? 'var(--accent-light)' : 'var(--bg-card)',
+          minWidth: 180,
+          cursor: 'pointer',
+          boxShadow: selected ? 'var(--glow-accent)' : 'var(--shadow-sm)',
+        }}
+      >
+        <Handle type="target" position={Position.Left} style={{ background: color }} />
+        <Tag color={color} style={{ margin: 0 }}>
+          {layerType ? LAYER_NAMES[layerType] : '环节'}
+        </Tag>
+        <div style={{ marginTop: 8, fontWeight: 600, fontSize: 16, color: 'var(--text-primary)' }}>
+          数据不完整
+        </div>
+        <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>
+          该环节缺少数据，无法展示
+        </div>
+        <Handle type="source" position={Position.Right} style={{ background: color }} />
+      </div>
+    );
+  }
+
+  const companies = Array.isArray(segment.companies) ? segment.companies : [];
+  const leaderCount = companies.filter(c => c && c.position === 'leader').length;
+  const hasCompanies = companies.length > 0;
   const topChange = hasCompanies
-    ? Math.max(...segment.companies.map(c => c.changePercent || 0))
+    ? Math.max(...companies.map(c => c?.changePercent || 0))
     : 0;
-  
+
+  // description 可能缺失/非字符串：回落到占位文案，绝不直接 .slice()
+  const rawDescription = typeof segment.description === 'string' ? segment.description : '';
+  const descText = rawDescription
+    ? (rawDescription.length > 30 ? `${rawDescription.slice(0, 30)}...` : rawDescription)
+    : '暂无描述';
+
   return (
     <div
       style={{
@@ -128,7 +171,7 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
       
       <div style={{ marginBottom: 8 }}>
         <Tag color={color} style={{ margin: 0 }}>
-          {LAYER_NAMES[layerType]}
+          {layerType ? LAYER_NAMES[layerType] : '环节'}
         </Tag>
         {leaderCount > 0 && (
           <Tag color="red" style={{ marginLeft: 4 }}>
@@ -138,16 +181,16 @@ const SegmentNode: React.FC<NodeProps<ChainNodeData>> = ({ data, selected }) => 
       </div>
       
       <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4, color: 'var(--text-primary)' }}>
-        {segment.name}
+        {segment.name || '未命名环节'}
       </div>
       
       <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginBottom: 8 }}>
-        {segment.description.slice(0, 30)}...
+        {descText}
       </div>
       
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {hasCompanies ? `${segment.companies.length}家公司` : '暂无数据'}
+          {hasCompanies ? `${companies.length}家公司` : '暂无数据'}
         </Text>
         {hasCompanies ? (
           <Text
@@ -192,12 +235,13 @@ const chainToGraph = (chain: IndustryChain) => {
     support: 650,
   };
   
-  const layers = chain.layers.sort((a, b) => (a.order || 0) - (b.order || 0));
+  // 不原地 sort：chain 来自 state，原地排序会静默改动 state 对象
+  const layers = [...chain.layers].sort((a, b) => (a.order || 0) - (b.order || 0));
   
   // 统一多层渲染: 上游(左)/中游(中)/下游(右), 按连线绘制边
   layers.forEach((layer) => {
     const x = layerPositions[layer.type as LayerType] || 0;
-    const segments = layer.segments;
+    const segments = Array.isArray(layer.segments) ? layer.segments : [];
     const totalSegments = segments.length;
     const spacing = Math.min(180, Math.max(100, 700 / Math.max(totalSegments, 1)));
     
@@ -205,7 +249,7 @@ const chainToGraph = (chain: IndustryChain) => {
       const y = index * spacing + 50;
       
       nodes.push({
-        id: segment.id,
+        id: segment.id || `${layer.id || layer.type}-${index}`,
         type: 'segment',
         position: { x, y },
         data: {
@@ -216,7 +260,7 @@ const chainToGraph = (chain: IndustryChain) => {
         targetPosition: Position.Left,
       });
       
-      segment.downstreamTo.forEach((targetId) => {
+      (Array.isArray(segment.downstreamTo) ? segment.downstreamTo : []).forEach((targetId) => {
         edges.push({
           id: `${segment.id}-${targetId}`,
           source: segment.id,
@@ -263,7 +307,8 @@ const IndustryMapPage: React.FC = () => {
       try {
         const response = await fetch(`${API_BASE}/api/industry-chains`);
         const data = await response.json();
-        if (data.success) setChains(data.data.chains);
+        const list = data?.data?.chains;
+        if (data?.success && Array.isArray(list)) setChains(list);
       } catch { /* fallback to HOT_CHAINS */ }
     };
     fetchChains();
@@ -314,8 +359,17 @@ const IndustryMapPage: React.FC = () => {
     try {
       const response = await fetch(`${API_BASE}/api/industry-chains/${chainId}`);
       const data = await response.json();
-      if (data.success) {
-        setSelectedChain(data.data.chain);
+      /**
+       * 后端存在两种返回形态，必须都认：
+       *   本地 backend  → { success, data: { chain: {...} } }
+       *   线上 worker   → { success, data: { ...chain } }（无 chain 包裹层）
+       * 旧写法只认第一种：线上拿到 undefined → selectedChain 为 undefined →
+       * 页面 `chain.description` 抛 "Cannot read properties of undefined (reading 'description')"。
+       */
+      const payload = data?.data;
+      const chain = payload?.chain ?? (payload && Array.isArray(payload.layers) ? payload : null);
+      if (data?.success && chain) {
+        setSelectedChain(chain);
       }
     } catch (error) {
       console.error('获取产业链详情失败:', error);
@@ -347,8 +401,8 @@ const IndustryMapPage: React.FC = () => {
   }, [selectedChain, setNodes, setEdges]);
   
   const onNodeClick = useCallback((_: any, node: Node) => {
-    const segment = node.data.segment as ChainSegment;
-    setSelectedSegment(segment);
+    const segment = node?.data?.segment as ChainSegment | undefined;
+    setSelectedSegment(segment ?? null);
     // 窄屏（lg 断点以下）详情面板位于图谱下方、首屏不可见，点击后主动滚动到面板
     if (typeof window !== 'undefined' && window.innerWidth < 992) {
       requestAnimationFrame(() => {
@@ -360,7 +414,7 @@ const IndustryMapPage: React.FC = () => {
   // 计算统计信息
   const stats = useMemo(() => {
     if (!selectedChain || !selectedChain.layers) return { totalCompanies: 0, leaders: 0, avgChange: 0, totalMarketCap: 0 };
-    const allCompanies = selectedChain.layers.flatMap(l => l.segments?.flatMap(s => s.companies || []) || []);
+    const allCompanies = selectedChain.layers.flatMap(l => l?.segments?.flatMap(s => s?.companies || []) || []);
     const totalCompanies = allCompanies.length;
     const leaders = allCompanies.filter(c => c.position === 'leader').length;
     const avgChange = totalCompanies > 0
@@ -428,8 +482,8 @@ ${chain.layers?.map(l =>
         body: JSON.stringify({
           message: `你是澄观AI产业链研究助手。请基于以下产业链实时数据回答用户问题，给出专业、有数据支撑的分析。
 
-产业链: ${chain.name}
-描述: ${chain.description}
+产业链: ${chain?.name || '未知产业链'}
+描述: ${chain?.description || '暂无描述'}
 ${marketContext}
 
 用户问题: ${q}
@@ -578,7 +632,25 @@ ${marketContext}
     );
   }
   
-  const chain = selectedChain as IndustryChain;
+  const chain = selectedChain as IndustryChain | undefined;
+  
+  // 数据缺失兜底：详情接口不可用/形态异常时给出空态，而不是让页面抛异常
+  if (!chain) {
+    return (
+      <div className="industry-map-page" style={{ padding: 'clamp(12px, 2vw, 24px)', background: 'var(--bg-base)', minHeight: '100vh' }}>
+        <Title level={2} style={{ color: 'var(--text-primary)', marginBottom: 8, fontSize: 'clamp(18px, 4vw, 30px)' }}>
+          <ApartmentOutlined style={{ marginRight: 8 }} />
+          AI 产业地图
+        </Title>
+        <Card style={{ background: 'var(--card-bg)' }}>
+          <EmptyState
+            title="暂无产业链数据"
+            description="产业链详情接口暂不可用，请稍后重试"
+          />
+        </Card>
+      </div>
+    );
+  }
   
   // 响应式图表高度
   const graphHeight = typeof window !== 'undefined' && window.innerWidth < 768 ? 380 : 600;
@@ -717,7 +789,7 @@ ${marketContext}
               </div>
             ) : nodes.length > 0 ? (
               <ReactFlow
-                key={chain.id}
+                key={chain?.id || 'chain'}
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
@@ -747,7 +819,7 @@ ${marketContext}
                   <div style={{ marginBottom: 12 }}>
                     <Text strong style={{ color: 'var(--text-primary)' }}>产业描述</Text>
                     <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
-                      {chain.description}
+                      {chain?.description || '暂无描述'}
                     </div>
                   </div>
                   
@@ -786,7 +858,7 @@ ${marketContext}
               title={
                 <Space>
                   <Tag color={LAYER_COLORS[selectedSegment.layerId === 'upstream' ? 'upstream' : 'midstream']}>
-                    {selectedSegment.name}
+                    {selectedSegment?.name || '环节'}
                   </Tag>
                 </Space>
               }
@@ -802,7 +874,7 @@ ${marketContext}
               }
             >
               <Paragraph style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-                {selectedSegment.description}
+                {selectedSegment?.description || '暂无描述'}
               </Paragraph>
               
               {selectedSegment.characteristics && (
@@ -890,7 +962,7 @@ ${marketContext}
                   </TabPane>
                   <TabPane tab="风险提示" key="risk">
                     <ul style={{ color: 'var(--text-secondary)', paddingLeft: 20 }}>
-                      {selectedChain?.aiAnalysis.riskFactors.map((risk, index) => (
+                      {(selectedChain?.aiAnalysis.riskFactors || []).map((risk, index) => (
                         <li key={index} style={{ marginBottom: 8 }}>
                           {risk}
                         </li>
@@ -899,7 +971,7 @@ ${marketContext}
                   </TabPane>
                   <TabPane tab="核心洞察" key="insights">
                     <ul style={{ color: 'var(--text-secondary)', paddingLeft: 20 }}>
-                      {selectedChain?.aiAnalysis.keyInsights.map((insight, index) => (
+                      {(selectedChain?.aiAnalysis.keyInsights || []).map((insight, index) => (
                         <li key={index} style={{ marginBottom: 8 }}>
                           {insight}
                         </li>
@@ -912,7 +984,7 @@ ${marketContext}
                   // 基于segment数据生成分析
                   const layers = chain.layers || [];
                   const allSegments = layers.flatMap((l: any) =>
-                    (l.segments || []).map((s: any) => ({
+                    (l?.segments || []).map((s: any) => ({
                       ...s,
                       layerName: l.name,
                       layerType: l.type,
@@ -934,7 +1006,7 @@ ${marketContext}
                     <Tabs defaultActiveKey="segments" size="small">
                       <TabPane tab="环节分析" key="segments">
                         <Paragraph style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
-                          {chain.description}
+                          {chain?.description || '暂无描述'}
                         </Paragraph>
                         {allSegments.length > 0 ? (
                           <div>
