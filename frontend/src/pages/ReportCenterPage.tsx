@@ -143,8 +143,9 @@ function ReportCenterPage() {
       if (!alive) return;
       const repData = repJson?.data;
       const newsData = newsJson?.data;
-      const repItems: BackendReport[] = Array.isArray(repData?.items) ? repData.items : [];
-      const newsItems: BackendNewsItem[] = Array.isArray(newsData?.items) ? newsData.items : [];
+      // 后端可能返回含 null 的数组项（降级态），先剔空再映射，避免渲染/映射期崩页
+      const repItems: BackendReport[] = (Array.isArray(repData?.items) ? repData.items : []).filter(Boolean);
+      const newsItems: BackendNewsItem[] = (Array.isArray(newsData?.items) ? newsData.items : []).filter(Boolean);
 
       const mappedReports = repItems.map(mapReport);
       const mappedNews = newsItems.map(mapNews);

@@ -222,13 +222,14 @@ const FundFlowPage: React.FC = () => {
                 <div style={{ marginBottom: 8 }}>
                   <Text style={{ color: THEME.textSec }}>生效链路：</Text>
                   <Space wrap size={[6, 4]} style={{ marginLeft: 8 }}>
-                    {meta.activeProviders.map((p) => dsTag(p))}
+                    {/* meta 缺字段（后端降级）时不崩，如实显示「—」 */}
+                    {(meta.activeProviders ?? []).map((p) => dsTag(p))}
                   </Space>
                 </div>
                 <div>
                   <Text style={{ color: THEME.textSec }}>密钥配置：</Text>
                   <span style={{ marginLeft: 8, color: THEME.text }}>
-                    {Object.entries(meta.keysConfigured).map(([k, v]) => `${k}=${v ? '✓' : '✗'}`).join('  ')}
+                    {Object.entries(meta.keysConfigured ?? {}).map(([k, v]) => `${k}=${v ? '✓' : '✗'}`).join('  ') || '—'}
                   </span>
                 </div>
               </div>
@@ -270,7 +271,7 @@ const FundFlowPage: React.FC = () => {
               ))}
             </Row>
             {/* 5 档主力资金结构：真实可达则展示，否则诚实空态 */}
-            {market.tiers.main !== null ? (
+            {market.tiers?.main != null ? (
               <Row gutter={[16, 16]}>
                 {[
                   { l: '主力净额', v: market.tiers.main },
@@ -420,7 +421,7 @@ const FundFlowPage: React.FC = () => {
           <LoadingStateDetail />
         ) : global ? (
           <Row gutter={[16, 16]}>
-            {global.indicators.map((ind: GlobalIndicator) => (
+            {global?.indicators?.map((ind: GlobalIndicator) => (
               <Col xs={24} sm={12} md={6} key={ind.key}>
                 <Card size="small" style={{ background: THEME.surface, borderColor: THEME.border }}>
                   <Statistic

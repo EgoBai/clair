@@ -334,14 +334,14 @@ export default function SectorDetailPage() {
     {
       title: '最新价', key: 'price', align: 'right' as const, width: 84,
       render: (_: unknown, rec: ConstituentStock) => {
-        const p = toNum(rec.latestQuote?.closePrice);
+        const p = toNum(rec?.latestQuote?.closePrice);
         return <span style={{ fontFamily: 'monospace' }}>{p == null ? '—' : p.toFixed(2)}</span>;
       },
     },
     {
       title: '涨跌幅', key: 'changePercent', align: 'right' as const, width: 92,
       render: (_: unknown, rec: ConstituentStock) => {
-        const v = toNum(rec.latestQuote?.changePercent);
+        const v = toNum(rec?.latestQuote?.changePercent);
         if (v == null) return '—';
         return <Tag color={v >= 0 ? 'red' : 'green'} style={{ margin: 0 }}>{v >= 0 ? '+' : ''}{v.toFixed(2)}%</Tag>;
       },
@@ -349,14 +349,14 @@ export default function SectorDetailPage() {
     {
       title: '换手率%', key: 'turnoverRate', align: 'right' as const, width: 84,
       render: (_: unknown, rec: ConstituentStock) => {
-        const v = toNum(rec.latestQuote?.turnoverRate);
+        const v = toNum(rec?.latestQuote?.turnoverRate);
         return v == null ? '—' : v.toFixed(2);
       },
     },
     {
       title: 'PE', key: 'peRatio', align: 'right' as const, width: 76,
       render: (_: unknown, rec: ConstituentStock) => {
-        const v = toNum(rec.latestQuote?.peRatio);
+        const v = toNum(rec?.latestQuote?.peRatio);
         return v == null ? '—' : v.toFixed(1);
       },
     },

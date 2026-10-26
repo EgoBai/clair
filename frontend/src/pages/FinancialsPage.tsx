@@ -114,9 +114,10 @@ export default function FinancialsPage() {
       ]);
 
       if (summaryRes.success) summaryData = summaryRes.data;
-      if (bsRes.success) bs = bsRes.data.periods;
-      if (isRes.success) is = isRes.data.periods;
-      if (cfRes.success) cf = cfRes.data.periods;
+      // 接口可能返回空对象（降级态）：periods 缺失时收敛为 []，避免渲染期 .map 崩页
+      if (bsRes.success) bs = Array.isArray(bsRes.data?.periods) ? bsRes.data.periods : [];
+      if (isRes.success) is = Array.isArray(isRes.data?.periods) ? isRes.data.periods : [];
+      if (cfRes.success) cf = Array.isArray(cfRes.data?.periods) ? cfRes.data.periods : [];
     } catch (error) {
       logger.error('加载财务数据失败:', error);
     } finally {
@@ -131,6 +132,17 @@ export default function FinancialsPage() {
 
   if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" tip="加载财务数据..." /></div>;
   if (!summary) return <Alert message="无法加载财务数据" type="error" showIcon />;
+  // summary 为「空对象/字段不全」（接口降级）时不硬算洞察与结构图，如实提示，绝不填 0 冒充
+  if (!summary.balanceSheet || !summary.incomeStatement || !summary.cashFlow || !summary.indicators) {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        message="接口未取到完整财务三表数据"
+        description="后端返回的财务摘要缺少资产负债表 / 利润表 / 现金流量表 / 指标之一，页面已如实置空，不做任何估算填充。"
+      />
+    );
+  }
 
   const insight: FinancialInsight = computeFinancialInsight(
     summary,

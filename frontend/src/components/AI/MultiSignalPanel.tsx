@@ -107,8 +107,11 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
   }
 
   if (!data) return null;
+  // summary 缺字段（接口降级/返回空对象）时不崩，也不回落 0 冒充多空统计 —— 直接不渲染本面板
+  if (!data.summary) return null;
 
   const { signals, summary, narrative } = data;
+  const safeSignals = Array.isArray(signals) ? signals : [];
   const totalSignals = summary.bullish + summary.bearish + summary.neutral;
   const bullishPct = totalSignals > 0 ? (summary.bullish / totalSignals) * 100 : 0;
   const bearishPct = totalSignals > 0 ? (summary.bearish / totalSignals) * 100 : 0;
@@ -164,7 +167,7 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
 
       {/* 信号卡片网格 */}
       <Row gutter={[12, 12]}>
-        {signals.map((signal, idx) => {
+        {safeSignals.map((signal, idx) => {
           const cfg = DIRECTION_CONFIG[signal.direction];
           const tfCfg = TIMEFRAME_CONFIG[signal.timeframe];
           return (
@@ -284,7 +287,7 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
 
       {/* 底部信息 */}
       <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)' }}>
-        <span>数据来源: {[...new Set(signals.map(s => s.source))].join(', ')}</span>
+        <span>数据来源: {[...new Set(safeSignals.map(s => s.source))].join(', ')}</span>
         <span>{new Date(data.timestamp).toLocaleString('zh-CN')}</span>
       </div>
     </Card>

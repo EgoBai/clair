@@ -63,7 +63,8 @@ const MarginTradingPage: React.FC = () => {
         fetchMarginTrend(30),
       ]);
       setOverview(overviewRes);
-      setFinancingRank(rankRes);
+      // 接口可能返回非数组（缺字段 / 空对象），统一收敛为数组，避免渲染期 .length 崩页
+      setFinancingRank(Array.isArray(rankRes) ? rankRes : []);
       // 真实两融趋势：/api/margin/trend 返回的 records 映射为图表数据；不可达时为空数组（诚实空态）
       setTrend((trendRes?.records ?? []) as MarginRecord[]);
     } catch (err) {
@@ -81,8 +82,9 @@ const MarginTradingPage: React.FC = () => {
   const loadRank = async (type: string) => {
     try {
       const data = await fetchMarginRank(type);
-      if (type === 'financing') setFinancingRank(data);
-      else setSecuritiesRank(data);
+      const safeRank = Array.isArray(data) ? data : [];
+      if (type === 'financing') setFinancingRank(safeRank);
+      else setSecuritiesRank(safeRank);
     } catch (err) {
       logger.error('加载排行失败（后端未就绪或接口异常），已如实置空:', err);
       // 诚实数据红线：后端不可达时清空展示，绝不回填演示数据

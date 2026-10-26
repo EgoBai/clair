@@ -48,10 +48,13 @@ const COLOR_UP = '#ef4444';
 const COLOR_DOWN = '#22c55e';
 const WARN = '#f59e0b';
 
-const fmtInt = (n: number): string => n.toLocaleString('zh-CN');
+// 后端可能缺字段（data.advancing 等为 undefined/null），如实显示「—」，绝不回落 0 冒充真实
+const fmtInt = (n: number | null | undefined): string =>
+  n == null ? '—' : n.toLocaleString('zh-CN');
 
 /** 成交额格式化（元 → 万亿/亿） */
-const fmtAmount = (v: number): string => {
+const fmtAmount = (v: number | null | undefined): string => {
+  if (v == null) return '—';
   if (v >= 1e12) return `${(v / 1e12).toFixed(2)} 万亿`;
   if (v >= 1e8) return `${(v / 1e8).toFixed(1)} 亿`;
   if (v >= 1e4) return `${(v / 1e4).toFixed(1)} 万`;

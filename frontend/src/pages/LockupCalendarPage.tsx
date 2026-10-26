@@ -79,8 +79,9 @@ const LockupCalendarPage: React.FC = () => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!json.success || !json.data) throw new Error('接口返回数据格式异常');
-      setExpiries(json.data.expiries);
-      setByDate(json.data.byDate);
+      // 接口缺字段时收敛为数组/对象，避免渲染期 .slice / Object.keys 崩页
+      setExpiries(Array.isArray(json.data.expiries) ? json.data.expiries : []);
+      setByDate(json.data.byDate ?? {});
       setSummary(json.data.summary);
     } catch (err) {
       logger.warn('限售股解禁接口不可用（后端未就绪或返回异常），已如实置空:', err);
