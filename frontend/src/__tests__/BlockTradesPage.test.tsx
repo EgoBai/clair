@@ -21,6 +21,7 @@ vi.mock('../services/api', () => ({
 }));
 
 import BlockTradesPage from '../pages/BlockTradesPage';
+import { recordNotDeployed, clearNotDeployed } from '../services/apiGateway';
 
 /** 真实后端响应样本（实测自 3411 端口，73 笔真实交易中的第一页） */
 const REALTIME_RESP = {
@@ -131,10 +132,31 @@ describe('BlockTradesPage', () => {
       renderPage();
 
       await waitFor(() => expect(screen.getByTestId('block-trades-degraded')).toBeTruthy());
-      expect(screen.getByText(/大宗交易接口请求失败/)).toBeTruthy();
+      expect(screen.getByText(/请求失败/)).toBeTruthy();
       // 必须点明「未能取到」≠「当天没有」
       expect(screen.getByText(/不代表当天没有大宗交易/)).toBeTruthy();
+      // 形态必须是「真失败」，不能误报成「未挂载」或「暂无数据」
+      expect(screen.getByTestId('api-status-notice').getAttribute('data-status')).toBe('failed');
       expect(screen.queryByRole('table')).toBeNull();
+    });
+
+    /**
+     * 线上 Worker 场景：/api/block-trades 不在 Worker 路由表，返回 404 + Not found。
+     * 此时必须说「演示环境未挂载，需连完整后端」，**不能**说「接口请求失败」
+     * ——后者会把环境部署缺失说成服务故障。
+     */
+    it('端点未部署时应显示环境说明，且不出现「接口请求失败」', async () => {
+      recordNotDeployed('/api/block-trades', 404, 'Not found');
+      mockGet.mockRejectedValue(new Error('HTTP 404'));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByTestId('block-trades-degraded')).toBeTruthy());
+      const notice = screen.getByTestId('api-status-notice');
+      expect(notice.getAttribute('data-status')).toBe('not-deployed');
+      expect(notice.textContent).toContain('需要连接完整后端');
+      expect(notice.textContent).not.toContain('接口请求失败');
+      expect(screen.queryByRole('table')).toBeNull();
+      clearNotDeployed();
     });
 
     it('源可达但当日无成交：dataSource=realtime + message，渲染表格 + 说明', async () => {

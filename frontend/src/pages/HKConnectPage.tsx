@@ -33,6 +33,9 @@ import {
 } from 'recharts';
 import { THEME, GOLD } from '../styles/theme-constants';
 import { API_ORIGIN } from '../config/apiBase';
+import { readResponseStatus, statusFromFailure } from '../services/apiGateway';
+import { type ApiStatus } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 
 const { Title, Text } = Typography;
 
@@ -276,14 +279,38 @@ const HKConnectPage: React.FC = () => {
   const [summary, setSummary] = useState<ConnectSummary | null>(null);
   const [summarySource, setSummarySource] = useState<string>('');
   const [summaryNote, setSummaryNote] = useState<ConnectSummaryEnvelope | null>(null);
+  /** `/api/hk-connect/summary` 的取数形态：未部署 / 数据不可得 / 请求失败 */
+  const [summaryStatus, setSummaryStatus] = useState<ApiStatus | null>(null);
 
   useEffect(() => {
     let alive = true;
+    setSummaryStatus(null);
+    /** 带形态判别的取数：404(未挂载) 要与 5xx/网络失败区分，不能一律 `.catch(() => null)` */
+    const honestGet = async (url: string): Promise<{ json: any; status: ApiStatus | null }> => {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) {
+          return {
+            json: null,
+            status:
+              readResponseStatus(r) ?? statusFromFailure(new Error(`HTTP ${r.status}`), url),
+          };
+        }
+        return { json: await r.json(), status: null };
+      } catch (err) {
+        return { json: null, status: statusFromFailure(err, url) };
+      }
+    };
+
     Promise.all([
-      fetch(`${API_BASE}/api/hk-connect/ah-premium`).then((r) => r.json()).catch(() => null),
-      fetch(`${API_BASE}/api/hk-connect/summary`).then((r) => r.json()).catch(() => null),
-    ]).then(([ah, sum]) => {
+      honestGet(`${API_BASE}/api/hk-connect/ah-premium`),
+      honestGet(`${API_BASE}/api/hk-connect/summary`),
+    ]).then(([ahRes, sumRes]) => {
+      const ah = ahRes.json;
+      const sum = sumRes.json;
       if (!alive) return;
+      // summary 是本页主数据源，它的形态决定页面顶部给出哪种解释
+      if (sumRes.status) setSummaryStatus(sumRes.status);
       if (ah?.data) {
         setAhRows(ah.data.data ?? []);
         setAhSource(ah.data.dataSource ?? '');
@@ -364,6 +391,7 @@ const HKConnectPage: React.FC = () => {
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         港股通资金 · A-H 溢价分析
       </Title>
+      <ApiStatusNotice status={summaryStatus} moduleName="港股通" style={{ marginTop: 12 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <Text style={{ color: THEME.textSec }}>
           沪深港通实时额度 · A+H 两地溢价 · 数据由后端实时接口提供

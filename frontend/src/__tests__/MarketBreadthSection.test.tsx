@@ -23,6 +23,7 @@ vi.mock('../services/breadthService', () => ({
 }));
 
 import MarketBreadthSection from '../components/Market/MarketBreadthSection';
+import { recordNotDeployed, clearNotDeployed } from '../services/apiGateway';
 
 /** 实测自后端 3411 的真实响应要点（newHighs/newLows 为 null） */
 const REAL_RESP = {
@@ -119,8 +120,30 @@ describe('MarketBreadthSection', () => {
       render(<MarketBreadthSection />);
 
       await waitFor(() => expect(screen.getByTestId('breadth-error')).toBeTruthy());
-      expect(screen.getByText(/市场宽度接口请求失败/)).toBeTruthy();
+      expect(screen.getByText(/请求失败/)).toBeTruthy();
       expect(screen.getByText(/不代表全市场没有涨跌家数/)).toBeTruthy();
+      // 形态必须是「真失败」，不能落成「未部署」或「暂无数据」——三者不可互相冒充
+      expect(screen.getByTestId('api-status-notice').getAttribute('data-status')).toBe('failed');
+    });
+
+    /**
+     * 线上 Worker 场景：`/api/breadth/current` 不在 Worker 路由表里，
+     * 返回 404 + {success:false,error:'Not found'}。此时页面必须说
+     * 「演示环境未挂载，需连完整后端」，**绝不能**说「接口请求失败」——
+     * 后者会让用户误以为后端挂了或自己网络有问题。
+     */
+    it('端点未部署时应显示环境说明，且不出现「接口请求失败」', async () => {
+      recordNotDeployed('/api/breadth/current', 404, 'Not found');
+      mockGetCurrent.mockRejectedValue(new Error('HTTP 404'));
+      render(<MarketBreadthSection />);
+
+      await waitFor(() => expect(screen.getByTestId('breadth-error')).toBeTruthy());
+      const notice = screen.getByTestId('api-status-notice');
+      expect(notice.getAttribute('data-status')).toBe('not-deployed');
+      expect(notice.textContent).toContain('演示环境未挂载此接口');
+      expect(notice.textContent).toContain('需连接完整后端');
+      expect(notice.textContent).not.toContain('接口请求失败');
+      clearNotDeployed();
     });
   });
 

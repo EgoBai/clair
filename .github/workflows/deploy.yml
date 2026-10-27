@@ -32,7 +32,8 @@ jobs:
         env:
           # 主理人修正（2026-10-06）：移除 `|| 'https://clair-api.pages.dev'` 兜底。
           # 该兜底是一条**后门**：GitHub variable 缺失时构建不会失败，而是静默回落
-          # 到 Cloudflare Worker —— 而 Worker 只实现了约 24 条硬编码路由，
+          # 到 Cloudflare Worker —— 而 Worker 只实现了 42 条路由模式
+          # （26 条精确匹配 + 14 条正则，见 clair-worker/worker.js），
           # 其 /health 自报 service=clair-worker，并非 backend/ 这份代码。
           # 后果是「构建成功、部署成功、页面却连错了后端」，且没有任何报错。
           # 移除后，缺失配置会由 frontend/src/main.tsx 的构建期守卫拦下（非 0 退出）。

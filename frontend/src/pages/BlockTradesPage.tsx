@@ -54,6 +54,9 @@ import {
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
 import logger from '../utils/logger';
+import { statusFromFailure } from '../services/apiGateway';
+import { type ApiStatus } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 
 // ===== 类型（与 backend/src/api/block-trades.ts 的响应契约对齐） =====
 
@@ -153,12 +156,21 @@ const BlockTradesPage: React.FC = () => {
   const [resp, setResp] = useState<BlockTradesResp | null>(null);
   /** 网络/请求异常（非「上游不可用」）—— 与 dataSource='unavailable' 是不同事实，分开呈现 */
   const [fetchError, setFetchError] = useState<string | null>(null);
+  /**
+   * 上述异常的**形态判别**。
+   *
+   * 线上接 Cloudflare Worker 时 `/api/block-trades` 不在其路由表里，返回
+   * `404 + {"success":false,"error":"Not found"}`。若照旧渲染「大宗交易接口请求失败」，
+   * 用户会以为数据源炸了；真相是演示环境没挂这条路由。两者必须区分呈现。
+   */
+  const [fetchStatus, setFetchStatus] = useState<ApiStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
+    setFetchStatus(null);
     try {
       // 关键：**不传 date**，由后端回退到最近一个有成交的交易日（休市日传今天必然空）。
       const res = await apiService.get<BlockTradesResp>('/block-trades', {
@@ -170,6 +182,7 @@ const BlockTradesPage: React.FC = () => {
       logger.error('加载大宗交易失败:', err);
       setResp(null);
       setFetchError(err instanceof Error ? err.message : '未知错误');
+      setFetchStatus(statusFromFailure(err, '/api/block-trades'));
     } finally {
       setLoading(false);
     }
@@ -323,11 +336,23 @@ const BlockTradesPage: React.FC = () => {
 
         {/* ---- 诚实契约消费区 ---- */}
 
-        {/* (a) 请求异常 */}
-        {fetchError && (
-          <NoticeBar tone="warn">
-            大宗交易接口请求失败：{fetchError}。这表示未能取到数据，不代表当天没有大宗交易。
-          </NoticeBar>
+        {/* (a) 取数失败 / 端点未部署 —— 形态由 ApiStatusNotice 判别渲染。
+             仅 confirmed 的「真失败」才保留「这表示未能取到数据…」这句领域提示，
+             「未部署」不能用它，否则等于把环境缺失说成了数据传输问题。 */}
+        {fetchStatus && (
+          <div data-testid="block-trades-degraded">
+            <ApiStatusNotice
+              status={fetchStatus}
+              moduleName="大宗交易"
+              onRetry={fetchData}
+              style={{ marginBottom: 12 }}
+              extra={
+                fetchStatus.kind === 'failed'
+                  ? '这表示未能取到数据，不代表当天没有大宗交易。'
+                  : undefined
+              }
+            />
+          </div>
         )}
 
         {/* (b) dataSource='unavailable' —— 上游真实源不可达 */}

@@ -8,6 +8,9 @@
 
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
+import { statusFromFailureAny } from '../services/apiGateway';
+import { type ApiStatus } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 import {
   Card, Row, Col, Statistic, Table, Radio, Tag, Typography, Alert,
 } from 'antd';
@@ -43,6 +46,8 @@ const MarginTradingPage: React.FC = () => {
   const [securitiesRank, setSecuritiesRank] = useState<MarginRankEntry[]>([]);
   const [rankType, setRankType] = useState<string>('financing');
   const [loading, setLoading] = useState(true);
+  /** 取数形态：未部署 / 数据不可得 / 请求失败 */
+  const [loadStatus, setLoadStatus] = useState<ApiStatus | null>(null);
 
   const rankData = rankType === 'financing' ? financingRank : securitiesRank;
 
@@ -56,6 +61,7 @@ const MarginTradingPage: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true);
+    setLoadStatus(null);
     try {
       const [overviewRes, rankRes, trendRes] = await Promise.all([
         fetchMarginOverviewTyped(),
@@ -69,6 +75,17 @@ const MarginTradingPage: React.FC = () => {
       setTrend((trendRes?.records ?? []) as MarginRecord[]);
     } catch (err) {
       logger.error('加载融资融券数据失败（后端未就绪或接口异常），已如实置空:', err);
+      // 「后端未就绪」有两种完全不同的真相：这条路由压根没挂载（演示环境），
+      // 或者服务真的异常。混为一谈会让用户以为是自己操作/网络的问题。
+      // 本页一次打三个端点（overview / rank / trend）；Promise.all 里谁先 reject 不定，
+      // 所以按「任一未部署即判未部署」取结论，而不是只对 overview 查表。
+      setLoadStatus(
+        statusFromFailureAny(err, [
+          '/api/margin/overview',
+          '/api/margin/rank/financing',
+          '/api/margin/trend',
+        ]),
+      );
       // 诚实数据红线：后端不可达时清空展示，绝不回填演示数据
       setOverview(null);
       setTrend([]);
@@ -147,6 +164,7 @@ const MarginTradingPage: React.FC = () => {
       <Title level={3}>
         <DollarOutlined /> 融资融券
       </Title>
+      <ApiStatusNotice status={loadStatus} moduleName="融资融券" onRetry={loadData} style={{ marginBottom: 16 }} />
 
       {/* 诚实数据来源提示：真实源不可达时显性告知，禁止静默空态 */}
       {overview?.dataSource === 'unavailable' && (

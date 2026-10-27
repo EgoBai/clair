@@ -6,6 +6,9 @@
 
 import React, { useState, useEffect } from 'react';
 import logger from '../utils/logger';
+import { statusFromFailureAny } from '../services/apiGateway';
+import { type ApiStatus } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 import {
   Card, Row, Col, Statistic, Table, Tag, Typography, Space,
 } from 'antd';
@@ -34,6 +37,8 @@ const TopTradersPage: React.FC = () => {
   const [overview, setOverview] = useState<TopTraderOverview | null>(null);
   const [seatRank, setSeatRank] = useState<SeatRankEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  /** 取数形态：未部署 / 数据不可得 / 请求失败。三者文案不同，不容混为一谈 */
+  const [loadStatus, setLoadStatus] = useState<ApiStatus | null>(null);
 
   useEffect(() => {
     loadData();
@@ -41,6 +46,7 @@ const TopTradersPage: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true);
+    setLoadStatus(null);
     try {
       const [overviewRes, seatRes] = await Promise.all([
         fetchTopTraderOverviewTyped(),
@@ -57,6 +63,11 @@ const TopTradersPage: React.FC = () => {
       logger.warn('龙虎榜接口不可用，已如实置空:', err);
       setOverview(null);
       setSeatRank([]);
+      // 龙虎榜经 services/api.ts 的 rawGet 走 axios；未部署的 404 已由那里的
+      // 拦截器判别并写入登记表，这里只负责取回结论并交给统一组件渲染。
+      setLoadStatus(
+        statusFromFailureAny(err, ['/api/top-traders/overview', '/api/top-traders/seat/rank']),
+      );
     } finally {
       setLoading(false);
     }
@@ -129,6 +140,7 @@ const TopTradersPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
+      <ApiStatusNotice status={loadStatus} moduleName="龙虎榜" onRetry={loadData} />
       <Title level={3}>
         <TrophyOutlined /> 龙虎榜
       </Title>

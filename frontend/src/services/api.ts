@@ -6,6 +6,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import logger from '../utils/logger';
 import { API_BASE_URL as AXIOS_BASE_URL } from '../config/apiBase';
+import { classifyAxiosError, normalizeApiPath, recordNotDeployed } from './apiGateway';
 import {
   type ApiResponse,
   type StockWithQuote,
@@ -214,6 +215,23 @@ class ApiService {
           logger.error(`[API] 服务器错误: ${status} ${url}`);
         } else if (axios.isAxiosError(error) && !error.response) {
           logger.error(`[API] 网络错误: ${url}`);
+        }
+
+        // 把「端点未部署 / 数据不可得 / 请求失败」的判别结论挂在错误对象上。
+        //
+        // 为什么需要它：axios 默认把 4xx/5xx 全部 reject 成同一个 AxiosError，
+        // 页面 catch 到之后只能看到 `Request failed with status code 404`，
+        // 于是 404（端点没挂载）与 500（服务异常）在 UI 上变成了同一句话。
+        // 判别规则在 utils/apiStatus.ts，这里只负责把它贴到错误上供上层消费。
+        const apiStatus = classifyAxiosError(error);
+        if (apiStatus && apiStatus.kind !== 'ok') {
+          if (apiStatus.kind === 'not-deployed' && url) {
+            recordNotDeployed(url, apiStatus.httpStatus ?? 404, apiStatus.reason);
+          }
+          (error as unknown as Record<string, unknown>).__clairApiStatus = {
+            ...apiStatus,
+            endpoint: normalizeApiPath(url),
+          };
         }
 
         return Promise.reject(error);

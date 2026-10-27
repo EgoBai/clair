@@ -37,6 +37,9 @@ import {
 } from '@ant-design/icons';
 import breadthService, { type BreadthData } from '../../services/breadthService';
 import logger from '../../utils/logger';
+import { statusFromFailure } from '../../services/apiGateway';
+import { type ApiStatus } from '../../utils/apiStatus';
+import { ApiStatusNotice } from '../Common/ApiStatusNotice';
 
 // 深色主题（与 DiscoverPage 一致）
 const CARD_BG = 'var(--card-bg)';
@@ -93,11 +96,12 @@ const Metric: React.FC<{
 export const MarketBreadthSection: React.FC = () => {
   const [data, setData] = useState<BreadthData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /** 取数失败时的形态（`not-deployed` / `unavailable` / `failed`），null 表示还没失败过 */
+  const [status, setStatus] = useState<ApiStatus | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setStatus(null);
     try {
       const d = await breadthService.getCurrent();
       setData(d);
@@ -105,7 +109,10 @@ export const MarketBreadthSection: React.FC = () => {
       // 诚实红线：请求失败如实置空并展示原因，绝不退回本地推算/演示值
       logger.warn('市场宽度接口不可用:', err);
       setData(null);
-      setError(err instanceof Error ? err.message : '未知错误');
+      // 关键：不是所有「失败」都是同一件事。端点未挂载（线上 Worker 场景：404 + Not found）
+      // 与网络异常/5xx 必须给出不同解释，否则用户会把「演示环境没挂接口」误读成产品坏了。
+      // 判别规则见 utils/apiStatus.ts，登记/还原见 services/apiGateway.ts。
+      setStatus(statusFromFailure(err, '/api/breadth/current'));
     } finally {
       setLoading(false);
     }
@@ -143,23 +150,26 @@ export const MarketBreadthSection: React.FC = () => {
         </span>
       </div>
 
-      {/* (a) 请求失败 */}
-      {error && !data && (
-        <div
-          data-testid="breadth-error"
-          style={{
-            display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px',
-            borderRadius: 8, background: 'rgba(245,158,11,0.10)',
-            border: '1px solid rgba(245,158,11,0.35)', color: WARN, fontSize: 12, lineHeight: 1.6,
-          }}
-        >
-          <WarningOutlined style={{ marginTop: 2 }} />
-          <span>市场宽度接口请求失败：{error}。这表示未能取到数据，不代表全市场没有涨跌家数。</span>
+      {/* (a) 取不到数据 —— 三类形态交给统一组件渲染，文案不再写死在本文件 */}
+      {status && !data && (
+        <div data-testid="breadth-error">
+          <ApiStatusNotice
+            status={status}
+            moduleName="市场宽度"
+            onRetry={load}
+            compact
+            extra={
+              status.kind === 'failed'
+                ? '这表示未能取到数据，不代表全市场没有涨跌家数。'
+                : undefined
+            }
+            style={{ marginBottom: 0 }}
+          />
         </div>
       )}
 
       {/* (b) 加载中 —— 不渲染任何占位数值 */}
-      {!error && loading && !data && (
+      {!status && loading && !data && (
         <div style={{ color: TEXT_SEC, fontSize: 12, padding: '16px 0', textAlign: 'center' }}>
           市场宽度加载中…
         </div>

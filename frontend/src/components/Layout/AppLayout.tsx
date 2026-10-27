@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NotDeployedBanner } from '../Common/ApiStatusNotice';
 import { useWatchlistSync } from '../../hooks/useWatchlistSync';
 import NavigationMenu from './NavigationMenu';
 import TabBar from './TabBar';
@@ -19,6 +20,7 @@ const { Text, Link } = Typography;
 
 export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const _navigate = useNavigate();
+  const location = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   // P0-VER：全局「当前版本」指示器。取不到 commit 时 formatBuildInfoLabel 显式渲染「未知」，
   // 不显示空白、更不显示伪造 sha。数据源：构建期 VITE_GIT_COMMIT_SHA，缺则退守运行期 /api/version。
@@ -89,6 +91,18 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
             <GlobalSearch onSearch={handleGlobalSearch} onSelect={handleGlobalSelect} />
           </header>
           <div className="content-wrapper">
+            {/*
+              全局「端点未部署」兜底 Banner。
+
+              ⚠️ 顺序不能动：必须排在 {children || <Outlet />} **之前**。
+              React 的 effect 按树序执行，Banner 在前才能保证「导航即清空登记表、
+              并记录本次导航基线时间」早于页面自身的取数 effect；
+              否则新页登记的记录会因时间戳早于基线而被过滤掉，Banner 永远不出现。
+
+              它以 key={pathname} 强制换页重挂载，配合上述清空逻辑，避免上一页
+              确认过的「未部署」结论串到当前页。
+            */}
+            <NotDeployedBanner key={location.pathname} />
             {children || <Outlet />}
           </div>
         </main>

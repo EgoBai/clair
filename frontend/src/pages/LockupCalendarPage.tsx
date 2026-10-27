@@ -5,6 +5,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import logger from '../utils/logger';
+import { readResponseStatus, statusFromFailure } from '../services/apiGateway';
+import { type ApiStatus } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 import {
   Card, Table, Tag, Calendar, Space, Typography, Row, Col, Statistic,
   Button, Badge, Modal,
@@ -66,17 +69,34 @@ const LockupCalendarPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [detailModal, setDetailModal] = useState(false);
 
+  /** 取数形态：未部署 / 数据不可得 / 请求失败 */
+  const [loadStatus, setLoadStatus] = useState<ApiStatus | null>(null);
+
   const fetchData = useCallback(async (year?: number, month?: number) => {
     setLoading(true);
+    setLoadStatus(null);
     try {
       const now = new Date();
       const params = new URLSearchParams({
         year: String(year || now.getFullYear()),
         month: String(month || now.getMonth() + 1),
       });
-      const res = await fetch(`/api/lockup/calendar?${params}`);
+      const url = `/api/lockup/calendar?${params}`;
+      const res = await fetch(url);
       // 数据由后端 /api/lockup/calendar 实时提供；接口异常时如实置空，不使用伪造数据
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // 判别放在这里而不是 catch 里：响应体只有此处能拿到 interceptor 的结论，
+        // 一旦 throw 成 `HTTP ${status}` 字符串，形态信息就丢了。
+        const st =
+          readResponseStatus(res) ??
+          statusFromFailure(new Error(`HTTP ${res.status}`), '/api/lockup/calendar');
+        logger.warn('限售股解禁接口不可用，形态=', st.kind, st.httpStatus);
+        setLoadStatus(st);
+        setExpiries([]);
+        setByDate({});
+        setSummary(null);
+        return;
+      }
       const json = await res.json();
       if (!json.success || !json.data) throw new Error('接口返回数据格式异常');
       // 接口缺字段时收敛为数组/对象，避免渲染期 .slice / Object.keys 崩页
@@ -88,6 +108,7 @@ const LockupCalendarPage: React.FC = () => {
       setExpiries([]);
       setByDate({});
       setSummary(null);
+      setLoadStatus(statusFromFailure(err, '/api/lockup/calendar'));
     } finally {
       setLoading(false);
     }
@@ -196,6 +217,7 @@ const LockupCalendarPage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
+      <ApiStatusNotice status={loadStatus} moduleName="限售股解禁" onRetry={() => fetchData()} />
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <Col>
           <Title level={4} style={{ margin: 0 }}>

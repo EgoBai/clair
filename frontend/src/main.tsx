@@ -95,6 +95,17 @@ if (!isDev) {
 /** 归一化后的后端地址：去掉尾部斜杠，避免拼接 `/api/...` 时出现 `//api/`。 */
 const API_BASE = RAW_API_BASE.trim().replace(/\/+$/, '');
 
+if (typeof window !== 'undefined') {
+  // 必须在下面的 fetch 地址重写**之前**安装：地址重写只存在于生产构建，
+  // 而「端点是否部署」的判别在 dev 指 Worker、生产指 Worker 时都必须生效，
+  // 否则本地永远复现不了线上的真相。
+  //
+  // 它只读响应体（用 Response.clone()，不消费调用方要读的那份），
+  // 不改写任何返回值；判别结论登记到 services/apiGateway 的注册表，
+  // 由 components/Common/ApiStatusNotice.tsx 统一渲染给客户看。
+  installApiStatusInterceptor();
+}
+
 if (typeof window !== 'undefined' && !isDev) {
   const originalFetch = window.fetch;
   window.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
@@ -110,6 +121,7 @@ if (typeof window !== 'undefined' && !isDev) {
 }
 
 import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { installApiStatusInterceptor } from './services/apiGateway';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
 import { Modal, Typography } from 'antd';

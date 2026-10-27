@@ -9,6 +9,9 @@ import { Card, Row, Col, Statistic, Table, Tag, Typography, Select, Space } from
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import { THEME, GOLD } from '../styles/theme-constants';
 import logger from '../utils/logger';
+import { readResponseStatus, statusFromFailure } from '../services/apiGateway';
+import { type ApiStatus, classifyApiResponse } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 import { type ETFData } from '../utils/etfDemo';
 import {
   analyzeETF,
@@ -134,13 +137,34 @@ export default function ETFPage() {
     message?: string;
   }>({});
 
+  /** `/api/etf/list` 的取数形态：未部署 / 数据不可得 / 请求失败 */
+  const [listStatus, setListStatus] = useState<ApiStatus | null>(null);
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    fetch('/api/etf/list')
-      .then((r) => r.json())
+    const ETF_ENDPOINT = '/api/etf/list';
+    setListStatus(null);
+    fetch(ETF_ENDPOINT)
+      .then((r) => {
+        if (!r.ok) {
+          const st = readResponseStatus(r) ?? statusFromFailure(new Error(`HTTP ${r.status}`), ETF_ENDPOINT);
+          if (alive) {
+            setListStatus(st);
+            setEtfList([]);
+            setDataSource('unavailable');
+          }
+          return null;
+        }
+        return r.json();
+      })
       .then((json) => {
-        if (!alive) return;
+        if (!alive || !json) return;
+        // 2xx 也要判别：它可能是「接口在，但这条口径当前没有数据」（dataSource:'unavailable'）。
+        // 这与「接口没挂载」是完全不同的事实，必须分别陈述——
+        // 所以这里显式过一次判别，而不是默认成功就什么都不说。
+        const st = classifyApiResponse(200, json);
+        setListStatus(st);
         if (json?.success && json.data && Array.isArray(json.data.data)) {
           setEtfList(json.data.data as ETFData[]);
           setDataSource(json.data.dataSource === 'unavailable' ? 'unavailable' : 'real');
@@ -157,11 +181,12 @@ export default function ETFPage() {
           setCoverage({ message: json?.data?.message });
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!alive) return;
         setEtfList([]);
         setDataSource('unavailable');
         setCoverage({});
+        setListStatus(statusFromFailure(err, '/api/etf/list'));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -341,6 +366,7 @@ export default function ETFPage() {
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         ETF 中心
       </Title>
+      <ApiStatusNotice status={listStatus} moduleName="ETF 列表" style={{ marginBottom: 12 }} />
       <Space style={{ marginBottom: 16 }} wrap>
         <Text style={{ color: THEME.textSec }}>
           指数 / 行业 / QDII / 商品 / 债券 / 主题

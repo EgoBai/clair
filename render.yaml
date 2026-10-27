@@ -2,7 +2,12 @@
 # 澄观 Clair · Render Blueprint（基础设施即代码）
 #
 # 用途：把「完整 Express 后端（241 端点）+ 托管 PostgreSQL」一次性声明出来，
-#       替代只挂了约 24 条路由的 Cloudflare Worker（clair-api.pages.dev）。
+#       替代 Cloudflare Worker（clair-api.pages.dev）。
+#
+# ⚠️ 口径更正（2026-10-28 实测）：Worker 并非「约 24 条路由」，实际是 **42 条路由模式**
+#     （26 条 `path === '/api/...'` 精确匹配 + 14 条 `path.match(/^\/api\/...$/)` 正则，
+#     另加 `/health` 与 `/`）。旧注释里的「约 24 条」来自早期版本，已失真。
+#     对照：后端 Express 有 250 处 `router.(get|post|...)` 注册 —— 按路由模式计仍缺约 5/6。
 #
 # 用法：Render Dashboard → New → Blueprint → 选中本仓库 → Render 读取本文件
 #       自动创建 databases + services。repo / branch 由创建时所选仓库决定，

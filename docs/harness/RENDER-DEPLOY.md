@@ -1,7 +1,13 @@
 # Render 部署手册（澄观 Clair 完整 Express 后端）
 
 > 目标：把本地跑通的**完整 Express 后端（241 端点）**连同**历史行情数据**搬到 Render，
-> 替掉生产上那个只挂了约 24 条路由的 Cloudflare Worker（`clair-api.pages.dev`）。
+> 替掉生产上那个只挂了 **42 条路由模式**的 Cloudflare Worker（`clair-api.pages.dev`）。
+>
+> ⚠️ 口径更正（2026-10-28 实测）：此前文档与 `render.yaml` 注释里的「约 24 条路由」是旧数字。
+> 实读 `clair-worker/worker.js`：**42 条路由模式** = 26 条 `path === '/api/...'` 精确匹配
+> + 14 条 `path.match(/^\/api\/...$/)` 正则 + `/health` + `/`。
+> 对照后端 Express 的 250 处 `router.(get|post|...)` 注册，按路由模式计仍缺约 5/6。
+> 前端侧据此统计出 93 条调用路径、命中 30、缺 53（按端点族归并约 45 个独立端点）。
 >
 > 本文所有数字均来自本机真实执行或官方页面实读，**未经实测的部分已显式标注「估算」**。
 > 配套物料：`render.yaml`（Blueprint）、`scripts/deploy/render-migrate-data.sh`（数据迁移）。
@@ -337,11 +343,25 @@ Render 虽然在 PG 13+ 的支持扩展清单里**有** dblink，但还原时要
 |---|---|---|---|
 | 1 | GitHub 仓库 → Settings → Secrets and variables → Actions → **Variables** 页的 `VITE_API_BASE` | 旧值 | `https://clair-api.onrender.com` |
 | 2 | 本地 `frontend/.env` 的 `VITE_API_BASE` | 无此行（dev 走 Vite proxy，无需配） | 仅当本地要直连线上时才写 `VITE_API_BASE=https://clair-api.onrender.com`（`.env.example` 里已有该行占位） |
-| 3 | `.github/workflows/ci.yml:44` 里硬编码的 `VITE_API_BASE: https://clair-api.pages.dev` | `clair-api.pages.dev` | Render 域名 |
+| 3 | `.github/workflows/ci.yml` 里的 `VITE_API_BASE` | `clair-api.pages.dev` | Render 域名 |
 
-> ⚠️ 第 3 处不在本工单文件域内（`.github/workflows/` 严禁触碰），**需要另行修改**。
-> 它只影响 CI 的构建冒烟、不影响 Pages 上线产物，但留着会让 CI 构建出的前端仍指向 Worker，
-> 属于「改漏一处 → 前端一半连新后端一半连 Worker，且不报错」的隐患，**务必一并改掉**。
+> ✅ 第 3 处**已经改好**（本节此前记录的「`ci.yml:44` 硬编码、需另开工单」已过期）。
+> 实读 `.github/workflows/ci.yml:57`：该处已是 `VITE_API_BASE: ${{ vars.VITE_API_BASE }}`，
+> 与 `deploy.yml` 同一写法，代码里不再有第二份硬编码地址。
+> 切 Render 时只需改 GitHub Actions **Variables** 里的 `VITE_API_BASE` 一处即可。
+
+### 6.1.1 切 Render 前请先读这两条 Worker 侧事实
+
+1. **`clair-worker/worker.js` 与 `clair-worker/_worker.js` 是同内容的两份，靠人工同步。**
+   实测两份均 469,228 字节、`cmp` 无差异。二者不是「源码/构建产物」关系，没有脚本保证同步，
+   改其中一个而漏掉另一个会静默产生不一致（线上跑的是 Pages 侧的 `_worker.js`）。
+   切 Render 后若仍要保留 Worker 作兜底，任何改动必须**两份一起改并 `cmp` 校验**。
+
+2. **`/api/cron/collect-history` 是 Worker 专属端点，Express 侧零命中。**
+   全仓检索 `backend/` 无任何 `collect-history` 注册（实测 0 命中），该端点只存在于
+   `clair-worker/worker.js:4535`，由 cron 触发往 KV(`STOCK_DATA`) 攒板块 K 线与板块 PE 中位数历史。
+   **切 Render 时不要顺手把它的 URL 改成 Render 域名** —— 那边没有这个路由，改了就是死链；
+   这段历史攒取逻辑需要单独迁移（或改用 Render Cron Job + PG）。
 
 ### 6.2 改完后必须重新构建 + 重新部署
 

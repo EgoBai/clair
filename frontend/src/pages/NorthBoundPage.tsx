@@ -26,6 +26,9 @@ import {
 } from 'recharts';
 import { THEME, GOLD } from '../styles/theme-constants';
 import logger from '../utils/logger';
+import { readResponseStatus, statusFromFailure } from '../services/apiGateway';
+import { type ApiStatus } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 import {
   summarizeNorthboundFlow, generateNorthboundSignals,
   type NorthboundSignal,
@@ -141,12 +144,28 @@ const NorthBoundPage: React.FC = () => {
   const [latestTradeDate, setLatestTradeDate] = useState<string | null>(null);
   const [disclosureNote, setDisclosureNote] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  /** `/api/north-bound/overview` 的取数形态：未部署 / 数据不可得 / 请求失败 */
+  const [overviewStatus, setOverviewStatus] = useState<ApiStatus | null>(null);
+  const NB_ENDPOINT = '/api/north-bound/overview';
 
   useEffect(() => {
     const ac = new AbortController();
-    fetch('/api/north-bound/overview', { signal: ac.signal })
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    setOverviewStatus(null);
+    fetch(NB_ENDPOINT, { signal: ac.signal })
+      .then((r) => {
+        if (!r.ok) {
+          // 注意顺序：interceptor 已读过错误响应体并挂在 Response 上，优先取它；
+          // 拿不到才退回「按 HTTP 状态码猜」（拿不到的情况判为 failed，不谎称未部署）。
+          const st =
+            readResponseStatus(r) ??
+            statusFromFailure(new Error(`HTTP ${r.status}`), NB_ENDPOINT);
+          if (!ac.signal.aborted) setOverviewStatus(st);
+          return null;
+        }
+        return r.json();
+      })
       .then((json) => {
+        if (!json) return;
         const d = json?.data || {};
         setNorthboundFlows(Array.isArray(d.flows) ? d.flows : []);
         // 主数据源：真实成交额（语义无歧义，不受净买额停披露影响）
@@ -170,6 +189,7 @@ const NorthBoundPage: React.FC = () => {
       .catch((err) => {
         if (ac.signal.aborted) return;
         logger.warn('北向资金接口不可用，已如实置空:', err);
+        setOverviewStatus(statusFromFailure(err, NB_ENDPOINT));
       })
       .finally(() => { if (!ac.signal.aborted) setLoading(false); });
     return () => ac.abort();
@@ -362,18 +382,27 @@ const NorthBoundPage: React.FC = () => {
     sectorNetFlows.length > 0;
 
   if (!hasAnyData) {
+    // 诚实红线：这段原本无条件说「上游报表本次未返回成交记录」。
+    // 但当接口压根没挂载（演示环境 404）时，请求**从未到达**任何上游报表，
+    // 那句话就成了编造的因果。两种形态必须分开陈述。
+    const notDeployed = overviewStatus?.kind === 'not-deployed';
     return (
       <div style={{ background: THEME.bg, padding: 24, minHeight: '100vh' }}>
         <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
           北向资金深度追踪
         </Title>
+        <ApiStatusNotice status={overviewStatus} moduleName="北向资金" style={{ marginTop: 12 }} />
         <Text style={{ color: THEME.textSec }}>
-          沪股通 / 深股通 成交额 · 本次未取到数据
+          沪股通 / 深股通 成交额 · {notDeployed ? '接口在当前环境未挂载' : '本次未取到数据'}
         </Text>
         <div style={{ marginTop: 16 }}>
           <EmptyState
-            title="北向资金本次未取到数据"
-            description="上游报表（东方财富数据中心 RPT_MUTUAL_DEAL_HISTORY）本次未返回沪/深股通成交记录。净买额口径已停止披露，成交额亦无数据时请稍后重试。"
+            title={notDeployed ? '北向资金模块未接入当前后端' : '北向资金本次未取到数据'}
+            description={
+              notDeployed
+                ? '该接口在当前演示环境未挂载，请求并未到达上游报表，因此不存在「本次返回」一说。要查看真实数据请连接完整后端服务。'
+                : '上游报表（东方财富数据中心 RPT_MUTUAL_DEAL_HISTORY）本次未返回沪/深股通成交记录。净买额口径已停止披露，成交额亦无数据时请稍后重试。'
+            }
           />
         </div>
       </div>
@@ -385,6 +414,7 @@ const NorthBoundPage: React.FC = () => {
       <Title level={3} style={{ color: THEME.text, marginBottom: 4 }}>
         北向资金深度追踪
       </Title>
+      <ApiStatusNotice status={overviewStatus} moduleName="北向资金" style={{ marginTop: 12 }} />
       <Text style={{ color: THEME.textSec }}>
         沪股通 / 深股通 成交额（真实数据）
         {latestTradeDate ? ` · 最新交易日 ${latestTradeDate}` : ''}

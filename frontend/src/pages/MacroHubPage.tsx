@@ -33,6 +33,9 @@ import {
   DashboardOutlined,
 } from '@ant-design/icons';
 import { ROUTE_PATHS } from '../routes/paths';
+import { statusFromFailure } from '../services/apiGateway';
+import { type ApiStatus, shortApiStatusText } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -49,6 +52,14 @@ interface ModuleState {
   status: Status;
   statusNote?: string;
   metrics: Metric[];
+  /**
+   * 取数失败时的形态（not-deployed / unavailable / failed）。
+   *
+   * 为什么必须区分：这些 module 里 macro / north-bound / etf / margin / risk-center
+   * 在线上 Worker 上都是 404（实测），若统一显示「接口请求失败」，用户会以为
+   * 后端挂了；真相是演示环境没挂载这些路由。两种事实必须各说各话。
+   */
+  apiStatus?: ApiStatus;
 }
 
 interface ModuleDef {
@@ -56,6 +67,8 @@ interface ModuleDef {
   label: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   path: string;
+  /** 本模块真正请求的端点，用于失败时判别「未挂载」还是「请求失败」 */
+  endpoint: string;
   load: () => Promise<ModuleState>;
 }
 
@@ -94,6 +107,7 @@ const statusTag: Record<Status, { color: string; text: string }> = {
 const MODULES: ModuleDef[] = [
   {
     id: 'macro',
+    endpoint: '/api/macro/overview',
     label: '宏观仪表盘',
     icon: GlobalOutlined,
     path: ROUTE_PATHS.MACRO,
@@ -118,6 +132,7 @@ const MODULES: ModuleDef[] = [
   },
   {
     id: 'north-bound',
+    endpoint: '/api/north-bound/overview',
     label: '北向资金',
     icon: ArrowLeftOutlined,
     path: ROUTE_PATHS.NORTH_BOUND,
@@ -159,6 +174,7 @@ const MODULES: ModuleDef[] = [
   },
   {
     id: 'margin',
+    endpoint: '/api/margin/overview',
     label: '融资融券',
     icon: BankOutlined,
     path: ROUTE_PATHS.MARGIN_TRADING,
@@ -178,6 +194,7 @@ const MODULES: ModuleDef[] = [
   },
   {
     id: 'etf',
+    endpoint: '/api/etf/list',
     label: 'ETF中心',
     icon: PieChartOutlined,
     path: ROUTE_PATHS.ETF,
@@ -196,6 +213,7 @@ const MODULES: ModuleDef[] = [
   },
   {
     id: 'fund-flow',
+    endpoint: '/api/fund-flow/market',
     label: '资金流向',
     icon: FundOutlined,
     path: ROUTE_PATHS.FUND_FLOW,
@@ -217,6 +235,7 @@ const MODULES: ModuleDef[] = [
   },
   {
     id: 'event-calendar',
+    endpoint: '/api/event-calendar/events',
     label: '事件日历',
     icon: CalendarOutlined,
     path: ROUTE_PATHS.EVENT_CALENDAR,
@@ -233,6 +252,7 @@ const MODULES: ModuleDef[] = [
   },
   {
     id: 'risk-center',
+    endpoint: '/api/risk-center/portfolio',
     label: '组合风控',
     icon: SafetyCertificateOutlined,
     path: ROUTE_PATHS.RISK_CENTER,
@@ -265,7 +285,13 @@ const MacroHubPage: React.FC = () => {
           if (r.status === 'fulfilled') {
             map[id] = r.value;
           } else {
-            map[id] = { status: 'unavailable', statusNote: '接口请求失败', metrics: [] };
+            const apiStatus = statusFromFailure((r as PromiseRejectedResult).reason, MODULES[i].endpoint);
+            map[id] = {
+              status: 'unavailable',
+              statusNote: shortApiStatusText(apiStatus) || '接口请求失败',
+              metrics: [],
+              apiStatus,
+            };
           }
         });
         setStates(map);
@@ -280,6 +306,28 @@ const MacroHubPage: React.FC = () => {
   }, []);
 
   const availableCount = Object.values(states).filter((s) => s.status !== 'unavailable').length;
+
+  /**
+   * 聚合级解释：本页 7 个模块可能同时取不到数据，与其让用户看到 7 张「暂无可用数据」
+   * 的卡片自己猜，不如把「为什么」一次性说清楚。
+   *
+   * 优先级刻意是 failed > not-deployed > unavailable：只要有一个模块是真的请求失败，
+   * 就不能对外宣称「本页只是没挂载」——那会掩盖真正的故障。
+   */
+  const failedList = MODULES
+    .map((m) => ({ mod: m, apiStatus: states[m.id]?.apiStatus }))
+    .filter((x): x is { mod: ModuleDef; apiStatus: ApiStatus } => !!x.apiStatus && x.apiStatus.kind !== 'ok');
+  const pageStatus: ApiStatus | null =
+    failedList.length === 0
+      ? null
+      : failedList.some((x) => x.apiStatus.kind === 'failed')
+        ? { kind: 'failed', reason: `${failedList.length}/${MODULES.length} 个模块取数失败` }
+        : failedList.every((x) => x.apiStatus.kind === 'not-deployed')
+          ? {
+              kind: 'not-deployed',
+              endpoint: failedList.map((x) => x.mod.endpoint).join('、'),
+            }
+          : { kind: 'unavailable', reason: `${failedList.length}/${MODULES.length} 个模块当前无可取数据` };
 
   return (
     <div style={{ padding: 24 }}>
@@ -302,6 +350,14 @@ const MacroHubPage: React.FC = () => {
       <Paragraph type="secondary" style={{ fontSize: 13, marginTop: 4 }}>
         辅助 / 环境类模块已聚合于此，核心循环（市场洞察 · 潜力雷达 · 产业地图 · 策略选股 · 自选组合 · 投资笔记）保持独立且靠前。
       </Paragraph>
+
+      {!loading && (
+        <ApiStatusNotice
+          status={pageStatus}
+          moduleName="宏观资金全景"
+          style={{ marginTop: 16 }}
+        />
+      )}
 
       {loading ? <LoadingStateDetail /> : (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>

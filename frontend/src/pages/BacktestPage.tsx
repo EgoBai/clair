@@ -16,6 +16,9 @@ import {
   FundOutlined, BarChartOutlined, CalendarOutlined
 } from '@ant-design/icons';
 import { apiFetch } from '../utils/api';
+import { statusFromFailure } from '../services/apiGateway';
+import { type ApiStatus } from '../utils/apiStatus';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
 import { useGamificationStore } from '../store/useGamificationStore';
 // RangePicker 弹层（portal 到 body）的暗色适配，避免在深色页面弹出白底日历
 import '../styles/antd-picker-dark.css';
@@ -73,6 +76,8 @@ const BacktestPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState('');
+  /** `/api/backtest/run` 的失败形态：未部署 / 数据不足 / 真失败 */
+  const [runStatus, setRunStatus] = useState<ApiStatus | null>(null);
 
   /**
    * 区间前置校验 — 返回错误文案，null 表示通过。
@@ -115,6 +120,7 @@ const BacktestPage: React.FC = () => {
 
     setLoading(true);
     setError('');
+    setRunStatus(null);
     const startDate = dateRange[0].format('YYYY-MM-DD');
     const endDate = dateRange[1].format('YYYY-MM-DD');
 
@@ -147,9 +153,15 @@ const BacktestPage: React.FC = () => {
       setResult(null);
       setError(reason);
       message.error(reason);
+      if (data.error === 'Not found') {
+        // Worker 未挂载 /api/backtest/run 的形态就是这条 body，
+        // 但 apiFetch 已经把它拍平成字符串抛出，此处显式补回结构。
+        setRunStatus({ kind: 'not-deployed', httpStatus: 404, endpoint: '/api/backtest/run' });
+      }
     } catch (e) {
       // 网络层失败（后端未启动）→ 如实置空，绝不回填演示数据
       setResult(null);
+      setRunStatus(statusFromFailure(e, '/api/backtest/run'));
       setError('回测服务暂不可用（后端未就绪或网络异常），请稍后重试');
       message.error('回测服务暂不可用');
       console.error('回测请求失败:', e);
@@ -307,6 +319,11 @@ const BacktestPage: React.FC = () => {
             <LoadingState />
             <div style={{ color: TEXT_SEC, marginTop: 16 }}>正在执行回测分析...</div>
           </div>
+        )}
+
+        {/* 形态级解释：先把「为什么没跑起来」说清楚（未部署 ≠ 失败 ≠ 无数据） */}
+        {runStatus && !loading && (
+          <ApiStatusNotice status={runStatus} moduleName="策略回测" style={{ marginBottom: 16 }} />
         )}
 
         {/* 错误信息 — 如实展示后端拒绝原因（区间过短/无数据等），不静默兜底 */}
