@@ -283,7 +283,10 @@ export default function SectorDetailPage() {
         const r = await fetch(`/api/sectors/${encodeURIComponent(activeIndustry)}/stocks?pageSize=50`, { signal: ac.signal });
         const d = await r.json().catch(() => ({}));
         if (ac.signal.aborted) return;
-        const items = (d?.success && Array.isArray(d?.data?.items)) ? (d.data.items as ConstituentStock[]) : [];
+        // 后端降级时 items 内可能夹带 null 槽位，先剔空再入表（否则行渲染/onRow 取值会崩）
+        const items = (d?.success && Array.isArray(d?.data?.items))
+          ? (d.data.items as ConstituentStock[]).filter((it): it is ConstituentStock => !!it)
+          : [];
         setStocks(items);
         if (items.length === 0) setStocksError('该板块暂无成分股数据');
       } catch (e) {
@@ -661,7 +664,8 @@ export default function SectorDetailPage() {
           size="small"
           locale={{ emptyText: stocksError ? <Empty image={null} description={stocksError} /> : undefined }}
           onRow={(record) => ({
-            onClick: () => navigate(`/stocks/${record.symbol}`),
+            // 成分股行可能为 null/undefined（后端降级返回空槽位），点它不应抛错也不应跳到 /stocks/undefined
+            onClick: () => { if (record?.symbol) navigate(`/stocks/${record.symbol}`); },
             style: { cursor: 'pointer' },
           })}
         />
