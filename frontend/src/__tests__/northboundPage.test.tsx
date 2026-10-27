@@ -231,12 +231,59 @@ describe('NorthBoundPage · P0-NBFLOW 成交额真实化', () => {
     expect(container.innerHTML).not.toContain('已接入沪/深股通持仓接口');
   });
 
-  it('持仓/板块为空时据实说明，不伪造数据', async () => {
+  it('持仓为空时据实说明，不伪造数据', async () => {
     mockFetch.mockResolvedValue(okJson(REAL_RESP));
     render(<NorthBoundPage />);
     await waitFor(() => expect(screen.getByText(/北向重仓股/)).toBeTruthy());
-    expect(screen.getByText(/停更一年以上/)).toBeTruthy();
+    expect(screen.getByText(/本次上游未返回该快照/)).toBeTruthy();
     expect(screen.getByText(/北向板块级净流入在东方财富 \/ 腾讯 \/ 新浪均无真实数据源/)).toBeTruthy();
+  });
+
+  it('持仓有真实季度快照时按元→亿元换算展示，日变动显示「已停止披露」', async () => {
+    mockFetch.mockResolvedValue(
+      okJson({
+        ...REAL_RESP,
+        data: {
+          ...REAL_RESP.data,
+          holdings: [
+            {
+              ticker: '300750.SZ', name: '宁德时代', channel: '深股通',
+              holdShares: 800682980, holdMarketCap: 233086822307.8,
+              freeFloatRatio: 18.7927, aSharesRatio: 18.16,
+              closePrice: 291.11, changeRate: 1.502789400279,
+              holdDate: '2026-09-30', dayChange: null, dataSource: 'real',
+            },
+            {
+              ticker: '600519.SH', name: '贵州茅台', channel: '沪股通',
+              holdShares: 55263682, holdMarketCap: 69555975438.84,
+              freeFloatRatio: 4.4208, aSharesRatio: 4.42,
+              closePrice: 1258.62, changeRate: 1.864711309668,
+              holdDate: '2026-09-30', dayChange: null, dataSource: 'real',
+            },
+          ],
+        },
+        holdingsDisclosure: {
+          available: true,
+          lastDisclosedDate: '2026-09-30',
+          caliber: '季度',
+          totalCount: 3953,
+          returnedCount: 2,
+          note: '北向持仓为季度披露口径，非日频。',
+        },
+      }),
+    );
+    const { container } = render(<NorthBoundPage />);
+    // 宁德时代同时出现在成交明细的领涨股里，故用 getAllByText
+    await waitFor(() => expect(screen.getAllByText('宁德时代').length).toBeGreaterThan(1));
+
+    // 单位换算：233,086,822,307.8 元 = 2330.87 亿；69,555,975,438.84 元 = 695.56 亿
+    expect(container.textContent).toContain('2330.87 亿');
+    expect(container.textContent).toContain('695.56 亿');
+    // 季度披露日进入卡片标题
+    expect(screen.getByText(/季度披露 · 2026-09-30/)).toBeTruthy();
+    // 日变动不可得：显示「已停止披露」，且全页无「0.00 亿」顶替
+    expect(screen.getAllByText('已停止披露').length).toBeGreaterThan(1);
+    expect(hasExactZeroYi(container)).toBe(false);
   });
 
   it('接口报错时不崩溃，如实落到空态', async () => {

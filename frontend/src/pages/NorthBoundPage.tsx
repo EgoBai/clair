@@ -10,8 +10,11 @@
  *  2. 因此本页主数据源是 **`dealFlows` / `byDate`（成交额，单位万元）**，
  *     卡片与图表标题一律写「成交额」，绝不写「净流入」——成交额 ≠ 净买额。
  *  3. 净流入位置一律显示「已停止披露」，**绝不显示 0.00 亿**（零值顶替空态 = 红线）。
- *  4. `holdings` / `sectors` 后端恒为空数组（持仓明细停更至 2024-09-30 且为季度口径；
- *     板块级净流入无任何真实源），本页据实说明，不假装已接入。
+ *  4. `holdings`：**真实可得**（后端 `RPT_MUTUAL_HOLDSTOCKNORTH_STA`，季度披露口径，
+ *     含持股数量 / 持股市值 / 占流通股比例）。⚠ 季度快照**没有日变动**，且上游
+ *     `HOLD_MARKETCAP_CHG1/5/10` 与净买额同源停披露 ⟹ **绝不**用涨跌幅倒算
+ *     「上一期持股」再相减造出增减（原实现 `shares / (1 + changePercent/100)` 即此类伪造，已删）。
+ *  5. `sectors` 后端恒为空数组（板块级净流入无任何真实源），本页据实说明，不假装已接入。
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -24,8 +27,7 @@ import {
 import { THEME, GOLD } from '../styles/theme-constants';
 import logger from '../utils/logger';
 import {
-  summarizeNorthboundFlow, analyzeHoldingsChanges,
-  sectorFlowAggregation, generateNorthboundSignals,
+  summarizeNorthboundFlow, generateNorthboundSignals,
   type NorthboundSignal,
 } from '../utils/northboundFlow';
 import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
@@ -81,6 +83,40 @@ interface ByDateRow {
   dataSource: string;
 }
 
+/** 后端 holdings 单行（字段语义见 backend/src/api/northBound.ts HoldingRow） */
+interface HoldingRow {
+  ticker: string;
+  name: string;
+  channel: '沪股通' | '深股通';
+  /** 持股数量（股） */
+  holdShares: number | null;
+  /** 持股市值（**元**，非万元、非亿元） */
+  holdMarketCap: number | null;
+  /** 占流通股比例（%） */
+  freeFloatRatio: number | null;
+  /** 占 A 股比例（%） */
+  aSharesRatio: number | null;
+  closePrice: number | null;
+  changeRate: number | null;
+  /** 季度披露日 YYYY-MM-DD */
+  holdDate: string;
+  /** 恒为 null：日变动与净买额同源停披露 */
+  dayChange: null;
+  dataSource: string;
+}
+
+/** 持股市值单位换算：后端 `holdMarketCap` 单位为**元**，展示为「亿元」须 ÷ 1e8。 */
+const yuanToYi = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n / 1e8 : null;
+};
+/** 元 → 亿元展示；不可得返回「—」 */
+const fmtYiFromYuan = (yuan: unknown, digits = 2): string => {
+  const yi = yuanToYi(yuan);
+  return yi === null ? '—' : `${yi.toFixed(digits)} 亿`;
+};
+
 /** 涨=红、跌=绿（中国习惯） */
 const changeColor = (v: number): string => (v >= 0 ? THEME.up : THEME.down);
 const changeArrow = (v: number) => (v >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />);
@@ -95,7 +131,12 @@ const NorthBoundPage: React.FC = () => {
   const [northboundFlows, setNorthboundFlows] = useState<any[]>([]);
   const [dealFlows, setDealFlows] = useState<DealFlowRow[]>([]);
   const [byDate, setByDate] = useState<ByDateRow[]>([]);
-  const [topHoldings, setTopHoldings] = useState<any[]>([]);
+  const [topHoldings, setTopHoldings] = useState<HoldingRow[]>([]);
+  /** 持仓口径披露（季度披露日 / 说明），文案由后端 holdingsDisclosure 提供 */
+  const [holdingsMeta, setHoldingsMeta] = useState<{ lastDisclosedDate: string | null; note: string }>({
+    lastDisclosedDate: null,
+    note: '',
+  });
   const [sectorNetFlows, setSectorNetFlows] = useState<any[]>([]);
   const [latestTradeDate, setLatestTradeDate] = useState<string | null>(null);
   const [disclosureNote, setDisclosureNote] = useState<string>('');
@@ -113,6 +154,11 @@ const NorthBoundPage: React.FC = () => {
         setByDate(Array.isArray(d.byDate) ? d.byDate : []);
         setTopHoldings(Array.isArray(d.holdings) ? d.holdings : []);
         setSectorNetFlows(Array.isArray(d.sectors) ? d.sectors : []);
+        const hd = json?.holdingsDisclosure ?? {};
+        setHoldingsMeta({
+          lastDisclosedDate: typeof hd.lastDisclosedDate === 'string' ? hd.lastDisclosedDate : null,
+          note: typeof hd.note === 'string' ? hd.note : '',
+        });
         setLatestTradeDate(typeof d.latestTradeDate === 'string' ? d.latestTradeDate : null);
         // 口径说明直接引用后端 message / netInflowDisclosure.note，不自行编造
         const note: string =
@@ -149,34 +195,9 @@ const NorthBoundPage: React.FC = () => {
     }
   }, [summary]);
 
-  const holdingChanges = useMemo(() => {
-    try {
-      if (topHoldings.length === 0) return null;
-      const prev = topHoldings.map((h) => ({
-        ...h,
-        shares: Math.round(h.shares / (1 + h.changePercent / 100)),
-      }));
-      return analyzeHoldingsChanges(topHoldings, prev);
-    } catch (e) {
-      console.error('[NorthBound] analyzeHoldingsChanges failed', e);
-      return null;
-    }
-  }, []);
-
-  const sectorAgg = useMemo(() => {
-    try {
-      return sectorFlowAggregation(topHoldings);
-    } catch (e) {
-      console.error('[NorthBound] sectorFlowAggregation failed', e);
-      return [];
-    }
-  }, []);
-
-  const sectorAggMap = useMemo(() => {
-    const m = new Map<string, { count: number; avgChange: number }>();
-    sectorAgg.forEach((s) => m.set(s.sector, { count: s.count, avgChange: s.avgChange }));
-    return m;
-  }, [sectorAgg]);
+  // ⚠ 原实现的「持仓变动」是伪造：把 shares / (1 + changePercent/100) 当成上一期持股再相减。
+  // 季度披露口径下上游不提供上期持股，日变动字段（HOLD_MARKETCAP_CHG1/5/10）亦已停披露，
+  // 故本页不再展示任何「增减」口径（诚实红线：宁缺勿造）。
 
   // ── ① 最新交易日（byDate 最后一行）成交额概览 ──
   const latestRow = byDate.length > 0 ? byDate[byDate.length - 1] : null;
@@ -256,22 +277,29 @@ const NorthBoundPage: React.FC = () => {
       render: (v: string | null) => v || '—' },
   ];
 
-  // ── ⑤ 重仓股 Top 表格（holdings 后端恒为空，保留契约以备上游恢复披露） ──
+  // ── ⑤ 重仓股 Top 表格（真实：季度披露口径；无「板块」与「日变动」字段，据实显示「—」） ──
   const holdingColumns = [
-    { title: '代码', dataIndex: 'ticker', key: 'ticker', width: 90 },
+    { title: '代码', dataIndex: 'ticker', key: 'ticker', width: 100 },
     { title: '名称', dataIndex: 'name', key: 'name', width: 110 },
-    { title: '板块', dataIndex: 'sector', key: 'sector', width: 100,
-      render: (s: string) => <Tag color="default" style={{ color: THEME.textSec }}>{s}</Tag> },
-    { title: '持股市值(亿)', dataIndex: 'marketValue', key: 'marketValue', width: 120,
-      render: (v: number) => <Text strong>{v.toFixed(2)}</Text> },
-    { title: '持股占比(%)', dataIndex: 'freeFloatRatio', key: 'freeFloatRatio', width: 120,
-      render: (v: number) => `${v.toFixed(2)}%` },
-    { title: '较上日增减(亿)', dataIndex: 'dayChange', key: 'dayChange', width: 140,
-      render: (v: number) => (
-        <Text style={{ color: changeColor(v) }}>
-          {changeArrow(v)} {v >= 0 ? '+' : ''}{v.toFixed(2)}
-        </Text>
-      ) },
+    { title: '通道', dataIndex: 'channel', key: 'channel', width: 90,
+      render: (v: string) => <Tag color="default" style={{ color: THEME.textSec }}>{v || '—'}</Tag> },
+    { title: '持股市值(亿)', dataIndex: 'holdMarketCap', key: 'holdMarketCap', width: 130,
+      render: (v: number | null) => <Text strong>{fmtYiFromYuan(v)}</Text> },
+    { title: '持股数量(万股)', dataIndex: 'holdShares', key: 'holdShares', width: 130,
+      render: (v: number | null) => (isNum(v) ? (v / 1e4).toLocaleString('zh-CN', { maximumFractionDigits: 0 }) : '—') },
+    { title: '占流通股(%)', dataIndex: 'freeFloatRatio', key: 'freeFloatRatio', width: 120,
+      render: (v: number | null) => (isNum(v) ? `${v.toFixed(2)}%` : '—') },
+    { title: '披露日收盘', dataIndex: 'closePrice', key: 'closePrice', width: 110,
+      render: (v: number | null) => (isNum(v) ? v.toFixed(2) : '—') },
+    { title: '较上期增减(亿)', dataIndex: 'dayChange', key: 'dayChange', width: 140,
+      render: (v: number | null) =>
+        isNum(v) ? (
+          <Text style={{ color: changeColor(v) }}>
+            {changeArrow(v)} {v >= 0 ? '+' : ''}{v.toFixed(2)}
+          </Text>
+        ) : (
+          <Text style={{ color: THEME.textSec }}>{NET_DISCLOSED_TEXT}</Text>
+        ) },
   ];
 
   // ── ⑥ 板块净流入排行（sectors 后端恒为空） ──
@@ -280,24 +308,16 @@ const NorthBoundPage: React.FC = () => {
     netInflow: isNum(s.netInflow) ? s.netInflow : null,
   }));
 
-  const sectorTableData = sectorNetFlows.map((s: any) => {
-    const agg = sectorAggMap.get(s.sector);
-    return {
-      sector: s.sector,
-      netInflow: s.netInflow,
-      count: agg?.count ?? 0,
-      avgChange: agg?.avgChange ?? 0,
-    };
-  });
+  const sectorTableData = sectorNetFlows.map((s: any) => ({
+    sector: s.sector,
+    netInflow: s.netInflow,
+  }));
 
   const sectorColumns = [
     { title: '板块', dataIndex: 'sector', key: 'sector', width: 120 },
     { title: '净流入(亿)', dataIndex: 'netInflow', key: 'netInflow', width: 120,
       render: (v: number | null) =>
         isNum(v) ? <Text style={{ color: changeColor(v) }}>{v > 0 ? '+' : ''}{v.toFixed(2)}</Text> : NET_DISCLOSED_TEXT },
-    { title: '持股家数', dataIndex: 'count', key: 'count', width: 100 },
-    { title: '平均变动(%)', dataIndex: 'avgChange', key: 'avgChange', width: 120,
-      render: (v: number) => <Text style={{ color: changeColor(v) }}>{v >= 0 ? '+' : ''}{v.toFixed(2)}</Text> },
   ];
 
   // ── ⑦ 信号面板 ──
@@ -306,6 +326,19 @@ const NorthBoundPage: React.FC = () => {
     if (t === 'bearish') return { label: '看空', color: THEME.down, bg: 'rgba(34,197,94,0.12)' };
     return { label: '中性', color: THEME.textSec, bg: 'rgba(148,163,184,0.12)' };
   };
+
+  /**
+   * 原「引擎持仓变动」用 `shares / (1 + changePercent/100)` 倒算上一期持股再相减，属伪造，已删除。
+   * 此处只作口径说明：季度披露下无上期持股、日变动字段亦已停披露，故不展示增减。
+   */
+  const holdingChangesUnavailableNote = (
+    <Col xs={24}>
+      <Text style={{ color: THEME.textSec, fontSize: 12 }}>
+        持仓变动（增持/减持）：季度披露口径下上游不提供上期持股，日变动字段与净买额同源已停披露，
+        故本页不展示该口径（不以涨跌幅倒算）。
+      </Text>
+    </Col>
+  );
 
   // 加载中：统一加载态（共享组件，暗色主题一致）
   if (loading) {
@@ -591,25 +624,37 @@ const NorthBoundPage: React.FC = () => {
         )}
       </Card>
 
-      {/* ⑥ 北向重仓股：后端 holdings 恒为空（明细口径停更至 2024-09-30 且为季度披露） */}
+      {/* ⑥ 北向重仓股：真实季度披露口径（后端 RPT_MUTUAL_HOLDSTOCKNORTH_STA） */}
       <Card
-        title={<span style={{ color: THEME.text }}>北向重仓股</span>}
+        title={
+          <span style={{ color: THEME.text }}>
+            北向重仓股
+            {holdingsMeta.lastDisclosedDate ? `（季度披露 · ${holdingsMeta.lastDisclosedDate}）` : ''}
+          </span>
+        }
         size="small"
         style={{ background: THEME.cardBg, borderColor: THEME.border, marginTop: 16 }}
       >
         {topHoldings.length > 0 ? (
-          <Table
-            dataSource={topHoldings}
-            columns={holdingColumns}
-            rowKey="ticker"
-            size="small"
-            pagination={false}
-            scroll={{ x: 600 }}
-          />
+          <>
+            <Table
+              dataSource={topHoldings}
+              columns={holdingColumns}
+              rowKey="ticker"
+              size="small"
+              pagination={false}
+              scroll={{ x: 900 }}
+            />
+            <Text style={{ color: THEME.textSec, fontSize: 12, display: 'block', marginTop: 8 }}>
+              北向持股自 2024-08-19 起转为季度披露（交易所每季第五个交易日公布上季末个股持股数量），
+              非日频数据；「较上期增减」与净买额同源已停止披露，故显示「已停止披露」，不以涨跌幅倒算。
+              {holdingsMeta.note ? ` ${holdingsMeta.note}` : ''}
+            </Text>
+          </>
         ) : (
           <Text style={{ color: THEME.textSec }}>
-            北向持股明细为季度披露口径且上游最新披露日仅到 2024-09-30，已停更一年以上，
-            返回该快照会被误读为「当前重仓股」，故本页不展示持仓数据。
+            北向个股持股为季度披露口径（交易所每季第五个交易日公布上季末持股数量），
+            本次上游未返回该快照，故不展示持仓数据 —— 不以任何估算值顶替。
           </Text>
         )}
       </Card>
@@ -706,14 +751,7 @@ const NorthBoundPage: React.FC = () => {
               </Col>
             );
           })}
-          {holdingChanges && holdingChanges.topIncreased.length > 0 && (
-            <Col xs={24}>
-              <Text style={{ color: THEME.textSec, fontSize: 12 }}>
-                引擎持仓变动：今日增持最多 {holdingChanges.topIncreased[0]?.name}
-                （{holdingChanges.topIncreased[0]?.changePercent.toFixed(2)}%）
-              </Text>
-            </Col>
-          )}
+          {holdingChangesUnavailableNote}
         </Row>
       </Card>
     </div>
