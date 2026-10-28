@@ -1818,6 +1818,250 @@ async function handleIndexKLine(tencentSymbol) {
   }
 }
 
+// ==================== 市场级路由（/api/market/*）====================
+
+/**
+ * GET /api/market/kline?symbol=sh000001&days=120
+ *
+ * 【为什么必须有这条路由】前端 IndexDetailPage.tsx:126-151 消费的是
+ * /api/market/kline（并行数组 dates/opens/prices/highs/lows/volumes），
+ * 而此前 Worker 只注册了 /api/index/:symbol/kline（quotes 行数组）→
+ * 线上 /api/market/kline 404，指数详情页 K 线图恒显「K线源不可达」。
+ *
+ * 契约对齐本地 Express GET /api/market/kline（backend/src/api/market.ts:62）：
+ *   成功：{ success, dataSource:'real', data:{ symbol, dates[], opens[], highs[],
+ *          lows[], prices[], volumes[], count, source } }
+ *   源不可达：HTTP 200 + { success:false, dataSource:'unavailable',
+ *          data:{ 空数组..., message:'中文原因' } }（诚实空，绝不编造数值）
+ *   参数非法：HTTP 400 + 显式 message
+ *
+ * 数据源：腾讯 fqkline（经 fetchDailyKLine 多源降级：腾讯→新浪→东财）。
+ * 注意：不返回 amounts[] —— 上游日K行不含可靠成交额字段，缺了就明说，不用 0 冒充。
+ */
+async function handleMarketKline(url) {
+  try {
+    const rawSymbol = (url.searchParams.get('symbol') || '').trim();
+    if (!rawSymbol) {
+      return error('请提供 symbol 参数，例如 /api/market/kline?symbol=sh000001&days=120', 400);
+    }
+    // symbol 规范化：接受 sh000001 / 000001.SH / SH000001 形式（与既有 toTencentKey 口径一致）。
+    // 纯 6 位代码无市场信息 → 拒绝而非猜测（000001 同时是上证指数与平安银行，猜错即返回错数据）。
+    const tencentKey = toTencentKey(rawSymbol);
+    if (!tencentKey) {
+      return error(`无法识别的 symbol「${rawSymbol}」：请使用 sh000001 / sz399006 / 600519.SH 形式（需带市场前缀或后缀）`, 400);
+    }
+    const rawDays = parseInt(url.searchParams.get('days'), 10);
+    const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 800) : 120;
+
+    const code = tencentKey.replace(/^(sh|sz|bj)/, '');
+    const market = tencentKey.startsWith('sh') ? 'SH' : tencentKey.startsWith('bj') ? 'BJ' : 'SZ';
+    const { quotes, source, attempts } = await fetchDailyKLine(tencentKey, code, market, days);
+
+    if (!quotes || quotes.length === 0) {
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        data: {
+          symbol: tencentKey,
+          dates: [], opens: [], highs: [], lows: [], prices: [], volumes: [],
+          message: 'K线数据暂不可用：上游K线源（腾讯/新浪/东财）全部不可达',
+          attempts: attempts || [],
+        },
+      });
+    }
+
+    const take = quotes.slice(-days);
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: {
+        symbol: tencentKey,
+        dates: take.map(q => q.tradeDate),
+        opens: take.map(q => q.openPrice),
+        highs: take.map(q => q.highPrice),
+        lows: take.map(q => q.lowPrice),
+        prices: take.map(q => q.closePrice),
+        volumes: take.map(q => q.volume),
+        count: take.length,
+        source,
+      },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+/**
+ * GET /api/market/top-gainers?limit=10 / GET /api/market/top-losers?limit=10
+ *
+ * 【为什么必须有这条路由】前端 IndexDetailPage.tsx:109-124 消费
+ * /api/market/top-gainers|top-losers，此前 Worker 未注册 → 线上 404。
+ *
+ * 数据源实测结论（2026-10-28）：腾讯 getRank 接口只有板块口径可用
+ * （board_type=gn 概念 / hy 行业）；个股口径（hs_a / sh_a / sz_a / zx_a 等）
+ * 一律返回空 rank_list，因此涨跌榜改用全市场实时行情快照（getAllQuotes，
+ * 真实腾讯行情，与 /api/market/summary 同口径）按涨跌幅排序得到。
+ *
+ * 契约对齐 backend GET /api/market/top-gainers（backend/src/api/stock.ts:317）：
+ *   { success, dataSource:'real', data:{ topGainers: [{symbol, name, close_price, change_percent}] } }
+ *   change_percent 为字符串数字（保留 2 位），symbol 为裸 6 位代码。
+ */
+async function handleTopGainersLosers(url, kind) {
+  try {
+    const rawLimit = parseInt(url.searchParams.get('limit'), 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 10;
+
+    const { quotes } = await getAllQuotes();
+    const stocks = await getStockList();
+    // 只保留股票清单内的标的（剔除指数快照，且规避 000001 指数/平安银行撞号——
+    // 榜单行必须能在股票清单中定位到唯一真实个股）
+    const stockSet = new Set(stocks.map(s => s.symbol));
+
+    const ranked = quotes
+      .filter(q => q.price > 0 && stockSet.has(q.symbol))
+      .map(q => ({
+        symbol: q.symbol,
+        name: q.name,
+        close_price: q.price,
+        change_percent: q.changePercent.toFixed(2),
+      }));
+    // 涨跌幅相同的并列顺序由排序稳定性决定，不引入任何随机因素
+    ranked.sort((a, b) => kind === 'gainers'
+      ? parseFloat(b.change_percent) - parseFloat(a.change_percent)
+      : parseFloat(a.change_percent) - parseFloat(b.change_percent));
+
+    const list = ranked.slice(0, limit);
+    const key = kind === 'gainers' ? 'topGainers' : 'topLosers';
+
+    if (list.length === 0) {
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        data: {
+          [key]: [],
+          message: '涨跌榜数据暂不可用：全市场实时行情源（腾讯）当前不可达或为空',
+        },
+      });
+    }
+
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: {
+        [key]: list,
+        total: ranked.length,
+        source: 'tencent',
+      },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
+/**
+ * GET /api/market/index-tech/:symbol  （symbol 如 sh000001 / sz399006）
+ *
+ * 指数技术分析：基于日K计算 MA5/10/20/60 + RSI14 + 综合评分(0-100) + 中文仓位建议。
+ * 全部为确定性规则计算，无任何随机值；样本不足的指标如实返回 null。
+ *
+ * 契约：{ success, dataSource:'real', data:{ indexSymbol, indexName, asOf,
+ *        source:'tencent'|'sina'|'eastmoney', ma:{ma5,ma10,ma20,ma60},
+ *        rsi14, compositeScore, positionAdvice } }
+ */
+async function handleIndexTech(rawSymbol) {
+  try {
+    const tencentKey = toTencentKey(String(rawSymbol || '').trim());
+    if (!tencentKey) {
+      return error(`无法识别的 symbol「${rawSymbol}」：请使用 sh000001 / sz399006 形式`, 400);
+    }
+    const idxConfig = INDEX_SYMBOLS.find(i => i.tencent === tencentKey);
+    const indexName = idxConfig ? idxConfig.name : tencentKey;
+
+    const code = tencentKey.replace(/^(sh|sz|bj)/, '');
+    const market = tencentKey.startsWith('sh') ? 'SH' : tencentKey.startsWith('bj') ? 'BJ' : 'SZ';
+    const { quotes, source, attempts } = await fetchDailyKLine(tencentKey, code, market, 200);
+
+    if (!quotes || quotes.length < 15) {
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        data: {
+          indexSymbol: tencentKey,
+          message: '指数技术分析暂不可用：上游K线源（腾讯/新浪/东财）全部不可达或样本不足',
+          attempts: attempts || [],
+        },
+      });
+    }
+
+    const closes = quotes.map(q => q.closePrice);
+    const latest = closes[closes.length - 1];
+    const asOf = quotes[quotes.length - 1].tradeDate;
+
+    const ma = (n) => {
+      if (closes.length < n) return null;
+      const seg = closes.slice(-n);
+      return Math.round((seg.reduce((a, b) => a + b, 0) / n) * 100) / 100;
+    };
+    const ma5 = ma(5), ma10 = ma(10), ma20 = ma(20), ma60 = ma(60);
+
+    // RSI14：与既有 handleTechBatch 同口径（近 15 根收盘的简单均值法），确定性计算
+    let rsi14 = null;
+    if (closes.length >= 15) {
+      const seg = closes.slice(-15);
+      let gains = 0, losses = 0;
+      for (let j = 1; j < seg.length; j++) {
+        const diff = seg[j] - seg[j - 1];
+        if (diff > 0) gains += diff; else losses += Math.abs(diff);
+      }
+      rsi14 = losses === 0 ? 100 : Math.round(100 - (100 / (1 + (gains / 14) / (losses / 14))));
+    }
+
+    // 综合评分 0-100，纯规则：站上均线(0-40) + 均线多头排列(0-30) + RSI 状态(0-30)
+    let score = 0;
+    for (const m of [ma5, ma10, ma20, ma60]) if (m !== null && latest >= m) score += 10;
+    if (ma5 !== null && ma10 !== null && ma5 > ma10) score += 10;
+    if (ma10 !== null && ma20 !== null && ma10 > ma20) score += 10;
+    if (ma20 !== null && ma60 !== null && ma20 > ma60) score += 10;
+    if (rsi14 !== null) {
+      if (rsi14 >= 45 && rsi14 < 70) score += 30;
+      else if (rsi14 >= 70 && rsi14 < 80) score += 20;
+      else if (rsi14 >= 30 && rsi14 < 45) score += 15;
+      else if (rsi14 >= 20 && rsi14 < 30) score += 10;
+      else score += 5; // <20 深度超卖 或 >=80 严重超买，规则上不给高分
+    }
+    const compositeScore = Math.max(0, Math.min(100, score));
+
+    let positionAdvice;
+    if (compositeScore >= 70) {
+      positionAdvice = '偏多：指数站上多数均线且趋势结构较强，可持股观察回踩不破均线的机会';
+    } else if (compositeScore >= 50) {
+      positionAdvice = '中性偏多：趋势尚可但结构未完全走强，轻仓持有、等待均线方向确认';
+    } else if (compositeScore >= 30) {
+      positionAdvice = '中性偏空：多数均线压制或趋势转弱，建议降低仓位、等待企稳信号';
+    } else {
+      positionAdvice = '偏空：均线与 RSI 均处弱势区间，规则上不宜追高，观望为主';
+    }
+    positionAdvice += '（以上为纯规则计算结果，不构成投资建议）';
+
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: {
+        indexSymbol: tencentKey,
+        indexName,
+        asOf,
+        source: source || 'tencent',
+        ma: { ma5, ma10, ma20, ma60 },
+        rsi14,
+        compositeScore,
+        positionAdvice,
+      },
+    });
+  } catch (e) {
+    return error(e.message);
+  }
+}
+
 /**
  * 指数策略分析 — 基于 K 线计算技术指标
  */
@@ -4521,6 +4765,22 @@ export default {
     // Market summary (DiscoverPage 依赖，缺路由会导致右侧统计全 0)
     if (path === '/api/market/summary') {
       return handleMarketSummary();
+    }
+
+    // 市场级路由：指数K线（并行数组契约）+ 全市场涨跌榜 + 指数技术分析
+    // （前端 IndexDetailPage.tsx 消费这三组路由，此前未注册 → 线上 404）
+    if (path === '/api/market/kline') {
+      return handleMarketKline(url);
+    }
+    if (path === '/api/market/top-gainers') {
+      return handleTopGainersLosers(url, 'gainers');
+    }
+    if (path === '/api/market/top-losers') {
+      return handleTopGainersLosers(url, 'losers');
+    }
+    const indexTechMatch = path.match(/^\/api\/market\/index-tech\/([A-Za-z0-9.]+)$/);
+    if (indexTechMatch) {
+      return handleIndexTech(decodeURIComponent(indexTechMatch[1]));
     }
 
     // Sector momentum（?level=2 返回申万二级行业，默认 level=1 一级）

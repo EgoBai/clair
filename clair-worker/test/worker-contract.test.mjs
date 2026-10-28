@@ -212,7 +212,110 @@ await test('未截断场景：可用区间完整时 rangeNote 说明「完整覆
 });
 
 // ============================================================
-// 三、双入口字节一致性（Cloudflare Pages advanced mode 的硬约束）
+// 三、/api/market/kline + top-gainers/losers + index-tech
+// （IndexDetailPage.tsx 消费的三组路由，此前未注册 → 线上 404）
+// ============================================================
+
+console.log('\n/api/market/kline');
+
+await test('K线：sz399006&days=10 → 200、dataSource=real、并行数组等长', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/market/kline?symbol=sz399006&days=10');
+  assert.equal(status, 200, `期望 200，实际 ${status}`);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'real', '有真实K线时 dataSource 应为 real');
+  const d = body.data;
+  assert.ok(Array.isArray(d.dates) && d.dates.length > 0, 'dates 应为非空数组');
+  assert.ok(d.dates.length <= 10, `days=10 时 dates 不应超过 10 根，实际 ${d.dates.length}`);
+  // 前端 IndexDetailPage.tsx:126-151 按并行数组取值，长度必须一致
+  for (const key of ['opens', 'prices', 'highs', 'lows', 'volumes']) {
+    assert.ok(Array.isArray(d[key]), `data.${key} 应为数组`);
+    assert.equal(d[key].length, d.dates.length, `data.${key} 与 dates 长度应一致`);
+  }
+  // 日期格式与数值合理性（不臆造：close 必须落在 [low, high] 内）
+  assert.match(d.dates[0], /^\d{4}-\d{2}-\d{2}$/, '日期应为 YYYY-MM-DD');
+  for (let i = 0; i < d.dates.length; i++) {
+    assert.ok(d.prices[i] > 0, 'close 应为正数（不返回 0 冒充）');
+    assert.ok(d.highs[i] >= d.prices[i] && d.prices[i] >= d.lows[i],
+      `close 应在 [low, high] 内，第 ${i} 行：h=${d.highs[i]} c=${d.prices[i]} l=${d.lows[i]}`);
+  }
+  assert.ok(d.source === 'tencent' || d.source === 'sina' || d.source === 'eastmoney',
+    `source 应为真实来源标注，实际 ${d.source}`);
+});
+
+await test('K线：缺 symbol 参数 → 显式 400 + 中文 message', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/market/kline');
+  assert.equal(status, 400, `期望 400，实际 ${status}`);
+  assert.equal(body.success, false);
+  assert.ok(body.error && body.error.length > 0, '应给出明确 error message');
+});
+
+await test('K线：纯 6 位代码（无市场信息）→ 拒绝猜测，显式 400', async () => {
+  // 000001 同时是上证指数与平安银行，无市场信息时宁拒不猜（诚实 > 好看）
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/market/kline?symbol=000001');
+  assert.equal(status, 400, `期望 400，实际 ${status}`);
+  assert.equal(body.success, false);
+  assert.ok(/symbol/i.test(body.error || ''), 'error 应说明 symbol 问题');
+});
+
+console.log('\n/api/market/top-gainers | top-losers');
+
+for (const kind of ['gainers', 'losers']) {
+  await test(`${kind}：→ 200、real、字段齐、symbol 为裸 6 位、change_percent 可转数字`, async () => {
+    const { status, body } = await callWorker(`https://clair-api.pages.dev/api/market/top-${kind}?limit=10`);
+    assert.equal(status, 200, `期望 200，实际 ${status}`);
+    assert.equal(body.success, true, `有真实行情时 success 应为 true：${JSON.stringify(body).slice(0, 200)}`);
+    assert.equal(body.dataSource, 'real');
+    const list = body.data[kind === 'gainers' ? 'topGainers' : 'topLosers'];
+    assert.ok(Array.isArray(list) && list.length > 0, '榜单应为非空数组');
+    assert.ok(list.length <= 10, '不应超过 limit=10');
+    for (const row of list) {
+      assert.match(row.symbol, /^\d{6}$/, `symbol 应为裸 6 位代码，实际 ${row.symbol}`);
+      assert.ok(typeof row.name === 'string' && row.name.length > 0, 'name 应为非空字符串');
+      assert.ok(typeof row.close_price === 'number' && row.close_price > 0, 'close_price 应为正数');
+      const pct = parseFloat(row.change_percent);
+      assert.ok(Number.isFinite(pct), `change_percent 应可转数字，实际 ${row.change_percent}`);
+      assert.ok(Math.abs(pct) <= 44, `change_percent 超出 A 股涨跌停物理范围，疑似脏数据：${row.change_percent}`);
+    }
+  });
+}
+
+await test('top-gainers：limit=3 只返回 3 条（上限 50 封顶）', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/market/top-gainers?limit=3');
+  const list = body.data.topGainers;
+  assert.ok(list.length <= 3, `limit=3 时不应超过 3 条，实际 ${list.length}`);
+});
+
+console.log('\n/api/market/index-tech');
+
+await test('index-tech：sz399006 → real、rsi14∈[0,100]、compositeScore∈[0,100]、契约字段齐', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/market/index-tech/sz399006');
+  assert.equal(status, 200, `期望 200，实际 ${status}`);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'real');
+  const d = body.data;
+  assert.equal(d.indexSymbol, 'sz399006');
+  assert.ok(d.indexName && d.indexName.length > 0, 'indexName 应为非空字符串');
+  assert.match(d.asOf, /^\d{4}-\d{2}-\d{2}$/, 'asOf 应为 YYYY-MM-DD 交易日');
+  assert.ok(d.source === 'tencent' || d.source === 'sina' || d.source === 'eastmoney',
+    `source 应为真实来源标注，实际 ${d.source}`);
+  for (const k of ['ma5', 'ma10', 'ma20', 'ma60']) {
+    const v = d.ma[k];
+    if (v !== null) assert.ok(typeof v === 'number' && v > 0, `ma.${k} 为数值时应为正数，实际 ${v}`);
+  }
+  assert.ok(d.rsi14 === null || (d.rsi14 >= 0 && d.rsi14 <= 100), `rsi14 应在 [0,100]，实际 ${d.rsi14}`);
+  assert.ok(Number.isInteger(d.compositeScore) && d.compositeScore >= 0 && d.compositeScore <= 100,
+    `compositeScore 应为 0-100 整数，实际 ${d.compositeScore}`);
+  assert.ok(typeof d.positionAdvice === 'string' && d.positionAdvice.includes('规则'),
+    'positionAdvice 应为中文且标注规则计算属性');
+});
+
+await test('诚实性：worker.js 全文无 Math.random（禁止任何随机值冒充数据）', async () => {
+  const workerSrc = readFileSync(WORKER_PATH, 'utf8');
+  assert.ok(!workerSrc.includes('Math.random'), 'worker.js 不得包含 Math.random');
+});
+
+// ============================================================
+// 四、双入口字节一致性（Cloudflare Pages advanced mode 的硬约束）
 // ============================================================
 
 console.log('\n部署入口一致性');
