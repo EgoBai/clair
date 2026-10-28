@@ -10,6 +10,12 @@ import {
   KlineUnavailableError,
   DEFAULT_KLINE_DAYS,
 } from '../services/klineDataService';
+import {
+  getIndexTech,
+  getIndexConstituents,
+  getIndexTopMovers,
+  IndexDataUnavailableError,
+} from '../services/indexDataService';
 import { queryCache } from '../utils/queryCache';
 import { asyncHandler } from '../utils/apiResponse';
 
@@ -94,6 +100,80 @@ router.get(
         sendHonest(res, 'unavailable', {
           symbol,
           ...empty,
+          message: e.message,
+        });
+        return;
+      }
+      throw e;
+    }
+  }),
+);
+
+// ==================== 指数详情页三件套（技术分析 / 成分股 / 成分股涨跌榜） ====================
+// 契约与降级语义见 services/indexDataService.ts 头注释；
+// 任一真实源不可得 → dataSource:'unavailable' + 中文 message（HTTP 200，诚实空，不抛 500）。
+
+router.get(
+  '/index-tech/:symbol',
+  asyncHandler(async (req, res) => {
+    const symbol = req.params.symbol || '';
+    try {
+      const data = await queryCache.query(
+        `market:index-tech:${symbol}`,
+        () => getIndexTech(symbol),
+        10 * 60 * 1000, // 技术指标随日线变动，TTL 10 分钟
+      );
+      sendHonest(res, 'real', { ...data });
+    } catch (e) {
+      if (e instanceof IndexDataUnavailableError) {
+        sendHonest(res, 'unavailable', {
+          indexSymbol: symbol,
+          message: e.message,
+        });
+        return;
+      }
+      throw e;
+    }
+  }),
+);
+
+router.get(
+  '/index-constituents/:symbol',
+  asyncHandler(async (req, res) => {
+    const symbol = req.params.symbol || '';
+    try {
+      const data = await getIndexConstituents(symbol);
+      sendHonest(res, 'real', { ...data });
+    } catch (e) {
+      if (e instanceof IndexDataUnavailableError) {
+        sendHonest(res, 'unavailable', {
+          indexSymbol: symbol,
+          message: e.message,
+        });
+        return;
+      }
+      throw e;
+    }
+  }),
+);
+
+router.get(
+  '/index-top-movers/:symbol',
+  asyncHandler(async (req, res) => {
+    const symbol = req.params.symbol || '';
+    const rawLimit = parseInt(req.query.limit as string, 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 10;
+    try {
+      const data = await queryCache.query(
+        `market:index-movers:${symbol}:${limit}`,
+        () => getIndexTopMovers(symbol, limit),
+        5 * 60 * 1000, // 榜单随当日行情变动，TTL 5 分钟
+      );
+      sendHonest(res, 'real', { ...data });
+    } catch (e) {
+      if (e instanceof IndexDataUnavailableError) {
+        sendHonest(res, 'unavailable', {
+          indexSymbol: symbol,
           message: e.message,
         });
         return;

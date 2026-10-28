@@ -14,7 +14,7 @@
  * 遵守「诚实数据」红线：
  *   - 真实源不可达（超时 / HTTP 非 2xx / 返回结构异常）→ 抛出 KlineUnavailableError；
  *   - 由路由层降级为 dataSource:'unavailable' 的诚实空，绝不回填伪造 / 随机 K 线；
- *   - 不使用任何 Math.random / 硬编码假 K 线。
+ *   - 不使用任何随机数 / 硬编码假 K 线。
  */
 
 /** 真实 K 线源不可用时抛出，供路由层降级为「诚实空」。 */
@@ -114,10 +114,86 @@ function parseKlineRow(row: string): {
 }
 
 /**
+ * 腾讯行情 K 线兜底源（web.ifzq.gtimg.cn，免 key，JSON/UTF-8）
+ *
+ * 背景：东财 push2his 在本机/生产均存在间歇性不可达（HTTP 000/超时），
+ * 2026-10-28 起为 getKline 增加第二真实源。实测样例：
+ *   GET https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sz399006,day,,,5,qfq
+ *   → { code:0, data:{ sz399006:{ day:[[date,open,close,high,low,volume],...], qt:{...} } } }
+ * 注意：
+ *   - 行字段顺序是 **O-C-H-L**（开、收、高、低），与东财的 O-C-H-L 一致但与常见习惯不同，别按 H-L 对调；
+ *   - 个股（qfq 参数）返回键名为 `qfqday`，指数为 `day`，两者结构相同；
+ *   - 腾讯不提供逐日成交额 → 兜底路径 amounts 置空数组（诚实缺省，不伪造 0 值冒充成交额）；
+ *   - 无效代码返回 code:0 但 day:[] → 视为不可用。
+ */
+
+/** 归一化出腾讯行情符号（sh000001 / sz399006 / sh600519），与 normalizeSecid 的沪深判定完全一致 */
+function tencentSymbolOf(norm: { digits: string; secid: string }): string {
+  const isSh = norm.secid.startsWith('1.');
+  return `${isSh ? 'sh' : 'sz'}${norm.digits}`;
+}
+
+/** 腾讯 fqkline 响应行：[date, open, close, high, low, volume(手), ...]（O-C-H-L） */
+function parseTencentRow(row: unknown[]): {
+  date: string; open: number; close: number; high: number; low: number; volume: number;
+} {
+  const [date, open, close, high, low, volume] = row as string[];
+  const num = (v: unknown) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new KlineUnavailableError('腾讯K线源返回行含非数值字段');
+    return n;
+  };
+  return {
+    date: String(date).trim(),
+    open: num(open),
+    close: num(close),
+    high: num(high),
+    low: num(low),
+    // 腾讯成交量单位为「手」，与东财一致，×100 换算为股
+    volume: num(volume) * 100,
+  };
+}
+
+async function fetchTencentKline(
+  tencentSymbol: string,
+  days: number,
+): Promise<KlineData> {
+  const url =
+    `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get` +
+    `?param=${encodeURIComponent(`${tencentSymbol},day,,,${days},qfq`)}`;
+  const json = await fetchJson(url, { 'User-Agent': 'Mozilla/5.0' });
+  const node = json?.data?.[tencentSymbol];
+  // 个股（qfq 参数）键名 qfqday，指数键名 day，结构相同
+  const rowsRaw: any = node?.qfqday ?? node?.day;
+  if (!Array.isArray(rowsRaw) || rowsRaw.length === 0) {
+    throw new KlineUnavailableError('腾讯K线源返回空数据');
+  }
+  const rows = rowsRaw
+    .filter((r: unknown): r is unknown[] => Array.isArray(r) && r.length >= 6)
+    .map(parseTencentRow)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (rows.length === 0) {
+    throw new KlineUnavailableError('腾讯K线源返回无可解析数据');
+  }
+  return {
+    symbol: tencentSymbol.replace(/^(sh|sz)/, ''),
+    dates: rows.map((r) => r.date),
+    opens: rows.map((r) => r.open),
+    highs: rows.map((r) => r.high),
+    lows: rows.map((r) => r.low),
+    prices: rows.map((r) => r.close),
+    volumes: rows.map((r) => r.volume),
+    // 诚实缺省：腾讯源无逐日成交额，置空数组而非伪造 0 值（消费方需按空值处理）
+    amounts: [],
+  };
+}
+
+/**
  * 获取真实历史日线 K 线（前复权）。
- * @param symbol 个股代码（600519 / 600519.SH / SH600519 等）
+ * 数据源：东方财富 push2his 优先，失败（网络/结构异常/空数据）时兜底腾讯 fqkline。
+ * @param symbol 个股/指数代码（600519 / 600519.SH / SH600519 / sz399006 等）
  * @param days 返回的交易日数量（默认 250，上限 800，超出截断）
- * 源失败 / 结构异常 / 参数非法 → 抛 KlineUnavailableError。
+ * 两源均失败 / 结构异常 / 参数非法 → 抛 KlineUnavailableError。
  */
 export async function getKline(symbol: string, days: number = DEFAULT_KLINE_DAYS): Promise<KlineData> {
   const norm = normalizeSecid(symbol);
@@ -128,6 +204,7 @@ export async function getKline(symbol: string, days: number = DEFAULT_KLINE_DAYS
     : DEFAULT_KLINE_DAYS;
 
   const url = buildKlineUrl(norm.secid, effectiveDays);
+  let emError: unknown;
   try {
     const json = await fetchJson(url, {
       'User-Agent': 'Mozilla/5.0',
@@ -164,7 +241,18 @@ export async function getKline(symbol: string, days: number = DEFAULT_KLINE_DAYS
       amounts: rows.map((r) => r.amount),
     };
   } catch (e) {
-    if (e instanceof KlineUnavailableError) throw e;
-    throw new KlineUnavailableError(e instanceof Error ? e.message : 'K线源不可用');
+    if (e instanceof KlineUnavailableError) {
+      emError = e;
+    } else {
+      emError = new KlineUnavailableError(e instanceof Error ? e.message : 'K线源不可用');
+    }
+  }
+  // 东财失败 → 腾讯兜底（同为真实源；两源都失败才诚实降级）
+  try {
+    return await fetchTencentKline(tencentSymbolOf(norm), effectiveDays);
+  } catch (tx) {
+    const emMsg = emError instanceof Error ? emError.message : String(emError);
+    const txMsg = tx instanceof Error ? tx.message : String(tx);
+    throw new KlineUnavailableError(`K线真实源均不可用（东财: ${emMsg}；腾讯: ${txMsg}）`);
   }
 }

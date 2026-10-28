@@ -137,6 +137,9 @@ const pathMetadata: Record<string, { tag: string; summary: string; description?:
   'GET /api/market/top-gainers': { tag: '股票', summary: '获取涨幅榜' },
   'GET /api/market/top-losers': { tag: '股票', summary: '获取跌幅榜' },
   'GET /api/market/top-turnover': { tag: '股票', summary: '获取换手率榜' },
+  'GET /api/market/index-tech/:symbol': { tag: '股票', summary: '获取指数技术分析', description: '基于真实指数K线计算 MA/RSI14/综合评分与仓位建议' },
+  'GET /api/market/index-constituents/:symbol': { tag: '股票', summary: '获取指数成分股', description: '东财/深证信/库内口径真实成分清单；未验证指数诚实 unavailable' },
+  'GET /api/market/index-top-movers/:symbol': { tag: '股票', summary: '获取指数成分股涨跌榜', description: '库内最新交易日行情 × 成分清单 join' },
   'GET /api/stocks/:symbol/latest': { tag: '股票', summary: '获取股票最新行情' },
   'POST /api/stocks/batch/quotes': { tag: '股票', summary: '批量获取行情' },
 
