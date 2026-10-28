@@ -113,6 +113,26 @@ describe('页面级 ErrorBoundary 渲染兜底', () => {
     expect(screen.queryByTestId('page-error-boundary')).toBeNull();
   });
 
+  it('降级卡显式对比色：不依赖主题继承（回归守卫：暗色主题下文字与底色同色）', () => {
+    const { container } = render(wrap(<ErrorBoundary name="指数详情"><Flaky /></ErrorBoundary>));
+
+    // Card 外层带显式背景色
+    const card = container.querySelector('[data-testid="page-error-boundary"]') as HTMLElement;
+    expect(card).toBeDefined();
+    expect(card.getAttribute('style') || '').toContain('background');
+
+    // 标题 span 带显式文字色（原实现无 style，暗色主题下继承成同色）
+    // jsdom 会把内联 style 序列化成 rgb()，两种形态都接受
+    const title = screen.getByText('指数详情 渲染出错') as HTMLElement;
+    expect(title.getAttribute('style') || '').toMatch(/#e2e8f0|rgb\(226,\s*232,\s*240\)/);
+
+    // Alert 正文与错误摘要同样显式配色
+    const alertMsg = screen.getByText('本页面渲染出错（数据可能不完整），已降级显示') as HTMLElement;
+    expect(alertMsg.getAttribute('style') || '').toMatch(/#fca5a5|rgb\(252,\s*165,\s*165\)/);
+    const summary = (container.textContent || '').includes('错误摘要');
+    expect(summary).toBe(true);
+  });
+
   it('SafePage 包裹懒加载页面：抛错时降级、重试后恢复', () => {
     const LazyFlaky = React.lazy(async () => ({ default: Flaky }));
     const { container } = render(

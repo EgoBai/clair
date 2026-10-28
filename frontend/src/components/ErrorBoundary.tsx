@@ -38,6 +38,25 @@ interface PageErrorBoundaryState {
   retryNonce: number;
 }
 
+/**
+ * 兜底卡配色：全部显式成对设置，不依赖 antd 主题继承。
+ * 修复用户实测反馈「错误框字体和底色同色，看不清」——本项目有全局暗色主题
+ * 覆盖，Card 标题/正文若继承主题变量会拿到与底色相同的值。
+ */
+const FALLBACK_COLORS = {
+  cardBg: '#1a2332',
+  cardBorder: '#334155',
+  titleText: '#e2e8f0',
+  bodyText: '#e2e8f0',
+  alertBg: '#2a1a1e',
+  alertBorder: '#7f1d1d',
+  alertTitle: '#fca5a5',
+  codeBg: '#3a2d1e',
+  codeText: '#fde68a',
+} as const;
+
+const { titleText, bodyText, cardBg, cardBorder, alertBg, alertBorder, alertTitle, codeBg, codeText } = FALLBACK_COLORS;
+
 export class ErrorBoundary extends Component<PageErrorBoundaryProps, PageErrorBoundaryState> {
   constructor(props: PageErrorBoundaryProps) {
     super(props);
@@ -81,25 +100,30 @@ export class ErrorBoundary extends Component<PageErrorBoundaryProps, PageErrorBo
       <Card
         size="small"
         data-testid="page-error-boundary"
-        style={{ margin: 16 }}
+        style={{ margin: 16, background: cardBg, borderColor: cardBorder }}
         title={
           <Space>
             <WarningOutlined style={{ color: '#ff4d4f' }} />
-            <span>{title}</span>
+            {/* 显式对比色：不依赖主题继承，保证暗色/亮色主题下都可读 */}
+            <span style={{ color: titleText }}>{title}</span>
           </Space>
         }
       >
         <Alert
           type="error"
           showIcon
-          message="本页面渲染出错（数据可能不完整），已降级显示"
+          style={{ background: alertBg, borderColor: alertBorder }}
+          message={<span style={{ color: alertTitle }}>本页面渲染出错（数据可能不完整），已降级显示</span>}
           description={
-            <div>
-              <Paragraph style={{ marginBottom: 8 }}>
+            <div style={{ color: bodyText }}>
+              <Paragraph style={{ color: bodyText, marginBottom: 8 }}>
                 这是<Text strong>渲染出错</Text>，不代表当前业务确实为空。可能原因：接口未取到数据、
                 返回字段缺失或数据格式与预期不符。已仅降级本区域，侧边导航与其它页面仍可正常使用。
               </Paragraph>
-              <Text code style={{ wordBreak: 'break-all' }}>
+              <Text
+                code
+                style={{ wordBreak: 'break-all', color: codeText, background: codeBg, padding: '2px 6px', borderRadius: 4 }}
+              >
                 错误摘要：{message}
               </Text>
             </div>
