@@ -39,12 +39,37 @@ const STRATEGY_ALIAS: Record<string, StrategyType> = {
   custom: 'custom',
 };
 
-/** 归一化为 YYYY-MM-DD；Joi.date() 会把入参转成 Date，DB 亦可能返回 Date */
-function toDateStr(value: unknown): string | null {
+/**
+ * 归一化为 YYYY-MM-DD；Joi.date() 会把入参转成 Date，DB 亦可能返回 Date。
+ *
+ * ⚠️ 禁止 toISOString().slice(0,10)：node-pg 把 DATE 列解析为**本地零点**的
+ * Date（东八区下 trade_date=2026-06-01 → Date(2026-05-31T16:00:00Z)），按 UTC
+ * 取日期会把回测区间整体偏移 -1 天（实测 06-01~09-30 被报成 05-31~09-29）。
+ * 故字符串直接截取 YYYY-MM-DD 日历段（不经 Date 时区往返），Date 用本地
+ * 日历分量还原（与 node-pg 的本地零点解析互为逆操作）。
+ */
+export function toDateStr(value: unknown): string | null {
   if (value == null || value === '') return null;
+  if (typeof value === 'string') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  }
   const d = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  // 两种 Date 来源要分别还原：
+  //  - node-pg 的 DATE 列 → **本地零点** Date → 用本地日历分量；
+  //  - date-only 字符串（Joi / new Date('2026-06-01')）→ **UTC 零点** Date → 用 UTC 分量；
+  // 两者都不命中时（带时刻的完整时间戳）按本地分量。
+  const midnightOf = (get: (i: number) => number) =>
+    get(0) === 0 && get(1) === 0 && get(2) === 0 && get(3) === 0;
+  const isLocalMidnight = midnightOf((i) => [d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds()][i]);
+  const isUtcMidnight = midnightOf((i) => [d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds()][i]);
+  const y = isUtcMidnight && !isLocalMidnight ? d.getUTCFullYear() : d.getFullYear();
+  const mIdx = isUtcMidnight && !isLocalMidnight ? d.getUTCMonth() : d.getMonth();
+  const dayNum = isUtcMidnight && !isLocalMidnight ? d.getUTCDate() : d.getDate();
+  const mo = String(mIdx + 1).padStart(2, '0');
+  const day = String(dayNum).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
 }
 
 const dayDiff = (start: string, end: string) =>
@@ -265,31 +290,49 @@ router.get('/backtest/presets', (_req, res) => {
 
 router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (req, res) => {
   try {
-    const { symbol: rawSymbol, strategies } = req.body;
+    // 契约以 validation.ts 的 backtestCompareSchema 为准（前端 api.ts 已对齐）：
+    // strategies 是**策略对象数组** [{ strategy, parameters? }]（≥2 个），
+    // 顶层另需 symbol/startDate/endDate。历史上前端发 strategies: string[] 且
+    // 不带日期，被 schema 稳定 400 —— 统一以后端 schema 为准。
+    const { symbol: rawSymbol, strategies, startDate, endDate } = req.body;
     const symbol = normalizeSymbol(rawSymbol);
 
-    if (!symbol || !Array.isArray(strategies) || strategies.length === 0) {
+    if (!symbol) {
       return res.status(400).json({
         success: false,
         dataSource: 'unavailable',
         error: '需要股票代码和至少一个策略配置',
-        message: '缺少必需参数 symbol/strategies，未查询任何 K 线数据',
+        message: '缺少必需参数 symbol/strategies（策略对象数组，每项形如 { strategy: "ma_cross", parameters: {} }），未查询任何 K 线数据',
       });
     }
 
-    if (strategies.length > 5) {
+    // ---------- 回测区间校验（与 /backtest/run 同一契约） ----------
+    const start = toDateStr(startDate);
+    const end = toDateStr(endDate);
+
+    if (!start || !end) {
       return res.status(400).json({
         success: false,
         dataSource: 'unavailable',
-        error: '最多同时对比5个策略',
-        message: '策略数量超限，未执行任何对比',
+        error: '回测区间无效，起止日期需为 YYYY-MM-DD 格式',
+        message: '起止日期缺失或格式非法，未查询任何 K 线数据',
+      });
+    }
+    if (start > end) {
+      return res.status(400).json({
+        success: false,
+        dataSource: 'unavailable',
+        error: `回测起始日期（${start}）不能晚于结束日期（${end}）`,
+        message: '回测区间起止倒置，未查询任何 K 线数据',
       });
     }
 
-    // 查询K线数据
+    // 查询K线数据（按用户所选区间过滤；与 /backtest/run 一样按日历字符串透传，
+    // 不经 Date 时区转换 —— 否则区间整体偏移一天）
     const klineRows = await db.connection('daily_quotes')
       .join('stocks', 'stocks.id', 'daily_quotes.stock_id')
       .where('stocks.symbol', symbol)
+      .whereBetween('daily_quotes.trade_date', [start, end])
       .select(
         'daily_quotes.trade_date as tradeDate',
         'daily_quotes.open_price as open',
@@ -306,46 +349,66 @@ router.post('/backtest/compare', validateBody(schemas.backtestCompare), async (r
       return res.status(400).json({
         success: false,
         dataSource: 'unavailable',
-        error: 'K线数据不足',
-        message: '本地真实行情库该股票 K 线条数不足 20，未执行任何对比回测',
+        error: `K线数据不足（${start} 至 ${end} 区间内仅 ${klineRows.length} 条，至少 20 条）`,
+        message: '本地真实行情库该股票在所选区间内 K 线条数不足 20，未执行任何对比回测',
       });
     }
 
-    const klineData: KLineData[] = klineRows.map((r: Record<string, string>) => ({
-      tradeDate: r.trade_date,
-      open: parseFloat(r.open),
-      close: parseFloat(r.close),
-      high: parseFloat(r.high),
-      low: parseFloat(r.low),
-      volume: parseFloat(r.volume),
-      turnover: parseFloat(r.turnover),
+    // ⚠️ select 已把 trade_date 别名为 tradeDate，必须读 tradeDate（兜底
+    // trade_date），且经 toDateStr 归一化 —— 裸用 r.trade_date 会得到 undefined，
+    // 直接把 Date 塞进 tradeDate 又会经 JSON 序列化偏移时区。
+    const klineData: KLineData[] = klineRows.map((r: Record<string, unknown>) => ({
+      tradeDate: toDateStr(r.tradeDate ?? r.trade_date) ?? '',
+      open: parseFloat(String(r.open)),
+      close: parseFloat(String(r.close)),
+      high: parseFloat(String(r.high)),
+      low: parseFloat(String(r.low)),
+      volume: parseFloat(String(r.volume)),
+      turnover: parseFloat(String(r.turnover)),
     }));
 
     // 运行所有策略
     // 与 /backtest/run 同修：initialCapital 在 schema 里是**顶层**字段，
-    // 只展开 strat.params 会把它静默丢弃 → 全部策略按默认 100 万算（qa P2-③）。
+    // 只展开 strat.parameters 会把它静默丢弃 → 全部策略按默认 100 万算（qa P2-③）。
     const compareCapital = Number(
       (req.body as { initialCapital?: unknown }).initialCapital ?? 0,
     );
-    const results = strategies.map((strat: { name: string; description: string; type: string; params: Record<string, unknown> }) => {
+    const results = strategies.map((strat: { strategy?: string; parameters?: Record<string, unknown> }) => {
       try {
+        const engineStrategy = STRATEGY_ALIAS[strat.strategy ?? ''];
+        if (!engineStrategy) {
+          return {
+            strategy: strat.strategy,
+            error: `不支持的策略类型: ${strat.strategy}（支持 ma_cross/rsi_reversal/macd_trend/breakout）`,
+          };
+        }
         const result = runBacktest(klineData, {
-          type: strat.type as StrategyType,
-          ...strat.params,
+          type: engineStrategy,
+          ...strat.parameters,
           ...(compareCapital > 0 ? { initialCapital: compareCapital } : {}),
         });
         result.symbol = symbol;
         return result;
       } catch (err) {
         return {
-          strategy: strat.type,
+          strategy: strat.strategy,
           error: err instanceof Error ? err.message : '回测失败',
         };
       }
     });
 
+    // 区间披露（与 /backtest/run 同契约）：actualRange 用首尾 K 线日期算出，不猜
+    const actualStart = klineData[0]?.tradeDate || start;
+    const actualEnd = klineData[klineData.length - 1]?.tradeDate || end;
+
     sendHonest(res, 'real', {
       symbol,
+      requestedRange: { start, end },
+      actualRange: {
+        start: actualStart,
+        end: actualEnd,
+        klineCount: klineRows.length,
+      },
       ...(compareCapital > 0 ? { initialCapital: compareCapital } : {}),
       results,
     });
