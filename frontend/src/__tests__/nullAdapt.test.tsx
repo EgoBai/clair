@@ -67,9 +67,13 @@ const NO_QUOTE_ETF: ETFData = {
 };
 
 const mockFetchPayload = (etfs: ETFData[], extra: Record<string, unknown> = {}) => {
+  // ETFPage 现在先判 r.ok / r.status 再读 json（三态改造 9376a9ed6），
+  // mock 必须给全成功 Response 形态，否则 !r.ok 恒真、页面全走失败分支。
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
       json: async () => ({
         success: true,
         data: {

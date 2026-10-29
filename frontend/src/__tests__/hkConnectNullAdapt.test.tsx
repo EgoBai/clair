@@ -71,12 +71,20 @@ const SUMMARY_PAYLOAD = {
 };
 
 const mockFetch = (payload: unknown) => {
+  // 页面 honestGet 现在先判 r.ok / r.status 再读 json（三态改造 9376a9ed6），
+  // mock 必须给全成功 Response 形态，否则 !r.ok 恒真、页面全走失败分支。
+  const okResponse = (body: unknown) =>
+    ({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(body),
+    }) as unknown as Response;
   const fn = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes('/ah-premium')) {
-      return Promise.resolve({ json: () => Promise.resolve({ data: { data: [], dataSource: 'real' } }) } as Response);
+      return Promise.resolve(okResponse({ data: { data: [], dataSource: 'real' } }));
     }
-    return Promise.resolve({ json: () => Promise.resolve(payload) } as Response);
+    return Promise.resolve(okResponse(payload));
   });
   vi.stubGlobal('fetch', fn);
   return fn;
