@@ -405,8 +405,22 @@ class ApiService {
 
   // ==================== 回测系统 ====================
 
-  async runBacktest(symbol: string, strategy: string, params: Record<string, unknown> = {}): Promise<ApiResponse<unknown>> {
-    const response = await this.client.post('/backtest/run', { symbol, strategy, params });
+  async runBacktest(
+    symbol: string,
+    strategy: string,
+    params: Record<string, unknown> = {},
+    startDate?: string,
+    endDate?: string,
+  ): Promise<ApiResponse<unknown>> {
+    // 后端 backtestRunSchema 要求顶层 startDate/endDate 必填（YYYY-MM-DD），
+    // 缺失会被稳定 400 —— 显式透传，不落在 params 里（顶层才是 schema 权威形态）
+    const response = await this.client.post('/backtest/run', {
+      symbol,
+      strategy,
+      params,
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    });
     return response.data;
   }
 
@@ -414,8 +428,29 @@ class ApiService {
     return this.cachedGet('/backtest/presets', undefined, 'financial');
   }
 
-  async compareBacktests(symbol: string, strategies: string[]): Promise<ApiResponse<unknown>> {
-    const response = await this.client.post('/backtest/compare', { symbol, strategies });
+  /**
+   * 策略对比。契约以后端 backtestCompareSchema（validation.ts）为准：
+   * - strategies 必须是**策略对象数组** [{ strategy, parameters? }]，≥2 个，
+   *   不接受 string[]（历史上发 string[] 被稳定 400）；
+   * - symbol/startDate/endDate（YYYY-MM-DD）为顶层必填字段。
+   */
+  async compareBacktests(
+    symbol: string,
+    strategies: Array<{
+      strategy: 'ma_cross' | 'rsi_reversal' | 'macd_trend' | 'breakout';
+      parameters?: Record<string, unknown>;
+    }>,
+    startDate: string,
+    endDate: string,
+    initialCapital?: number,
+  ): Promise<ApiResponse<unknown>> {
+    const response = await this.client.post('/backtest/compare', {
+      symbol,
+      strategies,
+      startDate,
+      endDate,
+      ...(initialCapital != null ? { initialCapital } : {}),
+    });
     return response.data;
   }
 

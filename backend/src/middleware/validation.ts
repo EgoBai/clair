@@ -446,16 +446,38 @@ const backtestRunSchema = Joi.object({
   }).optional(),
 });
 
+// 契约基准（前端 api.ts 的 compareBacktests 已对齐本 schema）：
+// strategies 必须是**策略对象数组** [{ strategy, parameters? }]（≥2 个），
+// 顶层另需 symbol/startDate/endDate（YYYY-MM-DD）。历史上前端发过
+// strategies: string[] 且不带日期，被本 schema 稳定 400 —— 现以后端为准统一。
 const backtestCompareSchema = Joi.object({
   strategies: Joi.array().items(
     Joi.object({
-      strategy: Joi.string().valid('ma_cross', 'rsi_reversal', 'macd_trend', 'breakout').required(),
+      strategy: Joi.string().valid('ma_cross', 'rsi_reversal', 'macd_trend', 'breakout').required()
+        .messages({
+          'any.required': 'strategies[].strategy 必填：策略标识（ma_cross/rsi_reversal/macd_trend/breakout）',
+          'any.only': 'strategies[].strategy 取值非法，仅支持 ma_cross/rsi_reversal/macd_trend/breakout',
+        }),
       parameters: Joi.object().optional(),
     })
-  ).min(2).max(5).required(),
-  symbol: Joi.string().max(20).pattern(/^[a-zA-Z0-9.]+$/).required(),
-  startDate: Joi.date().iso().required(),
-  endDate: Joi.date().iso().required(),
+  ).min(2).max(5).required()
+    .messages({
+      'any.required': 'strategies 必填：策略对象数组（每项含 strategy 字段，如 "ma_cross"，可选 parameters 对象），不接受字符串数组',
+      'array.min': '策略对比至少需要 2 个策略对象（每项含 strategy 字段，可选 parameters）',
+      'array.max': '策略对比最多支持 5 个策略',
+    }),
+  symbol: Joi.string().max(20).pattern(/^[a-zA-Z0-9.]+$/).required()
+    .messages({
+      'any.required': 'symbol 必填：股票代码，如 600519 / 000001.SZ',
+    }),
+  startDate: Joi.date().iso().required()
+    .messages({
+      'any.required': 'startDate 必填：回测起始日期（YYYY-MM-DD）',
+    }),
+  endDate: Joi.date().iso().required()
+    .messages({
+      'any.required': 'endDate 必填：回测结束日期（YYYY-MM-DD）',
+    }),
   initialCapital: Joi.number().min(10000).max(1e12).default(1000000),
 });
 
