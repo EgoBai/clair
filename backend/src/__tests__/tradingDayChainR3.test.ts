@@ -3,7 +3,7 @@
  * /api/ai/market-pulse、/api/macro/overview 不得再按自然日裸查「今天」。
  *
  * 缺陷（只读审计已实测坐实）：同一天，/api/breadth/current 与 /api/market/summary
- * 有真实数据（如 2076涨/2969跌），但上述 4 个端点用 `getMarketSummary(new Date())`
+ * 有真实数据（如 2076涨/2969跌），但以下 5 个端点用 `getMarketSummary(new Date())`
  * 按自然日查库——当天是交易日但库中数据尚未同步（或节假日）时查到 null，
  * 返回 partial/unavailable，与 breadth/current 形成同一时刻的数据分叉。
  *
@@ -39,6 +39,14 @@ vi.mock('../middleware/aiTiming', () => ({ aiTiming: (_q: any, _s: any, n: any) 
 vi.mock('../services/macroDataService', () => ({
   getMacroCpiPpi: vi.fn(async () => { throw new Error('macro source disabled in test'); }),
   MacroUnavailableError: class MacroUnavailableError extends Error {},
+}));
+
+// fund-flow /market 会尝试东财 push2 真实源（沙箱不可达且超时 10s），隔离掉
+vi.mock('axios', () => ({
+  default: {
+    get: vi.fn(async () => { throw new Error('network disabled in test'); }),
+    post: vi.fn(async () => { throw new Error('network disabled in test'); }),
+  },
 }));
 
 const dbMock = {
@@ -83,6 +91,7 @@ vi.mock('../utils/tradingCalendar', async (importOriginal) => {
 import aiChatRouter from '../api/ai-chat';
 import marketPulseRouter from '../api/ai-market-pulse';
 import macroRouter from '../api/macro';
+import fundFlowRouter from '../api/fund-flow';
 
 const REAL_BREADTH = {
   date: new Date('2026-10-28'),
@@ -177,6 +186,24 @@ describe('R3 · /api/macro/overview：先解析交易日再查库 + asOf 透出'
   });
 });
 
+describe('R3 · /api/fund-flow/market：先解析交易日再查库 + asOf 透出', () => {
+  it('getMarketSummary 收到解析日的 UTC 零点；data 带 asOf，广度为真实值', async () => {
+    const res = await request(buildApp(fundFlowRouter, '/api')).get('/api/fund-flow/market');
+
+    expect(res.status).toBe(200);
+    expectCalledWithResolvedDate(dbMock.getMarketSummary);
+
+    const d = res.body.data;
+    // 东财 5 档在测试中被隔离 → partial（广度真实 + tiers 不可用），不因 tiers 缺失降级
+    expect(res.body.dataSource).toBe('partial');
+    expect(d.asOf).toBe(RESOLVED_AS_OF);
+    expect(d.asOfIsFallback).toBe(true);
+    expect(d.asOfNote).toBe(RESOLVED_NOTE);
+    expect(d.market.risingStocks).toBe(755);
+    expect(d.market.fallingStocks).toBe(4368);
+  });
+});
+
 describe('R3 · /api/ai/market-insight-llm：LLM 路径同样透出 asOf', () => {
   it('LLM 可用时响应带 asOf 与回退标注', async () => {
     const res = await request(buildApp(aiChatRouter, '/api')).get('/api/ai/market-insight-llm');
@@ -199,8 +226,8 @@ describe('R3 · 源码级回归：三个 api 文件不得再按自然日裸查',
     return readFileSync(join(here, rel), 'utf-8');
   }
 
-  it('ai-chat.ts / ai-market-pulse.ts 不得出现 getMarketSummary(new Date())', async () => {
-    for (const rel of ['../api/ai-chat.ts', '../api/ai-market-pulse.ts']) {
+  it('ai-chat.ts / ai-market-pulse.ts / fund-flow.ts 不得出现 getMarketSummary(new Date())', async () => {
+    for (const rel of ['../api/ai-chat.ts', '../api/ai-market-pulse.ts', '../api/fund-flow.ts']) {
       const src = (await readSrc(rel)).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
       expect(src, `${rel} 仍在按自然日裸查`).not.toMatch(/getMarketSummary\(\s*new Date\(\)\s*\)/);
       expect(src, `${rel} 未接入交易日解析`).toContain('resolveMarketQueryDate');

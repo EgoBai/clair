@@ -10,6 +10,7 @@ import { db, getDb } from '../db/dbFactory';
 import { validateQuery, validateBody, validateParams, schemas } from '../middleware/validation';
 import { asyncHandler, sendSuccess, sendNotFound, sendInternalError } from '../utils/apiResponse';
 import { getFundFlowMeta, getGlobalIndicators } from '../services/fundFlowProviders';
+import { resolveMarketQueryDate } from '../utils/tradingCalendar';
 
 const router = Router();
 
@@ -298,11 +299,18 @@ router.get('/fund-flow/global', async (_req: Request, res: Response) => {
  *     （沙箱下不可达，请求失败则 tiers 置 null，标注 unavailable，绝不编造数值）。
  *   - 市场广度（上涨/下跌/平盘家数、涨跌停、全市场成交额）：来自本地真实行情库
  *     （db.getMarketSummary），为真实数据。
+ *
+ * 【R3 交易日收口】不再按自然日裸查「今天」：先经交易日历解析最近真实交易日
+ * （今天是交易日用今天；节假日回退最近交易日；该日库中无数据继续回退到最近
+ * 「有数据」的交易日），再查库 —— 与 /api/breadth/current 同口径，消除
+ * 「同一天 breadth/current 有真实数据、本端点按自然日查空」的分叉。
+ * 所用交易日以 asOf 如实透出（P0-CALWIRE）。
  */
 router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const db = getDb();
-    const summary = await db.getMarketSummary(new Date());
+    const q = await resolveMarketQueryDate();
+    const summary = await db.getMarketSummary(q.date);
 
     const market = summary
       ? {
@@ -327,6 +335,10 @@ router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response
       data: {
         tiers: tiers ?? { main: null, superLarge: null, large: null, medium: null, small: null },
         market,
+        // 数据所属交易日如实披露（R3 交易日收口）
+        asOf: q.asOf,
+        asOfIsFallback: q.isFallback,
+        ...(q.note ? { asOfNote: q.note } : {}),
         updateTime: new Date().toISOString(),
         source: tierAvailable ? 'eastmoney' : 'unavailable',
         note: tierAvailable
