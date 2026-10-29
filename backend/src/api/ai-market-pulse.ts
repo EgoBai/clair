@@ -14,6 +14,7 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
+import { resolveMarketQueryDate } from '../utils/tradingCalendar';
 import aiService from '../services/aiService';
 import { createLogger } from '../utils/logger';
 import { aiTiming } from '../middleware/aiTiming';
@@ -234,8 +235,14 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
     //    `summary.risingStocks`（裸访问）→ null 时抛 TypeError，只能靠 catch
     //    兜底成 unavailable，等于每次请求白跑一趟 + log.error 刷屏，
     //    且走的是降级分支而非正常路径。
+    //    【R3 交易日收口】不再按自然日裸查「今天」：先经交易日历解析最近真实交易日
+    //    （今天是交易日用今天；节假日回退最近交易日；该日库中无数据继续回退到
+    //    最近「有数据」的交易日），再查库 —— 与 /api/breadth/current 同口径，
+    //    消除「同一天 breadth/current 有真实数据、本端点按自然日查空」的分叉。
+    //    所用交易日以 asOf 如实透出（P0-CALWIRE）。
+    const q = await resolveMarketQueryDate();
     const [summaryRaw, sectorRowsRaw] = await Promise.all([
-      db.getMarketSummary(new Date()),
+      db.getMarketSummary(q.date),
       db.getSectorMomentumScore(),
     ]);
     const summary: any = summaryRaw;
@@ -339,6 +346,10 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
         // 分块可用性：让前端/下游能区分「广度缺失」与「板块缺失」，
         // 而不是只看到一个笼统的 unavailable
         availability: { breadth: hasMarketData && risingRatio !== null, sectors: hasSectorData },
+        // 数据所属交易日如实披露（R3 交易日收口）
+        asOf: q.asOf,
+        asOfIsFallback: q.isFallback,
+        ...(q.note ? { asOfNote: q.note } : {}),
         generatedAt: new Date().toISOString(),
       },
     });

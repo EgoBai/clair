@@ -467,9 +467,21 @@ let pgUnavailableWarned = false;
  * 同一交易日被复制到多个日期，**按行判断会重复计数**、按单股判断会放大噪声，
  * 唯有对日期集合去重才能得到「市场实际开市日」。
  */
+/** PG 是否可用（类型层面）。任何异常（含测试桩缺导出）一律按「不可用」处理。 */
+function isPostgresAvailable(): boolean {
+  try {
+    return getDbType() === 'postgres';
+  } catch {
+    // 防御（R3）：vi.mock 工厂只导出 getDb 时，Vitest 对未导出成员的
+    // 属性访问（连 typeof 都会触发 getter）会直接抛错。本模块契约是
+    // 「PG 不可用 → null / 降级」而非向上抛错，故此处吞掉并按不可用处理。
+    return false;
+  }
+}
+
 export async function fetchQuoteDatesFromDb(): Promise<DateStr[] | null> {
   // 内存库（未初始化 / 已降级）没有可信行情，一律视为「PG 不可用」
-  if (getDbType() !== 'postgres') return null;
+  if (!isPostgresAvailable()) return null;
 
   try {
     const rows = (await getDb().connection.raw(

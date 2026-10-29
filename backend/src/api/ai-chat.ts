@@ -10,6 +10,7 @@ import aiService from '../services/aiService';
 import { logger } from '../services/logger';
 import { getDb } from '../db/dbFactory';
 import { getRealMarketData } from '../services/realMarketData';
+import { resolveMarketQueryDate } from '../utils/tradingCalendar';
 
 import { aiTiming } from '../middleware/aiTiming';
 
@@ -493,7 +494,13 @@ async function buildRuleInsight(db: any): Promise<{
   hasLimitUpData: boolean;
 }> {
   // 三类数据源分别取，任何一个缺失都不影响其余两个的可用性判定
-  const marketSummary: any = await db.getMarketSummary(new Date());
+  // 【R3 交易日收口】不再按自然日裸查「今天」：先经交易日历解析最近真实交易日
+  // （今天是交易日用今天；节假日回退最近交易日；该日库中无数据继续回退到
+  // 最近「有数据」的交易日），再查库 —— 与 /api/breadth/current、/api/sectors
+  // 同口径，消除「同一天 breadth/current 有真实数据、本端点按自然日查空」的分叉。
+  // 所用交易日以 asOf 如实透出（P0-CALWIRE：asOf 是「你看的数据是哪天的」唯一真源）。
+  const q = await resolveMarketQueryDate();
+  const marketSummary: any = await db.getMarketSummary(q.date);
   const sectorScores: any[] = (await db.getSectorMomentumScore()) || [];
   const enhancedSectors: any[] = (await db.getSectorPerformanceEnhanced()) || [];
 
@@ -637,6 +644,10 @@ async function buildRuleInsight(db: any): Promise<{
     // ---- 三类数据源各自的可用性 + 人类可读缺失说明（前端可按项渲染，不全盘空态）----
     dataAvailability: { breadth: hasMarketData, sectors: hasSectorData, limitUp: hasLimitUpData },
     degradedNote,
+    // ---- 数据所属交易日如实披露（R3 交易日收口）----
+    asOf: q.asOf,
+    asOfIsFallback: q.isFallback,
+    ...(q.note ? { asOfNote: q.note } : {}),
     // ---- 前端契约字段（DiscoverPage v3 渲染依赖）----
     summary: overview ?? '当日行情数据源不可用，未生成市场解读',
     points,
@@ -819,7 +830,11 @@ router.get('/ai/health', asyncHandler(async (_req: Request, res: Response) => {
 router.get('/ai/market-insight-llm', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const db = getDb();
-    
+    // 【R3 交易日收口】板块数据由 getSectorMomentumScore 按 MAX(trade_date)（库内最新）
+    // 取得，本身不按自然日查；但「数据属于哪一天」仍需经交易日历解析并如实透出，
+    // 口径与 /ai/market-insight 一致（节假日/数据未同步时 asOf 如实标注回退）。
+    const q = await resolveMarketQueryDate();
+
     // 获取板块数据
     const sectors = await db.getSectorMomentumScore();
     // 【诚实红线 · P0-REALCLAIM 同族】板块库为空时，下面 upSectors/downSectors/avgChange/
@@ -918,7 +933,14 @@ ${topSectors.map(s => `- ${s.industry}: 景气度${s.score}分, 涨幅${s.avg_ch
     const insight = parseMarketInsight(aiResponse.content, marketData);
 
     // LLM 文本 + 板块景气度/涨跌家数（本地真实行情库，上面已确保 sectors 非空）→ real
-    sendHonest(res, 'real', { ...insight, source: 'llm' });
+    // asOf 如实透出本次数据所属交易日（R3 交易日收口）
+    sendHonest(res, 'real', {
+      ...insight,
+      source: 'llm',
+      asOf: q.asOf,
+      asOfIsFallback: q.isFallback,
+      ...(q.note ? { asOfNote: q.note } : {}),
+    });
   } catch (error) {
     // LLM 不可用（余额不足/超时/模型错误等）或板块数据为空时，降级为规则引擎结果。
     // 注意：降级源是否够格叫 'real' 取决于规则引擎**实际**拿到的数据，

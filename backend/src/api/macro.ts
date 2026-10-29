@@ -18,6 +18,7 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import { getMacroCpiPpi, MacroUnavailableError } from '../services/macroDataService';
+import { resolveQueryDate, today as calendarToday } from '../utils/tradingCalendar';
 
 const router = Router();
 
@@ -78,6 +79,12 @@ type CoreCardsResult = {
   hasSectors: boolean;
   /** 参与历史序列回溯的真实交易日（升序），供测试核对 */
   historyDates: string[];
+  /** 数据所属交易日（YYYY-MM-DD）——R3 交易日收口后如实透出 */
+  asOf: string;
+  /** 是否发生了交易日回退（今天非交易日 / 库中当日无数据） */
+  asOfIsFallback: boolean;
+  /** 回退/精度说明（无则为 null） */
+  asOfNote: string | null;
 };
 
 /** 构造一张「值不可得」的卡片：valueText 不可用、series 空数组 */
@@ -137,8 +144,17 @@ async function buildRealSeries(
 }
 
 async function buildCoreCards(db: any): Promise<CoreCardsResult> {
-  const today = new Date();
-  const summary = await db.getMarketSummary(today);
+  // 【R3 交易日收口】不再按自然日裸查「今天」：先解析最近真实交易日再查库。
+  // 双重判定（与 tradingCalendar 的设计一致）：
+  //   a) 内置交易日历 isTradingDay —— 今天是交易日用今天，节假日回退最近交易日；
+  //   b) PG 交叉校验 —— 今天虽是交易日但库中无数据时，继续回退到最近
+  //      「有数据」的交易日（等价于 MAX(trade_date) 口径，且剔除假期抹布行）。
+  // PG 不可用（dataAvailable === null）时无法确证「哪个交易日有数据」，
+  // 锚点保持今天：查不到就走既有的诚实 unavailable 卡片，绝不假装知道数据在哪天。
+  const q = await resolveQueryDate();
+  const anchorDate = q.dataAvailable === null ? calendarToday() : q.date;
+  const anchor = new Date(`${anchorDate}T00:00:00Z`);
+  const summary = await db.getMarketSummary(anchor);
   const sectors = (await db.getSectorMomentumScore()) || [];
 
   // ---- 可用性判据：值是否真实，而不是数组是否非空 ----
@@ -153,13 +169,13 @@ async function buildCoreCards(db: any): Promise<CoreCardsResult> {
 
   // 真实历史序列（仅在对应维度可得时才回溯，避免无谓查询）
   const risingSeries = hasBreadth
-    ? await buildRealSeries(db, today, (s) => Number(s.risingStocks))
+    ? await buildRealSeries(db, anchor, (s) => Number(s.risingStocks))
     : { values: [], dates: [] };
   const fallingSeries = hasBreadth
-    ? await buildRealSeries(db, today, (s) => Number(s.fallingStocks))
+    ? await buildRealSeries(db, anchor, (s) => Number(s.fallingStocks))
     : { values: [], dates: [] };
   const turnoverSeries = hasBreadth
-    ? await buildRealSeries(db, today, (s) => {
+    ? await buildRealSeries(db, anchor, (s) => {
         const t = Number(s.totalTurnover);
         return Number.isFinite(t) ? t / 1e8 : null; // 亿元
       })
@@ -282,7 +298,16 @@ async function buildCoreCards(db: any): Promise<CoreCardsResult> {
   // 上涨家数 / 下跌家数 / 涨停家数 / 上涨板块占比 / 板块平均涨幅 / 全市场成交额
   const cards = [...breadthCards, ...sectorCards, ...turnoverCard];
   const historyDates = risingSeries.dates.length ? risingSeries.dates : turnoverSeries.dates;
-  return { cards, hasBreadth, hasSectors, historyDates };
+  return {
+    cards,
+    hasBreadth,
+    hasSectors,
+    historyDates,
+    // 数据所属交易日如实透出（R3 交易日收口）
+    asOf: anchorDate,
+    asOfIsFallback: q.isFallback,
+    asOfNote: q.note ?? null,
+  };
 }
 
 /**
@@ -363,11 +388,17 @@ router.get(
           },
           // 参与 sparkline 的真实交易日（升序）；空数组表示无真实历史可画
           historyDates: coreResult.historyDates,
+          // 数据所属交易日如实披露（R3 交易日收口）：core 卡片值属于 asOf 这一天
+          asOf: coreResult.asOf,
+          asOfIsFallback: coreResult.asOfIsFallback,
+          ...(coreResult.asOfNote ? { asOfNote: coreResult.asOfNote } : {}),
         },
         dataSource,
         notes: {
           core: hasCore
-            ? '市场宏观情绪（基于本地真实行情库合成）'
+            ? (coreResult.asOfIsFallback
+                ? `市场宏观情绪（基于本地真实行情库合成；今天非交易日或当日数据未同步，卡片值所属交易日为 ${coreResult.asOf}）`
+                : '市场宏观情绪（基于本地真实行情库合成）')
             : '市场宏观情绪：本地行情库无当日数据，卡片值不可用（非 0）',
           coreBreadth: coreResult.hasBreadth ? undefined : '涨跌家数/成交额：本地行情库无当日数据',
           coreSectors: coreResult.hasSectors ? undefined : '板块维度：本地行情库无当日板块数据',
