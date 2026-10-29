@@ -109,7 +109,7 @@ export function wasEndpointNotDeployed(endpoint: string): boolean {
 }
 
 /** 登记表快照（按时间倒序） */
-export function snapshotNotDeployed(): RecordedEndpoint[] {
+export function snapshotNotDeployed(): EndpointRecord[] {
   return [...notDeployed.values()].sort((a, b) => b.at - a.at).map((e) => ({ ...e }));
 }
 
