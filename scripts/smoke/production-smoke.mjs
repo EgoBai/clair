@@ -114,6 +114,9 @@ const ENDPOINTS = [
   { key: 'etfList', path: '/api/etf/list', required: ['data'], requireDataSource: true },
   { key: 'industries', path: '/api/industries', required: ['data'], requireDataSource: true },
   { key: 'fundFlow600519', path: '/api/fund-flow/600519', required: ['data'], requireDataSource: true },
+  // strategy_templates 表多次实测在部署环境缺失（迁移未跑）——本端点 200 +
+  // dataSource='unavailable' 时判 DEGRADED，能把「缺表」暴露出来而非静默绿灯
+  { key: 'strategyTemplates', path: '/api/strategy-templates', required: ['data'], requireDataSource: true },
 ];
 
 /** dataSource 的「诚实不可得」取值。命中即 DEGRADED。 */

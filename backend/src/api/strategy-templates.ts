@@ -99,11 +99,15 @@ router.get('/strategy-templates', asyncHandler(async (req: Request, res: Respons
     return;
   }
 
+  // 模板内容是**静态策略配置**（预设选股条件目录，来自
+  // backend/src/db/migrations/strategy_templates.sql 的播种），不含任何实时
+  // 行情数据 —— 如实标注，避免前端把「选股条件预设」当成实时数据。
   // 查到了但一行没有：此时**不能**断言「用户就是没有模板」——表可能是从未播种的空表
   // （实测本仓 strategy_templates 表在不少环境直接不存在）。保守标 unavailable，
   // 但 message 如实说明「查询成功、结果为空」，不伪造结论也不谎报不可用。
   sendHonest(res, templates.length > 0 ? 'real' : 'unavailable', {
     templates,
+    note: '策略模板为静态策略配置（预设选股条件目录），非实时行情数据',
     ...(templates.length > 0 ? {} : { message: '已成功查询但结果为空（当前库中没有任何策略模板）' }),
   });
 }));
