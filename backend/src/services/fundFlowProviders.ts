@@ -35,6 +35,8 @@ export interface GlobalIndicator {
   unit: string;
   latest: number;
   series: GlobalIndicatorPoint[];
+  /** 口径说明（可选）：如实披露指标含义与上游口径，供前端展示 */
+  note?: string;
 }
 
 /** 统一适配器接口；fetchGlobalIndicators 仅国际视角相关适配器实现（可选） */
@@ -434,35 +436,74 @@ export function getFundFlowMeta() {
   };
 }
 
-/** 国际资金视角（北向+离岸）：真实源优先，无实时源时诚实置空，不编造 demo */
+/** 国际资金视角（离岸人民币 + 沪深股通成交额）：真实源优先，无实时源时诚实置空，不编造 demo */
 /**
- * 东方财富沪深港通北向资金（真实，免 key）—— 补充国际资金视角的真实北向维度。
- * 返回当日北向净买入（港股通沪+深合计，单位亿元）；失败返回 null，由调用方诚实置空，不编造。
+ * 沪深股通成交额（真实，免 key）—— 国际资金视角下唯一可核验的北向维度。
+ *
+ * 🔴 诚实红线（2026-10-29，工单 R4）：
+ * 此前本函数调用 push2 `api/qt/kamt/get`，把 `sh2hk + sz2hk`（港股通南向腿）的
+ * `dayNetAmtIn` 冠以「北向资金(沪深港通)净买入」返回 —— 腿映射与字段语义双重错误。
+ * 更根本的是：**北向资金净买入自 2024-08-19 起交易所已停止披露**（沪深交易所调整
+ * 沪深股通信息披露机制，日频只公布成交总额/笔数；实测见 api/northBound.ts 顶部记录，
+ * RPT_MUTUAL_DEAL_HISTORY 的 NET_DEAL_AMT 等七字段自该日起恒为 null）。
+ * 任何来源都不存在「北向净买入」的真实日频值 —— 严禁倒算、严禁用其它口径冒充。
+ *
+ * 故本函数只提供**可核验的成交额口径**，数据源与 /api/north-bound/overview 的
+ * dealFlows 完全同源（东方财富数据中心 RPT_MUTUAL_DEAL_HISTORY 的 DEAL_AMT，
+ * 单位万元，沪股通 001 + 深股通 003 两腿逐日合计），数值可交叉核验一致。
+ * 失败/空数据返回 null，由调用方诚实置空，绝不编造。
  */
-async function fetchNorthBoundReal(): Promise<GlobalIndicator | null> {
+async function fetchNorthBoundTurnoverReal(): Promise<GlobalIndicator | null> {
   try {
-    const resp = await axios.get('https://push2.eastmoney.com/api/qt/kamt/get', {
-      params: { fields1: 'f1,f2,f3', fields2: 'f51,f52,f53,f54,f55', ut: 'b2884a393a59ad64002292a3e90d46a5' },
-      timeout: 10000,
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com' },
-    });
-    const d = resp.data?.data;
-    if (!d) return null;
-    // 北向资金 = 沪股通(sh2hk) + 深股通(sz2hk)，即外资净买入 A 股
-    const sh = Number(d.sh2hk?.dayNetAmtIn ?? 0);
-    const sz = Number(d.sz2hk?.dayNetAmtIn ?? 0);
-    const total = Number(((sh + sz) / 1e8).toFixed(2));
-    const rawDate = d.sh2hk?.date ?? d.sz2hk?.date ?? d.hk2sh?.date;
-    const date = rawDate ? `2026-${rawDate}` : new Date().toISOString().slice(0, 10);
+    // 与 api/northBound.ts 的 emGet 同款实现：AbortController + 超时 + 任何失败返回 null。
+    // 用 fetch（undici）而非 axios：axios 会吃 HTTP(S)_PROXY 环境变量，在代理沙箱下
+    // 对 datacenter-web.eastmoney.com 不可达；undici 默认不走环境代理（同源已实测可达）。
+    const url =
+      'https://datacenter-web.eastmoney.com/api/data/v1/get' +
+      '?reportName=RPT_MUTUAL_DEAL_HISTORY' +
+      '&columns=MUTUAL_TYPE,TRADE_DATE,DEAL_AMT' +
+      `&filter=${encodeURIComponent('(MUTUAL_TYPE in ("001","003"))')}` +
+      '&sortColumns=TRADE_DATE&sortTypes=-1&pageSize=60&pageNumber=1' + // 60 行 = 30 个交易日 × 沪深两腿
+      '&source=WEB&client=WEB';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    let rows: unknown;
+    try {
+      const resp = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com' },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = (await resp.json()) as { result?: { data?: unknown } };
+      rows = json?.result?.data;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    // 按交易日合计两腿成交额（万元，上游原值）；单腿缺失则该腿不贡献（绝不补 0 冒充完整）
+    const byDate = new Map<string, number>();
+    for (const r of rows) {
+      const amt = Number(r?.DEAL_AMT);
+      const date = String(r?.TRADE_DATE ?? '').slice(0, 10);
+      if (!Number.isFinite(amt) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      byDate.set(date, (byDate.get(date) ?? 0) + amt);
+    }
+    const series = [...byDate.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([date, amt]) => ({ date, value: Number(amt.toFixed(2)) }));
+    if (!series.length) return null;
     return {
-      key: 'north_bound',
-      label: '北向资金(沪深港通)净买入',
-      unit: '亿元',
-      latest: total,
-      series: [{ date, value: total }],
+      key: 'hk_stock_connect_turnover',
+      label: '沪深股通成交额',
+      unit: '万元',
+      latest: series[series.length - 1].value,
+      series,
+      note:
+        '北向资金净买入自 2024-08-19 起交易所停止披露，已如实下线；本指标为可核验的沪深股通成交总额' +
+        '（沪股通+深股通合计，RPT_MUTUAL_DEAL_HISTORY.DEAL_AMT，单位万元），与 /api/north-bound/overview 同源。',
     };
   } catch (e) {
-    console.error('[eastmoney] 北向资金调用失败:', e);
+    console.error('[eastmoney] 沪深股通成交额调用失败:', e);
     return null;
   }
 }
@@ -478,8 +519,8 @@ export async function getGlobalIndicators(): Promise<{
     const offshore = await alpha.fetchGlobalIndicators();
     if (offshore.length) indicators.push(...offshore);
   }
-  // 北向资金：东方财富真实（免 key，稳定）
-  const north = await fetchNorthBoundReal();
+  // 沪深股通成交额：东方财富数据中心真实（免 key，与 north-bound/overview 同源）
+  const north = await fetchNorthBoundTurnoverReal();
   if (north) indicators.push(north);
   // 诚实红线：无任何真实指标时返回空（不编造 demo）
   return {

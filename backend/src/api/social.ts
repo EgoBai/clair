@@ -60,16 +60,16 @@ function sendUnavailable(
 /**
  * 本模块的诚实口径：**固定 unavailable**。
  *
- * 原因：`users`（4 个）与 `mockComments`（3 条）是**代码内硬编码的模拟数据** ——
- * 关注数 1280 / 5600 / 3200 / 890、点赞 45 / 28 / 12、以及带具体目标价与止损位的
- * 「股评」全是写死的常量，不是真实社区数据。标 'real' 就是造假。
- * 另：本模块在前端零消费点（孤儿模块），未接线。
- *
- * 说明：这里**不删除**那些模拟数据（超出本次契约改造的授权范围），
- * 只保证它们**不被标成真实数据**，并在 message 里如实披露来源。
+ * 2026-10-29（工单 R4 顺手项）：此前 users（4 个）与 mockComments（3 条）是
+ * 代码内硬编码的模拟数据 —— 关注数 1280/5600/3200/890、点赞 45/28/12、带具体
+ * 目标价与止损位的「股评」全是写死的常量，却随 success:true 一起返回，构成
+ * 「success=true 但内容是假」的误用面。现**彻底移除全部内置模拟数据**：
+ *   - users / comments 初始为空，接口如实返回空列表；
+ *   - 社区后端（真实用户体系/评论存储）未接入，前端零消费点（孤儿模块）；
+ *   - 本会话内用户经 POST 创建的评论仅存内存（不持久化），仍标 unavailable。
  */
 const MOCK_MODULE_NOTE =
-  '本模块返回的是代码内置的模拟用户与模拟评论（硬编码造数），不是真实社区数据；模块当前在前端零消费点（未接线）';
+  '社区功能未接入真实用户与评论数据源，暂无真实数据；列表为空不是故障，是诚实空态';
 
 // ==================== 内存存储（生产环境应用数据库） ====================
 
@@ -116,62 +116,8 @@ let commentIdCounter = 1;
 const comments: Comment[] = [];
 const followRelations: FollowRelation[] = [];
 
-// 模拟用户数据
-const users: UserProfile[] = [
-  {
-    id: 1, username: 'admin', displayName: '管理员', avatarUrl: '',
-    bio: 'A股行情分析平台管理员', role: 'admin',
-    followers: 1280, following: 42, totalPosts: 156, totalLikes: 3420,
-    joinedAt: '2024-01-01T00:00:00Z', badges: ['官方', '认证分析师'], isVerified: true,
-  },
-  {
-    id: 2, username: 'market_wizard', displayName: '市场达人', avatarUrl: '',
-    bio: '10年A股老兵，专注价值投资', role: 'analyst',
-    followers: 5600, following: 128, totalPosts: 423, totalLikes: 12800,
-    joinedAt: '2024-02-15T00:00:00Z', badges: ['认证分析师', '年度达人'], isVerified: true,
-  },
-  {
-    id: 3, username: 'tech_trader', displayName: '技术派', avatarUrl: '',
-    bio: '量化交易 | 技术分析', role: 'vip',
-    followers: 3200, following: 95, totalPosts: 287, totalLikes: 8500,
-    joinedAt: '2024-03-01T00:00:00Z', badges: ['VIP', '高频贡献者'], isVerified: false,
-  },
-  {
-    id: 4, username: 'value_seeker', displayName: '价值猎手', avatarUrl: '',
-    bio: '巴菲特信徒，寻找被低估的好公司', role: 'user',
-    followers: 890, following: 203, totalPosts: 67, totalLikes: 1560,
-    joinedAt: '2024-06-01T00:00:00Z', badges: [], isVerified: false,
-  },
-];
-
-// 模拟初始评论
-const mockComments: Omit<Comment, 'id'>[] = [
-  {
-    stockSymbol: '600519.SH', userId: 2, username: '市场达人', avatarUrl: '',
-    content: '茅台基本面依然强劲，Q3营收超预期，白酒龙头地位稳固。长期看好消费复苏逻辑。',
-    parentId: null, likes: 45, likedBy: [], replies: 3,
-    createdAt: '2026-03-24T08:30:00Z', updatedAt: '2026-03-24T08:30:00Z',
-    isEdited: false, isPinned: true,
-  },
-  {
-    stockSymbol: '600519.SH', userId: 3, username: '技术派', avatarUrl: '',
-    content: '从技术面看，日线MACD金叉，量能配合良好，短期目标位2200元。止损放在1850。',
-    parentId: null, likes: 28, likedBy: [], replies: 5,
-    createdAt: '2026-03-24T09:15:00Z', updatedAt: '2026-03-24T09:15:00Z',
-    isEdited: false, isPinned: false,
-  },
-  {
-    stockSymbol: '000858.SZ', userId: 4, username: '价值猎手', avatarUrl: '',
-    content: '五粮液估值合理，PE不到25倍，分红率高。适合稳健投资者配置。',
-    parentId: null, likes: 12, likedBy: [], replies: 1,
-    createdAt: '2026-03-24T10:00:00Z', updatedAt: '2026-03-24T10:00:00Z',
-    isEdited: false, isPinned: false,
-  },
-];
-
-mockComments.forEach(c => {
-  comments.push({ ...c, id: commentIdCounter++ });
-});
+// 用户体系未接入：无内置用户，接口如实返回空列表（诚实红线：不内置模拟用户冒充真实社区）
+const users: UserProfile[] = [];
 
 // ==================== 路由引用使用 validation.ts 中的 schemas ====================
 
@@ -261,8 +207,13 @@ router.get('/social/comments/:id/replies', (req: Request, res: Response) => {
 router.post('/social/comments', validateBody(schemas.commentCreate), (req: Request, res: Response) => {
   const { stockSymbol, content, parentId, userId } = req.body;
 
-  // 查找用户
-  const user = users.find(u => u.id === userId) || users[0];
+  // 用户体系未接入：无真实用户目录时以匿名身份落评论（不冒充任何内置用户）
+  const user = users.find(u => u.id === userId) ?? {
+    id: 0,
+    username: 'anonymous',
+    displayName: '匿名用户',
+    avatarUrl: '',
+  };
 
   // XSS 防护：简单 HTML 转义
   const safeContent = content

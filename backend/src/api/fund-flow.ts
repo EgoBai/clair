@@ -269,8 +269,12 @@ router.get('/fund-flow/meta', (_req: Request, res: Response) => {
 /**
  * 国际资金视角（外资 / 全球维度）
  * GET /api/fund-flow/global
- * Alpha Vantage 可用且有真实数据则走真实调用，否则 DemoProvider 确定性生成
- * （北向/美元指数关联/全球风险偏好/离岸人民币 等多个演示指标序列）。
+ *
+ * 诚实红线（2026-10-29，工单 R4）：只返回真实可核验的指标 ——
+ *   - 沪深股通成交额（RPT_MUTUAL_DEAL_HISTORY.DEAL_AMT，与 /api/north-bound/overview 同源）；
+ *   - 离岸人民币 USD/CNH（需 ALPHAVANTAGE_KEY，配置了才有）。
+ * 「北向资金净买入」自 2024-08-19 起交易所停止披露，已如实下线，绝不倒算/冒充。
+ * 无任何真实指标时 dataSource='unavailable'，indicators=[]（不编造 demo）。
  */
 router.get('/fund-flow/global', async (_req: Request, res: Response) => {
   try {
