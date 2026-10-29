@@ -33,7 +33,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Tooltip } from 'antd';
 import {
-  ReloadOutlined, RiseOutlined, FallOutlined, InfoCircleOutlined, WarningOutlined,
+  ReloadOutlined, RiseOutlined, FallOutlined, InfoCircleOutlined,
 } from '@ant-design/icons';
 import breadthService, { type BreadthData } from '../../services/breadthService';
 import logger from '../../utils/logger';
