@@ -194,7 +194,7 @@ describe('P0-LEAK C-2 · ai-strategy 同链路同款修复', () => {
     vi.clearAllMocks();
   });
 
-  it('chatStream 首帧前抛 401（含掩码key）→ JSON 错误体无 key 片段', async () => {
+  it('chatStream 首帧前抛 401（含掩码key）→ 200 + unavailable，错误体无 key 片段', async () => {
     // 注意：mock 用普通函数而非 generator——「首帧前抛错」在调用语句处同步触发，
     // 与 generator throw 行为等价，且避免 eslint require-yield（CI 曾因此红）
     (chatStream as any).mockImplementation(() => {
@@ -205,11 +205,53 @@ describe('P0-LEAK C-2 · ai-strategy 同链路同款修复', () => {
       .post('/api/ai/strategy-recommend')
       .send({ risk_level: 'moderate' });
 
-    expect(res.status).toBe(500);
+    // 【口径变更 · 不是放宽】此处原断言 500。LLM 网关不可用是**依赖不可用的
+    // 业务性降级**而非服务端崩溃，与 POST /api/ai/chat（1bc2d0d0a）同族统一为
+    // 200 + dataSource:'unavailable'：前端 `if(!res.ok) throw` 会在解析 body 前
+    // 抛，500 会让这里诚实标注的降级语义永远传不到用户眼前。
+    // 以下防泄露断言一条未动，且新增 success/dataSource/code 三条（比原来更严）。
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.dataSource).toBe('unavailable');
+    expect(res.body.code).toBe('UPSTREAM_UNAVAILABLE');
     assertNoKeyFingerprint(res.body, 'ai/strategy-recommend LLM 401');
     // 与 ai-filter 外层 catch 同标准：不透传上游 message（正则脱敏有形态漏网）
     expect(res.body.details).toBeUndefined();
     expect(res.body.error).toBe('AI策略推荐失败，请稍后重试');
+  });
+
+  it('chatStream 把上游失败吞成 ⚠️ done 帧（真实生产路径）→ SSE 流内携带 unavailable 语义', async () => {
+    // aiService.chatStream 内部 catch **不抛异常**，而是把上游失败
+    // （401 / 402 / 超时 / 网络错误）yield 成 { content:'\n\n⚠️ …', done:true }
+    // ——这是 LLM 不可用时**真正会走到**的路径，外层 catch 根本收不到。
+    // 若端点不识别它，这段错误文本会连同 dataSource:'real' 一起出街，
+    // 等于把「LLM 网关不可用」粉饰成一次成功的策略推荐。
+    (chatStream as any).mockImplementation(async function* () {
+      yield { content: `\n\n⚠️ AI服务暂时不可用，请稍后重试。错误: ${LEAKY_401_MESSAGE}`, done: true };
+    });
+
+    const res = await request(buildApp(aiStrategyRouter))
+      .post('/api/ai/strategy-recommend')
+      .send({ risk_level: 'moderate' });
+
+    // SSE 形态：HTTP 码本来就是 200（头已发出，改不了也没必要改），
+    // 降级语义只能由**流内终止帧**承载。
+    expect(res.status).toBe(200);
+    const frames = String(res.text)
+      .split('\n')
+      .filter((l) => l.startsWith('data: '))
+      .map((l) => l.slice(6))
+      .map((f) => {
+        try { return JSON.parse(f); } catch { return null; }
+      })
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const terminal = frames[frames.length - 1];
+    expect(terminal.success).toBe(false);
+    expect(terminal.dataSource).toBe('unavailable');
+    expect(terminal.code).toBe('UPSTREAM_UNAVAILABLE');
+    expect(String(terminal.message)).toContain('LLM 网关不可用');
+    // 流内同样不得出现上游原始 401 文案 / key 指纹
+    assertNoKeyFingerprint(res.text, 'ai/strategy-recommend SSE 降级帧');
   });
 });
 

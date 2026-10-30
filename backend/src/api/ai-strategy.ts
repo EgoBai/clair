@@ -32,6 +32,38 @@ function redactSecrets(input: string): string {
 
 // ==================== AI策略推荐 ====================
 
+/**
+ * 【诚实降级 · 与 ai-chat.ts 同口径，不另造文案】
+ * 「LLM 网关不可用」= 依赖不可用的**业务性降级**，不是服务端崩溃。
+ * 措辞沿用 ai-chat.ts sendUnavailable 的 "LLM 网关不可用 / 未生成任何…" 句式。
+ */
+const LLM_UNAVAILABLE_ERROR = 'AI策略推荐失败，请稍后重试';
+const LLM_UNAVAILABLE_MESSAGE = 'LLM 网关不可用，未生成任何策略推荐';
+
+/**
+ * SSE 形态的降级终止帧发送器。
+ *
+ * 本端点在 try 开头就 setHeader('text/event-stream')，HTTP 状态码语义上本就是 200，
+ * 头一旦发出就**改不了状态码**——所以「LLM 不可用」不能靠状态码表达，
+ * 只能在**流内**发一个结构化终止事件：success:false + dataSource:'unavailable'
+ * + code:'UPSTREAM_UNAVAILABLE' + 中文原因，再正常 res.end() 关流。
+ * 绝不让前端收到空流 / 半截流就当成一次成功的策略推荐。
+ */
+function sendStreamUnavailable(res: Response, message: string): void {
+  res.write(`data: ${JSON.stringify({
+    content: `\n\n⚠️ ${message}`,
+    done: true,
+    success: false,
+    dataSource: 'unavailable',
+    code: 'UPSTREAM_UNAVAILABLE',
+    error: LLM_UNAVAILABLE_ERROR,
+    message,
+  })}\n\n`);
+  // 与 ai-chat.ts:158 同款终止标记，前端忽略无法 JSON.parse 的 [DONE] 帧
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
 router.post('/ai/strategy-recommend', asyncHandler(async (req: Request, res: Response) => {
   const { 
     risk_level = 'moderate',  // conservative, moderate, aggressive
@@ -138,15 +170,31 @@ ${industrySummary}
     const dataSource = marketDataInjected ? 'real' : 'unavailable';
 
     for await (const chunk of stream) {
+      // 【诚实红线】aiService.chatStream 内部 catch 会把上游失败（401/402/超时/
+      // 网络错误）**吞成**一个 done 帧：content 一律以 '\n\n⚠️' 起头
+      // （见 aiService.ts:181-190），**不抛异常**，故外层 catch 收不到。
+      // 若不在这里识别，这段错误文本会连同上面 dataSource:'real' 一起出街
+      // ——等于把「LLM 网关不可用」粉饰成一次成功的策略推荐。
+      if (chunk.done && /⚠️/.test(chunk.content || '')) {
+        sendStreamUnavailable(res, LLM_UNAVAILABLE_MESSAGE);
+        return;
+      }
+
       res.write(`data: ${JSON.stringify({ content: chunk.content, done: chunk.done, dataSource })}\n\n`);
 
       if (chunk.done) {
         if (!marketDataInjected) {
           res.write(`data: ${JSON.stringify({ content: '', done: true, dataSource, message: '本地真实行情库未取到当日市场数据，本次策略推荐未基于真实市场统计' })}\n\n`);
         }
+        res.write('data: [DONE]\n\n');
         res.end();
+        return;
       }
     }
+
+    // 流走完却**没有** done 帧（上游提前断流）：不补终止帧就是一条悬空连接，
+    // 前端要么一直转圈、要么把半截内容当完整结果。如实标注为不可用。
+    sendStreamUnavailable(res, 'LLM 网关未返回完整结果（流异常结束），未生成任何策略推荐');
   } catch (error) {
     // 【P0-LEAK C-2 同族】message 可能是 HttpStatusError 的「上游 401 body」，
     // 内含掩码 key——**响应体不透传上游 message**（与 ai-filter 外层 catch 同标准：
@@ -155,14 +203,25 @@ ${industrySummary}
     // application/json，这段错误体会带着 SSE 头出街（前端 res.json() 解析失败）。
     console.error('AI策略推荐失败:', redactSecrets(error instanceof Error ? error.message : String(error)));
     if (!res.headersSent) {
+      // 头尚未发出：改写回 JSON 形态，与 ai-chat.ts sendUnavailable 同构 ——
+      // 200 + success:false + dataSource:'unavailable' + code + 中文原因。
+      // 为什么是 200 不是 500：LLM 网关不可用是**依赖不可用的业务性降级**，
+      // 本服务已正常走完流程并如实回报「一条策略都没生成」；而前端 `if(!res.ok) throw`
+      // 会在解析 body 之前就抛，500 会让这里的诚实标注永远传不到用户眼前。
+      // 真正的代码 bug 才该 5xx（那类由 asyncHandler → globalErrorHandler 统一出）。
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.status(500).json({
+      res.status(200).json({
         success: false,
         dataSource: 'unavailable',
-        error: 'AI策略推荐失败，请稍后重试',
-        message: 'LLM 网关不可用，未生成任何策略推荐',
+        code: 'UPSTREAM_UNAVAILABLE',
+        error: LLM_UNAVAILABLE_ERROR,
+        message: LLM_UNAVAILABLE_MESSAGE,
+        timestamp: new Date().toISOString(),
       });
+      return;
     }
+    // 头已发出：状态码动不了，只能在流内补发结构化降级终止帧。
+    sendStreamUnavailable(res, LLM_UNAVAILABLE_MESSAGE);
   }
 }));
 
