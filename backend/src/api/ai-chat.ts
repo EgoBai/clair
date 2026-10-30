@@ -183,13 +183,13 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
       });
     } catch (error) {
       logger.error('AI chat error:', error as Error);
-      res.status(500).json({
-        success: false,
-        dataSource: 'unavailable',
-        error: 'AI服务暂时不可用',
-        message: 'LLM 网关不可用（余额不足/超时/模型错误），未生成任何对话内容',
-        timestamp: new Date().toISOString(),
-      });
+      // LLM 网关不可用属于业务性依赖降级，而非本服务崩溃：与同族端点统一返回
+      // 200 + unavailable，让调用方能先解析结构化空态，且绝不返回空 content 冒充答案。
+      sendUnavailable(
+        res,
+        'AI服务暂时不可用',
+        'LLM 网关不可用（余额不足/超时/模型错误），未生成任何对话内容',
+      );
     }
   }
 }));
@@ -820,7 +820,9 @@ ${trades?.slice(0, 10).map((t: any) =>
 
 router.get('/ai/health', asyncHandler(async (_req: Request, res: Response) => {
   const health = await aiService.healthCheck();
-  res.json(health);
+  // HTTP 状态必须与 body 语义一致：LLM 依赖不可用时让探针收到 503，
+  // 同时原样保留 healthCheck 返回的 status:'error'、provider 与 model 字段。
+  res.status(health.status === 'ok' ? 200 : 503).json(health);
 }));
 
 // ============================================================
