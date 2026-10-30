@@ -125,6 +125,7 @@ const pathMetadata: Record<string, { tag: string; summary: string; description?:
   'POST /api/sync/realtime': { tag: '系统', summary: '同步实时行情' },
   'POST /api/sync/kline/:symbol': { tag: '系统', summary: '同步K线数据' },
   'GET /api/csrf-token': { tag: '系统', summary: '获取CSRF Token' },
+  'GET /api/version': { tag: '系统', summary: '获取服务版本信息' },
 
   // ===== 2026-09-25 按真实注册路由校准：删除 37 条幽灵条目、补登 180 条漏登端点 =====
 

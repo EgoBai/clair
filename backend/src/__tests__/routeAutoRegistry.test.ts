@@ -139,7 +139,8 @@ describe('真实路由表一致性（断言源：app._router，非 pathMetadata�
     // 诚实契约：这两条是实测存在、但 pathMetadata 未登记的端点。
     // 若将来新增端点又忘了登记文档，本用例会红——那正是需要人工补登记的时刻。
     // 若将来给它们补了文档，请同步从豁免集移除。
-    const KNOWN_UNDOCUMENTED = ['GET /', 'GET /api/version'];
+    // 'GET /api/version' 已于 2026-10-31 补登 pathMetadata，故此处只剩根路径
+    const KNOWN_UNDOCUMENTED = ['GET /'];
     const undocumented = registeredRoutes
       .filter((r) => !metaKeys.some((key) => {
         const [method, path] = key.split(' ');
