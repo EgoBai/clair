@@ -98,8 +98,6 @@ vi.mock('axios', () => {
 // apiBase 在测试环境下 import.meta.env.DEV 为 true → API_BASE_URL === '/api'
 import { API_BASE_URL } from '../config/apiBase';
 import {
-  fetchOrderBook,
-  fetchTimeShare,
   fetchMarginOverview,
   fetchMarginData,
   fetchMarginRank,
@@ -123,8 +121,6 @@ import {
 
 /** 每个导出函数 → 它应该请求的后端路径（相对 baseURL，不含 /api）。 */
 const CASES: Array<{ name: string; call: () => Promise<unknown>; expected: string }> = [
-  { name: 'fetchOrderBook', call: () => fetchOrderBook('600519'), expected: '/order-book/600519' },
-  { name: 'fetchTimeShare', call: () => fetchTimeShare('600519'), expected: '/time-share/600519' },
   { name: 'fetchMarginOverview', call: () => fetchMarginOverview(), expected: '/margin/overview' },
   { name: 'fetchMarginData', call: () => fetchMarginData('600519'), expected: '/margin/600519' },
   { name: 'fetchMarginRank', call: () => fetchMarginRank('all'), expected: '/margin/rank/all' },

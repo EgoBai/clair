@@ -153,33 +153,10 @@ class AuthService {
     this.notifyListeners(null);
   }
 
-  /**
-   * 请求密码重置
-   */
-  async requestPasswordReset(email: string): Promise<void> {
-    await apiService.post('/user/password-reset/request', { email });
-  }
-
-  /**
-   * 重置密码
-   */
-  async resetPassword(token: string, password: string): Promise<void> {
-    await apiService.post('/user/password-reset/confirm', { token, password });
-  }
-
-  /**
-   * 发送邮箱验证
-   */
-  async sendVerificationEmail(): Promise<void> {
-    await apiService.post('/user/verify-email/send');
-  }
-
-  /**
-   * 验证邮箱
-   */
-  async verifyEmail(token: string): Promise<void> {
-    await apiService.post('/user/verify-email/confirm', { token });
-  }
+  // ⚠️ 已移除（2026-10-31）：requestPasswordReset / resetPassword /
+  // sendVerificationEmail / verifyEmail 四个方法。对应端点后端从未注册，
+  // 本地实测均返回 404「接口未找到」，且 PasswordResetPage 未接任何路由、
+  // 无任何调用方。恢复前必须先让后端注册路由，否则又是「点了没反应」的死链。
 
   /**
    * 刷新 token

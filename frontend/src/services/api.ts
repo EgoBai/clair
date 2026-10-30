@@ -599,7 +599,7 @@ export const {
   healthCheck,
 } = apiService;
 
-// ==================== 盘口数据 ====================
+// ==================== 通用请求封装 ====================
 // 经过 apiService 拦截器的请求（自动重试 + 日志 + 缓存 + 响应拦截器）
 
 async function rawGet<T = unknown>(url: string): Promise<T> {
@@ -607,14 +607,10 @@ async function rawGet<T = unknown>(url: string): Promise<T> {
   return (response as any).data ?? response;
 }
 
-export async function fetchOrderBook(symbol: string, name?: string) {
-  const params = name ? `?name=${encodeURIComponent(name)}` : '';
-  return rawGet(`/order-book/${symbol}${params}`);
-}
-
-export async function fetchTimeShare(symbol: string) {
-  return rawGet(`/time-share/${symbol}`);
-}
+// ⚠️ 已移除（2026-10-31）：fetchOrderBook / fetchTimeShare。
+// 这两个盘口·分时端点后端从未挂载（实现只存在于 backend/src/api/_archived/），
+// 本地实测均返回 404「接口未找到」，且前端无任何页面/hook 调用。
+// 恢复前必须先让后端注册对应路由，否则又是「点了没反应」的死链。
 
 // ==================== 融资融券 ====================
 

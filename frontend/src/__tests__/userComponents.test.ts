@@ -119,35 +119,8 @@ describe('用户组件', () => {
     });
   });
 
-  describe('PasswordResetPage', () => {
-    it('应该有邮箱输入', () => {
-      const step = 'request';
-      expect(step).toBe('request');
-    });
-
-    it('应该分两步: 请求重置和确认重置', () => {
-      const steps = ['request', 'confirm'];
-      expect(steps.length).toBe(2);
-    });
-
-    describe('确认重置', () => {
-      it('应该需要token', () => {
-        const token = 'reset-token-abc123';
-        expect(token.length).toBeGreaterThan(0);
-      });
-
-      it('应该需要新密码', () => {
-        const newPassword = 'newPassword123';
-        expect(newPassword.length).toBeGreaterThanOrEqual(6);
-      });
-
-      it('应该需要确认密码', () => {
-        const newPassword = 'newPassword123';
-        const confirmPassword = 'newPassword123';
-        expect(newPassword).toBe(confirmPassword);
-      });
-    });
-  });
+  // 原 describe('PasswordResetPage') 已于 2026-10-31 随页面一并移除：该页面未接任何路由、
+  // 其依赖的 4 个端点后端从未注册，组内断言均为常量自比较（无真实覆盖）。
 
   describe('SessionManager', () => {
     it('应该显示当前会话列表', () => {
