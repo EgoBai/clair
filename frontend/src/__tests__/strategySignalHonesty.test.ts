@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * 「策略信号」诚实标注回归测试（P0-DEADLINK）
  *
@@ -14,14 +15,32 @@
  * 本测试锁定两件事：
  *   1. 前端**不得**存在指向 `/api/stocks/:symbol/strategy` 的可执行调用
  *      （注释 / 文档字符串里的历史说明不算，故只剥离注释后再断言）；
- *   2. 指数详情页必须把「技术分析未接入」作为**说明文案**展示，
+ *   2. 指数详情页必须把「技术分析不可用」作为**说明文案**展示，
  *      而不是空白、不是 0 值、不是抛错——即 unavailable 列表里必须有这条。
+ *
+ * ── 2026-10-31 契约更新（工单 #165 后续，红灯成因）──────────────
+ * 指数详情页已接入真实端点 `GET /api/market/index-tech/:symbol`（后端真实算法，
+ * 返回 MA / RSI14 / 综合评分 / 仓位建议，dataSource:'real'）。于是页面对技术分析
+ * 的诚实表述从「未接入」变为**按实际请求结果判定**：
+ *   - 端点真实返回 → 渲染技术分析卡（并注明「规则计算，仅供参考」）；
+ *   - 端点不可用（Worker 未部署 → 404 / dataSource:'unavailable' / 请求失败）
+ *     → unavailable 列表 push「技术分析：数据源暂不可用（后端端点未部署或源失败）」。
+ * 因此旧断言 `/技术分析.*未接入|未接入.*技术分析/` 失配：**不是诚实性被削弱**，
+ * 而是「未接入」在端点已接入的前提下反而是**不准确的表述**（若继续写「未接入」，
+ * 等于向用户隐瞒「前端已接、后端未部署」这一事实）。
+ * 本文件据此放宽正则到「未接入 | 暂不可用」两种等价诚实表述，并**新增 DOM 级断言**：
+ * 光靠源码正则只能证明代码里写了这句，必须证明用户真的在页面上看到，且看到时没有 0 值占位。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import React from 'react';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { readFileSync } from 'fs';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import IndexDetailPage from '../pages/IndexDetailPage';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const readSrc = (rel: string) => readFileSync(join(here, rel), 'utf-8');
@@ -54,7 +73,6 @@ describe('策略信号：无后端支撑时诚实标注，不留死链', () => {
 
     it('后端确实没有实现该端点（证明前端必须标注而非调用）', () => {
       const beRoot = join(here, '../../../backend/src');
-      const { execSync } = require('child_process') as typeof import('child_process');
       const out = execSync(
         `rg -n "stocks/.*strategy|/:symbol/strategy" ${JSON.stringify(beRoot)} || true`,
         { encoding: 'utf-8' },
@@ -65,10 +83,14 @@ describe('策略信号：无后端支撑时诚实标注，不留死链', () => {
 
   describe('未接入时的展示形态：说明文案，而非空白/ 0 值', () => {
     it('指数详情页把技术分析列入 unavailable 说明列表', () => {
-      const src = readSrc('../pages/IndexDetailPage.tsx');
-      // 必须存在「未接入」字样的说明，且明确点出综合评分/仓位建议/RSI
-      expect(src).toMatch(/技术分析.*未接入|未接入.*技术分析/);
+      // 用剥离注释后的源码断言：注释里出现「未接入」不算数，必须是可执行代码里的说明文案
+      const src = stripComments(readSrc('../pages/IndexDetailPage.tsx'));
+      // 「未接入」与「数据源暂不可用」是等价的诚实表述（端点已接入时后者才是准确表述），
+      // 但「技术分析」这一条**必须**出现在不可用说明里 —— 诚实要求不因放宽而削弱
+      expect(src).toMatch(/技术分析.*(未接入|暂不可用)|(未接入|暂不可用).*技术分析/);
       expect(src).toMatch(/综合评分|仓位建议|RSI/);
+      // 且必须真的进 unavailable 列表（不只是出现在渲染模板里）
+      expect(src).toMatch(/missing\.push\(\s*['"`]技术分析/);
     });
 
     it('unavailable 非空时才渲染 Alert，空态不留白', () => {
@@ -83,6 +105,97 @@ describe('策略信号：无后端支撑时诚实标注，不留死链', () => {
       const block = src.slice(src.indexOf('const missing'), src.indexOf('setUnavailable(missing)'));
       // 该段只允许 push 说明文案，不允许把评分类字段置0 充数
       expect(block).not.toMatch(/(综合评分|评分|仓位|RSI)\s*[:=]\s*0\b/);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // DOM 级补证：源码正则只能证明「代码里写了这句」，
+  // 必须再证明「用户真的在页面上看到了」，且看到时没有任何 0 值 / 占位数值。
+  // ─────────────────────────────────────────────────────────────
+  describe('DOM 级补证：index-tech 不可用时页面如实告知且不造 0 值', () => {
+    const INDEX_ROW = {
+      symbol: 'sz399006', name: '创业板指',
+      closePrice: 2634.76, changePercent: 3.4, volume: 181409982, category: 'index',
+    };
+
+    const routeFetch = (routes: Record<string, { status?: number; body: unknown }>) => {
+      vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        for (const [key, val] of Object.entries(routes)) {
+          if (url.includes(key)) {
+            return Promise.resolve({
+              ok: (val.status ?? 200) < 400,
+              status: val.status ?? 200,
+              json: () => Promise.resolve(val.body),
+            } as Response);
+          }
+        }
+        return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ success: false, error: 'Not found' }) } as Response);
+      }));
+    };
+
+    // 本文件是 .ts（不是 .tsx），故用 createElement 而非 JSX 书写 —— 不为了加断言去改名文件
+    const renderIndexPage = () =>
+      render(
+        React.createElement(
+          MemoryRouter,
+          { initialEntries: ['/index/sz399006'] },
+          React.createElement(
+            Routes,
+            null,
+            React.createElement(Route, {
+              path: '/index/:symbol',
+              element: React.createElement(IndexDetailPage),
+            }),
+          ),
+        ),
+      );
+
+    afterEach(() => {
+      cleanup();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it('index-tech 404 → DOM 真的出现「技术分析：数据源暂不可用」说明', async () => {
+      routeFetch({
+        '/api/market/indices': { body: { success: true, dataSource: 'real', data: { indices: [INDEX_ROW] } } },
+        '/api/market/index-tech/': { status: 404, body: { success: false, error: 'Not found' } },
+      });
+      renderIndexPage();
+      await waitFor(() => {
+        expect(screen.getByText(/技术分析：数据源暂不可用/)).toBeTruthy();
+      });
+      // 不可用说明必须挂在「本指数的部分数据暂不可用」Alert 里（即进了 unavailable 列表）
+      expect(screen.getByText('本指数的部分数据暂不可用')).toBeTruthy();
+    });
+
+    it('index-tech 404 → 不渲染技术分析卡（无 RSI14 / 综合评分 / 仓位建议，更无 0 值占位）', async () => {
+      routeFetch({
+        '/api/market/indices': { body: { success: true, dataSource: 'real', data: { indices: [INDEX_ROW] } } },
+        '/api/market/index-tech/': { status: 404, body: { success: false, error: 'Not found' } },
+      });
+      renderIndexPage();
+      await waitFor(() => {
+        expect(screen.getByText(/技术分析：数据源暂不可用/)).toBeTruthy();
+      });
+      expect(screen.queryByText('RSI14')).toBeNull();
+      expect(screen.queryByText('综合评分')).toBeNull();
+      expect(document.body.textContent).not.toContain('仓位建议：');
+      expect(document.body.textContent).not.toContain('规则计算，仅供参考');
+      expect(document.body.textContent).not.toMatch(/NaN/);
+    });
+
+    it('index-tech dataSource:"unavailable" 形态同样落诚实说明（三态兼容）', async () => {
+      routeFetch({
+        '/api/market/indices': { body: { success: true, dataSource: 'real', data: { indices: [INDEX_ROW] } } },
+        '/api/market/index-tech/': { body: { success: true, dataSource: 'unavailable', message: '上游源失败' } },
+      });
+      renderIndexPage();
+      await waitFor(() => {
+        expect(screen.getByText(/技术分析：数据源暂不可用/)).toBeTruthy();
+      });
+      expect(screen.queryByText('RSI14')).toBeNull();
     });
   });
 });
