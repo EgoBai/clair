@@ -58,6 +58,9 @@ function sendHonest(res: Response, dataSource: string, data: Record<string, unkn
  * `code` 字段给机器判别用（避免让前端去匹配中文 message）；
  * 语义是「上游依赖不可用」，刻意不同于本服务自身的 503。
  */
+const LLM_UNAVAILABLE_ERROR = 'AI服务暂时不可用';
+const LLM_UNAVAILABLE_MESSAGE = 'LLM 网关不可用（余额不足/超时/模型错误），未生成任何对话内容';
+
 function sendUnavailable(res: Response, error: string, message: string): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(200).json({
@@ -68,6 +71,21 @@ function sendUnavailable(res: Response, error: string, message: string): void {
     message,
     timestamp: new Date().toISOString(),
   });
+}
+
+/** SSE 形态的 LLM 降级终止帧；字段与非流式 sendUnavailable 同构。 */
+function sendStreamUnavailable(res: Response, message: string): void {
+  res.write(`data: ${JSON.stringify({
+    content: `\n\n⚠️ ${message}`,
+    done: true,
+    success: false,
+    dataSource: 'unavailable',
+    code: 'UPSTREAM_UNAVAILABLE',
+    error: LLM_UNAVAILABLE_ERROR,
+    message,
+  })}\n\n`);
+  res.write('data: [DONE]\n\n');
+  res.end();
 }
 
 // ============================================================
@@ -145,28 +163,38 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
 
     try {
       const stream = aiService.chatStream({ messages });
+      let hasContent = false;
 
       for await (const chunk of stream) {
-        // 先发内容（错误帧也带 content，必须在其 done 之前写出，否则被 [DONE] 吞掉）
+        // aiService 会把 401/402/超时等上游错误吞成带 ⚠️ 的 done 帧，外层 catch 收不到。
+        // 必须在写 content 前识别，避免把网关错误文案当成真实 AI 回答发给前端。
+        if (chunk.done && /⚠️/.test(chunk.content || '')) {
+          sendStreamUnavailable(res, LLM_UNAVAILABLE_MESSAGE);
+          return;
+        }
+
         if (chunk.content) {
           res.write(`data: ${JSON.stringify({ content: chunk.content })}\n\n`);
+          if (chunk.content.trim()) hasContent = true;
         }
         if (chunk.done) {
-          // 诚实数据契约：SSE 形态无「响应顶层 JSON」，故在终止帧显式带出 dataSource。
-          // 字段名与其它端点一致；前端 chatStream 只读 parsed.content，不受影响。
+          if (!hasContent) {
+            sendStreamUnavailable(res, LLM_UNAVAILABLE_MESSAGE);
+            return;
+          }
+          // 仅真实生成了对话内容时，成功终止帧才可标注 real。
           res.write(`data: ${JSON.stringify({ content: '', done: true, dataSource: 'real' })}\n\n`);
           res.write('data: [DONE]\n\n');
-          break;
+          res.end();
+          return;
         }
       }
 
-      res.end();
+      // 上游提前断流且未给 done 帧：以结构化 unavailable 终止，不能把半截流当成功。
+      sendStreamUnavailable(res, LLM_UNAVAILABLE_MESSAGE);
     } catch (error) {
       logger.error('AI chat stream error:', error as Error);
-      // 诚实降级：LLM 不可用 → 显式 unavailable，不用半截内容冒充完整真实回答
-      res.write(`data: ${JSON.stringify({ content: '\n\n⚠️ AI服务暂时不可用', done: true, dataSource: 'unavailable' })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
+      sendStreamUnavailable(res, LLM_UNAVAILABLE_MESSAGE);
     }
   } else {
     // 非流式响应
@@ -187,8 +215,8 @@ router.post('/ai/chat', asyncHandler(async (req: Request, res: Response) => {
       // 200 + unavailable，让调用方能先解析结构化空态，且绝不返回空 content 冒充答案。
       sendUnavailable(
         res,
-        'AI服务暂时不可用',
-        'LLM 网关不可用（余额不足/超时/模型错误），未生成任何对话内容',
+        LLM_UNAVAILABLE_ERROR,
+        LLM_UNAVAILABLE_MESSAGE,
       );
     }
   }
