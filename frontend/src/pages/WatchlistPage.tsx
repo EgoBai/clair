@@ -515,6 +515,9 @@ const WatchlistPage: React.FC = () => {
    */
   const [aiSummaryNotice, setAiSummaryNotice] = useState<string | null>(null);
   const [aiRecommendations, setAiRecommendations] = useState<string>('');
+  const [aiRecommendationsNotice, setAiRecommendationsNotice] = useState<string | null>(
+    '当前展示基于本地行情规则生成的结果，非 AI 回答。',
+  );
   const [aiRecommendationsLoading, setAiRecommendationsLoading] = useState(false);
 
   const fetchTimerRef = useRef<ReturnType<typeof setInterval>>();
@@ -666,12 +669,16 @@ const WatchlistPage: React.FC = () => {
 
   /* ─── Fetch AI recommendations (with rule-based fallback) ─── */
   const fetchAiRecommendations = useCallback(async () => {
-    if (symbols.length === 0) { setAiRecommendations(''); return; }
+    if (symbols.length === 0) {
+      setAiRecommendations('');
+      setAiRecommendationsNotice('暂无自选股，无法生成 AI 推荐。');
+      return;
+    }
     setAiRecommendationsLoading(true);
 
-    // Generate rule-based fallback immediately
     const fallbackRecs = generateRuleBasedRecommendations(symbols, quotes);
     setAiRecommendations(fallbackRecs);
+    setAiRecommendationsNotice('AI 推荐生成中；完成前展示本地规则结果，非 AI 回答。');
 
     try {
       const stockList = symbols.map(sym => {
@@ -699,12 +706,21 @@ const WatchlistPage: React.FC = () => {
         }),
       });
       const data = await resp.json();
-      if (data?.content) {
-        setAiRecommendations(data.content);
+      const verdict = readAiResponse(data, {
+        field: 'content',
+        httpStatus: resp.status,
+        unavailableMessage: 'AI 推荐服务暂时不可用，未生成任何 AI 推荐。',
+        errorMessage: 'AI 推荐生成失败，未生成任何 AI 推荐。',
+        notDeployedMessage: 'AI 推荐接口未部署，暂时无法生成 AI 推荐。',
+      });
+      if (verdict.ok) {
+        setAiRecommendations(verdict.text);
+        setAiRecommendationsNotice(null);
+      } else {
+        setAiRecommendationsNotice(`${verdict.message}；以下为基于本地行情规则生成的结果，非 AI 回答。`);
       }
-      // If API returns nothing, the fallback is already set above
     } catch {
-      // Use the already-set rule-based fallback
+      setAiRecommendationsNotice('AI 推荐请求失败，未生成任何 AI 推荐。以下为基于本地行情规则生成的结果，非 AI 回答。');
     } finally {
       setAiRecommendationsLoading(false);
     }
@@ -1553,7 +1569,7 @@ const handleManualRefresh = () => {
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <Text strong style={{ color: '#8b5cf6', fontSize: 15 }}>
-                  🎯 AI 推荐发现
+                  {aiRecommendationsNotice ? '规则推荐（非 AI 回答）' : 'AI 推荐发现'}
                 </Text>
                 <Button
                   type="primary"
@@ -1566,6 +1582,15 @@ const handleManualRefresh = () => {
                   {aiRecommendations ? '重新推荐' : '获取推荐'}
                 </Button>
               </div>
+              {aiRecommendationsNotice && !aiRecommendationsLoading && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="推荐来源说明"
+                  description={aiRecommendationsNotice}
+                  style={{ marginBottom: 12 }}
+                />
+              )}
               {aiRecommendationsLoading ? (
                 <div style={{ color: TEXT_SEC, fontSize: 13, lineHeight: 1.6 }}>
                   AI 正在分析您的关注偏好...

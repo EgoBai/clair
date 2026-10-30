@@ -8,8 +8,9 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import {
   Card, Button, Tag, Modal, Form, Input, Select, Space, Typography,
-  message, Tooltip, Popconfirm, Divider, InputNumber
+  message, Tooltip, Popconfirm, Divider, InputNumber, Alert
 } from 'antd';
+import { classifyAiResponse, readSseFrame } from '../utils/aiResponse';
 import { LoadingState, EmptyState } from '../components/Common/StateComponents';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined,
@@ -28,6 +29,17 @@ const BORDER = THEME.border;
 const TEXT = THEME.text;
 const TEXT_SEC = THEME.textSec;
 const ACCENT = THEME.accent;
+
+/**
+ * AI 策略推荐的降级文案（供 utils/aiResponse 判据层复用）。
+ * 「无中文原因时的兜底」必须如实且可解释：说清「没生成任何策略推荐」，
+ * 不能写成看起来像结果的话术。
+ */
+const AI_STRATEGY_DEGRADE_OPTS = {
+  unavailableMessage: 'AI 服务暂时不可用，未生成任何策略推荐',
+  errorMessage: 'AI 策略推荐失败，未生成任何策略推荐',
+  notDeployedMessage: 'AI 策略推荐接口未部署，暂时无法使用',
+};
 
 // 策略模板接口
 interface StrategyTemplate {
@@ -111,6 +123,8 @@ const StrategyTemplatesPage: React.FC = () => {
   const [aiModalVisible, setAiModalVisible] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<any[]>([]);
+  // 诚实降级态：LLM 不可用时只展示后端给的中文原因，**不生成任何策略卡片**
+  const [aiDegraded, setAiDegraded] = useState<string | null>(null);
   const [aiPreferences, setAiPreferences] = useState({
     risk_level: 'moderate',
     investment_horizon: 'medium',
@@ -141,60 +155,84 @@ const StrategyTemplatesPage: React.FC = () => {
   const fetchAiRecommendations = async () => {
     setAiLoading(true);
     setAiRecommendations([]);
+    setAiDegraded(null);
     try {
       const resp = await apiFetch('/api/ai/strategy-recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(aiPreferences)
       });
-      
+
+      // 后端在「首帧前失败」时走的是 200 + JSON（ai-strategy.ts 的 JSON 分支），
+      // 不是 SSE —— 这里与流内降级帧同口径判读，都不生成任何策略卡片。
+      const contentType = resp.headers?.get?.('content-type') || '';
+      if (!resp.ok || contentType.includes('application/json')) {
+        let body: unknown = null;
+        try { body = await resp.json(); } catch { body = null; }
+        const verdict = classifyAiResponse(body, {
+          ...AI_STRATEGY_DEGRADE_OPTS,
+          httpStatus: resp.status,
+        });
+        setAiDegraded(verdict.ok ? AI_STRATEGY_DEGRADE_OPTS.unavailableMessage : verdict.message);
+        return;
+      }
+
       // 处理流式响应
       const reader = resp.body?.getReader();
+      if (!reader) {
+        setAiDegraded(AI_STRATEGY_DEGRADE_OPTS.unavailableMessage);
+        return;
+      }
       const decoder = new TextDecoder();
+      let buffer = '';
       let fullContent = '';
-      
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n').filter(line => line.startsWith('data: '));
-          
-          for (const line of lines) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              fullContent += data.content;
-            } catch (e) {
-              // ignore parse error
-            }
-          }
+      let degraded: string | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // 帧可能跨 chunk 边界，必须留残帧到下一轮，否则降级帧会被截成两半而漏判
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (!payload || payload === '[DONE]') continue;
+          let frame: unknown = null;
+          try { frame = JSON.parse(payload); } catch { continue; }
+
+          const read = readSseFrame(frame, AI_STRATEGY_DEGRADE_OPTS);
+          if (read.degraded) { degraded = read.message; break; }
+          fullContent += read.content;
         }
-        
-        // 解析JSON响应
-        try {
-          const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (parsed.strategies) {
-              setAiRecommendations(parsed.strategies);
-            }
-          }
-        } catch (e) {
-          console.warn('解析AI响应失败:', e);
-          // 如果解析失败，显示原始文本
-          setAiRecommendations([{
-            name: 'AI分析结果',
-            description: fullContent.slice(0, 500),
-            logic: '详见描述',
-            conditions: [],
-            risk_warning: '请仔细评估'
-          }]);
+        if (degraded) break;
+      }
+
+      if (degraded) {
+        setAiDegraded(degraded);
+        return;
+      }
+
+      // 解析JSON响应
+      try {
+        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
+        const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+        if (parsed && Array.isArray(parsed.strategies) && parsed.strategies.length > 0) {
+          setAiRecommendations(parsed.strategies);
+        } else {
+          // 拿不到结构化结果就是拿不到，**不再伪造一张名为「AI分析结果」的卡片**
+          setAiDegraded('AI 未返回可解析的策略列表，未生成任何策略推荐');
         }
+      } catch (e) {
+        console.warn('解析AI响应失败:', e);
+        setAiDegraded('AI 返回内容无法解析为策略，未生成任何策略推荐');
       }
     } catch (e) {
       console.error('获取AI推荐失败:', e);
-      message.error('AI推荐暂时不可用');
+      setAiDegraded(AI_STRATEGY_DEGRADE_OPTS.errorMessage);
     } finally {
       setAiLoading(false);
     }
@@ -725,6 +763,14 @@ const StrategyTemplatesPage: React.FC = () => {
               <LoadingState />
               <div style={{ color: TEXT_SEC, marginTop: 16 }}>AI正在分析市场数据...</div>
             </div>
+          ) : aiDegraded ? (
+            // 诚实降级态：只说「没拿到结果 + 后端给的中文原因」，不放任何策略卡片
+            <Alert
+              type="warning"
+              showIcon
+              message="AI 策略推荐不可用"
+              description={aiDegraded}
+            />
           ) : aiRecommendations.length > 0 ? (
             <div>
               {aiRecommendations.map((rec, idx) => (

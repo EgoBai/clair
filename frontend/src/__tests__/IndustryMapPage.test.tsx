@@ -18,7 +18,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import IndustryMapPage from '../pages/IndustryMapPage';
@@ -153,6 +153,36 @@ const CHAINS_LIST_RESP = {
   },
 };
 
+const AI_UNAVAILABLE_FRAME = {
+  content: '\n\n⚠️ AI服务暂时不可用',
+  done: true,
+  success: false,
+  dataSource: 'unavailable',
+  code: 'UPSTREAM_UNAVAILABLE',
+  error: 'AI服务暂时不可用',
+  message: 'LLM 网关不可用（余额不足/超时/模型错误），未生成任何对话内容',
+};
+
+function sseResponse(frames: unknown[]): Response {
+  const payload = `${frames.map(frame => `data: ${JSON.stringify(frame)}\n`).join('')}data: [DONE]\n`;
+  const bytes = new TextEncoder().encode(payload);
+  let sent = false;
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => 'text/event-stream' },
+    body: {
+      getReader: () => ({
+        read: async () => {
+          if (sent) return { done: true, value: undefined };
+          sent = true;
+          return { done: false, value: bytes };
+        },
+      }),
+    },
+  } as unknown as Response;
+}
+
 const renderPage = () =>
   render(
     <MemoryRouter initialEntries={['/industry-map']}>
@@ -161,9 +191,12 @@ const renderPage = () =>
   );
 
 /** 按 URL 分派真实响应；未命中的路径返回 200 空成功（不编造业务数据） */
-const installFetchMock = (detailResp: unknown) => {
+const installFetchMock = (detailResp: unknown, chatResponse?: Response) => {
   const fetchMock = vi.fn(async (url: string) => {
     const u = String(url);
+    if (u.includes('/api/ai/chat')) {
+      return chatResponse ?? sseResponse([]);
+    }
     const body =
       u.includes('/api/industry-chains/') ? detailResp
       : u.includes('/api/industry-chains') ? CHAINS_LIST_RESP
@@ -218,5 +251,35 @@ describe('IndustryMapPage 渲染防御', () => {
 
     await waitFor(() => expect(screen.getByText('暂无产业链数据')).toBeTruthy());
     expect(document.body.textContent).not.toContain('渲染失败');
+  });
+
+  it('AI SSE 结构化降级：显示后端中文原因，不把 content 当解读正文', async () => {
+    installFetchMock(ONLINE_DETAIL_RESP, sseResponse([AI_UNAVAILABLE_FRAME]));
+    renderPage();
+
+    const input = await screen.findByPlaceholderText('询问产业链相关问题...');
+    fireEvent.change(input, { target: { value: '当前景气度如何？' } });
+    fireEvent.click(screen.getByRole('button', { name: /提问/ }));
+
+    await screen.findByText(AI_UNAVAILABLE_FRAME.message);
+    expect(screen.getByText('AI 解读不可用')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('⚠️ AI服务暂时不可用');
+  });
+
+  it('AI SSE success:true：正常渲染真实解读正文', async () => {
+    installFetchMock(ONLINE_DETAIL_RESP, sseResponse([{
+      content: '真实 AI 产业链解读',
+      done: true,
+      success: true,
+      dataSource: 'real',
+    }]));
+    renderPage();
+
+    const input = await screen.findByPlaceholderText('询问产业链相关问题...');
+    fireEvent.change(input, { target: { value: '当前景气度如何？' } });
+    fireEvent.click(screen.getByRole('button', { name: /提问/ }));
+
+    await screen.findByText('真实 AI 产业链解读');
+    expect(screen.queryByText('AI 解读不可用')).toBeNull();
   });
 });

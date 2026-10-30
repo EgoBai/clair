@@ -326,6 +326,48 @@ describe('B. 组件层：WatchlistPage 不把运维提示当 AI 总结渲染', (
     });
     expect(screen.queryByTestId('ai-summary-notice')).toBeNull();
   });
+
+  it('B4 AI 推荐结构化降级 → 保留规则结果并明确标注非 AI，不渲染 content 警告', async () => {
+    routeApiFetch({
+      '/api/ai/chat': () => fakeResponse({
+        success: false,
+        dataSource: 'unavailable',
+        code: 'UPSTREAM_UNAVAILABLE',
+        error: 'AI服务暂时不可用',
+        message: 'LLM 网关不可用（余额不足/超时/模型错误），未生成任何对话内容',
+        content: '\n\n⚠️ AI服务暂时不可用',
+      }),
+      '/api/ai/watchlist-summary': () => fakeResponse({
+        success: true,
+        dataSource: 'real',
+        summary: '真实组合总结',
+      }),
+      '/api/alerts': () => fakeResponse({
+        success: true,
+        data: { alerts: [], pagination: { page: 1, pageSize: 100, totalCount: 0, totalPages: 0 } },
+      }),
+      '/api/stocks/batch/quotes': () => fakeResponse({
+        success: true,
+        data: { stocks: [{ symbol: '600519', name: '贵州茅台', latestQuote: { closePrice: 1500, changePercent: 1 } }] },
+      }),
+    });
+
+    render(
+      <MemoryRouter>
+        <WatchlistPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockApiFetch.mock.calls.some((c) => String(c[0]).includes('/api/ai/chat'))).toBe(true);
+    });
+    await screen.findByText('规则推荐（非 AI 回答）');
+
+    const dom = document.body.textContent || '';
+    expect(dom).toContain('LLM 网关不可用');
+    expect(dom).toContain('非 AI 回答');
+    expect(dom).not.toContain('⚠️ AI服务暂时不可用');
+  });
 });
 
 /* ================================================================== */

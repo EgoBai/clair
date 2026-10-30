@@ -361,10 +361,16 @@ const KnowledgeBase: React.FC = () => {
     if (entry.id.startsWith('demo-')) return;
     setPolishingId(entry.id);
     try {
-      const polished = await polishNote(entry.answer);
-      setPolishModal({ original: entry.answer, polished, entryId: entry.id });
+      const result = await polishNote(entry.answer);
+      if (result.ok) {
+        setPolishModal({ original: entry.answer, polished: result.text, entryId: entry.id });
+      } else {
+        // 失败/超时/不可用：保持原文不变，提示**后端给的中文原因**（不做假润色）。
+        // result.message 由 aiClient 保证非空，绝不会出现 undefined / 空弹窗。
+        message.warning(`${result.message}（润色已降级，原文未改动）`);
+      }
     } catch {
-      // 失败/超时：保持原文不变，仅提示降级（不做假润色）
+      // 兜底：结构化契约之外的异常（如渲染层报错）也不得弹空提示
       message.warning('AI 服务暂不可用，润色已降级，原文未改动');
     } finally {
       setPolishingId(null);

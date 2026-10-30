@@ -27,8 +27,11 @@ import {
   Input,
   message,
   Divider,
+  Alert,
 } from 'antd';
 import { EmptyState } from '../components/Common/StateComponents';
+import { readSseFrame } from '../utils/aiResponse';
+import { CHAT_FALLBACK_MESSAGE } from '../services/aiClient';
 import {
   ApartmentOutlined,
   RocketOutlined,
@@ -283,6 +286,16 @@ const chainToGraph = (chain: IndustryChain) => {
   return { nodes, edges };
 };
 
+/**
+ * 流式问答的降级文案：与 aiClient 的 CHAT_FALLBACK_MESSAGE 同源，
+ * 保证「LLM 不可用」在流式与非流式路径上对用户的说法一致。
+ */
+const CHAT_DEGRADE_OPTS = {
+  unavailableMessage: CHAT_FALLBACK_MESSAGE.unavailable,
+  errorMessage: CHAT_FALLBACK_MESSAGE.failed,
+  notDeployedMessage: CHAT_FALLBACK_MESSAGE['not-deployed'],
+};
+
 // ============= 主页面组件 =============
 const IndustryMapPage: React.FC = () => {
   const navigate = useNavigate();
@@ -298,6 +311,8 @@ const IndustryMapPage: React.FC = () => {
   const [hotSectors, setHotSectors] = useState<any[]>([]);
   const [question, setQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
+  // 诚实降级态：LLM 不可用时不把 ⚠️ 提示当 AI 解读正文，改由这里承载中文原因
+  const [aiDegraded, setAiDegraded] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const watchlistStore = useWatchlistStore();
   
@@ -433,6 +448,7 @@ const IndustryMapPage: React.FC = () => {
     if (!presetQuestion) setQuestion('');
     setAsking(true);
     setAiAnswer('');
+    setAiDegraded(null);
     
     const allCompanies = chain.layers?.flatMap(l => 
       l.segments?.flatMap(s => s.companies || []) || []
@@ -501,35 +517,57 @@ ${marketContext}
         }),
       });
       
+      if (!response.ok) {
+        // 与 aiClient 同口径：端点未部署 vs 服务不可用，两类原因都要说人话
+        setAiDegraded(
+          response.status === 404 || response.status === 501
+            ? CHAT_FALLBACK_MESSAGE['not-deployed']
+            : CHAT_FALLBACK_MESSAGE.failed,
+        );
+        return;
+      }
+
       const reader = response.body?.getReader();
+      if (!reader) {
+        setAiDegraded(CHAT_FALLBACK_MESSAGE.unavailable);
+        return;
+      }
       const decoder = new TextDecoder();
       let buffer = '';
-      
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const payload = line.slice(6);
-              if (payload === '[DONE]') continue;
-              try {
-                const chunk = JSON.parse(payload);
-                if (chunk.content) {
-                  setAiAnswer(prev => prev + chunk.content);
-                }
-              } catch { /* 忽略无法解析的 SSE 数据块 */ }
-            }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let degraded: string | null = null;
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const payload = line.slice(6).trim();
+            if (!payload || payload === '[DONE]') continue;
+            try {
+              const chunk = JSON.parse(payload);
+              // 降级帧（success:false / dataSource:'unavailable' / ⚠️ 哨兵）的 content
+              // 是「LLM 网关不可用」这类状态说明，**不是 AI 解读正文**，
+              // 累加进 aiAnswer 就等于把降级粉饰成回答，故这里整体丢弃。
+              const read = readSseFrame(chunk, CHAT_DEGRADE_OPTS);
+              if (read.degraded) { degraded = read.message; break; }
+              if (read.content) {
+                setAiAnswer(prev => prev + read.content);
+              }
+            } catch { /* 忽略无法解析的 SSE 数据块 */ }
           }
         }
+        if (degraded) {
+          setAiDegraded(degraded);
+          break;
+        }
       }
-    } catch (error) {
-      setAiAnswer('网络错误，请检查后重试。');
+    } catch {
+      setAiDegraded(CHAT_FALLBACK_MESSAGE.failed);
     } finally {
       setAsking(false);
     }
@@ -1175,7 +1213,15 @@ ${marketContext}
               </Tag>
             </Space>
             
-            {aiAnswer && (
+            {aiDegraded ? (
+              // 诚实降级态：AI 解读没生成就是没生成，展示后端给的中文原因
+              <Alert
+                type="warning"
+                showIcon
+                message="AI 解读不可用"
+                description={aiDegraded}
+              />
+            ) : aiAnswer ? (
               <Card
                 type="inner"
                 style={{ background: 'var(--bg-secondary)' }}
@@ -1185,7 +1231,7 @@ ${marketContext}
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(aiAnswer) }}
                 />
               </Card>
-            )}
+            ) : null}
           </Card>
         </Col>
       </Row>

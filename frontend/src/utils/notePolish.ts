@@ -6,7 +6,7 @@
  * 不做任何"假润色"模板生成；失败时由调用方降级（保持原文）。
  */
 
-import { chat } from '../services/aiClient';
+import { chat, type ChatResult } from '../services/aiClient';
 
 // 润色超时上限：超过则视为降级（由调用方提示，不修改笔记）
 export const POLISH_TIMEOUT_MS = 15000;
@@ -18,13 +18,19 @@ function buildPolishPrompt(original: string): string {
 /**
  * 调用真实 LLM 润色笔记正文。
  * - 走 aiClient.chat → 后端 /api/ai/chat（后端已接 LLM 网关：超时/重试/熔断）。
- * - 15s 内未返回则 reject（POLISH_TIMEOUT），由调用方 message.warning 降级。
- * - 不会返回"假润色"内容；失败时直接抛错，交由上层处理。
+ * - 返回**可判别的结构化结果**（成功 / unavailable / failed / not-deployed），
+ *   不再抛异常：旧写法把降级当异常抛，`e.message` 取不到时调用方会弹出内容为
+ *   `undefined` 的提示——那既不诚实也不可读。
+ * - 15s 内未返回 → `{ok:false, kind:'failed'}`，message 必为非空中文。
+ * - 不会返回"假润色"内容：ok:false 时 text 恒为空，上层只能保持原文。
  */
-export async function polishNote(raw: string): Promise<string> {
+export async function polishNote(raw: string): Promise<ChatResult> {
   const llTask = chat(buildPolishPrompt(raw));
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('POLISH_TIMEOUT')), POLISH_TIMEOUT_MS),
+  const timeout = new Promise<ChatResult>((resolve) =>
+    setTimeout(
+      () => resolve({ ok: false, kind: 'failed', message: 'AI 润色超时，请稍后重试' }),
+      POLISH_TIMEOUT_MS,
+    ),
   );
   return Promise.race([llTask, timeout]);
 }
