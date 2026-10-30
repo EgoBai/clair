@@ -280,9 +280,11 @@ router.get('/fund-flow/meta', (_req: Request, res: Response) => {
 router.get('/fund-flow/global', async (_req: Request, res: Response) => {
   try {
     const { dataSource, indicators } = await getGlobalIndicators();
+    // 顶层与 data 内 dataSource 必须同源：这里直接复用同一个返回值，杜绝两级漂移/各算一套。
     res.json({
       success: true,
       data: { indicators, dataSource },
+      dataSource,
     });
   } catch (error) {
     console.error('获取国际资金视角失败:', error);
