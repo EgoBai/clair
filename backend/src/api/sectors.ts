@@ -18,7 +18,7 @@ import {
   type KnexLike,
 } from '../services/conceptBoardService';
 import type { ResponseMeta } from '@shared/types';
-import { resolveMarketQueryDate, type MarketQueryDate } from '../utils/tradingCalendar';
+import { resolveMarketQueryDate, localDayKey, type MarketQueryDate } from '../utils/tradingCalendar';
 
 const router = Router();
 
@@ -77,7 +77,7 @@ router.get('/sectors', validateQuery(schemas.sectorQuery), asyncHandler(async (r
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const sortBy = (req.query.sortBy as string) || 'avgChangePercent';
   const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
-  const industries = await db.getIndustryPerformance(q.date);
+  const industries = await db.getIndustryPerformance(localDayKey(q.asOf));
   industries.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
     const aVal = (a[sortBy] as number) ?? 0;
     const bVal = (b[sortBy] as number) ?? 0;
@@ -139,7 +139,7 @@ router.get('/sectors/ranking', validateQuery(schemas.sectorQuery), asyncHandler(
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const type = (req.query.type as string) || 'gainers';
   const limit = parseInt(req.query.limit as string) || 10;
-  const industries = await db.getIndustryPerformance(q.date);
+  const industries = await db.getIndustryPerformance(localDayKey(q.asOf));
   const sorted = [...industries].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
     type === 'gainers'
       ? ((b.avg_change_percent as number) ?? 0) - ((a.avg_change_percent as number) ?? 0)

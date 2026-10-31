@@ -14,7 +14,7 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
-import { resolveMarketQueryDate } from '../utils/tradingCalendar';
+import { resolveMarketQueryDate, localDayKey } from '../utils/tradingCalendar';
 import aiService from '../services/aiService';
 import { createLogger } from '../utils/logger';
 import { aiTiming } from '../middleware/aiTiming';
@@ -242,7 +242,7 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
     //    所用交易日以 asOf 如实透出（P0-CALWIRE）。
     const q = await resolveMarketQueryDate();
     const [summaryRaw, sectorRowsRaw] = await Promise.all([
-      db.getMarketSummary(q.date),
+      db.getMarketSummary(localDayKey(q.asOf)),
       db.getSectorMomentumScore(),
     ]);
     const summary: any = summaryRaw;

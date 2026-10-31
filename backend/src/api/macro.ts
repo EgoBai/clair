@@ -18,7 +18,12 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import { getMacroCpiPpi, MacroUnavailableError } from '../services/macroDataService';
-import { resolveQueryDate, today as calendarToday, addDays } from '../utils/tradingCalendar';
+import {
+  resolveQueryDate,
+  today as calendarToday,
+  addDays,
+  localDayKey,
+} from '../utils/tradingCalendar';
 
 const router = Router();
 
@@ -101,28 +106,6 @@ function unavailableCard(label: string, unit: string): CoreCard {
 }
 
 /**
- * 把 `YYYY-MM-DD` 解析为该日历日在**进程本地**时区的零点。
- *
- * 为什么必须是本地零点（P0-MACROTZ）：
- *   knex 传 Date 参数时按**本地**分量渲染成 `'YYYY-MM-DD HH:mm:ss.SSS'`，
- *   PG 再按 `trade_date`（date 列）解析 —— 「查到哪一天」取决于进程时区的
- *   本地日历日，而不是 Date 的 UTC 日期：
- *     new Date('2026-06-10T00:00:00Z')（UTC 零点）在 America/New_York 下渲染成
- *       '2026-06-09 20:00:00' → 命中 trade_date = 06-09，**错位一天**；
- *     本地零点 new Date(2026, 5, 10) 在全部时区都渲染成
- *       '2026-06-10 00:00:00' → 稳定命中 06-10。
- *   实测（daily_quotes where trade_date = ?，UTC/+08/+14 两种构造命中同一批 5196 行，
- *   NY/Honolulu 下 UTC 零点键命中另一批 5199 行）。
- *   UTC/+08 下本地零点与 UTC 零点本就是**同一个时刻**，因此与
- *   resolveMarketQueryDate().date 的口径在 CI(UTC) 与生产(+08:00) 完全一致，
- *   不改动既有 `trade_date = ?` 匹配语义；仅在负偏移时区把错位纠正回来。
- */
-function localMidnight(day: string): Date {
-  const [y, m, d] = day.split('-').map(Number);
-  return new Date(y, m - 1, d, 0, 0, 0, 0);
-}
-
-/**
  * 回溯最近 N 个真实交易日的市场汇总，得到真实 sparkline 序列。
  * 逐日调用 getMarketSummary（无行情日返回 null，直接跳过），
  * **不再伪造 `[v-200, v-100, v-50, v]` 之类的斜坡**。
@@ -145,7 +128,7 @@ async function buildRealSeries(
     const day = addDays(anchorDay, -back);
     let summary: any;
     try {
-      summary = await db.getMarketSummary(localMidnight(day));
+      summary = await db.getMarketSummary(localDayKey(day));
     } catch {
       continue; // 该日不可查 → 跳过，不中断，也不编造
     }
@@ -168,8 +151,9 @@ async function buildCoreCards(db: any): Promise<CoreCardsResult> {
   // 锚点保持今天：查不到就走既有的诚实 unavailable 卡片，绝不假装知道数据在哪天。
   const q = await resolveQueryDate();
   const anchorDate = q.dataAvailable === null ? calendarToday() : q.date;
-  // 查询键：锚点日历日的本地零点（见 localMidnight 注释）——负偏移时区不再漂到前一天
-  const summary = await db.getMarketSummary(localMidnight(anchorDate));
+  // 查询键：锚点日历日的本地零点（见 tradingCalendar.localDayKey 注释）——
+  // 负偏移时区不再漂到前一天
+  const summary = await db.getMarketSummary(localDayKey(anchorDate));
   const sectors = (await db.getSectorMomentumScore()) || [];
 
   // ---- 可用性判据：值是否真实，而不是数组是否非空 ----

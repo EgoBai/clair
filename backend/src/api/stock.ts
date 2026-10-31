@@ -14,7 +14,7 @@ import { queryCache } from '../utils/queryCache';
 import { normalizeSymbol } from '../utils/symbolUtils';
 import { dataSyncService } from '../data-sync/DataSyncService';
 import { AppError } from '../middleware/errorHandler';
-import { resolveMarketQueryDate, type MarketQueryDate } from '../utils/tradingCalendar';
+import { resolveMarketQueryDate, localDayKey, type MarketQueryDate } from '../utils/tradingCalendar';
 import { WAN_TO_YUAN } from '../utils/turnoverUnit';
 
 /**
@@ -266,7 +266,7 @@ router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHand
 router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   // P0-CALWIRE：未指定日期→回退最近有数据的交易日；指定日无数据→同样回退（asOf 如实标注）
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
-  const summary = await db.getMarketSummary(q.date);
+  const summary = await db.getMarketSummary(localDayKey(q.asOf));
   if (!summary) {
     sendHonest(res, 'unavailable', {
       date: q.asOf,
@@ -284,6 +284,10 @@ router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(a
   // indices 来自腾讯实时源，失败时主数据仍为真实 → 整体仍是 real，但显式告知 indices 缺失
   sendHonest(res, 'real', {
     ...summary,
+    // 查询键已改为「本地零点」（见 localDayKey），但对外 `date` 形态必须与修复前逐字节
+    // 一致（UTC 零点 ISO），否则负偏移时区会输出 ...T04:00:00.000Z，前端/调用方会看到
+    // 同一交易日两种不同时刻。故作显式覆盖：查询键与响应字段解耦。
+    date: q.date,
     ...calendarFields(q),
     ...(indicesAvailable ? {} : { message: '市场聚合数据为真实值；实时指数源不可达，indices 为空' }),
   });
@@ -303,7 +307,7 @@ router.get('/market/indices', asyncHandler(async (_req, res) => {
 
 router.get('/market/industries', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
-  const industries = await db.getIndustryPerformance(q.date);
+  const industries = await db.getIndustryPerformance(localDayKey(q.asOf));
   sendHonest(res, industries.length > 0 ? 'real' : 'unavailable', {
     date: q.date,
     ...calendarFields(q),
@@ -317,7 +321,7 @@ router.get('/market/industries', validateQuery(schemas.marketQuery), asyncHandle
 router.get('/market/top-gainers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const limit = parseInt(req.query.limit as string) || 10;
-  const topGainers = await db.getTopGainers(q.date, limit);
+  const topGainers = await db.getTopGainers(localDayKey(q.asOf), limit);
   sendHonest(res, topGainers.length > 0 ? 'real' : 'unavailable', {
     date: q.date,
     ...calendarFields(q),
@@ -329,7 +333,7 @@ router.get('/market/top-gainers', validateQuery(schemas.marketQuery), asyncHandl
 router.get('/market/top-losers', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const limit = parseInt(req.query.limit as string) || 10;
-  const topLosers = await db.getTopLosers(q.date, limit);
+  const topLosers = await db.getTopLosers(localDayKey(q.asOf), limit);
   sendHonest(res, topLosers.length > 0 ? 'real' : 'unavailable', {
     date: q.date,
     ...calendarFields(q),
@@ -341,7 +345,7 @@ router.get('/market/top-losers', validateQuery(schemas.marketQuery), asyncHandle
 router.get('/market/top-turnover', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
   const limit = parseInt(req.query.limit as string) || 10;
-  const topTurnover = await db.getTopTurnover(q.date, limit);
+  const topTurnover = await db.getTopTurnover(localDayKey(q.asOf), limit);
   sendHonest(res, topTurnover.length > 0 ? 'real' : 'unavailable', {
     date: q.date,
     ...calendarFields(q),

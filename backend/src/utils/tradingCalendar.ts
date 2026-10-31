@@ -317,6 +317,27 @@ export function daysBetween(from: DateInput, to: DateInput): number {
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
 }
 
+/**
+ * 把日历日规整成「该日在**进程本地时区**的零点」，专供 `trade_date` 这类 `date`
+ * 列做**查询键**。
+ *
+ * 为什么不直接传 `new Date('YYYY-MM-DDT00:00:00Z')`（P0-MACROTZ，实测坐实）：
+ *   knex 传 Date 参数时按**本地分量**渲染成 `'YYYY-MM-DD HH:mm:ss.SSS'` 字面量，
+ *   PG 再按 `date` 列解析 —— 「查到哪一天」由进程本地日历日决定，而不是 Date 的
+ *   UTC 日期。于是 UTC 零点在负偏移时区（America/New_York、Pacific/Honolulu）
+ *   会渲染成前一天 `20:00`，**落到 trade_date 的前一天**（实测 daily_quotes
+ *   命中行数 5199 vs 5196，而本地零点键在五个时区恒为 5196）。
+ *   本地零点则在任何时区都渲染成 `'YYYY-MM-DD 00:00:00'`，稳定命中该日。
+ *   UTC / +08 下本地零点与 UTC 零点本就是同一时刻，故对既有匹配语义零影响。
+ *
+ * 注意：本函数只用于**查询键**。对外透出的 `asOf` 等字段仍应是日历日字符串，
+ * 不要拿它去做展示或再 `toISOString()`。
+ */
+export function localDayKey(date: DateInput): Date {
+  const [y, m, d] = toDateString(date).split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
 /** 是否为周末（ISO 星期：6=周六, 7=周日）。以 UTC 构造避免本地时区偏移影响。 */
 export function isWeekend(date: DateInput): boolean {
   const [y, m, d] = toDateString(date).split('-').map(Number);

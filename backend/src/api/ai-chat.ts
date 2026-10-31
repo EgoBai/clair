@@ -10,7 +10,7 @@ import aiService from '../services/aiService';
 import { logger } from '../services/logger';
 import { getDb } from '../db/dbFactory';
 import { getRealMarketData } from '../services/realMarketData';
-import { resolveMarketQueryDate } from '../utils/tradingCalendar';
+import { resolveMarketQueryDate, localDayKey } from '../utils/tradingCalendar';
 
 import { aiTiming } from '../middleware/aiTiming';
 
@@ -528,7 +528,7 @@ async function buildRuleInsight(db: any): Promise<{
   // 同口径，消除「同一天 breadth/current 有真实数据、本端点按自然日查空」的分叉。
   // 所用交易日以 asOf 如实透出（P0-CALWIRE：asOf 是「你看的数据是哪天的」唯一真源）。
   const q = await resolveMarketQueryDate();
-  const marketSummary: any = await db.getMarketSummary(q.date);
+  const marketSummary: any = await db.getMarketSummary(localDayKey(q.asOf));
   const sectorScores: any[] = (await db.getSectorMomentumScore()) || [];
   const enhancedSectors: any[] = (await db.getSectorPerformanceEnhanced()) || [];
 
