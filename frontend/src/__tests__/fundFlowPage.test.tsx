@@ -101,6 +101,28 @@ const MARKET_PARTIAL_TIER = {
 };
 
 const INDUSTRY_EMPTY = { industries: [], count: 0, updateTime: '2026-10-30T07:00:00.000Z' };
+/** 行业资金流：一行有真实主力净额、一行上游缺失（null），另一行真实 0 */
+const INDUSTRY_PARTIAL = {
+  industries: [
+    { industry: '食品饮料', mainNet: 2_897_530_500, netInflow: null, stockCount: 122, topStocks: [] },
+    { industry: '上游缺失行业', mainNet: null, netInflow: null, stockCount: null, topStocks: [] },
+    { industry: '真零行业', mainNet: 0, netInflow: null, stockCount: 0, topStocks: [] },
+  ],
+  count: 3,
+  updateTime: '2026-10-30T07:00:00.000Z',
+  dataSource: 'tencent',
+  asOf: null,
+  note: '东财 push2 不可达，以下为腾讯板块排行真实数据',
+};
+/** 行业资金流：两源皆不可达的诚实空态（必须带中文原因） */
+const INDUSTRY_UNAVAILABLE = {
+  industries: [],
+  count: 0,
+  updateTime: '2026-10-30T07:00:00.000Z',
+  dataSource: 'unavailable',
+  asOf: null,
+  note: '行业资金流：东方财富 push2 与腾讯板块排行两个真实源均不可达',
+};
 const GLOBAL_EMPTY = { indicators: [], dataSource: 'unavailable' };
 const META_EMPTY = { activeProviders: [], keysConfigured: {} };
 const STOCK_EMPTY = { current: null, history: [], dataSource: 'unavailable' };
@@ -350,5 +372,69 @@ describe('字段级 null 与真实 0 必须区分', () => {
     // 成交额 0 → 「0亿」，不是「—」
     expect(statText('全市场成交额')).toContain('0亿');
     expect(statText('全市场成交额')).not.toContain('—');
+  });
+});
+
+// ── 场景七：行业资金流（缺失 null ≠ 0、空态必带原因）────────────────────
+
+describe('行业资金流：主力净额缺失渲染「—」、真实 0 仍渲染 0', () => {
+  beforeEach(() => {
+    routeFetch({
+      ...baseRoutes({ body: MARKET_REAL }),
+      '/api/fund-flow/industry': { body: INDUSTRY_PARTIAL },
+    });
+  });
+
+  it('null 行渲染「—」（不是 +0），真实 0 行渲染 0', async () => {
+    renderPage();
+    await waitFor(() => expect(document.body.textContent).toContain('上游缺失行业'));
+
+    // 表格三行：食品饮料(真实值) / 上游缺失行业(null) / 真零行业(0)
+    const rows = Array.from(document.querySelectorAll('.ant-table-tbody tr'));
+    /** 取该行业行的「主力净额」单元格（第 2 列；第 1 列是行业名） */
+    const mainNetCell = (name: string): string => {
+      const row = rows.find((r) => r.textContent?.includes(name));
+      expect(row, `未找到「${name}」行`).toBeTruthy();
+      return row!.querySelectorAll('td')[1]?.textContent?.trim() ?? '';
+    };
+
+    const missing = mainNetCell('上游缺失行业');
+    expect(missing, '缺失行业的主力净额必须渲染「—」').toBe('—');
+    // 关键：缺失不得被 Number(null) 变成「+0」（那是在说"该行业净流入 0 元"）
+    expect(missing).not.toContain('+0');
+
+    const zero = mainNetCell('真零行业');
+    expect(zero, '真实 0 必须渲染 0，不得判成缺失').toContain('+0');
+    expect(zero, '真实 0 不得渲染成占位符').not.toContain('—');
+  });
+
+  it('真实来源与数据日期如实展示（tencent + asOf 不可得）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('fund-flow-industry-date')).toBeTruthy());
+
+    // 旧实现硬编码「未标注」，即使拿到真实数据也不显示来源
+    expect(screen.getAllByText('tencent').length).toBeGreaterThan(0);
+    const date = screen.getByTestId('fund-flow-industry-date');
+    // 腾讯排行不返回数据日期 → 如实说「不可得」，绝不默认成今天
+    expect(date.textContent).toContain('不可得');
+    expect(date.textContent).toContain('腾讯板块排行真实数据');
+  });
+});
+
+describe('行业资金流空态：说清「为什么没有」，不留无声空列表', () => {
+  beforeEach(() => {
+    routeFetch({
+      ...baseRoutes({ body: MARKET_REAL }),
+      '/api/fund-flow/industry': { body: INDUSTRY_UNAVAILABLE },
+    });
+  });
+
+  it('空列表必须透出后端中文原因，而不是干瘪的「暂无数据」', async () => {
+    renderPage();
+    await waitFor(() => expect(document.body.textContent).toContain('行业资金流：数据源未取到'));
+
+    expect(document.body.textContent).toContain('两个真实源均不可达');
+    // 「不可得」Tag 而非「未标注」：来源是明确的（两源都试过）
+    expect(screen.getAllByText('不可得').length).toBeGreaterThan(0);
   });
 });

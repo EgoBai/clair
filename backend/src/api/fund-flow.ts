@@ -27,12 +27,28 @@ export interface FundFlowData {
   dataSource?: 'eastmoney' | 'sina' | 'unavailable';
 }
 
+/**
+ * 行业资金流单行。
+ *
+ * 诚实红线（2026-11-01 工单）：三个业务量字段的真值域是 `number | null`。
+ * 历史实现用 `item.f62 || 0` 把「上游没给该行业资金流」改写成「净流入 0 元」，
+ * 前端随即渲染「主力净流入 0」——与 /fund-flow/market 修复前是同一个错。
+ * 现在：缺失 → null，真实 0 → 0。
+ */
 export interface IndustryFlowData {
   industry: string;
-  mainNet: number;
-  netInflow: number;
-  stockCount: number;
-  topStocks: Array<{ symbol: string; name: string; mainNet: number }>;
+  /** 主力净额（元）：东财 f62（超大单+大单）/ 腾讯 zljlr（大单+特大单）。缺失 → null */
+  mainNet: number | null;
+  /**
+   * 板块全单资金净流入（元）：两个真实源都只提供「主力」口径净额，
+   * 全单（含中/小单）净额不可得 → 恒为 null，绝不拿主力净额冒充。
+   */
+  netInflow: number | null;
+  /** 成分股数：腾讯 zgb 的「上涨家数/成分股数」分母；东财行业板块无直读字段 → null */
+  stockCount: number | null;
+  topStocks: Array<{ symbol: string; name: string; mainNet: number | null }>;
+  /** 本行数值的真实来源；与响应顶层 dataSource 保持一致（诚实红线：绝不两级矛盾） */
+  dataSource: 'eastmoney' | 'tencent' | 'unavailable';
 }
 
 // ==================== 符号规范化 ====================
@@ -214,21 +230,74 @@ export async function resolveStockFlow(symbol: string, historyDays = 20): Promis
   return { current: null, history: [], dataSource: 'unavailable' };
 }
 
+// ==================== 行业资金流真实源链 ====================
 /**
- * 从东方财富获取行业资金流向
+ * 行业资金流解析结果。`industries` 为空 ⇔ `dataSource === 'unavailable'`：
+ * 空列表**必须**自带 dataSource 与中文原因（本次工单：旧实现裸空数组 + 无 dataSource）。
  */
-async function fetchIndustryFlow(): Promise<IndustryFlowData[]> {
+interface IndustryFlowResult {
+  industries: IndustryFlowData[];
+  dataSource: 'eastmoney' | 'tencent' | 'unavailable';
+  /** 数据所属交易日（上游给了才给，取不到 → null，不拿自然日/响应时间冒充） */
+  asOf: string | null;
+  note?: string;
+}
+
+/** 腾讯板块排行（proxy.finance.qq.com）：真实主力资金流，实测本机可达（2026-11-01） */
+const TENCENT_INDUSTRY_RANK_URL =
+  'https://proxy.finance.qq.com/cgi/cgi-bin/rank/pt/getRank' +
+  '?board_type=hy&sort_type=price&direct=down&offset=0&count=100';
+
+interface TencentBoardRow {
+  name?: string;
+  code?: string;
+  /** 一级行业板块标记（BK-HY-1）；二级为 BK-HY-2 */
+  stock_type?: string;
+  /** 主力净流入（**万元**）：实测 zllr - zllc 恒等于该值 */
+  zljlr?: string | number;
+  /** 主力流入 / 主力流出（万元） */
+  zllr?: string | number;
+  zllc?: string | number;
+  /** 涨跌幅（%） */
+  zdf?: string | number;
+  /** 「上涨家数/成分股数」，实测 31 个一级行业合计分母 5,221 ≈ 全 A 数量、分子 852 ≈ 当日上涨家数 */
+  zgb?: string;
+}
+
+/**
+ * 解析腾讯 zgb 字段：「71/122」→ 122（分母为成分股数，分子为当日上涨家数）。
+ * 口径未经解析成功一律 null —— 不猜。
+ */
+function parseBoardConstituentCount(raw: unknown): number | null {
+  if (typeof raw !== 'string') return null;
+  const m = raw.trim().match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (!m) return null;
+  const total = Number(m[2]);
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
+/**
+ * 真实源 1：东方财富 push2 行业板块排行（clist）。
+ *
+ * 历史缺陷（本次修复）：
+ *   ① `fs: 'b:BK0475'` 只圈定**单只**板块，接口永远返回不到行业列表 → 前端恒空；
+ *   ② `mainNet: f184` 把「主力净**占比**(%)」当「主力净**额**(元)」返回，单位错位；
+ *   ③ `item.f62 || 0` / `item.f22 || 0` 把缺失兜成 0。
+ * 现口径：f62 = 主力净额（元，与 /fund-flow/market 同一字段语义），缺失 → null。
+ */
+async function fetchIndustryFlowEastmoney(): Promise<IndustryFlowResult | null> {
   try {
-    const url = 'https://push2.eastmoney.com/api/qt/clist/get';
-    const response = await axios.get(url, {
+    const response = await axios.get('https://push2.eastmoney.com/api/qt/clist/get', {
       params: {
         fid: 'f62',
         po: 1,
-        pz: 30,
+        pz: 100,
         pn: 1,
         np: 1,
-        fs: 'b:BK0475', // 行业板块
-        fields: 'f12,f14,f62,f184,f66,f72,f78,f84,f22',
+        fltt: 2,
+        invt: 2,
+        fs: 'm:90+t:2', // 全部行业板块（旧值 b:BK0475 只能返回单只板块）
+        fields: 'f12,f14,f62,f184,f124',
         _: Date.now(),
       },
       timeout: 10000,
@@ -238,18 +307,117 @@ async function fetchIndustryFlow(): Promise<IndustryFlowData[]> {
       },
     });
 
-    const items = response.data?.data?.diff || [];
-    return items.map((item: Record<string, string | number>) => ({
-      industry: item.f14 || '',
-      mainNet: item.f184 || 0,
-      netInflow: item.f62 || 0,
-      stockCount: item.f22 || 0,
-      topStocks: [],
-    }));
+    const items: unknown = response.data?.data?.diff;
+    if (!Array.isArray(items) || items.length === 0) return null;
+
+    let asOf: string | null = null;
+    const industries: IndustryFlowData[] = [];
+    for (const raw of items as Record<string, unknown>[]) {
+      const industry = typeof raw?.f14 === 'string' ? raw.f14.trim() : '';
+      if (!industry) continue;
+      const ts = honestNumber(raw?.f124);
+      if (asOf === null && ts !== null && ts > 0) {
+        asOf = new Date(ts * 1000).toISOString().slice(0, 10);
+      }
+      industries.push({
+        industry,
+        // f62 = 主力净流入净额（元）；缺失 → null（绝不 `|| 0`）
+        mainNet: honestNumber(raw?.f62),
+        // 东财该接口不给全单净额（f184 是主力净占比%，不是净额）→ null
+        netInflow: null,
+        // 东财 clist 行业板块无成分股数直读字段（历史上的 f22 是「涨速」，非成分股数）→ null
+        stockCount: null,
+        topStocks: [],
+        dataSource: 'eastmoney',
+      });
+    }
+    if (industries.length === 0) return null;
+    // 全部主力净额都缺失 → 该源本次无有效数值，交下一真实源
+    if (industries.every((r) => r.mainNet === null)) return null;
+
+    return { industries, dataSource: 'eastmoney', asOf };
   } catch (error) {
-    console.error('获取行业资金流向失败:', error);
-    return [];
+    console.error('[fund-flow] 东财行业资金流不可达:', error instanceof Error ? error.message : error);
+    return null;
   }
+}
+
+/**
+ * 真实源 2：腾讯板块排行（proxy.finance.qq.com/cgi/cgi-bin/rank/pt/getRank）。
+ *
+ * 为什么需要它：push2.eastmoney.com 在本机与 Cloudflare Worker 两侧均不可达
+ * （实测 2026-11-01 三方域名全 000），导致行业资金流长期是空壳。
+ * 腾讯该接口稳定可达，且**真实提供**主力净流入（万元）、成分股数、领涨股、板块涨跌幅。
+ *
+ * 口径差异如实披露：腾讯「主力」= 大单+特大单（与东财 f62 口径相近但不完全等同）；
+ * 该接口不提供全单净额 → netInflow 恒 null；不返回数据日期 → asOf 恒 null。
+ */
+async function fetchIndustryFlowTencent(): Promise<IndustryFlowResult | null> {
+  try {
+    const json = await fetchJson(TENCENT_INDUSTRY_RANK_URL, {
+      'User-Agent': 'Mozilla/5.0',
+      Referer: 'https://gu.qq.com/',
+    });
+    const list = (json as { data?: { rank_list?: TencentBoardRow[] } })?.data?.rank_list;
+    if (!Array.isArray(list) || list.length === 0) return null;
+
+    const industries: IndustryFlowData[] = [];
+    for (const row of list) {
+      const industry = typeof row?.name === 'string' ? row.name.trim() : '';
+      if (!industry) continue;
+      // 只取一级行业（BK-HY-1）；字段缺失时按一级处理（上游当前只返回该层）
+      if (row.stock_type && !String(row.stock_type).startsWith('BK-HY-1')) continue;
+
+      const wan = honestNumber(row.zljlr); // 万元
+      industries.push({
+        industry,
+        // 万元 → 元（取整，避免浮点尾数）；缺失 → null（不乘、不兜 0）
+        mainNet: wan === null ? null : Math.round(wan * 10000),
+        netInflow: null,
+        stockCount: parseBoardConstituentCount(row.zgb),
+        topStocks: [],
+        dataSource: 'tencent',
+      });
+    }
+    if (industries.length === 0) return null;
+    if (industries.every((r) => r.mainNet === null)) return null;
+
+    // 上游仅支持 price / turnover / speed 排序，主力净额需本地降序
+    industries.sort((a, b) => {
+      if (a.mainNet === null && b.mainNet === null) return 0;
+      if (a.mainNet === null) return 1;
+      if (b.mainNet === null) return -1;
+      return b.mainNet - a.mainNet;
+    });
+
+    return { industries, dataSource: 'tencent', asOf: null };
+  } catch (error) {
+    console.error('[fund-flow] 腾讯行业资金流不可达:', error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+/**
+ * 行业资金流解析链：东财 push2 → 腾讯板块排行 → 统一诚实降级。
+ * 诚实红线：链中无任何演示/生成数据；两源皆不可达时 industries=[] + dataSource='unavailable'
+ * + 中文 note（空数组必须自带因由，不留裸空）。
+ */
+async function fetchIndustryFlow(): Promise<IndustryFlowResult> {
+  const em = await fetchIndustryFlowEastmoney();
+  if (em) return em;
+  const tx = await fetchIndustryFlowTencent();
+  if (tx) {
+    return {
+      ...tx,
+      note: '东财 push2 不可达，以下行业资金流为腾讯板块排行真实数据（主力=大单+特大单，单位已换算为元）',
+    };
+  }
+  return {
+    industries: [],
+    dataSource: 'unavailable',
+    asOf: null,
+    note: '行业资金流：东方财富 push2 与腾讯板块排行两个真实源均不可达，industries 为空表示「未取到」，不含任何兜底或生成数据',
+  };
 }
 
 // ==================== API 路由 ====================
@@ -481,39 +649,44 @@ async function fetchMarketTiers(): Promise<{
 /**
  * 获取行业资金流向排行
  * GET /api/fund-flow/industry
+ *
+ * 诚实契约（2026-11-01）：
+ *   - 三个业务量字段缺失一律 null（`|| 0` 已清除），真实 0 仍是 0；
+ *   - 顶层 dataSource 与 data.dataSource 同源（旧实现只有 data.source，顶层缺 dataSource）；
+ *   - 空列表必带 dataSource:'unavailable' + 中文 note，绝不返回无因由的空壳。
  */
 router.get('/fund-flow/industry', validateQuery(schemas.industryFlowQuery), async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
-
-    let industryFlow = await fetchIndustryFlow();
-
-    if (industryFlow.length === 0) {
-      // 诚实红线：东方财富行业资金流不可用时，不编造数值，如实返回空 + 标记后端未接入。
-      // 前端应据此展示 Empty 状态（"行业资金流：后端未接入"），而非演示数据。
-      return res.json({
-        success: true,
-        data: {
-          industries: [],
-          count: 0,
-          updateTime: new Date().toISOString(),
-          source: 'unavailable',
-          note: '行业资金流：东方财富数据源暂不可用，后端未接入兜底数据',
-        },
-      });
-    }
+    const result = await fetchIndustryFlow();
+    const industries = result.industries.slice(0, limit);
 
     res.json({
       success: true,
       data: {
-        industries: industryFlow.slice(0, limit),
-        count: industryFlow.length,
+        industries,
+        count: industries.length,
+        dataSource: result.dataSource,
+        // 数据所属交易日：上游给了才有（东财 f124），取不到如实 null
+        asOf: result.asOf,
+        // 兼容既有消费点：data.source 保留，语义与 dataSource 一致
+        source: result.dataSource,
         updateTime: new Date().toISOString(),
+        note: result.note,
       },
+      dataSource: result.dataSource,
+      notes: { industry: result.note },
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error('获取行业资金流向失败:', error);
-    res.status(500).json({ success: false, error: '获取行业资金流向失败' });
+    // 失败也要如实标注来源，不能只给 500 一句话（前端据此走 unavailable 降级）
+    res.status(500).json({
+      success: false,
+      dataSource: 'unavailable',
+      error: '获取行业资金流向失败',
+      notes: { industry: '行业资金流：后端处理异常，未返回任何数值' },
+    });
   }
 });
 

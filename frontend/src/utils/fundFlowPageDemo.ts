@@ -5,22 +5,46 @@
  * 绝不回退伪数据（诚实数据红线，IP-20 收口）。
  */
 
-export type FundFlowProviderName = 'tushare' | 'akshare' | 'alphavantage' | 'eastmoney' | 'demo' | 'unavailable';
+export type FundFlowProviderName = 'tushare' | 'akshare' | 'alphavantage' | 'eastmoney' | 'tencent' | 'demo' | 'unavailable';
 
 export interface FundFlowData {
   symbol: string; name: string;
   mainNet: number; superLargeNet: number; largeNet: number; mediumNet: number; smallNet: number;
   tradeDate: string;
 }
+/**
+ * 行业资金流单行（/api/fund-flow/industry）。
+ *
+ * 真值域与后端一致：三个业务量字段是 `number | null` ——
+ * 后端把「上游没给该行业」表达为 null，真实的 0（真的零净流入）仍然是 0。
+ * 前端把 null 渲染成 0 会把「数据缺失」说成「净流入 0 元」（诚实数据红线）。
+ */
 export interface IndustryFlowData {
-  industry: string; mainNet: number; netInflow: number; stockCount: number;
-  topStocks: { symbol: string; name: string; mainNet: number }[];
+  industry: string;
+  /** 主力净额（元）：东财 f62 / 腾讯 zljlr。缺失 → null */
+  mainNet: number | null;
+  /** 板块全单净流入（元）：两个真实源都不提供 → 恒 null，不拿主力净额冒充 */
+  netInflow: number | null;
+  /** 成分股数：腾讯 zgb 分母；东财侧无直读字段 → null */
+  stockCount: number | null;
+  topStocks: { symbol: string; name: string; mainNet: number | null }[];
+  dataSource?: 'eastmoney' | 'tencent' | 'unavailable';
 }
 export interface GlobalIndicatorPoint { date: string; value: number; }
 export interface GlobalIndicator { key: string; label: string; unit: string; latest: number; series: GlobalIndicatorPoint[]; }
 
 export interface StockFundFlowResp { current: FundFlowData | null; history: FundFlowData[]; dataSource: FundFlowProviderName; }
-export interface IndustryFlowResp { industries: IndustryFlowData[]; count: number; updateTime: string; }
+export interface IndustryFlowResp {
+  industries: IndustryFlowData[];
+  count: number;
+  updateTime: string;
+  /** 本块数据真实来源（后端顶层与 data 内同源） */
+  dataSource?: 'eastmoney' | 'tencent' | 'unavailable';
+  /** 数据所属交易日：上游不返回时如实为 null（不拿自然日冒充） */
+  asOf?: string | null;
+  /** 降级原因（中文）：空列表时必有 */
+  note?: string | null;
+}
 export interface GlobalFlowResp { indicators: GlobalIndicator[]; dataSource: FundFlowProviderName; }
 export interface FundFlowMeta { activeProviders: FundFlowProviderName[]; keysConfigured: Record<string, boolean>; }
 export interface MarketOverview { mainNet: number; superLargeNet: number; largeNet: number; mediumNet: number; smallNet: number; }

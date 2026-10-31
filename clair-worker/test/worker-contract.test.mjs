@@ -799,6 +799,121 @@ await test('5 档资金流：某档全缺失 → 该档 null，有值的档正�
 });
 
 // ============================================================
+// 三·五、/api/fund-flow/industry 行业资金流（兜 0 与空壳收口）
+//
+// 【缺陷背景】修复前该端点：
+//   ① `isFinite(Number(it.f62)) ? Number(it.f62) : 0` → 缺失被写成「净流入 0 元」；
+//   ② mainNet 与 netInflow 取同一个 f62（两列同值）、stockCount 取 f22（涨速，非成分股数）；
+//   ③ 空态只有 `industries: []` + `data.source`，**顶层无 dataSource、无 message**
+//      → 线上实测 `{"industries":[],"count":0,"source":"unavailable","note":"..."}`
+//        读 dataSource 的消费端拿到 undefined，读到的是一个「既没数据也没解释」的空列表。
+//
+// 【修好后的契约】
+//   · 缺失 → null（真实 0 仍是 0）；netInflow 两源都不可得 → 恒 null（不拿主力净额冒充全单）
+//   · 顶层与 data 内 dataSource 同源；空数组必带中文 message/note
+//   · 源链：东财 push2 行业板块 → 腾讯板块排行 → 诚实 unavailable
+// ============================================================
+
+console.log('\n/api/fund-flow/industry 行业资金流');
+
+async function callFundFlowIndustryWithStub({ push2Body, tencentBody, limit = 20 }) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('push2')) {
+      if (push2Body === null) throw new Error('push2 unreachable (stubbed)');
+      return new Response(push2Body, { status: 200 });
+    }
+    if (url.includes('proxy.finance.qq.com')) {
+      if (tencentBody === null) throw new Error('tencent unreachable (stubbed)');
+      return new Response(tencentBody, { status: 200 });
+    }
+    throw new Error(`stubbed test 不应请求该 URL: ${url}`);
+  };
+  try {
+    const res = await worker.fetch(
+      new Request(`https://clair-api.pages.dev/api/fund-flow/industry?limit=${limit}`), envStub(), {},
+    );
+    return { status: res.status, body: await res.json() };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+// 东财 clist 行业板块：第二个行业的 f62 是 '-'（上游未给该行业资金流）
+const PUSH2_INDUSTRY_PARTIAL = JSON.stringify({
+  data: {
+    diff: [
+      { f12: 'BK0475', f14: '行业甲', f62: 120000000, f184: 3.2, f124: 1730332800 },
+      { f12: 'BK0476', f14: '行业乙', f62: '-', f184: 1.1, f124: 1730332800 },
+    ],
+  },
+});
+
+// 腾讯板块排行：万元口径；第三条缺 zljlr（上游没给）
+const TENCENT_INDUSTRY_RANK = JSON.stringify({
+  code: 0,
+  msg: 'ok',
+  data: {
+    rank_list: [
+      { name: '电子', code: 'pt01801080', stock_type: 'BK-HY-1', zljlr: '-1115657.21', zgb: '35/497', zdf: '-5.11' },
+      { name: '食品饮料', code: 'pt01801120', stock_type: 'BK-HY-1', zljlr: '289753.05', zgb: '71/122', zdf: '2.84' },
+      { name: '无资金流行业', code: 'pt01801999', stock_type: 'BK-HY-1', zgb: '0/8', zdf: '0.00' },
+    ],
+  },
+});
+
+await test('industry：东财 f62 缺失 → mainNet 为 null（不是 0 元），真实值原样保留', async () => {
+  const { status, body } = await callFundFlowIndustryWithStub({ push2Body: PUSH2_INDUSTRY_PARTIAL, tencentBody: null });
+  assert.equal(status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'eastmoney', '顶层 dataSource 必须如实标注真实源');
+  assert.equal(body.data.dataSource, 'eastmoney', 'data 内 dataSource 必须与顶层同源');
+  assert.equal(body.data.industries.length, 2);
+  assert.equal(body.data.industries[0].mainNet, 120000000);
+  assert.equal(body.data.industries[1].mainNet, null,
+    '上游 f62 为 "-" 时必须 null（0 会被读成「该行业主力净流入 0 元」）');
+  assert.equal(body.data.industries[1].netInflow, null, '全单净额两源皆不可得 → null');
+  assert.equal(body.data.asOf, '2024-10-31', 'asOf 应取东财 f124 时间戳所在交易日');
+});
+
+await test('industry：东财不可达 → 腾讯板块排行真实数据（万元→元、成分股数取 zgb 分母、降序）', async () => {
+  const { status, body } = await callFundFlowIndustryWithStub({ push2Body: null, tencentBody: TENCENT_INDUSTRY_RANK });
+  assert.equal(status, 200);
+  assert.equal(body.dataSource, 'tencent');
+  assert.equal(body.data.dataSource, 'tencent');
+  const rows = body.data.industries;
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].industry, '食品饮料', '应按主力净额降序排第一');
+  assert.equal(rows[0].mainNet, 2897530500, '289753.05 万元 = 2,897,530,500 元');
+  assert.equal(rows[0].stockCount, 122, 'zgb "71/122" 的分母是成分股数');
+  assert.equal(rows[0].netInflow, null, '腾讯只给主力口径，全单净额必须 null');
+  assert.equal(rows[1].mainNet, -11156572100, '负值（净流出 -1,115,657.21 万元）换算为 -11,156,572,100 元并排在正值之后');
+  assert.equal(rows[2].mainNet, null, '缺 zljlr 的行业必须 null（不是 0）');
+  assert.equal(rows[2].stockCount, 8);
+  assert.ok(typeof body.message === 'string' && /[\u4e00-\u9fa5]/.test(body.message),
+    '降级到腾讯源必须给出中文说明（口径与单位）');
+});
+
+await test('industry：两源皆不可达 → 200 + dataSource:unavailable + 中文明原因（不留裸空数组）', async () => {
+  const { status, body } = await callFundFlowIndustryWithStub({ push2Body: null, tencentBody: null });
+  assert.equal(status, 200, '数据不可得不是 404（404 会被判成端点未挂载）');
+  assert.equal(body.dataSource, 'unavailable');
+  assert.equal(body.data.dataSource, 'unavailable', '顶层与 data 内 dataSource 必须一致');
+  assert.deepEqual(body.data.industries, []);
+  assert.equal(body.data.count, 0);
+  assert.ok(typeof body.message === 'string' && body.message.length > 10 && /[\u4e00-\u9fa5]/.test(body.message),
+    `空列表必须自带中文原因，实际 message=${JSON.stringify(body.message)}`);
+  assert.equal(body.data.message, body.message, 'data.message 与顶层 message 应一致（消费端两处都可能读）');
+});
+
+await test('industry：limit 生效且 count 与返回条数一致', async () => {
+  const { body } = await callFundFlowIndustryWithStub({ push2Body: null, tencentBody: TENCENT_INDUSTRY_RANK, limit: 2 });
+  assert.equal(body.data.industries.length, 2);
+  assert.equal(body.data.count, 2, 'count 必须与 industries 长度一致（不能报总数却只给 2 条）');
+});
+
+// ============================================================
 // 四、双入口字节一致性（Cloudflare Pages advanced mode 的硬约束）
 // ============================================================
 

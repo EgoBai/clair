@@ -124,6 +124,11 @@ const FundFlowPage: React.FC = () => {
   // ── ③ 行业资金流 ──
   const [industry, setIndustry] = useState<IndustryFlowResp | null>(null);
   const [industryLoading, setIndustryLoading] = useState(true);
+  /**
+   * 行业块真实来源：只认后端给的 dataSource；缺字段才回落到 'unknown'（"未标注"）。
+   * 旧实现这里硬编码 'unknown'，即使拿到东财/腾讯真实数据也永远显示"未标注"。
+   */
+  const industryDs = (industry?.dataSource ?? 'unknown') as FundFlowProviderName | 'unknown';
 
   // ── ④ 外资/全球视角 ──
   const [global, setGlobal] = useState<GlobalFlowResp | null>(null);
@@ -240,11 +245,17 @@ const FundFlowPage: React.FC = () => {
   );
   const industryColumns = [
     { title: '行业', dataIndex: 'industry', key: 'industry', width: 120 },
+    // 三个业务量字段真值域是 number|null：缺失渲染「—」，绝不 Number(null)→0
     { title: '主力净额', dataIndex: 'mainNet', key: 'mainNet', width: 130,
-      render: (v: number) => <Text style={{ color: flowColor(v) }}>{fmtSigned(v)}</Text> },
+      render: (v: number | null) => (v == null
+        ? <Text type="secondary">—</Text>
+        : <Text style={{ color: flowColor(v) }}>{fmtSigned(v)}</Text>) },
     { title: '净流入', dataIndex: 'netInflow', key: 'netInflow', width: 130,
-      render: (v: number) => <Text style={{ color: flowColor(v) }}>{fmtSigned(v)}</Text> },
-    { title: '成分股数', dataIndex: 'stockCount', key: 'stockCount', width: 100 },
+      render: (v: number | null) => (v == null
+        ? <Text type="secondary">—</Text>
+        : <Text style={{ color: flowColor(v) }}>{fmtSigned(v)}</Text>) },
+    { title: '成分股数', dataIndex: 'stockCount', key: 'stockCount', width: 100,
+      render: (v: number | null) => (v == null ? <Text type="secondary">—</Text> : v) },
   ];
 
   const cardStyle = { background: THEME.cardBg, borderColor: THEME.border };
@@ -263,7 +274,7 @@ const FundFlowPage: React.FC = () => {
           <Text strong style={titleColor}>数据源：</Text>
           <span>市场概览 {dsTag(marketDs)}</span>
           <span>个股 {dsTag(stockDs)}</span>
-          <span>行业 {dsTag('unknown')}</span>
+          <span>行业 {dsTag(industryDs)}</span>
           <span>外资 {dsTag(globalDs)}</span>
           {metaLoading && <Text type="secondary" style={{ fontSize: 12 }}>诊断加载中…</Text>}
         </Space>
@@ -454,8 +465,18 @@ const FundFlowPage: React.FC = () => {
         <Col xs={24} lg={13}>
           <Card
             size="small" style={cardStyle}
-            title={<span style={titleColor}>行业主力净流入排行 <Tag color="default">未标注</Tag></span>}
+            title={<span style={titleColor}>行业主力净流入排行 {dsTag(industryDs)}</span>}
           >
+            {/* 数据日期与口径说明：只如实展示后端 asOf/note，缺失说「不可得」，绝不默认成今天 */}
+            {!industryLoading && industry && (
+              <div
+                data-testid="fund-flow-industry-date"
+                style={{ color: THEME.textSec, fontSize: 12, marginBottom: 10 }}
+              >
+                数据日期 {asOfLabel(industry.asOf)}
+                {industry.note ? <span>{' · '}{industry.note}</span> : null}
+              </div>
+            )}
             {industryLoading ? (
               <LoadingStateDetail />
             ) : industryBar.length ? (
@@ -467,14 +488,22 @@ const FundFlowPage: React.FC = () => {
                   <YAxis type="category" dataKey="industry" tick={{ fontSize: 11, fill: THEME.textSec }} width={96} />
                   <RTooltip
                     contentStyle={{ background: THEME.cardBg, borderColor: THEME.border, color: THEME.text }}
-                    formatter={(value: any, name: any) => [fmtSigned(Number(value)), String(name)]}
+                    formatter={(value: any, name: any) => [value == null ? '—' : fmtSigned(Number(value)), String(name)]}
                   />
                   <Bar dataKey="mainNet" name="主力净额" barSize={16}>
-                    {industryBar.map((d, i) => <Cell key={i} fill={flowColor(d.mainNet)} />)}
+                    {industryBar.map((d, i) => (
+                      // 缺失值不上色（也不画柱），避免把 null 当成「净流出 0」涂成绿色
+                      <Cell key={i} fill={d.mainNet == null ? THEME.textSec : flowColor(d.mainNet)} />
+                    ))}
                   </Bar>
                 </ComposedChart>
               </ResponsiveContainer>
-            ) : <EmptyState title="暂无数据" />}
+            ) : (
+              <EmptyState
+                title="行业资金流：数据源未取到"
+                description={industry?.note ?? undefined}
+              />
+            )}
           </Card>
         </Col>
         <Col xs={24} lg={11}>
