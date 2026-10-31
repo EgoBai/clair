@@ -52,6 +52,26 @@ export function normalizeSymbol(symbol: string): string {
   return `${m[2]}.${market}`;
 }
 
+// ==================== 诚实数值转换（fund-flow 专用） ====================
+/**
+ * 把「可能缺失的原始值」转成「业务量或 null」，**绝不把缺失改写成 0**。
+ *
+ * 诚实数据红线：`Number(x) || 0` 会把
+ *   ① null / undefined / '' / NaN（= 压根没取到）兜成 0，
+ * 前端随即渲染「0 家上涨」——用户以为全市场平盘，这是"半诚实"红线。
+ *
+ * 真值域判定：
+ *   - null / undefined / 空串 / 非有限数 → null（未取到，不知道）
+ *   - 0 / '0' / -3.2 / '1.2e12'        → 原样数字（**0 是有效业务值**：真的零涨停就是 0，
+ *     把它改成 null 是另一种谎报——把"确实为 0"说成"不知道"）
+ */
+function honestNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 // ==================== 带超时的 JSON 抓取（复用 etfDataService 的 fetchJson 模式） ====================
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -300,7 +320,8 @@ router.get('/fund-flow/global', async (_req: Request, res: Response) => {
  *   - 5 档主力/超大单/大单/中单/小单净流入：真实源为东方财富 push2 全市场聚合
  *     （沙箱下不可达，请求失败则 tiers 置 null，标注 unavailable，绝不编造数值）。
  *   - 市场广度（上涨/下跌/平盘家数、涨跌停、全市场成交额）：来自本地真实行情库
- *     （db.getMarketSummary），为真实数据。
+ *     （db.getMarketSummary）。**空值语义**：字段缺失一律 null（未取到），
+ *     真实 0 仍是 0（例如全市场零涨停）；库里有行但字段全空时不算"广度真实"。
  *
  * 【R3 交易日收口】不再按自然日裸查「今天」：先经交易日历解析最近真实交易日
  * （今天是交易日用今天；节假日回退最近交易日；该日库中无数据继续回退到最近
@@ -314,23 +335,48 @@ router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response
     const q = await resolveMarketQueryDate();
     const summary = await db.getMarketSummary(q.date);
 
+    // 空值语义：字段缺失 → null（未取到）；真实 0 → 0（例如全市场零涨停）。
+    // 严禁 `|| 0`：那会把"没取到"污染成"业务上是 0"，前端渲染「0 家上涨」。
     const market = summary
       ? {
           tradeDate: summary.date ? new Date(summary.date).toISOString().slice(0, 10) : null,
-          totalTurnover: Number(summary.totalTurnover) || null,
-          risingStocks: Number(summary.risingStocks) || 0,
-          fallingStocks: Number(summary.fallingStocks) || 0,
-          unchangedStocks: Number(summary.unchangedStocks) || 0,
-          limitUpCount: Number(summary.limitUpCount) || 0,
-          limitDownCount: Number(summary.limitDownCount) || 0,
-          totalStocks: Number(summary.totalStocks) || 0,
+          totalTurnover: honestNumber(summary.totalTurnover),
+          risingStocks: honestNumber(summary.risingStocks),
+          fallingStocks: honestNumber(summary.fallingStocks),
+          unchangedStocks: honestNumber(summary.unchangedStocks),
+          limitUpCount: honestNumber(summary.limitUpCount),
+          limitDownCount: honestNumber(summary.limitDownCount),
+          totalStocks: honestNumber(summary.totalStocks),
         }
       : null;
+
+    // 「行存在」≠「拿到了数值」：库里有当日聚合行、但业务量字段全空时，
+    // 不能说市场广度是真实的，也不能降级成 0。
+    const marketHasValues =
+      !!market &&
+      [market.totalTurnover, market.risingStocks, market.fallingStocks,
+        market.unchangedStocks, market.limitUpCount, market.limitDownCount, market.totalStocks]
+        .some((v) => v !== null);
 
     // 尝试真实 5 档聚合（沙箱下通常不可达）
     const tiers = await fetchMarketTiers();
     const tierAvailable = !!tiers;
-    const dataSource = tierAvailable ? 'eastmoney' : market ? 'partial' : 'unavailable';
+    const dataSource = tierAvailable ? 'eastmoney' : marketHasValues ? 'partial' : 'unavailable';
+
+    // ── note 按场景拆分（旧文案一句话服务两种降级场景，market:null 时仍断言
+    //    「市场广度/成交额来自本地真实行情」，与事实冲突）──
+    const tierNote = tierAvailable
+      ? null
+      : '全市场 5 档资金流：东方财富 push2 聚合不可达，未返回任何档位净流入数值';
+    const marketNote = marketHasValues
+      ? `市场广度与成交额：本地真实行情库 ${market?.tradeDate ?? q.asOf} 交易日聚合`
+      : summary
+        ? `市场广度与成交额：本地行情库${q.asOf}的聚合行存在，但涨跌家数/涨跌停/成交额字段为空，均按 null 返回`
+        : `市场广度与成交额：本地行情库未取到 ${q.asOf} 的市场聚合数据，涨跌家数/成交额均为 null`;
+    // 两者都可用时不给 note（保持既有契约：note 只在降级时出现）；
+    // 降级时两段文案各自只描述自己那一维的真实状态，不互相背书。
+    const degraded = !tierAvailable || !marketHasValues;
+    const note = degraded ? [tierNote, marketNote].filter(Boolean).join('；') : undefined;
 
     res.json({
       success: true,
@@ -343,14 +389,12 @@ router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response
         ...(q.note ? { asOfNote: q.note } : {}),
         updateTime: new Date().toISOString(),
         source: tierAvailable ? 'eastmoney' : 'unavailable',
-        note: tierAvailable
-          ? undefined
-          : '全市场 5 档资金流：东方财富 push2 聚合在沙箱下不可达；市场广度/成交额来自本地真实行情。',
+        note,
       },
       dataSource,
       notes: {
         tiers: tierAvailable ? undefined : '5 档主力/超大单/大单/中单/小单净流入：数据源未接入',
-        market: market ? '市场广度与成交额：本地真实行情' : '本地行情库无当日数据',
+        market: marketNote,
       },
       timestamp: new Date().toISOString(),
     });
@@ -374,9 +418,13 @@ router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response
 /**
  * 从东方财富 push2 聚合全市场 5 档资金流（实时）。
  * 沙箱网络下不可达时返回 null，由调用方诚实降级。
+ *
+ * 诚实红线：逐字段累计**实际取到的**数值并计数；某档位一个数值都没取到 →
+ * 该档位为 null（未取到），不返回 0（0 会被前端当作"全市场主力净流入为 0"）。
  */
 async function fetchMarketTiers(): Promise<{
-  main: number; superLarge: number; large: number; medium: number; small: number;
+  main: number | null; superLarge: number | null; large: number | null;
+  medium: number | null; small: number | null;
 } | null> {
   try {
     const url = 'https://push2.eastmoney.com/api/qt/clist/get';
@@ -396,14 +444,33 @@ async function fetchMarketTiers(): Promise<{
     if (!items.length) return null;
 
     const acc = { main: 0, superLarge: 0, large: 0, medium: 0, small: 0 };
+    const seen = { main: 0, superLarge: 0, large: 0, medium: 0, small: 0 };
     for (const it of items) {
-      acc.main += Number(it.f184) || 0;
-      acc.superLarge += Number(it.f66) || 0;
-      acc.large += Number(it.f72) || 0;
-      acc.medium += Number(it.f78) || 0;
-      acc.small += Number(it.f84) || 0;
+      const fields = [
+        ['main', it?.f184],
+        ['superLarge', it?.f66],
+        ['large', it?.f72],
+        ['medium', it?.f78],
+        ['small', it?.f84],
+      ] as const;
+      for (const [key, raw] of fields) {
+        const n = honestNumber(raw);
+        // 缺失（'-' / null / 非数）不计入分子也不计数，避免把缺失当 0 摊进总额
+        if (n === null) continue;
+        acc[key] += n;
+        seen[key] += 1;
+      }
     }
-    return acc;
+    const build = (key: keyof typeof acc): number | null => (seen[key] > 0 ? acc[key] : null);
+    const result = {
+      main: build('main'),
+      superLarge: build('superLarge'),
+      large: build('large'),
+      medium: build('medium'),
+      small: build('small'),
+    };
+    // 五个档位一个数值都没拿到 → 整体不可用，交给调用方降级（不是"净流入 0"）
+    return Object.values(result).some((v) => v !== null) ? result : null;
   } catch {
     return null;
   }
