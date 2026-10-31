@@ -546,6 +546,12 @@ async function fetchTencentQuotes(tencentSymbols) {
       marketCap: (() => { const n = parseFloat(parts[45]); return isFinite(n) && n > 0 ? n : undefined; })(),
       circulatingMarketCap: (() => { const n = parseFloat(parts[44]); return isFinite(n) && n > 0 ? n : undefined; })(),
       pbRatio: (() => { const n = parseFloat(parts[46]); return isFinite(n) && n > 0 ? n : undefined; })(),
+      // 交易所涨跌停价（含 ±20%/±5%/±30% 全部真实制度）。
+      // /api/breadth/current 与 /api/macro/overview 的「涨停/跌停家数」按此判定，
+      // 而不是用涨跌幅阈值近似（近似会把 ST ±5%、北交所 ±30% 判错）。
+      // 上游缺失时为 0，调用方须先判 >0 再比较。
+      limitUpPrice: v(47),
+      limitDownPrice: v(48),
     });
   }
   return results;
@@ -4659,6 +4665,1489 @@ async function handleFundFlow(symbol) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 诚信数据契约层：补挂线上 404 的多模块路由
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 【为什么要有这一层】线上 https://clair-api.pages.dev 实测有 18 条前端在用的端点
+// 返回 404 `{"success":false,"error":"Not found"}`，前端只能显示「接口请求失败」，
+// 用户看到的是「多模块数据不可用」——看起来像产品坏了。本层把这些路由挂上：
+//   P0 真实源：market/realtime、breadth/current、etf/list、macro/overview
+//   P1 东财数据中心真实源：block-trades、top-traders(+seat/rank)、lockup/calendar、
+//      north-bound/overview、hk-connect/summary
+//   P2 无真实源：margin/overview、event-calendar/events、financials/summary、
+//      news/research/reports、risk-center/portfolio → 诚实空态
+//   静态配置：strategy-templates、backtest/presets → dataSource:'static'
+//
+// 【诚实红线（本项目最高优先级）】
+//   1. 严禁随机数/硬编码/算术推导冒充行情。所有数值必须能指到上游字段。
+//   2. 拿不到真实数据 → HTTP 200 + dataSource:'unavailable' + 中文 message，
+//      **不用 404**（404 会被前端判成「端点未挂载」，与「数据不可得」是两种事实）。
+//   3. 缺失一律 null，**绝不用 0 顶替**（0 是合法真实值，用 0 顶替缺失即造假）。
+//
+// 【为什么 success:false 而不是 success:true】
+//   与 team 指令及本文件既有 20+ 处降级一致（worker 惯例）。同时响应里带
+//   `error`（axios 拦截器 frontend/src/services/api.ts:201 在 success===false 时
+//   用 error 作 reject 文案，缺了它前端只能显示「请求失败」）与 data/顶层两处
+//   dataSource（frontend/src/utils/apiStatus.ts:143 readDataSource 两处都读），
+//   因此前端仍能把它判成 `unavailable` 而不是 `failed` 或 `not-deployed`。
+
+/**
+ * 诚信不可用响应（HTTP 200）。
+ *
+ * 顶层与 data 内两处 dataSource 由同一个字面量派生，杜绝「两级 dataSource 互相矛盾」。
+ */
+function unavailable(payload, message) {
+  return json({
+    success: false,
+    dataSource: 'unavailable',
+    code: 'DATA_UNAVAILABLE',
+    error: message,
+    message,
+    data: { ...(payload || {}), dataSource: 'unavailable', message },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/** 数值安全转换：缺失/非有限 → null（**绝不返回 0**，0 是合法真实值） */
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 仅在两值均可得时求和，任一不可得 → null（不用 0 顶替） */
+function addOrNull(a, b) {
+  return a === null || b === null ? null : +(a + b).toFixed(2);
+}
+
+/** 东财数据中心（datacenter-web）报表取数，免 key。
+ *  返回 { rows, count, code, message, success }；网络层异常 → rows:null。
+ *  ⚠️ code=9201「返回数据为空」是「源可达但该筛选条件下无记录」，属正常空，不是故障。 */
+const EM_DATACENTER = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
+
+async function emDataGet(reportName, params, referer, timeoutMs = 10000) {
+  let timer = null;
+  try {
+    const qs = new URLSearchParams({
+      reportName, columns: 'ALL', source: 'WEB', client: 'WEB', ...params,
+    }).toString();
+    const ctrl = new AbortController();
+    timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let resp;
+    try {
+      resp = await fetch(`${EM_DATACENTER}?${qs}`, {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0', Referer: referer || 'https://data.eastmoney.com' },
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!resp.ok) {
+      return { rows: null, count: null, code: resp.status, message: `HTTP ${resp.status}`, success: false };
+    }
+    const j = await resp.json();
+    return {
+      rows: Array.isArray(j?.result?.data) ? j.result.data : null,
+      count: typeof j?.result?.count === 'number' ? j.result.count : null,
+      code: j?.code ?? null,
+      message: typeof j?.message === 'string' ? j.message : null,
+      success: j?.success !== false,
+    };
+  } catch (e) {
+    return { rows: null, count: null, code: null, message: (e && e.message) || String(e), success: false };
+  }
+}
+
+/**
+ * 全市场宽度聚合（真实源：腾讯逐标的行情快照）。
+ *
+ * 字段名/语义与 backend/src/services/marketBreadth.ts 的 BreadthData **同名同义**，
+ * 前端 frontend/src/services/breadthService.ts 的 BreadthData 直接照此消费。
+ * 覆盖率不足 50% 时返回 null（拒绝输出「半个市场」的涨跌家数）。 */
+function computeBreadthSnapshot(quotes, stocks) {
+  const stockSet = new Set(stocks.map((s) => s.symbol));
+  const requested = stockSet.size;
+  // 必须显式剔除指数快照：腾讯用「市场前缀+代码」区分标的，而 000001 同时是
+  // 上证指数与平安银行 —— 只按纯数字 symbol 过滤会让 sh000001 混进平安银行那一行，
+  // 使 totalStocks 多加 1 且重复计一次涨跌（实测 5544 vs 请求 5541）。
+  const indexKeys = new Set(INDEX_SYMBOLS.map((i) => i.tencent));
+  // 只统计清单内个股：无报价（退市/长期停牌，price=0）不计入涨跌/平盘 —— 与后端口径一致。
+  const rows = quotes.filter((q) => !indexKeys.has(q.tencentSymbol) && stockSet.has(q.symbol) && q.price > 0 && q.prevClose > 0);
+  if (requested === 0 || rows.length === 0) return null;
+  if (rows.length < requested * 0.5) return null;
+
+  let advancing = 0;
+  let declining = 0;
+  let unchanged = 0;
+  let limitUp = 0;
+  let limitDown = 0;
+  let upVolume = 0;
+  let downVolume = 0;
+  let turnover = 0;
+
+  for (const q of rows) {
+    const chg = q.changePercent;
+    if (chg > 0) {
+      advancing++;
+      upVolume += q.turnover || 0;
+    } else if (chg < 0) {
+      declining++;
+      downVolume += q.turnover || 0;
+    } else {
+      unchanged++;
+    }
+    // 涨跌停：用交易所涨跌停价（腾讯 [47]/[48]）比较，不是涨跌幅阈值近似，
+    // 因此天然包含科创板/创业板 ±20%、ST ±5%、北交所 ±30% 等全部真实制度。
+    if (q.limitUpPrice > 0 && q.price >= q.limitUpPrice - 0.005) limitUp++;
+    if (q.limitDownPrice > 0 && q.price <= q.limitDownPrice + 0.005) limitDown++;
+    turnover += q.turnover || 0;
+  }
+
+  const totalStocks = advancing + declining + unchanged;
+  const advanceDeclineRatio = declining > 0 ? +(advancing / declining).toFixed(2) : advancing > 0 ? 999 : 0;
+  const volumeRatio = downVolume > 0 ? +(upVolume / downVolume).toFixed(3) : upVolume > 0 ? 999 : 0;
+  const ratioScore = Math.min(Math.max((advanceDeclineRatio - 1) * 30, -50), 50);
+  const volumeScore = volumeRatio ? Math.min(Math.max((volumeRatio - 1) * 20, -30), 30) : 0;
+  const sentimentScore = Math.max(-100, Math.min(100, Math.round(ratioScore + volumeScore)));
+  const marketSentiment = sentimentScore > 20 ? 'bullish' : sentimentScore < -20 ? 'bearish' : 'neutral';
+  const uncovered = Math.max(requested - rows.length, 0);
+
+  return {
+    timestamp: Date.now(),
+    advancing,
+    declining,
+    unchanged,
+    totalStocks,
+    advanceDeclineRatio,
+    // 腾讯行情源不提供历史新高/新低统计 → 诚实 null（不是「今日无新高」）
+    newHighs: null,
+    newLows: null,
+    upVolume,
+    downVolume,
+    volumeRatio,
+    limitUp,
+    limitDown,
+    turnover,
+    marketSentiment,
+    sentimentScore,
+    dataSource: 'tencent',
+    caliber:
+      '涨跌家数/成交额/涨跌停家数：腾讯 qt.gtimg.cn 逐标的真实行情本地聚合；' +
+      `标的清单=Worker 内置真实 A 股清单（共 ${requested} 只，源侧返回报价 ${rows.length} 只）；` +
+      '涨跌停判定=现价与交易所涨跌停价比较（含 ±20%/±5%/±30% 全部制度，非涨跌幅阈值近似）。',
+    requestedSymbols: requested,
+    quotedSymbols: rows.length,
+    uncoveredSymbols: uncovered,
+    unavailableFields: ['newHighs', 'newLows'],
+    message:
+      'newHighs/newLows 为 null：腾讯行情源不提供历史新高/新低统计（诚实不可用，非「0 = 今日无新高」）。' +
+      (uncovered > 0
+        ? `另有 ${uncovered} 只清单内标的源侧无报价（退市/长期停牌/不在腾讯行情库），未计入涨跌家数。`
+        : ''),
+  };
+}
+
+/** 拉全市场行情 + 清单 → 宽度快照（失败返回 null，绝不抛给上游） */
+async function loadBreadthSnapshot() {
+  try {
+    const [{ quotes }, stocks] = await Promise.all([getAllQuotes(), getStockList()]);
+    return computeBreadthSnapshot(quotes, stocks);
+  } catch (e) {
+    console.error('[breadth] 全市场行情不可用:', (e && e.message) || e);
+    return null;
+  }
+}
+
+/**
+ * GET /api/market/realtime —— 上证/深证/创业板指实时点位 + 涨跌分布。
+ *
+ * 契约对齐 backend/src/services/realMarketData.ts 的 RealMarketData：
+ *   { shanghai:{name,price,changePct}, shenzhen:{...}, chinext:{...}, breadth:{...}|null }
+ * 前端消费点：
+ *   - frontend/src/components/Market/MarketIndexPanel.tsx:44-60（按 shanghai/shenzhen/chinext 取 price+changePct）
+ *   - frontend/src/services/reviewSnapshot.ts:414-428（读 payload.shanghai.price 作基准点位）
+ *
+ * 【P0-GBK】腾讯回包是 GBK 字节流，fetchTencentQuotes 已用 TextDecoder('gbk') 解码；
+ * 解码失配时名称会是替换字符，故这里再做「名称必须含汉字」的诚实校验，
+ * 宁可降级也不让乱码带 dataSource:'real' 出街（backend/src/services/realMarketData.ts:98-105 同一修法）。
+ */
+async function handleMarketRealtime() {
+  let idx;
+  try {
+    idx = await fetchTencentQuotes(['sh000001', 'sz399001', 'sz399006']);
+  } catch (e) {
+    return unavailable(
+      { shanghai: null, shenzhen: null, chinext: null, breadth: null },
+      `真实指数源（腾讯 qt.gtimg.cn）不可达：${(e && e.message) || 'unknown'}。本端点不返回任何指数数值，请勿把 0 或空值当作行情`,
+    );
+  }
+  const byKey = {};
+  for (const q of idx || []) byKey[q.tencentSymbol] = q;
+
+  const out = {};
+  const wanted = [
+    ['shanghai', 'sh000001', '上证指数'],
+    ['shenzhen', 'sz399001', '深证成指'],
+    ['chinext', 'sz399006', '创业板指'],
+  ];
+  for (const [key, sym, label] of wanted) {
+    const q = byKey[sym];
+    if (!q || !(q.price > 0)) {
+      return unavailable(
+        { shanghai: null, shenzhen: null, chinext: null, breadth: null },
+        `腾讯行情未返回 ${label}（${sym}）的有效报价，本端点不返回任何指数数值（不以 0 冒充）`,
+      );
+    }
+    if (!/[\u4e00-\u9fa5]/.test(q.name || '')) {
+      return unavailable(
+        { shanghai: null, shenzhen: null, chinext: null, breadth: null },
+        `指数名称解码异常（${sym} 的 name 不含有效汉字，疑似 GBK 解码失配），拒绝以乱码冒充 real`,
+      );
+    }
+    // changePct 由真实 price/prevClose 派生（与后端口径一致），不是估算
+    const changePct = q.prevClose > 0
+      ? +(((q.price - q.prevClose) / q.prevClose) * 100).toFixed(2)
+      : q.changePercent;
+    out[key] = { name: q.name, price: q.price, changePct };
+  }
+
+  // 涨跌分布：可选块。取不到就是 null（与后端 MarketBreadth|null 同契约），
+  // 绝不用 0 家上涨/0 家下跌冒充。
+  const breadthSnap = await loadBreadthSnapshot();
+  const breadth = breadthSnap
+    ? {
+        up: breadthSnap.advancing,
+        down: breadthSnap.declining,
+        flat: breadthSnap.unchanged,
+        limitUp: breadthSnap.limitUp,
+        limitDown: breadthSnap.limitDown,
+        turnoverYi: +(breadthSnap.turnover / 1e8).toFixed(1),
+        upVolume: breadthSnap.upVolume,
+        downVolume: breadthSnap.downVolume,
+        volumeRatio: breadthSnap.volumeRatio,
+      }
+    : null;
+
+  return json({
+    success: true,
+    dataSource: 'real',
+    data: {
+      ...out,
+      breadth,
+      dataSource: 'real',
+      message: breadth
+        ? '三大指数为腾讯 qt.gtimg.cn 实时行情；breadth 为全市场逐标的行情聚合（腾讯源）。'
+        : '三大指数为实时行情；涨跌分布本次不可得（breadth=null），未用 0 顶替。',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
+ * GET /api/breadth/current —— 全市场涨跌家数。
+ * 前端消费点：frontend/src/services/breadthService.ts:57（apiService.get('/breadth/current')
+ * 后取 r.data），字段名逐一对齐 BreadthData（advancing/declining/unchanged/totalStocks/
+ * limitUp/limitDown/turnover/upVolume/downVolume/volumeRatio/marketSentiment/
+ * sentimentScore/dataSource/caliber/unavailableFields/newHighs/newLows）。
+ */
+async function handleBreadthCurrent() {
+  const snap = await loadBreadthSnapshot();
+  if (!snap) {
+    return unavailable(
+      { advancing: null, declining: null, unchanged: null, totalStocks: null },
+      '全市场宽度暂不可得：腾讯逐标的行情覆盖率不足（或源不可达），拒绝输出不完整市场的涨跌家数',
+    );
+  }
+  return json({
+    success: true,
+    dataSource: snap.dataSource,
+    data: { ...snap },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// ── ETF 真实目录（公开事实标识：代码/名称/类型/跟踪标的；与
+//    backend/src/services/etfDataService.ts:113 的 ETF_CATALOG 完全一致）──
+// 费率/跟踪误差/股息率/持仓数无真实源 → 一律 null（P0-LEAK C-3 的结论，勿回填目录值）
+const ETF_CATALOG = [
+  { symbol: '510300', name: '沪深300ETF', type: 'index', benchmark: '沪深300', market: '1' },
+  { symbol: '510500', name: '中证500ETF', type: 'index', benchmark: '中证500', market: '1' },
+  { symbol: '159915', name: '创业板ETF', type: 'index', benchmark: '创业板指', market: '0' },
+  { symbol: '588000', name: '科创50ETF', type: 'index', benchmark: '科创50', market: '1' },
+  { symbol: '512000', name: '券商ETF', type: 'sector', benchmark: '证券公司', market: '1' },
+  { symbol: '512880', name: '证券ETF', type: 'sector', benchmark: '证券公司', market: '1' },
+  { symbol: '515030', name: '新能源ETF', type: 'sector', benchmark: '新能源指数', market: '1' },
+  { symbol: '512760', name: '芯片ETF', type: 'sector', benchmark: '中证半导体', market: '1' },
+  { symbol: '513100', name: '纳指ETF', type: 'qdii', benchmark: '纳斯达克100', market: '1' },
+  { symbol: '513500', name: '标普500ETF', type: 'qdii', benchmark: '标普500', market: '1' },
+  { symbol: '518880', name: '黄金ETF', type: 'commodity', benchmark: 'Au99.99', market: '1' },
+  { symbol: '159934', name: '黄金ETF', type: 'commodity', benchmark: 'Au99.99', market: '0' },
+  { symbol: '511260', name: '国债ETF', type: 'bond', benchmark: '上证国债', market: '1' },
+  { symbol: '511010', name: '国债ETF', type: 'bond', benchmark: '上证5年国债', market: '1' },
+  { symbol: '515000', name: '科技ETF', type: 'theme', benchmark: '中证科技', market: '1' },
+  { symbol: '512690', name: '酒ETF', type: 'theme', benchmark: '中证酒', market: '1' },
+];
+
+/** 单只基金单位净值（东财 fundf10 lsjz，免 key）。失败返回 null（→ nav=0, premiumRate=null） */
+async function fetchFundNav(symbol) {
+  let timer = null;
+  try {
+    const ctrl = new AbortController();
+    timer = setTimeout(() => ctrl.abort(), 6000);
+    let resp;
+    try {
+      resp = await fetch(
+        `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${symbol}&pageIndex=1&pageSize=2`,
+        {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'http://fundf10.eastmoney.com/' },
+        },
+      );
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!resp.ok) return null;
+    const j = await resp.json();
+    const list = Array.isArray(j?.Data?.LSJZList) ? j.Data.LSJZList : [];
+    if (!list.length) return null;
+    const nav = Number(list[0]?.DWJZ);
+    if (!Number.isFinite(nav) || nav <= 0) return null;
+    const preRaw = Number(list[1]?.DWJZ);
+    const preNav = Number.isFinite(preRaw) && preRaw > 0 ? preRaw : nav;
+    return { nav: +nav.toFixed(4), preNav: +preNav.toFixed(4), date: String(list[0]?.FSRQ || '') };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GET /api/etf/list —— ETF 列表（行情=腾讯真实报价，净值=东财 fundf10 真实净值）。
+ *
+ * 前端消费点：frontend/src/pages/ETFPage.tsx:148-175
+ *   读 json.data.data（**嵌套两层**，与 backend sendSuccess(res,{data,...}) 一致）、
+ *   json.data.dataSource、quoteCoverage/navCoverage/premiumCoverage/notes，
+ *   并用 classifyApiResponse(200, json) 自行判别 unavailable。
+ */
+async function handleEtfList(url) {
+  const typeFilter = (url.searchParams.get('type') || '').trim();
+  const sortBy = (url.searchParams.get('sortBy') || 'totalAssets').trim();
+  const sortOrder = (url.searchParams.get('sortOrder') || 'desc').trim();
+
+  const symbols = ETF_CATALOG.map((c) => `${c.market === '1' ? 'sh' : 'sz'}${c.symbol}`);
+  let quoteMap = {};
+  let quoteError = null;
+  try {
+    const rows = await fetchTencentQuotes(symbols);
+    for (const q of rows) {
+      if (q.price > 0) quoteMap[q.symbol] = q;
+    }
+  } catch (e) {
+    quoteError = (e && e.message) || 'unknown';
+  }
+
+  if (Object.keys(quoteMap).length === 0) {
+    return unavailable(
+      { data: [], count: 0, quoteSource: 'tencent', navSource: 'eastmoney-fund' },
+      `ETF 行情源（腾讯 qt.gtimg.cn）未返回任何报价${quoteError ? `：${quoteError}` : ''}；列表价格字段不可用，不以 0 冒充`,
+    );
+  }
+
+  // 净值：16 只并发取，单只失败不影响行情展示（premiumRate 由 buildEtf 置 null）
+  const navList = await Promise.all(ETF_CATALOG.map((c) => fetchFundNav(c.symbol)));
+
+  let items = ETF_CATALOG.map((cat, i) => {
+    const q = quoteMap[cat.symbol];
+    const navEntry = navList[i];
+    const nav = navEntry ? navEntry.nav : 0;
+    return {
+      symbol: cat.symbol,
+      // 名称优先用源侧真实全称（如「沪深300ETF华泰柏瑞」），退化到静态目录简称
+      name: (q && q.name) || cat.name,
+      type: cat.type,
+      benchmark: cat.benchmark,
+      price: q ? q.price : 0,
+      nav,
+      preNav: navEntry ? navEntry.preNav : nav,
+      changePercent: q ? +Number(q.changePercent || 0).toFixed(2) : 0,
+      // 折溢价仅在「真实行情 + 真实净值」都取到时才计算，任一缺失 → null（不是 0）
+      premiumRate: q && nav > 0 ? +(((q.price - nav) / nav) * 100).toFixed(2) : null,
+      totalAssets: q ? q.marketCap ? q.marketCap * 1e8 : 0 : 0,
+      // 无真实源的四个字段一律 null + 字段级标注（P0-LEAK C-3）
+      trackingError: null,
+      dividendYield: null,
+      expenseRatio: null,
+      holdings: null,
+      fieldSources: {
+        trackingError: 'unavailable',
+        dividendYield: 'unavailable',
+        expenseRatio: 'unavailable',
+        holdings: 'unavailable',
+      },
+      volume: q ? q.volume * 100 : 0, // 腾讯成交量单位为手 → 份
+      turnover: q ? q.turnover : 0,
+    };
+  });
+
+  if (typeFilter) items = items.filter((e) => e.type === typeFilter);
+  const dir = sortOrder === 'asc' ? 1 : -1;
+  items.sort((a, b) => {
+    const av = Number(a[sortBy]);
+    const bv = Number(b[sortBy]);
+    const x = Number.isFinite(av) ? av : 0;
+    const y = Number.isFinite(bv) ? bv : 0;
+    return (y - x) * dir;
+  });
+
+  const quoted = items.filter((e) => e.price > 0).length;
+  const navd = items.filter((e) => e.nav > 0).length;
+  const premium = items.filter((e) => e.premiumRate !== null).length;
+  const notes = [];
+  if (navd < items.length) notes.push(`${items.length - navd} 只净值源无数据（nav=0，premiumRate=null）`);
+  if (quoted < items.length) notes.push(`${items.length - quoted} 只行情源无报价（price=0）`);
+
+  return json({
+    success: true,
+    dataSource: quoted > 0 ? 'real' : 'unavailable',
+    data: {
+      data: items,
+      count: items.length,
+      dataSource: quoted > 0 ? 'real' : 'unavailable',
+      quoteSource: 'tencent',
+      navSource: 'eastmoney-fund',
+      quoteCoverage: `${quoted}/${items.length}`,
+      navCoverage: `${navd}/${items.length}`,
+      premiumCoverage: `${premium}/${items.length}`,
+      ...(notes.length ? { notes: notes.join('；') } : {}),
+      message:
+        '行情=腾讯 qt.gtimg.cn 真实报价；净值=东方财富 fundf10 真实单位净值；' +
+        '折溢价率仅在行情与净值都取到时计算，否则为 null（不以 0 冒充平价）。' +
+        '费率/跟踪误差/股息率/持仓数无真实数据源，恒为 null 并已在 fieldSources 标注。',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/** 构造一张「值不可得」的宏观卡片（valueText 不可用、series 空数组，与后端 unavailableCard 一致） */
+function macroUnavailableCard(label, unit) {
+  return {
+    label,
+    unit,
+    valueText: '不可用',
+    direction: 'flat',
+    deltaText: '—',
+    series: [],
+    available: false,
+  };
+}
+
+/**
+ * GET /api/macro/overview —— 宏观仪表盘。
+ *
+ * 真实子块：core 卡片全部由 breadth/current（腾讯逐标的）+ 板块景气度（本地聚合）派生。
+ * 无真实源子块：trend24（CPI/PPI 月度，需统计局/东财宏观库）、rates（Shibor/LPR）、
+ *   calendar（数据发布日历）→ 一律空数组 + fields 标注 'unavailable'，**不给 0 值假卡片**。
+ * 历史序列 series：Worker 无盘中快照落库 → 空数组（后端对板块卡同样用空数组，
+ * 理由见 backend/src/api/macro.ts:265-268「宁可空数组，也不硬编码造一条不存在的曲线」）。
+ *
+ * 前端消费点：
+ *   - frontend/src/pages/MacroHubPage.tsx:114-131（读 data.core，按 label 取「上涨家数」「涨停家数」）
+ *   - frontend/src/pages/MacroPage.tsx:105-112（读 data.core/trend24/rates/calendar，卡片渲染 label/unit/valueText/direction/deltaText/series）
+ */
+async function handleMacroOverview() {
+  const snap = await loadBreadthSnapshot();
+  let sectors = [];
+  try {
+    sectors = await getSectorData();
+  } catch (e) {
+    sectors = [];
+  }
+  const hasBreadth = !!snap;
+  const hasSectors = Array.isArray(sectors) && sectors.length > 0;
+
+  if (!hasBreadth && !hasSectors) {
+    return unavailable(
+      { core: [], trend24: [], rates: [], calendar: [] },
+      '宏观核心指标不可得：全市场行情聚合与板块景气度同时不可用，本次不返回任何数值（不以 0 值卡片冒充）',
+    );
+  }
+
+  const breadthCards = hasBreadth
+    ? (() => {
+        const total = snap.totalStocks;
+        return [
+          {
+            label: '上涨家数',
+            unit: '只',
+            valueText: String(snap.advancing),
+            direction: snap.advancing >= snap.declining ? 'up' : 'down',
+            deltaText: total > 0 ? `${Math.round((snap.advancing / total) * 100)}%` : '—',
+            series: [],
+            available: true,
+          },
+          {
+            label: '下跌家数',
+            unit: '只',
+            valueText: String(snap.declining),
+            direction: snap.declining > snap.advancing ? 'down' : 'up',
+            deltaText: total > 0 ? `${Math.round((snap.declining / total) * 100)}%` : '—',
+            series: [],
+            available: true,
+          },
+        ];
+      })()
+    : [macroUnavailableCard('上涨家数', '只'), macroUnavailableCard('下跌家数', '只')];
+
+  const sectorCards = hasSectors
+    ? (() => {
+        const upSectorCount = sectors.filter((s) => Number(s.avg_change_percent) > 0).length;
+        const upSectorRatio = upSectorCount / sectors.length;
+        const avgChange =
+          sectors.reduce((sum, s) => sum + Number(s.avg_change_percent || 0), 0) / sectors.length;
+        // 涨停家数：优先用 breadth 的交易所涨跌停价口径（更准），无 breadth 时退回板块 limit_up_count 汇总
+        const limitUp = hasBreadth
+          ? snap.limitUp
+          : sectors.reduce((sum, s) => sum + (Number(s.limit_up_count) || 0), 0);
+        return [
+          {
+            label: '涨停家数',
+            unit: '只',
+            valueText: String(limitUp),
+            direction: limitUp > 30 ? 'up' : limitUp > 10 ? 'flat' : 'down',
+            deltaText: hasBreadth ? '交易所涨跌停价口径' : `覆盖 ${sectors.length} 个一级行业`,
+            series: [],
+            available: true,
+          },
+          {
+            label: '上涨板块占比',
+            unit: '%',
+            valueText: `${Math.round(upSectorRatio * 100)}`,
+            direction: upSectorRatio > 0.5 ? 'up' : upSectorRatio > 0.3 ? 'flat' : 'down',
+            deltaText: `${upSectorCount}/${sectors.length} 个一级行业`,
+            series: [],
+            available: true,
+          },
+          {
+            label: '板块平均涨幅',
+            unit: '%',
+            valueText: `${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}`,
+            direction: avgChange > 0.3 ? 'up' : avgChange < -0.3 ? 'down' : 'flat',
+            deltaText: `${sectors.length} 个一级行业均值`,
+            series: [],
+            available: true,
+          },
+        ];
+      })()
+    : [
+        macroUnavailableCard('涨停家数', '只'),
+        macroUnavailableCard('上涨板块占比', '%'),
+        macroUnavailableCard('板块平均涨幅', '%'),
+      ];
+
+  const turnoverCard = hasBreadth
+    ? (() => {
+        const turnover = snap.turnover;
+        return [
+          {
+            label: '全市场成交额',
+            unit: '亿元',
+            valueText:
+              turnover >= 1e12
+                ? `${(turnover / 1e12).toFixed(2)}万亿`
+                : turnover > 0
+                  ? `${(turnover / 1e8).toFixed(0)}亿`
+                  : '0',
+            direction: 'flat',
+            deltaText: '总成交',
+            series: [],
+            available: true,
+          },
+        ];
+      })()
+    : [macroUnavailableCard('全市场成交额', '亿元')];
+
+  const core = [...breadthCards, ...sectorCards, ...turnoverCard];
+  const allReal = hasBreadth && hasSectors;
+  const dataSource = allReal ? 'real' : 'partial';
+
+  return json({
+    success: true,
+    dataSource,
+    data: {
+      core,
+      // 无真实源的三块：空数组 + 字段级标注（MacroPage 空数组时渲染空图/空表，不注入演示值）
+      trend24: [],
+      rates: [],
+      calendar: [],
+      fields: {
+        core: dataSource === 'unavailable' ? 'unavailable' : dataSource,
+        coreBreadth: hasBreadth ? 'real' : 'unavailable',
+        coreSectors: hasSectors ? 'real' : 'unavailable',
+        trend24: 'unavailable',
+        rates: 'unavailable',
+        calendar: 'unavailable',
+      },
+      dataSource,
+      message:
+        'core 卡片由真实行情派生：涨跌家数/成交额来自腾讯 qt.gtimg.cn 逐标的行情聚合，' +
+        '涨停家数按交易所涨跌停价判定，板块占比与平均涨幅来自一级行业实时聚合。' +
+        'trend24（CPI/PPI 月度）、rates（Shibor/LPR）、calendar（数据发布日历）无真实源接入，' +
+        '返回空数组而非编造曲线；series 历史序列需盘中快照落库，Worker 未落库故为空数组。',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// ── 大宗交易（真实源：东财数据中心 RPT_DATA_BLOCKTRADE）──
+const BLOCK_TRADE_COLUMNS = [
+  'SECURITY_CODE', 'SECURITY_NAME_ABBR', 'TRADE_DATE', 'DEAL_PRICE', 'CLOSE_PRICE',
+  'DEAL_VOLUME', 'DEAL_AMT', 'BUYER_NAME', 'SELLER_NAME', 'PREMIUM_RATIO',
+].join(',');
+
+function mapBlockTradeRow(r) {
+  const price = numOrNull(r.DEAL_PRICE);
+  const closePrice = numOrNull(r.CLOSE_PRICE);
+  const rawPremium = numOrNull(r.PREMIUM_RATIO);
+  return {
+    symbol: String(r.SECURITY_CODE || '').trim(),
+    name: String(r.SECURITY_NAME_ABBR || '').trim(),
+    tradeDate: String(r.TRADE_DATE || '').slice(0, 10),
+    price: price === null ? 0 : price,
+    closePrice: closePrice === null ? 0 : closePrice,
+    volume: numOrNull(r.DEAL_VOLUME) || 0,
+    amount: numOrNull(r.DEAL_AMT) || 0,
+    // 上游 PREMIUM_RATIO 是无量纲小数，本接口契约 discount 为百分数 → ×100
+    discount: rawPremium === null ? 0 : Math.round(rawPremium * 10000) / 100,
+    buyer: String(r.BUYER_NAME || ''),
+    seller: String(r.SELLER_NAME || ''),
+  };
+}
+
+/**
+ * GET /api/block-trades?date=&symbol=&page=&pageSize=
+ * 前端消费点：frontend/src/pages/BlockTradesPage.tsx:176-196（apiService.get('/block-trades')
+ * 后取 res.data，读 trades/pagination/summary/dataSource/dataDateNote，并区分
+ * dataSource:'realtime'（源可达，可能 0 条）与 'unavailable'（源不可达））。
+ * 缺 date 时回退到最近一个有成交的交易日 —— 休市日按今天查必然空，会被误读成「当天零成交」。
+ */
+async function handleBlockTrades(url) {
+  const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1);
+  const pageSize = Math.min(Math.max(parseInt(url.searchParams.get('pageSize') || '20', 10) || 20, 1), 100);
+  const dateQ = (url.searchParams.get('date') || '').trim();
+  const symbolQ = (url.searchParams.get('symbol') || '').trim();
+  const code = symbolQ.replace(/\.(SH|SZ|BJ)$/i, '').replace(/^(sh|sz|bj)/i, '');
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateQ) ? dateQ : '';
+
+  let tradeDate = date;
+  if (!tradeDate) {
+    // 轻量探测：只取一列 + 倒序一页，拿到最近有记录的真实交易日
+    const probe = await emDataGet('RPT_DATA_BLOCKTRADE', {
+      columns: 'TRADE_DATE', sortColumns: 'TRADE_DATE', sortTypes: '-1', pageSize: '1',
+    });
+    const d = String(probe?.rows?.[0]?.TRADE_DATE || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      return unavailable(
+        { trades: [], pagination: { page, pageSize, total: 0, totalPages: 0 }, summary: null },
+        `大宗交易真实源不可达或未返回任何交易日：${probe?.message || '上游无数据'}；未用任何估算值/示例记录填充`,
+      );
+    }
+    tradeDate = d;
+  }
+
+  const filter = `(TRADE_DATE='${tradeDate}')${code ? `(SECURITY_CODE="${code}")` : ''}`;
+  const res = await emDataGet('RPT_DATA_BLOCKTRADE', {
+    columns: BLOCK_TRADE_COLUMNS,
+    filter,
+    sortColumns: 'TRADE_DATE',
+    sortTypes: '-1',
+    pageSize: '1000',
+    pageNumber: '1',
+  });
+
+  // code=9201「返回数据为空」= 源可达但该日无成交 → 诚实空（realtime），不是故障
+  const upstreamEmpty = res?.code === 9201 || (res?.rows && res.rows.length === 0);
+  if (res?.rows === null && !upstreamEmpty) {
+    return unavailable(
+      { trades: [], pagination: { page, pageSize, total: 0, totalPages: 0 }, summary: null },
+      `大宗交易真实源（东财 RPT_DATA_BLOCKTRADE）不可达：${res?.message || 'unknown'}；未用任何估算值填充`,
+    );
+  }
+
+  const all = upstreamEmpty ? [] : res.rows.map(mapBlockTradeRow).filter((t) => t.symbol);
+  const sorted = [...all].sort((a, b) => b.amount - a.amount);
+  const total = sorted.length;
+  const start = (page - 1) * pageSize;
+  const pageRows = sorted.slice(start, start + pageSize).map((t, i) => ({
+    ...t,
+    // 稳定 id：基于代码+日期+序号（确定性，非随机）
+    id: `${t.symbol}-${t.tradeDate}-${start + i + 1}`,
+  }));
+
+  const totalAmount = sorted.reduce((s, t) => s + t.amount, 0);
+  const totalVolume = sorted.reduce((s, t) => s + t.volume, 0);
+  const avgDiscount = sorted.length
+    ? Math.round((sorted.reduce((s, t) => s + t.discount, 0) / sorted.length) * 100) / 100
+    : 0;
+  const today = beijingToday();
+  const dataDateNote = !tradeDate
+    ? '真实源暂无可用的大宗交易记录'
+    : tradeDate === today
+      ? `数据截至 ${tradeDate}`
+      : `数据截至 ${tradeDate}（${today} 为休市日或当日无大宗交易）`;
+
+  return json({
+    success: true,
+    dataSource: 'realtime',
+    data: {
+      dataSource: 'realtime',
+      date: tradeDate,
+      dataDateNote,
+      trades: pageRows,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+      summary: {
+        totalAmount,
+        totalVolume,
+        avgDiscount,
+        premiumCount: sorted.filter((t) => t.discount > 0).length,
+        discountCount: sorted.filter((t) => t.discount < 0).length,
+        tradeCount: total,
+      },
+      message: total === 0
+        ? `${tradeDate} 东财大宗交易报表无成交记录（源可达，属正常空，不是「数据不可用」）`
+        : `东方财富数据中心 RPT_DATA_BLOCKTRADE 真实记录，共 ${total} 笔；金额单位元，折溢价为百分数。`,
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// ── 龙虎榜（真实源：东财数据中心 RPT_DAILYBILLBOARD_DETAILSNEW）──
+const LHB_DETAIL_REPORT = 'RPT_DAILYBILLBOARD_DETAILSNEW';
+const LHB_BUY_REPORT = 'RPT_BILLBOARD_DAILYDETAILSBUY';
+const LHB_SELL_REPORT = 'RPT_BILLBOARD_DAILYDETAILSSELL';
+
+/** 轻量探测：东财全表最新的一个 TRADE_DATE（休市日不会误判，1 次请求而不是逐日回溯） */
+async function probeLhbTradeDate() {
+  const res = await emDataGet(LHB_DETAIL_REPORT, {
+    columns: 'TRADE_DATE', filter: '', sortColumns: 'TRADE_DATE', sortTypes: '-1',
+    pageSize: '1', pageNumber: '1',
+  }, 'https://data.eastmoney.com/lhb/');
+  const d = String(res?.rows?.[0]?.TRADE_DATE || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+async function fetchLhbDailyDetail(date) {
+  const res = await emDataGet(LHB_DETAIL_REPORT, {
+    sortColumns: 'SECURITY_CODE', sortTypes: '1', pageSize: '500', pageNumber: '1',
+    filter: `(TRADE_DATE='${date}')`,
+  }, 'https://data.eastmoney.com/lhb/');
+  return { rows: res?.rows || null, code: res?.code ?? null, message: res?.message ?? null };
+}
+
+/**
+ * GET /api/top-traders/overview?date=
+ * 前端消费点：frontend/src/pages/TopTradersPage.tsx:46-57,122-217（读 tradeDate/totalStocks/
+ * buyDominantCount/sellDominantCount/totalNetAmount/topBuyStocks/topSellStocks/industryDistribution）。
+ * 契约对齐 backend/src/api/topTraders.ts:266-330。
+ * 诚实红线：拿不到数据时 tradeDate 给**空串**，绝不回填「请求当天」（否则休市日会被读成当天零成交）。
+ */
+async function handleTopTradersOverview(url) {
+  const dateQ = (url.searchParams.get('date') || '').trim();
+  const wantDate = /^\d{4}-\d{2}-\d{2}$/.test(dateQ) ? dateQ : '';
+  const tradeDate = wantDate || (await probeLhbTradeDate());
+  const empty = (msg) => unavailable(
+    {
+      tradeDate: '',
+      totalStocks: 0,
+      buyDominantCount: 0,
+      sellDominantCount: 0,
+      totalBuyAmount: 0,
+      totalSellAmount: 0,
+      totalNetAmount: 0,
+      topBuyStocks: [],
+      topSellStocks: [],
+      industryDistribution: {},
+      notes: msg,
+    },
+    msg,
+  );
+
+  if (!tradeDate) {
+    return empty('龙虎榜真实源（东财 RPT_DAILYBILLBOARD_DETAILSNEW）不可达或未返回任何交易日；未回填请求日、未编造任何成交额');
+  }
+
+  const { rows, message } = await fetchLhbDailyDetail(tradeDate);
+  if (!rows || rows.length === 0) {
+    return empty(
+      `${tradeDate} 龙虎榜明细无记录或上游不可达${message ? `（${message}）` : ''}；未编造任何上榜个股与成交额`,
+    );
+  }
+
+  // 同一只股票可能因不同上榜原因出现多行 → 按 SECURITY_CODE 去重聚合
+  const byCode = new Map();
+  for (const r of rows) {
+    const code = String(r?.SECURITY_CODE || '').trim();
+    if (!code) continue;
+    const cur = byCode.get(code) || {
+      symbol: code,
+      name: String(r?.SECURITY_NAME_ABBR || ''),
+      buy: 0,
+      sell: 0,
+      net: 0,
+      reason: String(r?.EXPLANATION || ''),
+    };
+    cur.buy += Number(r?.BILLBOARD_BUY_AMT) || 0;
+    cur.sell += Number(r?.BILLBOARD_SELL_AMT) || 0;
+    cur.net += Number(r?.BILLBOARD_NET_AMT) || 0;
+    byCode.set(code, cur);
+  }
+  const stocks = [...byCode.values()];
+
+  return json({
+    success: true,
+    dataSource: 'eastmoney',
+    data: {
+      tradeDate,
+      totalStocks: stocks.length,
+      buyDominantCount: stocks.filter((s) => s.net > 0).length,
+      sellDominantCount: stocks.filter((s) => s.net < 0).length,
+      totalBuyAmount: rows.reduce((s, r) => s + (Number(r?.BILLBOARD_BUY_AMT) || 0), 0),
+      totalSellAmount: rows.reduce((s, r) => s + (Number(r?.BILLBOARD_SELL_AMT) || 0), 0),
+      totalNetAmount: rows.reduce((s, r) => s + (Number(r?.BILLBOARD_NET_AMT) || 0), 0),
+      topBuyStocks: [...stocks].sort((a, b) => b.net - a.net).slice(0, 5)
+        .map((s) => ({ symbol: s.symbol, name: s.name, netAmount: s.net, reason: s.reason })),
+      topSellStocks: [...stocks].sort((a, b) => a.net - b.net).slice(0, 5)
+        .map((s) => ({ symbol: s.symbol, name: s.name, netAmount: s.net, reason: s.reason })),
+      // 上游不含行业字段 → 置空对象（前端对空对象自动隐藏行业分布卡片），绝不编造行业
+      industryDistribution: {},
+      dataSource: 'eastmoney',
+      notes: '东方财富数据中心 RPT_DAILYBILLBOARD_DETAILSNEW 真实明细；金额单位元。',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
+ * GET /api/top-traders/seat/rank?count=
+ * 前端消费点：frontend/src/pages/TopTradersPage.tsx:52（与 overview 同批 Promise.all，
+ * 缺了它整页会走「接口未挂载」分支，overview 的真实数据也用不上）。
+ * 席位买入额取 RPT_BILLBOARD_DAILYDETAILSBUY 的 BUY，卖出额取 ...SELL 的 SELL
+ * —— 两侧集合互斥，不构成重复计数（backend/src/api/topTraders.ts:200-238 同口径）。
+ */
+async function handleTopTradersSeatRank(url) {
+  const count = Math.min(Math.max(parseInt(url.searchParams.get('count') || '20', 10) || 20, 1), 100);
+  const tradeDate = await probeLhbTradeDate();
+  if (!tradeDate) {
+    return unavailable({ seatRank: [] }, '龙虎榜席位真实源不可达或未返回任何交易日；未编造任何席位与成交额');
+  }
+  const [buyRes, sellRes] = await Promise.all([
+    emDataGet(LHB_BUY_REPORT, { filter: `(TRADE_DATE='${tradeDate}')`, pageSize: '500', pageNumber: '1' }, 'https://data.eastmoney.com/lhb/'),
+    emDataGet(LHB_SELL_REPORT, { filter: `(TRADE_DATE='${tradeDate}')`, pageSize: '500', pageNumber: '1' }, 'https://data.eastmoney.com/lhb/'),
+  ]);
+  const buyRows = buyRes?.rows || [];
+  const sellRows = sellRes?.rows || [];
+  if (buyRows.length === 0 && sellRows.length === 0) {
+    return unavailable(
+      { seatRank: [], tradeDate },
+      `${tradeDate} 龙虎榜买卖席位报表无记录或上游不可达；未编造任何席位数据`,
+    );
+  }
+  const map = new Map();
+  // 上游除「营业部/机构专用」真实席位外，还混入「投资者类型」汇总行
+  // （自然人 / 其他自然人 / 机构投资者 / 中小投资者 / 沪深股通投资者，集中在同一个
+  //  TRADE_ID 下，且 BUY+SELL 同时有值）。它们是类型汇总而非席位，计入排行会让
+  // 「自然人」以百亿级买入额占据榜首 —— 那不是席位，属口径错位。故按**封闭名单**剔除，
+  // 不做其它主观过滤，并在 notes 中如实披露剔除条数。
+  const INVESTOR_TYPE_AGGREGATES = new Set([
+    '自然人', '其他自然人', '机构投资者', '中小投资者', '沪股通投资者', '深股通投资者', 'QFII',
+  ]);
+  let droppedAggregates = 0;
+  const add = (rows, side) => {
+    for (const r of rows) {
+      const name = String(r?.OPERATEDEPT_NAME || '').trim();
+      if (!name) continue;
+      if (INVESTOR_TYPE_AGGREGATES.has(name)) {
+        droppedAggregates++;
+        continue;
+      }
+      const cur = map.get(name) || {
+        name,
+        buy: 0,
+        sell: 0,
+        keys: new Set(),
+        org: String(r?.OPERATEDEPT_CODE ?? '') === '0' || name.includes('机构专用'),
+      };
+      if (side === 'buy') cur.buy += Number(r?.BUY) || 0;
+      else cur.sell += Number(r?.SELL) || 0;
+      cur.keys.add(`${String(r?.SECURITY_CODE || '')}_${String(r?.TRADE_ID || '')}`);
+      map.set(name, cur);
+    }
+  };
+  add(buyRows, 'buy');
+  add(sellRows, 'sell');
+  const seats = [...map.values()]
+    .map((v) => ({
+      seatName: v.name,
+      buyAmount: v.buy,
+      sellAmount: v.sell,
+      netAmount: v.buy - v.sell,
+      appearCount: v.keys.size,
+      isOrganizational: v.org,
+    }))
+    .sort((a, b) => b.netAmount - a.netAmount)
+    .slice(0, count);
+
+  return json({
+    success: true,
+    dataSource: 'eastmoney',
+    data: { seatRank: seats, tradeDate, dataSource: 'eastmoney' },
+    notes:
+      `东方财富 RPT_BILLBOARD_DAILYDETAILSBUY/SELL 真实席位数据（${tradeDate}）；` +
+      `已剔除 ${droppedAggregates} 条上游「投资者类型」汇总行（自然人/中小投资者/机构投资者等，非营业部席位），` +
+      '未对真实席位做任何过滤、未编造任何席位。',
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// ── 限售解禁（真实源：东财数据中心 RPT_LIFT_STAGE，原用 RPT_LCX_XFXJMX 系报表名错误）──
+const LIFT_STAGE_REPORT = 'RPT_LIFT_STAGE';
+const LIFT_HOLDER_REPORT = 'RPT_LIFT_GD';
+const WAN_UNIT = 10000;
+
+function mapLiftStageRow(r, id) {
+  const currentFree = Number(r?.CURRENT_FREE_SHARES) || 0;
+  const freeAfter = Number(r?.FREE_SHARES) || 0;
+  return {
+    id,
+    symbol: String(r?.SECURITY_CODE || '').trim(),
+    name: String(r?.SECURITY_NAME_ABBR || ''),
+    expiryDate: String(r?.FREE_DATE || '').slice(0, 10),
+    lockupType: String(r?.FREE_SHARES_TYPE || ''),
+    shareholder: '',
+    totalShares: currentFree * WAN_UNIT,
+    // FREE_SHARES 是解禁「后」的无限售流通股 → 倒推解禁前
+    circulatingBefore: (freeAfter - currentFree) * WAN_UNIT,
+    // FREE_RATIO 上游为无量纲比例（0.0123）→ 本接口契约为百分数，×100；保留 4 位小数防浮点尾数泄漏
+    unlockRatio: Math.round((Number(r?.FREE_RATIO) || 0) * 100 * 10000) / 10000,
+    marketValue: (Number(r?.LIFT_MARKET_CAP) || 0) * WAN_UNIT,
+    price: Number(r?.NEW) || 0,
+  };
+}
+
+/** 某月解禁批次 → Map(`${code}|${date}` → 股东名)。仅补 shareholder 字段，失败不影响主数据 */
+async function fetchLiftHolders(start, end) {
+  const out = new Map();
+  for (let page = 1; page <= 4; page++) {
+    const res = await emDataGet(LIFT_HOLDER_REPORT, {
+      filter: `(FREE_DATE>='${start}')(FREE_DATE<='${end}')`,
+      pageSize: '500',
+      pageNumber: String(page),
+    }, 'https://data.eastmoney.com/dxfj/', 6000);
+    const rows = res?.rows || [];
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      const code = String(r.SECURITY_CODE || '').trim();
+      const day = String(r.FREE_DATE || '').slice(0, 10);
+      const holder = String(r.LIMITED_HOLDER_NAME || '').trim();
+      if (!code || !day || !holder) continue;
+      const key = `${code}|${day}`;
+      const exist = out.get(key);
+      if (!exist) out.set(key, holder);
+      else {
+        const names = exist.replace(/ 等\d+ 户$/, '').split('、');
+        if (names.length < 3) out.set(key, `${exist}、${holder}`);
+        else out.set(key, `${names.slice(0, 3).join('、')} 等${names.length + 1} 户`);
+      }
+    }
+    if (rows.length < 500) break;
+  }
+  return out;
+}
+
+/**
+ * GET /api/lockup/calendar?year=&month=
+ * 前端消费点：frontend/src/pages/LockupCalendarPage.tsx:84-105（读 data.expiries /
+ * data.byDate / data.summary，字段名见该文件 LockupExpiry/LockupSummary）。
+ * 契约对齐 backend/src/api/lockup-shares.ts:249-305。
+ */
+async function handleLockupCalendar(url) {
+  const nowBj = new Date(Date.now() + 8 * 3600e3);
+  const rawY = parseInt(url.searchParams.get('year') || '', 10);
+  const rawM = parseInt(url.searchParams.get('month') || '', 10);
+  const year = Number.isFinite(rawY) && rawY >= 2000 && rawY <= 2100 ? rawY : nowBj.getUTCFullYear();
+  const month = Number.isFinite(rawM) && rawM >= 1 && rawM <= 12 ? rawM : nowBj.getUTCMonth() + 1;
+  const mm = String(month).padStart(2, '0');
+  const start = `${year}-${mm}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const end = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
+
+  const [holders, stageRes] = await Promise.all([
+    fetchLiftHolders(start, end).catch(() => new Map()),
+    emDataGet(LIFT_STAGE_REPORT, {
+      filter: `(FREE_DATE>='${start}')(FREE_DATE<='${end}')`,
+      sortColumns: 'FREE_DATE', sortTypes: '1', pageSize: '500', pageNumber: '1',
+    }, 'https://data.eastmoney.com/dxfj/'),
+  ]);
+
+  const stageRows = stageRes?.rows || [];
+  if (stageRows.length === 0) {
+    const upstreamEmpty = stageRes?.code === 9201;
+    return unavailable(
+      { year, month, expiries: [], byDate: {}, summary: null },
+      upstreamEmpty
+        ? `${year}-${mm} 东财解禁报表（RPT_LIFT_STAGE）无解禁记录（源可达，属正常空）`
+        : `${year}-${mm} 东财解禁报表不可达：${stageRes?.message || 'unknown'}；未用任何兜底/随机数据填充`,
+    );
+  }
+
+  const real = stageRows
+    .map((r, i) => ({ ...mapLiftStageRow(r, i + 1), shareholder: holders.get(`${String(r?.SECURITY_CODE || '').trim()}|${String(r?.FREE_DATE || '').slice(0, 10)}`) || '' }))
+    .filter((d) => d.expiryDate && d.symbol);
+
+  const byDate = {};
+  let totalMarketValue = 0;
+  let totalShares = 0;
+  for (const item of real) {
+    if (!byDate[item.expiryDate]) byDate[item.expiryDate] = [];
+    byDate[item.expiryDate].push(item);
+    totalMarketValue += item.marketValue;
+    totalShares += item.totalShares;
+  }
+
+  return json({
+    success: true,
+    dataSource: 'real',
+    data: {
+      year,
+      month,
+      expiries: real,
+      byDate,
+      summary: {
+        totalStocks: new Set(real.map((d) => d.symbol)).size,
+        totalEvents: real.length,
+        totalMarketValue,
+        totalShares,
+        avgUnlockRatio: real.length
+          ? Math.round((real.reduce((s, d) => s + d.unlockRatio, 0) / real.length) * 100) / 100
+          : 0,
+      },
+      dataSource: 'real',
+      notes:
+        '东方财富数据中心 RPT_LIFT_STAGE 真实解禁批次；股数为「股」、市值为「元」、解禁比例为百分数。' +
+        'shareholder 优先取 RPT_LIFT_GD 真实股东名，取不到时为空串（不编造）。',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// ── 北向资金（真实源：东财数据中心 RPT_MUTUAL_DEAL_HISTORY）──
+const NB_DEAL_HISTORY_REPORT = 'RPT_MUTUAL_DEAL_HISTORY';
+
+function mapNorthDealFlow(r) {
+  const rawDate = String(r?.TRADE_DATE || '');
+  const type = String(r?.MUTUAL_TYPE || '');
+  const leadCode = r?.LEAD_STOCKS_CODE ? String(r.LEAD_STOCKS_CODE) : '';
+  const leadName = r?.LEAD_STOCKS_NAME ? String(r.LEAD_STOCKS_NAME) : '';
+  const rawDealAmt = numOrNull(r?.DEAL_AMT);
+  return {
+    date: rawDate.slice(0, 10),
+    channel: type === '001' ? '沪股通' : '深股通',
+    // ⚠️【单位修正 · 实测证据】上游 DEAL_AMT 的真实单位是**百万元**，不是万元：
+    //   2026-10-30 hk2sh(沪股通) 的 DEAL_AMT=131148.57，同期东财 push2 kamt 的
+    //   buySellAmt(hk2sh)=13114856.49 万元（= 13,114,856.49 / 10,000 = 1311.49 亿元，
+    //   而 hk2sh 的 dayAmtThreshold=5,200,000 万元 = 520 亿，证明 kamt 单位确为万元）。
+    //   131148.57 × 100 = 13,114,857 万元 = 1311.49 亿元，与 kamt 逐位吻合 → DEAL_AMT 为百万元。
+    //   前端契约（NorthBoundPage.tsx:40-46）按**万元**÷10000 得亿元，故此处 ×100 换算成万元；
+    //   若原样透传会把北向单日成交额少报 100 倍（1311 亿显示成 13 亿）。
+    dealAmount: rawDealAmt === null ? null : +(rawDealAmt * 100).toFixed(2),
+    dealCount: numOrNull(r?.DEAL_NUM),
+    // ⚠️ 净买额：交易所自 2024-08-19 起停止披露，上游恒 null。
+    //   **严禁用任何字段倒算净买入**（成交额不可当净买入、买卖额不可相减冒充）
+    netDealAmount: numOrNull(r?.NET_DEAL_AMT),
+    leadStock: leadCode || leadName
+      ? { code: leadCode, name: leadName, changeRate: numOrNull(r?.LS_CHANGE_RATE) }
+      : null,
+    indexClose: numOrNull(r?.INDEX_CLOSE_PRICE),
+    indexChangeRate: numOrNull(r?.INDEX_CHANGE_RATE),
+    quotaStatus: r?.QUOTA_BALANCE_TEXT ? String(r.QUOTA_BALANCE_TEXT) : null,
+    dataSource: 'real',
+  };
+}
+
+/**
+ * GET /api/north-bound/overview?days=
+ * 前端消费点：frontend/src/pages/NorthBoundPage.tsx:165-181（读 data.dealFlows / data.byDate /
+ * data.latestTradeDate，并按 env.dataSource === 'real' 判真实态）、
+ * frontend/src/pages/MacroHubPage.tsx:140-160（同读 dealFlows/byDate）。
+ *
+ * 【口径红线】北向净买额自 2024-08-19 起官方停止披露：
+ *   只给成交额（DEAL_AMT）与成交笔数（DEAL_NUM）；netInflow* 一律 null；
+ *   flows 刻意置空（前端把 flows[].total 当「净流入」渲染，填 0 即「0 值顶替空态」）。
+ */
+async function handleNorthBoundOverview(url) {
+  const days = Math.min(Math.max(parseInt(url.searchParams.get('days') || '30', 10) || 30, 1), 250);
+  const res = await emDataGet(NB_DEAL_HISTORY_REPORT, {
+    filter: '(MUTUAL_TYPE in ("001","003"))',
+    pageSize: String(Math.min(Math.max(days, 1) * 6, 500)),
+    sortColumns: 'TRADE_DATE',
+    sortTypes: '-1',
+  }, 'https://data.eastmoney.com/hsgt/index.html');
+
+  const rows = (res?.rows || [])
+    .filter((r) => {
+      const t = String(r?.MUTUAL_TYPE || '');
+      return (t === '001' || t === '003') && String(r?.TRADE_DATE || '').slice(0, 10);
+    })
+    .map(mapNorthDealFlow);
+
+  const NET_NOTE =
+    '北向资金「净买额 / 资金流入 / 买入额 / 卖出额 / 额度余额」口径已被交易所停止披露' +
+    '（自 2024-08-19 起），故所有该类语义字段一律为 null：绝不以成交额倒算、' +
+    '不以买卖额相减、不以其它口径冒充。本接口真实可得的是沪/深股通成交额与成交笔数、' +
+    '领涨股、额度状态文本。';
+
+  if (rows.length === 0) {
+    return unavailable(
+      { flows: [], sectors: [], dealFlows: [], byDate: [], holdings: [], latestTradeDate: null },
+      `北向成交额真实源（东财 RPT_MUTUAL_DEAL_HISTORY）本次不可达或返回空数据：${res?.message || '上游无数据'}；未接入任何兜底/编造数据。${NET_NOTE}`,
+    );
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date) || a.channel.localeCompare(b.channel));
+
+  const grouped = new Map();
+  for (const r of rows) {
+    const slot = grouped.get(r.date) || { sh: null, sz: null };
+    if (r.channel === '沪股通') slot.sh = r;
+    else slot.sz = r;
+    grouped.set(r.date, slot);
+  }
+  const byDate = [...grouped.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, { sh, sz }]) => ({
+      date,
+      shDealAmount: sh ? sh.dealAmount : null,
+      szDealAmount: sz ? sz.dealAmount : null,
+      totalDealAmount: addOrNull(sh ? sh.dealAmount : null, sz ? sz.dealAmount : null),
+      shDealCount: sh ? sh.dealCount : null,
+      szDealCount: sz ? sz.dealCount : null,
+      // 净买额：上游停披露，两路皆 null；绝不用成交额倒算
+      shNetInflow: null,
+      szNetInflow: null,
+      totalNetInflow: null,
+      shIndexClose: sh ? sh.indexClose : null,
+      szIndexClose: sz ? sz.indexClose : null,
+      shQuotaStatus: sh ? sh.quotaStatus : null,
+      szQuotaStatus: sz ? sz.quotaStatus : null,
+      dataSource: 'real',
+    }));
+
+  const latestTradeDate = rows[rows.length - 1].date;
+
+  return json({
+    success: true,
+    dataSource: 'real',
+    data: {
+      // 净流入语义字段：刻意空/null，避免前端把「净流入」按 0 渲染
+      flows: [],
+      sectors: [],
+      holdings: [],
+      dealFlows: rows,
+      byDate,
+      latestTradeDate,
+      dataSource: 'real',
+    },
+    message: NET_NOTE + 'holdings 本次未提供（北向个股持仓已转季度披露口径，Worker 版未接入该报表，置空而非编造）。',
+    unitNote:
+      'dealFlows[].dealAmount 与 byDate[].*DealAmount 的单位是**万元**' +
+      '（上游 DEAL_AMT 实际为百万元，已 ×100 换算；已用同期 push2 kamt 的 buySellAmt 逐位交叉验证），' +
+      '前端 ÷10000 即得亿元。若按上游原值直出会把北向单日成交额少报 100 倍。',
+    netInflowDisclosure: {
+      disclosed: false,
+      lastDisclosedDateObserved: '2024-08-16',
+      note: '上游 RPT_MUTUAL_DEAL_HISTORY 的 NET_DEAL_AMT / FUND_INFLOW / BUY_AMT / SELL_AMT / QUOTA_BALANCE 现均为 null（资金流口径已停止披露），故 netDealAmount 恒 null。',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// ── 沪深港通（真实源：东财 push2 kamt）──
+function wanToYi(v) {
+  const n = numOrNull(v);
+  return n === null ? null : +(n / 10000).toFixed(2);
+}
+
+function sumWanToYi(a, b) {
+  const x = numOrNull(a);
+  const y = numOrNull(b);
+  if (x === null || y === null) return null;
+  return +((x + y) / 10000).toFixed(2);
+}
+
+/**
+ * 合并同向两条腿（北向: hk2sh+hk2sz；南向: sh2hk+sz2hk）。
+ * ⚠️ 上游键名与直觉相反（已用额度常量 520 亿/420 亿与权威成交额双源交叉验证，勿按字面互换）。
+ *
+ * 披露判定（字段级证据，不依赖 status）：有真实成交额但买入/卖出拆分全为 0
+ * ⇒ 该口径已停止披露，0 是「拿不到」而非「真的是 0」。
+ * 净买额还要过自校验 netBuyAmt ≈ buyAmt - sellAmt，偏差过大不予采信（返回 null）。
+ */
+function mergeConnectLegs(legs) {
+  const [a, b] = legs;
+  const dealAmount = sumWanToYi(a?.buySellAmt, b?.buySellAmt);
+  const buyIn = sumWanToYi(a?.buyAmt, b?.buyAmt);
+  const sellOut = sumWanToYi(a?.sellAmt, b?.sellAmt);
+  const threshold = sumWanToYi(a?.dayAmtThreshold, b?.dayAmtThreshold);
+  const netBuyRaw = sumWanToYi(a?.netBuyAmt, b?.netBuyAmt);
+
+  const hasTurnover = dealAmount !== null && dealAmount > 0;
+  const hasSplit = buyIn !== null && buyIn > 0 && sellOut !== null && sellOut > 0;
+  const netFlowDisclosed = hasTurnover && hasSplit;
+
+  let dayNetIn = null;
+  if (netFlowDisclosed && netBuyRaw !== null) {
+    const implied = +(buyIn - sellOut).toFixed(2);
+    if (Math.abs(netBuyRaw - implied) <= Math.max(0.05, Math.abs(implied) * 0.01)) dayNetIn = netBuyRaw;
+  }
+
+  return {
+    dayNetIn,
+    buyIn: netFlowDisclosed ? buyIn : null,
+    sellOut: netFlowDisclosed ? sellOut : null,
+    dealAmount,
+    // 额度余额：四腿 dayAmtRemain 恒 0，权威源 QUOTA_BALANCE 亦 null → 不可得
+    remain: null,
+    threshold,
+    netFlowDisclosed,
+    upstreamStatus: numOrNull(a?.status ?? b?.status),
+    date: String(a?.date2 ?? b?.date2 ?? ''),
+  };
+}
+
+/**
+ * GET /api/hk-connect/summary
+ * 前端消费点：frontend/src/pages/HKConnectPage.tsx（读 data.northbound / data.southbound 的
+ * dayNetIn/buyIn/sellOut/dealAmount/remain/threshold/netFlowDisclosed，null 一律显示「已停止披露」）。
+ * 契约对齐 backend/src/api/hkConnect.ts:292-377。
+ */
+async function handleHkConnectSummary() {
+  let json_;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    let resp;
+    try {
+      resp = await fetch(
+        'https://push2.eastmoney.com/api/qt/kamt/get?fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63&klt=101&lmt=1',
+        {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com/hsgt/index.html' },
+        },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    json_ = await resp.json();
+  } catch (e) {
+    return unavailable(
+      { data: null },
+      `沪深港通额度源不可达：${(e && e.message) || 'unknown'}；未接入任何兜底/编造数据`,
+    );
+  }
+
+  const d = json_?.data;
+  if (!d || (!d.hk2sh && !d.sh2hk && !d.hk2sz && !d.sz2hk)) {
+    return unavailable({ data: null }, '沪深港通额度源上游未返回任何数据；未接入任何兜底/编造数据');
+  }
+
+  const summary = {
+    date: String(d.hk2sh?.date2 ?? d.sh2hk?.date2 ?? ''),
+    // 北向（沪股通 + 深股通）= upstream hk2sh + hk2sz
+    northbound: mergeConnectLegs([d.hk2sh, d.hk2sz]),
+    // 南向（港股通沪 + 港股通深）= upstream sh2hk + sz2hk
+    southbound: mergeConnectLegs([d.sh2hk, d.sz2hk]),
+  };
+
+  return json({
+    success: true,
+    dataSource: 'real',
+    data: { data: summary, dataSource: 'real' },
+    message:
+      '沪深港通「买入额 / 卖出额 / 净买额 / 额度余额」中：北向（沪股通+深股通）的买入卖出拆分口径' +
+      '已被停止披露，故其净买额/买入额/卖出额一律为 null，绝不用 0 冒充、绝不以成交额倒算；' +
+      '南向（港股通沪+港股通深）该口径仍在披露，为真实值。额度余额对南北向均不可得，一律 null。' +
+      '成交额与每日额度为真实可得值。',
+    netFlowDisclosure: {
+      northboundDisclosed: summary.northbound.netFlowDisclosed,
+      southboundDisclosed: summary.southbound.netFlowDisclosed,
+      note:
+        '北向买入/卖出拆分口径自交易所停止披露后恒为 0（而成交额非 0），据此判定为「不可得」而非「真实为 0」。' +
+        '上游 status=4 并非披露标记（四腿皆为 4，但南向仍有真实值），故不依赖 status 判定。' +
+        '另：上游 dayNetAmtIn 并非净买额（南向两腿恒等于其额度阈值），真实净买额取自 netBuyAmt。',
+    },
+    quotaDisclosure: {
+      remainAvailable: false,
+      note: '额度余额（dayAmtRemain）四腿恒为 0，权威源 QUOTA_BALANCE 亦为 null，判定为不可得，故 remain 一律 null。',
+    },
+    legMapping: {
+      northbound: 'upstream hk2sh(沪股通) + hk2sz(深股通)，每日额度各 520 亿',
+      southbound: 'upstream sh2hk(港股通沪) + sz2hk(港股通深)，每日额度各 420 亿',
+      note: 'upstream 键名与直觉相反，已用额度常量与权威源成交额双源交叉验证，勿按字面互换。',
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// P2：无真实源 / 需用户态 → 直接诚实空态（不硬凑、不填 0）
+// ════════════════════════════════════════════════════════════════════════════
+
+const MARGIN_UNAVAILABLE_NOTE =
+  '融资融券真实源为东方财富数据中心的两融报表；2026-11-01 实测 RPT_MARGIN_TREND / ' +
+  'RPT_RZRQ_LSHJ / RPT_MARGIN_DAILY_SUMMARY 等报表名统一返回 code=9501「报表配置不存在」' +
+  '（即上游已无这些报表，非网络问题：同期 RPT_MUTUAL_DEAL_HISTORY 可正常返回真实数据）；' +
+  '腾讯行情侧亦无两融接口。官方口径的两融数据需从上交所/深交所官网披露文件获取，本 Worker 版未接入。' +
+  '故本端点不返回任何余额/买入额数值——不以 0、不以估算、不以融资余额倒算，' +
+  '避免把「拿不到」显示成「0 元」。';
+
+async function handleMarginOverview() {
+  return unavailable(
+    { overview: null, tradingDays: [] },
+    MARGIN_UNAVAILABLE_NOTE,
+  );
+}
+
+const EVENT_CALENDAR_NOTE =
+  '财经事件日历（宏观数据发布/议息/解禁等）需要官方发布日历或第三方日历 API，' +
+  '本 Worker 版未接入任何真实日历源；后端对应实现依赖本地经济数据库，Worker 无此库。' +
+  '本次返回空事件表而非编造事件与日期。';
+
+async function handleEventCalendar() {
+  return unavailable({ raw: [], events: [] }, EVENT_CALENDAR_NOTE);
+}
+
+const FINANCIALS_NOTE =
+  '财务三表（资产负债表/利润表/现金流量表）真实源为巨潮/东财财报接口，' +
+  '本 Worker 版未接入（无该数据源与鉴权）；为避免与已接入真实源的端点混淆，' +
+  '本端点不返回任何金额，请勿把空值当作「0 营收/0 利润」。';
+
+async function handleFinancialsSummary(url) {
+  const symbol = (url.searchParams.get('symbol') || '').trim();
+  return unavailable(
+    { symbol, summary: null },
+    `${FINANCIALS_NOTE}${symbol ? `（请求标的 ${symbol}）` : '（未指定标的）'}`,
+  );
+}
+
+const RESEARCH_NOTE =
+  '研报中心真实源为东方财富研报库（reportapi.eastmoney.com），本 Worker 版未接入该源；' +
+  '/api/news（快讯）走的是另一条真实源，与本端点无关。本次返回空研报列表而非编造研报标题/评级/目标价。';
+
+async function handleResearchReports(url) {
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 1), 100);
+  return unavailable({ items: [], count: 0, limit }, RESEARCH_NOTE);
+}
+
+const RISK_CENTER_NOTE =
+  '组合风控中心依赖「用户真实持仓 + 历史行情库」。Worker 版无用户态存储（无登录态、无持仓表），' +
+  '拿不到「这是谁的组合、持有多少股、成本多少」，故无法计算任何波动率/集中度/回撤指标。' +
+  '本次返回空持仓而非编造组合与风险指标。';
+
+async function handleRiskCenterPortfolio() {
+  return unavailable(
+    { holdings: [], metrics: null, notes: RISK_CENTER_NOTE },
+    RISK_CENTER_NOTE,
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 静态配置类端点（不是行情）→ dataSource:'static'，绝不标 real
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 策略模板 = **静态选股条件配置**，与行情无关。
+ * 目录与 backend/src/db/migrations/strategy_templates.sql 的 system 预置模板逐条一致
+ * （代码与条件 JSON 原样搬运，未新增任何数值），故 dataSource:'static'：
+ * 它是「配置存在」这一事实，不是「真实行情/真实回测结果」。
+ */
+const STRATEGY_TEMPLATE_SEED = [
+  { id: 1, name: '价值股', name_en: 'Value Stocks', description: '低PE、低PB的价值投资标的', icon: '💎', category: 'value', conditions: [{ field: 'pe_ratio', operator: 'gt', value: 0 }, { field: 'pe_ratio', operator: 'lt', value: 20 }, { field: 'pb_ratio', operator: 'gt', value: 0 }, { field: 'pb_ratio', operator: 'lt', value: 3 }], sort_by: 'pe_ratio', sort_order: 'asc' },
+  { id: 2, name: '高股息', name_en: 'High Dividend Yield', description: '分红率高、适合收息的蓝筹股', icon: '💰', category: 'income', conditions: [{ field: 'dividend_yield', operator: 'gte', value: 3 }, { field: 'market_cap', operator: 'gte', value: 10000000000 }], sort_by: 'dividend_yield', sort_order: 'desc' },
+  { id: 3, name: '低估值大盘', name_en: 'Undervalued Large Cap', description: '大盘蓝筹中估值较低的标的', icon: '🏛️', category: 'value', conditions: [{ field: 'market_cap', operator: 'gte', value: 50000000000 }, { field: 'pe_ratio', operator: 'gt', value: 0 }, { field: 'pe_ratio', operator: 'lt', value: 15 }], sort_by: 'pe_ratio', sort_order: 'asc' },
+  { id: 4, name: '成长股', name_en: 'Growth Stocks', description: '涨幅靠前、成交量活跃的成长型标的', icon: '🚀', category: 'growth', conditions: [{ field: 'change_percent', operator: 'gt', value: 2 }, { field: 'turnover_rate', operator: 'gt', value: 3 }], sort_by: 'change_percent', sort_order: 'desc' },
+  { id: 5, name: '小盘成长', name_en: 'Small Cap Growth', description: '小市值高活跃度成长股', icon: '🌱', category: 'growth', conditions: [{ field: 'circulating_market_cap', operator: 'gt', value: 2000000000 }, { field: 'circulating_market_cap', operator: 'lt', value: 20000000000 }, { field: 'turnover_rate', operator: 'gte', value: 5 }], sort_by: 'change_percent', sort_order: 'desc' },
+  { id: 6, name: '活跃股', name_en: 'Most Active', description: '高换手率、大成交额的活跃品种', icon: '🔥', category: 'momentum', conditions: [{ field: 'turnover_rate', operator: 'gt', value: 5 }, { field: 'turnover', operator: 'gt', value: 500000000 }], sort_by: 'turnover', sort_order: 'desc' },
+  { id: 7, name: '涨幅榜', name_en: 'Top Gainers', description: '当日涨幅最大的股票', icon: '📈', category: 'momentum', conditions: [{ field: 'change_percent', operator: 'gt', value: 3 }, { field: 'volume', operator: 'gt', value: 1000000 }], sort_by: 'change_percent', sort_order: 'desc' },
+  { id: 8, name: '跌幅榜', name_en: 'Top Losers', description: '当日跌幅最大的股票', icon: '📉', category: 'momentum', conditions: [{ field: 'change_percent', operator: 'lt', value: -3 }, { field: 'volume', operator: 'gt', value: 1000000 }], sort_by: 'change_percent', sort_order: 'asc' },
+  { id: 9, name: '涨停股', name_en: 'Limit Up', description: '当日涨停的股票', icon: '🔴', category: 'technical', conditions: [{ field: 'change_percent', operator: 'gte', value: 9.9 }], sort_by: 'turnover', sort_order: 'desc' },
+  { id: 10, name: '跌停股', name_en: 'Limit Down', description: '当日跌停的股票', icon: '🟢', category: 'technical', conditions: [{ field: 'change_percent', operator: 'lte', value: -9.9 }], sort_by: 'turnover', sort_order: 'desc' },
+  { id: 11, name: '放量股', name_en: 'High Volume', description: '成交量明显放大的股票', icon: '📊', category: 'technical', conditions: [{ field: 'volume', operator: 'gt', value: 10000000 }], sort_by: 'volume', sort_order: 'desc' },
+  { id: 12, name: '高振幅', name_en: 'High Volatility', description: '振幅较大的品种，适合短线交易', icon: '⚡', category: 'technical', conditions: [{ field: 'amplitude', operator: 'gte', value: 8 }, { field: 'turnover_rate', operator: 'gte', value: 3 }], sort_by: 'amplitude', sort_order: 'desc' },
+  { id: 13, name: '小盘股', name_en: 'Small Cap', description: '流通市值小于50亿的小盘股', icon: '🎯', category: 'growth', conditions: [{ field: 'circulating_market_cap', operator: 'gt', value: 0 }, { field: 'circulating_market_cap', operator: 'lt', value: 5000000000 }], sort_by: 'circulating_market_cap', sort_order: 'asc' },
+  { id: 14, name: '大盘蓝筹', name_en: 'Large Cap Blue Chip', description: '流通市值大于500亿的大盘蓝筹', icon: '🏦', category: 'value', conditions: [{ field: 'circulating_market_cap', operator: 'gt', value: 50000000000 }], sort_by: 'market_cap', sort_order: 'desc' },
+  { id: 15, name: '中盘股', name_en: 'Mid Cap', description: '流通市值50-200亿的中盘股', icon: '📦', category: 'value', conditions: [{ field: 'circulating_market_cap', operator: 'gte', value: 5000000000 }, { field: 'circulating_market_cap', operator: 'lte', value: 20000000000 }], sort_by: 'circulating_market_cap', sort_order: 'asc' },
+];
+
+/**
+ * GET /api/strategy-templates
+ * 前端消费点：frontend/src/pages/StrategyTemplatesPage.tsx:139-143（data.success 后读 data.data.templates）。
+ * dataSource:'static' —— 这是策略配置清单，不是行情，也不是回测结果。
+ */
+async function handleStrategyTemplates() {
+  const note =
+    '静态策略配置（选股条件模板目录），与 backend 的 strategy_templates 表 system 预置种子逐条一致；' +
+    '不含任何实时行情或回测结果，故 dataSource 为 static 而非 real。';
+  return json({
+    success: true,
+    dataSource: 'static',
+    data: {
+      templates: STRATEGY_TEMPLATE_SEED.map((t) => ({
+        ...t,
+        logic: 'and',
+        is_system: true,
+        usage_count: 0,
+      })),
+      count: STRATEGY_TEMPLATE_SEED.length,
+      dataSource: 'static',
+      message: note,
+    },
+    message: note,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/** 回测预置参数（与 backend/src/utils/backtestEngine.ts:617 的 STRATEGY_PRESETS 逐条一致） */
+const BACKTEST_PRESETS = [
+  { name: '双均线交叉', description: '短期均线上穿长期均线买入，下穿卖出。经典趋势跟踪策略。', type: 'ma_cross', params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 20, initialCapital: 1000000 } },
+  { name: 'RSI超买超卖', description: 'RSI低于超卖线买入，高于超买线卖出。适合震荡行情。', type: 'rsi', params: { type: 'rsi', rsiPeriod: 14, rsiOversold: 30, rsiOverbought: 70, initialCapital: 1000000 } },
+  { name: 'MACD金叉死叉', description: 'MACD指标DIF上穿DEA买入，下穿卖出。趋势确认策略。', type: 'macd', params: { type: 'macd', macdFast: 12, macdSlow: 26, macdSignal: 9, initialCapital: 1000000 } },
+  { name: '三均线系统', description: 'MA5/MA10/MA20三均线组合，多重确认信号。', type: 'ma_cross', params: { type: 'ma_cross', fastPeriod: 5, slowPeriod: 10, initialCapital: 1000000 } },
+  { name: '保守RSI', description: '更严格的RSI阈值，减少交易频率。', type: 'rsi', params: { type: 'rsi', rsiPeriod: 21, rsiOversold: 25, rsiOverbought: 75, initialCapital: 1000000 } },
+];
+
+/**
+ * GET /api/backtest/presets
+ * 前端消费点：frontend/src/services/api.ts:427-429（getBacktestPresets）。
+ * dataSource:'static' —— 内置策略参数目录，不含行情/回测产出（与 backend
+ * backtest-routes.ts:280-287 同一诚实口径，但这里用 static 而非 unavailable：
+ * 目录本身是确定存在的静态配置，"不可用"会误报成"拿不到"）。
+ */
+async function handleBacktestPresets() {
+  const note = '返回的是内置静态策略参数目录，不含任何行情或回测结果数据（dataSource:static，非 real）。';
+  return json({
+    success: true,
+    dataSource: 'static',
+    data: {
+      presets: BACKTEST_PRESETS,
+      count: BACKTEST_PRESETS.length,
+      dataSource: 'static',
+      message: note,
+    },
+    message: note,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 export default {
   // ==================== 批量技术指标 ====================
 
@@ -4765,6 +6254,64 @@ export default {
     // Market summary (DiscoverPage 依赖，缺路由会导致右侧统计全 0)
     if (path === '/api/market/summary') {
       return handleMarketSummary();
+    }
+
+    // ── 补齐线上 404 的 18 条多模块路由（P0 真实源 / P1 东财真实源 / P2 诚实空态）──
+    // 背景：线上 clair-api.pages.dev 实测这些路径全部 404 → 前端只能显示「接口请求失败」，
+    // 用户看到的是「多模块数据不可用」。全部改为：有真实源就给真实数据，
+    // 没有就 200 + dataSource:'unavailable' + 中文原因（绝不 404、绝不用 0 顶替）。
+    if (path === '/api/market/realtime') {
+      return handleMarketRealtime();
+    }
+    if (path === '/api/breadth/current') {
+      return handleBreadthCurrent();
+    }
+    if (path === '/api/etf/list') {
+      return handleEtfList(url);
+    }
+    if (path === '/api/macro/overview') {
+      return handleMacroOverview();
+    }
+    if (path === '/api/block-trades') {
+      return handleBlockTrades(url);
+    }
+    if (path === '/api/top-traders/overview') {
+      return handleTopTradersOverview(url);
+    }
+    // 龙虎榜页与 overview 同批并发请求本条，缺了它整页会走「接口未挂载」分支
+    if (path === '/api/top-traders/seat/rank') {
+      return handleTopTradersSeatRank(url);
+    }
+    if (path === '/api/lockup/calendar') {
+      return handleLockupCalendar(url);
+    }
+    if (path === '/api/north-bound/overview') {
+      return handleNorthBoundOverview(url);
+    }
+    if (path === '/api/hk-connect/summary') {
+      return handleHkConnectSummary();
+    }
+    if (path === '/api/margin/overview') {
+      return handleMarginOverview(url);
+    }
+    if (path === '/api/event-calendar/events') {
+      return handleEventCalendar(url);
+    }
+    if (path === '/api/financials/summary') {
+      return handleFinancialsSummary(url);
+    }
+    if (path === '/api/news/research/reports') {
+      return handleResearchReports(url);
+    }
+    if (path === '/api/risk-center/portfolio') {
+      return handleRiskCenterPortfolio();
+    }
+    // 静态配置类（不是行情）→ dataSource:'static'
+    if (path === '/api/strategy-templates') {
+      return handleStrategyTemplates();
+    }
+    if (path === '/api/backtest/presets') {
+      return handleBacktestPresets();
     }
 
     // 市场级路由：指数K线（并行数组契约）+ 全市场涨跌榜 + 指数技术分析
