@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/dbFactory';
 import { asyncHandler } from '../utils/apiResponse';
+import { resolveMarketQueryDate } from '../utils/tradingCalendar';
 import { chatStream, type AIMessage } from '../services/aiService';
 
 import { aiTiming } from '../middleware/aiTiming';
@@ -77,41 +78,61 @@ router.post('/ai/strategy-recommend', asyncHandler(async (req: Request, res: Res
   let marketSummary = '';
   // 诚实契约：真实行情是否成功注入 prompt（下面两段均为 best-effort，失败不静默）
   let marketDataInjected = false;
+  // 【交易日收口 · 与 R3 同口径】先解析「最近真实交易日」再查库。
+  // 旧写法 `trade_date = (SELECT MAX(trade_date) FROM daily_quotes)` 有两个缺陷：
+  //   ① 库内假期抹布行会让它指向非交易日（本项目已三次实锤此类污染）；
+  //   ② 与其余 5 个行情端点的 asOf 口径不一致，同一时刻会报不同日期。
+  // 解析失败不影响主流程：退化为「未注入真实行情」并如实标注，绝不假装有数据。
+  let asOf: string | null = null;
+  try {
+    const q = await resolveMarketQueryDate();
+    asOf = q.asOf;
+  } catch (e) {
+    console.warn('交易日解析失败，本次不注入真实行情:', e);
+  }
+
   try {
     // 获取涨跌统计
-    const stats = await db.connection('daily_quotes')
+    // ⚠️ 列必须带表前缀：stocks 表同样有 change_percent / turnover_rate 列，
+    //    不限定表名时 PG 报 `column reference "change_percent" is ambiguous`，
+    //    整段被 catch 吞掉 → marketDataInjected 恒 false → 策略推荐永远拿不到真实行情。
+    const stats = asOf === null ? null : await db.connection('daily_quotes')
       .join('stocks', 'stocks.id', 'daily_quotes.stock_id')
-      .whereRaw('daily_quotes.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)')
+      .where('daily_quotes.trade_date', asOf)
       .select(
         db.connection.raw('COUNT(*) as total'),
-        db.connection.raw('SUM(CASE WHEN change_percent > 0 THEN 1 ELSE 0 END) as up_count'),
-        db.connection.raw('SUM(CASE WHEN change_percent < 0 THEN 1 ELSE 0 END) as down_count'),
-        db.connection.raw('SUM(CASE WHEN change_percent >= 9.9 THEN 1 ELSE 0 END) as limit_up'),
-        db.connection.raw('SUM(CASE WHEN change_percent <= -9.9 THEN 1 ELSE 0 END) as limit_down'),
-        db.connection.raw('AVG(change_percent) as avg_change'),
-        db.connection.raw('AVG(turnover_rate) as avg_turnover')
+        db.connection.raw('SUM(CASE WHEN daily_quotes.change_percent > 0 THEN 1 ELSE 0 END) as up_count'),
+        db.connection.raw('SUM(CASE WHEN daily_quotes.change_percent < 0 THEN 1 ELSE 0 END) as down_count'),
+        db.connection.raw('SUM(CASE WHEN daily_quotes.change_percent >= 9.9 THEN 1 ELSE 0 END) as limit_up'),
+        db.connection.raw('SUM(CASE WHEN daily_quotes.change_percent <= -9.9 THEN 1 ELSE 0 END) as limit_down'),
+        db.connection.raw('AVG(daily_quotes.change_percent) as avg_change'),
+        db.connection.raw('AVG(daily_quotes.turnover_rate) as avg_turnover')
       )
       .first();
 
-    marketSummary = `
-当前市场概况：
-- 上涨/下跌：${stats?.up_count || 0}/${stats?.down_count || 0}
-- 涨停/跌停：${stats?.limit_up || 0}/${stats?.limit_down || 0}
-- 平均涨跌幅：${parseFloat(stats?.avg_change || '0').toFixed(2)}%
-- 平均换手率：${parseFloat(stats?.avg_turnover || '0').toFixed(2)}%
+    // 只有拿到真实聚合行才构造 prompt 段落。
+    // 旧写法在 stats 为空时用 `|| 0` 拼出「上涨/下跌 0/0」的伪市场概况，
+    // 等于把「查不到」伪装成「今天全平盘」——那是比缺数据更严重的谎报。
+    if (stats && parseInt(stats.total, 10) > 0) {
+      marketSummary = `
+当前市场概况（数据日期 ${asOf}）：
+- 上涨/下跌：${stats.up_count}/${stats.down_count}
+- 涨停/跌停：${stats.limit_up}/${stats.limit_down}
+- 平均涨跌幅：${parseFloat(stats.avg_change).toFixed(2)}%
+- 平均换手率：${parseFloat(stats.avg_turnover).toFixed(2)}%
 `;
-    // 有真实聚合行才算注入成功（stats 为 undefined 时上面会是全 0 的伪市场概况）
-    if (stats && parseInt(stats.total) > 0) marketDataInjected = true;
+      marketDataInjected = true;
+    }
   } catch (e) {
     console.warn('获取市场数据失败:', e);
   }
 
-  // 获取热门行业
+  // 获取热门行业（同样按已解析的真实交易日，不再裸取 MAX(trade_date)）
   let industrySummary = '';
   try {
-    const hotIndustries = await db.connection('daily_quotes')
+    const hotIndustries = asOf === null ? [] : await db.connection('daily_quotes')
       .join('stocks', 'stocks.id', 'daily_quotes.stock_id')
-      .whereRaw('daily_quotes.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)')
+      .where('daily_quotes.trade_date', asOf)
       .whereNotNull('stocks.industry')
       .select('stocks.industry')
       .avg('daily_quotes.change_percent as avg_change')
@@ -120,15 +141,28 @@ router.post('/ai/strategy-recommend', asyncHandler(async (req: Request, res: Res
       .orderBy('avg_change', 'desc')
       .limit(10);
 
-    industrySummary = '\n热门行业：\n' + 
-      hotIndustries.map((i: any) => 
-        `- ${i.industry}: 平均涨幅 ${parseFloat(i.avg_change).toFixed(2)}%`
-      ).join('\n');
+    // 空数组时不要拼出「热门行业：」这种只有标题没有内容的段落；
+    // avg_change 为 null（该行业当日无有效涨跌幅）时如实写「不可得」，不写 0.00。
+    const lines = hotIndustries
+      .filter((i: any) => i && i.avg_change !== null && i.avg_change !== undefined)
+      .map((i: any) => `- ${i.industry}: 平均涨幅 ${parseFloat(i.avg_change).toFixed(2)}%`);
+    if (lines.length > 0) {
+      industrySummary = `\n热门行业（数据日期 ${asOf}）：\n` + lines.join('\n');
+    }
   } catch (e) {
     console.warn('获取行业数据失败:', e);
   }
 
   // 构建Prompt
+  // 可观测性：行情是否真的注入了 prompt，必须在服务端日志里可查。
+  // 否则「AI 推荐没基于真实行情」只能靠猜（本次 SQL 歧义就是因此长期未被发现）。
+  console.info('[ai-strategy] 真实行情注入状态', {
+    asOf,
+    marketDataInjected,
+    hasMarketSummary: marketSummary.length > 0,
+    hasIndustrySummary: industrySummary.length > 0,
+  });
+
   const systemPrompt = `你是澄观，一位专业的AI投资研究助手。基于用户的配置偏好和当前市场数据，推荐合适的投资策略。
 
 用户偏好：
@@ -180,11 +214,13 @@ ${industrySummary}
         return;
       }
 
-      res.write(`data: ${JSON.stringify({ content: chunk.content, done: chunk.done, dataSource })}\n\n`);
+      // done 帧额外透出 asOf：这是「这次推荐基于哪一天的行情」的唯一真源，
+      // 缺了它前端只能默认「今天」，在回退到上一交易日时会误导用户。
+      res.write(`data: ${JSON.stringify({ content: chunk.content, done: chunk.done, dataSource, ...(chunk.done ? { asOf } : {}) })}\n\n`);
 
       if (chunk.done) {
         if (!marketDataInjected) {
-          res.write(`data: ${JSON.stringify({ content: '', done: true, dataSource, message: '本地真实行情库未取到当日市场数据，本次策略推荐未基于真实市场统计' })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: '', done: true, dataSource, asOf, message: '本地真实行情库未取到当日市场数据，本次策略推荐未基于真实市场统计' })}\n\n`);
         }
         res.write('data: [DONE]\n\n');
         res.end();
