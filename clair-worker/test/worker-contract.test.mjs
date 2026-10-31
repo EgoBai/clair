@@ -816,10 +816,12 @@ await test('5 档资金流：某档全缺失 → 该档 null，有值的档正�
 
 console.log('\n/api/fund-flow/industry 行业资金流');
 
-async function callFundFlowIndustryWithStub({ push2Body, tencentBody, limit = 20 }) {
+async function callFundFlowIndustryWithStub({ push2Body, tencentBody, boardQuoteBody = TENCENT_BOARD_QUOTE, limit = 20 }) {
   const realFetch = globalThis.fetch;
+  const requestedUrls = [];
   globalThis.fetch = async (input) => {
     const url = typeof input === 'string' ? input : input.url;
+    requestedUrls.push(url);
     if (url.includes('push2')) {
       if (push2Body === null) throw new Error('push2 unreachable (stubbed)');
       return new Response(push2Body, { status: 200 });
@@ -828,17 +830,24 @@ async function callFundFlowIndustryWithStub({ push2Body, tencentBody, limit = 20
       if (tencentBody === null) throw new Error('tencent unreachable (stubbed)');
       return new Response(tencentBody, { status: 200 });
     }
+    if (url.includes('qt.gtimg.cn')) {
+      if (boardQuoteBody === null) throw new Error('qt board quote unreachable (stubbed)');
+      return new Response(boardQuoteBody, { status: 200 });
+    }
     throw new Error(`stubbed test 不应请求该 URL: ${url}`);
   };
   try {
     const res = await worker.fetch(
       new Request(`https://clair-api.pages.dev/api/fund-flow/industry?limit=${limit}`), envStub(), {},
     );
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: await res.json(), requestedUrls };
   } finally {
     globalThis.fetch = realFetch;
   }
 }
+
+// 腾讯板块行情快照（GBK 原文形态；字段 30 = 快照时间戳 20261030150004 → 2026-10-30）
+const TENCENT_BOARD_QUOTE = 'v_pt01801080="2~X~01801080~14341.39~13945.21~~20261030150004~396.18~2.84";';
 
 // 东财 clist 行业板块：第二个行业的 f62 是 '-'（上游未给该行业资金流）
 const PUSH2_INDUSTRY_PARTIAL = JSON.stringify({
@@ -878,7 +887,7 @@ await test('industry：东财 f62 缺失 → mainNet 为 null（不是 0 元）�
 });
 
 await test('industry：东财不可达 → 腾讯板块排行真实数据（万元→元、成分股数取 zgb 分母、降序）', async () => {
-  const { status, body } = await callFundFlowIndustryWithStub({ push2Body: null, tencentBody: TENCENT_INDUSTRY_RANK });
+  const { status, body, requestedUrls } = await callFundFlowIndustryWithStub({ push2Body: null, tencentBody: TENCENT_INDUSTRY_RANK });
   assert.equal(status, 200);
   assert.equal(body.dataSource, 'tencent');
   assert.equal(body.data.dataSource, 'tencent');
@@ -893,6 +902,26 @@ await test('industry：东财不可达 → 腾讯板块排行真实数据（万�
   assert.equal(rows[2].stockCount, 8);
   assert.ok(typeof body.message === 'string' && /[\u4e00-\u9fa5]/.test(body.message),
     '降级到腾讯源必须给出中文说明（口径与单位）');
+  // 快照日期只请求一次（不是每个行业各一次）
+  const quoteCalls = requestedUrls.filter((u) => u.includes('qt.gtimg.cn'));
+  assert.equal(quoteCalls.length, 1, `板块快照只应请求 1 次，实际 ${quoteCalls.length} 次`);
+});
+
+await test('industry：asOf 取腾讯板块快照时间戳（一次请求），并写进响应', async () => {
+  const { body } = await callFundFlowIndustryWithStub({ push2Body: null, tencentBody: TENCENT_INDUSTRY_RANK });
+  assert.equal(body.data.asOf, '2026-10-30',
+    'asOf 应来自 qt.gtimg.cn 板块快照时间戳 20261030150004 → 2026-10-30');
+});
+
+await test('industry：快照日期取不到 → asOf 为 null 且 note 说明「上游未提供」（不拿自然日冒充）', async () => {
+  const { body } = await callFundFlowIndustryWithStub({
+    push2Body: null, tencentBody: TENCENT_INDUSTRY_RANK, boardQuoteBody: null,
+  });
+  assert.equal(body.data.asOf, null);
+  assert.ok(body.data.note.includes('asOf 不可得'), `note 必须说明日期不可得，实际：${body.data.note}`);
+  // 关键：不得悄悄填成今天
+  const today = new Date().toISOString().slice(0, 10);
+  assert.ok(!body.data.note.includes(today), 'note 不得出现"今天"当作数据日期');
 });
 
 await test('industry：两源皆不可达 → 200 + dataSource:unavailable + 中文明原因（不留裸空数组）', async () => {
@@ -902,15 +931,19 @@ await test('industry：两源皆不可达 → 200 + dataSource:unavailable + 中
   assert.equal(body.data.dataSource, 'unavailable', '顶层与 data 内 dataSource 必须一致');
   assert.deepEqual(body.data.industries, []);
   assert.equal(body.data.count, 0);
+  assert.equal(body.data.total, 0, '空态 total 必须为 0（不是 omit / 不是 20）');
   assert.ok(typeof body.message === 'string' && body.message.length > 10 && /[\u4e00-\u9fa5]/.test(body.message),
     `空列表必须自带中文原因，实际 message=${JSON.stringify(body.message)}`);
   assert.equal(body.data.message, body.message, 'data.message 与顶层 message 应一致（消费端两处都可能读）');
 });
 
-await test('industry：limit 生效且 count 与返回条数一致', async () => {
+await test('industry：limit 截断时 count=返回条数、total=上游可取总数，且 note 写明「前 N 条」', async () => {
   const { body } = await callFundFlowIndustryWithStub({ push2Body: null, tencentBody: TENCENT_INDUSTRY_RANK, limit: 2 });
   assert.equal(body.data.industries.length, 2);
   assert.equal(body.data.count, 2, 'count 必须与 industries 长度一致（不能报总数却只给 2 条）');
+  assert.equal(body.data.total, 3, 'total 必须是上游本次可取总数（3 条），否则 count:2 会被误读成全市场只有 2 个行业');
+  assert.ok(body.data.note.includes('前 2 条'), `note 必须写明被截断，实际：${body.data.note}`);
+  assert.ok(body.data.note.includes('不是全市场行业总数'), `note 必须排除误读，实际：${body.data.note}`);
 });
 
 // ============================================================

@@ -277,6 +277,41 @@ function parseBoardConstituentCount(raw: unknown): number | null {
 }
 
 /**
+ * 取腾讯板块行情的快照时间戳 → 'YYYY-MM-DD'（腾讯排行接口本身不带日期）。
+ *
+ * 为什么单独取一次：行业资金流必须让用户知道「这是哪天的」，尤其回退到上一交易日时。
+ * 代价控制：**只用调用方给的一个板块代码请求一次**（不是每个行业各请求一次）。
+ * 取不到一律 null（由调用方在 note 里如实说明「上游未提供数据日期」），
+ * **绝不**拿自然日/dev 机器本地时间冒充数据日期。
+ *
+ * 回包是 GBK（形如 `v_pt01801120="2~食品饮料~...~20261030150004~..."`），字段 30 为快照时间戳。
+ */
+async function fetchTencentBoardSnapshotDate(boardCode: string): Promise<string | null> {
+  if (!/^pt\d{6,}$/.test(boardCode)) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(`https://qt.gtimg.cn/q=${boardCode}`, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://gu.qq.com/' },
+    });
+    if (!resp.ok) return null;
+    // GBK 解码：只取 ASCII 数字时间戳，但必须整段解码后再匹配，避免按字节切 '~' 被 GBK 尾字节 0x7E 打断
+    const text = new TextDecoder('gbk').decode(await resp.arrayBuffer());
+    const m = text.match(/~(\d{14})~/);
+    if (!m) return null;
+    const t = m[1];
+    const date = `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6, 8)}`;
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) && Number(date.slice(0, 4)) >= 2000 ? date : null;
+  } catch (error) {
+    console.error('[fund-flow] 腾讯板块快照时间戳不可得:', error instanceof Error ? error.message : error);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * 真实源 1：东方财富 push2 行业板块排行（clist）。
  *
  * 历史缺陷（本次修复）：
@@ -350,7 +385,9 @@ async function fetchIndustryFlowEastmoney(): Promise<IndustryFlowResult | null> 
  * 腾讯该接口稳定可达，且**真实提供**主力净流入（万元）、成分股数、领涨股、板块涨跌幅。
  *
  * 口径差异如实披露：腾讯「主力」= 大单+特大单（与东财 f62 口径相近但不完全等同）；
- * 该接口不提供全单净额 → netInflow 恒 null；不返回数据日期 → asOf 恒 null。
+ * 该接口不提供全单净额 → netInflow 恒 null。
+ * 数据日期：排行接口本身不带日期，另取一次板块行情快照时间戳（qt.gtimg.cn，**只取一次**），
+ * 取不到则 asOf=null 并由路由层在 note 里说明「上游未提供数据日期」——绝不用自然日冒充。
  */
 async function fetchIndustryFlowTencent(): Promise<IndustryFlowResult | null> {
   try {
@@ -362,11 +399,16 @@ async function fetchIndustryFlowTencent(): Promise<IndustryFlowResult | null> {
     if (!Array.isArray(list) || list.length === 0) return null;
 
     const industries: IndustryFlowData[] = [];
+    /** 任取一个已返回的板块代码，用于取「整批数据」的快照日期（只请求一次） */
+    let boardCodeForDate: string | null = null;
     for (const row of list) {
       const industry = typeof row?.name === 'string' ? row.name.trim() : '';
       if (!industry) continue;
       // 只取一级行业（BK-HY-1）；字段缺失时按一级处理（上游当前只返回该层）
       if (row.stock_type && !String(row.stock_type).startsWith('BK-HY-1')) continue;
+      if (boardCodeForDate === null && typeof row.code === 'string' && row.code.trim() !== '') {
+        boardCodeForDate = row.code.trim();
+      }
 
       const wan = honestNumber(row.zljlr); // 万元
       industries.push({
@@ -390,7 +432,15 @@ async function fetchIndustryFlowTencent(): Promise<IndustryFlowResult | null> {
       return b.mainNet - a.mainNet;
     });
 
-    return { industries, dataSource: 'tencent', asOf: null };
+    // 数据日期：同源板块行情快照时间戳（一次请求，失败即 null，不阻塞行业列表）
+    const asOf = boardCodeForDate ? await fetchTencentBoardSnapshotDate(boardCodeForDate) : null;
+
+    return {
+      industries,
+      dataSource: 'tencent',
+      asOf,
+      note: '东财 push2 不可达，以下行业资金流为腾讯板块排行真实数据（主力=大单+特大单，单位已换算为元；netInflow 全单净额不可得故为 null）',
+    };
   } catch (error) {
     console.error('[fund-flow] 腾讯行业资金流不可达:', error instanceof Error ? error.message : error);
     return null;
@@ -653,29 +703,46 @@ async function fetchMarketTiers(): Promise<{
  * 诚实契约（2026-11-01）：
  *   - 三个业务量字段缺失一律 null（`|| 0` 已清除），真实 0 仍是 0；
  *   - 顶层 dataSource 与 data.dataSource 同源（旧实现只有 data.source，顶层缺 dataSource）；
- *   - 空列表必带 dataSource:'unavailable' + 中文 note，绝不返回无因由的空壳。
+ *   - 空列表必带 dataSource:'unavailable' + 中文 note，绝不返回无因由的空壳；
+ *   - `count` = 本次返回条数、`total` = 上游本次可取的行业总数，且 note 明写本次只给了前 N 条
+ *     （否则 count:20 会被读成「全市场只有 20 个行业」）；
+ *   - `asOf` 是数据所属交易日，取不到如实 null 并在 note 说明，绝不拿自然日冒充。
  */
 router.get('/fund-flow/industry', validateQuery(schemas.industryFlowQuery), async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
     const result = await fetchIndustryFlow();
+    const total = result.industries.length;
     const industries = result.industries.slice(0, limit);
+
+    // note 分三段如实拼：数据源口径 / 本次返回范围 / 数据日期是否可得。空态只保留第一段。
+    const rangeNote = total === 0
+      ? null
+      : industries.length === total
+        ? `本次返回全部 ${total} 个一级行业`
+        : `本次按主力净额降序返回前 ${industries.length} 条，上游本次可取 ${total} 个一级行业（count 不是全市场行业总数）`;
+    const asOfNote = total > 0 && result.asOf === null
+      ? '数据日期：上游未提供，asOf 不可得（不以自然日冒充）'
+      : null;
+    const note = [result.note, rangeNote, asOfNote].filter(Boolean).join('；') || undefined;
 
     res.json({
       success: true,
       data: {
         industries,
+        // count = 本次返回条数；total = 上游本次可取的行业总数（两者不等说明被 limit 截断，note 已写明）
         count: industries.length,
+        total,
         dataSource: result.dataSource,
-        // 数据所属交易日：上游给了才有（东财 f124），取不到如实 null
+        // 数据所属交易日：东财 f124 / 腾讯板块快照时间戳；取不到如实 null
         asOf: result.asOf,
         // 兼容既有消费点：data.source 保留，语义与 dataSource 一致
         source: result.dataSource,
         updateTime: new Date().toISOString(),
-        note: result.note,
+        note,
       },
       dataSource: result.dataSource,
-      notes: { industry: result.note },
+      notes: { industry: note },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

@@ -76,13 +76,30 @@ const TENCENT_RANK_BODY = JSON.stringify({
 });
 
 const realFetch = globalThis.fetch;
+/** 腾讯板块行情快照（GBK 原文形态；字段含 14 位快照时间戳 → 2026-10-30） */
+const TENCENT_BOARD_QUOTE = 'v_pt01801080="2~X~01801080~14341.39~13945.21~~20261030150004~396.18~2.84";';
 let fetchStub: ((url: string) => Response) | null = null;
+let requestedUrls: string[] = [];
+
+/** 默认桩：腾讯排行 + 腾讯板块快照都可用；`boardQuote` 传 null 表示快照不可得 */
+function stubTencent({ boardQuote = TENCENT_BOARD_QUOTE as string | null } = {}) {
+  fetchStub = (url) => {
+    if (url.includes('proxy.finance.qq.com')) return new Response(TENCENT_RANK_BODY, { status: 200 });
+    if (url.includes('qt.gtimg.cn')) {
+      if (boardQuote === null) throw new Error('qt board quote unreachable (stubbed)');
+      return new Response(boardQuote, { status: 200 });
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
   fetchStub = null;
+  requestedUrls = [];
   globalThis.fetch = (async (input: unknown) => {
     const url = typeof input === 'string' ? input : String((input as { url?: string })?.url ?? '');
+    requestedUrls.push(url);
     if (!fetchStub) throw new Error(`测试未准备该请求的桩：${url}`);
     return fetchStub(url);
   }) as typeof fetch;
@@ -94,10 +111,7 @@ afterEach(() => {
 
 describe('/api/fund-flow/industry · 钉子①：缺失 → null，真实 0 → 0', () => {
   beforeEach(() => {
-    fetchStub = (url) => {
-      if (url.includes('proxy.finance.qq.com')) return new Response(TENCENT_RANK_BODY, { status: 200 });
-      throw new Error(`unexpected url: ${url}`);
-    };
+    stubTencent();
   });
 
   it('上游没给 zljlr 的行业 → mainNet 为 null（不是 0 元）', async () => {
@@ -145,7 +159,7 @@ describe('/api/fund-flow/industry · 钉子①：缺失 → null，真实 0 → 
 
 describe('/api/fund-flow/industry · 钉子②：数据源两级一致 + 空态必带原因', () => {
   it('降级到腾讯源：顶层与 data 内 dataSource 同源，且给出中文口径说明', async () => {
-    fetchStub = () => new Response(TENCENT_RANK_BODY, { status: 200 });
+    stubTencent();
     const res = await getIndustry('?limit=10');
 
     expect(res.body.dataSource).toBe('tencent');
@@ -155,6 +169,38 @@ describe('/api/fund-flow/industry · 钉子②：数据源两级一致 + 空态�
     expect(res.body.data.note).toContain('腾讯');
   });
 
+  it('asOf 取腾讯板块快照时间戳（一次请求），写进响应而不是留 null', async () => {
+    stubTencent();
+    const res = await getIndustry('?limit=10');
+
+    expect(res.body.data.asOf).toBe('2026-10-30');
+    // 只请求一次快照（不是每个行业各一次）
+    expect(requestedUrls.filter((u) => u.includes('qt.gtimg.cn')).length).toBe(1);
+    // 有真实日期时 note 不得再出现"日期不可得"的说法
+    expect(res.body.data.note).not.toContain('asOf 不可得');
+  });
+
+  it('快照日期取不到 → asOf 为 null 且在 note 说明（不拿自然日冒充）', async () => {
+    stubTencent({ boardQuote: null });
+    const res = await getIndustry('?limit=10');
+
+    expect(res.body.data.asOf).toBeNull();
+    expect(res.body.data.note).toContain('asOf 不可得');
+    const today = new Date().toISOString().slice(0, 10);
+    expect(res.body.data.note).not.toContain(today);
+  });
+
+  it('limit 截断时 count=返回条数、total=上游可取总数，note 写明「前 N 条」且排除误读', async () => {
+    stubTencent();
+    const res = await getIndustry('?limit=2');
+
+    expect(res.body.data.industries.length).toBe(2);
+    expect(res.body.data.count).toBe(2);
+    expect(res.body.data.total).toBe(4);
+    expect(res.body.data.note).toContain('前 2 条');
+    expect(res.body.data.note).toContain('不是全市场行业总数');
+  });
+
   it('两源皆不可达 → 200 + dataSource:unavailable + 中文 note（不留无声空列表）', async () => {
     fetchStub = () => { throw new Error('blocked'); };
     const res = await getIndustry('?limit=10');
@@ -162,6 +208,7 @@ describe('/api/fund-flow/industry · 钉子②：数据源两级一致 + 空态�
     expect(res.status).toBe(200);
     expect(res.body.data.industries).toEqual([]);
     expect(res.body.data.count).toBe(0);
+    expect(res.body.data.total).toBe(0);
     expect(res.body.dataSource).toBe('unavailable');
     expect(res.body.data.dataSource).toBe('unavailable');
     // 旧实现只有 data.source + note，顶层没有 dataSource；空列表读 dataSource 拿到 undefined

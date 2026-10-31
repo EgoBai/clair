@@ -36,7 +36,10 @@ export interface GlobalIndicator { key: string; label: string; unit: string; lat
 export interface StockFundFlowResp { current: FundFlowData | null; history: FundFlowData[]; dataSource: FundFlowProviderName; }
 export interface IndustryFlowResp {
   industries: IndustryFlowData[];
+  /** 本次返回条数（可能被 limit 截断） */
   count: number;
+  /** 上游本次可取的行业总数：与 count 不等说明被截断（旧实现没有此字段，count 会被误读成"全市场行业数"） */
+  total?: number;
   updateTime: string;
   /** 本块数据真实来源（后端顶层与 data 内同源） */
   dataSource?: 'eastmoney' | 'tencent' | 'unavailable';
