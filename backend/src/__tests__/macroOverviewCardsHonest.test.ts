@@ -113,18 +113,21 @@ const dayNumStr = (n: number): string => {
   return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`;
 };
 
-/** Date → 该时刻所在本地日历日的 YYYY-MM-DD（等价于生产侧 formatLocalDate） */
+/** Date → 该时刻所在本地日历日的 YYYY-MM-DD（等价于 DB 层 knex 按本地分量渲染 trade_date） */
 const localDayStr = (x: Date): string => dayNumStr(localDayNum(x));
 
 /**
- * 生产代码的锚点：macro.ts 用 `${anchorDate}T00:00:00Z` 构造（UTC 零点），
- * 随后 buildRealSeries 又 `setHours(0,0,0,0)` 归零到**本地**午夜。
- * 在 UTC 以西的时区（如 America/New_York）这会把日历日退回一天，
- * 因此「锚点是哪一天」必须以进程本地日历为准，不能假定它等于 FIXED_ANCHOR。
- * 这样期望值在 UTC / +08:00 / -04:00 下都自洽，且不靠放宽断言。
+ * 锚点日序号：由 FIXED_ANCHOR 字符串本身（纯日历算术）得出，不经过任何 Date 折算。
+ *
+ * P0-MACROTZ 之后，生产代码用「锚点日历日的本地零点」（macro.ts localMidnight）
+ * 作为查库键，因此 DB 键的本地日历日恒等于 FIXED_ANCHOR —— 期望值可以在任何时区
+ * 都写成同一个常量。若生产回退成 UTC 零点键，负偏移时区下 mock 看到的本地日历日
+ * 会退一天，下面的断言会立刻变红（Europe/UTC 以东则两种构造本就是同一时刻）。
  */
-const ANCHOR_INSTANT = new Date(`${FIXED_ANCHOR}T00:00:00Z`);
-const ANCHOR_DAY = localDayNum(ANCHOR_INSTANT);
+const ANCHOR_DAY = (() => {
+  const [y, m, d] = FIXED_ANCHOR.split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86_400_000);
+})();
 
 /** 6 张卡片的标签顺序是稳定契约，前端按索引渲染 */
 const LABELS = ['上涨家数', '下跌家数', '涨停家数', '上涨板块占比', '板块平均涨幅', '全市场成交额'];
@@ -229,9 +232,10 @@ describe('P0-MACROCARDS · /api/macro/overview：dataSource 必须由「卡片�
       summaryCalls.length = 0;
       dbMock.getMarketSummary.mockImplementation(async (d: Date) => {
         summaryCalls.push(d);
-        // 回溯天数 = 固定锚点的日历日序号 − 被查日期的日历日序号。
+        // 回溯天数 = 锚点日序号 − 入参所在本地日历日的序号。
         // 全程只用日历日算术：既不读墙钟（new Date() 曾经让 CI 在 18:30Z 后翻车），
-        // 也不假定锚点日等于 FIXED_ANCHOR（UTC 以西进程会把它归零到前一天）。
+        // 也按生产代码的真实键口径（锚点本地零点）解析 —— DB 键正是靠本地分量
+        // 命中 `trade_date`，故这里用本地日历日而非 UTC 日历日。
         const back = ANCHOR_DAY - localDayNum(d);
         // 未来日 / 超过 3 个自然日的历史 → 无行情（周六不可能有数据，不得编造）
         if (back < 0 || back > 2) return null;

@@ -18,7 +18,7 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import { getMacroCpiPpi, MacroUnavailableError } from '../services/macroDataService';
-import { resolveQueryDate, today as calendarToday } from '../utils/tradingCalendar';
+import { resolveQueryDate, today as calendarToday, addDays } from '../utils/tradingCalendar';
 
 const router = Router();
 
@@ -101,23 +101,40 @@ function unavailableCard(label: string, unit: string): CoreCard {
 }
 
 /**
- * 按**本地时区**格式化为 YYYY-MM-DD。
- *不能用 toISOString()——本地午夜在 UTC+8 下会被折算成前一天，
- * 导致 historyDates 与真实交易日错位一天（实测 10-09 被标成 10-08）。
+ * 把 `YYYY-MM-DD` 解析为该日历日在**进程本地**时区的零点。
+ *
+ * 为什么必须是本地零点（P0-MACROTZ）：
+ *   knex 传 Date 参数时按**本地**分量渲染成 `'YYYY-MM-DD HH:mm:ss.SSS'`，
+ *   PG 再按 `trade_date`（date 列）解析 —— 「查到哪一天」取决于进程时区的
+ *   本地日历日，而不是 Date 的 UTC 日期：
+ *     new Date('2026-06-10T00:00:00Z')（UTC 零点）在 America/New_York 下渲染成
+ *       '2026-06-09 20:00:00' → 命中 trade_date = 06-09，**错位一天**；
+ *     本地零点 new Date(2026, 5, 10) 在全部时区都渲染成
+ *       '2026-06-10 00:00:00' → 稳定命中 06-10。
+ *   实测（daily_quotes where trade_date = ?，UTC/+08/+14 两种构造命中同一批 5196 行，
+ *   NY/Honolulu 下 UTC 零点键命中另一批 5199 行）。
+ *   UTC/+08 下本地零点与 UTC 零点本就是**同一个时刻**，因此与
+ *   resolveMarketQueryDate().date 的口径在 CI(UTC) 与生产(+08:00) 完全一致，
+ *   不改动既有 `trade_date = ?` 匹配语义；仅在负偏移时区把错位纠正回来。
  */
-function formatLocalDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function localMidnight(day: string): Date {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
 }
 
 /**
  * 回溯最近 N 个真实交易日的市场汇总，得到真实 sparkline 序列。
  * 逐日调用 getMarketSummary（无行情日返回 null，直接跳过），
  * **不再伪造 `[v-200, v-100, v-50, v]` 之类的斜坡**。
+ *
+ * 入参是**锚点的日历日字符串**（原先是 Date）。日期加减走 addDays 的纯日历算术、
+ * 序列标签直接取字符串，全程不经 Date 的本地/UTC 折算：
+ * 原实现用 `setHours(0,0,0,0)` 把 UTC 零点锚点归零到本地午夜，负偏移时区
+ * 会整体回退一天（实测 America/New_York 得到 06-09/06-08/06-07 而非 06-10/09/08）。
  */
 async function buildRealSeries(
   db: any,
-  today: Date,
+  anchorDay: string,
   picker: (s: any) => number | null,
   maxPoints = 4,
 ): Promise<{ values: number[]; dates: string[] }> {
@@ -125,12 +142,10 @@ async function buildRealSeries(
   const dates: string[] = [];
   // 最多回溯 10 个自然日，覆盖长假；命中 maxPoints 个真实交易日即停
   for (let back = 0; back < 10 && values.length < maxPoints; back++) {
-    const d = new Date(today);
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - back);
+    const day = addDays(anchorDay, -back);
     let summary: any;
     try {
-      summary = await db.getMarketSummary(d);
+      summary = await db.getMarketSummary(localMidnight(day));
     } catch {
       continue; // 该日不可查 → 跳过，不中断，也不编造
     }
@@ -138,7 +153,7 @@ async function buildRealSeries(
     const v = picker(summary);
     if (v === null || !Number.isFinite(v)) continue;
     values.unshift(v);
-    dates.unshift(formatLocalDate(d));
+    dates.unshift(day); // 标签就是被查询的那一天，不经 Date 折算
   }
   return { values, dates };
 }
@@ -153,8 +168,8 @@ async function buildCoreCards(db: any): Promise<CoreCardsResult> {
   // 锚点保持今天：查不到就走既有的诚实 unavailable 卡片，绝不假装知道数据在哪天。
   const q = await resolveQueryDate();
   const anchorDate = q.dataAvailable === null ? calendarToday() : q.date;
-  const anchor = new Date(`${anchorDate}T00:00:00Z`);
-  const summary = await db.getMarketSummary(anchor);
+  // 查询键：锚点日历日的本地零点（见 localMidnight 注释）——负偏移时区不再漂到前一天
+  const summary = await db.getMarketSummary(localMidnight(anchorDate));
   const sectors = (await db.getSectorMomentumScore()) || [];
 
   // ---- 可用性判据：值是否真实，而不是数组是否非空 ----
@@ -169,13 +184,13 @@ async function buildCoreCards(db: any): Promise<CoreCardsResult> {
 
   // 真实历史序列（仅在对应维度可得时才回溯，避免无谓查询）
   const risingSeries = hasBreadth
-    ? await buildRealSeries(db, anchor, (s) => Number(s.risingStocks))
+    ? await buildRealSeries(db, anchorDate, (s) => Number(s.risingStocks))
     : { values: [], dates: [] };
   const fallingSeries = hasBreadth
-    ? await buildRealSeries(db, anchor, (s) => Number(s.fallingStocks))
+    ? await buildRealSeries(db, anchorDate, (s) => Number(s.fallingStocks))
     : { values: [], dates: [] };
   const turnoverSeries = hasBreadth
-    ? await buildRealSeries(db, anchor, (s) => {
+    ? await buildRealSeries(db, anchorDate, (s) => {
         const t = Number(s.totalTurnover);
         return Number.isFinite(t) ? t / 1e8 : null; // 亿元
       })
