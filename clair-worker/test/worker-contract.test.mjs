@@ -578,6 +578,58 @@ await test('hk-connect/summary：北向拆分口径停披露 → buyIn/sellOut/d
   }
 });
 
+await test('market/summary：与 breadth/current 共用同一份聚合（只数/成交额/涨跌家数三者必须相等）', async () => {
+  const s = (await callWorker('https://clair-api.pages.dev/api/market/summary')).body;
+  const b = (await callWorker('https://clair-api.pages.dev/api/breadth/current')).body;
+  assert.equal(s.dataSource, 'real', '有真实行情时顶层 dataSource 应为 real');
+  assert.equal(s.data.dataSource, s.dataSource, '顶层与 data 内两处 dataSource 必须同源');
+  assert.equal(s.data.totalStocks, b.data.totalStocks,
+    `两个端点的全市场只数必须相等（同一批行情只聚合一次），summary=${s.data.totalStocks} breadth=${b.data.totalStocks}`);
+  assert.equal(s.data.totalTurnover, b.data.turnover,
+    `两个端点的全市场成交额必须相等，summary=${s.data.totalTurnover} breadth=${b.data.turnover}`);
+  assert.equal(s.data.risingStocks, b.data.advancing);
+  assert.equal(s.data.fallingStocks, b.data.declining);
+  assert.equal(s.data.unchangedStocks, b.data.unchanged);
+  assert.equal(s.data.limitUpCount, b.data.limitUp);
+  assert.equal(s.data.limitDownCount, b.data.limitDown);
+  // 成交额单位＝元（若是万元量级会小 1e4，若是亿元会大 1e8）：A 股日成交 1000 亿~5 万亿
+  assert.ok(s.data.totalTurnover > 1e11 && s.data.totalTurnover < 5e12,
+    `成交额应为「元」量级（1e11~5e12），实际 ${s.data.totalTurnover}`);
+});
+
+await test('market/summary：不再把指数快照行算进家数（totalStocks 不得超过清单标的数）', async () => {
+  const s = (await callWorker('https://clair-api.pages.dev/api/market/summary')).body;
+  const b = (await callWorker('https://clair-api.pages.dev/api/breadth/current')).body;
+  // 指数污染时 totalStocks 会变成 清单数+9（实测 5550 vs 5541）→ 这条能精确抓住回归
+  assert.ok(s.data.totalStocks <= b.data.requestedSymbols,
+    `summary.totalStocks(${s.data.totalStocks}) 不应超过清单标的数(${b.data.requestedSymbols})——超过说明指数行又串进来了`);
+  // 成交额若混入 9 条指数行（其成交额本身是成份股合计）会放大约 3 倍
+  assert.ok(s.data.totalTurnover < 4e12,
+    `成交额 ${s.data.totalTurnover} 明显超出 A 股单日可解释范围，疑似指数行重复计入`);
+});
+
+await test('market/summary：date 为真实数据交易日（YYYY-MM-DD）而不是请求时刻', async () => {
+  const s = (await callWorker('https://clair-api.pages.dev/api/market/summary')).body;
+  assert.match(s.data.date, /^\d{4}-\d{2}-\d{2}$/, `date 应为交易日日期，实际 ${s.data.date}`);
+  assert.equal(s.data.date, s.data.asOf, 'date 与 asOf 应同源（同一交易日）');
+  assert.equal(typeof s.data.asOfIsFallback, 'boolean');
+  assert.ok(!/T\d{2}:\d{2}:\d{2}/.test(s.data.date), 'date 不得是 ISO 时刻（那是请求时刻，不是数据日期）');
+});
+
+await test('north-bound/overview：有真实成交额 → dataSource 至少 partial，且净买额仍恒 null', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/north-bound/overview?days=10');
+  assert.ok(['real', 'partial'].includes(body.dataSource),
+    `有成交额却整体标 unavailable 会让前端整页判不可用，实际 ${body.dataSource}`);
+  const flows = body.data.dealFlows;
+  assert.ok(flows.length > 0, '应有真实成交额行');
+  const withAmount = flows.filter((r) => r.dealAmount !== null).length;
+  assert.equal(body.data.dealAmountCoverage, `${withAmount}/${flows.length}`,
+    'dealAmountCoverage 应如实披露有值行数');
+  if (withAmount > 0) assert.equal(body.dataSource, 'real');
+  for (const r of flows) assert.equal(r.netDealAmount, null, '净买额恒 null（停披露，严禁倒算）');
+  assert.equal(body.netInflowDisclosed, false);
+});
+
 await test('静态配置：strategy-templates 15 条与 presets 5 条，且绝不标 real', async () => {
   const t = await callWorker('https://clair-api.pages.dev/api/strategy-templates');
   assert.equal(t.body.dataSource, 'static');

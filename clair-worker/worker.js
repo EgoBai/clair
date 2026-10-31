@@ -1519,35 +1519,73 @@ async function handleMarketInsight() {
 }
 
 // 市场总览（DiscoverPage 依赖 /api/market/summary）
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// 【P0-SUMMARY-POLLUTION 修复】此前本端点自己遍历 getAl Quotes 聚合，把 9 条
+// **指数快照行**（sh000001/sz399001/sz399006/...）当成个股计入：
+//   · 指数行的纯代码与个股撞号（sh000001 与 平安银行 000001）
+//   · 指数行的「成交额」本身就是其成份股的合计，加进来等于把同一个市场的成交额
+//     又算了一遍 → 首页展示的市场总成交额虚高约 3 倍
+//     实测 2026-11-01：本端点 5,070,010,204,300（5.07 万亿）vs 真实 1,646,187,450,000（1.65 万亿）
+//   · 家数同样偏大：5550 vs 5539（多出 9 条指数 + 2 只无报价标的）
+//
+// 修法：不再自己聚合，改为与 /api/breadth/current 共用同一份聚合结果
+// （loadBreadthSnapshot → 同一批行情只聚合一次），两个端点在同一次聚合下不可能
+// 给出两套数字。同时补顶层 dataSource（项目诚实契约）与 asOf/asOfIsFallback。
+//
+// 为什么 totalTurnover/totalStocks 缺失时整端点降级而不是「给 null 继续返回」：
+// 前端 MarketSentiment.tsx:173 是 `(totalTurnover / 1e12).toFixed(2)`，
+// null 会被 JS 隐式转成 0 → 渲染「0.00 万亿」这种假事实。与其让首页显示假 0，
+// 不如整块降级成「市场总览暂不可用」（DiscoverPage 对 marketSummary 为 null 时
+// 已有诚实空态分支）。
+// ═══════════════════════════════════════════════════════════════════════════
 async function handleMarketSummary() {
   try {
-    const { quotes } = await getAllQuotes();
-    const allQuotes = quotes.filter(q => q && q.changePercent !== undefined && isFinite(q.changePercent));
-    const risingStocks = allQuotes.filter(q => q.changePercent > 0).length;
-    const fallingStocks = allQuotes.filter(q => q.changePercent < 0).length;
-    const totalStocks = allQuotes.length;
-    const totalTurnover = allQuotes.reduce((s, q) => s + (q.turnover || 0), 0);
-    const limitUpCount = allQuotes.filter(q => q.changePercent >= 9.9).length;
-    const limitDownCount = allQuotes.filter(q => q.changePercent <= -9.9).length;
-    const avgChangePercent = allQuotes.length
-      ? Math.round(allQuotes.reduce((s, q) => s + q.changePercent, 0) / allQuotes.length * 100) / 100
-      : null;
+    const snap = await loadBreadthSnapshot();
+    if (!snap) {
+      return unavailable(
+        { maxDate: null, totalStocks: null, risingStocks: null, fallingStocks: null, unchangedStocks: null },
+        '市场总览暂不可得：全市场逐标的行情覆盖率不足或源不可达，本次不返回任何家数/成交额数值（不以 0 冒充）',
+      );
+    }
+    if (snap.turnover === null || snap.totalStocks === null) {
+      return unavailable(
+        { totalStocks: null, risingStocks: null, fallingStocks: null, totalTurnover: null },
+        '市场总览暂不可得：行情快照未提供成交额或家数字段，本次不返回数值（前端会把 null 隐式转成 0，故整块降级）',
+      );
+    }
+    const asOf = snap.tradeDate || null;
+    const today = beijingToday();
     return json({
       success: true,
+      dataSource: 'real',
       data: {
-        date: new Date().toISOString(),
-        totalStocks,
-        risingStocks,
-        fallingStocks,
-        unchangedStocks: Math.max(totalStocks - risingStocks - fallingStocks, 0),
-        limitUpCount,
-        limitDownCount,
-        totalTurnover,
-        avgChangePercent,
+        // date 保持字符串字段（前端类型为 string），但内容改为**真实数据交易日**，
+        // 不再是 new Date().toISOString()（那是「请求时刻」而非「数据日期」）
+        date: asOf || '',
+        asOf,
+        asOfIsFallback: asOf ? asOf !== today : false,
+        totalStocks: snap.totalStocks,
+        risingStocks: snap.advancing,
+        fallingStocks: snap.declining,
+        unchangedStocks: snap.unchanged,
+        limitUpCount: snap.limitUp,
+        limitDownCount: snap.limitDown,
+        totalTurnover: snap.turnover,
+        avgChangePercent: snap.avgChangePercent,
+        // 与 /api/breadth/current 同一口径，便于调用方核对「两个端点必须一致」
+        quotedSymbols: snap.quotedSymbols,
+        requestedSymbols: snap.requestedSymbols,
+        dataSource: 'real',
+        message:
+          `全市场 ${snap.totalStocks} 只有报价标的的聚合（已剔除 ${INDEX_SYMBOLS.length} 条指数快照行与 ` +
+          `${snap.uncoveredSymbols} 只无报价标的）；成交额单位=元；涨跌停按交易所涨跌停价判定。` +
+          '与 /api/breadth/current 共用同一份聚合结果。',
       },
+      timestamp: new Date().toISOString(),
     });
   } catch (e) {
-    return error(e.message);
+    return unavailable({ totalStocks: null }, `市场总览聚合失败：${e.message}`);
   }
 }
 
@@ -4938,18 +4976,23 @@ function computeBreadthSnapshot(quotes, stocks) {
   let unchanged = 0;
   let limitUp = 0;
   let limitDown = 0;
-  let upVolume = 0;
-  let downVolume = 0;
-  let turnover = 0;
+  let changeSum = 0;
+  // 成交额/上涨成交额/下跌成交额：逐字段三态累计（缺失不计入，全缺失 → null，真实 0 → 0）
+  // 绝不用 `+= q.turnover || 0`：那会把「上游没给成交额」写成「成交额 0 元」。
+  const turnoverAcc = createHonestSum();
+  const upVolumeAcc = createHonestSum();
+  const downVolumeAcc = createHonestSum();
 
   for (const q of rows) {
     const chg = q.changePercent;
+    changeSum += Number(chg) || 0;
+    const known = q.turnoverKnown !== false;
     if (chg > 0) {
       advancing++;
-      upVolume += q.turnover || 0;
+      if (known) addHonest(upVolumeAcc, q.turnover);
     } else if (chg < 0) {
       declining++;
-      downVolume += q.turnover || 0;
+      if (known) addHonest(downVolumeAcc, q.turnover);
     } else {
       unchanged++;
     }
@@ -4957,17 +5000,36 @@ function computeBreadthSnapshot(quotes, stocks) {
     // 因此天然包含科创板/创业板 ±20%、ST ±5%、北交所 ±30% 等全部真实制度。
     if (q.limitUpPrice > 0 && q.price >= q.limitUpPrice - 0.005) limitUp++;
     if (q.limitDownPrice > 0 && q.price <= q.limitDownPrice + 0.005) limitDown++;
-    turnover += q.turnover || 0;
+    if (known) addHonest(turnoverAcc, q.turnover);
   }
 
   const totalStocks = advancing + declining + unchanged;
+  const upVolume = readHonestSum(upVolumeAcc);
+  const downVolume = readHonestSum(downVolumeAcc);
+  const turnover = readHonestSum(turnoverAcc);
   const advanceDeclineRatio = declining > 0 ? +(advancing / declining).toFixed(2) : advancing > 0 ? 999 : 0;
-  const volumeRatio = downVolume > 0 ? +(upVolume / downVolume).toFixed(3) : upVolume > 0 ? 999 : 0;
+  // 量能比只在两侧都可得时才有意义：任一侧缺失 → null（不是 0、不是 999）
+  const volumeRatio = upVolume === null || downVolume === null
+    ? null
+    : downVolume > 0
+      ? +(upVolume / downVolume).toFixed(3)
+      : upVolume > 0 ? 999 : 0;
   const ratioScore = Math.min(Math.max((advanceDeclineRatio - 1) * 30, -50), 50);
-  const volumeScore = volumeRatio ? Math.min(Math.max((volumeRatio - 1) * 20, -30), 30) : 0;
+  const volumeScore = volumeRatio === null || volumeRatio === 0
+    ? 0
+    : Math.min(Math.max((volumeRatio - 1) * 20, -30), 30);
   const sentimentScore = Math.max(-100, Math.min(100, Math.round(ratioScore + volumeScore)));
   const marketSentiment = sentimentScore > 20 ? 'bullish' : sentimentScore < -20 ? 'bearish' : 'neutral';
   const uncovered = Math.max(requested - rows.length, 0);
+  // 数据所属交易日：取行情快照时间戳（腾讯 [30]）所在日，绝不拿自然日冒充
+  const tradeDate = snapshotTradeDate(rows);
+  const avgChangePercent = Math.round((changeSum / rows.length) * 100) / 100;
+
+  const unavailableFields = ['newHighs', 'newLows'];
+  if (turnover === null) unavailableFields.push('turnover');
+  if (upVolume === null) unavailableFields.push('upVolume');
+  if (downVolume === null) unavailableFields.push('downVolume');
+  if (volumeRatio === null) unavailableFields.push('volumeRatio');
 
   return {
     timestamp: Date.now(),
@@ -4985,30 +5047,48 @@ function computeBreadthSnapshot(quotes, stocks) {
     limitUp,
     limitDown,
     turnover,
+    avgChangePercent,
+    tradeDate,
     marketSentiment,
     sentimentScore,
     dataSource: 'tencent',
     caliber:
       '涨跌家数/成交额/涨跌停家数：腾讯 qt.gtimg.cn 逐标的真实行情本地聚合；' +
       `标的清单=Worker 内置真实 A 股清单（共 ${requested} 只，源侧返回报价 ${rows.length} 只）；` +
+      '已剔除指数快照行（其成交额本身就是成份股合计，混入会把全市场成交额放大数倍）；' +
       '涨跌停判定=现价与交易所涨跌停价比较（含 ±20%/±5%/±30% 全部制度，非涨跌幅阈值近似）。',
     requestedSymbols: requested,
     quotedSymbols: rows.length,
     uncoveredSymbols: uncovered,
-    unavailableFields: ['newHighs', 'newLows'],
+    unavailableFields,
     message:
       'newHighs/newLows 为 null：腾讯行情源不提供历史新高/新低统计（诚实不可用，非「0 = 今日无新高」）。' +
+      (turnover === null ? '成交额字段上游全部缺失，turnover 为 null（非「零成交」）。' : '') +
       (uncovered > 0
         ? `另有 ${uncovered} 只清单内标的源侧无报价（退市/长期停牌/不在腾讯行情库），未计入涨跌家数。`
         : ''),
   };
 }
 
-/** 拉全市场行情 + 清单 → 宽度快照（失败返回 null，绝不抛给上游） */
+/**
+ * 全市场宽度快照 —— `/api/breadth/current`、`/api/market/summary`、`/api/macro/overview`、
+ * `/api/market/realtime` 共用同一份聚合结果。
+ *
+ * 为什么必须共用：各端点各自独立聚合时，即使算法相同，只要腾讯那 12 批行情有任意一批
+ * 在不同时刻完成，两边的 totalStocks / totalTurnover 就会出现「同一天两个数字」——
+ * 用户看到首页说 5550 只、广度区块说 5539 只，就会认为产品在胡说。
+ * 这里把结果挂在 getAllQuotes 的缓存对象上：快照生命周期与行情批次完全一致，
+ * 一批行情只聚合一次、所有端点读同一个对象。
+ */
 async function loadBreadthSnapshot() {
   try {
-    const [{ quotes }, stocks] = await Promise.all([getAllQuotes(), getStockList()]);
-    return computeBreadthSnapshot(quotes, stocks);
+    const cache = await getAllQuotes();
+    if (!cache.snapshotBuilt) {
+      const stocks = await getStockList();
+      cache.breadthSnapshot = computeBreadthSnapshot(cache.quotes, stocks);
+      cache.snapshotBuilt = true;
+    }
+    return cache.breadthSnapshot || null;
   } catch (e) {
     console.error('[breadth] 全市场行情不可用:', (e && e.message) || e);
     return null;
@@ -5078,7 +5158,8 @@ async function handleMarketRealtime() {
         flat: breadthSnap.unchanged,
         limitUp: breadthSnap.limitUp,
         limitDown: breadthSnap.limitDown,
-        turnoverYi: +(breadthSnap.turnover / 1e8).toFixed(1),
+        // 成交额缺失时给 null（不是 0 元）：turnoverYi 由真实元值派生，null 会一路传到前端「—」
+        turnoverYi: breadthSnap.turnover === null ? null : +(breadthSnap.turnover / 1e8).toFixed(1),
         upVolume: breadthSnap.upVolume,
         downVolume: breadthSnap.downVolume,
         volumeRatio: breadthSnap.volumeRatio,
@@ -5400,7 +5481,8 @@ async function handleMacroOverview() {
         macroUnavailableCard('板块平均涨幅', '%'),
       ];
 
-  const turnoverCard = hasBreadth
+  // 成交额缺失（上游未提供）→ 不可用卡，绝不给 "0"（0 会被读成「全市场零成交」）
+  const turnoverCard = hasBreadth && snap.turnover !== null
     ? (() => {
         const turnover = snap.turnover;
         return [
@@ -5423,7 +5505,8 @@ async function handleMacroOverview() {
     : [macroUnavailableCard('全市场成交额', '亿元')];
 
   const core = [...breadthCards, ...sectorCards, ...turnoverCard];
-  const allReal = hasBreadth && hasSectors;
+  // 成交额缺失也是「有一块不可得」→ partial，不能因为另外两块真实就整体标 real
+  const allReal = hasBreadth && hasSectors && !!snap && snap.turnover !== null;
   const dataSource = allReal ? 'real' : 'partial';
 
   return json({
@@ -5998,10 +6081,15 @@ async function handleNorthBoundOverview(url) {
     }));
 
   const latestTradeDate = rows[rows.length - 1].date;
+  // 【分级】有行 ≠ 有成交额：若上游只给了日期/领涨股而 DEAL_AMT 全缺，
+  // 不能标 'real'（会让前端以为成交额可信），也不能标 'unavailable'（日期确实是真的）
+  // → 标 'partial' 并说明缺的是哪个字段。净买额恒 null 是**已停披露**，不属于本条降级理由。
+  const rowsWithAmount = rows.filter((r) => r.dealAmount !== null).length;
+  const dealSource = rowsWithAmount > 0 ? 'real' : 'partial';
 
   return json({
     success: true,
-    dataSource: 'real',
+    dataSource: dealSource,
     data: {
       // 净流入语义字段：刻意空/null，避免前端把「净流入」按 0 渲染
       flows: [],
@@ -6010,9 +6098,17 @@ async function handleNorthBoundOverview(url) {
       dealFlows: rows,
       byDate,
       latestTradeDate,
-      dataSource: 'real',
+      dataSource: dealSource,
+      dealAmountCoverage: `${rowsWithAmount}/${rows.length}`,
     },
-    message: NET_NOTE + 'holdings 本次未提供（北向个股持仓已转季度披露口径，Worker 版未接入该报表，置空而非编造）。',
+    message:
+      (rowsWithAmount > 0
+        ? `沪/深股通成交额真实可得（${rowsWithAmount}/${rows.length} 行有值）。`
+        : `上游 ${rows.length} 行均未提供成交额（DEAL_AMT 全空），成交额按 null 返回。`) +
+      NET_NOTE +
+      'holdings 本次未提供（北向个股持仓已转季度披露口径，Worker 版未接入该报表，置空而非编造）。',
+    netInflowDisclosed: false,
+    netInflowNote: '净买额自 2024-08-19 起官方停止披露，故 netDealAmount / *NetInflow* 一律为 null，未用任何字段倒算。',
     unitNote:
       'dealFlows[].dealAmount 与 byDate[].*DealAmount 的单位是**万元**' +
       '（上游 DEAL_AMT 实际为百万元，已 ×100 换算；已用同期 push2 kamt 的 buySellAmt 逐位交叉验证），' +
