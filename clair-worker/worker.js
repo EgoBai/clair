@@ -538,7 +538,16 @@ async function fetchTencentQuotes(tencentSymbols) {
       changePercent: v(32),
       high: v(33),
       low: v(34),
-      turnover: v(37) * 10000, // 腾讯返回万元 → 元
+      turnover: v(37) * 10000, // 腾讯返回万元 → 元（缺失时 v() 会给 0，故另给 turnoverKnown）
+      // 【P0-HONESTY-AGG】缺失与真实 0 的判别位：
+      // 上游字段为空/非数值时 v(37) 返回 0，光看 turnover 无法区分「没给成交额」与
+      // 「成交额真的是 0 元」。累计方（/api/fund-flow/market 的 totalTurnover）
+      // 必须据此跳过缺失行，否则会把「拿不到」输出成「全市场零成交」。
+      // turnover 本身保持数值形状（0 兜底）不变，避免波及其它 20+ 个既有消费点。
+      turnoverKnown: (() => {
+        const raw = typeof parts[37] === 'string' ? parts[37].trim() : '';
+        return raw !== '' && isFinite(parseFloat(raw));
+      })(),
       turnoverRate: v(38),
       peRatio: (() => { const n = parseFloat(parts[39]); return isFinite(n) && n > 0 ? n : undefined; })(),
       // 腾讯字段: [44]=流通市值(亿) [45]=总市值(亿) [46]=市净率PB
@@ -552,6 +561,10 @@ async function fetchTencentQuotes(tencentSymbols) {
       // 上游缺失时为 0，调用方须先判 >0 再比较。
       limitUpPrice: v(47),
       limitDownPrice: v(48),
+      // 行情快照时间戳（字段 30，形如 20261030161455）。
+      // /api/fund-flow/market 的 asOf 必须取这个真实时间戳所在交易日，
+      // **不能用自然日**（休市日/未开盘时自然日会冒充成「当天数据」）。
+      quoteTime: typeof parts[30] === 'string' ? parts[30] : '',
     });
   }
   return results;
@@ -4425,12 +4438,131 @@ async function handleCronCollectHistory(url) {
 // 供前端 CapitalFlowPanel / FundFlowPage 消费；上游不可用时如实 null/空 + source 标注，绝不编造
 
 // FundFlowPage ①：全市场 5 档资金流 + 市场广度（与 backend /api/fund-flow/market 同契约）
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// 【P0-HONESTY-AGG 源点修复】累计口径不得用 `|| 0` / `isFinite(x) ? x : 0`
+//
+// 缺陷：`all.reduce((s, q) => s + (q.turnover || 0), 0)` 把「上游没给成交额」
+//   改写成了「成交额 = 0 元」。前端拿到就是「全市场零成交」这种**假事实**——
+//   与后端同款缺陷（后端已在 3e4b785c2 修掉，改为「缺失 null、真实 0 仍为 0」）。
+//
+// 契约（与后端同名同义）：
+//   · 逐字段三态：缺失 → 不计入；**若该字段在所有参与聚合的行里无一有值 → 输出 null**
+//   · 真实 0 → 正常计入，结果就是 0（0 是合法事实，判成 null 是同一个错误的反面）
+//   · market 下 7 个业务量字段（risingStocks/fallingStocks/unchangedStocks/
+//     limitUpCount/limitDownCount/totalStocks/totalTurnover）真值域均为 number|null
+//   · 另有 asOf / asOfIsFallback / asOfNote 如实披露数据所属交易日
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 诚实累计器：sum 只累加真实有限数，has 标记「是否有任何一行给过值」 */
+function createHonestSum() {
+  return { sum: 0, has: false };
+}
+
+/** 累加一个可能缺失的值：缺失/非有限数一律跳过（不是当 0）；真实 0 会置 has=true 并保持 sum 不变 */
+function addHonest(acc, v) {
+  if (v === null || v === undefined || v === '') return;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return;
+  acc.sum += n;
+  acc.has = true;
+}
+
+/** 读回累计结果：无任何有效值 → null（**不是 0**） */
+function readHonestSum(acc) {
+  return acc.has ? acc.sum : null;
+}
+
+/** 取「行情快照时间戳」(腾讯字段 30，形如 20261030161455) 里的最新交易日；无 → null */
+function snapshotTradeDate(quotes) {
+  let best = null;
+  for (const q of quotes) {
+    const t = q && q.quoteTime;
+    if (typeof t !== 'string' || t.length < 8) continue;
+    const d = `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6, 8)}`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    if (!best || d > best) best = d;
+  }
+  return best;
+}
+
+/**
+ * 涨停/跌停判定：优先用交易所涨跌停价（腾讯 [47]/[48]，天然含 ±20%/±5%/±30%），
+ * 该字段缺失时才回落到涨跌幅阈值 —— 与 /api/breadth/current、/api/macro/overview 同口径，
+ * 避免同一时刻「广度页说 49 家涨停、资金流页说 53 家」这种自相矛盾。
+ */
+function quoteIsLimitUp(q) {
+  const lp = Number(q.limitUpPrice);
+  if (Number.isFinite(lp) && lp > 0) return Number(q.price) >= lp - 0.005;
+  return Number(q.changePercent) >= 9.9;
+}
+
+function quoteIsLimitDown(q) {
+  const lp = Number(q.limitDownPrice);
+  if (Number.isFinite(lp) && lp > 0) return Number(q.price) <= lp + 0.005;
+  return Number(q.changePercent) <= -9.9;
+}
+
+/**
+ * 由全市场行情快照构建 market 广度块（诚实三态）。
+ * 返回 { market, hasValues }：market 为 null 表示「7 个字段全不可得」，
+ * 与后端「行存在但字段全空 → market: null」等价。
+ */
+function buildMarketBreadthHonest(quotes, tradeDate) {
+  // 必须剔除指数快照：腾讯快照里带 9 条指数行（sh000001 等），其中 000001 同时是
+  // 上证指数与平安银行 —— 只按纯代码过滤会把它当个股重复计一次，且指数的「成交额」
+  // 本身就是成份股合计，会把全市场成交额放大 3 倍（实测 5.07 万亿 vs 真实 1.65 万亿）。
+  // 剔除后与 /api/breadth/current 同口径，两个端点不再自相矛盾。
+  const indexKeys = new Set(INDEX_SYMBOLS.map((i) => i.tencent));
+  // changePercent 缺失的行无法归入涨/跌/平 —— 那是「不知道」，不是「0 家」；
+  // 现价为 0（退市/长期停牌）的行也不是「平盘 1 家」，与 /api/breadth/current 同口径剔除。
+  const rows = (quotes || []).filter((q) => q
+    && !indexKeys.has(q.tencentSymbol)
+    && Number(q.price) > 0
+    && Number.isFinite(Number(q.changePercent)));
+  if (rows.length === 0) return { market: null, hasValues: false };
+
+  let rising = 0;
+  let falling = 0;
+  let unchanged = 0;
+  let limitUp = 0;
+  let limitDown = 0;
+  const turnoverAcc = createHonestSum();
+
+  for (const q of rows) {
+    const chg = Number(q.changePercent);
+    if (chg > 0) rising++;
+    else if (chg < 0) falling++;
+    else unchanged++;
+    if (quoteIsLimitUp(q)) limitUp++;
+    if (quoteIsLimitDown(q)) limitDown++;
+    // 只有上游确实给了成交额（含真实 0）才累计；turnoverKnown===false 表示该行缺失，
+    // 直接跳过 —— 若全部行都缺，readHonestSum 会产出 null 而不是 0（P0-HONESTY-AGG）
+    if (q.turnoverKnown !== false) addHonest(turnoverAcc, q.turnover);
+  }
+
+  const market = {
+    // 与后端 tradeDate 同名同义：这里是行情快照时间戳所在交易日，不是自然日
+    tradeDate,
+    totalTurnover: readHonestSum(turnoverAcc),
+    risingStocks: rising,
+    fallingStocks: falling,
+    unchangedStocks: unchanged,
+    limitUpCount: limitUp,
+    limitDownCount: limitDown,
+    totalStocks: rows.length,
+  };
+  const hasValues = ['totalTurnover', 'risingStocks', 'fallingStocks', 'unchangedStocks',
+    'limitUpCount', 'limitDownCount', 'totalStocks'].some((k) => market[k] !== null);
+  return { market: hasValues ? market : null, hasValues };
+}
+
 async function handleFundFlowMarket() {
   try {
     const FLOW_HOSTS = ['https://push2.eastmoney.com', 'https://push2delay.eastmoney.com'];
     // 5 档主力/超大/大/中/小单净额：东财 push2 clist 全市场聚合（f62净额 f66超大 f72大 f78中 f84小；f184=主力净额占比此处求和无意义，用 f62）
     let tiers = null;
-    let source = 'unavailable';
+    let tierOk = false;
     for (const host of FLOW_HOSTS) {
       try {
         const u = `${host}/api/qt/clist/get?pn=1&pz=6000&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f62,f184,f66,f72,f78,f84&ut=fa5fd1943c7b386f172d6893dbfba10b`;
@@ -4440,56 +4572,80 @@ async function handleFundFlowMarket() {
         const d = JSON.parse(t);
         const items = (d && d.data && d.data.diff) || [];
         if (!items.length) continue;
-        const acc = { main: 0, superLarge: 0, large: 0, medium: 0, small: 0 };
-        let n = 0;
+        // 逐档独立累计：某档在所有行都缺 → 该档 null（不写成 0 元净流入）
+        const acc = {
+          main: createHonestSum(),
+          superLarge: createHonestSum(),
+          large: createHonestSum(),
+          medium: createHonestSum(),
+          small: createHonestSum(),
+        };
         for (const it of items) {
-          const m = Number(it.f62), s = Number(it.f66), l = Number(it.f72), md = Number(it.f78), sm = Number(it.f84);
-          if (!isFinite(m) && !isFinite(s) && !isFinite(l)) continue;
-          acc.main += isFinite(m) ? m : 0;
-          acc.superLarge += isFinite(s) ? s : 0;
-          acc.large += isFinite(l) ? l : 0;
-          acc.medium += isFinite(md) ? md : 0;
-          acc.small += isFinite(sm) ? sm : 0;
-          n++;
+          addHonest(acc.main, it.f62);
+          addHonest(acc.superLarge, it.f66);
+          addHonest(acc.large, it.f72);
+          addHonest(acc.medium, it.f78);
+          addHonest(acc.small, it.f84);
         }
-        if (n > 0) { tiers = acc; source = 'eastmoney'; break; }
+        const any = Object.values(acc).some((a) => a.has);
+        if (!any) continue; // 全部档位都缺 → 该 host 视为无效，尝试下一个
+        tiers = {
+          main: readHonestSum(acc.main),
+          superLarge: readHonestSum(acc.superLarge),
+          large: readHonestSum(acc.large),
+          medium: readHonestSum(acc.medium),
+          small: readHonestSum(acc.small),
+        };
+        tierOk = true;
+        break;
       } catch (_) { /* 尝试下一个 host */ }
     }
-    // 市场广度：复用全市场实时行情快照（与 /api/market/summary 同口径）
+
+    // 市场广度：复用全市场实时行情快照（与 /api/market/summary 同源，但空值语义为 null）
     let market = null;
+    let marketHasValues = false;
+    let asOf = null;
     try {
       const { quotes } = await getAllQuotes();
-      const all = quotes.filter(q => q && q.changePercent !== undefined && isFinite(q.changePercent));
-      if (all.length) {
-        const rising = all.filter(q => q.changePercent > 0).length;
-        const falling = all.filter(q => q.changePercent < 0).length;
-        market = {
-          tradeDate: beijingToday(),
-          totalTurnover: all.reduce((s, q) => s + (q.turnover || 0), 0),
-          risingStocks: rising,
-          fallingStocks: falling,
-          unchangedStocks: Math.max(all.length - rising - falling, 0),
-          limitUpCount: all.filter(q => q.changePercent >= 9.9).length,
-          limitDownCount: all.filter(q => q.changePercent <= -9.9).length,
-          totalStocks: all.length,
-        };
-      }
+      asOf = snapshotTradeDate(quotes);
+      const built = buildMarketBreadthHonest(quotes, asOf);
+      market = built.market;
+      marketHasValues = built.hasValues;
     } catch (_) { /* 广度如实 null */ }
-    const tierOk = !!tiers;
+
+    const today = beijingToday();
+    const asOfIsFallback = asOf ? asOf !== today : false;
+    const asOfNote = !asOf
+      ? '上游行情未返回快照时间戳，asOf 不可得（未按自然日冒充交易日）'
+      : asOfIsFallback
+        ? `asOf=${asOf} 取自行情快照时间戳：今日 ${today} 非交易日或尚未开盘，故不以自然日冒充数据日期`
+        : undefined;
+
+    const tierNote = tierOk
+      ? null
+      : '全市场 5 档资金流：东方财富 push2 聚合不可达，未返回任何档位净流入数值';
+    const marketNote = marketHasValues
+      ? `市场广度与成交额：全市场实时行情快照（${asOf || '时间戳不可得'}），涨跌停按交易所涨跌停价判定`
+      : '市场广度与成交额：实时行情快照未取到涨跌家数/成交额，7 个字段均按 null 返回';
+    const degraded = !tierOk || !marketHasValues;
+
     return json({
       success: true,
       data: {
         tiers: tiers ?? { main: null, superLarge: null, large: null, medium: null, small: null },
         market,
+        // 数据所属交易日如实披露（与后端同契约：asOf / asOfIsFallback / 可选 asOfNote）
+        asOf,
+        asOfIsFallback,
+        ...(asOfNote ? { asOfNote } : {}),
         updateTime: new Date().toISOString(),
         source: tierOk ? 'eastmoney' : 'unavailable',
-        note: tierOk ? undefined
-          : '全市场 5 档资金流：东方财富 push2 聚合在 Worker 出网不可达；市场广度/成交额来自实时行情快照。',
+        note: degraded ? [tierNote, marketNote].filter(Boolean).join('；') : undefined,
       },
-      dataSource: tierOk ? 'eastmoney' : (market ? 'partial' : 'unavailable'),
+      dataSource: tierOk ? 'eastmoney' : marketHasValues ? 'partial' : 'unavailable',
       notes: {
         tiers: tierOk ? undefined : '5 档主力/超大单/大单/中单/小单净流入：数据源未接入',
-        market: market ? '市场广度与成交额：实时行情快照（约800只活跃股样本）' : '实时行情快照不可用',
+        market: marketNote,
       },
       timestamp: new Date().toISOString(),
     });

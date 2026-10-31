@@ -620,6 +620,133 @@ await test('P2 诚实空态：5 条无真实源端点全部 200 + unavailable + 
 });
 
 // ============================================================
+// 三·四、/api/fund-flow/market 的累计口径（缺失 null ≠ 真实 0）
+//
+// 【缺陷背景】旧实现 `all.reduce((s, q) => s + (q.turnover || 0), 0)` 把「上游没给
+// 成交额」改写成「成交额 0 元」→ 前端渲染「全市场零成交」这种假事实（后端同款缺陷
+// 已在 3e4b785c2 修掉）。修好后契约是：
+//   · 某字段在所有参与聚合的行里无一有值 → 该字段 null
+//   · 真实 0 仍为 0（0 是合法事实，判成 null 是同一个错误的反面）
+//   · market 下 7 字段真值域 number|null，另有 asOf/asOfIsFallback/asOfNote
+//
+// 【怎么注入】不新增测试专用代码：临时替换 globalThis.fetch 伪造腾讯/东财上游，
+// 并用 Date.now 偏移把 getAllQuotes 的 30s 行情缓存顶掉，从而精确控制「哪些行有值」。
+// ============================================================
+
+console.log('\n/api/fund-flow/market 累计口径');
+
+/** 构造一行腾讯行情文本（数组下标与 worker 的 fetchTencentQuotes 解析口径一致） */
+function tencentRow(key, turnoverField) {
+  const f = new Array(50).fill('');
+  f[0] = '1';
+  f[1] = `测${key}`;
+  f[2] = key.slice(2);
+  f[3] = '10.00';   // price
+  f[4] = '9.80';    // prevClose
+  f[30] = '20261030150000'; // 行情快照时间戳
+  f[32] = '0.20';   // changePercent
+  f[33] = '10.10';
+  f[34] = '9.70';
+  f[37] = turnoverField; // 成交额（万元），'' 表示上游未提供
+  return `v_${key}="${f.join('~')}";`;
+}
+
+/**
+ * 在「受控上游」下跑一次 fund-flow/market。
+ * @param turnoverField 三行统一的成交额字段值（'' = 全缺失，'0' = 真实 0，'12.5' = 真实值）
+ * @param push2Body     东财 5 档聚合响应体（null = 不可达，模拟 tiers 降级）
+ */
+/**
+ * 行情缓存（30s TTL）是模块级状态，连续两次调用会命中上一次的行情。
+ * 故每次调用都把「假时钟」再往前推 60s（跨调用累加），保证本轮一定重新拉取。
+ */
+let stubClockSkew = 0;
+
+async function callFundFlowMarketWithStub({ turnoverField, push2Body }) {
+  const realFetch = globalThis.fetch;
+  const realNow = Date.now;
+  stubClockSkew += 60_000;
+  const skew = stubClockSkew;
+  Date.now = () => realNow() + skew;
+  const CODES = ['sh600519', 'sz000001', 'sh601398'];
+  globalThis.fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('qt.gtimg.cn')) {
+      const requested = new Set(decodeURIComponent(url.split('/q=')[1] || '').split(','));
+      const body = CODES.filter((c) => requested.has(c)).map((c) => tencentRow(c, turnoverField)).join('\n');
+      return new Response(body, { status: 200 });
+    }
+    if (url.includes('push2')) {
+      if (push2Body === null) return new Response('<html>blocked</html>', { status: 200 });
+      return new Response(push2Body, { status: 200 });
+    }
+    throw new Error(`stubbed test 不应请求该 URL: ${url}`);
+  };
+  try {
+    const res = await worker.fetch(new Request('https://clair-api.pages.dev/api/fund-flow/market'), envStub(), {});
+    return { status: res.status, body: await res.json() };
+  } finally {
+    globalThis.fetch = realFetch;
+    Date.now = realNow;
+  }
+}
+
+const PUSH2_ALL_MISSING_LOW_TIER = JSON.stringify({ data: { diff: [{ f62: 100, f66: 20, f72: 5 }, { f62: -40, f66: -10, f72: -2 }] } });
+
+await test('成交额字段全缺失 → totalTurnover 为 null（不是 0），其余字段仍为真实计数', async () => {
+  const { status, body } = await callFundFlowMarketWithStub({ turnoverField: '', push2Body: null });
+  assert.equal(status, 200);
+  const m = body.data.market;
+  assert.ok(m && typeof m === 'object', 'market 应有其它可得字段（不能整块 null）');
+  assert.equal(m.totalTurnover, null,
+    `上游三行都未给成交额时必须为 null，实际 ${m.totalTurnover}（0 会被读成「全市场零成交」）`);
+  assert.equal(m.risingStocks, 3, '涨跌家数是可判定的真实计数');
+  assert.equal(m.fallingStocks, 0);
+  assert.equal(m.unchangedStocks, 0);
+  assert.equal(m.totalStocks, 3);
+  // 5 档资金流不可达 → 各档 null（不是 0 元净流入）
+  for (const k of ['main', 'superLarge', 'large', 'medium', 'small']) {
+    assert.equal(body.data.tiers[k], null, `tiers.${k} 应为 null，实际 ${body.data.tiers[k]}`);
+  }
+  assert.equal(body.data.source, 'unavailable');
+  assert.equal(body.dataSource, 'partial', '广度可用 + 5 档不可用 → partial');
+});
+
+await test('成交额真实为 0 → 仍是 0（不得判成 null），且 7 字段类型均在 number|null 域内', async () => {
+  const { body } = await callFundFlowMarketWithStub({ turnoverField: '0', push2Body: null });
+  const m = body.data.market;
+  assert.equal(m.totalTurnover, 0, `真实 0 必须保留为 0，实际 ${m.totalTurnover}`);
+  for (const k of ['totalTurnover', 'risingStocks', 'fallingStocks', 'unchangedStocks',
+    'limitUpCount', 'limitDownCount', 'totalStocks']) {
+    assert.ok(m[k] === null || typeof m[k] === 'number', `market.${k} 必须在 number|null 域内，实际 ${typeof m[k]}`);
+  }
+  // 数据所属交易日必须来自行情时间戳，且如实标注是否回退
+  assert.equal(body.data.asOf, '2026-10-30', 'asOf 应取自行情快照时间戳所在日');
+  assert.equal(typeof body.data.asOfIsFallback, 'boolean');
+  assert.equal(body.data.asOfIsFallback, true, '2026-10-30 ≠ 今天，应标注为回退');
+  assert.ok(typeof body.data.asOfNote === 'string' && body.data.asOfNote.includes('2026-10-30'),
+    'asOfNote 应说明 asOf 的来源日期');
+});
+
+await test('成交额真实值按「万元→元」累计（3 行 × 12.5 万元 = 375000 元）', async () => {
+  const { body } = await callFundFlowMarketWithStub({ turnoverField: '12.5', push2Body: null });
+  assert.equal(body.data.market.totalTurnover, 375000,
+    `三行各 12.5 万元应累计为 375000 元，实际 ${body.data.market.totalTurnover}`);
+});
+
+await test('5 档资金流：某档全缺失 → 该档 null，有值的档正常累计（不写成 0 净流入）', async () => {
+  // f62: 100,-40 → 60；f66: 20,-10 → 10；f72: 5,-2 → 3；f78 / f84 两档全部缺失 → null
+  const { body } = await callFundFlowMarketWithStub({ turnoverField: '1', push2Body: PUSH2_ALL_MISSING_LOW_TIER });
+  assert.equal(body.data.tiers.main, 60);
+  assert.equal(body.data.tiers.superLarge, 10);
+  assert.equal(body.data.tiers.large, 3);
+  assert.equal(body.data.tiers.medium, null, 'f78 全缺失 → medium 必须为 null（不是 0 元）');
+  assert.equal(body.data.tiers.small, null, 'f84 全缺失 → small 必须为 null（不是 0 元）');
+  assert.equal(body.data.source, 'eastmoney');
+  assert.equal(body.dataSource, 'eastmoney');
+});
+
+// ============================================================
 // 四、双入口字节一致性（Cloudflare Pages advanced mode 的硬约束）
 // ============================================================
 
