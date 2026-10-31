@@ -48,6 +48,37 @@ const dbMock = {
 };
 vi.mock('../db/dbFactory', () => ({ getDb: vi.fn(() => dbMock) }));
 
+/**
+ * 把「今天」钉死成确定的交易日 —— 本文件的一切期望值都由它推导，不再读墙钟。
+ *
+ * 原缺陷（CI 连续红灯，run 41107319093）：
+ *   生产侧 `today()` 取**交易所时区**（Asia/Shanghai）的日历日，测试侧的 mock
+ *   却用 `new Date()` 的**进程本地**日历日推算回溯天数。CI runner 是 UTC，
+ *   当真实时刻为 18:30Z 时交易所已是次日 02:30 → today() = T+1，而本地 now 仍是 T
+ *   → 锚点落到「未来一天」，mock 对 T+1 也返回了数据（真实库里周六不可能有行情）
+ *   → series 多一个点，`expected [0,0,0] to deeply equal [0,0]`。
+ *   同一份代码在 +08:00 下全绿，纯粹因为两者恰好重合。
+ *
+ * 修法：mock 掉 tradingCalendar，让 resolveQueryDate / today 恒返回固定锚点，
+ * 使 series、historyDates 的期望值变成常量，与进程时区无关。
+ */
+const FIXED_ANCHOR = vi.hoisted(() => '2026-06-10');
+vi.mock('../utils/tradingCalendar', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/tradingCalendar')>();
+  return {
+    ...actual, // 其余函数保持真实实现，避免牵连本模块其它能力
+    today: vi.fn(() => FIXED_ANCHOR),
+    // dataAvailable: true 表示「PG 已确证该交易日有行情」，生产代码直接采信此日
+    resolveQueryDate: vi.fn(async () => ({
+      date: FIXED_ANCHOR,
+      isFallback: false,
+      reason: null,
+      dataAvailable: true,
+      notes: [] as string[],
+    })),
+  };
+});
+
 import macroRouter from '../api/macro';
 
 function buildApp() {
@@ -66,6 +97,34 @@ function allText(res: { body: any }): string {
 function isAllZero(arr: unknown): boolean {
   return Array.isArray(arr) && arr.length > 0 && arr.every((v) => v === 0);
 }
+
+// ---------------------------------------------------------------------------
+// 日历工具：只做「本地日历日」的纯算术，不读墙钟、不依赖进程时区
+// ---------------------------------------------------------------------------
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** 把 Date 折算成「本地日历日序号」：同一日历日内任意时刻都得同一个整数 */
+const localDayNum = (x: Date): number =>
+  Math.round(Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()) / 86_400_000);
+
+/** 日序号 → YYYY-MM-DD */
+const dayNumStr = (n: number): string => {
+  const t = new Date(n * 86_400_000);
+  return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`;
+};
+
+/** Date → 该时刻所在本地日历日的 YYYY-MM-DD（等价于生产侧 formatLocalDate） */
+const localDayStr = (x: Date): string => dayNumStr(localDayNum(x));
+
+/**
+ * 生产代码的锚点：macro.ts 用 `${anchorDate}T00:00:00Z` 构造（UTC 零点），
+ * 随后 buildRealSeries 又 `setHours(0,0,0,0)` 归零到**本地**午夜。
+ * 在 UTC 以西的时区（如 America/New_York）这会把日历日退回一天，
+ * 因此「锚点是哪一天」必须以进程本地日历为准，不能假定它等于 FIXED_ANCHOR。
+ * 这样期望值在 UTC / +08:00 / -04:00 下都自洽，且不靠放宽断言。
+ */
+const ANCHOR_INSTANT = new Date(`${FIXED_ANCHOR}T00:00:00Z`);
+const ANCHOR_DAY = localDayNum(ANCHOR_INSTANT);
 
 /** 6 张卡片的标签顺序是稳定契约，前端按索引渲染 */
 const LABELS = ['上涨家数', '下跌家数', '涨停家数', '上涨板块占比', '板块平均涨幅', '全市场成交额'];
@@ -163,19 +222,19 @@ describe('P0-MACROCARDS · /api/macro/overview：dataSource 必须由「卡片�
 
   // ==================== 场景 A：DB 返回真实数据（防过度修复） ====================
   describe('场景 A｜db.getMarketSummary() 返回真实数据', () => {
+    /** 记录 DB 实际被查询的入参日期，用于核对 historyDates 是否与传入日期一致 */
+    const summaryCalls: Date[] = [];
+
     beforeEach(() => {
+      summaryCalls.length = 0;
       dbMock.getMarketSummary.mockImplementation(async (d: Date) => {
-        // 逐日回溯：给最近 3 个交易日返回数据，第 4 天起返回 null。
-        // ⚠️ 必须按「日历日」算back，不能用 Date.now() 直接减：
-        // d 已被生产代码 setHours(0,0,0,0) 归零，而 Date.now() 是当前时刻
-        // （例如 13:20），两者相差不足 1 天，`Math.round(0.55) = 1`
-        // 会让「今天」被错算成 back=1，索引整体错位且提前命中 back>2，
-        // 最终只回溯出 2 天 —— 该缺陷曾表现为 CI 单测失败。
-        const utcDay = (x: Date) =>
-          Date.UTC(x.getFullYear(), x.getMonth(), x.getDate());
-        const now = new Date();
-        const back = Math.round((utcDay(now) - utcDay(d)) / 86400000);
-        if (back > 2) return null;
+        summaryCalls.push(d);
+        // 回溯天数 = 固定锚点的日历日序号 − 被查日期的日历日序号。
+        // 全程只用日历日算术：既不读墙钟（new Date() 曾经让 CI 在 18:30Z 后翻车），
+        // 也不假定锚点日等于 FIXED_ANCHOR（UTC 以西进程会把它归零到前一天）。
+        const back = ANCHOR_DAY - localDayNum(d);
+        // 未来日 / 超过 3 个自然日的历史 → 无行情（周六不可能有数据，不得编造）
+        if (back < 0 || back > 2) return null;
         const rising = [1622, 2338, 1074][back];
         const falling = [3448, 2691, 3983][back];
         return {
@@ -229,30 +288,31 @@ describe('P0-MACROCARDS · /api/macro/overview：dataSource 必须由「卡片�
       expect(res.body.data.historyDates).toHaveLength(3);
     });
 
-    it('historyDates 必须是真实交易日且不被时区错位一天（回归锁定）', async () => {
+    it('historyDates 必须与传入 DB 的日期逐一日对应，且不被时区错位一天（回归锁定）', async () => {
       const res = await request(buildApp()).get('/api/macro/overview');
       const dates: string[] = res.body.data.historyDates;
 
       expect(dates).toHaveLength(3);
       // 升序
       expect([...dates].sort()).toEqual(dates);
-      // 关键：本地午夜经toISOString() 会被折算成前一天（UTC+8 实测如此）。
-      // 序列首项是 2 天前的数据，标签必须与传入 DB 的日期一致，不能差一天。
-      const expectedFirst = await (async () => {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() - 2);
-        const pad = (n: number) => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-      })();
-      expect(dates[0], 'historyDates 首项不得因UTC 折算而少一天').toBe(expectedFirst);
-      // 末项必须是今天
-      const today = await (async () => {
-        const d = new Date();
-        const pad = (n: number) => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-      })();
-      expect(dates[dates.length - 1]).toBe(today);
+
+      // 期望值 = [锚点前两天, 锚点前一天, 锚点当天]，全部由固定锚点推导（常量，不看墙钟）
+      expect(dates).toEqual([
+        dayNumStr(ANCHOR_DAY - 2),
+        dayNumStr(ANCHOR_DAY - 1),
+        dayNumStr(ANCHOR_DAY),
+      ]);
+
+      // 关键：本地午夜若被 toISOString() 折算，会整体少一天（UTC+8 实测如此）。
+      // 因此这里直接拿 mock 收到的 Date 做交叉核对，而不是另算一遍「今天」：
+      //   summaryCalls[0] = 卡片取值那次查询，其后 3 次 = rising 序列的 back=0/1/2
+      const calledDays = summaryCalls.slice(0, 4).map(localDayStr);
+      expect(calledDays[0], '卡片取值日应与序列末点同日').toBe(calledDays[1]);
+      expect(dates, 'historyDates 必须与传入 DB 的日期逐一对应').toEqual(
+        calledDays.slice(1).reverse(),
+      );
+      // 末项必须是锚点当天（即卡片值取自的那一天）
+      expect(dates[dates.length - 1]).toBe(calledDays[0]);
     });
 
     it('板块历史不可回溯时 series 留空，绝不硬编码假曲线', async () => {
@@ -274,15 +334,11 @@ describe('P0-MACROCARDS · /api/macro/overview：dataSource 必须由「卡片�
     beforeEach(() => {
       // 非交易日/全平盘的真实场景：确实 0 只涨、0 只跌。此时 0 是**事实**
       dbMock.getMarketSummary.mockImplementation(async (d: Date) => {
-        // ⚠️ 同样必须按「日历日」算 back，不能用 Date.now() 直接减
-        // （理由同场景 A：Date.now() 是时刻、d 被归零到午夜，不足一天会被 round 成 1，
-        //   导致「今天」被错算成 back=1、序列少一个点）。该缺陷曾在 CI 上表现为
-        //   `expected [ +0 ] to deeply equal [ +0, +0 ]`。
-        const utcDay = (x: Date) =>
-          Date.UTC(x.getFullYear(), x.getMonth(), x.getDate());
-        const now = new Date();
-        const back = Math.round((utcDay(now) - utcDay(d)) / 86400000);
-        if (back > 1) return null;
+        // 与场景 A 同源：回溯天数按固定锚点的日历日序号算，绝不读墙钟。
+        // （旧写法用 new Date() 的本地日历日，CI 跑在 UTC 且时刻 >16:00 时
+        //   锚点会落到「未来一天」，序列凭空多一个点 → [0,0,0] ≠ [0,0]）
+        const back = ANCHOR_DAY - localDayNum(d);
+        if (back < 0 || back > 1) return null;
         return {
           date: d,
           totalStocks: 5000,
