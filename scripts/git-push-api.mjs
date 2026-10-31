@@ -29,6 +29,12 @@
  *         （只能指向本地 commit；指向远端重建 sha 会失败）。否则本地 origin/main 持续落后，
  *         后续 `git push` / `git status` / "有没有未推送提交" 的判断全部错位
  *         （历史教训：曾因此把已推内容重复计入，产生一个空提交 `a166db9c`）。
+ * 纪律 4｜内容比对的**本地基准是"本次实际推送的那个 commit"（启动时冻结的 localHead）**，
+ *        不是运行期再解析一次的符号 `HEAD`，更不是工作区/索引。
+ *        ① 多 Agent 共享工作区时工作区常是脏的 ⟹ 读工作区必然误判，工作区**不参与比对**；
+ *        ② 运行期间别的 Agent 可能又提交 ⟹ 符号 `HEAD` 会漂移，拿它比必然把"推对了"误判成 FAIL。
+ *        两者都会伪装成"远端内容不对"，实测都复现过，故本脚本对基准做**冻结**处理，
+ *        并在 HEAD 漂移时打 `HEAD_MOVED_DURING_RUN` 告警（告警 ≠ 失败）。
  *
  * ============================ 行为约定 ============================
  * - 无未推送提交（远端 head 内容与本地 HEAD 一致）→ 打印 `NOTHING_TO_PUSH`，exit 0。
@@ -202,24 +208,80 @@ function diffIsEmpty(d) {
   return d.onlyLocal.length === 0 && d.onlyRemote.length === 0 && d.shaMismatch.length === 0;
 }
 
+// ---------------------------------------------------------------- 诊断辅助
+function shortSha(s) {
+  return s ? s.slice(0, 12) : '(none)';
+}
+
+/**
+ * 诊断用：某个 path 在本地各层的 sha 分别是什么、工作区是否脏。
+ * 目的：一眼区分「工作区污染」与「HEAD 前移」——两者都会表现成 blob sha 不一致。
+ * 注意：工作区/索引**只用于打注解**，绝不参与判定。
+ */
+function localLayers(path, baselineCommit) {
+  const parts = [];
+  const baseSha = gitOpt(['rev-parse', `${baselineCommit}:${path}`]);
+  parts.push(`baseline(${baselineCommit.slice(0, 12)})=${shortSha(baseSha && baseSha.trim())}`);
+
+  const idxSha = gitOpt(['rev-parse', `:${path}`]);
+  if (idxSha) parts.push(`index=${shortSha(idxSha.trim())}`);
+
+  let wtSha = null;
+  try {
+    wtSha = execFileSync(
+      'git',
+      ['-c', 'core.quotepath=off', '-C', REPO, 'hash-object', '--', path],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    ).trim();
+  } catch {
+    wtSha = null;
+  }
+  if (wtSha) parts.push(`worktree=${shortSha(wtSha)}`);
+
+  const dirty = gitOpt(['status', '--porcelain', '--', path]);
+  if (dirty && dirty.trim()) parts.push('WORKTREE_DIRTY(未提交改动，不参与判定)');
+
+  return parts.join(' ');
+}
+
+/** 打出差异明细，并对每条附上"本地各层 sha 来源"，便于区分工作区污染 / HEAD 前移 */
+function printDiff(d, baselineCommit) {
+  if (d.onlyLocal.length) {
+    out(`only_local(${d.onlyLocal.length}) 远端缺这些 path：`);
+    for (const p of d.onlyLocal.slice(0, 10)) out(`  ${p}  [${localLayers(p, baselineCommit)}]`);
+  }
+  if (d.onlyRemote.length) {
+    out(`only_remote(${d.onlyRemote.length}) 本地基线缺这些 path：`);
+    for (const p of d.onlyRemote.slice(0, 10)) out(`  ${p}`);
+  }
+  if (d.shaMismatch.length) {
+    out(`sha_mismatch(${d.shaMismatch.length}) 同一 path 两侧 blob 不同：`);
+    for (const m of d.shaMismatch.slice(0, 10)) {
+      out(`  ${m.path}`);
+      out(`    baseline=${m.local} remote=${m.remote}`);
+      out(`    本地各层: ${localLayers(m.path, baselineCommit)}`);
+    }
+  }
+}
+
 // ---------------------------------------------------------------- 定位推送基点
 /**
  * 远端 head 可能在本地对象库里根本不存在（它是 API 重建出来的对象）。
  * 此时用**内容等价**在本地历史里找对应提交——这正是纪律 2 的用法：只认内容。
  */
-async function resolveBase(remoteHead) {
+async function resolveBase(remoteHead, localHead) {
   if (gitOpt(['cat-file', '-e', `${remoteHead}^{commit}`]) !== null) {
-    if (gitOpt(['merge-base', '--is-ancestor', remoteHead, 'HEAD']) !== null) {
+    if (gitOpt(['merge-base', '--is-ancestor', remoteHead, localHead]) !== null) {
       return { sha: remoteHead, how: 'local-object' };
     }
     abortMsg(
-      `远端 head ${remoteHead.slice(0, 12)} 在本地存在但不是 HEAD 的祖先（远端被并发推进或历史分叉），停止推送`
+      `远端 head ${remoteHead.slice(0, 12)} 在本地存在但不是 ${localHead.slice(0, 12)} 的祖先（远端被并发推进或历史分叉），停止推送`
     );
   }
   out(`INFO 远端 head ${remoteHead.slice(0, 12)} 不在本地对象库，改用内容等价定位基点…`);
   const remoteHeadInfo = await api(`/git/commits/${remoteHead}`);
   const remoteMap = await remoteTreeMap(remoteHeadInfo.tree.sha);
-  const locals = git(['rev-list', '--max-count=300', 'HEAD'])
+  const locals = git(['rev-list', '--max-count=300', localHead])
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -299,10 +361,10 @@ async function main() {
   out(`INFO remote_head=${remoteHead.slice(0, 12)}`);
 
   // ---- 基点
-  const base = await resolveBase(remoteHead);
+  const base = await resolveBase(remoteHead, localHead);
   out(`INFO base=${base.sha.slice(0, 12)} (${base.how})`);
 
-  const list = git(['rev-list', '--reverse', `${base.sha}..HEAD`])
+  const list = git(['rev-list', '--reverse', `${base.sha}..${localHead}`])
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -310,9 +372,10 @@ async function main() {
   if (list.length === 0) {
     // 内容级确认一遍，避免"sha 不同但内容一致"被误报成待推送
     const remoteCommit = await api(`/git/commits/${remoteHead}`);
-    const d = diffMaps(localTreeMap('HEAD'), await remoteTreeMap(remoteCommit.tree.sha));
+    const d = diffMaps(localTreeMap(localHead), await remoteTreeMap(remoteCommit.tree.sha));
     if (!diffIsEmpty(d)) {
-      out(`WARN sha 上无待推送提交，但远端 head 与本地 HEAD 内容不一致（onlyLocal=${d.onlyLocal.length} onlyRemote=${d.onlyRemote.length} shaMismatch=${d.shaMismatch.length}）`);
+      out(`WARN sha 上无待推送提交，但远端 head 与 ${localHead.slice(0, 12)} 内容不一致（onlyLocal=${d.onlyLocal.length} onlyRemote=${d.onlyRemote.length} shaMismatch=${d.shaMismatch.length}）`);
+      printDiff(d, localHead);
       out('CONTENT_CHECK=FAIL');
       process.exit(EXIT_FAIL);
     }
@@ -386,19 +449,29 @@ async function main() {
   }
   out(`REMOTE_HEAD=${finalRef.object.sha}`);
 
-  // ---- 内容级校验（唯一可信判据）
-  const finalCommit = await api(`/git/commits/${finalRef.object.sha}`);
-  const d = diffMaps(localTreeMap('HEAD'), await remoteTreeMap(finalCommit.tree.sha));
-  if (!diffIsEmpty(d)) {
-    out(`only_local(${d.onlyLocal.length}): ${d.onlyLocal.slice(0, 10).join(', ')}`);
-    out(`only_remote(${d.onlyRemote.length}): ${d.onlyRemote.slice(0, 10).join(', ')}`);
-    out(`sha_mismatch(${d.shaMismatch.length}):`);
-    for (const m of d.shaMismatch.slice(0, 10)) out(`  ${m.path} local=${m.local} remote=${m.remote}`);
-    out('CONTENT_CHECK=FAIL');
-    die('远端内容与本地 HEAD 不一致，拒绝声明成功');
+  // ---- HEAD 漂移检测（只告警，不改变判定基准，也不判失败）
+  const headNow = git(['rev-parse', 'HEAD']).trim();
+  if (headNow !== localHead) {
+    const extra = git(['rev-list', '--count', `${localHead}..${headNow}`]).trim();
+    out(
+      `WARN HEAD_MOVED_DURING_RUN 开始=${localHead.slice(0, 12)} 现在=${headNow.slice(0, 12)}（运行期内又落地 ${extra} 个提交）`
+    );
+    out(`WARN 本次只推了 ${localHead.slice(0, 12)}；内容比对基准已冻结在该 commit，不随 HEAD 漂移`);
   }
-  const fileCount = localTreeMap('HEAD').size;
-  out(`CONTENT_CHECK=OK files=${fileCount}`);
+
+  // ---- 内容级校验（唯一可信判据）
+  // 基准 = 本次实际推送的 commit。绝不用符号 'HEAD'（会漂移），绝不用工作区/索引（常态为脏）。
+  const baseline = localHead;
+  const baselineMap = localTreeMap(baseline);
+  const finalCommit = await api(`/git/commits/${finalRef.object.sha}`);
+  const d = diffMaps(baselineMap, await remoteTreeMap(finalCommit.tree.sha));
+  if (!diffIsEmpty(d)) {
+    out(`BASELINE=commit ${baseline.slice(0, 12)}（不是工作区，不是符号 HEAD）`);
+    printDiff(d, baseline);
+    out('CONTENT_CHECK=FAIL');
+    die(`远端内容与本次推送的 commit ${baseline.slice(0, 12)} 不一致，拒绝声明成功`);
+  }
+  out(`CONTENT_CHECK=OK files=${baselineMap.size} baseline=${baseline.slice(0, 12)}`);
 
   // ---- 纪律 3：对齐本地远端跟踪 ref（只能指向本地 commit）
   git(['update-ref', `refs/remotes/${REMOTE}/${BRANCH}`, localHead]);
