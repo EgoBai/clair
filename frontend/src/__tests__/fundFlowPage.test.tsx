@@ -39,6 +39,50 @@ const MARKET_REAL = {
   },
   updateTime: '2026-10-30T07:00:00.000Z',
   source: 'eastmoney',
+  // 刻意与 tradeDate 错开：页面上的日期必须取自 asOf，而不是从 tradeDate 顶替
+  asOf: '2026-10-28',
+  asOfIsFallback: false,
+};
+
+/** 数据日期缺失（后端未透出 asOf）：不得默认成今天，也不得拿 tradeDate 顶替 */
+const MARKET_NO_ASOF = {
+  ...MARKET_REAL,
+  asOf: null,
+  asOfIsFallback: false,
+};
+
+/** 今天非交易日 → 后端回退到最近交易日，并给出原因 */
+const MARKET_ASOF_FALLBACK = {
+  ...MARKET_REAL,
+  asOf: '2026-10-28',
+  asOfIsFallback: true,
+  asOfNote: '2026-10-31 为周末休市，已回退至最近交易日 2026-10-28',
+};
+
+/** 字段级缺失（新契约：后端逐字段给 null，而不是 0）*/
+const MARKET_FIELD_NULL = {
+  ...MARKET_REAL,
+  market: {
+    ...MARKET_REAL.market,
+    totalTurnover: null,
+    risingStocks: null,
+    fallingStocks: null,
+    limitUpCount: null,
+    limitDownCount: null,
+  },
+};
+
+/** 真实 0：全市场确实零涨停/零跌停，必须渲染 0，不能渲染成「—」 */
+const MARKET_REAL_ZERO = {
+  ...MARKET_REAL,
+  market: {
+    ...MARKET_REAL.market,
+    totalTurnover: 0,
+    risingStocks: 0,
+    fallingStocks: 0,
+    limitUpCount: 0,
+    limitDownCount: 0,
+  },
 };
 
 /** 降级态：5 档与市场广度都取不到，后端如实给 null + source:'unavailable' */
@@ -230,5 +274,81 @@ describe('请求失败：说「未能取到」，绝不说「暂无数据」', (
     expect(document.body.textContent).toContain('不代表全市场没有涨跌家数');
     // market 整体为 null 时不应再渲染一排「—」，更不能渲染一排 0
     expect(screen.queryByText('上涨家数')).toBeNull();
+    // 请求彻底失败时没有 asOf 可标，不得凭空造一个日期标注
+    expect(screen.queryByTestId('fund-flow-data-date')).toBeNull();
+  });
+});
+
+// ── 场景五：数据所属交易日（asOf）────────────────────────────────────────
+
+describe('数据日期标注：只如实展示 asOf', () => {
+  it('asOf 存在 → 页面展示该交易日（取自 asOf，非 tradeDate）', async () => {
+    routeFetch(baseRoutes({ body: MARKET_REAL }));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('fund-flow-data-date')).toBeTruthy());
+    const node = screen.getByTestId('fund-flow-data-date');
+    expect(node.textContent).toContain('数据日期');
+    expect(node.textContent).toContain('2026-10-28'); // asOf
+    // tradeDate(2026-10-30) 不得冒充数据日期
+    expect(node.textContent).not.toContain('2026-10-30');
+  });
+
+  it('asOf 缺失 → 显示「不可得」，绝不默认成今天、也不拿 tradeDate 顶替', async () => {
+    routeFetch(baseRoutes({ body: MARKET_NO_ASOF }));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('fund-flow-data-date')).toBeTruthy());
+    const node = screen.getByTestId('fund-flow-data-date');
+    expect(node.textContent).toContain('不可得');
+    expect(node.textContent).not.toContain('2026-10-30'); // 不拿 tradeDate 冒充
+    expect(node.textContent).not.toContain('今天');
+    // 全页不得出现「今天」字样（把旧数据说成实时是最严重的失真）
+    expect(document.body.textContent).not.toContain('今天');
+    // 日期缺失不影响数字本身的如实渲染
+    expect(statText('上涨家数')).toContain('2,345');
+  });
+
+  it('asOfIsFallback:true → 一并展示 asOfNote 说明为何不是今天', async () => {
+    routeFetch(baseRoutes({ body: MARKET_ASOF_FALLBACK }));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('fund-flow-asof-note')).toBeTruthy());
+    const note = screen.getByTestId('fund-flow-asof-note');
+    expect(note.textContent).toContain('2026-10-31 为周末休市');
+    expect(note.textContent).toContain('已回退至最近交易日');
+    // 日期标注本体仍在
+    expect(screen.getByTestId('fund-flow-data-date').textContent).toContain('2026-10-28');
+  });
+});
+
+// ── 场景六：字段级 null vs 真实 0（新契约）──────────────────────────────
+
+describe('字段级 null 与真实 0 必须区分', () => {
+  it('字段为 null → 渲染「—」', async () => {
+    routeFetch(baseRoutes({ body: MARKET_FIELD_NULL }));
+    renderPage();
+
+    await waitFor(() => expect(statText('上涨家数')).toContain('—'));
+    for (const label of ['上涨家数', '下跌家数', '涨停', '跌停', '全市场成交额']) {
+      expect(statText(label), `${label} 为 null 应显示「—」`).toContain('—');
+    }
+    // 单字段缺失不等于整体降级（market 行存在），不应误报 unavailable
+    expect(screen.queryByTestId('fund-flow-market-degraded')).toBeNull();
+  });
+
+  it('字段为真实 0 → 渲染 0，不得渲染成「—」', async () => {
+    routeFetch(baseRoutes({ body: MARKET_REAL_ZERO }));
+    renderPage();
+
+    await waitFor(() => expect(statText('上涨家数')).toContain('0'));
+    for (const label of ['上涨家数', '下跌家数', '涨停', '跌停']) {
+      const text = statText(label);
+      expect(text, `${label} 真值为 0 时必须显示 0`).toContain('0');
+      expect(text, `${label} 真值为 0 时不得显示缺失占位`).not.toContain('—');
+    }
+    // 成交额 0 → 「0亿」，不是「—」
+    expect(statText('全市场成交额')).toContain('0亿');
+    expect(statText('全市场成交额')).not.toContain('—');
   });
 });

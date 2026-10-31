@@ -62,6 +62,15 @@ const fmtTurnover = (v: number | null | undefined): string => {
   return v >= 1e12 ? `${(v / 1e12).toFixed(2)}万亿` : `${(v / 1e8).toFixed(0)}亿`;
 };
 
+/**
+ * 数据所属交易日标注：只如实展示后端 `asOf`。
+ *
+ * 红线：**缺失时绝不默认成「今天」**——把上个月的旧数据标成今天，比不标日期更糟；
+ * 空串同样视为缺失（后端不该给，但防御一下，免得渲染成「数据日期 」这种半截文案）。
+ */
+const asOfLabel = (asOf: string | null | undefined): string =>
+  (typeof asOf === 'string' && asOf.trim() !== '' ? asOf : '不可得');
+
 /** dataSource → Tag：真实源 blue / demo gold「演示数据」 / unavailable gray「不可得」 / 未标注 gray */
 function dsTag(ds?: FundFlowProviderName | 'unknown') {
   if (!ds || ds === 'unknown') return <Tag color="default">未标注</Tag>;
@@ -291,6 +300,21 @@ const FundFlowPage: React.FC = () => {
           <LoadingStateDetail />
         ) : market ? (
           <>
+            {/* 数据所属交易日：只展示后端 asOf，缺失时说「不可得」，绝不默认成今天 */}
+            {market.market != null && (
+              <div
+                data-testid="fund-flow-data-date"
+                style={{ color: THEME.textSec, fontSize: 12, marginBottom: 10 }}
+              >
+                数据日期 {asOfLabel(market.asOf)}
+                {market.asOfIsFallback === true && (
+                  <span data-testid="fund-flow-asof-note">
+                    {' · '}
+                    {market.asOfNote || '非当日最近交易日（已按交易日历回退）'}
+                  </span>
+                )}
+              </div>
+            )}
             {/* 市场广度缺失时的可解释降级：绝不用一排 0 冒充「全市场平盘」 */}
             {marketStatus && (
               <div data-testid="fund-flow-market-degraded">

@@ -33,11 +33,22 @@ export interface MarketFundFlowResp {
   };
   market: {
     tradeDate: string | null;
+    /**
+     * 以下业务量字段的**真值域是 `number | null`**：后端把「取不到」表达为 null，
+     * 真实的 0（例如全市场零涨停）仍然是 0。前端必须区分这两者——
+     * 把 null 渲染成 0 会把「数据缺失」说成「全市场平盘」（诚实数据红线）。
+     */
     totalTurnover: number | null;
-    risingStocks: number; fallingStocks: number; unchangedStocks: number;
-    limitUpCount: number; limitDownCount: number; totalStocks: number;
+    risingStocks: number | null; fallingStocks: number | null; unchangedStocks: number | null;
+    limitUpCount: number | null; limitDownCount: number | null; totalStocks: number | null;
   } | null;
   updateTime: string;
   source: FundFlowProviderName | 'unavailable';
   note?: string;
+  /** 数据所属交易日（后端经交易日历解析后如实透出，P0-CALWIRE / R3 交易日收口） */
+  asOf?: string | null;
+  /** 该交易日是否为「今天不是交易日、回退到最近交易日」的兜底结果 */
+  asOfIsFallback?: boolean;
+  /** 回退原因说明（仅在 asOfIsFallback 为真时有意义） */
+  asOfNote?: string | null;
 }
