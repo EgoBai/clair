@@ -16,6 +16,8 @@ import {
   Card, Row, Col, Statistic, Table, Tag, Typography, Input, Button, Space, Collapse, Alert,
 } from 'antd';
 import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
+import { ApiStatusNotice } from '../components/Common/ApiStatusNotice';
+import { type ApiStatus } from '../utils/apiStatus';
 import { SearchOutlined } from '@ant-design/icons';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
@@ -45,9 +47,27 @@ const flowColor = (v: number): string => (v >= 0 ? THEME.up : THEME.down);
 const fmtSigned = (v: number): string => `${v >= 0 ? '+' : '-'}${formatLargeNumber(Math.abs(v))}`;
 const QUICK_SYMBOLS = ['600519.SH', '000001.SZ', '300750.SZ', '601318.SH'];
 
-/** dataSource → Tag：真实源 blue / demo gold「演示数据」 / 未标注 gray */
+/**
+ * 缺失值 → 「—」，**绝不兜成 0**。
+ *
+ * 诚实数据红线：后端把「取不到」表达为 `null`（`market` 整体为 null，或某字段为 null）。
+ * 若前端写 `?? 0`，页面就会渲染出「0 家上涨 / 0 家下跌 / 0 家涨停」——
+ * 用户读到的是「今天全市场平盘」，而事实是「数据没取到」。这两个事实必须分开说。
+ */
+const dashIfNull = (v: number | null | undefined): string => (v == null ? '—' : String(v));
+
+/** 成交额格式化：null（未取到）→ 「—」，不得渲染成「0 亿」 */
+const fmtTurnover = (v: number | null | undefined): string => {
+  if (v == null) return '—';
+  return v >= 1e12 ? `${(v / 1e12).toFixed(2)}万亿` : `${(v / 1e8).toFixed(0)}亿`;
+};
+
+/** dataSource → Tag：真实源 blue / demo gold「演示数据」 / unavailable gray「不可得」 / 未标注 gray */
 function dsTag(ds?: FundFlowProviderName | 'unknown') {
   if (!ds || ds === 'unknown') return <Tag color="default">未标注</Tag>;
+  // 'unavailable' 是「数据源没有给值」，不是某个 provider 的名字——不能沿用真实源的蓝色，
+  // 否则「数据不可得」会被读成「已有真实数据来源」。
+  if (ds === 'unavailable') return <Tag color="default">不可得</Tag>;
   const isDemo = ds === 'demo';
   return <Tag color={isDemo ? 'gold' : 'blue'}>{isDemo ? '演示数据' : ds}</Tag>;
 }
@@ -71,6 +91,14 @@ const FundFlowPage: React.FC = () => {
   // ── ① 市场概览：后端 /api/fund-flow/market（真实广度 + 诚实 5 档）──
   const [market, setMarket] = useState<MarketFundFlowResp | null>(null);
   const [marketLoading, setMarketLoading] = useState(true);
+  /**
+   * 市场概览的**降级形态**（唯一判别真源在 utils/apiStatus）。
+   * 后端两种「取不到」必须给用户不同说法：
+   *   - 200 + `market:null`      → unavailable（本地行情库当日无广度数据）
+   *   - 请求失败/后端不可达       → failed（请求没完成）
+   * 两种情况都**不能**渲染一排 0。
+   */
+  const [marketStatus, setMarketStatus] = useState<ApiStatus | null>(null);
   const marketDs = (market?.source ?? 'unknown') as FundFlowProviderName | 'unknown';
 
   // ── ⑤ /meta 诊断 ──
@@ -112,9 +140,24 @@ const FundFlowPage: React.FC = () => {
       setMarketLoading(true);
       try {
         const r = await apiFetch<MarketFundFlowResp>('/api/fund-flow/market');
-        if (alive) setMarket(r);
-      } catch {
-        if (alive) setMarket(null);
+        if (alive) {
+          setMarket(r);
+          // 广度（涨跌家数/涨跌停/成交额）与 5 档结构是两块独立事实：
+          // 只有广度本身缺失（market 为 null）才判 unavailable，5 档缺失由数据源 Tag 与下方空态各自表达。
+          setMarketStatus(
+            r.market
+              ? null
+              : { kind: 'unavailable', reason: r.note ?? '本地行情库无当日广度数据' },
+          );
+        }
+      } catch (e) {
+        if (alive) {
+          setMarket(null);
+          setMarketStatus({
+            kind: 'failed',
+            reason: e instanceof Error ? e.message : undefined,
+          });
+        }
       } finally {
         if (alive) setMarketLoading(false);
       }
@@ -248,21 +291,25 @@ const FundFlowPage: React.FC = () => {
           <LoadingStateDetail />
         ) : market ? (
           <>
-            {/* 真实市场广度 + 成交额（来自本地行情库） */}
+            {/* 市场广度缺失时的可解释降级：绝不用一排 0 冒充「全市场平盘」 */}
+            {marketStatus && (
+              <div data-testid="fund-flow-market-degraded">
+                <ApiStatusNotice
+                  status={marketStatus}
+                  moduleName="市场广度"
+                  style={{ marginBottom: 12 }}
+                  extra="上涨/下跌/涨跌停家数与成交额均未取到，下方以「—」占位——这不代表全市场平盘、也不代表零成交。"
+                />
+              </div>
+            )}
+            {/* 真实市场广度 + 成交额（来自本地行情库）；缺失一律「—」 */}
             <Row gutter={[16, 16]} style={{ marginBottom: 8 }}>
               {[
-                {
-                  l: '全市场成交额', v: market.market?.totalTurnover
-                    ? (market.market.totalTurnover >= 1e12
-                      ? `${(market.market.totalTurnover / 1e12).toFixed(2)}万亿`
-                      : `${(market.market.totalTurnover / 1e8).toFixed(0)}亿`)
-                    : '—',
-                  c: THEME.text,
-                },
-                { l: '上涨家数', v: String(market.market?.risingStocks ?? 0), c: THEME.up },
-                { l: '下跌家数', v: String(market.market?.fallingStocks ?? 0), c: THEME.down },
-                { l: '涨停', v: String(market.market?.limitUpCount ?? 0), c: THEME.up },
-                { l: '跌停', v: String(market.market?.limitDownCount ?? 0), c: THEME.down },
+                { l: '全市场成交额', v: fmtTurnover(market.market?.totalTurnover), c: THEME.text },
+                { l: '上涨家数', v: dashIfNull(market.market?.risingStocks), c: THEME.up },
+                { l: '下跌家数', v: dashIfNull(market.market?.fallingStocks), c: THEME.down },
+                { l: '涨停', v: dashIfNull(market.market?.limitUpCount), c: THEME.up },
+                { l: '跌停', v: dashIfNull(market.market?.limitDownCount), c: THEME.down },
               ].map((it) => (
                 <Col xs={12} sm={8} md={4} key={it.l}>
                   <Statistic title={<span style={{ color: THEME.textSec }}>{it.l}</span>}
@@ -281,9 +328,10 @@ const FundFlowPage: React.FC = () => {
                   { l: '小单', v: market.tiers.small },
                 ].map((it) => (
                   <Col xs={12} sm={8} md={4} key={it.l}>
+                    {/* 单档缺失（如超大单为 null）→ 「—」，不得经 Number(null) 变成「+0」 */}
                     <Statistic title={<span style={{ color: THEME.textSec }}>{it.l}</span>}
-                      value={fmtSigned(Number(it.v))}
-                      valueStyle={{ color: flowColor(Number(it.v)), fontSize: 15 }} />
+                      value={it.v == null ? '—' : fmtSigned(it.v)}
+                      valueStyle={{ color: it.v == null ? THEME.textSec : flowColor(it.v), fontSize: 15 }} />
                   </Col>
                 ))}
               </Row>
@@ -294,6 +342,13 @@ const FundFlowPage: React.FC = () => {
               />
             )}
           </>
+        ) : marketStatus ? (
+          // 请求失败/后端不可达：说「没取到」，不能说「暂无数据」（后者会被读成「今天真的没有」）
+          <ApiStatusNotice
+            status={marketStatus}
+            moduleName="市场概览"
+            extra="这表示未能取到数据，不代表全市场没有涨跌家数。"
+          />
         ) : (
           <EmptyState title="暂无数据" />
         )}
