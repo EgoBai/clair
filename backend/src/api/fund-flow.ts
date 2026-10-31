@@ -337,7 +337,7 @@ router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response
 
     // 空值语义：字段缺失 → null（未取到）；真实 0 → 0（例如全市场零涨停）。
     // 严禁 `|| 0`：那会把"没取到"污染成"业务上是 0"，前端渲染「0 家上涨」。
-    const market = summary
+    const marketRaw = summary
       ? {
           tradeDate: summary.date ? new Date(summary.date).toISOString().slice(0, 10) : null,
           totalTurnover: honestNumber(summary.totalTurnover),
@@ -350,13 +350,15 @@ router.get('/fund-flow/market', asyncHandler(async (_req: Request, res: Response
         }
       : null;
 
-    // 「行存在」≠「拿到了数值」：库里有当日聚合行、但业务量字段全空时，
-    // 不能说市场广度是真实的，也不能降级成 0。
+    // 「行存在」≠「拿到了数值」：库里有当日聚合行、但 7 个业务量字段全空时，
+    // 整行等价于空 → 按契约返回 market: null（前端据此走 unavailable 降级），
+    // 绝不用 0 填一行假数据，也不用 null 分散成 7 个假"未知"。
     const marketHasValues =
-      !!market &&
-      [market.totalTurnover, market.risingStocks, market.fallingStocks,
-        market.unchangedStocks, market.limitUpCount, market.limitDownCount, market.totalStocks]
-        .some((v) => v !== null);
+      !!marketRaw &&
+      [marketRaw.totalTurnover, marketRaw.risingStocks, marketRaw.fallingStocks,
+        marketRaw.unchangedStocks, marketRaw.limitUpCount, marketRaw.limitDownCount,
+        marketRaw.totalStocks].some((v) => v !== null);
+    const market = marketHasValues ? marketRaw : null;
 
     // 尝试真实 5 档聚合（沙箱下通常不可达）
     const tiers = await fetchMarketTiers();

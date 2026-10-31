@@ -118,7 +118,7 @@ describe('/api/fund-flow/market · 钉子①：真实 0 仍是 0（不得被改�
 });
 
 describe('/api/fund-flow/market · 钉子②：缺失是 null（不得被兜成 0）', () => {
-  it('summary 行存在但字段为 null/undefined/空串/NaN → 全部 null', async () => {
+  it('summary 行存在但字段为 null/undefined/空串/NaN → 整行空 → market: null', async () => {
     dbMock.getMarketSummary.mockResolvedValue({
       date: new Date(`${AS_OF}T00:00:00Z`),
       totalStocks: undefined,
@@ -131,21 +131,18 @@ describe('/api/fund-flow/market · 钉子②：缺失是 null（不得被兜成 
     });
 
     const body = await getMarket();
-    const m = body.data.market;
 
-    // market 行存在（tradeDate 可读），但每个业务量都如实为 null
-    expect(m).not.toBeNull();
-    expect(m.tradeDate).toBe(AS_OF);
-    for (const k of ['totalStocks', 'totalTurnover', 'risingStocks', 'fallingStocks',
-      'unchangedStocks', 'limitUpCount', 'limitDownCount']) {
-      expect(m[k], `${k} 被兜成了 ${JSON.stringify(m[k])}，应为 null`).toBeNull();
-    }
-
-    // 行存在但全空 ≠ 广度真实：不得标 partial
+    // 契约：7 个业务量字段全空 → 整行等价于空，返回 market: null（前端走 unavailable 降级），
+    // 既不填 0，也不吐一个 7 字段全 null 的"假数据行"
+    expect(body.data.market).toBeNull();
     expect(body.dataSource).toBe('unavailable');
-    // 文案不得断言「来自本地真实行情」
+    // 文案不得断言「来自本地真实行情」，但要交代"行在、字段空"
     expect(body.data.note).not.toContain('来自本地真实行情');
+    expect(body.data.note).not.toContain('本地真实行情');
     expect(body.data.note).toContain('字段为空');
+    // 降级时仍如实透出本次解析到的交易日（前端 asOf 恒给契约）
+    expect(body.data.asOf).toBe(AS_OF);
+    expect(body.data.asOfIsFallback).toBe(true);
   });
 
   it('summary 整体为 null → market 为 null（不是全 0 对象）', async () => {
@@ -205,6 +202,24 @@ describe('/api/fund-flow/market · R3 交易日字段与 note 文案', () => {
     // 交易日解析结果透传给 db 查询（UTC 零点）
     const d = dbMock.getMarketSummary.mock.calls[0][0] as Date;
     expect(d.toISOString()).toBe(`${AS_OF}T00:00:00.000Z`);
+  });
+
+  it('asOfIsFallback 是真布尔（前端用 === true 严格判断，绝不接受 "true"）', async () => {
+    dbMock.getMarketSummary.mockResolvedValue({
+      date: new Date(`${AS_OF}T00:00:00Z`),
+      totalStocks: 5183, totalTurnover: 3.2e12, risingStocks: 755, fallingStocks: 4368,
+      unchangedStocks: 60, limitUpCount: 39, limitDownCount: 8,
+    });
+    const ok = await getMarket();
+    expect(typeof ok.data.asOfIsFallback).toBe('boolean');
+    expect(ok.data.asOfIsFallback).toBe(true);
+
+    // 降级（market: null）时同样是真布尔，不被字符串化
+    dbMock.getMarketSummary.mockResolvedValue(null);
+    const degraded = await getMarket();
+    expect(typeof degraded.data.asOfIsFallback).toBe('boolean');
+    expect(degraded.data.asOfIsFallback).toBe(true);
+    expect(degraded.data.asOf).toBe(AS_OF);
   });
 
   it('广度可用 + tiers 不可用：note 说明 tiers 缺失，并如实交代广度来源与口径', async () => {
