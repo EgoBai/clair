@@ -7,6 +7,7 @@ import knex, { Knex } from 'knex';
 import { Stock, DailyQuote, DailyQuoteInput, StockSearchParams, StockWithQuotes } from '../models/Stock';
 import { classifyStock } from '@shared/industryClassification';
 import { symbolCandidates } from '../utils/symbolUtils';
+import { exchangeLimitPrices, isAtLimitUp, isAtLimitDown } from '../utils/exchangeLimit';
 
 // ==================== 行映射（snake_case → camelCase） ====================
 // ⚠️ P0-SYMBOL：映射必须**只有这一处**。历史上 getStocksWithLatestQuotes 读
@@ -539,6 +540,7 @@ export class Database {
         'stocks.symbol',
         'stocks.name',
         'daily_quotes.close_price',
+        'daily_quotes.change_amount',
         'daily_quotes.change_percent',
         'daily_quotes.volume',
         'daily_quotes.turnover',
@@ -560,10 +562,38 @@ export class Database {
     const fallingStocks = dailyQuotes.filter(quote => Number(quote.change_percent) < 0).length;
     const unchangedStocks = dailyQuotes.filter(quote => Number(quote.change_percent) === 0).length;
 
-    // 涨跌停统计 (A股 ±10% 为基准, 科创板/创业板 ±20%, ST ±5%)
-    // 简化: change_percent >= 9.5% 算涨停, <= -9.5% 算跌停
-    const limitUpCount = dailyQuotes.filter(quote => Number(quote.change_percent) >= 9.5).length;
-    const limitDownCount = dailyQuotes.filter(quote => Number(quote.change_percent) <= -9.5).length;
+    // 涨跌停统计：按**交易所涨跌停价**逐只判定，与 services/marketBreadth（腾讯 f47/f48）
+    // 收敛到同一实现（utils/exchangeLimit），不再用 `change_percent >= 9.5%` 近似。
+    //
+    // 缺陷背景：旧近似口径在 2026-10-30（均涨幅 -2.83% 的大跌日）把真实 49/93
+    // 虚报成 58/207（跌停 +122.6%），且与同后端 /api/breadth/current 的 49/93 打架。
+    //
+    // 前收盘价还原：`close_price - change_amount`（该日 5184 行 change_amount 与
+    // change_percent 完全自洽，偏差 ≤0.02pp）。前收盘价缺失 → 该行**不可判定**，
+    // 计入 limitCounts.unjudged 并如实披露，**绝不回退到 ±9.5% 冒充精确**；
+    // 若全表不可判定，则两个家数返回 null 而非 0。
+    let limitUpCount = 0;
+    let limitDownCount = 0;
+    let limitJudged = 0;
+    for (const raw of dailyQuotes) {
+      // knex 原样返回 snake_case 行（含 stocks.symbol / daily_quotes.change_amount），
+      // DailyQuote 类型不含这两列，故此处显式收窄。
+      const quote = raw as unknown as {
+        symbol?: string;
+        close_price?: number | string | null;
+        change_amount?: number | string | null;
+      };
+      const close = Number(quote.close_price);
+      const chg = quote.change_amount;
+      if (chg === null || chg === undefined) continue;
+      const prevClose = close - Number(chg);
+      const prices = exchangeLimitPrices(prevClose, String(quote.symbol ?? ''));
+      if (!prices || !(close > 0)) continue;
+      limitJudged++;
+      if (isAtLimitUp(close, prices.limitUpPrice)) limitUpCount++;
+      if (isAtLimitDown(close, prices.limitDownPrice)) limitDownCount++;
+    }
+    const limitUnjudged = dailyQuotes.length - limitJudged;
 
     // 按行业分组
     const industryStats = await this.knexInstance.raw(`
@@ -589,8 +619,20 @@ export class Database {
       risingStocks,
       fallingStocks,
       unchangedStocks,
-      limitUpCount,
-      limitDownCount,
+      limitUpCount: limitJudged > 0 ? limitUpCount : null,
+      limitDownCount: limitJudged > 0 ? limitDownCount : null,
+      limitCounts: {
+        method: 'exchange-limit-price',
+        judged: limitJudged,
+        unjudged: limitUnjudged,
+        caliber:
+          '现价 vs 交易所涨跌停价（科创板/创业板 ±20%、北交所 ±30%、沪深主板 ±10%，' +
+          '由前收盘价按制度推算，容差 0.005 元），与 /api/breadth/current 共用 utils/exchangeLimit；' +
+          '非「涨跌幅 ≥9.5%」阈值近似。',
+        ...(limitUnjudged > 0
+          ? { note: `${limitUnjudged} 只标的前收盘价缺失（change_amount 为空），未参与涨跌停判定` }
+          : {}),
+      },
       industryPerformance: industryStats.rows
     };
   }
@@ -633,8 +675,7 @@ export class Database {
         COUNT(*) as stock_count,
         ROUND(AVG(dq.change_percent)::numeric, 2) as avg_change_percent,
         SUM(dq.turnover) as total_turnover,
-        SUM(dq.market_cap) as total_market_cap,
-        SUM(CASE WHEN dq.change_percent >= 9.9 THEN 1 ELSE 0 END) as limit_up_count
+        SUM(dq.market_cap) as total_market_cap
       FROM daily_quotes dq
       JOIN stocks s ON dq.stock_id = s.id
       WHERE dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)
@@ -643,7 +684,42 @@ export class Database {
       GROUP BY s.industry
       ORDER BY avg_change_percent DESC
     `);
-    return result.rows;
+
+    // 涨停家数（P0 缺陷 2 第三套口径）：原 `SUM(CASE WHEN change_percent >= 9.9 ...)`
+    // 是阈值近似，与 getMarketSummary（曾 >=9.5）、marketBreadth（交易所涨跌停价）
+    // 构成同一天三套涨停口径。此处改为逐只按交易所涨跌停价判定，与上述两处共用
+    // utils/exchangeLimit。SQL 只负责个股维度取数，判定在 JS 内完成。
+    const perStock = await this.knexInstance.raw(`
+      SELECT s.industry, s.symbol, dq.close_price, dq.change_amount
+      FROM daily_quotes dq
+      JOIN stocks s ON dq.stock_id = s.id
+      WHERE dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)
+        AND s.industry IS NOT NULL
+        AND s.is_active = true
+    `);
+    const limitUpByIndustry = new Map<string, number>();
+    for (const raw of perStock.rows as Array<Record<string, unknown>>) {
+      const industry = String(raw.industry ?? '');
+      const close = Number(raw.close_price);
+      const chg = raw.change_amount;
+      if (!industry || chg === null || chg === undefined) continue;
+      const prices = exchangeLimitPrices(close - Number(chg), String(raw.symbol ?? ''));
+      if (!prices || !(close > 0)) continue;
+      if (isAtLimitUp(close, prices.limitUpPrice)) {
+        limitUpByIndustry.set(industry, (limitUpByIndustry.get(industry) ?? 0) + 1);
+      }
+    }
+
+    return (result.rows as Array<Record<string, unknown>>).map((row) => ({
+      // 逐字段显式映射：raw() 返回 snake_case 原样行，且 numeric 列为 string，
+      // 这里保持与改造前完全一致的取值（不擅自做类型转换）。
+      industry: String(row.industry ?? ''),
+      stock_count: row.stock_count as number,
+      avg_change_percent: row.avg_change_percent as number,
+      total_turnover: row.total_turnover as number,
+      total_market_cap: row.total_market_cap as number,
+      limit_up_count: limitUpByIndustry.get(String(row.industry ?? '')) ?? 0,
+    }));
   }
 
   /** 板块景气度综合评分 (0-100) */

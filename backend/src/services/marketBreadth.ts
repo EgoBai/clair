@@ -11,11 +11,14 @@
  * 诚实红线：
  * - 绝不用 0/随机数/估算值冒充真实统计；覆盖不足时直接抛 BreadthUnavailableError。
  * - 涨跌停判定使用腾讯返回的真实涨跌停价字段（[47]/[48]），非涨跌幅阈值近似，
- *   因此包含科创板/创业板 ±20%、ST ±5%、B 股 ±5% 等全部真实涨跌停制度。
+ *   因此包含科创板/创业板 ±20%、北交所 ±30%、ST 等全部真实涨跌停制度
+ *   （2026-10-30 全市场逐只核对：ST/*ST 实际同为 ±10%，详见 utils/exchangeLimit）。
+ * - 标的清单剔除指数行、剔除当日成交额为 0 的标的，二者都会让「全市场」口径失真。
  */
 
 import { EventEmitter } from 'events';
 import { getDb } from '../db/dbFactory';
+import { isAtLimitUp, isAtLimitDown } from '../utils/exchangeLimit';
 
 const TENCENT_QUOTE_ENDPOINT = 'https://qt.gtimg.cn/q=';
 const FETCH_TIMEOUT_MS = 8000;
@@ -71,11 +74,15 @@ export interface BreadthData {
   dataSource: string;
   /** 统计口径说明，供前端/用户核对，避免误读 */
   caliber: string;
-  /** 标的清单总数（来自 stocks 表） */
+  /** 标的清单总数（来自 stocks 表，已剔除指数行） */
   requestedSymbols: number;
-  /** 腾讯实际返回报价的标的数 */
+  /** 腾讯实际返回报价**且当日有成交**的标的数（= 计入涨跌家数的口径） */
   quotedSymbols: number;
-  /** 请求了但源侧无报价（退市/长期停牌/代码不在腾讯行情库）的标的数 */
+  /** 有报价但当日成交额为 0（退市/停牌）的标的数，不计入涨跌家数与成交额 */
+  noTradeSymbols?: number;
+  /** 清单中被剔除的指数行条数（指数成交额为成份股合计，混入即重复计入） */
+  excludedIndexSymbols?: number;
+  /** 请求了但源侧无报价（代码不在腾讯行情库）的标的数 */
   uncoveredSymbols: number;
   /** 无真实源的字段名清单 */
   unavailableFields: string[];
@@ -113,13 +120,18 @@ const F = {
 /**
  * 归一为腾讯行情代码：`sh600000` / `sz000001` / `bj430047`。
  *
- * 不依赖 symbol 是否带 `.SH` 后缀 —— PostgreSQL 的 stocks 表是 `600000.SH`，
- * 内存库清单是裸 `600000`，两者的市场信息都在 `market` 列，故以 market 为准。
+ * **后缀优先**（P0 缺陷 1）：`symbol` 带 `.SH/.SZ/.BJ` 后缀时以后缀为唯一判据，
+ * `market` 列仅作兜底。此前以 market 列优先，而 `stocks` 表把 `000001.SH`
+ * （上证指数）的 market 错标为 `SZ`，于是该行被转成 `sz000001`（平安银行），
+ * 指数行被换成个股重复计入，成交额虚高。后缀是标的自身属性，不会被列错标污染。
  */
 export function toTencentQuoteSymbol(symbol: string, market?: string | null): string | null {
-  const bare = (symbol || '').toUpperCase().replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
+  const upper = (symbol || '').toUpperCase();
+  const suffix = (upper.match(/\.(SH|SZ|BJ)$/) || [])[1];
+  const bare = upper.replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
   if (!/^\d{6}$/.test(bare)) return null;
   const mkt =
+    suffix ||
     (market || '').toUpperCase() ||
     (bare.startsWith('6') || bare.startsWith('9') ? 'SH'
       : bare.startsWith('0') || bare.startsWith('3') ? 'SZ'
@@ -129,6 +141,30 @@ export function toTencentQuoteSymbol(symbol: string, market?: string | null): st
   return mkt.toLowerCase() + bare;
 }
 
+/**
+ * 判断一行的 symbol 是否为**指数**（不能计入个股涨跌家数/成交额）。
+ *
+ * 判据 = 「交易所后缀 + 代码段」，不依赖 `industry` 列——实测 `stocks` 表里
+ * 5 条指数有 2 条 `industry` 为 NULL（000001.SH 上证指数、000905.SH 中证500），
+ * 只按 `industry='指数'` 会漏掉它们，正是成交额虚高 2.1 倍的直接原因。
+ *
+ * 代码段口径：
+ *   - `.SH` 且裸码 `000xxx` → 上证系列指数（000001 上证指数 / 000300 沪深300 /
+ *     000905 中证500 …）。注：`000001.SZ` 是平安银行个股，靠后缀区分。
+ *   - `.SZ` 且裸码 `399xxx` → 深证系列指数（399001 深证成指 / 399006 创业板指 …）。
+ *   - `.BJ` 且裸码 `899050` → 北证50。
+ */
+export function isIndexSymbol(symbol: string): boolean {
+  const upper = (symbol || '').toUpperCase();
+  const suffix = (upper.match(/\.(SH|SZ|BJ)$/) || [])[1];
+  const bare = upper.replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
+  if (!/^\d{6}$/.test(bare)) return false;
+  if (suffix === 'SH') return /^000\d{3}$/.test(bare);
+  if (suffix === 'SZ') return /^399\d{3}$/.test(bare);
+  if (suffix === 'BJ') return bare === '899050';
+  return false;
+}
+
 interface TencentQuoteRow {
   price: number;
   prevClose: number;
@@ -136,24 +172,43 @@ interface TencentQuoteRow {
   amountYuan: number;
   limitUpPrice: number;
   limitDownPrice: number;
+  /**
+   * 当日是否有成交（腾讯 f37 成交额 > 0）。
+   * 退市/长期停牌标的腾讯仍会返回一个陈旧「最新价」且成交额为 0，
+   * 计入涨跌家数会把它们算成「平盘」，与 PG（当日无 daily_quotes 行）口径打架。
+   */
+  traded: boolean;
 }
 
 /**
  * 读取真实股票清单（PostgreSQL `stocks` 表 / 内存库同一接口）。
  * 内存库仅保留真实股票清单（无行情），因此本函数在两种库下行为一致。
+ *
+ * **排除指数行**（P0 缺陷 1）：`stocks` 表混入 5 条指数（000001.SH/000300.SH/
+ * 000905.SH/399001.SZ/399006.SZ）。指数成交额本身就是其成份股成交额合计，
+ * 与个股清单一起求和等于**重复计入**——实测多出 1.82 万亿（虚高 110.7%）。
  */
-async function loadListedSymbols(): Promise<{ tencentSymbols: string[]; total: number }> {
+async function loadListedSymbols(): Promise<{
+  tencentSymbols: string[];
+  total: number;
+  excludedIndex: number;
+}> {
   const db = getDb();
   const rows = (await db.getStocks({ page: 1, pageSize: 6000 })) as Array<{
     symbol: string;
     market?: string;
   }>;
   const tencentSymbols: string[] = [];
+  let excludedIndex = 0;
   for (const r of rows) {
+    if (isIndexSymbol(r.symbol)) {
+      excludedIndex++;
+      continue;
+    }
     const s = toTencentQuoteSymbol(r.symbol, r.market);
     if (s) tencentSymbols.push(s);
   }
-  return { tencentSymbols, total: rows.length };
+  return { tencentSymbols, total: rows.length - excludedIndex, excludedIndex };
 }
 
 /** 拉取单批腾讯行情并解析（GBK → UTF-8，否则中文名乱码） */
@@ -194,6 +249,7 @@ async function fetchTencentBatch(tencentSymbols: string[]): Promise<TencentQuote
       amountYuan: toNum(f[F.AMOUNT_WAN]) * 10_000, // 万元 → 元
       limitUpPrice: toNum(f[F.LIMIT_UP]),
       limitDownPrice: toNum(f[F.LIMIT_DOWN]),
+      traded: toNum(f[F.AMOUNT_WAN]) > 0,
     });
   }
   return out;
@@ -226,13 +282,13 @@ async function fetchAllQuotes(tencentSymbols: string[]): Promise<TencentQuoteRow
 
 /**
  * 涨跌停判定：现价与腾讯返回的**交易所涨跌停价**比较（非涨跌幅阈值近似）。
- * 容差 0.005 元用于吸收最小报价单位（0.001）与浮点误差。
+ * 比较与容差收敛到 `utils/exchangeLimit.ts`（P0 缺陷 2：与 PG 路径共用同一实现）。
  */
 function isLimitUp(q: TencentQuoteRow): boolean {
-  return q.limitUpPrice > 0 && q.price >= q.limitUpPrice - 0.005;
+  return isAtLimitUp(q.price, q.limitUpPrice);
 }
 function isLimitDown(q: TencentQuoteRow): boolean {
-  return q.limitDownPrice > 0 && q.price <= q.limitDownPrice + 0.005;
+  return isAtLimitDown(q.price, q.limitDownPrice);
 }
 
 class MarketBreadthService extends EventEmitter {
@@ -252,22 +308,37 @@ class MarketBreadthService extends EventEmitter {
       return cached.data;
     }
 
-    const { tencentSymbols, total } = await loadListedSymbols();
+    const { tencentSymbols, total, excludedIndex } = await loadListedSymbols();
     if (tencentSymbols.length === 0) {
       throw new BreadthUnavailableError('真实股票清单为空（stocks 表无可用 symbol），无法计算涨跌家数');
     }
 
     const quotes = await fetchAllQuotes(tencentSymbols);
-    const quotedSymbols = quotes.length;
-    const coverage = quotedSymbols / tencentSymbols.length;
+    const returnedSymbols = quotes.length;
+    // 无成交（成交额 0）标的：退市/长期停牌，腾讯只给陈旧最新价，不能当作当天平盘
+    const tradedQuotes = quotes.filter((q) => q.traded);
+    const noTradeSymbols = returnedSymbols - tradedQuotes.length;
+    if (returnedSymbols > 0 && tradedQuotes.length === 0) {
+      throw new BreadthUnavailableError(
+        `腾讯行情已返回 ${returnedSymbols} 只报价但成交额全部为 0（盘前集合竞价或非交易日），` +
+        '当日尚无成交，拒绝把「未交易」输出成「平盘」',
+      );
+    }
+    const coverage = tradedQuotes.length / tencentSymbols.length;
     if (coverage < MIN_COVERAGE_RATIO) {
       throw new BreadthUnavailableError(
-        `腾讯行情覆盖率过低（${quotedSymbols}/${tencentSymbols.length}=${(coverage * 100).toFixed(1)}%），` +
+        `腾讯行情有效成交覆盖率过低（${tradedQuotes.length}/${tencentSymbols.length}=${(coverage * 100).toFixed(1)}%），` +
         '拒绝输出不完整市场的涨跌家数',
       );
     }
 
-    const data = buildBreadth(quotes, { total, requested: tencentSymbols.length, quoted: quotedSymbols });
+    const data = buildBreadth(tradedQuotes, {
+      total,
+      requested: tencentSymbols.length,
+      quoted: tradedQuotes.length,
+      noTrade: noTradeSymbols,
+      excludedIndex,
+    });
 
     this.cache.set(cacheKey, { data, expiry: Date.now() + this.CACHE_TTL });
     this.emit('breadth:update', data);
@@ -365,7 +436,7 @@ class MarketBreadthService extends EventEmitter {
  */
 function buildBreadth(
   quotes: TencentQuoteRow[],
-  meta: { total: number; requested: number; quoted: number },
+  meta: { total: number; requested: number; quoted: number; noTrade: number; excludedIndex: number },
 ): BreadthData {
   let advancing = 0;
   let declining = 0;
@@ -406,7 +477,7 @@ function buildBreadth(
   else if (sentimentScore < -20) marketSentiment = 'bearish';
   else marketSentiment = 'neutral';
 
-  const uncovered = Math.max(meta.requested - meta.quoted, 0);
+  const uncovered = Math.max(meta.requested - meta.quoted - meta.noTrade, 0);
 
   return {
     timestamp: Date.now(),
@@ -430,17 +501,27 @@ function buildBreadth(
     dataSource: 'tencent',
     caliber:
       '涨跌家数/成交额/涨跌停家数：腾讯 qt.gtimg.cn 逐标的真实行情本地聚合；' +
-      `标的清单=stocks 表真实清单（共 ${meta.total} 只，本次请求 ${meta.requested} 只、源侧返回报价 ${meta.quoted} 只）；` +
-      '涨跌停判定=现价与交易所涨跌停价比较（含 ±20%/±5% 全部制度，非涨跌幅阈值近似）；' +
+      `标的清单=stocks 表真实股票清单（共 ${meta.total} 只，已剔除 ${meta.excludedIndex} 条指数行——` +
+      '指数成交额为其成份股合计，混入即重复计入）；' +
+      `本次请求 ${meta.requested} 只、源侧返回报价 ${meta.quoted + meta.noTrade} 只，` +
+      `其中当日无成交 ${meta.noTrade} 只（成交额 0，退市/停牌）不计入涨跌家数与成交额，` +
+      `实际计入 ${meta.quoted} 只；` +
+      '涨跌停判定=现价与交易所涨跌停价比较（含 ±20%/±30% 全部制度，非涨跌幅阈值近似），' +
+      '与 /api/market/summary 共用 utils/exchangeLimit 同一实现；' +
       '涨跌停家数不计入 advancing/declining/unchanged 之外的其他字段。',
     requestedSymbols: meta.requested,
     quotedSymbols: meta.quoted,
+    noTradeSymbols: meta.noTrade,
+    excludedIndexSymbols: meta.excludedIndex,
     uncoveredSymbols: uncovered,
     unavailableFields: [...UNAVAILABLE_FIELDS],
     message:
       `newHighs/newLows 为 null：腾讯行情源不提供历史新高/新低统计（诚实不可用，非「0 = 今日无新高」）。` +
+      (meta.noTrade > 0
+        ? `另有 ${meta.noTrade} 只清单内标的当日成交额为 0（退市/停牌），未计入涨跌家数与平盘。`
+        : '') +
       (uncovered > 0
-        ? `另有 ${uncovered} 只清单内标的源侧无报价（退市/长期停牌/不在腾讯行情库），未计入涨跌家数。`
+        ? `另有 ${uncovered} 只清单内标的源侧无报价（代码不在腾讯行情库），未计入涨跌家数。`
         : ''),
   };
 }

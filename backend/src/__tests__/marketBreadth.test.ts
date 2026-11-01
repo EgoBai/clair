@@ -17,9 +17,14 @@ vi.mock('../db/dbFactory', () => ({
 }));
 
 import { getDb } from '../db/dbFactory';
-import { marketBreadthService, BreadthUnavailableError, toTencentQuoteSymbol } from '../services/marketBreadth';
+import { marketBreadthService, BreadthUnavailableError, toTencentQuoteSymbol, isIndexSymbol } from '../services/marketBreadth';
 
-/** 构造一条腾讯格式行情文本（GBK 解码后的 `~` 分隔形态，下标按生产代码） */
+/**
+ * 构造一条腾讯格式行情文本（GBK 解码后的 `~` 分隔形态，下标按生产代码）。
+ *
+ * ⚠️ 夹具注意：`name` 请用**偶数个汉字**。stub 走 `TextEncoder`(UTF-8) → `TextDecoder('gbk')`
+ * 往返，奇数个汉字会因 GBK 双字节对齐吃掉一个 `~` 分隔符，导致字段错位、该行被解析器丢弃。
+ */
 function txLine(opts: {
   symbol: string;
   name?: string;
@@ -29,8 +34,7 @@ function txLine(opts: {
   amountWan?: number;
   limitUp?: number;
   limitDown?: number;
-}): string {
-  const f = new Array(49).fill('');
+}): string {  const f = new Array(49).fill('');
   f[1] = opts.name ?? '测试股';
   f[2] = opts.symbol;
   f[3] = String(opts.price);
@@ -81,6 +85,13 @@ describe('toTencentQuoteSymbol', () => {
     expect(toTencentQuoteSymbol('430047.BJ', 'BJ')).toBe('bj430047');
   });
 
+  it('**后缀优先于 market 列**（P0 缺陷 1：000001.SH 的 market 被错标为 SZ）', () => {
+    // 旧实现以 market 优先 → sz000001（平安银行），指数行被换成个股重复计入
+    expect(toTencentQuoteSymbol('000001.SH', 'SZ')).toBe('sh000001');
+    expect(toTencentQuoteSymbol('000905.SH', 'SZ')).toBe('sh000905');
+    expect(toTencentQuoteSymbol('000001.SZ', 'SH')).toBe('sz000001');
+  });
+
   it('内存库式裸码 + market 同样正确', () => {
     expect(toTencentQuoteSymbol('600000', 'SH')).toBe('sh600000');
     expect(toTencentQuoteSymbol('sh600000')).toBe('sh600000');
@@ -89,6 +100,23 @@ describe('toTencentQuoteSymbol', () => {
   it('非法代码返回 null（不构造脏请求）', () => {
     expect(toTencentQuoteSymbol('ABCDEF', 'SH')).toBeNull();
     expect(toTencentQuoteSymbol('', 'SH')).toBeNull();
+  });
+});
+
+describe('isIndexSymbol（指数行判据 = 后缀 + 代码段）', () => {
+  it('5 条真实指数行全部命中；同代码段个股不误伤', () => {
+    for (const s of ['000001.SH', '000300.SH', '000905.SH', '399001.SZ', '399006.SZ']) {
+      expect(isIndexSymbol(s)).toBe(true);
+    }
+    // 000001.SZ 是平安银行个股，399 段之外的深市个股都不是指数
+    expect(isIndexSymbol('000001.SZ')).toBe(false);
+    expect(isIndexSymbol('600519.SH')).toBe(false);
+    expect(isIndexSymbol('300750.SZ')).toBe(false);
+    expect(isIndexSymbol('430047.BJ')).toBe(false);
+  });
+
+  it('北证50（899050.BJ）命中', () => {
+    expect(isIndexSymbol('899050.BJ')).toBe(true);
   });
 });
 
@@ -199,6 +227,60 @@ describe('MarketBreadthService (honest-data)', () => {
       expect(data.quotedSymbols).toBe(2);
       expect(data.uncoveredSymbols).toBe(1);
       expect(data.totalStocks).toBe(2);
+    });
+
+    it('清单中的指数行被剔除（P0 缺陷 1：指数成交额为成份股合计，混入即重复计入）', async () => {
+      (getDb as any).mockReturnValue({
+        getStocks: vi.fn(async () => [
+          ...LISTING,
+          // 真实数据里 000001.SH 的 market 列被错标为 SZ，旧实现会转成 sz000001 重复计数
+          { symbol: '000001.SH', name: '上证指数', market: 'SZ' },
+          { symbol: '399006.SZ', name: '创业板指', market: 'SZ' },
+        ]),
+      });
+      stubFetch({
+        ...LINES,
+        sh000001: txLine({ symbol: 'sh000001', name: '上证指数', price: 3200, prevClose: 3300, changePercent: -3.03, amountWan: 500000 }),
+        sz399006: txLine({ symbol: 'sz399006', name: '创业板指', price: 2000, prevClose: 2100, changePercent: -4.76, amountWan: 300000 }),
+      });
+      marketBreadthService.clearCache();
+
+      const data = await marketBreadthService.calculateBreadth();
+
+      // 指数既不计家数也不计入成交额
+      expect(data.excludedIndexSymbols).toBe(2);
+      expect(data.requestedSymbols).toBe(3);
+      expect(data.totalStocks).toBe(3);
+      expect(data.turnover).toBe(60000 * 10_000);
+      expect(data.declining).toBe(1); // 只有平安银行下跌，指数不计
+      expect(data.caliber).toContain('指数');
+    });
+
+    it('当日成交额为 0 的标的（停牌/退市）不计入平盘，单列 noTradeSymbols', async () => {
+      stubFetch({
+        ...LINES,
+        // 停牌股：腾讯仍给陈旧最新价，但成交额 0 —— 不能算成「今日平盘」
+        sz000001: txLine({ symbol: 'sz000001', name: '停牌标的', price: 11.35, prevClose: 11.35, changePercent: 0, amountWan: 0 }),
+      });
+      marketBreadthService.clearCache();
+
+      const data = await marketBreadthService.calculateBreadth();
+      expect(data.noTradeSymbols).toBe(1);
+      expect(data.totalStocks).toBe(2); // 浦发 + 茅台
+      expect(data.unchanged).toBe(1); // 只有茅台是真平盘
+      expect(data.turnover).toBe(40000 * 10_000);
+      expect(data.message).toContain('成交额为 0');
+    });
+
+    it('全部标的成交额为 0（盘前/非交易日）→ 抛 Unavailable，不把「未交易」输出成「平盘」', async () => {
+      stubFetch({
+        sh600000: txLine({ symbol: 'sh600000', name: '测试股份', price: 9.48, prevClose: 9.48, changePercent: 0, amountWan: 0 }),
+        sz000001: txLine({ symbol: 'sz000001', name: '测试股份', price: 11.35, prevClose: 11.35, changePercent: 0, amountWan: 0 }),
+        sh600519: txLine({ symbol: 'sh600519', name: '测试股份', price: 1500, prevClose: 1500, changePercent: 0, amountWan: 0 }),
+      });
+      marketBreadthService.clearCache();
+
+      await expect(marketBreadthService.calculateBreadth()).rejects.toThrow(/尚无成交/);
     });
 
     it('应该缓存真实结果（两次调用时间戳一致）', async () => {
