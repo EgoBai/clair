@@ -347,7 +347,7 @@ const MULTI_MODULE_ROUTES = [
   { path: '/api/hk-connect/summary', allow: ['real', 'unavailable'] },
   { path: '/api/margin/overview', allow: ['unavailable'] },
   { path: '/api/event-calendar/events', allow: ['unavailable'] },
-  { path: '/api/financials/summary', allow: ['unavailable'] },
+  { path: '/api/financials/summary', allow: ['real', 'unavailable'] },
   { path: '/api/news/research/reports', allow: ['unavailable'] },
   { path: '/api/risk-center/portfolio', allow: ['unavailable'] },
   { path: '/api/strategy-templates', allow: ['static'] },
@@ -649,11 +649,12 @@ await test('静态配置：strategy-templates 15 条与 presets 5 条，且绝�
   }
 });
 
-await test('P2 诚实空态：5 条无真实源端点全部 200 + unavailable + 中文原因（不是 404、不是 0 值假数据）', async () => {
+await test('P2 诚实空态：4 条无真实源端点全部 200 + unavailable + 中文原因（不是 404、不是 0 值假数据）', async () => {
+  // 注：/api/financials/summary 已于 2026-11-01 接入东财 emweb F10 真实源，
+  // 不再是「无真实源」，已移出本清单（其契约见「三·四」小节）。
   const paths = [
     '/api/margin/overview',
     '/api/event-calendar/events',
-    '/api/financials/summary?symbol=600519',
     '/api/news/research/reports?limit=10',
     '/api/risk-center/portfolio',
   ];
@@ -666,7 +667,6 @@ await test('P2 诚实空态：5 条无真实源端点全部 200 + unavailable + 
     assert.equal(body.code, 'DATA_UNAVAILABLE');
     // 数值型缺失必须是 null（不是 0）——逐字段断言，避免把「0 顶替空态」放过去
     if ('overview' in body.data) assert.equal(body.data.overview, null, 'margin overview 必须 null 而不是 0 值对象');
-    if ('summary' in body.data) assert.equal(body.data.summary, null, 'financials summary 必须 null');
     if ('metrics' in body.data) assert.equal(body.data.metrics, null, 'risk-center 指标必须 null');
   }
 });
@@ -944,6 +944,149 @@ await test('industry：limit 截断时 count=返回条数、total=上游可取�
   assert.equal(body.data.total, 3, 'total 必须是上游本次可取总数（3 条），否则 count:2 会被误读成全市场只有 2 个行业');
   assert.ok(body.data.note.includes('前 2 条'), `note 必须写明被截断，实际：${body.data.note}`);
   assert.ok(body.data.note.includes('不是全市场行业总数'), `note 必须排除误读，实际：${body.data.note}`);
+});
+
+// ============================================================
+// 三·四、财务三表三条路由（此前从未挂载 → 线上 404）
+//
+// 【为什么单开一节】线上 https://egobai.github.io/clair/financials/600519.SH 实测：
+//   200 /api/financials/summary
+//   404 /api/financials/income-statement
+//   404 /api/financials/cash-flow
+//   404 /api/financials/balance-sheet
+// 财务页只能显示「无法加载财务数据」。本节锁死三件事：
+//   1. 三条路由必须存在且是 200（不是 404 —— 404 会被判成「端点未挂载」）
+//   2. 契约字段与 backend/src/api/financials.ts 逐字段一致
+//      （symbol/type/periods/updatedAt/dataSource）
+//   3. 上游不可达时 dataSource:'unavailable' + periods:[] + 中文原因，
+//      **绝不允许返回 0 值周期**（0 是合法真实值，用它顶替缺失即造假）
+// ============================================================
+
+console.log('\n/api/financials/{balance-sheet,income-statement,cash-flow}');
+
+const FIN_STATEMENTS = [
+  {
+    path: '/api/financials/balance-sheet',
+    type: 'balance_sheet',
+    // 必备字段取自 backend/src/services/financialsDataService.ts mapBalanceSheet
+    required: ['totalAssets', 'totalLiabilities', 'currentAssets', 'currentLiabilities',
+      'totalEquity', 'inventory', 'cash', 'debtToAssetRatio'],
+    positive: ['totalAssets', 'totalLiabilities', 'totalEquity'],
+  },
+  {
+    path: '/api/financials/income-statement',
+    type: 'income_statement',
+    required: ['totalRevenue', 'operatingRevenue', 'operatingCost', 'grossProfit',
+      'operatingProfit', 'netProfit', 'parentNetProfit', 'eps'],
+    positive: ['totalRevenue', 'netProfit'],
+  },
+  {
+    path: '/api/financials/cash-flow',
+    type: 'cash_flow',
+    required: ['netOperatingCashFlow', 'netInvestingCashFlow', 'netFinancingCashFlow',
+      'netCashFlow', 'beginningCash', 'endingCash', 'freeCashFlow'],
+    positive: ['beginningCash', 'endingCash'],
+  },
+];
+
+for (const s of FIN_STATEMENTS) {
+  await test(`${s.path} → 200（不再是 404）+ dataSource 存在且两级一致`, async () => {
+    const { status, body } = await callWorker(
+      'https://clair-api.pages.dev' + s.path + '?symbol=600519&periods=2');
+    assert.equal(status, 200, `期望 200，实际 ${status}（404 会让财务页显示「无法加载」）`);
+    assert.notEqual(body.error, 'Not found', '不得再返回路由未命中的 404 体');
+    assert.ok(['real', 'unavailable'].includes(body.dataSource),
+      `dataSource 应为 real/unavailable，实际 ${body.dataSource}`);
+    assert.equal(body.data.dataSource, body.dataSource, '顶层与 data 内 dataSource 必须一致');
+    // 契约字段：与 backend/src/api/financials.ts:37/52/67 同名字段
+    for (const k of ['symbol', 'type', 'periods', 'updatedAt']) {
+      assert.ok(k in body.data, `data 缺契约字段 ${k}`);
+    }
+    assert.equal(body.data.type, s.type, `type 应为 ${s.type}`);
+    assert.ok(Array.isArray(body.data.periods), 'data.periods 必须是数组');
+    assert.match(body.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/, 'updatedAt 应为 ISO 时间');
+  });
+
+  await test(`${s.path} → 真实期数与字段（real 时 periods 非空、字段齐、无 0 值周期）`, async () => {
+    const { body } = await callWorker(
+      'https://clair-api.pages.dev' + s.path + '?symbol=600519&periods=2');
+    if (body.dataSource !== 'real') {
+      // 上游在测试环境不可达时允许诚实降级，但必须说清原因且不给任何数值
+      assert.deepEqual(body.data.periods, [], '不可用时 periods 必须为空数组');
+      assert.ok(typeof body.message === 'string' && /[\u4e00-\u9fa5]/.test(body.message),
+        '不可用时必须给中文原因');
+      return;
+    }
+    const periods = body.data.periods;
+    assert.ok(periods.length > 0, 'real 态 periods 不应为空');
+    assert.ok(periods.length <= 2, `periods=2 时应最多 2 期，实际 ${periods.length}`);
+    for (const p of periods) {
+      assert.match(p.period, /^\d{4}-12-31$/, `报告期应为年报 YYYY-12-31，实际 ${p.period}`);
+      for (const k of s.required) {
+        assert.ok(k in p, `第 ${p.period} 期缺字段 ${k}`);
+        assert.equal(typeof p[k], 'number', `${k} 应为数字（后端契约），实际 ${typeof p[k]}`);
+      }
+      for (const k of s.positive) {
+        assert.ok(p[k] > 0, `${k} 应大于 0（若为 0 说明该期是空壳周期），实际 ${p[k]}`);
+      }
+    }
+    // 报告期倒序（与后端 sortTypes=-1 一致）
+    if (periods.length > 1) {
+      assert.ok(periods[0].period > periods[1].period, '多期应按报告期倒序');
+    }
+  });
+}
+
+await test('三表如实披露来源：真实值可回溯到上游（茅台 2025 年总资产 = 303,834,844,021.44 元）', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/financials/balance-sheet?symbol=600519&periods=1');
+  if (body.dataSource !== 'real') return; // 上游不可达时不判失败
+  const first = body.data.periods[0];
+  assert.equal(first.period, '2025-12-31');
+  // 该值来自 emweb zcfzbAjaxNew 的 TOTAL_ASSETS 字段，非任何估算/随机
+  assert.equal(first.totalAssets, 303834844021.44,
+    '总资产必须等于上游披露原文，出现差异说明映射被改动过');
+});
+
+await test('缺参数取后端同一默认值：symbol=600519、periods=4', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/financials/balance-sheet');
+  assert.equal(body.data.symbol, '600519', '默认标的应与后端一致为 600519');
+  if (body.dataSource === 'real') {
+    assert.ok(body.data.periods.length <= 4, `默认 periods=4，实际 ${body.data.periods.length}`);
+  }
+});
+
+await test('periods 上限 10：传 99 最多返回 10 期（与后端 Math.min(periods,10) 一致）', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/financials/balance-sheet?symbol=600519&periods=99');
+  if (body.dataSource !== 'real') return;
+  assert.ok(body.data.periods.length <= 10, `不应超过 10 期，实际 ${body.data.periods.length}`);
+});
+
+await test('上游无该标的 → 200 + unavailable + periods:[] + 中文原因（不 404、不给 0 周期）', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/financials/income-statement?symbol=999999');
+  assert.equal(status, 200, '标的取不到数据不是 404');
+  assert.equal(body.dataSource, 'unavailable');
+  assert.equal(body.success, false, '诚实不可用时 success 必须为 false');
+  assert.deepEqual(body.data.periods, [], '不可用时 periods 必须是空数组（不能塞 0 值周期）');
+  assert.ok(typeof body.message === 'string' && /[\u4e00-\u9fa5]/.test(body.message),
+    `必须给中文原因，实际 ${JSON.stringify(body.message)}`);
+  assert.ok(!/^\s*0/.test(JSON.stringify(body.data.periods)), '不得出现 0 值周期');
+});
+
+await test('summary 与三表自洽：summary.balanceSheet.totalAssets 与 balance-sheet 首页一致', async () => {
+  const [summary, bs] = await Promise.all([
+    callWorker('https://clair-api.pages.dev/api/financials/summary?symbol=600519'),
+    callWorker('https://clair-api.pages.dev/api/financials/balance-sheet?symbol=600519&periods=1'),
+  ]);
+  if (summary.body.dataSource !== 'real' || bs.body.dataSource !== 'real') return;
+  assert.equal(summary.body.data.balanceSheet.totalAssets, bs.body.data.periods[0].totalAssets,
+    '同一标的同一报告期，摘要与报表端点必须给出同一数值（两处取值源应同为 emweb F10）');
+  for (const k of ['balanceSheet', 'incomeStatement', 'cashFlow', 'indicators']) {
+    assert.ok(summary.body.data[k], `summary 缺 ${k}（前端 FinancialsPage.tsx:136 据此判定是否渲染）`);
+  }
+  for (const k of ['grossMargin', 'netMargin', 'roe', 'roa', 'currentRatio',
+    'debtToAssetRatio', 'revenueGrowth', 'profitGrowth']) {
+    assert.ok(k in summary.body.data.indicators, `indicators 缺 ${k}`);
+  }
 });
 
 // ============================================================

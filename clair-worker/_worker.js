@@ -5025,8 +5025,9 @@ async function handleFundFlow(symbol) {
 // 用户看到的是「多模块数据不可用」——看起来像产品坏了。本层把这些路由挂上：
 //   P0 真实源：market/realtime、breadth/current、etf/list、macro/overview
 //   P1 东财数据中心真实源：block-trades、top-traders(+seat/rank)、lockup/calendar、
-//      north-bound/overview、hk-connect/summary
-//   P2 无真实源：margin/overview、event-calendar/events、financials/summary、
+//      north-bound/overview、hk-connect/summary、financials/{summary,balance-sheet,
+//      income-statement,cash-flow}（东财 emweb F10，2026-11-01 接入）
+//   P2 无真实源：margin/overview、event-calendar/events、
 //      news/research/reports、risk-center/portfolio → 诚实空态
 //   静态配置：strategy-templates、backtest/presets → dataSource:'static'
 //
@@ -6447,17 +6448,372 @@ async function handleEventCalendar() {
   return unavailable({ raw: [], events: [] }, EVENT_CALENDAR_NOTE);
 }
 
-const FINANCIALS_NOTE =
-  '财务三表（资产负债表/利润表/现金流量表）真实源为巨潮/东财财报接口，' +
-  '本 Worker 版未接入（无该数据源与鉴权）；为避免与已接入真实源的端点混淆，' +
-  '本端点不返回任何金额，请勿把空值当作「0 营收/0 利润」。';
+// ════════════════════════════════════════════════════════════════════════════
+// 财务三表 + 财务摘要（真实源：东财 datacenter-web 指标 + emweb F10 三大报表）
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 【为什么要有这一段】线上财务页实测：
+//   200 /api/financials/summary            （但恒返回 unavailable → 前端「无法加载财务数据」）
+//   404 /api/financials/balance-sheet
+//   404 /api/financials/income-statement
+//   404 /api/financials/cash-flow
+// 即「三条报表路由从未挂载 + 摘要路由从未接源」。本段把后端已跑通的真实实现
+// （backend/src/services/financialsDataService.ts:332 fetchStatement + 3 个 mapper）
+// 原样搬到 Worker：上游 URL、参数、字段映射与后端逐字段一致，
+// 前端 frontend/src/pages/FinancialsPage.tsx 无需改动即可消费。
+//
+// 【诚实边界】
+//   · 上游不可达 / 该标的无年报 → HTTP 200 + periods:[] + dataSource:'unavailable'
+//     + 中文原因；**绝不 404、绝不返回 0 值周期**。
+//   · 报表单项为 null 时按后端同一约定映射为 0：财报语义里「该报告期无此项发生额」，
+//     与「整张报表拿不到却填 0」是两件事。本段不产生任何随机数或估算值。
+
+const EM_F10_BASE = 'https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis';
+
+/** 财报真实源不可用（上游不可达 / 无年报 / 无报表数据），由路由层降级为诚实空态 */
+class FinancialsUnavailable extends Error {}
+
+/**
+ * 符号归一（与后端 financialsDataService.normalizeSymbol 同构）：
+ * SH600519 / 600519.SH / sh600519 / 600519 → { emCode:'SH600519', secucode:'600519.SH' }
+ */
+function finNormalizeSymbol(symbol) {
+  const trimmed = String(symbol || '').trim().toUpperCase();
+  const digits = trimmed.replace(/^(SH|SZ|BJ)/, '').replace(/\.(SH|SZ|BJ)$/, '');
+  let market;
+  if (trimmed.startsWith('SH') || trimmed.endsWith('.SH')) market = 'SH';
+  else if (trimmed.startsWith('SZ') || trimmed.endsWith('.SZ')) market = 'SZ';
+  else if (trimmed.startsWith('BJ') || trimmed.endsWith('.BJ')) market = 'BJ';
+  else if (digits.startsWith('6')) market = 'SH';
+  else if (digits.startsWith('0') || digits.startsWith('3') || digits.startsWith('2')) market = 'SZ';
+  else market = 'BJ';
+  return { emCode: `${market}${digits}`, secucode: `${digits}.${market}`, digits };
+}
+
+/** 财报数值：上游 null/空 → 0（与后端 num() 同一约定，见文件头「诚实边界」） */
+function finNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function finRound(v, digits = 2) {
+  return +finNum(v).toFixed(digits);
+}
+
+/** emweb F10 单报告期单张报表取数；网络/HTTP 异常抛出（由上层计为缺期） */
+async function fetchF10Statement(endpoint, reportDate, emCode) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const resp = await fetch(
+      `${EM_F10_BASE}/${endpoint}?companyType=4&reportDateType=0&reportType=1` +
+        `&dates=${reportDate}&code=${emCode}`,
+      {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://emweb.securities.eastmoney.com/' },
+      },
+    );
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const j = await resp.json();
+    return Array.isArray(j?.data) ? j.data : [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 主要财务指标（多期年报，按报告期倒序）。
+ * 上游 RPT_LICO_FN_CPD 是唯一能给出「哪些年度是真实报告期」的源，
+ * 三大报表接口本身要求按报告期逐个查（emweb 无批量接口），故必须先取它。
+ */
+async function getFinancialIndicators(symbol, periods) {
+  const { secucode } = finNormalizeSymbol(symbol);
+  const pageSize = Math.max(periods * 4 + 4, 12); // 多取以覆盖年报筛选
+  const r = await emDataGet(
+    'RPT_LICO_FN_CPD',
+    {
+      sortColumns: 'REPORTDATE',
+      sortTypes: '-1',
+      pageSize: String(pageSize),
+      pageNumber: '1',
+      filter: `(SECUCODE="${secucode}")`,
+    },
+    'https://data.eastmoney.com/',
+  );
+  if (r.rows === null) {
+    throw new FinancialsUnavailable(
+      r.code === 9201
+        ? `东财财务指标源无 ${secucode} 的记录（上游返回「返回数据为空」）`
+        : `财务指标源不可达：${r.message || '网络错误'}`,
+    );
+  }
+  const annual = r.rows.filter((x) => x.DATEMMDD === '年报');
+  if (annual.length === 0) {
+    throw new FinancialsUnavailable(`${secucode} 在财务指标源中无年报报告期`);
+  }
+  return annual.slice(0, periods).map((x) => {
+    const revenue = finNum(x.TOTAL_OPERATE_INCOME);
+    const parentNetProfit = finNum(x.PARENT_NETPROFIT);
+    return {
+      reportDate: String(x.REPORTDATE || '').slice(0, 10),
+      reportType: String(x.DATEMMDD || ''),
+      dataType: String(x.DATATYPE || ''),
+      dataYear: String(x.DATAYEAR || ''),
+      eps: finNum(x.BASIC_EPS),
+      revenue,
+      parentNetProfit,
+      roe: finNum(x.WEIGHTAVG_ROE),
+      bps: finNum(x.BPS),
+      grossMargin: finNum(x.XSMLL),
+      revenueGrowth: finNum(x.YSTZ),
+      profitGrowth: finNum(x.SJLTZ),
+    };
+  });
+}
+
+/**
+ * 通用三表取数：指标源定年报期 → 逐期并发拉 emweb 报表 → 映射。
+ * 单期失败只丢该期（诚实少给），不整表判死；全期失败才 unavailable。
+ */
+async function fetchFinancialSeries(symbol, endpoint, periods, mapper) {
+  const { emCode } = finNormalizeSymbol(symbol);
+  const indicators = await getFinancialIndicators(symbol, periods);
+  const dates = indicators
+    .map((i) => i.reportDate)
+    .filter((d) => /^\d{4}-12-31$/.test(d))
+    .slice(0, periods);
+  if (dates.length === 0) throw new FinancialsUnavailable(`${symbol} 无 YYYY-12-31 形态的年报报告期`);
+
+  const rowsArr = await Promise.all(
+    dates.map((d) => fetchF10Statement(endpoint, d, emCode).catch(() => [])),
+  );
+  const out = [];
+  rowsArr.forEach((rows) => {
+    if (rows.length > 0) out.push(mapper(symbol, rows[0]));
+  });
+  if (out.length === 0) {
+    // 实测：银行（601398）/保险（601318）在 companyType=4（一般工商口径，与后端同一取值）
+    // 下返回空对象 —— 它们的科目体系是「利息净收入/已赚保费」，与本通用三表字段不兼容；
+    // 若强行套映射只会得到一屏 0。故如实拒绝，不改用 0 顶替。
+    throw new FinancialsUnavailable(
+      `东财 F10 报表（${endpoint}）未返回 ${symbol} 的年报数据：` +
+        '该标的可能为银行/保险等特殊报表主体，其科目与通用三表字段不兼容，' +
+        '故不返回任何金额（不以 0 冒充缺失科目）',
+    );
+  }
+  return out;
+}
+
+/** 资产负债表映射（逐字段对齐后端 mapBalanceSheet） */
+function mapFinBalanceSheet(symbol, r) {
+  const totalAssets = finNum(r.TOTAL_ASSETS);
+  const totalLiabilities = finNum(r.TOTAL_LIABILITIES);
+  const currentAssets = finNum(r.TOTAL_CURRENT_ASSETS);
+  const currentLiabilities = finNum(r.TOTAL_CURRENT_LIAB);
+  const inventory = finNum(r.INVENTORY);
+  const totalEquity = finNum(r.TOTAL_EQUITY);
+  return {
+    symbol,
+    period: String(r.REPORT_DATE || '').slice(0, 10),
+    reportType: String(r.REPORT_TYPE || '年报'),
+    totalAssets,
+    currentAssets,
+    nonCurrentAssets: finNum(r.TOTAL_NONCURRENT_ASSETS),
+    cash: finNum(r.MONETARYFUNDS),
+    accountsReceivable: finNum(r.ACCOUNTS_RECE),
+    inventory,
+    fixedAssets: finNum(r.FIXED_ASSET),
+    intangibleAssets: finNum(r.INTANGIBLE_ASSET),
+    goodwill: finNum(r.GOODWILL),
+    totalLiabilities,
+    currentLiabilities,
+    nonCurrentLiabilities: finNum(r.TOTAL_NONCURRENT_LIAB),
+    shortTermBorrowing: finNum(r.SHORT_LOAN),
+    longTermBorrowing: finNum(r.LONG_LOAN),
+    accountsPayable: finNum(r.ACCOUNTS_PAYABLE),
+    totalEquity,
+    paidInCapital: finNum(r.SHARE_CAPITAL),
+    capitalReserve: finNum(r.CAPITAL_RESERVE),
+    retainedEarnings: finNum(r.UNASSIGN_RPOFIT) + finNum(r.SURPLUS_RESERVE),
+    currentRatio: currentLiabilities > 0 ? finRound(currentAssets / currentLiabilities) : 0,
+    quickRatio: currentLiabilities > 0 ? finRound((currentAssets - inventory) / currentLiabilities) : 0,
+    debtToAssetRatio: totalAssets > 0 ? finRound((totalLiabilities / totalAssets) * 100) : 0,
+    equityRatio: totalLiabilities > 0 ? finRound((totalEquity / totalLiabilities) * 100) : 0,
+  };
+}
+
+/** 利润表映射（逐字段对齐后端 mapIncomeStatement） */
+function mapFinIncomeStatement(symbol, r) {
+  const totalRevenue = finNum(r.TOTAL_OPERATE_INCOME);
+  const operatingRevenue = finNum(r.OPERATE_INCOME);
+  const operatingCost = finNum(r.OPERATE_COST);
+  const grossProfit = operatingRevenue - operatingCost - finNum(r.OPERATE_TAX_ADD);
+  const netProfit = finNum(r.NETPROFIT);
+  const parentNetProfit = finNum(r.PARENT_NETPROFIT);
+  return {
+    symbol,
+    period: String(r.REPORT_DATE || '').slice(0, 10),
+    reportType: String(r.REPORT_TYPE || '年报'),
+    totalRevenue,
+    operatingRevenue,
+    otherRevenue: finRound(totalRevenue - operatingRevenue),
+    operatingCost,
+    grossProfit: finRound(grossProfit),
+    sellingExpenses: finNum(r.SALE_EXPENSE),
+    adminExpenses: finNum(r.MANAGE_EXPENSE),
+    financeExpenses: finNum(r.FINANCE_EXPENSE),
+    rdExpenses: finNum(r.RESEARCH_EXPENSE),
+    operatingProfit: finNum(r.OPERATE_PROFIT),
+    nonOperatingIncome: finRound(Math.max(0, finNum(r.TOTAL_PROFIT) - finNum(r.OPERATE_PROFIT))),
+    nonOperatingExpense: finRound(Math.max(0, finNum(r.OPERATE_PROFIT) - finNum(r.TOTAL_PROFIT))),
+    totalProfit: finNum(r.TOTAL_PROFIT),
+    incomeTax: finNum(r.INCOME_TAX),
+    netProfit,
+    parentNetProfit,
+    minorityInterest: finRound(netProfit - parentNetProfit),
+    eps: finNum(r.BASIC_EPS),
+    grossMargin: operatingRevenue > 0 ? finRound((grossProfit / operatingRevenue) * 100) : 0,
+    operatingMargin: totalRevenue > 0 ? finRound((finNum(r.OPERATE_PROFIT) / totalRevenue) * 100) : 0,
+    netMargin: totalRevenue > 0 ? finRound((netProfit / totalRevenue) * 100) : 0,
+    // ROE/ROA 需资产负债表配合，利润表单表无法独立得出 → 0（与后端同一处理，非估算）
+    roe: 0,
+    roa: 0,
+  };
+}
+
+/** 现金流量表映射（逐字段对齐后端 mapCashFlow） */
+function mapFinCashFlow(symbol, r) {
+  const netOperatingCashFlow = finNum(r.NETCASH_OPERATE);
+  const netInvestingCashFlow = finNum(r.NETCASH_INVEST);
+  const netFinancingCashFlow = finNum(r.NETCASH_FINANCE);
+  const netProfit = finNum(r.NETPROFIT);
+  return {
+    symbol,
+    period: String(r.REPORT_DATE || '').slice(0, 10),
+    reportType: String(r.REPORT_TYPE || '年报'),
+    cashFromSales: finNum(r.SALES_SERVICES),
+    cashToEmployees: -finNum(r.PAY_STAFF_CASH),
+    cashToSuppliers: -finNum(r.BUY_SERVICES),
+    taxPaid: -finNum(r.PAY_ALL_TAX),
+    netOperatingCashFlow,
+    purchaseFixedAssets: -finNum(r.CONSTRUCT_LONG_ASSET),
+    purchaseInvestments: -finNum(r.INVEST_PAY_CASH),
+    disposalProceeds: finNum(r.WITHDRAW_INVEST) + finNum(r.RECEIVE_INVEST_INCOME),
+    netInvestingCashFlow,
+    borrowings: finNum(r.TOTAL_FINANCE_INFLOW),
+    repaymentBorrowings: -finNum(r.PAY_DEBT_CASH),
+    dividendsPaid: -finNum(r.ASSIGN_DIVIDEND_PORFIT),
+    netFinancingCashFlow,
+    netCashFlow: finRound(netOperatingCashFlow + netInvestingCashFlow + netFinancingCashFlow),
+    beginningCash: finNum(r.BEGIN_CCE),
+    endingCash: finNum(r.END_CCE),
+    operatingCashToNetProfit: netProfit > 0 ? finRound((netOperatingCashFlow / netProfit) * 100) : 0,
+    freeCashFlow: finRound(netOperatingCashFlow + netInvestingCashFlow),
+  };
+}
+
+const FINANCIAL_STATEMENTS = {
+  'balance-sheet': { type: 'balance_sheet', endpoint: 'zcfzbAjaxNew', mapper: mapFinBalanceSheet },
+  'income-statement': { type: 'income_statement', endpoint: 'lrbAjaxNew', mapper: mapFinIncomeStatement },
+  'cash-flow': { type: 'cash_flow', endpoint: 'xjllbAjaxNew', mapper: mapFinCashFlow },
+};
+
+/** 财务汇总（最新年报：三表 + 关键指标），逐字段对齐后端 getFinancialSummary */
+async function buildFinancialSummary(symbol) {
+  const [balanceArr, incomeArr, cashArr, indArr] = await Promise.all([
+    fetchFinancialSeries(symbol, 'zcfzbAjaxNew', 1, mapFinBalanceSheet),
+    fetchFinancialSeries(symbol, 'lrbAjaxNew', 1, mapFinIncomeStatement),
+    fetchFinancialSeries(symbol, 'xjllbAjaxNew', 1, mapFinCashFlow),
+    getFinancialIndicators(symbol, 1),
+  ]);
+  const balanceSheet = balanceArr[0] ?? null;
+  const incomeStatement = incomeArr[0] ?? null;
+  const cashFlow = cashArr[0] ?? null;
+  const ind = indArr[0] ?? null;
+  const period = balanceSheet?.period || incomeStatement?.period || cashFlow?.period || ind?.reportDate || '';
+
+  let indicators = null;
+  if (balanceSheet && incomeStatement && cashFlow && ind) {
+    const totalAssets = balanceSheet.totalAssets;
+    const inventory = balanceSheet.inventory;
+    const revenue = incomeStatement.totalRevenue;
+    const operatingCost = incomeStatement.operatingCost;
+    indicators = {
+      grossMargin: ind.grossMargin || incomeStatement.grossMargin,
+      netMargin: ind.netMargin || incomeStatement.netMargin,
+      roe: ind.roe,
+      roa: totalAssets > 0 ? finRound((incomeStatement.parentNetProfit / totalAssets) * 100) : 0,
+      currentRatio: balanceSheet.currentRatio,
+      quickRatio: balanceSheet.quickRatio,
+      debtToAssetRatio: balanceSheet.debtToAssetRatio,
+      totalAssetTurnover: totalAssets > 0 ? finRound(revenue / totalAssets) : 0,
+      inventoryTurnover: inventory > 0 ? finRound(operatingCost / inventory) : 0,
+      operatingCashToNetProfit: cashFlow.operatingCashToNetProfit,
+      freeCashFlow: cashFlow.freeCashFlow,
+      revenueGrowth: ind.revenueGrowth,
+      profitGrowth: ind.profitGrowth,
+      eps: ind.eps,
+      bps: ind.bps,
+    };
+  }
+  return { symbol, period, balanceSheet, incomeStatement, cashFlow, indicators };
+}
+
+/** 请求参数解析：symbol 默认 600519，periods 默认 4、上限 10（与后端路由完全一致） */
+function parseFinancialQuery(url) {
+  const symbol = (url.searchParams.get('symbol') || '').trim() || '600519';
+  const raw = parseInt(url.searchParams.get('periods') || '4', 10);
+  const periods = Math.min(Number.isFinite(raw) && raw > 0 ? raw : 4, 10);
+  return { symbol, periods };
+}
+
+/**
+ * 三大报表统一处理器。
+ * 成功：data = { symbol, type, periods, updatedAt, dataSource:'real' }
+ * 失败：200 + periods:[] + dataSource:'unavailable' + 中文 message（绝不 404 / 绝不 0 值周期）
+ */
+async function handleFinancialStatement(url, routeKey) {
+  const def = FINANCIAL_STATEMENTS[routeKey];
+  const { symbol, periods } = parseFinancialQuery(url);
+  const updatedAt = new Date().toISOString();
+  try {
+    const series = await fetchFinancialSeries(symbol, def.endpoint, periods, def.mapper);
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: { symbol, type: def.type, periods: series, updatedAt, dataSource: 'real' },
+      timestamp: updatedAt,
+    });
+  } catch (e) {
+    const message =
+      e instanceof FinancialsUnavailable
+        ? e.message
+        : `财报源请求失败：${(e && e.message) || String(e)}`;
+    return unavailable({ symbol, type: def.type, periods: [], updatedAt }, `${message}；未回填任何数值`);
+  }
+}
 
 async function handleFinancialsSummary(url) {
-  const symbol = (url.searchParams.get('symbol') || '').trim();
-  return unavailable(
-    { symbol, summary: null },
-    `${FINANCIALS_NOTE}${symbol ? `（请求标的 ${symbol}）` : '（未指定标的）'}`,
-  );
+  const { symbol } = parseFinancialQuery(url);
+  const updatedAt = new Date().toISOString();
+  try {
+    const summary = await buildFinancialSummary(symbol);
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: { ...summary, updatedAt, dataSource: 'real' },
+      timestamp: updatedAt,
+    });
+  } catch (e) {
+    const message =
+      e instanceof FinancialsUnavailable
+        ? e.message
+        : `财报源请求失败：${(e && e.message) || String(e)}`;
+    return unavailable(
+      { symbol, period: '', balanceSheet: null, incomeStatement: null, cashFlow: null, indicators: null, updatedAt },
+      `${message}；未回填任何数值`,
+    );
+  }
 }
 
 const RESEARCH_NOTE =
@@ -6738,6 +7094,17 @@ export default {
     }
     if (path === '/api/financials/summary') {
       return handleFinancialsSummary(url);
+    }
+    // 财务三表：此前从未挂载 → 线上 404 → 财务页「无法加载财务数据」
+    // （真实源 = 东财 emweb F10，映射与 backend/src/api/financials.ts:37/52/67 逐字段一致）
+    if (path === '/api/financials/balance-sheet') {
+      return handleFinancialStatement(url, 'balance-sheet');
+    }
+    if (path === '/api/financials/income-statement') {
+      return handleFinancialStatement(url, 'income-statement');
+    }
+    if (path === '/api/financials/cash-flow') {
+      return handleFinancialStatement(url, 'cash-flow');
     }
     if (path === '/api/news/research/reports') {
       return handleResearchReports(url);
