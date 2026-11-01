@@ -69,7 +69,8 @@ export class ErrorBoundary extends Component<PageErrorBoundaryProps, PageErrorBo
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     // 保留控制台现场，便于定位；同时交给调用方（如需上报）
-    // eslint-disable-next-line no-console
+    // 注：本仓 eslint 的 no-console 已放行 warn/error，故此处无需 disable 指令
+    //（曾有一条 `eslint-disable-next-line no-console`，因无实际抑制对象而被判 unused directive → CI 阻断）
     console.error(`[ErrorBoundary]${this.props.name ? ` ${this.props.name}` : ''} 渲染出错:`, error, errorInfo?.componentStack);
     this.props.onError?.(error, errorInfo);
   }
