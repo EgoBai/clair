@@ -5933,7 +5933,7 @@ async function handleTopTradersSeatRank(url) {
   const count = Math.min(Math.max(parseInt(url.searchParams.get('count') || '20', 10) || 20, 1), 100);
   const tradeDate = await probeLhbTradeDate();
   if (!tradeDate) {
-    return unavailable({ seatRank: [] }, '龙虎榜席位真实源不可达或未返回任何交易日；未编造任何席位与成交额');
+    return unavailable({ rank: [], seatRank: [] }, '龙虎榜席位真实源不可达或未返回任何交易日；未编造任何席位与成交额');
   }
   const [buyRes, sellRes] = await Promise.all([
     emDataGet(LHB_BUY_REPORT, { filter: `(TRADE_DATE='${tradeDate}')`, pageSize: '500', pageNumber: '1' }, 'https://data.eastmoney.com/lhb/'),
@@ -5943,7 +5943,7 @@ async function handleTopTradersSeatRank(url) {
   const sellRows = sellRes?.rows || [];
   if (buyRows.length === 0 && sellRows.length === 0) {
     return unavailable(
-      { seatRank: [], tradeDate },
+      { rank: [], seatRank: [], tradeDate },
       `${tradeDate} 龙虎榜买卖席位报表无记录或上游不可达；未编造任何席位数据`,
     );
   }
@@ -5992,10 +5992,22 @@ async function handleTopTradersSeatRank(url) {
     .sort((a, b) => b.netAmount - a.netAmount)
     .slice(0, count);
 
+  // 【契约对齐 · 2026-11-01】前端 `fetchTopTraderSeatRank` 读的是 **`data.rank`** 且字段名
+  // 为 `totalBuyAmount/totalSellAmount`（对齐 Express 后端实现）；本 Worker 原先只给
+  // `data.seatRank` + `buyAmount/sellAmount` ⟹ 前端 `result?.rank` 恒 undefined
+  // ⟹ 龙虎榜页判定「接口返回数据为空」而**整页空白**，尽管 overview 有 83 只真实数据。
+  // 现同时输出两种形状（rank 为主、seatRank 保留兼容），值同源派生，不新增任何数字。
+  const ranked = seats.map((s, i) => ({
+    ...s,
+    rank: i + 1,
+    totalBuyAmount: s.buyAmount,
+    totalSellAmount: s.sellAmount,
+  }));
+
   return json({
     success: true,
     dataSource: 'eastmoney',
-    data: { seatRank: seats, tradeDate, dataSource: 'eastmoney' },
+    data: { rank: ranked, seatRank: ranked, tradeDate, dataSource: 'eastmoney' },
     notes:
       `东方财富 RPT_BILLBOARD_DAILYDETAILSBUY/SELL 真实席位数据（${tradeDate}）；` +
       `已剔除 ${droppedAggregates} 条上游「投资者类型」汇总行（自然人/中小投资者/机构投资者等，非营业部席位），` +
