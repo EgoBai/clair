@@ -5,11 +5,11 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Card, Table, Input, Button, Tag, Space, Row, Col, Tooltip } from 'antd';
+import { Card, Table, Input, Button, Tag, Space, Row, Col, Tooltip, Alert } from 'antd';
 import { SearchOutlined, ReloadOutlined, StarOutlined, StarFilled, RiseOutlined, FallOutlined, StockOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  useStocks, useStockStats, useStockActions, useWatchlist,
+  useStocks, useStockStats, useStockActions, useWatchlist, useStocksStatus, useStocksMeta, useError,
   Stock,
 } from '../store/useStockStore';
 
@@ -21,14 +21,24 @@ const TEXT_SEC = THEME.textSec;
 const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
 
+/** 缺失数据显示「—」：绝不显示 0（0 会被读成真实的零） */
+const MISSING = '—';
+
+const Dash: React.FC<{ title?: string }> = ({ title }) => {
+  const node = <span style={{ color: TEXT_SEC, fontFamily: 'monospace' }}>{MISSING}</span>;
+  return title ? <Tooltip title={title}>{node}</Tooltip> : node;
+};
+
 const StockListPage: React.FC = () => {
   const stocks = useStocks();
   const stats = useStockStats();
   const watchlist = useWatchlist();
-  const { toggleWatchlist } = useStockActions();
+  const stocksStatus = useStocksStatus();
+  const stocksMeta = useStocksMeta();
+  const errorMessage = useError();
+  const { toggleWatchlist, fetchAllStocks } = useStockActions();
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<string>('symbol');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -36,9 +46,15 @@ const StockListPage: React.FC = () => {
   const itemsPerPage = 15;
   const _searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 【缺陷修复】此前本页没有任何初次加载路径：stocks 只在搜索时被填充，
+  // 于是线上恒显示「共 0 只 / 总市值 0 / 暂无数据」。
+  // 现在 mount 即拉一次 GET /api/stocks?pageSize=6000（全市场 + 真实行情）。
   useEffect(() => {
-    setLoading(false);
-  }, []);
+    void fetchAllStocks();
+  }, [fetchAllStocks]);
+
+  const loading = stocksStatus === 'loading';
+  const loadFailed = stocksStatus === 'error';
 
   const filteredAndSortedStocks = useMemo(() => {
     let result = [...stocks];
@@ -63,9 +79,9 @@ const StockListPage: React.FC = () => {
   }, []);
 
   const refreshData = useCallback(() => {
-    setLoading(true);
-    setTimeout(() => setLoading(false), 500);
-  }, []);
+    // 真实重新请求（此前是 setTimeout 假装加载 500ms，没有任何网络请求）
+    void fetchAllStocks();
+  }, [fetchAllStocks]);
 
   const columns: ColumnsType<Stock> = [
     {
@@ -78,27 +94,38 @@ const StockListPage: React.FC = () => {
     },
     {
       title: '最新价', dataIndex: 'price', key: 'price', width: 100, sorter: true, align: 'right',
-      render: (v: number) => <span style={{ fontFamily: '"DIN Alternate",monospace', fontWeight: 600, color: TEXT }}>¥{v.toFixed(2)}</span>,
+      render: (v: number | null) => (v === null
+        ? <Dash title="上游未返回该标的行情" />
+        : <span style={{ fontFamily: '"DIN Alternate",monospace', fontWeight: 600, color: TEXT }}>¥{v.toFixed(2)}</span>),
     },
     {
       title: '涨跌幅', dataIndex: 'changePercent', key: 'changePercent', width: 105, sorter: true, align: 'right',
-      render: (v: number) => (
-        <Tag color={v >= 0 ? 'red' : 'green'} style={{ fontWeight: 700, minWidth: 72, textAlign: 'center', fontFamily: 'monospace', fontSize: 13, borderRadius: 4 }}>
-          {v >= 0 ? '+' : ''}{v.toFixed(2)}%
-        </Tag>
-      ),
+      render: (v: number | null) => (v === null
+        ? <Dash title="上游未返回该标的行情" />
+        : (
+          <Tag color={v >= 0 ? 'red' : 'green'} style={{ fontWeight: 700, minWidth: 72, textAlign: 'center', fontFamily: 'monospace', fontSize: 13, borderRadius: 4 }}>
+            {v >= 0 ? '+' : ''}{v.toFixed(2)}%
+          </Tag>
+        )),
     },
     {
       title: '涨跌额', dataIndex: 'change', key: 'change', width: 90, align: 'right',
-      render: (v: number) => <span style={{ color: v >= 0 ? COLOR_UP : COLOR_DOWN, fontFamily: 'monospace', fontWeight: 500 }}>{v >= 0 ? '+' : ''}{v.toFixed(2)}</span>,
+      // /api/stocks 不提供涨跌额，且不提供昨收 → 无法推导（closePrice×changePercent 是估算不是事实）
+      render: (v: number | null) => (v === null
+        ? <Dash title="行情接口未提供涨跌额，且未提供昨收，无法推导（不用估算值冒充）" />
+        : <span style={{ color: v >= 0 ? COLOR_UP : COLOR_DOWN, fontFamily: 'monospace', fontWeight: 500 }}>{v >= 0 ? '+' : ''}{v.toFixed(2)}</span>),
     },
     {
       title: '成交量', dataIndex: 'volume', key: 'volume', width: 90, align: 'right',
-      render: (v: string) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v}</span>,
+      render: (v: string | null) => (v === null
+        ? <Dash title="上游未返回该标的成交量" />
+        : <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v}</span>),
     },
     {
       title: '市值', dataIndex: 'marketCap', key: 'marketCap', width: 90, align: 'right',
-      render: (v: string) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v}</span>,
+      render: (v: string | null) => (v === null
+        ? <Dash title="行情接口未提供总市值，未用 0 顶替" />
+        : <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v}</span>),
     },
     {
       title: '自选', key: 'action', width: 60, align: 'center',
@@ -118,7 +145,15 @@ const StockListPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: TEXT }}>股票列表</h1>
-          <p style={{ color: TEXT_SEC, margin: '2px 0 0', fontSize: 13 }}>实时A股行情 · 共 {stats.totalStocks} 只</p>
+          <p style={{ color: TEXT_SEC, margin: '2px 0 0', fontSize: 13 }}>
+            全市场 A 股行情（GET /api/stocks）· 共 {stats.totalStocks ?? MISSING} 只
+            {stocksMeta.total !== null && <span> · 接口报告总数 {stocksMeta.total}</span>}
+            {stocksMeta.loadedAt && (
+              <span> · 本次请求完成 {new Date(stocksMeta.loadedAt).toLocaleTimeString('zh-CN', { hour12: false })}
+                {stocksMeta.dataSource ? `（dataSource=${stocksMeta.dataSource}）` : ''}
+              </span>
+            )}
+          </p>
         </div>
         <Space>
           <Input
@@ -133,31 +168,61 @@ const StockListPage: React.FC = () => {
         </Space>
       </div>
 
-      {/* Stats Cards */}
+      {/* 加载失败 / 空结果：如实说明，不复用「暂无数据」这种会被读成「今天真的没股票」的文案 */}
+      {loadFailed && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16, borderRadius: 8 }}
+          message="行情数据不可用：本页不展示任何股票数据（未用 0 顶替）"
+          description={<span style={{ fontSize: 13 }}>{errorMessage || '未知原因'}</span>}
+        />
+      )}
+
+      {/* Stats Cards — 任何一个值算不出来就显示「—」，绝不显示 0 */}
       <Row gutter={12} style={{ marginBottom: 16 }}>
         {[
-          { label: '总股票数', value: stats.totalStocks, icon: <StockOutlined />, bg: '#eff6ff', border: '#bfdbfe', color: '#2563eb' },
-          { label: '上涨', value: stats.risingStocks, icon: <RiseOutlined />, bg: '#fef2f2', border: '#fecaca', color: COLOR_UP },
-          { label: '下跌', value: stats.fallingStocks, icon: <FallOutlined />, bg: '#f0fdf4', border: '#bbf7d0', color: COLOR_DOWN },
-          { label: '总市值(亿)', value: stats.totalMarketCap.toFixed(0), icon: null, bg: '#faf5ff', border: '#e9d5ff', color: '#7c3aed' },
+          { label: '总股票数', value: stats.totalStocks, icon: <StockOutlined />, bg: '#eff6ff', border: '#bfdbfe', color: '#2563eb', tip: '已加载的股票条数' },
+          { label: '上涨', value: stats.risingStocks, icon: <RiseOutlined />, bg: '#fef2f2', border: '#fecaca', color: COLOR_UP, tip: '涨跌幅 > 0 的只数' },
+          { label: '下跌', value: stats.fallingStocks, icon: <FallOutlined />, bg: '#f0fdf4', border: '#bbf7d0', color: COLOR_DOWN, tip: '涨跌幅 < 0 的只数' },
+          {
+            label: '总市值(亿)', value: stats.totalMarketCap === null ? null : stats.totalMarketCap.toFixed(0), icon: null,
+            bg: '#faf5ff', border: '#e9d5ff', color: '#7c3aed',
+            tip: stats.totalMarketCap === null
+              ? `行情接口未提供市值字段（${stats.missingMarketCapCount} 只缺失），无法算出真实总市值，故显示「—」，未用 0 顶替`
+              : '全部标的市值合计',
+          },
         ].map((item, i) => (
           <Col xs={12} sm={6} key={i}>
             <div style={{ background: item.bg, border: `1px solid ${item.border}`, borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
               {item.icon && <span style={{ fontSize: 20, color: item.color }}>{item.icon}</span>}
               <div>
                 <div style={{ fontSize: 11, color: TEXT_SEC, marginBottom: 2 }}>{item.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: item.color, fontFamily: '"DIN Alternate",monospace' }}>{item.value}</div>
+                <Tooltip title={item.tip}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: item.value === null ? TEXT_SEC : item.color, fontFamily: '"DIN Alternate",monospace' }}>
+                    {item.value ?? MISSING}
+                  </div>
+                </Tooltip>
               </div>
             </div>
           </Col>
         ))}
       </Row>
 
+      {/* 缺失字段的口径说明：把「为什么是 —」写在页面上，而不是让人猜 */}
+      {stocksStatus === 'ready' && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: TEXT_SEC, lineHeight: 1.7 }}>
+          · 总市值显示「—」：<code>GET /api/stocks</code> 的 <code>latestQuote</code> 不含市值字段，无法算出真实总市值（不用 0 或估算顶替）。
+          <br />
+          · 涨跌额显示「—」同因：接口不含涨跌额，也不含昨收，无法推导。
+        </div>
+      )}
+
       {/* Stock Table */}
       <Card style={{ borderRadius: 10, border: `1px solid ${BORDER}` }} styles={{ body: { padding: '12px 16px' } }}>
         <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontWeight: 600, color: TEXT, fontSize: 14 }}>
-            股票列表 ({searchTerm ? filteredAndSortedStocks.length : stocks.length} 只)
+            股票列表 ({stats.totalStocks === null ? MISSING : (searchTerm ? filteredAndSortedStocks.length : stocks.length)} 只)
             {searchTerm && <Tag color="blue" style={{ marginLeft: 8, borderRadius: 4 }}>筛选: {searchTerm}</Tag>}
           </span>
         </div>
@@ -170,6 +235,17 @@ const StockListPage: React.FC = () => {
           pagination={{ current: currentPage, pageSize: itemsPerPage, total: filteredAndSortedStocks.length, onChange: setCurrentPage, showSizeChanger: false, showTotal: (t) => `共 ${t} 条` }}
           size="middle"
           scroll={{ x: 800 }}
+          locale={{
+            emptyText: (
+              <div style={{ padding: '24px 0', color: TEXT_SEC }}>
+                {loadFailed
+                  ? '行情接口不可用/无数据，未展示任何股票（原因见页面顶部提示）'
+                  : stocksStatus === 'idle' || stocksStatus === 'loading'
+                    ? '正在加载全市场行情…'
+                    : '筛选条件下无匹配股票'}
+              </div>
+            ),
+          }}
           onRow={(record) => ({ onDoubleClick: () => navigate(`/stocks/${record.symbol}`), style: { cursor: 'pointer' } })}
           rowClassName={() => 'stock-row'}
         />
