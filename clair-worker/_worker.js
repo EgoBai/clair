@@ -6655,6 +6655,24 @@ export default {
       return json({ status: 'ok', service: 'clair-worker', timestamp: Date.now() });
     }
 
+    // /api/version —— 前端 AppLayout + buildInfo 在**每个页面**都会调它，
+    // 缺这条路由会让全站每条页面顶部挂「未挂载端点：/api/version」横幅，
+    // 把真正需要用户注意的降级信息淹没掉。
+    // 诚实契约：Worker 构建未注入 git commit / 版本号，一律返回 null 并说明，
+    // 绝不伪造 sha 或冒用后端版本号（项目红线：不得用假数据冒充真实）。
+    if (path === '/api/version') {
+      return json({
+        success: true,
+        service: 'clair-worker',
+        appVersion: null,
+        commit: null,
+        buildTime: null,
+        commitKnown: false,
+        note: 'Cloudflare Worker 构建未注入版本与 commit 信息，故均为 null（不伪造）；完整构建信息由本地 Express 后端的 /api/version 提供',
+        timestamp: Date.now(),
+      });
+    }
+
     // Market indices
     if (path === '/api/market/indices') {
       return handleMarketIndices();
