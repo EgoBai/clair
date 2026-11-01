@@ -38,7 +38,7 @@ export interface KlineData {
   lows: number[];
   /** 收盘价（元） */
   prices: number[];
-  /** 成交量（股；东财返回单位为「手」，已 ×100 换算为股） */
+  /** 成交量（**手**；东财/腾讯返回单位即为手，与 PG daily_quotes.volume、/api/stocks 一致，不换算） */
   volumes: number[];
   /** 成交额（元） */
   amounts: number[];
@@ -107,8 +107,9 @@ function parseKlineRow(row: string): {
     close: Number(close),
     high: Number(high),
     low: Number(low),
-    // 东财成交量单位为「手」，×100 换算为股
-    volume: Number(volume) * 100,
+    // 成交量单位：手（与 PG daily_quotes.volume、/api/stocks latestQuote.volume 一致）。
+    // 此前 ×100 换算为「股」，导致同一后端同一标的两端点量能差 100 倍（P0 缺陷 3）。
+    volume: Number(volume),
     amount: Number(amount),
   };
 }
@@ -149,8 +150,8 @@ function parseTencentRow(row: unknown[]): {
     close: num(close),
     high: num(high),
     low: num(low),
-    // 腾讯成交量单位为「手」，与东财一致，×100 换算为股
-    volume: num(volume) * 100,
+    // 成交量单位：手（腾讯 fqkline 与东财同为「手」，与 PG /api/stocks 口径一致，不换算）
+    volume: num(volume),
   };
 }
 

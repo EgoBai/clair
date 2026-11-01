@@ -84,8 +84,9 @@ describe('klineDataService (honest-data)', () => {
       expect(data.prices).toEqual([1700.0, 1690.0, 1712.5]); // 收盘价 = f53
       expect(data.highs).toEqual([1705.0, 1710.0, 1715.0]);
       expect(data.lows).toEqual([1675.0, 1688.0, 1690.0]);
-      // 成交量：东财单位为手，×100 换算为股
-      expect(data.volumes).toEqual([3500000, 2000000, 2800000]);
+      // 成交量单位：**手**（源字段即手，与 PG daily_quotes.volume、/api/stocks latestQuote.volume 同口径）。
+      // P0 缺陷 3：旧实现 ×100 换算成「股」，导致同一后端同一标的 K 线量能比列表页大 100 倍。
+      expect(data.volumes).toEqual([35000, 20000, 28000]);
       expect(data.amounts).toEqual([588175000, 338000000, 479500000]);
 
       // 数组等长
@@ -100,6 +101,26 @@ describe('klineDataService (honest-data)', () => {
       const data = await getKline('600519', 250);
       expect(data.dates).toEqual(['2026-08-10', '2026-08-11', '2026-08-12']);
       expect(data.prices).toEqual([1700.0, 1690.0, 1712.5]);
+    });
+
+    it('腾讯兜底路径成交量同样直接透传「手」（不 ×100）', async () => {
+      // 第一次（东财）失败 → 第二次（腾讯 fqkline）成功
+      const tencentBody = {
+        code: 0,
+        data: { sh600519: { qfqday: [['2026-08-10', '1680.00', '1700.00', '1705.00', '1675.00', '35000']] } },
+      };
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('eastmoney down'))
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(tencentBody) } as Response);
+      setFetch(fetchMock);
+
+      const data = await getKline('600519', 250);
+      expect(data.dates).toEqual(['2026-08-10']);
+      // 单位=手，与东财路径一致；两路径若单位不同会造成「换源即换量纲」
+      expect(data.volumes).toEqual([35000]);
+      // 腾讯不提供逐日成交额 → 诚实空数组，不伪造 0
+      expect(data.amounts).toEqual([]);
     });
   });
 
@@ -219,6 +240,8 @@ describe('klineDataService (honest-data)', () => {
       expect(res.body.data.symbol).toBe('600519');
       expect(res.body.data.dates).toHaveLength(3);
       expect(res.body.data.prices).toEqual([1700.0, 1690.0, 1712.5]);
+      // 路由层成交量单位同样是「手」（与 /api/stocks latestQuote.volume 同口径）
+      expect(res.body.data.volumes).toEqual([35000, 20000, 28000]);
     });
 
     it('诚实红线回归：无任何随机 / 硬编码假 K 线字段', async () => {
