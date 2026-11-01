@@ -57,9 +57,121 @@ interface RawEvent {
   date: string; type: string; symbol?: string;
   title: string; description?: string; estimatedEffect?: number;
 }
+
+/** 页面可区分的三种事实（互不冒充，见 resolveEventCalendarView 注释） */
+export type EventCalendarProblem = 'format' | 'http' | null;
+
+/** 响应三态判定结果 */
+export type EventCalendarView =
+  | { kind: 'events'; raw: RawEvent[]; state: DataSourceState }
+  | { kind: 'empty'; state: DataSourceState }
+  | { kind: 'format'; reason: string; state: DataSourceState };
+
+/**
+ * 把 `/api/event-calendar/events` 的响应体判定成三态之一。
+ *
+ * 【为什么不能 `if (!json.success) throw new Error('数据格式异常')`】
+ * 本仓库对「该模块没有接入真实数据源」的既定表达是
+ *   HTTP 200 + `success:false` + `dataSource:'unavailable'` + 中文 `message`
+ * —— clair-worker 20+ 个端点统一走 `unavailable()`，且
+ * `clair-worker/test/worker-contract.test.mjs` 硬断言
+ * 「unavailable 态下 success 必须为 false」。也就是说 **`success:false` 是一个
+ * 有语义的正常响应**，不是结构坏了。
+ * 原来的写法把它和「data/raw 读不出来」合并进同一个异常分支，于是线上出现
+ * 「接口 200、Worker 明明写清了原因，页面却说『数据格式异常』」——
+ * 这是把「我们没有这个数据源」冒充成「接口坏了」，两种事实互相顶替。
+ *
+ * 因此这里只把**结构真的读不出来**（缺 data 或 data.raw 不是数组）判为 format：
+ *   · events —— 事件数组非空            → 正常渲染
+ *   · empty  —— 数组为空（任何原因）     → 配 state（不可用时带 Worker 的中文原因）
+ *   · format —— data.raw 不是数组        → 明确失败，绝不能说「暂无事件」
+ */
+export function resolveEventCalendarView(body: any): EventCalendarView {
+  const data = body?.data;
+  if (!data || typeof data !== 'object') {
+    const reason = '响应缺少 data 对象';
+    return {
+      kind: 'format',
+      reason,
+      state: { kind: 'unavailable', updatedAt: null, error: `数据格式异常：${reason}` },
+    };
+  }
+  const rawList = (data as { raw?: unknown }).raw;
+  if (!Array.isArray(rawList)) {
+    const reason = 'data.raw 不是事件数组';
+    return {
+      kind: 'format',
+      reason,
+      state: { kind: 'unavailable', updatedAt: null, error: `数据格式异常：${reason}` },
+    };
+  }
+
+  // meta 优先取后端契约（顶层或 data 内）；Worker 版没有 meta，用
+  // dataSource + message 合成等价元信息，让 Banner 能显示真实原因而不是空原因。
+  const declaredMeta = body?.meta ?? (data as { meta?: unknown }).meta;
+  const meta = declaredMeta ?? (
+    typeof body?.dataSource === 'string' && body.dataSource
+      ? {
+        source: body.dataSource,
+        updatedAt: null,
+        error: typeof body.message === 'string' ? body.message
+          : (typeof body.error === 'string' ? body.error : undefined),
+      }
+      : undefined
+  );
+  const state = resolveDataSource(meta ? { meta } : body, rawList.length === 0, false);
+
+  return rawList.length === 0
+    ? { kind: 'empty', state }
+    : { kind: 'events', raw: rawList as RawEvent[], state };
+}
+
+/**
+ * 列表空态文案：四种事实互不冒充。
+ *
+ *  - format      结构读不出来        → 说接口结构异常，绝不说「暂无事件」
+ *  - http        请求失败/非 2xx      → 说接口失败
+ *  - unavailable 接口正常但无数据源   → 摊开后端/Worker 给的中文原因
+ *  - 其余        接口正常且确实 0 条   → 「当前筛选条件下暂无事件」
+ */
+export function resolveEventCalendarEmptyView(args: {
+  hasEvents: boolean;
+  problem: EventCalendarProblem;
+  state?: DataSourceState;
+}): { title: string; description: string } {
+  const { hasEvents, problem, state } = args;
+  if (hasEvents) {
+    return {
+      title: '当前筛选条件下暂无事件',
+      description: '已有事件数据，但当前区间/类型/影响级别筛选下没有匹配项。',
+    };
+  }
+  if (problem === 'format') {
+    return {
+      title: '事件日历数据格式异常',
+      description: `${state?.error || '响应结构无法解析'}。这不是「当前没有事件」，`
+        + '而是接口返回的结构与前端契约不一致。',
+    };
+  }
+  if (problem === 'http') {
+    return {
+      title: '事件日历接口请求失败',
+      description: state?.error || '接口未返回可用响应，暂时无法获取事件日历。',
+    };
+  }
+  if (state?.kind === 'unavailable' && state.error) {
+    return { title: '事件日历暂无可用数据', description: state.error };
+  }
+  return {
+    title: '当前筛选条件下暂无事件',
+    description: '接口正常返回，未来 90 天内确实没有可展示的事件。',
+  };
+}
+
 const EventCalendarPage: React.FC = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [problem, setProblem] = useState<EventCalendarProblem>(null);
   const [dataSource, setDataSource] = useState<DataSourceState | undefined>(undefined);
   const [range, setRange] = useState<string>('all');      // all | week | 30-90
   const [selectedTypes, setSelectedTypes] = useState<Set<EventType>>(new Set());
@@ -71,14 +183,16 @@ const EventCalendarPage: React.FC = () => {
       const res = await fetch('/api/event-calendar/events');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      if (!json.success || !json.data) throw new Error('数据格式异常');
-      const raw = parseEvents(json.data.raw || []);
-      setEvents(raw);
-      // 读取后端 meta，驱动诚实数据来源 Banner
-      setDataSource(resolveDataSource(json, raw.length === 0, false));
+      const view = resolveEventCalendarView(json);
+      // 只有「结构读不出来」才是格式异常；success:false + unavailable 是正常响应
+      setProblem(view.kind === 'format' ? 'format' : null);
+      setEvents(view.kind === 'events' ? parseEvents(view.raw) : []);
+      setDataSource(view.state);
     } catch (err) {
-      logger.warn('事件日历接口不可用（后端未就绪或返回异常），已如实置空:', err);
+      // 真正的事故：网络/非 2xx/响应不是 JSON —— 与「暂无事件」严格区分
+      logger.warn('事件日历接口请求失败，已如实置空（非「暂无事件」）:', err);
       setEvents([]);
+      setProblem('http');
       setDataSource({ kind: 'unavailable', updatedAt: null, error: (err as Error).message });
     } finally {
       setLoading(false);
@@ -139,6 +253,15 @@ const EventCalendarPage: React.FC = () => {
   const analysis = useMemo(
     () => (detail ? analyzeEventImpact(detail, events, {}) : null),
     [detail, events],
+  );
+  /**
+   * 列表空态文案：四种事实互不冒充（实现见 resolveEventCalendarEmptyView）。
+   */
+  const emptyView = useMemo(
+    () => resolveEventCalendarEmptyView({
+      hasEvents: events.length > 0, problem, state: dataSource,
+    }),
+    [events.length, problem, dataSource],
   );
   const toggleType = (t: EventType) => {
     setSelectedTypes(prev => {
@@ -233,7 +356,7 @@ const EventCalendarPage: React.FC = () => {
         <Col xs={24} lg={16}>
           <Card title="事件列表" loading={loading} style={{ minHeight: 480 }}>
             {groups.length === 0 ? (
-              <EmptyState title="当前筛选条件下暂无事件" />
+              <EmptyState title={emptyView.title} description={emptyView.description} />
             ) : (
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 {groups.map(g => {
