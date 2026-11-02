@@ -49,6 +49,14 @@ const BOUNDARY_SOURCES = [
  * 这类文件在大小写不敏感文件系统（macOS/Windows）上，`import './Foo'` 的解析结果
  * 与大小写敏感的 Linux/CI 不一致 —— 典型症状是「本地能跑 CI 挂」或「两边都能跑但
  * 拿到不同的东西」。utils/ErrorBoundary.tsx vs utils/errorBoundary.ts 就是实例。
+ *
+ * 【断言边界 —— 显式声明，勿误以为覆盖全仓】
+ * 刻意**跳过** `node_modules`、`__tests__` 目录与 `*.test.*` 文件。原因：
+ * `frontend/src/__tests__/` 下已存在 11 组同类大小写同名测试文件（如
+ * ErrorBoundary.test.tsx + errorBoundary.test.ts），它们不被任何生产代码 import，
+ * vitest 按完整路径各自收集、两边都会跑，**没有模块解析歧义风险**，属维护性债务
+ * （已在 P2-5 待办），不纳入本断言。因此本断言的实际覆盖范围是：
+ * `frontend/src/**` 中 `__tests__` 之外的所有 .ts/.tsx/.js/.jsx —— 当前 0 冲突。
  */
 function findStemCollisions(root: string): string[] {
   const EXT = /\.(ts|tsx|js|jsx)$/;
@@ -157,6 +165,8 @@ describe('错误边界「返回首页」走 BASE_URL（GitHub Pages 项目站点
   });
 
   it('防复发：src 下不得存在「同名只差大小写/扩展名」的模块文件（解析歧义地雷）', () => {
+    // 覆盖范围：frontend/src/** 中 __tests__ 之外的所有脚本文件（不含 *.test.*），
+    // 详见 findStemCollisions() 上方「断言边界」说明
     const collisions = findStemCollisions(SRC);
     expect(
       collisions,
