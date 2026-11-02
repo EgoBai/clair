@@ -4,6 +4,8 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ROUTE_PATHS } from '../routes/paths';
 import {
   AppNotification,
   NotificationStats,
@@ -12,6 +14,38 @@ import {
   PRIORITY_COLORS,
   formatNotificationTime,
 } from '../services/notificationService';
+
+/**
+ * 站内跳转白名单 —— 由 routes/paths.ts 的 ROUTE_PATHS 派生。
+ *
+ * 为什么不手写一份路径表：手抄必然漂移，路由改名后这里不会报错，只会静默失效。
+ * 由 ROUTE_PATHS 派生后，路由增删自动跟随。
+ */
+const ACTION_MATCHERS: readonly RegExp[] = Object.values(ROUTE_PATHS).map((p) => {
+  const relative = p.replace(/^\//, '');
+  const escaped = relative.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('^' + escaped.replace(/:[A-Za-z_]\w*/g, '[^/]+') + '$');
+});
+
+/**
+ * 把服务端下发的 actionUrl 解析成可软跳的站内相对路径；不合法返回 null。
+ *
+ * 事故成因（线上实测）：旧代码直接 `window.location.href = actionUrl`，而后端下发的是
+ * '/stock/600519'（根绝对路径）。整页跳转会绕过 Router 的 basename（生产为 '/clair/'），
+ * 请求落到 https://egobai.github.io/stock/600519 —— 站点根没有 Pages 站点，
+ * 浏览器显示 GitHub 通用 404「There isn't a GitHub Pages site here.」。
+ *
+ * 规则：必须是站内**相对**路径（不以 '/' 开头、不含协议/协议相对），且必须命中真实路由。
+ */
+export function resolveNotificationActionUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const url = raw.trim();
+  if (!url) return null;
+  if (url.startsWith('/')) return null; // 根绝对路径、协议相对 '//host' 都在此拦下
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) return null; // http: / javascript: ...
+  const path = url.split('#')[0].split('?')[0].replace(/\/+$/, '');
+  return ACTION_MATCHERS.some((re) => re.test(path)) ? path : null;
+}
 
 interface NotificationBellProps {
   userId: string;
@@ -27,7 +61,9 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [stats, setStats] = useState<NotificationStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [actionHint, setActionHint] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   // 获取未读数
   const fetchUnreadCount = useCallback(async () => {
@@ -82,14 +118,19 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     setIsOpen(!isOpen);
   };
 
-  // 标记已读
-  const handleMarkAsRead = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  // 标记已读（不依赖 DOM 事件，供点击通知时复用）
+  const markRead = useCallback(async (id: string) => {
     await notificationApi.markAsRead(id);
     setNotifications(prev =>
       prev.map(n => (n.id === id ? { ...n, read: true, readAt: Date.now() } : n))
     );
     setUnreadCount(prev => Math.max(0, prev - 1));
+  }, []);
+
+  // 标记已读（按钮点击）
+  const handleMarkAsRead = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await markRead(id);
   };
 
   // 全部已读
@@ -110,15 +151,27 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     }
   }, [notifications, notificationApi]);
 
-  // 点击通知
+  // 点击通知：标记已读 + 只允许站内软跳
   const handleNotificationClick = useCallback((notification: AppNotification) => {
     if (!notification.read) {
-      handleMarkAsRead(notification.id, {} as React.MouseEvent);
+      // 注意：这里不能传 {} 冒充事件。旧写法 handleMarkAsRead(id, {} as React.MouseEvent)
+      // 在函数内部调用 e.stopPropagation() 会直接抛 TypeError，通知"点了但没标已读"。
+      void markRead(notification.id).catch(() => {});
     }
-    if (notification.actionUrl) {
-      window.location.href = notification.actionUrl;
+    if (!notification.actionUrl) return;
+
+    const to = resolveNotificationActionUrl(notification.actionUrl);
+    if (!to) {
+      // 退化路径：仅标记已读、不跳转，并给出可见提示（不静默吞掉）
+      setActionHint('该通知的跳转地址不是站内有效页面，已标记已读、未跳转');
+      return;
     }
-  }, [handleMarkAsRead]);
+
+    setActionHint(null);
+    setIsOpen(false);
+    // 软跳：交给 Router，不产生整页请求，GitHub Pages 的 404 回退根本不会被触达。
+    navigate('/' + to);
+  }, [markRead, navigate]);
 
   return (
     <div className="notification-bell-wrapper" ref={dropdownRef} style={{ position: 'relative' }}>
@@ -204,6 +257,33 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
               </button>
             )}
           </div>
+
+          {/* 跳转失败提示（不可点到坏链接时明确告知，而不是静默无反应） */}
+          {actionHint && (
+            <div
+              role="status"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                background: '#fffbe6',
+                borderBottom: '1px solid #ffe58f',
+                color: '#ad6800',
+                fontSize: '12px',
+              }}
+            >
+              <span>{actionHint}</span>
+              <button
+                onClick={() => setActionHint(null)}
+                aria-label="关闭提示"
+                style={{ background: 'none', border: 'none', color: '#ad6800', cursor: 'pointer', fontSize: '12px' }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* 通知列表 */}
           <div style={{ maxHeight: '400px', overflowY: 'auto' }}>

@@ -5,6 +5,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
+// 组件内部使用 useNavigate 做站内软跳，必须在 Router 上下文里渲染
+import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 
 // Mock the notification service
@@ -33,21 +35,21 @@ describe('NotificationBell', () => {
 
   it('renders without crashing', async () => {
     await act(async () => {
-      render(<NotificationBell userId="test-user" />);
+      render(<MemoryRouter><NotificationBell userId="test-user" /></MemoryRouter>);
     });
     expect(screen.getByRole('button')).toBeDefined();
   });
 
   it('fetches unread count on mount', async () => {
     await act(async () => {
-      render(<NotificationBell userId="test-user" />);
+      render(<MemoryRouter><NotificationBell userId="test-user" /></MemoryRouter>);
     });
     expect(notificationApi.getUnreadCount).toHaveBeenCalledWith('test-user');
   });
 
   it('displays unread count badge after load', async () => {
     await act(async () => {
-      render(<NotificationBell userId="test-user" />);
+      render(<MemoryRouter><NotificationBell userId="test-user" /></MemoryRouter>);
     });
     await waitFor(() => {
       expect(screen.getByText('5')).toBeDefined();
@@ -58,7 +60,7 @@ describe('NotificationBell', () => {
     (notificationApi.getUnreadCount as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'));
     
     await act(async () => {
-      render(<NotificationBell userId="test-user" />);
+      render(<MemoryRouter><NotificationBell userId="test-user" /></MemoryRouter>);
     });
     
     // Should render without throwing
@@ -67,11 +69,11 @@ describe('NotificationBell', () => {
 
   it('changes userId prop triggers refetch', async () => {
     const { rerender } = await act(async () => {
-      return render(<NotificationBell userId="user-1" />);
+      return render(<MemoryRouter><NotificationBell userId="user-1" /></MemoryRouter>);
     });
     
     await act(async () => {
-      rerender(<NotificationBell userId="user-2" />);
+      rerender(<MemoryRouter><NotificationBell userId="user-2" /></MemoryRouter>);
     });
     
     expect(notificationApi.getUnreadCount).toHaveBeenCalledWith('user-2');
