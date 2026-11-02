@@ -399,11 +399,30 @@ describe('通知系统 - 核心服务', () => {
     const n = service.createNotification('user1', 'price_alert', '测试', '', {
       data: { symbol: '600519', price: 1850 },
       icon: '📈',
-      actionUrl: '/stock/600519',
+      actionUrl: 'stocks/600519', // 站内相对路径才允许下发（见下一条用例）
     });
     expect(n!.data).toEqual({ symbol: '600519', price: 1850 });
     expect(n!.icon).toBe('📈');
-    expect(n!.actionUrl).toBe('/stock/600519');
+    expect(n!.actionUrl).toBe('stocks/600519');
+  });
+
+  it('应丢弃非法的自定义 actionUrl（根绝对路径会跳出站点）', () => {
+    // 旧行为：/stock/600519 原样下发，前端 window.location.href 整页跳转会绕过
+    // Router 的 basename（生产 /clair/），请求落到站点根 → GitHub 通用 404。
+    const abs = service.createNotification('user1', 'system', '根绝对路径', '', {
+      actionUrl: '/stock/600519',
+    });
+    expect(abs!.actionUrl).toBeUndefined();
+
+    const ext = service.createNotification('user1', 'system', '外链', '', {
+      actionUrl: 'https://evil.example.com/x',
+    });
+    expect(ext!.actionUrl).toBeUndefined();
+
+    const unknownRoute = service.createNotification('user1', 'system', '不存在的路由', '', {
+      actionUrl: 'news/123',
+    });
+    expect(unknownRoute!.actionUrl).toBeUndefined();
   });
 
   it('应从模板创建通知', () => {

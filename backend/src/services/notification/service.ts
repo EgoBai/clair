@@ -13,7 +13,7 @@ import {
   BatchNotificationRequest,
   NotificationChannelHandler,
 } from './types';
-import { templateManager } from './templates';
+import { templateManager, isAllowedActionUrl } from './templates';
 
 export class NotificationService {
   private notifications: Map<string, NotificationPayload> = new Map();
@@ -87,6 +87,17 @@ export class NotificationService {
     finalChannels = this.filterChannelsByPreferences(userId, type, finalChannels);
 
     if (finalChannels.length === 0) return null;
+
+    // actionUrl 统一收口：模板侧已过白名单，但 options.actionUrl 直接来自 API 请求体
+    // （api/notifications.ts），完全没校验。这里复用同一个 isAllowedActionUrl，
+    // 不写第二份实现 —— 两份规则迟早会分叉。
+    // 非法值丢弃并 warn：宁可通知不可点，也不能让用户点一下掉出 GitHub Pages 站点。
+    if (finalActionUrl && !isAllowedActionUrl(finalActionUrl)) {
+      console.warn(
+        `[Notification] 丢弃非法 actionUrl "${finalActionUrl}"（必须是站内相对路径且命中前端路由）`
+      );
+      finalActionUrl = undefined;
+    }
 
     const notification: NotificationPayload = {
       id: this.generateId(),
