@@ -122,7 +122,7 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
   dbInstance = getInMemoryDb();
   const stockCount = getMemoryStockCount(dbInstance);
   // 诚实红线：不要把股票数量硬编码进日志（曾错误写死为 "20只股票"，实际为数千只）
-  console.log(`✅ 使用内存数据库 (Mock数据, ${stockCount >= 0 ? `${stockCount} 只股票` : '股票数未知'})`);
+  console.log(`✅ 使用内存数据库 (Mock数据, ${stockCount !== null ? `${stockCount} 只股票` : '股票数未知'})`);
 
   if (process.env.NODE_ENV === 'production') {
     // 生产环境降级必须在日志中显式暴露，且不得与常规 warn 混淆
@@ -143,11 +143,17 @@ export async function initDatabase(): Promise<{ db: Database | InMemoryDatabase;
 /**
  * 读取内存库实际股票数（不新建实例）。
  * 通过可选方法探测，兼容测试中注入的 mock 实例。
+ *
+ * 读不到就是 `null`。**不得**再返回 -1 之类的哨兵值：
+ * -1 会被前端/探针当成一个正常的整数渲染（曾使线上 /health 长期输出
+ * `"stockCount": -1`，看起来像「股票数是负一」，实际是「没查」）。
  */
-function getMemoryStockCount(instance: Database | InMemoryDatabase | null): number {
-  if (!instance) return -1;
+function getMemoryStockCount(instance: Database | InMemoryDatabase | null): number | null {
+  if (!instance) return null;
   const probe = instance as unknown as { getStockCountSync?: () => number };
-  return typeof probe.getStockCountSync === 'function' ? probe.getStockCountSync() : -1;
+  if (typeof probe.getStockCountSync !== 'function') return null;
+  const n = probe.getStockCountSync();
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 /**
@@ -155,15 +161,125 @@ function getMemoryStockCount(instance: Database | InMemoryDatabase | null): numb
  * - degraded: 仅当 type === 'memory' 时为 true —— 内存模式即降级态（无真实行情来源）。
  *   生产环境下 degraded 还意味着行情类读取已被 InMemoryDatabase 升级为显式失败
  *   （除非显式设置 ALLOW_FABRICATED_MARKET_DATA=true，此时改回返回诚实空态）。
- * - stockCount: 内存模式下返回内存库实际股票数；
- *   PostgreSQL 模式下不缓存计数，返回 -1（如需真实计数请调用 db.getStockCount()）；
- *   数据库尚未初始化时同样返回 -1。
+ * - stockCount: 内存模式下返回内存库实际股票数；**PG 模式恒为 null**——计数必须走
+ *   `count(*)` 异步查询，同步函数里查不到就不该报数。需要真实整数请调 resolveStockCount()。
+ *
+ * 注意：本函数保持同步（历史调用方按同步使用），故 PG 模式下只能诚实返回 null。
  */
-export function getDbStatus(): { type: DbType; degraded: boolean; stockCount: number } {
+export function getDbStatus(): { type: DbType; degraded: boolean; stockCount: number | null } {
   const type = currentType;
   const degraded = type === 'memory';
-  const stockCount = degraded ? getMemoryStockCount(dbInstance) : -1;
+  const stockCount = degraded ? getMemoryStockCount(dbInstance) : null;
   return { type, degraded, stockCount };
+}
+
+/** /health 里 stockCount 三件套：值 / 是否可得 / 不可得的中文原因。 */
+export interface StockCountProbe {
+  /** 真实股票数；查不到或超时为 null（绝不返回 -1 之类哨兵值） */
+  stockCount: number | null;
+  /** stockCount 是否是可采信的真实值 */
+  stockCountAvailable: boolean;
+  /** stockCount 不可得时的中文原因；可得时省略该字段 */
+  stockCountReason?: string;
+}
+
+/**
+ * 计数查询超时上限（毫秒）。
+ *
+ * /health 是 Render 的健康探针路径（render.yaml: healthCheckPath: /health），
+ * 探针超时会导致实例被反复重启。计数本身是 5 千行的 `count(*)`（实测个位数毫秒），
+ * 但连接池被占满时 acquire 可能长时间排队——所以必须有硬上限：
+ * 宁可如实报「查不到」，也不让健康探针被一个计数拖慢。
+ */
+const STOCK_COUNT_TIMEOUT_MS = 800;
+
+const PROBE_TIMEOUT = Symbol('stockCountTimeout');
+
+function probeWithTimeout<T>(p: Promise<T>, ms: number): Promise<T | typeof PROBE_TIMEOUT> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<typeof PROBE_TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(PROBE_TIMEOUT), ms);
+    // 不要因为一个计时器把进程挂住（Render 上探针频繁调用）
+    if (typeof timer.unref === 'function') timer.unref();
+  });
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T | typeof PROBE_TIMEOUT>;
+}
+
+/**
+ * 如实探测股票清单规模（/health 与口径披露共用）。
+ *
+ * 语义（这是 stockCount 的唯一真源）：
+ *   - 内存模式：内存库直接持有真实股票清单 → 同步取 `stocks.length`，必然可得；
+ *   - PostgreSQL 模式：`count(*) from stocks where is_active = true`，带超时上限；
+ *   - 查不到 / 超时 / 数据库未初始化 → `stockCount: null` + `stockCountAvailable: false`
+ *     + 中文 `stockCountReason`。**绝不**回退成 -1 或 0（0 会被读成「库里没有股票」，
+ *     那是一个更难发现的谎报）。
+ *
+ * 本函数永不 reject（/health 不能因为它变成 503）。
+ */
+export async function resolveStockCount(
+  timeoutMs: number = STOCK_COUNT_TIMEOUT_MS,
+): Promise<StockCountProbe> {
+  const instance = dbInstance;
+  if (!instance) {
+    return {
+      stockCount: null,
+      stockCountAvailable: false,
+      stockCountReason: '数据库尚未初始化（initDatabase 未完成），股票清单规模不可知',
+    };
+  }
+
+  if (currentType === 'memory') {
+    const n = getMemoryStockCount(instance);
+    return n === null
+      ? {
+          stockCount: null,
+          stockCountAvailable: false,
+          stockCountReason: '内存库未暴露同步计数方法（getStockCountSync 缺失），股票清单规模不可知',
+        }
+      : { stockCount: n, stockCountAvailable: true };
+  }
+
+  try {
+    const probe = instance as unknown as {
+      getStockCount?: (params: { isActive?: boolean }) => Promise<number>;
+    };
+    if (typeof probe.getStockCount !== 'function') {
+      return {
+        stockCount: null,
+        stockCountAvailable: false,
+        stockCountReason: '当前数据库实现未提供 getStockCount()，股票清单规模不可知',
+      };
+    }
+    const raced = await probeWithTimeout(
+      Promise.resolve(probe.getStockCount({ isActive: true })),
+      timeoutMs,
+    );
+    if (raced === PROBE_TIMEOUT) {
+      return {
+        stockCount: null,
+        stockCountAvailable: false,
+        stockCountReason: `股票清单计数查询超过 ${timeoutMs}ms 未返回（连接池排队或数据库繁忙），本次不报数`,
+      };
+    }
+    const n = Number(raced);
+    if (!Number.isFinite(n) || n < 0) {
+      return {
+        stockCount: null,
+        stockCountAvailable: false,
+        stockCountReason: `股票清单计数查询返回非数值（${String(raced)}），本次不报数`,
+      };
+    }
+    return { stockCount: n, stockCountAvailable: true };
+  } catch (error) {
+    return {
+      stockCount: null,
+      stockCountAvailable: false,
+      stockCountReason: `股票清单计数查询失败：${(error as Error).message}`,
+    };
+  }
 }
 
 /**

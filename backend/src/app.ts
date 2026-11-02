@@ -9,7 +9,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { corsMiddleware, corsStatusEndpoint } from './middleware/corsConfig';
 import { createServer } from 'http';
-import { initDatabase, db, getDb, isMemoryMode, getDbStatus, deriveHealthContract } from './db/dbFactory';
+import { initDatabase, db, getDb, isMemoryMode, getDbStatus, deriveHealthContract, resolveStockCount } from './db/dbFactory';
 import { isFabricatedQuoteRefusalActive } from './db/FabricatedDataRefusedError';
 import { InMemoryDatabase } from './db/InMemoryDatabase';
 import { createLogger } from './utils/logger';
@@ -379,6 +379,12 @@ app.get('/health', async (_req, res) => {
     // 这三个字段是「PG 连不上 → 全站静默吐伪数据」这条红线的**唯一机器可观测出口**：
     // 降级时 dataSource='unavailable'，运维/探针一眼可判，不必翻日志。
     const contract = deriveHealthContract(dbStatus);
+    // stockCount 如实化（2026-11-03）：原实现读 getDbStatus().stockCount，
+    // 而该值在 PG 模式下恒为 -1（同步函数里查不了 count(*)），线上 /health 因此长期
+    // 输出 `"stockCount": -1`——一个看起来像「股票数是负一」的哨兵值。
+    // 现在改为真实查询（带 800ms 硬上限，见 dbFactory.resolveStockCount）；
+    // 查不到就 null + stockCountAvailable:false + 中文原因，绝不回退 -1/0。
+    const stockCountProbe = await resolveStockCount();
 
     res.json({
       status: degraded ? 'degraded' : health.healthy ? 'healthy' : 'unhealthy',
@@ -403,7 +409,13 @@ app.get('/health', async (_req, res) => {
         //                             R0'-9 已删除 Math.random 伪造生成器，故此处不再存在「对外供给伪造行情」的语义。
         refusalActive: degraded ? refusalActive : false,
         fabricationAllowed: degraded ? !refusalActive : false,
-        stockCount: dbStatus.stockCount,
+        stockCount: stockCountProbe.stockCount,
+        // 是否是可采信的真实计数。false 时 stockCount 为 null（不是 0、也不是 -1）。
+        stockCountAvailable: stockCountProbe.stockCountAvailable,
+        // 不可得时的中文原因（可得时不出现该键，避免噪音）
+        ...(stockCountProbe.stockCountReason
+          ? { stockCountReason: stockCountProbe.stockCountReason }
+          : {}),
         latency: health.latency,
         pool: poolStats,
       },

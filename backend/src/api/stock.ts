@@ -263,6 +263,87 @@ router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHand
 
 // ==================== 市场数据 ====================
 
+/**
+ * 口径披露（缺陷B，2026-11-03）。
+ *
+ * 同一时刻的两个「股票数」都真，但口径不同：
+ *   - 本端点 `totalStocks`：**当日有行情记录**的标的数（线上 2026-11-02 实测 5184）；
+ *   - `/api/stocks` 的 `pagination.totalCount`：`stocks` 表**全部活跃标的**
+ *     （同期实测 5546，含 5 条指数行与停牌标的）。
+ * 此前没有任何标注，用户看到两个数字只会认为其中一个错了。
+ *
+ * 约束（诚实红线）：
+ *   1. 两个数字都只来自真实查询，**不做任何估算/外推**；
+ *   2. 文案由**实际查到的数字**动态拼装，不写死 5184/5546 之类的常量；
+ *   3. 清单计数查不到时如实说「对比暂不可得」，绝不拿 totalStocks 顶替，
+ *      也不退化成 0/-1。
+ */
+/**
+ * 口径说明的**纯函数**部分：只做文案拼装，不碰数据库（便于单测）。
+ *
+ * @param quoteCoveredStocks 本端点 totalStocks（当日有行情记录的标的数）
+ * @param listedStockCount   stocks 表活跃标的总数；null = 本次查不到
+ * @param excludedIndexRows  聚合时剔除的指数行条数；null = 该库未提供此字段
+ * @param asOf               实际使用的交易日
+ */
+export function composeCoverageNote(input: {
+  quoteCoveredStocks: number;
+  listedStockCount: number | null;
+  excludedIndexRows: number | null;
+  asOf: string;
+}): string {
+  const { quoteCoveredStocks, listedStockCount, excludedIndexRows, asOf } = input;
+
+  const quotedPart =
+    `本口径 totalStocks=${quoteCoveredStocks} 表示「${asOf} 当日有行情记录的标的数」` +
+    (excludedIndexRows !== null
+      ? `（成交额/涨跌家数聚合时已剔除 ${excludedIndexRows} 条指数行，指数成交额为成份股合计）`
+      : '');
+
+  if (listedStockCount === null) {
+    return `${quotedPart}；股票清单总数本次查询不可得（数据库计数失败或超时），` +
+      '两者的口径差异无法量化，此处不作估计。';
+  }
+
+  const diff = listedStockCount - quoteCoveredStocks;
+  const diffPart = diff >= 0
+    ? `多出的 ${diff} 只属于「库里有档案但当日无行情记录」（停牌、退市整理、指数行等）`
+    : `本口径反而比清单多 ${-diff} 只，说明清单与当日行情表的标的集合不一致，需数据侧核查`;
+
+  return `${quotedPart}；股票清单总数 ${listedStockCount}` +
+    '（GET /api/stocks 的 pagination.totalCount）表示 stocks 表全部活跃标的，' +
+    `含指数行与停牌标的。两者口径不同、不可直接比较，不表示其中一个有误：${diffPart}。`;
+}
+
+/**
+ * 组装 /api/market/summary 的口径披露字段。
+ * 唯一的副作用是**一次真实计数查询**——数字不来自估算。
+ */
+async function buildCoverageNote(
+  summary: Record<string, unknown>,
+  asOf: string,
+): Promise<{ coverageNote: string; listedStockCount: number | null }> {
+  // 与 /api/stocks 的 totalCount 走**同一函数同一参数**（isActive 默认 true），
+  // 保证披露的「清单总数」与用户在股票列表页看到的 totalCount 逐字一致。
+  let listedStockCount: number | null = null;
+  try {
+    const n = Number(await db.getStockCount({ isActive: true }));
+    if (Number.isFinite(n) && n >= 0) listedStockCount = n;
+  } catch {
+    // 计数失败 → 保持 null，如实「不可得」；绝不估算、绝不用 0 顶替
+  }
+
+  const coverageNote = composeCoverageNote({
+    quoteCoveredStocks: Number(summary.totalStocks),
+    listedStockCount,
+    excludedIndexRows: typeof summary.excludedIndexRows === 'number'
+      ? summary.excludedIndexRows
+      : null,
+    asOf,
+  });
+  return { coverageNote, listedStockCount };
+}
+
 router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(async (req, res) => {
   // P0-CALWIRE：未指定日期→回退最近有数据的交易日；指定日无数据→同样回退（asOf 如实标注）
   const q = await resolveMarketQueryDate(req.query.date as Date | string | undefined);
@@ -281,6 +362,12 @@ router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(a
     (summary as Record<string, unknown>).indices = indices;
     indicesAvailable = indices.length > 0;
   } catch (e) { /* 指数获取失败不影响主流程 */ }
+  // 口径披露（缺陷B，2026-11-03）：本端点的 totalStocks 是「当日有行情记录的标的数」，
+  // 与 /api/stocks 的 totalCount「stocks 表全部活跃标的（含指数行与停牌）」是两个口径。
+  // 两个数字都真，但此前**没有任何标注**，用户会认为其中一个错了（线上实测 5184 vs 5546）。
+  // 这里补 coverageNote：文案由**实际查到的两个数字**动态拼装，不写死任何常量；
+  // 清单计数查不到时如实说明「对比暂不可得」，不退化成估计值。
+  const coverage = await buildCoverageNote(summary as Record<string, unknown>, q.asOf);
   // indices 来自腾讯实时源，失败时主数据仍为真实 → 整体仍是 real，但显式告知 indices 缺失
   sendHonest(res, 'real', {
     ...summary,
@@ -289,6 +376,7 @@ router.get('/market/summary', validateQuery(schemas.marketQuery), asyncHandler(a
     // 同一交易日两种不同时刻。故作显式覆盖：查询键与响应字段解耦。
     date: q.date,
     ...calendarFields(q),
+    ...coverage,
     ...(indicesAvailable ? {} : { message: '市场聚合数据为真实值；实时指数源不可达，indices 为空' }),
   });
 }));

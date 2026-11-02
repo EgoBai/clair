@@ -3,7 +3,7 @@
  * 健康检查服务 - 系统状态监控
  */
 
-import { getDbStatus, deriveHealthContract } from '../db/dbFactory';
+import { getDbStatus, deriveHealthContract, resolveStockCount } from '../db/dbFactory';
 
 export interface HealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -144,8 +144,11 @@ export function createDefaultHealthCheck(version?: string): HealthCheckService {
   //    故此处不能说「行情为伪造数据」，只能说「无真实行情来源」。
   //    三字段取值统一走 dbFactory.deriveHealthContract()（唯一真源）。
   service.register('database', async () => {
-    const { degraded, stockCount } = getDbStatus();
+    const { degraded } = getDbStatus();
     const contract = deriveHealthContract();
+    // stockCount 与 app.ts 的 /health 共用 dbFactory.resolveStockCount 单一真源：
+    // 真实整数或 null（+原因），不再出现 -1 哨兵值。
+    const stockCountProbe = await resolveStockCount();
     return {
       status: degraded ? 'warn' : 'pass',
       message: degraded
@@ -155,7 +158,11 @@ export function createDefaultHealthCheck(version?: string): HealthCheckService {
         dbType: contract.dbType,
         degraded: contract.degraded,
         dataSource: contract.dataSource,
-        stockCount,
+        stockCount: stockCountProbe.stockCount,
+        stockCountAvailable: stockCountProbe.stockCountAvailable,
+        ...(stockCountProbe.stockCountReason
+          ? { stockCountReason: stockCountProbe.stockCountReason }
+          : {}),
       },
     };
   });
