@@ -66,7 +66,9 @@ describe('通知系统 - 模板管理', () => {
     expect(result!.title).toContain('贵州茅台');
     expect(result!.title).toContain('600519');
     expect(result!.body).toContain('1850');
-    expect(result!.actionUrl).toBe('/stock/600519');
+    // 站内相对路径（不带前导 '/'）：带 '/' 会绕过前端 Router 的 basename（生产 /clair/），
+    // 整页跳转到站点根 → GitHub 通用 404。详见 notification-action-routes.test.ts
+    expect(result!.actionUrl).toBe('stocks/600519');
   });
 
   it('应返回null当模板被禁用', () => {

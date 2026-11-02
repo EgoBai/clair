@@ -4,6 +4,77 @@
 
 import { NotificationTemplate, NotificationType } from './types';
 
+/**
+ * 通知可跳转的站内路由白名单。
+ *
+ * 真源：frontend/src/routes/index.tsx 的 `<Route path>`（逐条核对过，含参数路由）。
+ * 测试 notification-templates.test.ts 会解析该文件做双向校验，路由增删而这里没跟上就会红。
+ *
+ * 两条硬规则（违反其一，用户点通知就会掉出应用）：
+ *  1) **不得带前导斜杠**。前端 BrowserRouter 的 basename 是 import.meta.env.BASE_URL
+ *     （GitHub Pages 项目站点为 '/clair/'）。根绝对路径（如 '/stock/600519'）绕过 basename，
+ *     整页请求落到站点根 https://egobai.github.io/ ，那里没有 Pages 站点
+ *     → 浏览器显示 GitHub 通用 404「There isn't a GitHub Pages site here.」。
+ *  2) **必须是真实存在的路由**。/stock/{{symbol}}（少个 s）、/report/daily（无此路由）
+ *     这类历史取值都是错的：即便补上 base 也只会渲染应用内 404。
+ *
+ * 重定向路由（review / market / home / index）不收：它们是 `<Navigate>`，
+ * 通知指过去等于多一跳，没有意义。
+ */
+export const ALLOWED_ACTION_PATH_TEMPLATES = [
+  '',                       // 首页（index）
+  'screener',
+  'watchlist',
+  'stocks',
+  'stocks/:symbol',
+  'financials/:symbol',
+  'index/:symbol',
+  'sectors/:symbol',
+  'backtest',
+  'industry-map',
+  'radar',
+  'compare',
+  'lockup-calendar',
+  'top-traders',
+  'margin-trading',
+  'portfolio',
+  'macro',
+  'event-calendar',
+  'risk-center',
+  'report-center',
+  'north-bound',
+  'factor-lab',
+  'hk-connect',
+  'etf',
+  'fund-flow',
+  'macro-hub',
+  'journey',
+  'block-trades',
+  'knowledge',
+  'strategies',
+] as const;
+
+/** 把路由模板（':symbol' 形式）编译成正则；先转义再替换参数，避免 ':' 被误转义 */
+const toActionMatcher = (pathTemplate: string): RegExp => {
+  const escaped = pathTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('^' + escaped.replace(/:[A-Za-z_]\w*/g, '[^/]+') + '$');
+};
+
+export const ACTION_URL_MATCHERS: readonly RegExp[] = ALLOWED_ACTION_PATH_TEMPLATES.map(toActionMatcher);
+
+/**
+ * actionUrl 是否安全可跳：站内相对路径 + 命中真实路由。
+ * 拒绝：根绝对路径（'/x'）、协议相对（'//x'）、任何带协议的值（https: / javascript: …）、
+ * 未匹配路由的相对路径。
+ */
+export function isAllowedActionUrl(url: string | undefined | null): boolean {
+  if (!url) return false;
+  if (url.startsWith('/')) return false;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) return false;
+  const path = url.split('#')[0].split('?')[0].replace(/\/+$/, '');
+  return ACTION_URL_MATCHERS.some((re) => re.test(path));
+}
+
 export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
   {
     id: 'price_alert_above',
@@ -13,7 +84,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'push', 'in_app'],
     defaultPriority: 'high',
     icon: '📈',
-    actionUrlTemplate: '/stock/{{symbol}}',
+    actionUrlTemplate: 'stocks/{{symbol}}',
     enabled: true,
   },
   {
@@ -24,7 +95,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'push', 'in_app'],
     defaultPriority: 'high',
     icon: '📉',
-    actionUrlTemplate: '/stock/{{symbol}}',
+    actionUrlTemplate: 'stocks/{{symbol}}',
     enabled: true,
   },
   {
@@ -35,7 +106,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'in_app'],
     defaultPriority: 'high',
     icon: '🔴',
-    actionUrlTemplate: '/stock/{{symbol}}',
+    actionUrlTemplate: 'stocks/{{symbol}}',
     enabled: true,
   },
   {
@@ -46,7 +117,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'in_app'],
     defaultPriority: 'high',
     icon: '🟢',
-    actionUrlTemplate: '/stock/{{symbol}}',
+    actionUrlTemplate: 'stocks/{{symbol}}',
     enabled: true,
   },
   {
@@ -57,7 +128,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'in_app'],
     defaultPriority: 'medium',
     icon: '📊',
-    actionUrlTemplate: '/stock/{{symbol}}',
+    actionUrlTemplate: 'stocks/{{symbol}}',
     enabled: true,
   },
   {
@@ -68,7 +139,9 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'in_app'],
     defaultPriority: 'medium',
     icon: '📰',
-    actionUrlTemplate: '/news/{{newsId}}',
+    // 前端没有新闻详情路由（pages/_archived/NewsPage.tsx 未挂载），
+    // 因此**故意不设置** actionUrlTemplate：点击只标记已读、不跳转，
+    // 好过指向一个不存在的路径让用户撞 404。
     enabled: true,
   },
   {
@@ -89,7 +162,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'push', 'in_app'],
     defaultPriority: 'urgent',
     icon: '💰',
-    actionUrlTemplate: '/stock/{{symbol}}',
+    actionUrlTemplate: 'stocks/{{symbol}}',
     enabled: true,
   },
   {
@@ -100,7 +173,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['in_app', 'push'],
     defaultPriority: 'low',
     icon: '📋',
-    actionUrlTemplate: '/report/daily',
+    actionUrlTemplate: 'report-center',
     enabled: true,
   },
   {
@@ -111,7 +184,7 @@ export const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     defaultChannels: ['websocket', 'in_app'],
     defaultPriority: 'medium',
     icon: '⭐',
-    actionUrlTemplate: '/stock/{{symbol}}',
+    actionUrlTemplate: 'stocks/{{symbol}}',
     enabled: true,
   },
 ];
@@ -176,13 +249,28 @@ export class TemplateManager {
     const template = this.templates.get(templateId);
     if (!template || !template.enabled) return null;
 
+    const renderedActionUrl = template.actionUrlTemplate
+      ? this.renderTemplate(template.actionUrlTemplate, data)
+      : undefined;
+
+    // 渲染后必须过一遍白名单：占位符缺数据时会渲染成 'stocks/'（末尾空参数），
+    // 这种坏链接一旦下发到前端，用户点一次就掉出站点/撞 404。宁可不下发。
+    let actionUrl: string | undefined;
+    if (renderedActionUrl) {
+      if (isAllowedActionUrl(renderedActionUrl)) {
+        actionUrl = renderedActionUrl;
+      } else {
+        console.warn(
+          `[Notification] 模板 ${template.id} 渲染出非法 actionUrl "${renderedActionUrl}"，已丢弃（详见 templates.ts 白名单）`
+        );
+      }
+    }
+
     return {
       title: this.renderTemplate(template.titleTemplate, data),
       body: this.renderTemplate(template.bodyTemplate, data),
       icon: template.icon,
-      actionUrl: template.actionUrlTemplate
-        ? this.renderTemplate(template.actionUrlTemplate, data)
-        : undefined,
+      actionUrl,
       channels: template.defaultChannels,
       priority: template.defaultPriority,
     };
