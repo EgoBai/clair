@@ -24,11 +24,11 @@
 ## 2. 错误边界保护检查
 
 ### 当前状态：
-✅ **良好** - 项目已有完善的错误边界系统：
-1. `EnhancedErrorBoundary` - 增强版错误边界，支持重试、错误报告
-2. `ChartErrorBoundary` - 专门用于图表组件的错误边界
-3. `LazyPage`组件 - 统一处理Suspense + ErrorBoundary
-4. 根组件已包裹在`EnhancedErrorBoundary`中
+✅ **良好** - 项目已有完善的错误边界系统（2026-11-03 按实际挂载关系核对）：
+1. `UnifiedErrorBoundary` - **实际挂载的根错误边界**（`main.tsx:247`），支持重试/降级
+2. `components/ErrorBoundary.tsx` 的 `SafePage` - 路由层兜底，包裹 `routes/index.tsx` 全部页面
+3. `LazyComponentWrapper` 内置的 ErrorBoundary - 懒加载组件兜底
+4. 仅导出、**当前无消费方（未挂载）**的：`EnhancedErrorBoundary`、`components/Common/ErrorBoundary.tsx`、`LazyPage`、`ChartErrorBoundary`。改动这些文件不会影响线上行为，排查崩溃时不要被它们误导。
 
 ### 建议：
 1. 为所有图表组件添加`ChartErrorBoundary`包装
