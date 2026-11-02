@@ -131,7 +131,11 @@ function getEffectiveOrigins(): string[] {
   if (envOrigins.length > 0) return envOrigins;
 
   if (process.env.NODE_ENV !== 'production') {
-    return DEV_ORIGINS;
+    // 非生产环境也要接受**线上前端源**（https://egobai.github.io）。
+    // 原因：本地后端经常被用来验证线上页面（反向隧道 / 从 Pages 跨域调用），
+    // 若只允许 localhost，会以 403 CORS_ORIGIN_DENIED 伪装成"接口坏了"，
+    // 与线上生产行为（生产分支已含 STATIC_PROD_ORIGINS）不一致。
+    return [...DEV_ORIGINS, ...STATIC_PROD_ORIGINS];
   }
 
   // 生产环境：静态白名单 + 环境变量
