@@ -65,7 +65,7 @@ BG=`#0f172a` CARD=`#1e293b` UP=`#cf2a2a`(红涨) DOWN=`#1db468`(绿跌) ACCENT=`
 ## %BASE_URL% / SPA 部署陷阱（2026-06-25 实战）
 - **静态资源绝对路径在 base=/clair/ 下会 404**: index.html 里 `'/sw.js'`、`href="/icon.png"` 不被 Vite 重写 → 用 `%BASE_URL%sw.js`（Vite 构建时替换）。`<link rel="manifest">` 是例外（Vite 自动注入 base）。
 - **manifest.json 内部路径**: Vite 不处理 manifest 内容 → icon src / start_url / scope 用相对路径（去前导斜杠），相对 manifest 所在目录解析，本地(/)和生产(/clair/)都正确。
-- **GitHub Pages SPA 深链**: BrowserRouter 直接访问子路由会 404（无服务端 fallback）→ 必须 public/404.html 编码路径重定向 + index.html 头部还原脚本。验证: node 实跑 URL 变换闭环 + 构建确认产物。
+- **GitHub Pages SPA 深链**: 生产回退**只有一条**——部署时 `cp dist/index.html dist/404.html`（.github/workflows/deploy.yml），Pages 对物理不存在的 /clair/xxx 返回该页（HTTP 404 + 应用外壳），BrowserRouter(basename=BASE_URL) 按真实路径直接渲染，地址栏不变。**不要再往 public/ 放 404.html 编码器**（曾有过，被上面这条 cp 覆盖、从未上线，已删）。index.html 头部脚本只保留对历史 `?/` 形态的一次 replaceState 还原。验证：`curl` 比 `/clair/`、`/clair/404.html`、`/clair/stocks` 三者 sha256 应完全一致；Playwright 深链 5×N 应 5/5 且 `history.replaceState` 被调用 0 次改写。
 - **vite build 误判**: 主 terminal 前台拦截器会把 `vite build` 当长驻进程拦截 → 用 background=true + process wait，或确认它是一次性构建。
 
 ## 子Agent交付规范
