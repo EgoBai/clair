@@ -52,6 +52,12 @@ COPY package.json package-lock.json ./
 #      整目录拷贝会把密钥烘进镜像层（即使最终 run 阶段不取，属密钥泄露）。
 COPY backend/src ./backend/src
 COPY backend/tsconfig.json ./backend/tsconfig.json
+# ⚠️ 必须拷 backend/package.json：`cd backend && npm run build:prod` 要先读它才能
+#    解析出 build:prod 脚本。2026-11-02 Render 首跑实测报错（漏了这行）：
+#      npm error path /app/backend/package.json  ENOENT
+#      → exit code 254 → 构建失败。
+#    只拷 package.json（不拷 lock）：构建阶段不装依赖，lock 无用；依赖来自 deps 阶段。
+COPY backend/package.json ./backend/package.json
 COPY shared/ ./shared/
 # 清掉 backend/src/ 里的历史残留（不进镜像）：
 #   - node_modules/：183MB 的**宿主机**依赖副本（且含 darwin 平台二进制），
