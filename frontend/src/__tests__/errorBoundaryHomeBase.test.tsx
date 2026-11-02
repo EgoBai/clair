@@ -10,9 +10,17 @@
  *
  * 两层断言：
  *   A. 行为层：点「返回首页」确实发生了导航，且目标 === import.meta.env.BASE_URL；
- *   B. 源码层：三个文件里必须是 `location.href = import.meta.env.BASE_URL`，
+ *   B. 源码层：现存错误边界里必须是 `location.href = import.meta.env.BASE_URL`，
  *      不允许再出现 `location.href = '/'` 这种写死站点根的写法。
  *      （为什么需要 B：测试环境 BASE_URL 恒为 '/'，光靠 A 无法证伪「写死 /」。）
+ *   C. 防复发：src 下不得存在「同名只差大小写 / 扩展名」的模块文件
+ *      （大小写不敏感文件系统上 import 解析歧义，见下方 utils 案例）。
+ *
+ * 说明：`frontend/src/utils/ErrorBoundary.tsx` 已于本轮回合删除——它与
+ * `utils/errorBoundary.ts` 仅大小写不同，macOS 上 `../utils/ErrorBoundary` 会解析到
+ * 小写那个「错误分类工具」模块（组件拿到 undefined），CI 上则相反，属跨平台地雷；
+ * 且全仓无人 import，与 `components/ErrorBoundary.tsx`(SafePage)、
+ * `UnifiedErrorBoundary` 三套职责重叠。故断言 C 覆盖该类冲突，不再对已删文件做校验。
  *
  * @vitest-environment jsdom
  */
@@ -20,9 +28,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import CommonErrorBoundary from '../components/Common/ErrorBoundary';
 import EnhancedErrorBoundary from '../components/Common/EnhancedErrorBoundary';
@@ -30,21 +38,46 @@ import EnhancedErrorBoundary from '../components/Common/EnhancedErrorBoundary';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, '..');
 
-/**
- * utils/ErrorBoundary.tsx 是「够不着的死代码」：src/utils/ 下同时存在
- * ErrorBoundary.tsx（组件）与 errorBoundary.ts（错误分类工具，仅大小写不同），
- * macOS 上 `../utils/ErrorBoundary` 会解析到小写那个模块。该文件当前无人 import，
- * 已上报待裁定删除。因此这里对它做「存在才检查」，避免删除后本文件整体变红；
- * 若它被保留或被复活，断言立即重新生效。
- */
-const UTILS_BOUNDARY_REL = 'utils/ErrorBoundary.tsx';
-const hasUtilsBoundary = existsSync(resolve(SRC, UTILS_BOUNDARY_REL));
-
+/** 现存、且真实带「返回首页」的错误边界（utils/ErrorBoundary.tsx 已删除，见文件头说明） */
 const BOUNDARY_SOURCES = [
-  UTILS_BOUNDARY_REL,
   'components/Common/ErrorBoundary.tsx',
   'components/Common/EnhancedErrorBoundary.tsx',
-].filter((rel) => existsSync(resolve(SRC, rel)));
+];
+
+/**
+ * 找出「同一目录下模块名（去扩展名后）仅大小写不同」的文件对。
+ * 这类文件在大小写不敏感文件系统（macOS/Windows）上，`import './Foo'` 的解析结果
+ * 与大小写敏感的 Linux/CI 不一致 —— 典型症状是「本地能跑 CI 挂」或「两边都能跑但
+ * 拿到不同的东西」。utils/ErrorBoundary.tsx vs utils/errorBoundary.ts 就是实例。
+ */
+function findStemCollisions(root: string): string[] {
+  const EXT = /\.(ts|tsx|js|jsx)$/;
+  const collisions: string[] = [];
+
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '__tests__') continue;
+        walk(full);
+        continue;
+      }
+      if (!EXT.test(entry.name) || /\.test\.(ts|tsx|js|jsx)$/.test(entry.name)) continue;
+
+      // 同目录内找同名不同大小写的兄弟
+      const siblings = readdirSync(dir).filter(
+        (n) => EXT.test(n) && n.replace(EXT, '').toLowerCase() === entry.name.replace(EXT, '').toLowerCase() && n !== entry.name,
+      );
+      if (siblings.length > 0) {
+        const desc = `${full} ↔ ${siblings.map((s) => join(dir, s)).join(' , ')}`;
+        if (!collisions.includes(desc)) collisions.push(desc);
+      }
+    }
+  };
+
+  walk(root);
+  return collisions;
+}
 
 const Boom: React.FC = () => {
   throw new Error('渲染崩溃（测试构造）');
@@ -73,8 +106,8 @@ function installLocationStub() {
 describe('错误边界「返回首页」走 BASE_URL（GitHub Pages 项目站点不得跳出 /clair/）', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    // utils/ErrorBoundary 的 componentDidCatch 会 POST /api/error-report，
-    // jsdom 下相对 URL 会抛 ERR_INVALID_URL，桩掉以免噪音/偶发失败
+    // 错误边界捕获后会尝试上报（fetch 相对路径），jsdom 下会抛 ERR_INVALID_URL，
+    // 桩掉以免日志噪音 / 偶发失败
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: async () => ({}) })));
     installLocationStub();
   });
@@ -107,24 +140,8 @@ describe('错误边界「返回首页」走 BASE_URL（GitHub Pages 项目站点
     });
   }
 
-  it.skipIf(!hasUtilsBoundary)(
-    'utils/ErrorBoundary（死代码，仅存在时校验）：点「返回首页」导航目标 === BASE_URL',
-    async () => {
-      // 显式 .tsx 扩展名：macOS 大小写不敏感下 '../utils/ErrorBoundary' 会解析到
-      // 小写 .ts 的错误分类工具模块，拿不到组件
-      const mod = await import('../utils/ErrorBoundary.tsx');
-      const Boundary = mod.default as React.ComponentType<any>;
-      const { container } = render(<Boundary><Boom /></Boundary>);
-      const homeBtn = Array.from(container.querySelectorAll('button'))
-        .find((b) => /返\s*回\s*首\s*页/.test(b.textContent || ''));
-      expect(homeBtn).toBeDefined();
-      fireEvent.click(homeBtn!);
-      expect(navigatedTo).toBe(import.meta.env.BASE_URL);
-    },
-  );
-
   it('源码层：现存错误边界的「返回首页」必须用 import.meta.env.BASE_URL，禁止写死 /', () => {
-    // 防止「文件全被删掉」导致本断言空转：至少要检查到 2 个现存文件
+    // 防止「文件被挪走」导致本断言空转
     expect(BOUNDARY_SOURCES.length).toBeGreaterThanOrEqual(2);
     for (const rel of BOUNDARY_SOURCES) {
       const code = readFileSync(resolve(SRC, rel), 'utf8');
@@ -137,5 +154,23 @@ describe('错误边界「返回首页」走 BASE_URL（GitHub Pages 项目站点
         `${rel} 不应再出现写死站点根的 location.href = '/'`,
       ).toBe(false);
     }
+  });
+
+  it('防复发：src 下不得存在「同名只差大小写/扩展名」的模块文件（解析歧义地雷）', () => {
+    const collisions = findStemCollisions(SRC);
+    expect(
+      collisions,
+      `以下文件在同一目录内仅大小写不同，会导致 import 解析在 macOS 与 Linux/CI 上指向不同模块：\n${collisions.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('utils/ErrorBoundary.tsx（大小写冲突死代码）已删除，且保留小写的错误分类工具', () => {
+    const utilsDir = resolve(SRC, 'utils');
+    const names = readdirSync(utilsDir);
+    expect(
+      names.filter((n) => n.toLowerCase() === 'errorboundary.tsx'),
+      'utils/ErrorBoundary.tsx 应已删除（与 errorBoundary.ts 仅大小写不同，跨平台解析歧义）',
+    ).toEqual([]);
+    expect(names, 'utils/errorBoundary.ts（错误分类工具）必须保留').toContain('errorBoundary.ts');
   });
 });
