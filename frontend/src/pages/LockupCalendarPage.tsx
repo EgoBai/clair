@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import logger from '../utils/logger';
 import { readResponseStatus, statusFromFailure } from '../services/apiGateway';
 import { classifyApiResponse, type ApiStatus } from '../utils/apiStatus';
@@ -374,7 +375,12 @@ const LockupCalendarPage: React.FC = () => {
       width: 140,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <a href={`/stocks/${record.symbol}`} style={{ fontWeight: 600 }}>{record.name}</a>
+          {/* 必须用 Link 软跳：裸 <a href="/stocks/…"> 是整页导航，会绕过 basename，
+              在 GitHub Pages 项目站点下解析成 https://egobai.github.io/stocks/…（丢了 /clair/ 前缀）
+              → 命中 GitHub 通用 404「There isn't a GitHub Pages site here.」。
+              与 BlockTradesPage.tsx:222 的处理保持一致。2026-11-03 实测：该页当月有 154 条真实
+              解禁记录，点股票名即触发，属"活的"用户可见缺陷。 */}
+          <Link to={`/stocks/${record.symbol}`} style={{ fontWeight: 600 }}>{record.name}</Link>
           <Text type="secondary" style={{ fontSize: 12 }}>{record.symbol}</Text>
         </Space>
       ),
