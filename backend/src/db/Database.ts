@@ -8,6 +8,7 @@ import { Stock, DailyQuote, DailyQuoteInput, StockSearchParams, StockWithQuotes 
 import { classifyStock } from '@shared/industryClassification';
 import { symbolCandidates } from '../utils/symbolUtils';
 import { exchangeLimitPrices, isAtLimitUp, isAtLimitDown } from '../utils/exchangeLimit';
+import { isIndexSymbol } from '../utils/indexSymbol';
 
 // ==================== 行映射（snake_case → camelCase） ====================
 // ⚠️ P0-SYMBOL：映射必须**只有这一处**。历史上 getStocksWithLatestQuotes 读
@@ -533,7 +534,7 @@ export class Database {
    */
   async getMarketSummary(date: Date): Promise<any> {
     // 获取当日所有股票的行情
-    const dailyQuotes = await this.knexInstance<DailyQuote>('daily_quotes')
+    const allQuotes = await this.knexInstance<DailyQuote>('daily_quotes')
       .where('trade_date', date)
       .join('stocks', 'daily_quotes.stock_id', 'stocks.id')
       .select(
@@ -546,6 +547,16 @@ export class Database {
         'daily_quotes.turnover',
         'daily_quotes.market_cap'
       );
+
+    // 【2026-11-02 实测】`daily_quotes` 里混有 5 条**指数**行（上证指数 / 沪深300 /
+    // 中证500 / 深证成指 / 创业板指）。指数的 turnover 本身就是其成份股合计，
+    // 计入全市场聚合等于把同一个市场算两遍：
+    //   Render 首日实测 /api/market/summary 成交额 4.85 万亿
+    //   同刻 /api/breadth/current（腾讯逐只聚合）1.76 万亿  → 虚高 2.76 倍
+    // 判定必须按**代码段**（utils/indexSymbol），不能只按 industry 标签：
+    // 这 5 条里有 2 条（000001.SH、000905.SH）的 industry 为 NULL。
+    const dailyQuotes = allQuotes.filter((q) => !isIndexSymbol(q.symbol as unknown as string));
+    const excludedIndexRows = allQuotes.length - dailyQuotes.length;
 
     if (dailyQuotes.length === 0) {
       return null;
@@ -613,6 +624,8 @@ export class Database {
     return {
       date,
       totalStocks,
+      // 被剔除的指数行条数（指数成交额为成份股合计，混入即重复计入）
+      excludedIndexRows,
       totalMarketCap,
       totalVolume,
       totalTurnover,

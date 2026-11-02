@@ -19,6 +19,9 @@
 import { EventEmitter } from 'events';
 import { getDb } from '../db/dbFactory';
 import { isAtLimitUp, isAtLimitDown } from '../utils/exchangeLimit';
+import { isIndexSymbol } from '../utils/indexSymbol';
+
+export { isIndexSymbol };
 
 const TENCENT_QUOTE_ENDPOINT = 'https://qt.gtimg.cn/q=';
 const FETCH_TIMEOUT_MS = 8000;
@@ -154,16 +157,6 @@ export function toTencentQuoteSymbol(symbol: string, market?: string | null): st
  *   - `.SZ` 且裸码 `399xxx` → 深证系列指数（399001 深证成指 / 399006 创业板指 …）。
  *   - `.BJ` 且裸码 `899050` → 北证50。
  */
-export function isIndexSymbol(symbol: string): boolean {
-  const upper = (symbol || '').toUpperCase();
-  const suffix = (upper.match(/\.(SH|SZ|BJ)$/) || [])[1];
-  const bare = upper.replace(/^(SH|SZ|BJ)\.?/, '').replace(/\.(SH|SZ|BJ)$/, '');
-  if (!/^\d{6}$/.test(bare)) return false;
-  if (suffix === 'SH') return /^000\d{3}$/.test(bare);
-  if (suffix === 'SZ') return /^399\d{3}$/.test(bare);
-  if (suffix === 'BJ') return bare === '899050';
-  return false;
-}
 
 interface TencentQuoteRow {
   price: number;
