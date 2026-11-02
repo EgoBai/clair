@@ -203,7 +203,7 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
             </div>
           </div>
           <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, marginTop: 8, textAlign: 'center' }}>
-            <Link href="https://github.com/EgoBai/clair" target="_blank">
+            <Link href="https://github.com/EgoBai/clair" target="_blank" rel="noopener noreferrer">
               <GithubOutlined style={{ marginRight: 4 }} /> GitHub
             </Link>
           </div>
