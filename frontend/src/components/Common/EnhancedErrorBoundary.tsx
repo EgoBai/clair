@@ -141,7 +141,10 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   };
 
   handleGoHome = (): void => {
-    window.location.href = '/';
+    // 必须带 base（GitHub Pages 项目站点是 /clair/）：写死 '/' 会跳到站点根，
+    // 那里没有 Pages 站点，浏览器拿到 GitHub 通用 404（"There isn't a GitHub
+    // Pages site here."），而不是应用首页。
+    window.location.href = import.meta.env.BASE_URL;
   };
 
   render(): ReactNode {

@@ -150,7 +150,7 @@ class ErrorBoundary extends Component<Props, State> {
               </button>
               <button
                 className="home-button"
-                onClick={() => window.location.href = '/'}
+                onClick={() => window.location.href = import.meta.env.BASE_URL}
               >
                 返回首页
               </button>

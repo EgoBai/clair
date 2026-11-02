@@ -52,7 +52,7 @@ class ErrorBoundary extends Component<Props, State> {
             <Button type="primary" key="retry" onClick={this.handleReset}>
               重试
             </Button>,
-            <Button key="home" onClick={() => (window.location.href = '/')}>
+            <Button key="home" onClick={() => (window.location.href = import.meta.env.BASE_URL)}>
               返回首页
             </Button>,
           ]}
