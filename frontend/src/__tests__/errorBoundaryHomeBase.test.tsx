@@ -20,26 +20,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 import CommonErrorBoundary from '../components/Common/ErrorBoundary';
-// 必须带 .tsx 显式扩展名：src/utils/ 下同时存在 ErrorBoundary.tsx 与 errorBoundary.ts
-// （仅大小写不同）。macOS 大小写不敏感文件系统上，`../utils/ErrorBoundary` 会解析到
-// 小写那个「错误分类工具」模块（导出 classifyError 等），拿不到组件；Linux 上则相反。
-// 显式扩展名可让本测试在两个平台都稳定指向组件。
-import UtilErrorBoundary from '../utils/ErrorBoundary.tsx';
 import EnhancedErrorBoundary from '../components/Common/EnhancedErrorBoundary';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, '..');
 
+/**
+ * utils/ErrorBoundary.tsx 是「够不着的死代码」：src/utils/ 下同时存在
+ * ErrorBoundary.tsx（组件）与 errorBoundary.ts（错误分类工具，仅大小写不同），
+ * macOS 上 `../utils/ErrorBoundary` 会解析到小写那个模块。该文件当前无人 import，
+ * 已上报待裁定删除。因此这里对它做「存在才检查」，避免删除后本文件整体变红；
+ * 若它被保留或被复活，断言立即重新生效。
+ */
+const UTILS_BOUNDARY_REL = 'utils/ErrorBoundary.tsx';
+const hasUtilsBoundary = existsSync(resolve(SRC, UTILS_BOUNDARY_REL));
+
 const BOUNDARY_SOURCES = [
-  'utils/ErrorBoundary.tsx',
+  UTILS_BOUNDARY_REL,
   'components/Common/ErrorBoundary.tsx',
   'components/Common/EnhancedErrorBoundary.tsx',
-];
+].filter((rel) => existsSync(resolve(SRC, rel)));
 
 const Boom: React.FC = () => {
   throw new Error('渲染崩溃（测试构造）');
@@ -83,7 +88,6 @@ describe('错误边界「返回首页」走 BASE_URL（GitHub Pages 项目站点
   const cases: Array<[string, React.ComponentType<any>]> = [
     ['components/Common/ErrorBoundary', CommonErrorBoundary],
     ['components/Common/EnhancedErrorBoundary', EnhancedErrorBoundary],
-    ['utils/ErrorBoundary', UtilErrorBoundary],
   ];
 
   for (const [name, Boundary] of cases) {
@@ -103,7 +107,25 @@ describe('错误边界「返回首页」走 BASE_URL（GitHub Pages 项目站点
     });
   }
 
-  it('源码层：三处「返回首页」必须用 import.meta.env.BASE_URL，禁止写死 /', () => {
+  it.skipIf(!hasUtilsBoundary)(
+    'utils/ErrorBoundary（死代码，仅存在时校验）：点「返回首页」导航目标 === BASE_URL',
+    async () => {
+      // 显式 .tsx 扩展名：macOS 大小写不敏感下 '../utils/ErrorBoundary' 会解析到
+      // 小写 .ts 的错误分类工具模块，拿不到组件
+      const mod = await import('../utils/ErrorBoundary.tsx');
+      const Boundary = mod.default as React.ComponentType<any>;
+      const { container } = render(<Boundary><Boom /></Boundary>);
+      const homeBtn = Array.from(container.querySelectorAll('button'))
+        .find((b) => /返\s*回\s*首\s*页/.test(b.textContent || ''));
+      expect(homeBtn).toBeDefined();
+      fireEvent.click(homeBtn!);
+      expect(navigatedTo).toBe(import.meta.env.BASE_URL);
+    },
+  );
+
+  it('源码层：现存错误边界的「返回首页」必须用 import.meta.env.BASE_URL，禁止写死 /', () => {
+    // 防止「文件全被删掉」导致本断言空转：至少要检查到 2 个现存文件
+    expect(BOUNDARY_SOURCES.length).toBeGreaterThanOrEqual(2);
     for (const rel of BOUNDARY_SOURCES) {
       const code = readFileSync(resolve(SRC, rel), 'utf8');
       expect(
