@@ -12,28 +12,32 @@
     <link rel="apple-touch-icon" href="%BASE_URL%icon-192.png" />
     <title>澄观 Clair · 水静则明</title>
     <script type="text/javascript">
-      // SPA 深链还原 (配合 public/404.html)：把 /clair/?/stocks/000001.SZ 还原为
-      // /clair/stocks/000001.SZ，必须在 React 加载前执行，交还给 BrowserRouter。
-      // 正常访问 (search 不以 /? 开头) 时此脚本不动作，对本地 dev 无副作用。
+      // SPA 深链还原 —— 全站唯一一处 replaceState。
+      //
+      // 生产环境的深链回退**不依赖脚本跳转**：deploy.yml 用
+      // `cp dist/index.html dist/404.html` 把本页作为 404 页，GitHub Pages 对
+      // /clair/stocks 这类物理不存在的路径返回本页（HTTP 404 + 应用外壳），
+      // React Router (basename=import.meta.env.BASE_URL) 直接按真实路径渲染，
+      // 地址栏保持用户输入的路径，无需二次重定向。
+      //
+      // 本脚本只处理历史兼容形态 /clair/?/stocks/000001.SZ（旧版 404.html
+      // 的 spa-github-pages 编码，仍在书签/外部链接中流通）：把它还原为
+      // /clair/stocks/000001.SZ。正常访问时 search 不以 "?/" 开头，不动作。
       (function (l) {
-        if (l.search[1] === '/') {
-          var decoded = l.search.slice(1).split('&').map(function (s) {
-            return s.replace(/~and~/g, '&');
-          }).join('?');
-          window.history.replaceState(null, null,
-            l.pathname.slice(0, -1) + decoded + l.hash
-          );
-        }
+        if (l.search.charAt(1) !== '/') return;
+        var decoded = l.search.slice(1).split('&').map(function (s) {
+          return s.replace(/~and~/g, '&');
+        }).join('?');
+        // 不能用 slice(0, -1)：/clair?/x（无尾斜杠）会算成 /clai/x。
+        var base = l.pathname.replace(/\/+$/, '');
+        window.history.replaceState(null, null, base + decoded + l.hash);
       }(window.location));
     </script>
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('%BASE_URL%sw.js').catch(() => {});
-      }
-    </script>
+    <!-- SW 注册只在 src/main.tsx 一处（import.meta.env.BASE_URL + 'sw.js'），
+         此处不再重复注册，避免两个入口各注册一次。 -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
