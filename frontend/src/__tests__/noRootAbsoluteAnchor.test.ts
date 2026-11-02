@@ -24,6 +24,15 @@
  *
  * 合法的站内跳转写法：react-router 的 `<Link to="/stocks/1">`（basename 由 Router 处理），
  * 或 `href={import.meta.env.BASE_URL + 'xxx'}`（独立入口、不在 Router 内时）。
+ *
+ * ⚠️ 已知局限（下一个人请先读这段）：
+ *   · 扫描前会剥离**块注释** `/* … *\/`（含 JSX 的 `{/* … *\/}`），但**不剥离 `//` 行注释**。
+ *     原因：`//` 在字符串里极其常见（如 `"https://…"`），粗暴剥离会把源码改坏。
+ *     代价：在 `//` 行注释里写 `<a href="/x">` 示例会**误报**（改成块注释或换措辞即可）。
+ *     这个坑是被实测逼出来的——首版没剥块注释时，LockupCalendarPage 里解释"不要用裸 <a>"
+ *     的那段注释反而被判违规。
+ *   · 纯表达式 `<a href={expr}>` 无法静态判定，规则是**要求零出现**（逼作者写成可判定形式）。
+ *   · 白名单只应放"确认不可达"的文件，且必须写清理由；有用例防止名单腐烂（见最后一组）。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -124,6 +133,10 @@ export function scanAnchorHrefs(src: string): AnchorHit[] {
 
 const isRootAbsolute = (value: string) => value.trim().startsWith('/');
 
+/** 某段源码里是否还存在"根绝对路径 + 可静态判定"的 <a href>（白名单腐烂判定用） */
+const hasRootAbsoluteAnchor = (src: string) =>
+  scanAnchorHrefs(stripBlockComments(src)).some((h) => h.form !== 'expression' && isRootAbsolute(h.value));
+
 const lineOf = (src: string, index: number) => src.slice(0, index).split('\n').length;
 
 function walk(dir: string, acc: string[] = []): string[] {
@@ -161,6 +174,10 @@ describe('扫描器自身的形态覆盖（防空转变绿）', () => {
     // 注释里的示例代码不得误报
     expect(scanAnchorHrefs(stripBlockComments('{/* 裸 <a href="/x"> 是整页导航 */}')).length).toBe(0);
     expect(scanAnchorHrefs(stripBlockComments('/* <a href="/x"> */')).length).toBe(0);
+
+    // 白名单腐烂判定函数的自测：修好之后必须返回 false（否则条目清理不掉）
+    expect(hasRootAbsoluteAnchor('<a href="/">x</a>')).toBe(true);              // 现状（需白名单）
+    expect(hasRootAbsoluteAnchor('<a href={import.meta.env.BASE_URL}>x</a>')).toBe(false); // 修好（应删条目）
 
     // 合法写法不得误报
     expect(scanAnchorHrefs('<Link to="/stocks/1">x</Link>').length).toBe(0);
@@ -210,6 +227,20 @@ describe('全仓原生 <a href> 不得使用根绝对路径', () => {
       const p = path.join(srcDir, entry.file);
       expect(fs.existsSync(p), `白名单条目 ${entry.file} 已不存在，请删除`).toBe(true);
       expect(entry.reason.length, `白名单条目 ${entry.file} 缺少理由`).toBeGreaterThan(20);
+    }
+  });
+
+  it('白名单条目必须"确实还有违规"否则删除它（防止变成永久放行的空条目）', () => {
+    // 这条比"文件存在"更强：如果哪天真把 PerformanceApp.tsx:29 的 href="/" 改成 BASE_URL，
+    // 白名单就成了永远放行的空壳 —— 那时本用例会红，逼着把条目删掉，而不是留着以后
+    // 悄悄给同文件新加的违规打掩护。
+    const srcDir = findSrcDir();
+    for (const entry of ALLOWLIST) {
+      const stillHasViolation = hasRootAbsoluteAnchor(fs.readFileSync(path.join(srcDir, entry.file), 'utf8'));
+      expect(
+        stillHasViolation,
+        `白名单条目 ${entry.file} 已经没有任何根绝对 <a href> 违规了，请删除该条目（否则它会变成永久放行的空壳）`
+      ).toBe(true);
     }
   });
 });
