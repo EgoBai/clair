@@ -52,10 +52,14 @@ DUMP_ONLY=0
 NO_RESTORE=0                  # 兼容别名
 PGBIN="${PGBIN:-}"
 
-# 10 张核心业务表（后端运行时实际读写的对象；视图与两个触发器函数另行处理）
+# 核心业务表（后端运行时实际读写的对象；视图与两个触发器函数另行处理）
 CORE_TABLES=(
   stocks daily_quotes concepts industries alerts watchlist
   money_flow minute_quotes market_snapshots collection_logs
+  # 2026-11-02 新增：分区历史表（PARALLEL BY RANGE(trade_date) 按年），
+  # 承载沪深300+中证500 三年不复权 K 线 pilot（约 58.8 万行）。
+  # pg_dump -t 对分区父表会连带导出其全部分区的数据，无需逐个分区列举。
+  daily_quotes_hist
 )
 # 4 个只读视图（init-db.sql 里定义，后端运行期未直接引用，但 Schema 完整性需要）
 CORE_VIEWS=(
@@ -195,11 +199,20 @@ EOM
   fi
   cat <<'EOM'
 
-还原后校验 SQL（期望值与本机实测一致）：
-  SELECT count(*) FROM stocks;         -- 期望 5546
-  SELECT count(*) FROM daily_quotes;   -- 期望 503534
-  SELECT count(*) FROM concepts;       -- 期望 808
-  SELECT max(trade_date) FROM daily_quotes;  -- 期望 2026-10-23
+还原后校验 SQL（逐表与**源库**比对，不要依赖固定数字——库会持续增长）：
+  -- 源库与目标库各跑一遍，两列数字必须相等：
+  SELECT 'stocks' t, count(*) FROM stocks
+  UNION ALL SELECT 'daily_quotes', count(*) FROM daily_quotes
+  UNION ALL SELECT 'daily_quotes_hist', count(*) FROM daily_quotes_hist
+  UNION ALL SELECT 'concepts', count(*) FROM concepts;
+
+  -- 分区表额外核验：分区是否随父表一起迁到目标库
+  SELECT c.relname, pg_size_pretty(pg_total_relation_size(c.oid))
+  FROM pg_class c JOIN pg_inherits i ON i.inhrelid = c.oid
+  WHERE i.inhparent = 'daily_quotes_hist'::regclass ORDER BY 1;
+
+  -- 最新交易日应与源库一致
+  SELECT max(trade_date) FROM daily_quotes;
 ========================================================================
 Dry run 结束，未执行任何真实操作。去掉 --dry-run 才会真正跑。
 EOM
