@@ -1248,7 +1248,16 @@ const DiscoverPage: React.FC = () => {
                 <div key={i} className="news-item" style={{
                   background: 'var(--bg-surface)', border: `1px solid ${BORDER}`,
                   borderRadius: 6, padding: '8px 10px', cursor: 'pointer',
-                }} onClick={() => item.url && window.open(item.url, '_blank')}>
+                }} onClick={() => {
+                  // 新窗口打开外部资讯：必须显式 `noopener,noreferrer`。
+                  // 浏览器对 `<a target="_blank">` 会隐式加 noopener，但**不适用于 window.open**，
+                  // 否则被打开的第三方页可通过 window.opener 反向导航本页（tabnabbing）。
+                  // 仅放行 http(s)：若上游哪天改成站内相对路径（如 `/news/xxx`），
+                  // 这里会静默放弃而不是把用户送到站点根（那会命中 GitHub 通用 404）。
+                  if (item.url && /^https?:\/\//i.test(item.url)) {
+                    window.open(item.url, '_blank', 'noopener,noreferrer');
+                  }
+                }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <Tag color={item.sentiment === 'positive' ? 'red' : item.sentiment === 'negative' ? 'green' : 'default'} 
                       style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0, flexShrink: 0 }}>
