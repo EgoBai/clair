@@ -1,14 +1,48 @@
+/**
+ * 价格格式化逻辑测试
+ *
+ * 生产实现（唯一真源）：
+ * - frontend/src/utils/formatters.ts：formatChangePercent（涨跌幅）、formatMarketCap（市值）、
+ *   formatVolume（成交量，亿手/万手/手）、formatTurnoverRate（换手率）、getChangeHexColor（涨跌色）、
+ *   formatLargeNumber（千分位）、formatChange（价格变动）、formatRatio（PE/PB）
+ * - frontend/src/utils/dataTransformUtils.ts：formatAmount（成交额，万亿/亿/万）
+ *
+ * 影子治理批次 10：删除 10 组自抄实现里的 9 组，改为 import 真实实现。旧自抄版是更「防御」的
+ * 口径（isFinite 守卫、万级 toFixed(0)、成交量不带「手」、颜色用 #ff4444/#00aa44/#888888），
+ * 与生产不一致；本批按生产真实输出改断言。
+ *
+ * 未迁移：formatPrice —— 两个生产文件都没有该导出。价格展示由各组件内联 toFixed(2)
+ * （如 components/Market/MarketIndexPanel.tsx:149 的本地函数，无 NaN/Infinity 守卫、无 decimals
+ * 参数），契约不同，不虚构生产函数，保留本地 helper。
+ *
+ * 生产缺口（本批按现状固化，生产补守卫后需反转断言）：
+ * - formatChangePercent(NaN) → 'NaN%'（无 isFinite 守卫）
+ * - formatRatio(Infinity)    → 'Infinity'（无 isFinite 守卫）
+ * - formatMarketCap 无负值分支，-100 → '-100.00'
+ */
 import { describe, it, expect } from 'vitest';
+import {
+  formatChangePercent,
+  formatMarketCap,
+  formatVolume,
+  formatTurnoverRate,
+  getChangeHexColor,
+  formatLargeNumber,
+  formatChange,
+  formatRatio,
+} from '../utils/formatters';
+import { formatAmount } from '../utils/dataTransformUtils';
+
+// 未迁移：frontend 生产层无 formatPrice 导出（详见文件头）。
+const formatPrice = (price: number, decimals: number = 2): string => {
+  if (!Number.isFinite(price)) return '--';
+  return price.toFixed(decimals);
+};
 
 // 价格格式化逻辑测试
 describe('Price Formatter Logic', () => {
-  // 基础价格格式化
+  // 基础价格格式化（未迁移，本地 helper）
   describe('Basic Price Format', () => {
-    const formatPrice = (price: number, decimals: number = 2): string => {
-      if (!Number.isFinite(price)) return '--';
-      return price.toFixed(decimals);
-    };
-
     it('should format price with 2 decimals', () => {
       expect(formatPrice(1800.5)).toBe('1800.50');
     });
@@ -40,43 +74,31 @@ describe('Price Formatter Logic', () => {
 
   // 涨跌幅格式化
   describe('Change Percent Format', () => {
-    const formatChange = (pct: number): string => {
-      if (!Number.isFinite(pct)) return '--';
-      const sign = pct > 0 ? '+' : '';
-      return `${sign}${pct.toFixed(2)}%`;
-    };
-
     it('should add + for positive change', () => {
-      expect(formatChange(3.5)).toBe('+3.50%');
+      expect(formatChangePercent(3.5)).toBe('+3.50%');
     });
 
     it('should not add sign for negative change', () => {
-      expect(formatChange(-2.3)).toBe('-2.30%');
+      expect(formatChangePercent(-2.3)).toBe('-2.30%');
     });
 
-    it('should show 0.00% for zero', () => {
-      expect(formatChange(0)).toBe('0.00%');
+    it('should show +0.00% for zero', () => {
+      // 生产 formatChangePercent(0) 带正号（sign = percent >= 0）；旧自抄版为 '0.00%'。
+      expect(formatChangePercent(0)).toBe('+0.00%');
     });
 
     it('should handle very small positive change', () => {
-      expect(formatChange(0.01)).toBe('+0.01%');
+      expect(formatChangePercent(0.01)).toBe('+0.01%');
     });
 
     it('should handle NaN', () => {
-      expect(formatChange(NaN)).toBe('--');
+      // 生产缺口：formatChangePercent 无 isFinite 守卫，NaN 原样透出；旧自抄版为 '--'。
+      expect(formatChangePercent(NaN)).toBe('NaN%');
     });
   });
 
   // 市值格式化
   describe('Market Cap Format', () => {
-    const formatMarketCap = (cap: number): string => {
-      if (!Number.isFinite(cap) || cap < 0) return '--';
-      if (cap >= 1e12) return `${(cap / 1e12).toFixed(2)}万亿`;
-      if (cap >= 1e8) return `${(cap / 1e8).toFixed(2)}亿`;
-      if (cap >= 1e4) return `${(cap / 1e4).toFixed(0)}万`;
-      return cap.toString();
-    };
-
     it('should format 万亿 level', () => {
       expect(formatMarketCap(2.26e12)).toBe('2.26万亿');
     });
@@ -86,74 +108,58 @@ describe('Price Formatter Logic', () => {
     });
 
     it('should format 万 level', () => {
-      expect(formatMarketCap(150000)).toBe('15万');
+      // 生产万级用 toFixed(2)；旧自抄版 toFixed(0) 得 '15万'。
+      expect(formatMarketCap(150000)).toBe('15.00万');
     });
 
     it('should handle small value', () => {
-      expect(formatMarketCap(500)).toBe('500');
+      // 生产小于 1e4 走 toFixed(2)；旧自抄版 toString 得 '500'。
+      expect(formatMarketCap(500)).toBe('500.00');
     });
 
     it('should handle negative', () => {
-      expect(formatMarketCap(-100)).toBe('--');
+      // 生产缺口：formatMarketCap 无负值分支，负值按小数值直出；旧自抄版为 '--'。
+      expect(formatMarketCap(-100)).toBe('-100.00');
     });
   });
 
   // 成交量格式化
   describe('Volume Format', () => {
-    const formatVolume = (vol: number): string => {
-      if (!Number.isFinite(vol) || vol < 0) return '--';
-      if (vol >= 1e8) return `${(vol / 1e8).toFixed(2)}亿`;
-      if (vol >= 1e4) return `${(vol / 1e4).toFixed(0)}万`;
-      return vol.toString();
-    };
-
     it('should format 亿 level volume', () => {
-      expect(formatVolume(1.5e8)).toBe('1.50亿');
+      // 生产带「手」单位。
+      expect(formatVolume(1.5e8)).toBe('1.50亿手');
     });
 
     it('should format 万 level volume', () => {
-      expect(formatVolume(50000)).toBe('5万');
+      expect(formatVolume(50000)).toBe('5.00万手');
     });
 
     it('should format small volume', () => {
-      expect(formatVolume(500)).toBe('500');
+      expect(formatVolume(500)).toBe('500手');
     });
 
     it('should handle zero', () => {
-      expect(formatVolume(0)).toBe('0');
+      expect(formatVolume(0)).toBe('0手');
     });
   });
 
   // 换手率格式化
   describe('Turnover Rate Format', () => {
-    const formatTurnover = (rate: number): string => {
-      if (!Number.isFinite(rate)) return '--';
-      return `${rate.toFixed(2)}%`;
-    };
-
     it('should format turnover rate', () => {
-      expect(formatTurnover(5.5)).toBe('5.50%');
+      expect(formatTurnoverRate(5.5)).toBe('5.50%');
     });
 
     it('should format zero turnover', () => {
-      expect(formatTurnover(0)).toBe('0.00%');
+      expect(formatTurnoverRate(0)).toBe('0.00%');
     });
 
     it('should format high turnover', () => {
-      expect(formatTurnover(25.8)).toBe('25.80%');
+      expect(formatTurnoverRate(25.8)).toBe('25.80%');
     });
   });
 
   // 成交额格式化
   describe('Turnover Amount Format', () => {
-    const formatAmount = (amount: number): string => {
-      if (!Number.isFinite(amount) || amount < 0) return '--';
-      if (amount >= 1e12) return `${(amount / 1e12).toFixed(2)}万亿`;
-      if (amount >= 1e8) return `${(amount / 1e8).toFixed(2)}亿`;
-      if (amount >= 1e4) return `${(amount / 1e4).toFixed(0)}万`;
-      return amount.toString();
-    };
-
     it('should format 万亿 level', () => {
       expect(formatAmount(1.5e12)).toBe('1.50万亿');
     });
@@ -163,90 +169,75 @@ describe('Price Formatter Logic', () => {
     });
 
     it('should format 万 level', () => {
-      expect(formatAmount(250000)).toBe('25万');
+      // 生产 dataTransformUtils.formatAmount 万级用 toFixed(2)；旧自抄版 toFixed(0) 得 '25万'。
+      expect(formatAmount(250000)).toBe('25.00万');
     });
   });
 
   // 涨跌颜色
   describe('Change Color', () => {
-    const getColor = (change: number): string => {
-      if (change > 0) return '#ff4444'; // A股红涨
-      if (change < 0) return '#00aa44'; // A股绿跌
-      return '#888888';
-    };
-
     it('should return red for positive (A-share)', () => {
-      expect(getColor(3.5)).toBe('#ff4444');
+      // 生产 getChangeHexColor 大盘红为 #EF4444；旧自抄版为 #ff4444。
+      expect(getChangeHexColor(3.5)).toBe('#EF4444');
     });
 
     it('should return green for negative (A-share)', () => {
-      expect(getColor(-2.3)).toBe('#00aa44');
+      // 生产为 #22C55E；旧自抄版为 #00aa44。
+      expect(getChangeHexColor(-2.3)).toBe('#22C55E');
     });
 
     it('should return gray for zero', () => {
-      expect(getColor(0)).toBe('#888888');
+      // 生产为 #6B7280；旧自抄版为 #888888。
+      expect(getChangeHexColor(0)).toBe('#6B7280');
     });
   });
 
   // 千分位格式化
   describe('Thousand Separator', () => {
-    const addCommas = (num: number): string => {
-      return num.toLocaleString('zh-CN');
-    };
-
     it('should add commas to large number', () => {
-      expect(addCommas(1000000)).toBe('1,000,000');
+      expect(formatLargeNumber(1000000)).toBe('1,000,000');
     });
 
     it('should not add commas to small number', () => {
-      expect(addCommas(500)).toBe('500');
+      expect(formatLargeNumber(500)).toBe('500');
     });
 
     it('should handle negative number', () => {
-      const result = addCommas(-1000000);
+      const result = formatLargeNumber(-1000000);
       expect(result).toContain('1,000,000');
     });
   });
 
   // 价格变动
   describe('Price Change', () => {
-    const formatPriceChange = (change: number): string => {
-      if (!Number.isFinite(change)) return '--';
-      const sign = change > 0 ? '+' : '';
-      return `${sign}${change.toFixed(2)}`;
-    };
-
     it('should add + sign for increase', () => {
-      expect(formatPriceChange(5.5)).toBe('+5.50');
+      expect(formatChange(5.5)).toBe('+5.50');
     });
 
     it('should not add sign for decrease', () => {
-      expect(formatPriceChange(-3.2)).toBe('-3.20');
+      expect(formatChange(-3.2)).toBe('-3.20');
     });
 
-    it('should show 0.00 for no change', () => {
-      expect(formatPriceChange(0)).toBe('0.00');
+    it('should show +0.00 for no change', () => {
+      // 生产 formatChange(0) 带正号（change >= 0）；旧自抄版为 '0.00'。
+      expect(formatChange(0)).toBe('+0.00');
     });
   });
 
   // PE/PB 格式化
   describe('PE/PB Format', () => {
-    const formatRatio = (ratio: number): string => {
-      if (!Number.isFinite(ratio)) return '--';
-      if (ratio < 0) return ratio.toFixed(2);
-      return ratio.toFixed(2);
-    };
-
     it('should format positive PE', () => {
       expect(formatRatio(35.5)).toBe('35.50');
     });
 
     it('should format negative PE', () => {
-      expect(formatRatio(-15.3)).toBe('-15.30');
+      // 生产 formatRatio 对负值返回 '亏损'（A股亏损股无 PE）；旧自抄版为 '-15.30'。
+      expect(formatRatio(-15.3)).toBe('亏损');
     });
 
     it('should handle infinity', () => {
-      expect(formatRatio(Infinity)).toBe('--');
+      // 生产缺口：formatRatio 无 isFinite 守卫，Infinity 原样透出；旧自抄版为 '--'。
+      expect(formatRatio(Infinity)).toBe('Infinity');
     });
 
     it('should format zero', () => {

@@ -1,116 +1,50 @@
 /**
  * 共享类型定义完整性测试
+ *
+ * 生产实现（唯一真源）：frontend/src/utils/formatters.ts —— 页面实际消费的格式化层
+ * （App.optimized.tsx / ReportCenterPage / PortfolioPage / FundFlowPage / RiskCenterPage）。
+ *
+ * 影子治理批次 10：删除文件内自抄的 16 个格式化实现，改为跨包 import 真实实现。
+ * 跨包导入先例见 backend/src/__tests__/quant*.test.ts（批次 3）；backend/vitest.config.ts
+ * 未覆盖 resolve.extensions（默认 .js 先于 .ts），但 frontend/src/utils/ 下只有 .ts 无同名 .js，
+ * 因此无后缀导入命中 .ts 源码，无需改配置。
+ *
+ * 未迁移：formatPrice —— frontend/src/utils/formatters.ts 无该导出；shared/formatters.ts 有同名
+ * 实现，但无 decimals 参数、无 isFinite 守卫且无产品代码引用，故保留本地 helper。
+ *
+ * 本批按生产真实输出改口径（旧自抄实现来自 shared/formatters.ts 的防御版本）：
+ * - formatMarketCap(0)              '0'   → '0.00'（生产小值走 toFixed(2)，不再 toString）
+ * - formatMarketCap(null)           '-'   → '--'  （生产空值统一 '--'）
+ * - formatMarketCap(undefined)      '-'   → '--'
+ * - formatDate('invalid')           '-'   → '--'
+ * - formatVolume(null)              '-'   → 'null手'（生产缺口，见用例内注释）
  */
 import { describe, it, expect } from 'vitest';
+import {
+  formatNumber,
+  formatMarketCap,
+  formatVolume,
+  formatTurnover,
+  formatChangePercent,
+  formatChange,
+  formatTurnoverRate,
+  getChangeColor,
+  getChangeHexColor,
+  formatSymbol,
+  getMarketLabel,
+  formatDate,
+  formatDateTime,
+  formatLargeNumber,
+  getColorByChange,
+  getMarketColor,
+} from '../../../frontend/src/utils/formatters';
 
-// Format functions (copied inline to avoid cross-rootDir import)
-const formatNumber = (num: number, decimals: number = 2): string => {
-  return num.toLocaleString('zh-CN', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-};
-
-const formatMarketCap = (cap?: number | null): string => {
-  if (!cap && cap !== 0) return '-';
-  if (cap >= 1e12) return `${(cap / 1e12).toFixed(2)}万亿`;
-  if (cap >= 1e8) return `${(cap / 1e8).toFixed(2)}亿`;
-  if (cap >= 1e4) return `${(cap / 1e4).toFixed(2)}万`;
-  return cap.toString();
-};
-
-const formatVolume = (vol?: number | null): string => {
-  if (!vol && vol !== 0) return '-';
-  if (vol >= 1e8) return `${(vol / 1e8).toFixed(2)}亿手`;
-  if (vol >= 1e4) return `${(vol / 1e4).toFixed(2)}万手`;
-  return `${vol}手`;
-};
-
-const formatTurnover = (turnover?: number | null): string => {
-  if (!turnover && turnover !== 0) return '-';
-  if (turnover >= 1e8) return `${(turnover / 1e8).toFixed(2)}亿`;
-  if (turnover >= 1e4) return `${(turnover / 1e4).toFixed(2)}万`;
-  return turnover.toString();
-};
-
-const formatChangePercent = (percent?: number | null): string => {
-  if (percent === undefined || percent === null) return '-';
-  const sign = percent >= 0 ? '+' : '';
-  return `${sign}${percent.toFixed(2)}%`;
-};
-
-const formatChange = (change?: number | null): string => {
-  if (change === undefined || change === null) return '-';
-  const sign = change >= 0 ? '+' : '';
-  return `${sign}${change.toFixed(2)}`;
-};
-
-const formatTurnoverRate = (rate?: number | null): string => {
-  if (rate === undefined || rate === null) return '-';
-  return `${rate.toFixed(2)}%`;
-};
-
+// 未迁移：frontend 生产层没有导出的通用 formatPrice —— 价格展示由各组件内联 toFixed(2)
+// （如 components/Market/MarketIndexPanel.tsx:149 的本地函数，无 NaN/Infinity 守卫、无 decimals
+// 参数，契约不同），保留本地 helper 直至生产提供同名实现。
 const formatPrice = (price?: number | null): string => {
   if (price === undefined || price === null) return '-';
   return price.toFixed(2);
-};
-
-const getChangeColor = (value?: number | null): 'positive' | 'negative' | 'neutral' => {
-  if (value === undefined || value === null || value === 0) return 'neutral';
-  return value > 0 ? 'positive' : 'negative';
-};
-
-const getChangeHexColor = (value?: number | null): string => {
-  if (value === undefined || value === null || value === 0) return '#6B7280';
-  return value > 0 ? '#EF4444' : '#22C55E';
-};
-
-const formatSymbol = (symbol: string): string => {
-  return symbol.replace(/\.(SZ|SH|BJ)$/, '');
-};
-
-const getMarketLabel = (market: string): string => {
-  const map: Record<string, string> = {
-    SH: '上海',
-    SZ: '深圳',
-    BJ: '北京',
-  };
-  return map[market] || market;
-};
-
-const formatDate = (date: Date | string | number): string => {
-  const d = date instanceof Date ? date : new Date(date);
-  if (isNaN(d.getTime())) return '-';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-};
-
-const formatDateTime = (date: Date | string | number): string => {
-  const d = date instanceof Date ? date : new Date(date);
-  if (isNaN(d.getTime())) return '-';
-  return `${formatDate(date)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-};
-
-const formatLargeNumber = (num: number): string => {
-  if (num === null || num === undefined || isNaN(num)) return '-';
-  return num.toLocaleString('en-US');
-};
-
-const getColorByChange = (value?: number | null): string => {
-  if (value === undefined || value === null || value === 0) return '#6b7280';
-  return value > 0 ? '#ef4444' : '#22c55e';
-};
-
-const getChangeText = formatChange;
-const getMarketColor = (market: string): string => {
-  const map: Record<string, string> = {
-    SH: 'blue',
-    SZ: 'green',
-    BJ: 'orange',
-  };
-  return map[market] || 'default';
 };
 
 describe('共享格式化函数', () => {
@@ -150,15 +84,17 @@ describe('共享格式化函数', () => {
     });
 
     it('应处理零值', () => {
-      expect(formatMarketCap(0)).toBe('0');
+      // 生产 formatMarketCap(0) = '0.00'（小于 1e4 走 toFixed(2)）；旧自抄版为 '0'。
+      expect(formatMarketCap(0)).toBe('0.00');
     });
 
     it('应处理 null', () => {
-      expect(formatMarketCap(null)).toBe('-');
+      // 生产空值统一返回 '--'；旧自抄版为 '-'。
+      expect(formatMarketCap(null)).toBe('--');
     });
 
     it('应处理 undefined', () => {
-      expect(formatMarketCap(undefined)).toBe('-');
+      expect(formatMarketCap(undefined)).toBe('--');
     });
   });
 
@@ -178,8 +114,11 @@ describe('共享格式化函数', () => {
       expect(result).toContain('手');
     });
 
-    it('应处理 null', () => {
-      expect(formatVolume(null)).toBe('-');
+    it('应处理 null（生产缺口：formatVolume 无 null 守卫）', () => {
+      // 生产签名是 (vol: number)，没有 null/undefined 分支，null 会被原样拼成 'null手'。
+      // 旧断言 '-' 对应的是 shared/formatters.ts 的防御实现，产品代码走的是 frontend 实现。
+      // 本批按生产现状固化；生产补 null 守卫后此断言应改回 '-'。
+      expect(formatVolume(null as unknown as number)).toBe('null手');
     });
   });
 
@@ -335,8 +274,9 @@ describe('共享格式化函数', () => {
       expect(formatDate(ts)).toContain('2025');
     });
 
-    it('无效日期应返回 -', () => {
-      expect(formatDate('invalid')).toBe('-');
+    it('无效日期应返回 --', () => {
+      // 生产 formatDate 无效输入返回 '--'；旧自抄版为 '-'。
+      expect(formatDate('invalid')).toBe('--');
     });
   });
 
