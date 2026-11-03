@@ -127,9 +127,13 @@ describe('P0-NULLADAPT · ETFPage 折溢价诚实展示', () => {
     mockFetchPayload([NO_NAV_ETF]);
     render(<ETFPage />);
 
-    await waitFor(() => expect(screen.getAllByText('现价').length).toBeGreaterThan(0));
-    // 真实 price=1.234 被展示
-    expect(screen.getAllByText('1.234').length).toBeGreaterThan(0);
+    // CI 慢机下「现价」表头先于数据行渲染，必须把数据也纳入同一个 waitFor，
+    // 否则会在加载中… 状态下断言数据行（2026-11-04 run 41739285077 实测）。
+    await waitFor(() => {
+      expect(screen.getAllByText('现价').length).toBeGreaterThan(0);
+      // 真实 price=1.234 被展示（不用 premiumRate 反推）
+      expect(screen.getAllByText('1.234').length).toBeGreaterThan(0);
+    });
     // nav=0 的旧反推结果 0.000 不应作为现价出现
     expect(screen.queryByText('0.000')).toBeNull();
   });
