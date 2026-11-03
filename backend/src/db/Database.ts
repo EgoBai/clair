@@ -9,6 +9,7 @@ import { classifyStock } from '@shared/industryClassification';
 import { symbolCandidates } from '../utils/symbolUtils';
 import { exchangeLimitPrices, isAtLimitUp, isAtLimitDown } from '../utils/exchangeLimit';
 import { isIndexSymbol } from '../utils/indexSymbol';
+import { WAN_TO_YUAN } from '../utils/turnoverUnit';
 
 // ==================== 行映射（snake_case → camelCase） ====================
 // ⚠️ P0-SYMBOL：映射必须**只有这一处**。历史上 getStocksWithLatestQuotes 读
@@ -564,7 +565,17 @@ export class Database {
 
     // 计算市场概况 (PostgreSQL numeric 列返回 string，必须用 Number() 转换)
     const totalStocks = dailyQuotes.length;
-    const totalMarketCap = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.market_cap) || 0), 0);
+    // ⚠️ 单位换算（P0，2026-11-03）：`daily_quotes.market_cap` 落库单位是**万元**
+    // （实测：浦发银行 600000 库值 33,605,600 万元 = 3360.56 亿元真值；
+    //  工商银行 601398 库值 306,153,000 万元 ÷ 1e4 ≈ 3564 亿股，与其总股本吻合）。
+    // 此前原样当元返回，前端 formatLargeNumber 按元格式化 ⟹ 总市值整体缩水 10000 倍
+    // （3360.56 亿被渲染成「3360.56万」）。聚合口径在此统一乘 WAN_TO_YUAN 转元，
+    // 并在返回值里用 marketCapUnit 显式声明，避免调用方二次猜测。
+    // 只改**聚合口径**，不动写入侧（历史行量纲已由 DataSyncService/回填脚本定为万元）。
+    const totalMarketCap = dailyQuotes.reduce(
+      (sum, quote) => sum + (Number(quote.market_cap) || 0),
+      0,
+    ) * WAN_TO_YUAN;
     const totalVolume = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.volume) || 0), 0);
     // turnover 已由DataSyncService转为元存储，无需再乘10000
     const totalTurnover = dailyQuotes.reduce((sum, quote) => sum + (Number(quote.turnover) || 0), 0);
@@ -606,13 +617,13 @@ export class Database {
     }
     const limitUnjudged = dailyQuotes.length - limitJudged;
 
-    // 按行业分组
+    // 按行业分组（total_market_cap 同样：库内万元 → 对外元，与 totalMarketCap 同口径）
     const industryStats = await this.knexInstance.raw(`
       SELECT 
         stocks.industry,
         COUNT(*) as stock_count,
         AVG(daily_quotes.change_percent) as avg_change_percent,
-        SUM(daily_quotes.market_cap) as total_market_cap
+        SUM(daily_quotes.market_cap) * ${WAN_TO_YUAN} as total_market_cap
       FROM daily_quotes
       JOIN stocks ON daily_quotes.stock_id = stocks.id
       WHERE daily_quotes.trade_date = ?
@@ -627,6 +638,11 @@ export class Database {
       // 被剔除的指数行条数（指数成交额为成份股合计，混入即重复计入）
       excludedIndexRows,
       totalMarketCap,
+      // 单位显式声明：totalMarketCap 与 industryPerformance[].total_market_cap 均为**元**
+      marketCapUnit: 'yuan',
+      marketCapUnitNote:
+        'daily_quotes.market_cap 库内单位为万元，本端点聚合后已乘 10000 统一为元；' +
+        'industryPerformance[].total_market_cap 同口径',
       totalVolume,
       totalTurnover,
       risingStocks,

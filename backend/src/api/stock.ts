@@ -59,6 +59,92 @@ function sendHonest(
   });
 }
 
+// ==================== /api/stocks 的 items[] 契约 ====================
+/**
+ * `items[]` 与 Cloudflare Worker（clair-worker/worker.js `handleStocks`）**逐字段同构**：
+ * `{ symbol, name, market, industry, latestQuote: {closePrice, changePercent, turnoverRate, peRatio, volume, turnover} | null }`
+ *
+ * 为什么不能直接把 `stocks` 行当 items 塞过去：`stocks` 行是 PG 原样 snake_case
+ * （`current_price` / `change_percent` …），而前端 store 的 `mapStockApiItem` 只读
+ * `item.latestQuote.closePrice` 这类 camelCase 嵌套字段 —— 直接别名会让整张表
+ * 价格/涨跌幅/成交量全渲染成「—」（页面不报错但等于没数据）。
+ * 故此处按 Worker 契约**显式改名**，不做任何推算：
+ *   - 六个行情字段全部来自同一行真实列，缺失即 null；
+ *   - 六个字段全缺失时 `latestQuote` 整体为 null（与 Worker「查不到该标的」同语义）；
+ *   - 不返回 change / 昨收 / marketCap —— Worker 也不返回，前端已按「算不出来」处理。
+ */
+function toWorkerStockItem(row: Record<string, unknown>): Record<string, unknown> {
+  const n = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const x = Number(v);
+    return Number.isNaN(x) ? null : x;
+  };
+  const quote = {
+    closePrice: n(row.current_price ?? row.closePrice ?? row.close_price),
+    changePercent: n(row.change_percent ?? row.changePercent),
+    turnoverRate: n(row.turnover_rate ?? row.turnoverRate),
+    peRatio: n(row.pe_ratio ?? row.peRatio),
+    volume: n(row.volume),
+    turnover: n(row.turnover),
+  };
+  const hasQuote = Object.values(quote).some((v) => v !== null);
+  return {
+    symbol: row.symbol,
+    name: row.name,
+    market: row.market,
+    industry: typeof row.industry === 'string' ? row.industry : null,
+    latestQuote: hasQuote ? quote : null,
+  };
+}
+
+// ==================== 市值单位换算（P0，2026-11-03） ====================
+/**
+ * 库内市值是**万元**，对外必须是**元**——两处口径 10000 倍错位的止损点。
+ *
+ * ## 事实（2026-11-03 实测，非推测）
+ * `daily_quotes.market_cap` / `stocks.market_cap` 落库单位是**万元**：
+ *   - 浦发银行 600000：库值 33,605,600 → 3360.56 亿（真值）；若当元读则只有 3360.56 万（错 10000 倍）
+ *   - 工商银行 601398：库值 306,153,000 → 库值/1e4 股数 ≈ 3564 亿股，与其真实总股本 3564 亿股吻合
+ * 而前端 `StockDetailPage.tsx` 用 `formatLargeNumber(marketCap)` 按**元**格式化，
+ * 于是页面把 3360.56 亿渲染成「3360.56万」——商用硬伤。
+ *
+ * ## 为什么换算只做在**路由出口**而不是 db 层 `mapDailyQuoteRow`
+ * db 层还被 `industryChain.ts`（`marketCap / 1e4` 万元→亿）、`advanced-screener.ts`、
+ * `stock-compare.ts`、`alerts.ts`、`multiSignalEngine.ts` 等按「万元」消费；
+ * 在映射层改量纲会把它们一起打挂，而那些文件不在本工单的改动范围内。
+ * 故：**本文件对外一律按元输出，并在响应里带 `marketCapUnit:'yuan'`**；
+ * 其余消费方维持万元语义，待各自工单收口（已在交付报告里列明）。
+ *
+ * ## 诚实约束
+ * 原值为 null/undefined 时**保持缺失**（继承键不写入换算值），绝不 `|| 0` 把
+ * 「口径不可算」谎报成「市值恰为 0」。
+ */
+function toYuanMarketCap<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row };
+  for (const key of ['marketCap', 'circulatingMarketCap', 'market_cap', 'circulating_market_cap']) {
+    if (!(key in row)) continue;
+    const raw = row[key];
+    if (raw === null || raw === undefined || raw === '') {
+      out[key] = null;
+      continue;
+    }
+    const n = Number(raw);
+    out[key] = Number.isFinite(n) ? n * WAN_TO_YUAN : null;
+  }
+  return out;
+}
+
+/** 对「股票档案 + latestQuote」形态的响应整体换算市值单位 */
+function withYuanMarketCap(payload: Record<string, unknown>): Record<string, unknown> {
+  const out = toYuanMarketCap(payload);
+  const quote = payload.latestQuote;
+  if (quote && typeof quote === 'object') {
+    out.latestQuote = toYuanMarketCap(quote as Record<string, unknown>);
+  }
+  out.marketCapUnit = 'yuan';
+  return out;
+}
+
 // P0-SYMBOL：本文件此前的 normalizeSymbol 副本已删除，改为复用 utils/symbolUtils。
 // 符号规范化的**唯一真源**是 symbolUtils —— 规范化逻辑不允许出现第三份。
 
@@ -84,7 +170,16 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
       db.getStockCount(params),
     ]);
 
+    // ⚠️ 列表契约**双写**（历史契约分叉的止损，短中期不可删任一侧）：
+    //   · 旧侧：`stocks` + `pagination.totalCount` —— 后端自建站起就在用，多个既有调用方依赖；
+    //   · 新侧：`items` + `total` —— Cloudflare Worker 侧（clair-worker/worker.js）用的就是这套，
+    //     前端 store（frontend/src/store/useStockStore.ts）**只认** items/total。
+    // 分叉后果（2026-11-03 实测）：/stocks 整页显示「行情接口响应缺少 data.items 数组（契约不符）」，
+    // 数据是真的（200 / 2.78MB / 5546 条）却整页不可用。在**后端**补齐 items/total 是唯一
+    // 不需要同时改动 Worker 与前端的选择：两侧覆盖**同一批行、同一个总数**（items 只是按
+    // Worker 契约改名成 latestQuote 嵌套形态），不构成第二真源。
     return {
+      // 旧侧（保持字节级不变，不删任何字段）
       stocks,
       pagination: {
         page: params.page,
@@ -92,6 +187,9 @@ router.get('/stocks', validateQuery(schemas.stockSearch), asyncHandler(async (re
         totalCount,
         totalPages: Math.ceil(totalCount / (params.pageSize ?? 20)),
       },
+      // 新侧（与 Worker 同构，前端 store 只认这一侧）
+      items: (stocks as unknown as Record<string, unknown>[]).map(toWorkerStockItem),
+      total: totalCount,
     };
   }, 30000); // 30秒缓存
 
@@ -145,7 +243,7 @@ router.get('/stocks/:symbol/latest', validateParams(schemas.stockSymbol), asyncH
     });
     return;
   }
-  sendHonest(res, 'real', stockWithQuote as unknown as Record<string, unknown>);
+  sendHonest(res, 'real', withYuanMarketCap(stockWithQuote as unknown as Record<string, unknown>));
 }));
 
 router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req, res) => {
@@ -163,7 +261,7 @@ router.get('/stocks/:symbol', validateParams(schemas.stockSymbol), asyncHandler(
     });
     return;
   }
-  sendHonest(res, 'real', { ...stock, latestQuote });
+  sendHonest(res, 'real', withYuanMarketCap({ ...stock, latestQuote }));
 }));
 
 // K线数据接口 - 支持日K/周K/月K
@@ -258,7 +356,12 @@ router.post('/stocks/batch/quotes', validateBody(schemas.batchQuotes), asyncHand
     });
     return;
   }
-  sendHonest(res, 'real', { stocks, count: stocks.length });
+  // 批量行情同口径：latestQuote.marketCap 一并换算到元（与单只详情一致）
+  sendHonest(res, 'real', {
+    stocks: stocks.map((s) => withYuanMarketCap(s as unknown as Record<string, unknown>)),
+    count: stocks.length,
+    marketCapUnit: 'yuan',
+  });
 }));
 
 // ==================== 市场数据 ====================
