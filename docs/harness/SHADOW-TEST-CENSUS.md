@@ -16,10 +16,10 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **861（56.2%）** |
+| 影子测试 | **860（56.1%）** |
 | 真实导入 | 672 |
-| 影子测试代码行 | **227,280 行** |
-| 真实测试代码行 | 133,487 行 |
+| 影子测试代码行 | **227,153 行** |
+| 真实测试代码行 | 133,658 行 |
 
 按行数算，63% 的测试代码在断言副本而不是产品代码。
 
@@ -27,7 +27,7 @@
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 435/640 | 68.0% |
+| backend/src/__tests__（扁平） | 434/640 | 67.8% |
 | frontend/src/__tests__（扁平） | 426/868 | 49.1% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
@@ -65,7 +65,12 @@
 3. **验收**：测试必须 import 到 `src/`；抽 3 个文件做变异抽检（改坏真实现，测试必须失败）。
 4. **禁止**：整文件删除冲抵数字（除非能证明被产品代码取代），否则等于用空白换指标。
 
-## 六、下一步
+## 六、已完成的迁移（批次 1 试点）
+
+- `templateFormatter.test.ts`：旧版在文件里自抄 formatNumber/formatRelativeTime/applyConditionRule/formatStockChange，现全部改为 import `services/notification/templateFormatter` 的生产单例，并补上旧版零覆盖的 `render()` 模板语法、stockCode/compact/truncate/chineseAmount；25 tests 全绿。
+- 效果：影子 861→860，且这 126 行断言从此能对产品代码回归。
+
+## 七、下一步
 
 - CI 加守卫：影子占比不得高于本基线（56.2% / 861），新增测试必须真实导入；数字写入脚本，避免手改。
 - 批次 1 候选：backend 纯计算类（batchCalcsEngine / quantitativeAnalysis / tradingEngineDeep 及其同族）。
