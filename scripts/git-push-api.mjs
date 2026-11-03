@@ -38,10 +38,17 @@
  *
  * ============================ 行为约定 ============================
  * - 无未推送提交（远端 head 内容与本地 HEAD 一致）→ 打印 `NOTHING_TO_PUSH`，exit 0。
+ *   **且 exit 0 的每条路径都必定先打印 `CONTENT_CHECK=OK`** —— 调用方可用
+ *   「退出码」或「CONTENT_CHECK=OK 这一行」任一条单独判定成功；
+ *   不允许出现"退出 0 但没有任何校验结论"的路径（空提交全跳过的那条曾有此漏洞）。
  * - 内容级校验不通过 → 打印 `CONTENT_CHECK=FAIL` 与差异明细，exit 1（不静默成功）。
  * - 推送前发现远端 head 已被别人推进（并发）→ 打印 `PUSH_ABORTED`，exit 2（不覆盖）。
  * - 逐提交重建：每个本地提交生成一个远端 commit（base_tree 逐层叠加、parents 链接），
  *   最终一次性 PATCH ref（force:false）。**不是**把最终 tree 一把拍上去。
+ * - **不使用任何临时 ref**：全程只 PATCH 目标分支一次，故失败/中止时没有自建 ref 需要清理
+ *   （中止时已 POST 的 blob/tree/commit 会成为远端不可达对象，GitHub 自行回收，不影响分支）。
+ *   这是刻意设计——"临时 ref + 事后 delete" 一旦在 delete 前崩溃，就会留下脏 ref 指向
+ *   半成品 commit，比多留几个不可达对象危险得多。
  *
  * ============================ 用法 ============================
  *   node scripts/git-push-api.mjs              # 推送当前分支到 origin
@@ -72,7 +79,17 @@ function abortMsg(msg) {
 }
 
 // ---------------------------------------------------------------- git 封装
-const REPO = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+// 不在仓库内时 execFileSync 会抛原生异常（打一整屏 stack）。那样退出码虽然也是 1，
+// 但读者看到的是"脚本崩了"，而实际是"环境不满足、脚本有权拒绝"——两者要分开表述。
+let REPO;
+try {
+  REPO = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+} catch {
+  die(`当前目录不是 git 工作区（git rev-parse --show-toplevel 失败），无法判断要推哪个仓库: ${process.cwd()}`);
+}
 const GIT_OPTS = { cwd: REPO, maxBuffer: 512 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] };
 
 /** 跑 git，返回 utf8 字符串；失败抛错 */
@@ -97,7 +114,15 @@ const REMOTE = process.env.GPA_REMOTE || 'origin';
 const BRANCH = process.env.GPA_BRANCH || git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
 if (!BRANCH || BRANCH === 'HEAD') die('当前处于 detached HEAD，请先切到分支');
 
-const remoteUrl = git(['remote', 'get-url', REMOTE]).trim();
+// remote get-url 失败（远端名写错 / .git/config 没有该 remote）时，git 会抛原生异常。
+// 走 die 而不是让异常冒出去：退出码同为 1，但前者是一句可执行的提示，后者是一屏 stack，
+// 事后没人能分清"环境没配好"和"推送通道有 bug"。
+let remoteUrl;
+try {
+  remoteUrl = git(['remote', 'get-url', REMOTE]).trim();
+} catch {
+  die(`取不到远端 ${REMOTE} 的地址（git remote get-url 失败）：该 remote 不存在或 .git/config 损坏`);
+}
 const urlMatch = remoteUrl.match(/github\.com[:/]+([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
 if (!urlMatch) die(`无法从远端地址解析 owner/repo: ${remoteUrl}`);
 const [, OWNER, REPO_NAME] = urlMatch;
@@ -188,24 +213,42 @@ async function remoteTreeMap(treeSha) {
   return map;
 }
 
-/** 逐 path 比 blob sha，返回差异明细 */
+/**
+ * 逐 path 比 blob sha **与 mode**，返回差异明细。
+ *
+ * 为什么必须比 mode：blob sha 只覆盖**文件内容**，不含权限位。老版本只比 sha，
+ * 于是「内容一致、可执行位从 100644 变成 100755」这种差异会被判成 CONTENT_CHECK=OK
+ * ——远端 tree 与本地 tree 并不相等，但脚本声称成功。这正是纪律 2 的反面：
+ * 判据比它声称的窄，还叫"内容级比对"。宁可多一种明细（mode_mismatch），
+ * 也不留一条"看起来验过、其实没验"的通道。
+ */
 function diffMaps(localMap, remoteMap) {
   const onlyLocal = [];
   const onlyRemote = [];
   const shaMismatch = [];
+  const modeMismatch = [];
   for (const [path, ent] of localMap) {
     const r = remoteMap.get(path);
-    if (!r) onlyLocal.push(path);
-    else if (r.sha !== ent.sha) shaMismatch.push({ path, local: ent.sha, remote: r.sha });
+    if (!r) {
+      onlyLocal.push(path);
+      continue;
+    }
+    if (r.sha !== ent.sha) shaMismatch.push({ path, local: ent.sha, remote: r.sha });
+    else if (r.mode !== ent.mode) modeMismatch.push({ path, local: ent.mode, remote: r.mode });
   }
   for (const path of remoteMap.keys()) {
     if (!localMap.has(path)) onlyRemote.push(path);
   }
-  return { onlyLocal, onlyRemote, shaMismatch };
+  return { onlyLocal, onlyRemote, shaMismatch, modeMismatch };
 }
 
 function diffIsEmpty(d) {
-  return d.onlyLocal.length === 0 && d.onlyRemote.length === 0 && d.shaMismatch.length === 0;
+  return (
+    d.onlyLocal.length === 0 &&
+    d.onlyRemote.length === 0 &&
+    d.shaMismatch.length === 0 &&
+    d.modeMismatch.length === 0
+  );
 }
 
 // ---------------------------------------------------------------- 诊断辅助
@@ -260,6 +303,13 @@ function printDiff(d, baselineCommit) {
       out(`  ${m.path}`);
       out(`    baseline=${m.local} remote=${m.remote}`);
       out(`    本地各层: ${localLayers(m.path, baselineCommit)}`);
+    }
+  }
+  if (d.modeMismatch.length) {
+    out(`mode_mismatch(${d.modeMismatch.length}) 内容相同但 mode 不同（可执行位/符号链接位）：`);
+    for (const m of d.modeMismatch.slice(0, 10)) {
+      out(`  ${m.path}`);
+      out(`    baseline_mode=${m.local} remote_mode=${m.remote}`);
     }
   }
 }
@@ -372,13 +422,17 @@ async function main() {
   if (list.length === 0) {
     // 内容级确认一遍，避免"sha 不同但内容一致"被误报成待推送
     const remoteCommit = await api(`/git/commits/${remoteHead}`);
-    const d = diffMaps(localTreeMap(localHead), await remoteTreeMap(remoteCommit.tree.sha));
+    const localMap = localTreeMap(localHead);
+    const d = diffMaps(localMap, await remoteTreeMap(remoteCommit.tree.sha));
     if (!diffIsEmpty(d)) {
-      out(`WARN sha 上无待推送提交，但远端 head 与 ${localHead.slice(0, 12)} 内容不一致（onlyLocal=${d.onlyLocal.length} onlyRemote=${d.onlyRemote.length} shaMismatch=${d.shaMismatch.length}）`);
+      out(`WARN sha 上无待推送提交，但远端 head 与 ${localHead.slice(0, 12)} 内容不一致（onlyLocal=${d.onlyLocal.length} onlyRemote=${d.onlyRemote.length} shaMismatch=${d.shaMismatch.length} modeMismatch=${d.modeMismatch.length}）`);
       printDiff(d, localHead);
       out('CONTENT_CHECK=FAIL');
       process.exit(EXIT_FAIL);
     }
+    // exit 0 必须同时给出 CONTENT_CHECK=OK：让调用方可以二选一判据（退出码 或 该行），
+    // 而不是"没有 FAIL 就当过"——后者在输出被截断时会静默放行。
+    out(`CONTENT_CHECK=OK files=${localMap.size} baseline=${localHead.slice(0, 12)}`);
     out('NOTHING_TO_PUSH');
     // 顺手对齐本地远端跟踪 ref（纪律 3）
     if (!DRY_RUN) git(['update-ref', `refs/remotes/${REMOTE}/${BRANCH}`, localHead]);
@@ -424,6 +478,21 @@ async function main() {
   }
 
   if (mapping.length === 0) {
+    // 走到这里说明 list 非空、但每个提交都是空提交（tree 不变），故远端 ref 无需移动。
+    // ⚠️ 绝不能在此直接 exit 0：那是**一次未经任何校验的成功声明**。
+    // 空提交不改 tree 只说明"base..localHead 之间没有内容变化"，不说明
+    // "远端 head 与 localHead 内容相同"（resolveBase 走 content-match 分支时，
+    // 两者的等价性来自一次独立比对，此处必须再确认一遍，口径与其他分支一致）。
+    const remoteCommit = await api(`/git/commits/${remoteHead}`);
+    const localMap = localTreeMap(localHead);
+    const d = diffMaps(localMap, await remoteTreeMap(remoteCommit.tree.sha));
+    if (!diffIsEmpty(d)) {
+      out(`WARN ${list.length} 个待推送提交全是空提交，但远端 head 与 ${localHead.slice(0, 12)} 内容不一致（onlyLocal=${d.onlyLocal.length} onlyRemote=${d.onlyRemote.length} shaMismatch=${d.shaMismatch.length} modeMismatch=${d.modeMismatch.length}）`);
+      printDiff(d, localHead);
+      out('CONTENT_CHECK=FAIL');
+      process.exit(EXIT_FAIL);
+    }
+    out(`CONTENT_CHECK=OK files=${localMap.size} baseline=${localHead.slice(0, 12)}（提交全为空，远端无需变更）`);
     out('NOTHING_TO_PUSH');
     git(['update-ref', `refs/remotes/${REMOTE}/${BRANCH}`, localHead]);
     process.exit(EXIT_OK);
@@ -469,6 +538,10 @@ async function main() {
     out(`BASELINE=commit ${baseline.slice(0, 12)}（不是工作区，不是符号 HEAD）`);
     printDiff(d, baseline);
     out('CONTENT_CHECK=FAIL');
+    // 此时远端 ref **已经移动**（PATCH 在比对之前），且无法回滚（GitHub 未提供反向移动的
+    // 安全语义，force 回退反而是更危险的操作）。因此这里必须把"远端已被改坏"讲明白，
+    // 让操作者知道不是"没推上去"，而是"推上去了但内容不对，需人工介入"。
+    out(`WARN 远端 ${BRANCH} 已被指向 ${finalRef.object.sha.slice(0, 12)}，内容与期望不符；本次未对齐本地 origin/${BRANCH}，请人工核对`);
     die(`远端内容与本次推送的 commit ${baseline.slice(0, 12)} 不一致，拒绝声明成功`);
   }
   out(`CONTENT_CHECK=OK files=${baselineMap.size} baseline=${baseline.slice(0, 12)}`);
