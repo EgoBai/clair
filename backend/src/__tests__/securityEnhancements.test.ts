@@ -1,110 +1,116 @@
 /**
- * JWT认证与安全加固测试
- * 覆盖：Token签发/验证/刷新、敏感数据脱敏、Rate Limiting
+ * P3-A3 安全加固 —— 影子测试迁移（批次 15）
+ *
+ * 迁移说明（测试不再内联复制生产实现，改为 import 生产真源）：
+ * - JWT 签发/验证：backend/src/middleware/auth.ts
+ *     signAccessToken(L120) / verifyAccessToken(L143)
+ * - Token 刷新：backend/src/middleware/auth.ts
+ *     generateRefreshToken(L176) / consumeRefreshToken(L190) / cleanup(L418)
+ * - 邮箱/手机号脱敏：frontend/src/utils/securityEngine.ts
+ *     maskEmail(L303) / maskPhone(L291)
+ * - 速率限制：backend/src/middleware/rateLimit.ts rateLimit(L90)
+ * - 安全响应头：backend/src/middleware/securityHeaders.ts enhancedSecurityHeaders(L41)
+ * - 请求体大小限制：backend/src/middleware/validation.ts limitBodySize(L716)
+ * - CORS：backend/src/middleware/corsConfig.ts corsMiddleware(L146)
+ *
+ * 旧断言修正（旧断言与生产冲突，以生产为准）：
+ * - maskEmail('test@example.com')：旧期望 'tes***@example.com'，生产 't**t@example.com'
+ *   （maskEmail 只保留 local 首尾字符，local 长度 <= 2 时不遮挡）
+ * - maskEmail('ab@test.com')：旧期望 'a***@test.com'，生产 'ab@test.com'
+ * - maskEmail('a@b.com')：旧期望 'a***@b.com'，生产 'a@b.com'
+ * - 旧 JWT 过期用例用 signAccessToken(payload, -1) 制造过期；生产 signAccessToken 不接受
+ *   过期参数（固定 15 分钟），改用 fake timers 推进 16 分钟验证过期
+ * - 旧“全局安全策略”3 个用例为恒真断言（expect(true).toBe(true) 等），
+ *   改为对生产中间件的真实断言
+ *
+ * 保留少量内联：
+ * - maskSensitiveValue：生产无对应导出，未迁移
+ *   （backend/src/middleware/requestLogger.ts:62 为模块内私有函数，未 export）
  */
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
-import crypto from 'crypto';
 
-// ==================== 重新实现简化版 JWT 操作（测试用）====================
+import { describe, it, expect, vi, afterEach, afterAll } from 'vitest';
+import {
+  signAccessToken,
+  verifyAccessToken,
+  generateRefreshToken,
+  consumeRefreshToken,
+  cleanup,
+} from '../middleware/auth';
+import { maskEmail, maskPhone } from '../../../frontend/src/utils/securityEngine';
+import { rateLimit } from '../middleware/rateLimit';
+import { enhancedSecurityHeaders } from '../middleware/securityHeaders';
+import { limitBodySize } from '../middleware/validation';
+import { corsMiddleware } from '../middleware/corsConfig';
 
-const JWT_SECRET = 'a-stock-dev-secret-change-in-production';
-const ISSUER = 'a-stock-api';
-
-function base64UrlEncode(data: Buffer): string {
-  return data.toString('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-}
-
-function base64UrlDecode(str: string): Buffer {
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (str.length % 4) str += '=';
-  return Buffer.from(str, 'base64');
-}
-
-function sign(input: string): string {
-  return crypto.createHmac('sha256', JWT_SECRET).update(input).digest('base64');
-}
-
-function signAccessToken(payload: Record<string, any>, expirySec = 900): string {
-  const now = Math.floor(Date.now() / 1000);
-  const jti = crypto.randomBytes(16).toString('hex');
-  const fullPayload = {
-    ...payload,
-    iat: now,
-    exp: now + expirySec,
-    iss: ISSUER,
-    jti,
-  };
-  const header = base64UrlEncode(Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
-  const body = base64UrlEncode(Buffer.from(JSON.stringify(fullPayload)));
-  const sig = base64UrlEncode(Buffer.from(sign(`${header}.${body}`)));
-  return `${header}.${body}.${sig}`;
-}
-
-function verifyAccessToken(token: string): any | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const [h, b, s] = parts;
-    const expectedSig = base64UrlEncode(Buffer.from(sign(`${h}.${b}`)));
-    if (s !== expectedSig) return null;
-    const payload = JSON.parse(base64UrlDecode(b).toString('utf8'));
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
-    if (payload.iss !== ISSUER) return null;
-    return payload;
-  } catch { return null; }
-}
-
-// ==================== 敏感数据脱敏函数 ====================
-
-function maskEmail(email: string): string {
-  if (!email || !email.includes('@')) return email;
-  const [local, domain] = email.split('@');
-  if (local.length <= 3) return `${local.slice(0, 1)}***@${domain}`;
-  return `${local.slice(0, 3)}***@${domain}`;
-}
-
-function maskPhone(phone: string): string {
-  if (!phone || phone.length < 7) return phone;
-  return phone.slice(0, 3) + '****' + phone.slice(-4);
-}
-
+// 生产无对应导出，未迁移：backend/src/middleware/requestLogger.ts:62 的 maskSensitiveValue 未导出
 function maskSensitiveValue(value: string): string {
   if (value.length <= 4) return '****';
   return value.slice(0, 2) + '****' + value.slice(-2);
 }
 
-// ==================== 简化的Rate Limiter ====================
-
-class SimpleRateLimiter {
-  private store = new Map<string, { count: number; resetTime: number }>();
-
-  check(key: string, maxRequests: number, windowMs: number): { allowed: boolean; remaining: number } {
-    const now = Date.now();
-    const entry = this.store.get(key);
-    if (!entry || now > entry.resetTime) {
-      this.store.set(key, { count: 1, resetTime: now + windowMs });
-      return { allowed: true, remaining: maxRequests - 1 };
-    }
-    entry.count++;
-    if (entry.count > maxRequests) {
-      return { allowed: false, remaining: 0 };
-    }
-    return { allowed: true, remaining: maxRequests - entry.count };
-  }
-
-  clear() { this.store.clear(); }
+function createRes() {
+  const res: Record<string, any> = {
+    statusCode: 200,
+    body: undefined,
+    headers: {} as Record<string, string>,
+    removed: [] as string[],
+    status(code: number) {
+      res.statusCode = code;
+      return res;
+    },
+    json(payload: any) {
+      res.body = payload;
+      return res;
+    },
+    setHeader(name: string, value: string) {
+      res.headers[name.toLowerCase()] = value;
+    },
+    set(name: string, value: string) {
+      res.headers[name.toLowerCase()] = value;
+      return res;
+    },
+    removeHeader(name: string) {
+      res.removed.push(name.toLowerCase());
+      delete res.headers[name.toLowerCase()];
+    },
+    end() {
+      return res;
+    },
+  };
+  return res;
 }
 
-// ==================== 测试套件 ====================
+function createReq(overrides: Record<string, any> = {}) {
+  return {
+    method: 'GET',
+    path: '/api/test',
+    ip: '203.0.113.10',
+    headers: {} as Record<string, any>,
+    query: {} as Record<string, any>,
+    body: {} as Record<string, any>,
+    params: {} as Record<string, any>,
+    socket: { remoteAddress: '203.0.113.10' },
+    ...overrides,
+  };
+}
 
 describe('P3-A3 安全加固', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterAll(() => {
+    cleanup();
+  });
 
   describe('JWT Token 签发与验证', () => {
     it('应该签发有效的JWT token', () => {
-      const token = signAccessToken({ sub: 'user_123', email: 'test@example.com', roles: ['user'] });
+      const token = signAccessToken({
+        sub: 'user_123',
+        email: 'test@example.com',
+        roles: ['user'],
+      });
+
       expect(token).toBeDefined();
       expect(token.split('.')).toHaveLength(3);
     });
@@ -112,25 +118,30 @@ describe('P3-A3 安全加固', () => {
     it('应该能验证有效的JWT token', () => {
       const token = signAccessToken({ sub: 'user_123', email: 'test@example.com' });
       const payload = verifyAccessToken(token);
+
       expect(payload).not.toBeNull();
-      expect(payload.sub).toBe('user_123');
-      expect(payload.email).toBe('test@example.com');
-      expect(payload.iss).toBe(ISSUER);
-      expect(payload.jti).toBeDefined();
+      expect(payload!.sub).toBe('user_123');
+      expect(payload!.email).toBe('test@example.com');
+      expect(payload!.iss).toBe('a-stock-api');
+      expect(payload!.jti).toBeDefined();
     });
 
     it('应该拒绝篡改过的token', () => {
       const token = signAccessToken({ sub: 'user_123', email: 'test@example.com' });
       const parts = token.split('.');
-      const tampered = `${parts[0]}.${parts[1]}.invalidsignature`;
-      const payload = verifyAccessToken(tampered);
-      expect(payload).toBeNull();
+
+      expect(verifyAccessToken(parts[0] + '.' + parts[1] + '.invalidsignature')).toBeNull();
     });
 
     it('应该拒绝过期的token', () => {
-      const token = signAccessToken({ sub: 'user_123', email: 'test@example.com' }, -1); // 已过期
-      const payload = verifyAccessToken(token);
-      expect(payload).toBeNull();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+
+      const token = signAccessToken({ sub: 'user_123', email: 'test@example.com' });
+
+      // 生产 signAccessToken 固定 15 分钟有效期，向前推进 16 分钟后应判定过期
+      vi.setSystemTime(new Date('2026-01-01T00:16:00.000Z'));
+      expect(verifyAccessToken(token)).toBeNull();
     });
 
     it('应该拒绝不完整的token格式', () => {
@@ -140,91 +151,90 @@ describe('P3-A3 安全加固', () => {
     });
 
     it('每个JWT应该有唯一的jti', () => {
-      const t1 = signAccessToken({ sub: 'u1', email: 'a@b.com' });
-      const t2 = signAccessToken({ sub: 'u1', email: 'a@b.com' });
-      const p1 = verifyAccessToken(t1);
-      const p2 = verifyAccessToken(t2);
-      expect(p1.jti).not.toBe(p2.jti);
+      const payload1 = verifyAccessToken(
+        signAccessToken({ sub: 'user_123', email: 'test@example.com' })
+      );
+      const payload2 = verifyAccessToken(
+        signAccessToken({ sub: 'user_123', email: 'test@example.com' })
+      );
+
+      expect(payload1).not.toBeNull();
+      expect(payload2).not.toBeNull();
+      expect(payload1!.jti).not.toBe(payload2!.jti);
     });
 
     it('应该从token中正确解析角色', () => {
-      const token = signAccessToken({ sub: 'u1', email: 'a@b.com', roles: ['admin', 'trader'] });
-      const payload = verifyAccessToken(token);
-      expect(payload.roles).toEqual(['admin', 'trader']);
+      const token = signAccessToken({
+        sub: 'user_123',
+        email: 'test@example.com',
+        roles: ['admin', 'trader'],
+      });
+
+      expect(verifyAccessToken(token)!.roles).toEqual(['admin', 'trader']);
     });
   });
 
   describe('Token刷新机制', () => {
-    const refreshTokens = new Map<string, { userId: string; email: string; expiresAt: number }>();
-    const REFRESH_EXPIRY = 7 * 24 * 60 * 60 * 1000;
-
-    function generateRefreshToken(userId: string, email: string): string {
-      const token = crypto.randomBytes(32).toString('hex');
-      refreshTokens.set(token, { userId, email, expiresAt: Date.now() + REFRESH_EXPIRY });
-      return token;
-    }
-
-    function consumeRefreshToken(token: string): { accessToken: string; refreshToken: string; userId: string } | null {
-      const entry = refreshTokens.get(token);
-      if (!entry || Date.now() > entry.expiresAt) {
-        refreshTokens.delete(token);
-        return null;
-      }
-      refreshTokens.delete(token);
-      const newRefresh = generateRefreshToken(entry.userId, entry.email);
-      const accessToken = signAccessToken({ sub: entry.userId, email: entry.email });
-      return { accessToken, refreshToken: newRefresh, userId: entry.userId };
-    }
-
     it('刷新令牌应该产生新的 accessToken 和 refreshToken', () => {
-      const rt = generateRefreshToken('user_1', 'a@b.com');
-      const result = consumeRefreshToken(rt);
+      const oldRefreshToken = generateRefreshToken('refresh_user_1', 'test@example.com');
+
+      const result = consumeRefreshToken(oldRefreshToken);
+
       expect(result).not.toBeNull();
       expect(result!.accessToken).toBeDefined();
       expect(result!.refreshToken).toBeDefined();
-      expect(result!.refreshToken).not.toBe(rt); // 不同token
+      expect(result!.refreshToken).not.toBe(oldRefreshToken);
+      expect(verifyAccessToken(result!.accessToken)).not.toBeNull();
+      expect(result!.userId).toBe('refresh_user_1');
+      expect(result!.email).toBe('test@example.com');
     });
 
     it('刷新后旧refreshToken应失效', () => {
-      const rt = generateRefreshToken('user_1', 'a@b.com');
-      consumeRefreshToken(rt);
-      const result = consumeRefreshToken(rt); // 二次使用
-      expect(result).toBeNull();
+      const refreshToken = generateRefreshToken('refresh_user_2', 'test@example.com');
+
+      expect(consumeRefreshToken(refreshToken)).not.toBeNull();
+      expect(consumeRefreshToken(refreshToken)).toBeNull();
     });
 
     it('应该拒绝过期的refreshToken', () => {
-      const rt = crypto.randomBytes(32).toString('hex');
-      refreshTokens.set(rt, { userId: 'u1', email: 'a@b.com', expiresAt: Date.now() - 1000 });
-      const result = consumeRefreshToken(rt);
-      expect(result).toBeNull();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+
+      const refreshToken = generateRefreshToken('refresh_user_3', 'test@example.com');
+
+      // 生产 refreshToken 有效期 7 天，推进 8 天后应过期
+      vi.setSystemTime(new Date('2026-01-09T00:00:00.000Z'));
+      expect(consumeRefreshToken(refreshToken)).toBeNull();
     });
 
     it('应该拒绝不存在的refreshToken', () => {
-      const result = consumeRefreshToken('nonexistent');
-      expect(result).toBeNull();
+      expect(consumeRefreshToken('nonexistent-refresh-token')).toBeNull();
     });
 
     it('连续的刷新应该形成有效的token链', () => {
-      let rt = generateRefreshToken('user_1', 'a@b.com');
+      let refreshToken = generateRefreshToken('refresh_user_4', 'test@example.com');
+
       for (let i = 0; i < 3; i++) {
-        const result = consumeRefreshToken(rt);
+        const result = consumeRefreshToken(refreshToken);
+
         expect(result).not.toBeNull();
         expect(verifyAccessToken(result!.accessToken)).not.toBeNull();
-        rt = result!.refreshToken;
+        expect(result!.refreshToken).not.toBe(refreshToken);
+        refreshToken = result!.refreshToken;
       }
     });
   });
 
   describe('敏感数据脱敏', () => {
-    it('邮箱脱敏应正确遮挡大部分local部分', () => {
-      expect(maskEmail('test@example.com')).toBe('tes***@example.com');
-      expect(maskEmail('ab@test.com')).toBe('a***@test.com');
-      expect(maskEmail('a@b.com')).toBe('a***@b.com');
+    it('邮箱脱敏应保留首尾字符并遮挡中间部分', () => {
+      // 旧断言按内联实现“前3位 + ***”编写；生产 maskEmail 只保留首尾字符
+      expect(maskEmail('test@example.com')).toBe('t**t@example.com');
+      expect(maskEmail('ab@test.com')).toBe('ab@test.com');
+      expect(maskEmail('a@b.com')).toBe('a@b.com');
     });
 
     it('邮箱脱敏应保留域名完整', () => {
-      const masked = maskEmail('user@gmail.com');
-      expect(masked).toContain('@gmail.com');
+      expect(maskEmail('user@gmail.com')).toContain('@gmail.com');
     });
 
     it('不包含@的字符串不应被处理', () => {
@@ -251,64 +261,170 @@ describe('P3-A3 安全加固', () => {
 
   describe('Rate Limiting', () => {
     it('应该在限制内允许请求', () => {
-      const limiter = new SimpleRateLimiter();
+      const limiter = rateLimit({ windowMs: 60000, max: 10, skipPaths: [] });
+      let nextCalls = 0;
+
       for (let i = 0; i < 10; i++) {
-        const result = limiter.check('ip:127.0.0.1', 10, 60000);
-        expect(result.allowed).toBe(true);
-        expect(result.remaining).toBe(10 - i - 1);
+        const res = createRes();
+        limiter(createReq({ ip: '203.0.113.1' }), res, () => {
+          nextCalls++;
+        });
+        expect(res.headers['x-ratelimit-remaining']).toBe(String(10 - i - 1));
       }
+
+      expect(nextCalls).toBe(10);
     });
 
     it('超过限制应该拒绝', () => {
-      const limiter = new SimpleRateLimiter();
+      const limiter = rateLimit({ windowMs: 60000, max: 10, skipPaths: [] });
+      let nextCalls = 0;
+
       for (let i = 0; i < 10; i++) {
-        limiter.check('ip:127.0.0.1', 10, 60000);
+        limiter(createReq({ ip: '203.0.113.2' }), createRes(), () => {
+          nextCalls++;
+        });
       }
-      const result = limiter.check('ip:127.0.0.1', 10, 60000);
-      expect(result.allowed).toBe(false);
-      expect(result.remaining).toBe(0);
+
+      const res = createRes();
+      limiter(createReq({ ip: '203.0.113.2' }), res, () => {
+        nextCalls++;
+      });
+
+      expect(res.statusCode).toBe(429);
+      expect(res.body.success).toBe(false);
+      expect(res.body.retryAfter).toBeGreaterThanOrEqual(0);
+      expect(res.headers['x-ratelimit-remaining']).toBe('0');
+      expect(nextCalls).toBe(10);
     });
 
     it('不同IP应该有独立的计数', () => {
-      const limiter = new SimpleRateLimiter();
+      const limiter = rateLimit({ windowMs: 60000, max: 10, skipPaths: [] });
+
       for (let i = 0; i < 10; i++) {
-        limiter.check('ip:10.0.0.1', 10, 60000);
+        limiter(createReq({ ip: '203.0.113.3' }), createRes(), () => {});
       }
-      // 另一个IP应该还能访问
-      const result = limiter.check('ip:10.0.0.2', 10, 60000);
-      expect(result.allowed).toBe(true);
+
+      let nextCalled = false;
+      const res = createRes();
+      limiter(createReq({ ip: '203.0.113.4' }), res, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(true);
+      expect(res.statusCode).toBe(200);
     });
 
-    it('窗口过期后应该重置', () => {
-      const limiter = new SimpleRateLimiter();
-      const KEY = 'ip:127.0.0.1';
+    it('窗口过期后应该重置计数', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-01T00:00:00.000Z'));
+
+      const limiter = rateLimit({ windowMs: 60000, max: 5, skipPaths: [] });
+      const req = () => createReq({ ip: '203.0.113.5' });
+
       for (let i = 0; i < 5; i++) {
-        limiter.check(KEY, 5, 60000);
+        const res = createRes();
+        limiter(req(), res, () => {});
+        expect(res.statusCode).toBe(200);
       }
-      // 模拟窗口过期 — 实际使用Date.now()，这里直接清空
-      limiter.clear();
-      const result = limiter.check(KEY, 5, 60000);
-      expect(result.allowed).toBe(true);
+
+      const blocked = createRes();
+      limiter(req(), blocked, () => {});
+      expect(blocked.statusCode).toBe(429);
+
+      // 推进 61 秒越过 60 秒窗口
+      vi.setSystemTime(new Date('2026-02-01T00:01:01.000Z'));
+
+      let nextCalled = false;
+      const afterWindow = createRes();
+      limiter(req(), afterWindow, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(true);
+      expect(afterWindow.statusCode).toBe(200);
     });
   });
 
   describe('全局安全策略', () => {
-    it('helmet安全头应默认启用', () => {
-      // 验证 helmet 相关配置已在 app.ts 中启用
-      // 这是集成测试，但我们可以验证配置逻辑
-      expect(true).toBe(true);
+    it('安全响应头应默认启用', () => {
+      const middleware = enhancedSecurityHeaders();
+      const res = createRes();
+      let nextCalled = false;
+
+      middleware(createReq({ path: '/api/security' }), res, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(true);
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['x-frame-options']).toBe('DENY');
+      expect(res.headers['x-xss-protection']).toBe('1; mode=block');
+      expect(res.headers['strict-transport-security']).toContain('max-age=31536000');
+      expect(res.headers['strict-transport-security']).toContain('includeSubDomains');
+      expect(res.headers['content-security-policy']).toContain("default-src 'self'");
+      expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+      expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+      expect(res.headers['permissions-policy']).toContain('camera=()');
+      expect(res.headers['cache-control']).toContain('no-store');
+      expect(res.removed).toContain('x-powered-by');
     });
 
     it('请求体大小应该有限制', () => {
-      // app.ts 中已设置 express.json({ limit: '1mb' })
-      // 此处验证概念
-      const ONE_MB = 1024 * 1024;
-      expect(ONE_MB).toBe(1048576);
+      const middleware = limitBodySize(1024 * 1024);
+
+      let nextCalled = false;
+      const tooLarge = createRes();
+      middleware(
+        createReq({ headers: { 'content-length': String(1024 * 1024 + 1) } }),
+        tooLarge,
+        () => {
+          nextCalled = true;
+        }
+      );
+
+      expect(tooLarge.statusCode).toBe(413);
+      expect(tooLarge.body.error).toBe('请求体过大');
+      expect(nextCalled).toBe(false);
+
+      const ok = createRes();
+      middleware(createReq({ headers: { 'content-length': '100' } }), ok, () => {
+        nextCalled = true;
+      });
+      expect(nextCalled).toBe(true);
     });
 
     it('CORS应该被配置', () => {
-      // app.ts 中已设置 corsMiddleware()
-      expect(true).toBe(true);
+      const middleware = corsMiddleware({ origins: ['https://example.com'] });
+
+      let nextCalled = false;
+      const allowed = createRes();
+      middleware(
+        createReq({ method: 'GET', headers: { origin: 'https://example.com' } }),
+        allowed,
+        () => {
+          nextCalled = true;
+        }
+      );
+
+      expect(nextCalled).toBe(true);
+      expect(allowed.headers['access-control-allow-origin']).toBe('https://example.com');
+      expect(allowed.headers['access-control-allow-credentials']).toBe('true');
+
+      const denied = createRes();
+      middleware(
+        createReq({ method: 'GET', headers: { origin: 'https://evil.example' } }),
+        denied,
+        () => {}
+      );
+
+      expect(denied.statusCode).toBe(403);
+      expect(denied.body.code).toBe('CORS_ORIGIN_DENIED');
+
+      const noOrigin = createRes();
+      middleware(createReq({ method: 'GET', headers: {} }), noOrigin, () => {
+        nextCalled = true;
+      });
+      expect(noOrigin.headers['access-control-allow-origin']).toBeUndefined();
     });
   });
 });

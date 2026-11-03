@@ -1,378 +1,691 @@
-import { describe, it, expect } from 'vitest';
+/**
+ * API安全与网关综合测试 —— 影子测试迁移（批次 15）
+ *
+ * 迁移说明（测试不再内联复制生产实现，改为 import 生产真源）：
+ * - 请求签名：frontend/src/utils/securityEngine.ts
+ *     signRequest(L561) / verifyRequestSignature(L583)
+ * - 安全响应头：backend/src/middleware/securityHeaders.ts enhancedSecurityHeaders(L41)
+ * - CORS：backend/src/middleware/corsConfig.ts corsMiddleware(L146)
+ * - 权限检查：backend/src/middleware/auth.ts requireRole(L328)
+ * - Token 刷新：backend/src/middleware/auth.ts
+ *     generateRefreshToken(L176) / handleTokenRefresh(L362) / verifyAccessToken(L143)
+ * - 输入净化：frontend/src/utils/securityEngine.ts
+ *     sanitizeHTML(L86) / validateStockCode(L177) / validateEmail(L150) / validatePhone(L163)
+ *   邮箱/手机号同时对照 backend/src/models/User.ts validateEmail(L118) / validatePhone(L122)
+ * - 后端注入检测：backend/src/middleware/validation.ts sanitizeInput(L734，SQL 注入检测中间件)
+ * - 密码策略：frontend/src/utils/securityEngine.ts validatePassword(L192)
+ *
+ * 旧断言修正（旧断言与生产冲突，以生产为准）：
+ * - 请求签名：旧内联实现用竖线分隔并输出 8 位十六进制（/^[0-9a-f]{8}$/）；
+ *   生产 signRequest 用 method.toUpperCase() + ':' + path + ':' + body + ':' + timestamp，
+ *   输出为 base36 变长字符串（旧格式断言错误）
+ * - 权限检查：旧内联实现为 guest/user/admin 角色层级；
+ *   生产 requireRole 是“允许角色集合”平铺匹配，没有层级继承
+ * - Token 刷新：旧断言使用 invalid_token / invalid_refresh / expired 错误码；
+ *   生产缺参为 400 VALIDATION_ERROR、令牌无效为 401 REFRESH_TOKEN_INVALID，成功返回 expiresIn 900
+ * - 密码策略：旧内联实现返回 score/strength；生产 validatePassword 只返回 { valid, errors }。
+ *   旧断言 'Abc12345' 为 strong（生产实际 invalid：缺特殊字符）；
+ *   旧断言 'abc12345' 为 medium（生产实际 invalid：缺大写字母与特殊字符）
+ * - 安全响应头：旧断言基于内联响应头对象；生产 CSP/HSTS/Permissions-Policy 取值更完整
+ *
+ * 保留内联（生产无对应实现，未迁移）：
+ * - nonce 重放缓存：生产没有 nonce 存储，verifyRequestSignature 只有 5 分钟时间戳窗口
+ * - IP 白名单：生产没有 IP 白名单中间件
+ * - API Key 管理器：生产没有 API Key 管理实现
+ */
+
+import { describe, it, expect, vi, afterEach, afterAll } from 'vitest';
+import {
+  signRequest,
+  verifyRequestSignature,
+  sanitizeHTML,
+  validateStockCode,
+  validateEmail,
+  validatePhone,
+  validatePassword,
+} from '../../../frontend/src/utils/securityEngine';
+import {
+  generateRefreshToken,
+  handleTokenRefresh,
+  verifyAccessToken,
+  requireRole,
+  cleanup,
+} from '../middleware/auth';
+import { enhancedSecurityHeaders } from '../middleware/securityHeaders';
+import { corsMiddleware } from '../middleware/corsConfig';
+import { sanitizeInput as detectSqlInjection } from '../middleware/validation';
+import {
+  validateEmail as validateUserEmail,
+  validatePhone as validateUserPhone,
+} from '../models/User';
+
+function createRes() {
+  const res: Record<string, any> = {
+    statusCode: 200,
+    body: undefined,
+    headers: {} as Record<string, string>,
+    status(code: number) {
+      res.statusCode = code;
+      return res;
+    },
+    json(payload: any) {
+      res.body = payload;
+      return res;
+    },
+    setHeader(name: string, value: string) {
+      res.headers[name.toLowerCase()] = value;
+    },
+    removeHeader(name: string) {
+      delete res.headers[name.toLowerCase()];
+    },
+    end() {
+      return res;
+    },
+  };
+  return res;
+}
+
+function createReq(overrides: Record<string, any> = {}) {
+  return {
+    method: 'GET',
+    path: '/api/test',
+    ip: '198.51.100.10',
+    headers: {} as Record<string, any>,
+    query: {} as Record<string, any>,
+    body: {} as Record<string, any>,
+    params: {} as Record<string, any>,
+    socket: { remoteAddress: '198.51.100.10' },
+    ...overrides,
+  };
+}
+
+// ==================== 生产无对应实现，未迁移 ====================
+// nonce 重放缓存：生产没有 nonce 存储，仅 verifyRequestSignature 提供 5 分钟时间戳窗口
+const nonceStore = new Set<string>();
+
+function isValidNonce(nonce: string, timestamp: number, windowMs: number = 300000): boolean {
+  if (Math.abs(Date.now() - timestamp) > windowMs) return false;
+  if (nonceStore.has(nonce)) return false;
+  nonceStore.add(nonce);
+  return true;
+}
+
+// IP 白名单：生产没有 IP 白名单中间件，以下为旧测试保留的内联实现
+function ipToNumber(ip: string): number | null {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4) return null;
+  if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function checkIPWhitelist(ip: string, whitelist: string[]): boolean {
+  if (whitelist.length === 0) return false;
+
+  return whitelist.some((entry) => {
+    if (entry === '*') return true;
+    if (entry === ip) return true;
+
+    if (entry.endsWith('.*')) {
+      return ip.startsWith(entry.slice(0, -1));
+    }
+
+    if (entry.includes('/')) {
+      const slashIndex = entry.indexOf('/');
+      const network = entry.slice(0, slashIndex);
+      const bits = parseInt(entry.slice(slashIndex + 1), 10);
+      const ipNumber = ipToNumber(ip);
+      const networkNumber = ipToNumber(network);
+      if (ipNumber === null || networkNumber === null || Number.isNaN(bits)) return false;
+      const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+      return (ipNumber & mask) === (networkNumber & mask);
+    }
+
+    return false;
+  });
+}
+
+// API Key 管理器：生产没有 API Key 管理，以下为旧测试保留的内联实现
+interface ApiKeyRecord {
+  key: string;
+  name: string;
+  rateLimit: number;
+  createdAt: number;
+  revoked: boolean;
+}
+
+function createApiKeyManager() {
+  const keys = new Map<string, ApiKeyRecord>();
+  let serial = 0;
+
+  return {
+    create(name: string, rateLimit: number = 100): ApiKeyRecord {
+      serial += 1;
+      // 旧实现用随机数生成 key；这里改为确定性序号，断言不依赖随机值
+      const key = 'sk-' + serial.toString(36);
+      const record: ApiKeyRecord = {
+        key,
+        name,
+        rateLimit,
+        createdAt: Date.now(),
+        revoked: false,
+      };
+      keys.set(key, record);
+      return record;
+    },
+    validate(key: string): boolean {
+      const record = keys.get(key);
+      return Boolean(record) && record!.revoked === false;
+    },
+    revoke(key: string): boolean {
+      const record = keys.get(key);
+      if (!record) return false;
+      record.revoked = true;
+      return true;
+    },
+    getRateLimit(key: string): number | undefined {
+      return keys.get(key)?.rateLimit;
+    },
+    list(): ApiKeyRecord[] {
+      return Array.from(keys.values());
+    },
+  };
+}
 
 describe('API安全与网关综合测试', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-  // 请求签名
-  const generateSignature = (method: string, path: string, body: string, timestamp: number, secret: string) => {
-    const payload = `${method}|${path}|${body}|${timestamp}`;
-    let hash = 0;
-    for (let i = 0; i < (payload + secret).length; i++) {
-      const char = (payload + secret).charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash |= 0;
-    }
-    return Math.abs(hash).toString(16).padStart(8, '0');
-  };
+  afterAll(() => {
+    cleanup();
+  });
 
   describe('请求签名', () => {
-    it('相同输入相同签名', () => {
-      const sig1 = generateSignature('GET', '/api/stocks', '', 1000, 'secret');
-      const sig2 = generateSignature('GET', '/api/stocks', '', 1000, 'secret');
-      expect(sig1).toBe(sig2);
+    it('相同输入应产生相同签名', () => {
+      const timestamp = Date.now();
+      const signature1 = signRequest('GET', '/api/stocks', '', timestamp, 'secret-key');
+      const signature2 = signRequest('GET', '/api/stocks', '', timestamp, 'secret-key');
+
+      expect(signature1).toBe(signature2);
+      expect(verifyRequestSignature('GET', '/api/stocks', '', timestamp, 'secret-key', signature1).valid).toBe(true);
     });
-    it('不同方法不同签名', () => {
-      const sig1 = generateSignature('GET', '/api/stocks', '', 1000, 'secret');
-      const sig2 = generateSignature('POST', '/api/stocks', '', 1000, 'secret');
-      expect(sig1).not.toBe(sig2);
+
+    it('不同HTTP方法应产生不同签名', () => {
+      const timestamp = 1000;
+      const getSignature = signRequest('GET', '/api/stocks', '', timestamp, 'secret-key');
+      const postSignature = signRequest('POST', '/api/stocks', '', timestamp, 'secret-key');
+
+      expect(getSignature).not.toBe(postSignature);
     });
-    it('不同路径不同签名', () => {
-      const sig1 = generateSignature('GET', '/api/stocks', '', 1000, 'secret');
-      const sig2 = generateSignature('GET', '/api/kline', '', 1000, 'secret');
-      expect(sig1).not.toBe(sig2);
+
+    it('不同路径应产生不同签名', () => {
+      const timestamp = 1000;
+      const stocksSignature = signRequest('GET', '/api/stocks', '', timestamp, 'secret-key');
+      const usersSignature = signRequest('GET', '/api/users', '', timestamp, 'secret-key');
+
+      expect(stocksSignature).not.toBe(usersSignature);
     });
-    it('不同时间戳不同签名', () => {
-      const sig1 = generateSignature('GET', '/api/stocks', '', 1000, 'secret');
-      const sig2 = generateSignature('GET', '/api/stocks', '', 2000, 'secret');
-      expect(sig1).not.toBe(sig2);
+
+    it('不同时间戳应产生不同签名', () => {
+      const signature1 = signRequest('GET', '/api/stocks', '', 1000, 'secret-key');
+      const signature2 = signRequest('GET', '/api/stocks', '', 2000, 'secret-key');
+
+      expect(signature1).not.toBe(signature2);
     });
-    it('不同密钥不同签名', () => {
-      const sig1 = generateSignature('GET', '/api/stocks', '', 1000, 'secret1');
-      const sig2 = generateSignature('GET', '/api/stocks', '', 1000, 'secret2');
-      expect(sig1).not.toBe(sig2);
+
+    it('不同密钥应产生不同签名', () => {
+      const timestamp = 1000;
+      const signature1 = signRequest('GET', '/api/stocks', '', timestamp, 'secret-a');
+      const signature2 = signRequest('GET', '/api/stocks', '', timestamp, 'secret-b');
+
+      expect(signature1).not.toBe(signature2);
     });
-    it('签名格式', () => {
-      const sig = generateSignature('GET', '/api', '', 0, 'key');
-      expect(sig).toMatch(/^[0-9a-f]{8}$/);
+
+    it('签名格式应为base36字符串且方法大小写不敏感', () => {
+      // 旧断言期望 8 位十六进制；生产输出为 base36 变长字符串
+      const signature = signRequest('GET', '/api/stocks', '', 1000, 'secret-key');
+
+      expect(signature).toMatch(/^[0-9a-z]+$/);
+      expect(signRequest('get', '/api/stocks', '', 1000, 'secret-key')).toBe(signature);
     });
   });
 
-  // 重放攻击防护
-  const nonceStore = new Set<string>();
-  const isValidNonce = (nonce: string, timestamp: number, windowMs: number = 300000) => {
-    const now = Date.now();
-    if (Math.abs(now - timestamp) > windowMs) return false;
-    if (nonceStore.has(nonce)) return false;
-    nonceStore.add(nonce);
-    return true;
-  };
+  describe('请求签名验证', () => {
+    it('有效签名应通过校验', () => {
+      const timestamp = Date.now();
+      const body = '{"symbol":"600519"}';
+      const signature = signRequest('POST', '/api/orders', body, timestamp, 'secret-key');
 
-  describe('重放攻击防护', () => {
-    it('首次nonce有效', () => {
-      expect(isValidNonce('nonce-1', Date.now())).toBe(true);
+      expect(
+        verifyRequestSignature('POST', '/api/orders', body, timestamp, 'secret-key', signature).valid
+      ).toBe(true);
     });
-    it('重复nonce无效', () => {
-      // nonce-1 was already used above
-      expect(isValidNonce('nonce-1', Date.now())).toBe(false);
+
+    it('过期时间戳与篡改签名应被拒绝', () => {
+      const timestamp = Date.now();
+      const signature = signRequest('GET', '/api/stocks', '', timestamp, 'secret-key');
+
+      const expired = verifyRequestSignature(
+        'GET',
+        '/api/stocks',
+        '',
+        timestamp - 600000,
+        'secret-key',
+        signature
+      );
+      expect(expired.valid).toBe(false);
+      expect(expired.reason).toBe('timestamp_expired');
+
+      const tampered = verifyRequestSignature(
+        'GET',
+        '/api/stocks',
+        '',
+        timestamp,
+        'secret-key',
+        'tampered-signature'
+      );
+      expect(tampered.valid).toBe(false);
+      expect(tampered.reason).toBe('signature_mismatch');
     });
-    it('过期时间戳无效', () => {
+  });
+
+  describe('重放攻击防护（内联 nonce 存储）', () => {
+    it('首次使用的nonce应该有效', () => {
+      expect(isValidNonce('nonce-first', Date.now())).toBe(true);
+    });
+
+    it('重复使用的nonce应该无效', () => {
+      const timestamp = Date.now();
+
+      expect(isValidNonce('nonce-duplicate', timestamp)).toBe(true);
+      expect(isValidNonce('nonce-duplicate', timestamp)).toBe(false);
+    });
+
+    it('过期时间戳应该无效', () => {
       expect(isValidNonce('nonce-expired', Date.now() - 600000)).toBe(false);
     });
-    it('新nonce有效', () => {
-      expect(isValidNonce('nonce-new-' + Math.random(), Date.now())).toBe(true);
+
+    it('新nonce应该有效', () => {
+      expect(isValidNonce('nonce-new', Date.now())).toBe(true);
     });
   });
 
-  // IP 白名单
-  const checkIPWhitelist = (ip: string, whitelist: string[]) => {
-    if (whitelist.includes('*')) return true;
-    for (const entry of whitelist) {
-      if (entry === ip) return true;
-      if (entry.endsWith('.*')) {
-        const prefix = entry.slice(0, -2);
-        if (ip.startsWith(prefix)) return true;
-      }
-      if (entry.includes('/')) {
-        const [network, bits] = entry.split('/');
-        const mask = ~((1 << (32 - parseInt(bits))) - 1);
-        const ipNum = ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet), 0);
-        const netNum = network.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet), 0);
-        if ((ipNum & mask) === (netNum & mask)) return true;
-      }
-    }
-    return false;
-  };
+  describe('IP白名单校验（内联实现）', () => {
+    it('应该允许精确匹配的IP', () => {
+      expect(checkIPWhitelist('192.168.1.100', ['192.168.1.100'])).toBe(true);
+    });
 
-  describe('IP白名单', () => {
-    it('精确匹配', () => {
-      expect(checkIPWhitelist('192.168.1.1', ['192.168.1.1'])).toBe(true);
+    it('应该拒绝不在白名单的IP', () => {
+      expect(checkIPWhitelist('192.168.1.101', ['192.168.1.100'])).toBe(false);
     });
-    it('不匹配', () => {
-      expect(checkIPWhitelist('10.0.0.1', ['192.168.1.1'])).toBe(false);
+
+    it('通配符*应该允许所有IP', () => {
+      expect(checkIPWhitelist('10.0.0.1', ['*'])).toBe(true);
     });
-    it('通配符允许所有', () => {
-      expect(checkIPWhitelist('1.2.3.4', ['*'])).toBe(true);
-    });
-    it('子网匹配', () => {
+
+    it('应该支持192.168.*通配', () => {
       expect(checkIPWhitelist('192.168.1.100', ['192.168.*'])).toBe(true);
     });
-    it('子网不匹配', () => {
+
+    it('192.168.*不应该匹配其他网段', () => {
       expect(checkIPWhitelist('10.0.0.1', ['192.168.*'])).toBe(false);
     });
-    it('CIDR匹配', () => {
-      expect(checkIPWhitelist('192.168.1.100', ['192.168.1.0/24'])).toBe(true);
+
+    it('应该支持CIDR网段匹配', () => {
+      expect(checkIPWhitelist('192.168.1.50', ['192.168.1.0/24'])).toBe(true);
     });
-    it('CIDR不匹配', () => {
-      expect(checkIPWhitelist('192.168.2.1', ['192.168.1.0/24'])).toBe(false);
+
+    it('CIDR网段不应该匹配网段外的IP', () => {
+      expect(checkIPWhitelist('192.168.2.50', ['192.168.1.0/24'])).toBe(false);
     });
-    it('空白名单拒绝所有', () => {
-      expect(checkIPWhitelist('1.2.3.4', [])).toBe(false);
+
+    it('空白名单应该拒绝所有IP', () => {
+      expect(checkIPWhitelist('192.168.1.100', [])).toBe(false);
     });
   });
 
-  // API Key 管理
-  const apiKeyManager = () => {
-    const keys = new Map<string, { name: string; rate: number; active: boolean; created: number }>();
-    return {
-      create: (name: string, rate: number = 100) => {
-        const key = `sk-${Math.random().toString(36).slice(2, 18)}`;
-        keys.set(key, { name, rate, active: true, created: Date.now() });
-        return key;
-      },
-      validate: (key: string) => {
-        const info = keys.get(key);
-        return info ? info.active : false;
-      },
-      revoke: (key: string) => {
-        const info = keys.get(key);
-        if (info) info.active = false;
-      },
-      getRate: (key: string) => keys.get(key)?.rate ?? 0,
-      list: () => Array.from(keys.entries()).map(([k, v]) => ({ key: k.slice(0, 8) + '...', ...v })),
-    };
-  };
+  describe('API Key管理（内联实现）', () => {
+    it('应该创建API Key', () => {
+      const manager = createApiKeyManager();
+      const record = manager.create('测试应用');
 
-  describe('API Key管理', () => {
-    it('创建Key', () => {
-      const mgr = apiKeyManager();
-      const key = mgr.create('test-app', 50);
-      expect(key).toMatch(/^sk-[a-z0-9]+$/);
+      expect(record.name).toBe('测试应用');
+      expect(record.rateLimit).toBe(100);
+      expect(record.key).toMatch(/^sk-[a-z0-9]+$/);
     });
-    it('验证有效Key', () => {
-      const mgr = apiKeyManager();
-      const key = mgr.create('app1');
-      expect(mgr.validate(key)).toBe(true);
+
+    it('应该验证有效的API Key', () => {
+      const manager = createApiKeyManager();
+      const record = manager.create('测试应用');
+
+      expect(manager.validate(record.key)).toBe(true);
+      expect(manager.getRateLimit(record.key)).toBe(100);
     });
-    it('无效Key返回false', () => {
-      const mgr = apiKeyManager();
-      expect(mgr.validate('invalid-key')).toBe(false);
+
+    it('应该拒绝无效的API Key', () => {
+      const manager = createApiKeyManager();
+
+      expect(manager.validate('sk-invalid')).toBe(false);
     });
-    it('撤销Key', () => {
-      const mgr = apiKeyManager();
-      const key = mgr.create('app2');
-      mgr.revoke(key);
-      expect(mgr.validate(key)).toBe(false);
+
+    it('应该撤销API Key', () => {
+      const manager = createApiKeyManager();
+      const record = manager.create('测试应用');
+
+      expect(manager.revoke(record.key)).toBe(true);
     });
-    it('获取速率限制', () => {
-      const mgr = apiKeyManager();
-      const key = mgr.create('app3', 200);
-      expect(mgr.getRate(key)).toBe(200);
+
+    it('撤销后的API Key应该无效', () => {
+      const manager = createApiKeyManager();
+      const record = manager.create('测试应用');
+
+      manager.revoke(record.key);
+      expect(manager.validate(record.key)).toBe(false);
     });
-    it('列出所有Key', () => {
-      const mgr = apiKeyManager();
-      mgr.create('a'); mgr.create('b');
-      expect(mgr.list().length).toBe(2);
+
+    it('应该列出所有API Key', () => {
+      const manager = createApiKeyManager();
+      manager.create('应用A');
+      manager.create('应用B');
+
+      const list = manager.list();
+      expect(list).toHaveLength(2);
+      expect(list.map((record) => record.name)).toEqual(['应用A', '应用B']);
     });
   });
-
-  // 安全响应头
-  const securityHeaders = (origin?: string) => {
-    const headers: Record<string, string> = {
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'DENY',
-      'X-XSS-Protection': '1; mode=block',
-      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-      'Content-Security-Policy': "default-src 'self'",
-      'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Permissions-Policy': 'camera=(), microphone=()',
-    };
-    if (origin) {
-      headers['Access-Control-Allow-Origin'] = origin;
-      headers['Access-Control-Allow-Credentials'] = 'true';
-    }
-    return headers;
-  };
 
   describe('安全响应头', () => {
-    it('包含所有必要头', () => {
-      const headers = securityHeaders();
-      expect(headers).toHaveProperty('X-Content-Type-Options');
-      expect(headers).toHaveProperty('X-Frame-Options');
-      expect(headers).toHaveProperty('Strict-Transport-Security');
-      expect(headers).toHaveProperty('Content-Security-Policy');
+    it('应该包含所有必要的安全响应头', () => {
+      const middleware = enhancedSecurityHeaders();
+      const res = createRes();
+      let nextCalled = false;
+
+      middleware(createReq({ path: '/api/stocks' }), res, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(true);
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['x-frame-options']).toBe('DENY');
+      expect(res.headers['x-xss-protection']).toBe('1; mode=block');
+      expect(res.headers['strict-transport-security']).toContain('max-age=31536000');
+      expect(res.headers['content-security-policy']).toContain("default-src 'self'");
+      expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+      expect(res.headers['permissions-policy']).toContain('camera=()');
     });
-    it('CORS头带来源', () => {
-      const headers = securityHeaders('https://example.com');
-      expect(headers['Access-Control-Allow-Origin']).toBe('https://example.com');
+
+    it('HSTS应该包含最长有效期与preload', () => {
+      const middleware = enhancedSecurityHeaders();
+      const res = createRes();
+
+      middleware(createReq({ path: '/api/stocks' }), res, () => {});
+
+      expect(res.headers['strict-transport-security']).toContain('31536000');
+      expect(res.headers['strict-transport-security']).toContain('preload');
     });
-    it('无来源无CORS头', () => {
-      const headers = securityHeaders();
-      expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
+
+    it('CORS应该允许配置的来源', () => {
+      const middleware = corsMiddleware({ origins: ['https://example.com'] });
+      const res = createRes();
+      let nextCalled = false;
+
+      middleware(
+        createReq({ method: 'GET', headers: { origin: 'https://example.com' } }),
+        res,
+        () => {
+          nextCalled = true;
+        }
+      );
+
+      expect(nextCalled).toBe(true);
+      expect(res.headers['access-control-allow-origin']).toBe('https://example.com');
+      expect(res.headers['access-control-allow-credentials']).toBe('true');
     });
-    it('HSTS最大有效期', () => {
-      const headers = securityHeaders();
-      expect(headers['Strict-Transport-Security']).toContain('31536000');
+
+    it('无来源请求不应设置CORS头', () => {
+      const middleware = corsMiddleware({ origins: ['https://example.com'] });
+      const res = createRes();
+      let nextCalled = false;
+
+      middleware(createReq({ method: 'GET', headers: {} }), res, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(true);
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
     });
   });
-
-  // 权限检查
-  type Permission = 'read' | 'write' | 'delete' | 'admin';
-  const checkPermission = (userRole: string, required: Permission) => {
-    const hierarchy: Record<string, Permission[]> = {
-      guest: ['read'],
-      user: ['read', 'write'],
-      admin: ['read', 'write', 'delete', 'admin'],
-    };
-    return (hierarchy[userRole] || []).includes(required);
-  };
 
   describe('权限检查', () => {
-    it('guest只有读权限', () => {
-      expect(checkPermission('guest', 'read')).toBe(true);
-      expect(checkPermission('guest', 'write')).toBe(false);
+    it('拥有允许角色应该通过', () => {
+      const middleware = requireRole('admin');
+      const res = createRes();
+      let nextCalled = false;
+
+      middleware(createReq({ userRoles: ['admin'] }), res, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(true);
+      expect(res.statusCode).toBe(200);
     });
-    it('user读写权限', () => {
-      expect(checkPermission('user', 'read')).toBe(true);
-      expect(checkPermission('user', 'write')).toBe(true);
-      expect(checkPermission('user', 'delete')).toBe(false);
+
+    it('缺少角色应该拒绝', () => {
+      const middleware = requireRole('admin');
+      const res = createRes();
+      let nextCalled = false;
+
+      middleware(createReq({ userRoles: [] }), res, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(false);
+      expect(res.statusCode).toBe(403);
+      expect(res.body.code).toBe('FORBIDDEN');
+      expect(res.body.error).toBe('权限不足');
     });
-    it('admin全权限', () => {
-      expect(checkPermission('admin', 'admin')).toBe(true);
-      expect(checkPermission('admin', 'delete')).toBe(true);
+
+    it('角色不匹配应该拒绝', () => {
+      const middleware = requireRole('admin', 'trader');
+      const res = createRes();
+
+      middleware(createReq({ userRoles: ['user'] }), res, () => {});
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.error).toContain('需要角色: admin, trader');
     });
-    it('未知角色无权限', () => {
-      expect(checkPermission('unknown', 'read')).toBe(false);
+
+    it('未知角色应该无权限', () => {
+      const middleware = requireRole('admin');
+      const res = createRes();
+
+      middleware(createReq({ userRoles: ['unknown'] }), res, () => {});
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.code).toBe('FORBIDDEN');
     });
   });
-
-  // Token 刷新
-  const tokenRefresh = (accessToken: string, refreshToken: string, tokens: Map<string, { exp: number; refresh: string }>) => {
-    const entry = tokens.get(accessToken);
-    if (!entry) return { success: false, error: 'invalid_token' };
-    if (entry.refresh !== refreshToken) return { success: false, error: 'invalid_refresh' };
-    if (Date.now() > entry.exp) return { success: false, error: 'expired' };
-    const newAccess = `at-${Math.random().toString(36).slice(2)}`;
-    const newRefresh = `rt-${Math.random().toString(36).slice(2)}`;
-    tokens.delete(accessToken);
-    tokens.set(newAccess, { exp: Date.now() + 3600000, refresh: newRefresh });
-    return { success: true, accessToken: newAccess, refreshToken: newRefresh };
-  };
 
   describe('Token刷新', () => {
-    it('有效刷新', () => {
-      const tokens = new Map();
-      tokens.set('old-token', { exp: Date.now() + 10000, refresh: 'refresh-1' });
-      const result = tokenRefresh('old-token', 'refresh-1', tokens);
-      expect(result.success).toBe(true);
-      expect(result.accessToken).toMatch(/^at-/);
+    it('有效refreshToken应该换发新令牌', () => {
+      const refreshToken = generateRefreshToken('api_security_user_1', 'user1@example.com');
+      const res = createRes();
+
+      handleTokenRefresh(createReq({ body: { refreshToken } }), res);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.accessToken).toBeDefined();
+      expect(res.body.data.refreshToken).not.toBe(refreshToken);
+      expect(res.body.data.expiresIn).toBe(900);
+      expect(verifyAccessToken(res.body.data.accessToken)).not.toBeNull();
     });
-    it('无效Token', () => {
-      const tokens = new Map();
-      const result = tokenRefresh('invalid', 'r', tokens);
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('invalid_token');
+
+    it('无效refreshToken应该返回401', () => {
+      const res = createRes();
+
+      handleTokenRefresh(createReq({ body: { refreshToken: 'invalid-refresh-token' } }), res);
+
+      expect(res.statusCode).toBe(401);
+      expect(res.body.code).toBe('REFRESH_TOKEN_INVALID');
     });
-    it('无效Refresh Token', () => {
-      const tokens = new Map();
-      tokens.set('token-1', { exp: Date.now() + 10000, refresh: 'correct-refresh' });
-      const result = tokenRefresh('token-1', 'wrong-refresh', tokens);
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('invalid_refresh');
+
+    it('缺少refreshToken应该返回400', () => {
+      const res = createRes();
+
+      handleTokenRefresh(createReq({ body: {} }), res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.code).toBe('VALIDATION_ERROR');
     });
-    it('旧Token被删除', () => {
-      const tokens = new Map();
-      tokens.set('old', { exp: Date.now() + 10000, refresh: 'r' });
-      tokenRefresh('old', 'r', tokens);
-      expect(tokens.has('old')).toBe(false);
+
+    it('旧refreshToken使用一次后应该失效', () => {
+      const refreshToken = generateRefreshToken('api_security_user_2', 'user2@example.com');
+      const first = createRes();
+
+      handleTokenRefresh(createReq({ body: { refreshToken } }), first);
+      expect(first.statusCode).toBe(200);
+
+      const second = createRes();
+      handleTokenRefresh(createReq({ body: { refreshToken } }), second);
+
+      expect(second.statusCode).toBe(401);
+      expect(second.body.code).toBe('REFRESH_TOKEN_INVALID');
     });
   });
-
-  // 输入净化
-  const sanitizeInput = (input: string) => {
-    return input
-      .replace(/<[^>]*>/g, '')
-      .replace(/javascript:/gi, '')
-      .replace(/on\w+=/gi, '')
-      .replace(/&#?\w+;/g, '')
-      .trim();
-  };
-
-  const validateStockCode = (code: string) => /^[0-9]{6}$/.test(code);
-  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const validatePhone = (phone: string) => /^1[3-9]\d{9}$/.test(phone);
 
   describe('输入净化', () => {
-    it('移除HTML标签', () => {
-      expect(sanitizeInput('<script>alert(1)</script>')).not.toContain('<');
+    it('应该移除script标签', () => {
+      const result = sanitizeHTML('<script>alert("xss")</script>');
+
+      expect(result).not.toContain('<script>');
+      expect(result).not.toContain('</script>');
     });
-    it('移除javascript协议', () => {
-      expect(sanitizeInput('javascript:alert(1)')).not.toContain('javascript:');
+
+    it('应该移除javascript协议', () => {
+      const result = sanitizeHTML('javascript:alert(1)');
+
+      expect(result).not.toContain('javascript:');
     });
-    it('移除事件处理器', () => {
-      expect(sanitizeInput('onclick=alert(1)')).not.toContain('onclick=');
+
+    it('应该移除事件处理器', () => {
+      const result = sanitizeHTML('onclick=alert(1)');
+
+      expect(result).not.toContain('onclick=');
     });
-    it('正常文本不变', () => {
-      expect(sanitizeInput('贵州茅台 600519')).toBe('贵州茅台 600519');
+
+    it('正常文本应该保持不变', () => {
+      expect(sanitizeHTML('贵州茅台 600519')).toBe('贵州茅台 600519');
     });
-    it('股票代码验证-有效', () => {
-      expect(validateStockCode('600519')).toBe(true);
+
+    it('有效的股票代码应该通过', () => {
+      expect(validateStockCode('600519').valid).toBe(true);
+      expect(validateStockCode('sh600519').valid).toBe(true);
     });
-    it('股票代码验证-无效', () => {
-      expect(validateStockCode('abc')).toBe(false);
-      expect(validateStockCode('12345')).toBe(false);
-      expect(validateStockCode('1234567')).toBe(false);
+
+    it('无效的股票代码应该被拒绝', () => {
+      expect(validateStockCode('abc').valid).toBe(false);
+      expect(validateStockCode('12345').valid).toBe(false);
+      expect(validateStockCode('1234567').valid).toBe(false);
     });
-    it('邮箱验证-有效', () => {
-      expect(validateEmail('user@example.com')).toBe(true);
+
+    it('有效的邮箱应该通过', () => {
+      expect(validateEmail('user@example.com').valid).toBe(true);
+      expect(validateUserEmail('user@example.com')).toBe(true);
     });
-    it('邮箱验证-无效', () => {
-      expect(validateEmail('not-email')).toBe(false);
-      expect(validateEmail('@no-user.com')).toBe(false);
+
+    it('无效的邮箱应该被拒绝', () => {
+      expect(validateEmail('not-email').valid).toBe(false);
+      expect(validateEmail('@no-user.com').valid).toBe(false);
+      expect(validateUserEmail('not-email')).toBe(false);
     });
-    it('手机号验证-有效', () => {
-      expect(validatePhone('13800138000')).toBe(true);
+
+    it('有效的手机号应该通过', () => {
+      expect(validatePhone('13800138000').valid).toBe(true);
+      expect(validatePhone('138-0013-8000').valid).toBe(true);
+      expect(validateUserPhone('13800138000')).toBe(true);
     });
-    it('手机号验证-无效', () => {
-      expect(validatePhone('12345678901')).toBe(false);
-      expect(validatePhone('1380013800')).toBe(false);
+
+    it('无效的手机号应该被拒绝', () => {
+      expect(validatePhone('12345678901').valid).toBe(false);
+      expect(validatePhone('1380013800').valid).toBe(false);
+      expect(validateUserPhone('12345678901')).toBe(false);
     });
   });
 
-  // 密码策略
-  const validatePassword = (password: string) => {
-    const checks = {
-      length: password.length >= 8,
-      uppercase: /[A-Z]/.test(password),
-      lowercase: /[a-z]/.test(password),
-      number: /[0-9]/.test(password),
-      special: /[!@#$%^&*(),.?":{}|<>]/.test(password),
-    };
-    const score = Object.values(checks).filter(Boolean).length;
-    return { checks, score, strength: score <= 2 ? 'weak' : score <= 3 ? 'medium' : score <= 4 ? 'strong' : 'very_strong' };
-  };
+  describe('后端注入检测', () => {
+    it('SQL注入特征应该返回400', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const next = vi.fn();
+      const res = createRes();
+
+      detectSqlInjection(
+        createReq({ query: { keyword: "1' OR 1=1 --" }, body: {}, params: {} }),
+        res,
+        next
+      );
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.error).toBe('请求包含非法字符');
+      expect(next).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('正常查询参数应该放行', () => {
+      const next = vi.fn();
+      const res = createRes();
+
+      detectSqlInjection(
+        createReq({ query: { symbol: '600519', keyword: '贵州茅台' }, body: {}, params: {} }),
+        res,
+        next
+      );
+
+      expect(next).toHaveBeenCalled();
+      expect(res.statusCode).toBe(200);
+    });
+  });
 
   describe('密码策略', () => {
-    it('强密码', () => {
+    it('强密码应该通过', () => {
       const result = validatePassword('Abc123!@#');
-      expect(result.strength).toBe('very_strong');
-      expect(result.score).toBe(5);
+
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
-    it('弱密码', () => {
+
+    it('弱密码应该被拒绝', () => {
       const result = validatePassword('abc');
-      expect(result.strength).toBe('weak');
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('密码长度不能少于8位');
+      expect(result.errors).toContain('密码需包含大写字母');
+      expect(result.errors).toContain('密码需包含数字');
+      expect(result.errors).toContain('密码需包含特殊字符');
     });
-    it('中等密码', () => {
+
+    it('缺少特殊字符的密码应该被拒绝', () => {
+      // 旧断言期望 strong；生产 validatePassword 要求特殊字符，'Abc12345' 实际不通过
       const result = validatePassword('Abc12345');
-      expect(result.strength).toBe('strong');
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual(['密码需包含特殊字符']);
     });
-    it('弱中密码', () => {
+
+    it('缺少大写与特殊字符的密码应该被拒绝', () => {
+      // 旧断言期望 medium；生产实际缺少大写字母与特殊字符
       const result = validatePassword('abc12345');
-      expect(result.strength).toBe('medium');
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('密码需包含大写字母');
+      expect(result.errors).toContain('密码需包含特殊字符');
     });
-    it('各项检查', () => {
+
+    it('各项检查都满足的密码应该通过', () => {
       const result = validatePassword('Test1234!');
-      expect(result.checks.length).toBe(true);
-      expect(result.checks.uppercase).toBe(true);
-      expect(result.checks.number).toBe(true);
+
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
   });
 });
