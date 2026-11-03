@@ -1,191 +1,215 @@
-import { describe, it, expect } from 'vitest';
-
 /**
- * 国际化(i18n)测试
- * 测试语言切换、翻译键、日期/数字格式化
+ * 影子测试迁移（批次 22b）
+ *
+ * 旧文件自带 translations 字典与 t/detectLanguage/formatNumber/formatDate/pluralize 副本，
+ * 断言的是副本。现已全部 import 生产实现。
+ *
+ * 已绑定生产实现：
+ * - ../i18n/index.tsx: messages（:22，4 语言包）/ createTranslator（:214）/
+ *   formatters.currency（:42）/ formatters.date（:71）
+ * - ../i18n/i18nManager.ts: formatDate（:134）/ formatNumber（:151）
+ * - ../utils/i18nEngine.ts: detectBrowserLocale（:490）/ formatMarketCapLocalized（:452）/
+ *   formatDateLocalized（:322）/ pluralize（:411）
+ *
+ * 旧断言错在哪：
+ *
+ * | 旧断言 | 生产输出 | 依据 |
+ * | --- | --- | --- |
+ * | t('app.title') 等 3 键 | 生产语言包没有 app.title，标题键是 home.title | i18n/locales/zh-CN.ts |
+ * | t('app.title', 'ja') 返回 key | Locale 联合不含 'ja'；运行时 createTranslator('ja') 因语言包缺失返回 key | i18n/index.tsx:214 |
+ * | detectLanguage('en-US,...') → 'en' | detectBrowserLocale() 读 navigator.language，返回完整码 'en-US' | i18nEngine.ts:490 |
+ * | zh 数字含「亿」/「万」 | formatters.currency：'1.50亿'/'15.00万'；i18nManager.formatNumber 只做千分位 | i18n/index.tsx:42；i18nManager.ts:151 |
+ * | en 数字含 B/M | formatters.currency：'$1.50B'/'$5.00M'；i18nEngine.formatMarketCapLocalized 缩放有缺陷 | i18n/index.tsx:42；i18nEngine.ts:452 |
+ * | zh 日期 '2024年01月15日' | formatters.date：'2024年1月15日'（不补零）；旧值只在 i18nEngine.formatDateLocalized 成立 | i18n/index.tsx:71；i18nEngine.ts:322 |
+ * | en 日期 '2024-01-15' | formatters.date：'Jan 15, 2024'；i18nManager.formatDate：'01/15/2024' | i18n/index.tsx:71；i18nManager.ts:134 |
+ * | pluralize(1, 'stock', 'stocks') | 生产 pluralize(count, PluralRule, locale)，用 {n} 占位 | i18nEngine.ts:411 |
+ *
+ * 未迁移：无。原 16 个用例全部改绑生产实现，并新增 7 个用例覆盖 4 语言包、完整 locale 检测与
+ * 三套格式化实现的实际输出。
+ *
+ * 生产缺陷候选（只报告不修）：
+ * - i18nEngine.formatMarketCapLocalized 对 en-US/ja-JP/ko-KR 仍按中文 1e8/1e4 缩放：
+ *   1.5e9 → '15.00B'（应为 1.50B）、5e6 → '500.00M'（应为 5.00M）。
+ * - 三套数字/日期格式化并存且输出不一致（i18n/index formatters、i18nManager Intl、i18nEngine 模板）；
+ *   其中 i18nManager 与 i18nEngine 在 src 内无生产调用方，utils/index.ts:107 还把 i18nEngine
+ *   导出注释为「module not found」。
  */
+import { afterEach, describe, expect, it } from 'vitest';
+import { createTranslator, formatters, messages, type I18nMessages, type Locale } from '../i18n';
+import { formatDate, formatNumber } from '../i18n/i18nManager';
+import {
+  detectBrowserLocale,
+  formatDateLocalized,
+  formatMarketCapLocalized,
+  pluralize,
+} from '../utils/i18nEngine';
+
 describe('i18n System', () => {
-  const translations: Record<string, Record<string, string>> = {
-    zh: {
-      'app.title': 'A股行情分析',
-      'nav.home': '首页',
-      'nav.stocks': '股票列表',
-      'nav.sectors': '板块分析',
-      'nav.watchlist': '自选股',
-      'nav.alerts': '预警中心',
-      'stock.price': '最新价',
-      'stock.change': '涨跌幅',
-      'stock.volume': '成交量',
-      'stock.turnover': '成交额',
-      'stock.pe': '市盈率',
-      'stock.pb': '市净率',
-      'market.rising': '上涨',
-      'market.falling': '下跌',
-      'market.limitUp': '涨停',
-      'market.limitDown': '跌停',
-      'action.buy': '买入',
-      'action.sell': '卖出',
-      'action.search': '搜索',
-      'action.refresh': '刷新',
-      'status.loading': '加载中...',
-      'status.error': '加载失败',
-      'status.empty': '暂无数据',
-      'time.today': '今天',
-      'time.yesterday': '昨天',
-      'time.thisWeek': '本周',
-    },
-    en: {
-      'app.title': 'A-Share Market Analysis',
-      'nav.home': 'Home',
-      'nav.stocks': 'Stock List',
-      'nav.sectors': 'Sector Analysis',
-      'nav.watchlist': 'Watchlist',
-      'nav.alerts': 'Alerts',
-      'stock.price': 'Price',
-      'stock.change': 'Change',
-      'stock.volume': 'Volume',
-      'stock.turnover': 'Turnover',
-      'stock.pe': 'P/E Ratio',
-      'stock.pb': 'P/B Ratio',
-      'market.rising': 'Rising',
-      'market.falling': 'Falling',
-      'market.limitUp': 'Limit Up',
-      'market.limitDown': 'Limit Down',
-      'action.buy': 'Buy',
-      'action.sell': 'Sell',
-      'action.search': 'Search',
-      'action.refresh': 'Refresh',
-      'status.loading': 'Loading...',
-      'status.error': 'Failed to load',
-      'status.empty': 'No data',
-      'time.today': 'Today',
-      'time.yesterday': 'Yesterday',
-      'time.thisWeek': 'This week',
-    },
-  };
-
-  function t(key: string, lang: string = 'zh'): string {
-    return translations[lang]?.[key] || key;
-  }
-
   describe('Translation Lookup', () => {
     it('should return Chinese translations', () => {
-      expect(t('app.title', 'zh')).toBe('A股行情分析');
-      expect(t('nav.home', 'zh')).toBe('首页');
-      expect(t('stock.price', 'zh')).toBe('最新价');
+      const t = createTranslator('zh-CN');
+      expect(t('home.title')).toBe('A股行情分析');
+      expect(t('nav.home')).toBe('首页');
+      expect(t('stock.price')).toBe('最新价');
     });
 
     it('should return English translations', () => {
-      expect(t('app.title', 'en')).toBe('A-Share Market Analysis');
-      expect(t('nav.home', 'en')).toBe('Home');
-      expect(t('stock.price', 'en')).toBe('Price');
+      const t = createTranslator('en-US');
+      expect(t('home.title')).toBe('A-Share Market Analysis');
+      expect(t('nav.home')).toBe('Home');
+      expect(t('stock.price')).toBe('Price');
     });
 
     it('should fallback to key for missing translations', () => {
-      expect(t('nonexistent.key', 'zh')).toBe('nonexistent.key');
+      expect(createTranslator('zh-CN')('nonexistent.key')).toBe('nonexistent.key');
     });
 
-    it('should fallback to key for missing language', () => {
-      expect(t('app.title', 'ja')).toBe('app.title');
+    it('should fallback to key for unsupported locale', () => {
+      // Locale 联合类型不含 'ja'；运行时 messages['ja'] 为 undefined，getNestedValue 返回原始 key。
+      const t = createTranslator('ja' as unknown as Locale);
+      expect(t('home.title')).toBe('home.title');
     });
   });
 
   describe('Translation Completeness', () => {
+    const locales = ['zh-CN', 'en-US', 'ja-JP', 'ko-KR'] as const;
+
+    const flattenMessages = (obj: I18nMessages, prefix = ''): Record<string, string> => {
+      const flat: Record<string, string> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        if (typeof value === 'string') {
+          flat[fullKey] = value;
+        } else {
+          Object.assign(flat, flattenMessages(value, fullKey));
+        }
+      }
+      return flat;
+    };
+
+    const flattened = Object.fromEntries(
+      locales.map(locale => [locale, flattenMessages(messages[locale])]),
+    ) as Record<Locale, Record<string, string>>;
+
     it('should have same keys in all languages', () => {
-      const zhKeys = Object.keys(translations.zh).sort();
-      const enKeys = Object.keys(translations.en).sort();
-      expect(zhKeys).toEqual(enKeys);
+      const zhKeys = Object.keys(flattened['zh-CN']).sort();
+      expect(zhKeys.length).toBeGreaterThan(100);
+      locales.forEach(locale => {
+        expect(Object.keys(flattened[locale]).sort()).toEqual(zhKeys);
+      });
     });
 
     it('should have non-empty translations', () => {
-      Object.entries(translations).forEach(([, trans]) => {
-        Object.entries(trans).forEach(([, value]) => {
-          expect(value.length).toBeGreaterThan(0);
+      locales.forEach(locale => {
+        Object.values(flattened[locale]).forEach(value => {
+          expect(value.trim().length).toBeGreaterThan(0);
         });
       });
     });
   });
 
   describe('Language Detection', () => {
-    function detectLanguage(acceptLanguage?: string): string {
-      if (!acceptLanguage) return 'zh';
-      if (acceptLanguage.startsWith('en')) return 'en';
-      return 'zh';
-    }
+    const originalLanguage = navigator.language;
 
-    it('should default to Chinese', () => {
-      expect(detectLanguage()).toBe('zh');
+    const setNavigatorLanguage = (language: string): void => {
+      Object.defineProperty(window.navigator, 'language', { value: language, configurable: true });
+    };
+
+    afterEach(() => {
+      Object.defineProperty(window.navigator, 'language', { value: originalLanguage, configurable: true });
+    });
+
+    it('should default to Chinese for unsupported browser languages', () => {
+      setNavigatorLanguage('fr-FR');
+      expect(detectBrowserLocale()).toBe('zh-CN');
     });
 
     it('should detect English', () => {
-      expect(detectLanguage('en-US,en;q=0.9')).toBe('en');
+      setNavigatorLanguage('en-US');
+      expect(detectBrowserLocale()).toBe('en-US');
     });
 
     it('should detect Chinese', () => {
-      expect(detectLanguage('zh-CN,zh;q=0.9')).toBe('zh');
+      setNavigatorLanguage('zh-CN');
+      expect(detectBrowserLocale()).toBe('zh-CN');
+    });
+
+    it('should detect Traditional Chinese', () => {
+      setNavigatorLanguage('zh-TW');
+      expect(detectBrowserLocale()).toBe('zh-TW');
+    });
+
+    it('should detect Japanese', () => {
+      setNavigatorLanguage('ja-JP');
+      expect(detectBrowserLocale()).toBe('ja-JP');
     });
   });
 
   describe('Number Formatting', () => {
-    function formatNumber(value: number, lang: string = 'zh'): string {
-      if (lang === 'zh') {
-        if (Math.abs(value) >= 1e8) return (value / 1e8).toFixed(2) + '亿';
-        if (Math.abs(value) >= 1e4) return (value / 1e4).toFixed(2) + '万';
-      }
-      if (lang === 'en') {
-        if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(2) + 'B';
-        if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(2) + 'M';
-      }
-      return value.toLocaleString();
-    }
-
     it('should format large numbers with 亿 in Chinese', () => {
-      expect(formatNumber(150000000, 'zh')).toContain('亿');
+      expect(formatters.currency(150000000, 'zh-CN')).toBe('1.50亿');
     });
 
     it('should format medium numbers with 万 in Chinese', () => {
-      expect(formatNumber(150000, 'zh')).toContain('万');
+      expect(formatters.currency(150000, 'zh-CN')).toBe('15.00万');
     });
 
     it('should format with B/M in English', () => {
-      expect(formatNumber(1500000000, 'en')).toContain('B');
-      expect(formatNumber(5000000, 'en')).toContain('M');
+      expect(formatters.currency(1500000000, 'en-US')).toBe('$1.50B');
+      expect(formatters.currency(5000000, 'en-US')).toBe('$5.00M');
+    });
+
+    it('should format with Intl grouping only in i18nManager.formatNumber', () => {
+      // i18nManager 不做亿/万/B/M 缩写，旧断言绑错了函数。
+      expect(formatNumber(150000000, 'zh-CN')).toBe('150,000,000');
+      expect(formatNumber(1234567.89, 'en-US')).toBe('1,234,567.89');
+    });
+
+    it('should record formatMarketCapLocalized scale for non-Chinese locales', () => {
+      expect(formatMarketCapLocalized(150000000, 'zh-CN')).toBe('1.50亿');
+      expect(formatMarketCapLocalized(150000, 'zh-CN')).toBe('15.00万');
+      // 生产缺陷候选：非中文 locale 仍按 1e8/1e4 缩放，1.5e9 显示为 15.00B、5e6 显示为 500.00M。
+      expect(formatMarketCapLocalized(1500000000, 'en-US')).toBe('15.00B');
+      expect(formatMarketCapLocalized(5000000, 'en-US')).toBe('500.00M');
     });
   });
 
   describe('Date Formatting', () => {
-    function formatDate(date: Date, lang: string = 'zh'): string {
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
-      if (lang === 'zh') return `${y}年${m}月${d}日`;
-      return `${y}-${m}-${d}`;
-    }
-
     it('should format Chinese date', () => {
-      const date = new Date(2024, 0, 15);
-      expect(formatDate(date, 'zh')).toBe('2024年01月15日');
+      expect(formatters.date(new Date(2024, 0, 15), 'zh-CN')).toBe('2024年1月15日');
+      expect(formatters.date(new Date(2024, 0, 15), 'ja-JP')).toBe('2024年1月15日');
     });
 
     it('should format English date', () => {
-      const date = new Date(2024, 0, 15);
-      expect(formatDate(date, 'en')).toBe('2024-01-15');
+      expect(formatters.date(new Date(2024, 0, 15), 'en-US')).toBe('Jan 15, 2024');
+    });
+
+    it('should format dates with i18nManager Intl slash format', () => {
+      expect(formatDate(new Date(2024, 0, 15), 'zh-CN')).toBe('2024/01/15');
+      expect(formatDate(new Date(2024, 0, 15), 'en-US')).toBe('01/15/2024');
+    });
+
+    it('should format dates with i18nEngine template format', () => {
+      // 旧 zh 断言 '2024年01月15日' 只在这个模块成立；旧 en 断言 '2024-01-15' 在生产 i18n 中无对应。
+      expect(formatDateLocalized(new Date(2024, 0, 15), 'zh-CN')).toBe('2024年01月15日');
+      expect(formatDateLocalized(new Date(2024, 0, 15), 'en-US')).toBe('01/15/2024');
     });
   });
 
   describe('Pluralization', () => {
-    function pluralize(count: number, singular: string, plural: string): string {
-      return count === 1 ? singular : plural;
-    }
-
     it('should use singular for 1', () => {
-      expect(pluralize(1, 'stock', 'stocks')).toBe('stock');
+      expect(pluralize(1, { one: '{n} stock', other: '{n} stocks' }, 'en-US')).toBe('1 stock');
     });
 
     it('should use plural for other counts', () => {
-      expect(pluralize(0, 'stock', 'stocks')).toBe('stocks');
-      expect(pluralize(2, 'stock', 'stocks')).toBe('stocks');
-      expect(pluralize(100, 'stock', 'stocks')).toBe('stocks');
+      expect(pluralize(0, { one: '{n} stock', other: '{n} stocks' }, 'en-US')).toBe('0 stocks');
+      expect(pluralize(2, { one: '{n} stock', other: '{n} stocks' }, 'en-US')).toBe('2 stocks');
+      expect(pluralize(100, { one: '{n} stock', other: '{n} stocks' }, 'en-US')).toBe('100 stocks');
+    });
+
+    it('should honor zero rule and Chinese one form', () => {
+      expect(pluralize(0, { zero: 'no stocks', one: '{n} stock', other: '{n} stocks' }, 'en-US')).toBe('no stocks');
+      expect(pluralize(1, { one: '{n}只股票', other: '{n}只股票' }, 'zh-CN')).toBe('1只股票');
     });
   });
 });
