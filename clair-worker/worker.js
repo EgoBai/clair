@@ -5324,13 +5324,22 @@ async function handleMarketRealtime() {
       }
     : null;
 
+  // 诚实三态（2026-11-04，对齐 Express 侧 #107-C7）：
+  // 指数真实但 breadth=null 时标 partial —— 此前这里恒标 'real'，
+  // 与「没数据就不许说 real」红线冲突（Express 侧同款缺陷已修）。
+  const breadthAvailable = breadth !== null;
+  const partialReason =
+    '涨跌分布数据源不可达（breadth=null）：三大指数为真实值；上涨/下跌/涨停家数与成交额不可用';
+  const dataSource = breadthAvailable ? 'real' : 'partial';
   return json({
     success: true,
-    dataSource: 'real',
+    dataSource,
+    ...(breadthAvailable ? {} : { unavailableReason: partialReason }),
     data: {
       ...out,
       breadth,
-      dataSource: 'real',
+      dataSource,
+      ...(breadthAvailable ? {} : { unavailableReason: partialReason }),
       message: breadth
         ? '三大指数为腾讯 qt.gtimg.cn 实时行情；breadth 为全市场逐标的行情聚合（腾讯源）。'
         : '三大指数为实时行情；涨跌分布本次不可得（breadth=null），未用 0 顶替。',

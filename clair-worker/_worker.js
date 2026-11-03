@@ -5324,13 +5324,22 @@ async function handleMarketRealtime() {
       }
     : null;
 
+  // 诚实三态（2026-11-04，对齐 Express 侧 #107-C7）：
+  // 指数真实但 breadth=null 时标 partial —— 此前这里恒标 'real'，
+  // 与「没数据就不许说 real」红线冲突（Express 侧同款缺陷已修）。
+  const breadthAvailable = breadth !== null;
+  const partialReason =
+    '涨跌分布数据源不可达（breadth=null）：三大指数为真实值；上涨/下跌/涨停家数与成交额不可用';
+  const dataSource = breadthAvailable ? 'real' : 'partial';
   return json({
     success: true,
-    dataSource: 'real',
+    dataSource,
+    ...(breadthAvailable ? {} : { unavailableReason: partialReason }),
     data: {
       ...out,
       breadth,
-      dataSource: 'real',
+      dataSource,
+      ...(breadthAvailable ? {} : { unavailableReason: partialReason }),
       message: breadth
         ? '三大指数为腾讯 qt.gtimg.cn 实时行情；breadth 为全市场逐标的行情聚合（腾讯源）。'
         : '三大指数为实时行情；涨跌分布本次不可得（breadth=null），未用 0 顶替。',
@@ -5419,10 +5428,15 @@ async function fetchFundNav(symbol) {
 /**
  * GET /api/etf/list —— ETF 列表（行情=腾讯真实报价，净值=东财 fundf10 真实净值）。
  *
- * 前端消费点：frontend/src/pages/ETFPage.tsx:148-175
- *   读 json.data.data（**嵌套两层**，与 backend sendSuccess(res,{data,...}) 一致）、
- *   json.data.dataSource、quoteCoverage/navCoverage/premiumCoverage/notes，
- *   并用 classifyApiResponse(200, json) 自行判别 unavailable。
+ * 契约（#107-C8 已与后端一起拍平，单层信封，勿再写成 data.data）：
+ *   { success, dataSource, data: [...], count, quoteSource, navSource,
+ *     quoteCoverage, navCoverage, premiumCoverage, notes?, message?, timestamp }
+ *   —— data 直接是 ETF 数组，dataSource / 覆盖率等元信息在**顶层**，
+ *   与 backend/src/api/etf.ts sendEtfListEnvelope / api/market.ts sendHonest 同风格。
+ *
+ * 前端消费点：frontend/src/pages/ETFPage.tsx:161-188
+ *   读 json.data（数组）、json.dataSource、顶层 quoteCoverage/navCoverage/
+ *   premiumCoverage/notes/message，并用 classifyApiResponse(200, json) 自行判别 unavailable。
  */
 async function handleEtfList(url) {
   const typeFilter = (url.searchParams.get('type') || '').trim();
@@ -5442,10 +5456,21 @@ async function handleEtfList(url) {
   }
 
   if (Object.keys(quoteMap).length === 0) {
-    return unavailable(
-      { data: [], count: 0, quoteSource: 'tencent', navSource: 'eastmoney-fund' },
-      `ETF 行情源（腾讯 qt.gtimg.cn）未返回任何报价${quoteError ? `：${quoteError}` : ''}；列表价格字段不可用，不以 0 冒充`,
-    );
+    const message = `ETF 行情源（腾讯 qt.gtimg.cn）未返回任何报价${quoteError ? `：${quoteError}` : ''}；列表价格字段不可用，不以 0 冒充`;
+    // #107-C8：与后端同形 —— data 直接是数组（不是 data.data），元信息在顶层。
+    // 不复用 unavailable()：那个 helper 会把 payload 包进 data，列表端点会重新变成双层。
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'DATA_UNAVAILABLE',
+      error: message,
+      message,
+      data: [],
+      count: 0,
+      quoteSource: 'tencent',
+      navSource: 'eastmoney-fund',
+      timestamp: new Date().toISOString(),
+    });
   }
 
   // 净值：16 只并发取，单只失败不影响行情展示（premiumRate 由 buildEtf 置 null）
@@ -5504,21 +5529,19 @@ async function handleEtfList(url) {
   return json({
     success: true,
     dataSource: quoted > 0 ? 'real' : 'unavailable',
-    data: {
-      data: items,
-      count: items.length,
-      dataSource: quoted > 0 ? 'real' : 'unavailable',
-      quoteSource: 'tencent',
-      navSource: 'eastmoney-fund',
-      quoteCoverage: `${quoted}/${items.length}`,
-      navCoverage: `${navd}/${items.length}`,
-      premiumCoverage: `${premium}/${items.length}`,
-      ...(notes.length ? { notes: notes.join('；') } : {}),
-      message:
-        '行情=腾讯 qt.gtimg.cn 真实报价；净值=东方财富 fundf10 真实单位净值；' +
-        '折溢价率仅在行情与净值都取到时计算，否则为 null（不以 0 冒充平价）。' +
-        '费率/跟踪误差/股息率/持仓数无真实数据源，恒为 null 并已在 fieldSources 标注。',
-    },
+    // #107-C8：data 直接是数组（单层信封），元信息与 data 平级放顶层
+    data: items,
+    count: items.length,
+    quoteSource: 'tencent',
+    navSource: 'eastmoney-fund',
+    quoteCoverage: `${quoted}/${items.length}`,
+    navCoverage: `${navd}/${items.length}`,
+    premiumCoverage: `${premium}/${items.length}`,
+    ...(notes.length ? { notes: notes.join('；') } : {}),
+    message:
+      '行情=腾讯 qt.gtimg.cn 真实报价；净值=东方财富 fundf10 真实单位净值；' +
+      '折溢价率仅在行情与净值都取到时计算，否则为 null（不以 0 冒充平价）。' +
+      '费率/跟踪误差/股息率/持仓数无真实数据源，恒为 null 并已在 fieldSources 标注。',
     timestamp: new Date().toISOString(),
   });
 }
