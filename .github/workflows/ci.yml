@@ -26,20 +26,36 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
 
-      # 后端: 安装 + lint (后端用 tsx 运行, 无独立 build 步骤)
-      - name: Backend - install & lint
+      # 后端: 安装 + lint + **构建 Docker 镜像用的那份产物**
+      # 旧注释说「后端用 tsx 运行, 无独立 build 步骤」——这句是错的，会误导后来者：
+      # backend/package.json 有 build:prod（esbuild 打成 dist/server.cjs），
+      # 而 backend/Dockerfile:70 正是用 `npm run build:prod` 产出上线镜像的。
+      # 于是 CI 不跑它 ⟹ 打包环节一旦坏（esbuild 解析不到新依赖、format 冲突等），
+      # CI 依旧全绿，直到 deploy-backend 构建镜像时才炸。补上这一步，0.6s，无 OOM 风险。
+      - name: Backend - install, lint & build:prod
         working-directory: backend
         run: |
           npm ci
           npm run lint
+          npm run build:prod
 
       # 前端: 安装 + lint + 构建(tsc 类型检查 + vite 构建)
-      - name: Frontend - install, lint & build
+      # ⚠️ 必须带 `--mode github`：vite.config.ts:101 是
+      #   `base: mode === 'github' ? '/clair/' : '/'`
+      # 也就是说**真正上线的那份**（GitHub Pages 子路径 /clair/）只在 --mode github 下构建。
+      # 原来这里跑 `npm run build`（= tsc && vite build，mode 默认 production）⟹
+      # PR 上验证的一直是 base='/' 的另一个变体，线上那份从未被 PR 校验过；
+      # 一旦 /clair/ 子路径下的资源引用坏掉，CI 依然绿 —— 正是「看绿就以为没事」的坑。
+      # 这里与 deploy.yml 的 `npx tsc && npx vite build --mode github` 保持**同一条命令**。
+      # 刻意用 npx 直调而不走 `npm run build`：后者的 prebuild 钩子会把 dist 挪去 /tmp
+      # （CI 是干净 checkout，这一挪纯属多余），deploy.yml 也是直调。
+      - name: Frontend - install, lint & build (mode=github)
         working-directory: frontend
         run: |
           npm ci
           npm run lint
-          npm run build
+          npx tsc
+          npx vite build --mode github
         # 后端地址取单一真源：GitHub Actions 仓库 Variables 的 VITE_API_BASE。
         #
         # ⚠️ 这里**刻意不写硬编码兜底值**（历史上写过 `vars.VITE_API_BASE || 'https://clair-api.pages.dev'`）。
@@ -66,8 +82,13 @@ jobs:
   #   要的是真实失败暴露。
   #   已知风险(事前已告知并获确认): 两个测试套在 CI 环境的通过率此前没有基线,
   #   故转入阻断后的首次 CI 可能直接变红 —— 这是预期行为, 不是故障。
-  # - 用 `npx vitest run` 显式进入 run 模式: 前端 package.json 的 test 脚本是
-  #   裸 `vitest`(watch 模式), 在 CI 会挂住不退出, 故不使用 npm test。
+  # - 用 `npx vitest run` 显式进入 run 模式。
+  #   【更正 2026-11-03】旧注释写「前端 package.json 的 test 脚本是裸 `vitest`(watch 模式),
+  #   在 CI 会挂住不退出」——这句与事实不符：backend/frontend 的 test 都是 `vitest run`，
+  #   两个 `test:watch` 才是裸 `vitest`。因此 `npm test` 在 CI 里**不会**挂住。
+  #   保留显式 `npx vitest run` 的理由改为可归因性：它写明了"跑一次就退"，不依赖
+  #   package.json 里的间接定义，将来谁把 test 改回 watch 模式也不会把 CI 拖成超时。
+  #   命令与 `npm test` 等价（都走 vitest run），不是"另一套跑法"。
   # ---------------------------------------------------------------
   unit-tests:
     name: Unit tests (vitest)
