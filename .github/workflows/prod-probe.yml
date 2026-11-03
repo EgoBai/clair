@@ -1,0 +1,38 @@
+# 远端可达性探针（手动触发）
+# ----------------------------------------------------------------------------
+# 为什么需要：本机网络到 *.onrender.com 会挂起（连上但不回包），本地 curl 无法判断
+# 「服务挂了」还是「本机路由不通」。GitHub 托管 runner 是干净的第三方出口，
+# 用它打一发真实请求，能把这两种情况分开。
+#
+# 用法：gh workflow run prod-probe.yml -f url=https://clair-api.onrender.com/health
+# 结果在 Actions 日志里：HTTP 状态码、耗时、响应体前 2KB。
+name: Prod probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: '要探测的完整 URL'
+        required: true
+        default: 'https://clair-api.onrender.com/health'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe external URL
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: curl
+        env:
+          URL: ${{ inputs.url }}
+        run: |
+          echo "target=$URL"
+          code=$(curl -sS -m 30 -o /tmp/body.txt -D /tmp/headers.txt -w '%{http_code}' "$URL" || echo "curl-failed")
+          echo "http_code=$code"
+          echo "--- headers ---"
+          head -20 /tmp/headers.txt 2>/dev/null || true
+          echo "--- body (first 2000 bytes) ---"
+          head -c 2000 /tmp/body.txt 2>/dev/null || true
