@@ -1,6 +1,24 @@
 /**
  * 量化因子计算引擎
  * 支持常见量化因子的计算和组合
+ *
+ * ⚠️ 已显式隔离（2026-11，**不是**废弃删除，是「不许在生产里用」）：
+ *
+ *   1. **零生产调用方**。全仓 `quantFactorEngine` 只有
+ *      `src/__tests__/quantFactorEngine.test.ts` 一个 import，
+ *      `new QuantFactorEngine()` 也只出现在该测试里。
+ *   2. **与在线引擎不是同一套**。/api/factors/overview 走的是
+ *      `src/services/factorEngine.ts`（computeFactorUniverse，已产真实 IC/ICIR 并驱动
+ *      /factor-lab 页面）。本文件是另一套因子定义 + 另一套打分/归一化实现。
+ *   3. 因此**接入生产前必须先对齐两套口径**（因子定义、横截面标准化、去极值、
+ *      行业/市值中性化、IC 计算窗口），否则会出现「同一指标两个数」的第二例。
+ *
+ *   守卫：`src/__tests__/deadCodeIsolation.test.ts` 断言 `src/**`（除 __tests__）
+ *   不得出现对本模块的引用。若你要把它接进生产：先对齐口径 → 再删那条断言 →
+ *   在 commit message 里写清对齐结论。断言红了不是障碍，是要求你留下决策痕迹。
+ *
+ *   相关：本文件的 net_margin 因子口径未声明（见 registerBuiltinFactors 注释），
+ *   因为 StockData.netMargin 在本仓库没有任何生产构造点。
  */
 
 export type FactorCategory = 'momentum' | 'value' | 'quality' | 'volatility' | 'size' | 'growth' | 'liquidity';

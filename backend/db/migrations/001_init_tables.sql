@@ -92,6 +92,12 @@ CREATE INDEX idx_minute_quotes_quote_time ON minute_quotes (quote_time);
 -- ============================================
 -- 4. 财务指标表
 -- ============================================
+--
+-- ⚠️ 历史遗留表（2026-11 核查）：**TypeScript 代码零读写**。
+--    财务数据实时走 services/financialsDataService.ts（东财 datacenter/emweb 直连），
+--    不落本表。保留 DDL 仅为兼容已建库（迁移脚本必须可重放），**新功能不要依赖本表**。
+--    特别注意 net_margin 列：从未被写入，不能当作"仓库里存着净利率"的依据，口径无从声明。
+--    守卫：backend/src/__tests__/deadCodeIsolation.test.ts。
 CREATE TABLE IF NOT EXISTS financial_indicators (
   id SERIAL PRIMARY KEY,
   stock_id INTEGER NOT NULL REFERENCES stocks(id) ON DELETE CASCADE,

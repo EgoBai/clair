@@ -67,6 +67,14 @@ CREATE TABLE minute_quotes (
 );
 
 -- 财务指标表
+--
+-- ⚠️ 历史遗留表（2026-11 核查）：**TypeScript 代码零读写**。
+--    财务数据实时走 services/financialsDataService.ts（东财 datacenter/emweb 直连），
+--    不落本表；全仓 `financial_indicators` 仅在本文件与 migrations 的 DDL 命中。
+--    保留 DDL 仅为兼容旧库结构，**新功能不要依赖本表**（尤其别把这里的 net_margin
+--    当成"仓库里存着净利率"，该列从未被写入，口径也无从声明）。
+--    守卫：__tests__/deadCodeIsolation.test.ts 断言 src/**（除 __tests__）不得引用本表名；
+--    真要启用，请同时加写入方/读取方/迁移与口径说明，并删除那条断言。
 CREATE TABLE financial_indicators (
     id SERIAL PRIMARY KEY,
     stock_id INTEGER NOT NULL REFERENCES stocks(id),
