@@ -1,136 +1,149 @@
 import { describe, it, expect } from 'vitest';
+import {
+  normalCDF,
+  normalPDF,
+  blackScholesPrice,
+  calculateGreeks,
+} from '../../../frontend/src/utils/optionsPricingEngine';
+import type { OptionParams } from '../../../frontend/src/utils/optionsPricingEngine';
 
 // ==================== 高级期权希腊字母测试 ====================
+// 影子测试迁移：normalCDF / normalPDF / blackScholesPrice / calculateGreeks
+// 全部来自生产 frontend/src/utils/optionsPricingEngine.ts（54 / 68 / 130 / 152 行）。
+// 下方 bs / greeks / calcVanna / calcCharm 仅做参数适配，不复制任何定价公式。
+// 旧内联实现与生产的差异：生产 calculateGreeks 在 t<=0 或 vol<=0 时返回全部 0（含 delta）。
 
-function normalCDF(x: number): number {
-  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
-  const sign = x < 0 ? -1 : 1;
-  x = Math.abs(x) / Math.sqrt(2);
-  const t = 1.0 / (1.0 + p * x);
-  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-  return 0.5 * (1.0 + sign * y);
+function bs(s: number, k: number, t: number, r: number, v: number, type: 'call' | 'put'): number {
+  return blackScholesPrice({
+    spot: s,
+    strike: k,
+    timeToExpiry: t,
+    riskFreeRate: r,
+    volatility: v,
+    type,
+  });
 }
 
-function normalPDF(x: number): number { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
-
-function blackScholes(s: number, k: number, t: number, r: number, v: number, type: 'call' | 'put'): number {
-  if (t <= 0) return type === 'call' ? Math.max(s - k, 0) : Math.max(k - s, 0);
-  const d1 = (Math.log(s / k) + (r + v * v / 2) * t) / (v * Math.sqrt(t));
-  const d2 = d1 - v * Math.sqrt(t);
-  return type === 'call' ? s * normalCDF(d1) - k * Math.exp(-r * t) * normalCDF(d2) : k * Math.exp(-r * t) * normalCDF(-d2) - s * normalCDF(-d1);
-}
-
-function calcGreeks(s: number, k: number, t: number, r: number, v: number, type: 'call' | 'put') {
-  if (t <= 0 || v <= 0) return { delta: type === 'call' ? (s > k ? 1 : 0) : (s < k ? -1 : 0), gamma: 0, theta: 0, vega: 0, rho: 0 };
-  const d1 = (Math.log(s / k) + (r + v * v / 2) * t) / (v * Math.sqrt(t));
-  const d2 = d1 - v * Math.sqrt(t);
-  const delta = type === 'call' ? normalCDF(d1) : normalCDF(d1) - 1;
-  const gamma = normalPDF(d1) / (s * v * Math.sqrt(t));
-  const commonTheta = -(s * normalPDF(d1) * v) / (2 * Math.sqrt(t));
-  const theta = type === 'call' ? (commonTheta - r * k * Math.exp(-r * t) * normalCDF(d2)) / 365 : (commonTheta + r * k * Math.exp(-r * t) * normalCDF(-d2)) / 365;
-  const vega = (s * normalPDF(d1) * Math.sqrt(t)) / 100;
-  const rho = type === 'call' ? (k * t * Math.exp(-r * t) * normalCDF(d2)) / 100 : (-k * t * Math.exp(-r * t) * normalCDF(-d2)) / 100;
-  return { delta, gamma, theta, vega, rho };
+function greeks(s: number, k: number, t: number, r: number, v: number, type: 'call' | 'put') {
+  const params: OptionParams = {
+    spot: s,
+    strike: k,
+    timeToExpiry: t,
+    riskFreeRate: r,
+    volatility: v,
+    type,
+  };
+  return calculateGreeks(params);
 }
 
 function calcVanna(s: number, k: number, t: number, r: number, v: number): number {
-  if (t <= 0 || v <= 0) return 0;
-  const d1 = (Math.log(s / k) + (r + v * v / 2) * t) / (v * Math.sqrt(t));
-  const d2 = d1 - v * Math.sqrt(t);
-  return -normalPDF(d1) * d2 / v;
+  return greeks(s, k, t, r, v, 'call').vanna;
 }
 
 function calcCharm(s: number, k: number, t: number, r: number, v: number, type: 'call' | 'put'): number {
-  if (t <= 0) return 0;
-  const d1 = (Math.log(s / k) + (r + v * v / 2) * t) / (v * Math.sqrt(t));
-  const d2 = d1 - v * Math.sqrt(t);
-  const term = normalPDF(d1) * (d2 / (2 * t));
-  return type === 'call' ? -term : term;
+  return greeks(s, k, t, r, v, type).charm;
 }
 
 describe('高级期权希腊字母', () => {
   const s = 100, k = 100, t = 1, r = 0.05, v = 0.2;
 
+  describe('正态分布（生产实现）', () => {
+    it('normalCDF(0)应该约等于0.5', () => {
+      expect(normalCDF(0)).toBeCloseTo(0.5, 6);
+    });
+    it('normalCDF(1.96)应该约等于0.975', () => {
+      expect(normalCDF(1.96)).toBeCloseTo(0.975, 4);
+    });
+    it('normalPDF(0)应该等于标准正态峰值', () => {
+      expect(normalPDF(0)).toBeCloseTo(1 / Math.sqrt(2 * Math.PI), 10);
+    });
+  });
+
   describe('Black-Scholes基础', () => {
-    it('看涨价格应该为正', () => { expect(blackScholes(s, k, t, r, v, 'call')).toBeGreaterThan(0); });
-    it('看跌价格应该为正', () => { expect(blackScholes(s, k, t, r, v, 'put')).toBeGreaterThan(0); });
+    it('看涨价格应该为正', () => { expect(bs(s, k, t, r, v, 'call')).toBeGreaterThan(0); });
+    it('看跌价格应该为正', () => { expect(bs(s, k, t, r, v, 'put')).toBeGreaterThan(0); });
+    it('平值看涨价格应该等于生产值', () => {
+      expect(bs(s, k, t, r, v, 'call')).toBeCloseTo(10.450575415435083, 10);
+    });
     it('到期应该返回内在价值', () => {
-      expect(blackScholes(110, 100, 0, r, v, 'call')).toBe(10);
-      expect(blackScholes(90, 100, 0, r, v, 'put')).toBe(10);
+      expect(bs(110, 100, 0, r, v, 'call')).toBe(10);
+      expect(bs(90, 100, 0, r, v, 'put')).toBe(10);
     });
     it('虚值到期应该为0', () => {
-      expect(blackScholes(90, 100, 0, r, v, 'call')).toBe(0);
-      expect(blackScholes(110, 100, 0, r, v, 'put')).toBe(0);
+      expect(bs(90, 100, 0, r, v, 'call')).toBe(0);
+      expect(bs(110, 100, 0, r, v, 'put')).toBe(0);
     });
     it('看涨看跌平价关系', () => {
-      const call = blackScholes(s, k, t, r, v, 'call');
-      const put = blackScholes(s, k, t, r, v, 'put');
+      const call = bs(s, k, t, r, v, 'call');
+      const put = bs(s, k, t, r, v, 'put');
       expect(call - put).toBeCloseTo(s - k * Math.exp(-r * t), 1);
     });
   });
 
   describe('Delta', () => {
     it('看涨Delta应该在0到1之间', () => {
-      const greeks = calcGreeks(s, k, t, r, v, 'call');
-      expect(greeks.delta).toBeGreaterThan(0);
-      expect(greeks.delta).toBeLessThan(1);
+      const g = greeks(s, k, t, r, v, 'call');
+      expect(g.delta).toBeGreaterThan(0);
+      expect(g.delta).toBeLessThan(1);
     });
     it('看跌Delta应该在-1到0之间', () => {
-      const greeks = calcGreeks(s, k, t, r, v, 'put');
-      expect(greeks.delta).toBeGreaterThan(-1);
-      expect(greeks.delta).toBeLessThan(0);
+      const g = greeks(s, k, t, r, v, 'put');
+      expect(g.delta).toBeGreaterThan(-1);
+      expect(g.delta).toBeLessThan(0);
     });
     it('深度实值看涨Delta应该接近1', () => {
-      const greeks = calcGreeks(200, 100, t, r, v, 'call');
-      expect(greeks.delta).toBeGreaterThan(0.9);
+      const g = greeks(200, 100, t, r, v, 'call');
+      expect(g.delta).toBeGreaterThan(0.9);
     });
     it('深度虚值看涨Delta应该接近0', () => {
-      const greeks = calcGreeks(50, 100, t, r, v, 'call');
-      expect(greeks.delta).toBeLessThan(0.1);
+      const g = greeks(50, 100, t, r, v, 'call');
+      expect(g.delta).toBeLessThan(0.1);
     });
+    // 缺陷候选：生产 calculateGreeks 在 t<=0 时对实值期权也返回 delta=0，
+    // 旧内联实现对实值 call 返回 1。保留宽松断言，不在测试里固化错误值。
     it('到期时Delta应该为0或1', () => {
-      const greeks = calcGreeks(s, k, 0, r, v, 'call');
-      expect([0, 1]).toContain(greeks.delta);
+      const g = greeks(s, k, 0, r, v, 'call');
+      expect([0, 1]).toContain(g.delta);
     });
   });
 
   describe('Gamma', () => {
     it('平值Gamma应该最大', () => {
-      const atm = calcGreeks(s, k, t, r, v, 'call').gamma;
-      const otm = calcGreeks(50, k, t, r, v, 'call').gamma;
+      const atm = greeks(s, k, t, r, v, 'call').gamma;
+      const otm = greeks(50, k, t, r, v, 'call').gamma;
       expect(atm).toBeGreaterThan(otm);
     });
-    it('Gamma应该为正', () => { expect(calcGreeks(s, k, t, r, v, 'call').gamma).toBeGreaterThan(0); });
+    it('Gamma应该为正', () => { expect(greeks(s, k, t, r, v, 'call').gamma).toBeGreaterThan(0); });
     it('看涨看跌Gamma应该相同', () => {
-      const callGamma = calcGreeks(s, k, t, r, v, 'call').gamma;
-      const putGamma = calcGreeks(s, k, t, r, v, 'put').gamma;
+      const callGamma = greeks(s, k, t, r, v, 'call').gamma;
+      const putGamma = greeks(s, k, t, r, v, 'put').gamma;
       expect(callGamma).toBeCloseTo(putGamma, 5);
     });
   });
 
   describe('Theta', () => {
-    it('看涨Theta应该为负（时间损耗）', () => { expect(calcGreeks(s, k, t, r, v, 'call').theta).toBeLessThan(0); });
-    it('看跌Theta应该为负', () => { expect(calcGreeks(s, k, t, r, v, 'put').theta).toBeLessThan(0); });
-    it('到期Theta应该为0', () => { expect(calcGreeks(s, k, 0, r, v, 'call').theta).toBe(0); });
+    it('看涨Theta应该为负（时间损耗）', () => { expect(greeks(s, k, t, r, v, 'call').theta).toBeLessThan(0); });
+    it('看跌Theta应该为负', () => { expect(greeks(s, k, t, r, v, 'put').theta).toBeLessThan(0); });
+    it('到期Theta应该为0', () => { expect(greeks(s, k, 0, r, v, 'call').theta).toBe(0); });
   });
 
   describe('Vega', () => {
-    it('Vega应该为正', () => { expect(calcGreeks(s, k, t, r, v, 'call').vega).toBeGreaterThan(0); });
+    it('Vega应该为正', () => { expect(greeks(s, k, t, r, v, 'call').vega).toBeGreaterThan(0); });
     it('看涨看跌Vega应该相同', () => {
-      expect(calcGreeks(s, k, t, r, v, 'call').vega).toBeCloseTo(calcGreeks(s, k, t, r, v, 'put').vega, 5);
+      expect(greeks(s, k, t, r, v, 'call').vega).toBeCloseTo(greeks(s, k, t, r, v, 'put').vega, 5);
     });
-    it('到期Vega应该为0', () => { expect(calcGreeks(s, k, 0, r, v, 'call').vega).toBe(0); });
+    it('到期Vega应该为0', () => { expect(greeks(s, k, 0, r, v, 'call').vega).toBe(0); });
     it('平值Vega应该大于虚值', () => {
-      const atm = calcGreeks(s, k, t, r, v, 'call').vega;
-      const otm = calcGreeks(50, k, t, r, v, 'call').vega;
+      const atm = greeks(s, k, t, r, v, 'call').vega;
+      const otm = greeks(50, k, t, r, v, 'call').vega;
       expect(atm).toBeGreaterThan(otm);
     });
   });
 
   describe('Rho', () => {
-    it('看涨Rho应该为正', () => { expect(calcGreeks(s, k, t, r, v, 'call').rho).toBeGreaterThan(0); });
-    it('看跌Rho应该为负', () => { expect(calcGreeks(s, k, t, r, v, 'put').rho).toBeLessThan(0); });
-    it('到期Rho应该为0', () => { expect(calcGreeks(s, k, 0, r, v, 'call').rho).toBe(0); });
+    it('看涨Rho应该为正', () => { expect(greeks(s, k, t, r, v, 'call').rho).toBeGreaterThan(0); });
+    it('看跌Rho应该为负', () => { expect(greeks(s, k, t, r, v, 'put').rho).toBeLessThan(0); });
+    it('到期Rho应该为0', () => { expect(greeks(s, k, 0, r, v, 'call').rho).toBe(0); });
   });
 
   describe('Vanna', () => {
@@ -148,19 +161,19 @@ describe('高级期权希腊字母', () => {
 
   describe('Greeks一致性', () => {
     it('所有希腊字母应该为有限值', () => {
-      const greeks = calcGreeks(s, k, t, r, v, 'call');
-      for (const v of Object.values(greeks)) {
-        expect(Number.isFinite(v)).toBe(true);
+      const g = greeks(s, k, t, r, v, 'call');
+      for (const value of Object.values(g)) {
+        expect(Number.isFinite(value)).toBe(true);
       }
     });
     it('波动率增加应该增加Vega', () => {
-      const g1 = calcGreeks(s, k, t, r, 0.1, 'call').vega;
-      const g2 = calcGreeks(s, k, t, r, 0.3, 'call').vega;
+      const g1 = greeks(s, k, t, r, 0.1, 'call').vega;
+      const g2 = greeks(s, k, t, r, 0.3, 'call').vega;
       expect(g2).toBeGreaterThan(g1);
     });
     it('时间减少应该增加Theta绝对值', () => {
-      const t1 = Math.abs(calcGreeks(s, k, 1, r, v, 'call').theta);
-      const t2 = Math.abs(calcGreeks(s, k, 0.1, r, v, 'call').theta);
+      const t1 = Math.abs(greeks(s, k, 1, r, v, 'call').theta);
+      const t2 = Math.abs(greeks(s, k, 0.1, r, v, 'call').theta);
       expect(t2).toBeGreaterThan(t1);
     });
   });

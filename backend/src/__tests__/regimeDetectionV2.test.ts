@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { calcMA, calcRSI } from '../utils/futureValueUtils';
 
-// 市场状态检测引擎 v2
+// 市场状态检测引擎 v2（影子测试迁移）
+// calcMA / calcRSI 直接 import 生产实现 backend/src/utils/futureValueUtils.ts:39/59，
+// 生产返回 (number | null)[]，与旧内联实现（NaN 前缀 / 短数组）不同。
 type MarketRegime = 'bull' | 'bear' | 'sideways' | 'volatile';
 
 interface RegimeSignal {
@@ -11,6 +14,12 @@ interface RegimeSignal {
   adxAbove25: boolean;
 }
 
+/**
+ * 未迁移：生产仓没有“信号 -> 体制”的 detectRegime。
+ * frontend/src/utils/marketRegimeEngine.ts:73 的 detectRegime(prices, currentIndex?) 与
+ * backend/src/services/volatilityEngine.ts:284 的 detectRegime(prices, window) 都基于价格序列，
+ * 输入契约不兼容，故保留内联实现。
+ */
 function detectRegime(signals: RegimeSignal): MarketRegime {
   let bullScore = 0, bearScore = 0;
   if (signals.ma20AboveMa60) bullScore += 2; else bearScore += 2;
@@ -24,6 +33,11 @@ function detectRegime(signals: RegimeSignal): MarketRegime {
   return 'sideways';
 }
 
+/**
+ * 未迁移：生产仓没有“体制历史 -> 转移概率矩阵”的纯函数。
+ * frontend/src/utils/regimeTransitionEngine.ts:96 的 detectRegimes(returns, numRegimes, window)
+ * 返回 RegimeAnalysis，输入与返回结构均不兼容，故保留内联实现。
+ */
 function calcRegimeTransitionProb(history: MarketRegime[]): Record<string, Record<string, number>> {
   const transitions: Record<string, Record<string, number>> = {};
   const counts: Record<string, number> = {};
@@ -43,6 +57,11 @@ function calcRegimeTransitionProb(history: MarketRegime[]): Record<string, Recor
   return probs;
 }
 
+/**
+ * 未迁移：生产仓没有“体制历史 -> 持续期数组”的纯函数。
+ * frontend/src/utils/marketRegimeEngine.ts:340 的 calcRegimeDuration 为 class 私有方法，
+ * 且接收 (prices, currentRegime, endIdx)，契约不兼容，故保留内联实现。
+ */
 function calcRegimeDuration(history: MarketRegime[]): { regime: MarketRegime; duration: number }[] {
   if (history.length === 0) return [];
   const durations: { regime: MarketRegime; duration: number }[] = [];
@@ -55,31 +74,10 @@ function calcRegimeDuration(history: MarketRegime[]): { regime: MarketRegime; du
   return durations;
 }
 
-function calcMA(data: number[], period: number): number[] {
-  return data.map((_, i) => {
-    if (i < period - 1) return NaN;
-    const slice = data.slice(i - period + 1, i + 1);
-    return slice.reduce((a, b) => a + b, 0) / period;
-  });
-}
-
-function calcRSI(prices: number[], period: number = 14): number[] {
-  if (prices.length < period + 1) return [];
-  const rsi: number[] = [];
-  for (let i = period; i < prices.length; i++) {
-    let gains = 0, losses = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      const diff = prices[j] - prices[j - 1];
-      if (diff > 0) gains += diff; else losses -= diff;
-    }
-    const avgGain = gains / period, avgLoss = losses / period;
-    if (avgLoss === 0) { rsi.push(100); continue; }
-    const rs = avgGain / avgLoss;
-    rsi.push(100 - 100 / (1 + rs));
-  }
-  return rsi;
-}
-
+/**
+ * 未迁移：生产 frontend/src/utils/indicatorCalc.ts:218 的 calcADX 为模块私有函数，
+ * 且返回 { adx, pdi, mdi }，与这里的 [dx] 单元素契约不兼容，故保留内联实现。
+ */
 function calcADX(highs: number[], lows: number[], closes: number[], period: number = 14): number[] {
   if (closes.length < period + 1) return [];
   const tr: number[] = [];
@@ -102,7 +100,7 @@ function calcADX(highs: number[], lows: number[], closes: number[], period: numb
 }
 
 describe('市场状态检测引擎 v2', () => {
-  describe('状态检测', () => {
+  describe('状态检测（未迁移）', () => {
     it('牛市信号应检测为bull', () => {
       expect(detectRegime({
         ma20AboveMa60: true, rsiAbove50: true,
@@ -132,7 +130,7 @@ describe('市场状态检测引擎 v2', () => {
     });
   });
 
-  describe('状态转移概率', () => {
+  describe('状态转移概率（未迁移）', () => {
     it('应计算各状态转移概率', () => {
       const history: MarketRegime[] = ['bull', 'bull', 'sideways', 'bear', 'bear', 'sideways'];
       const probs = calcRegimeTransitionProb(history);
@@ -150,7 +148,7 @@ describe('市场状态检测引擎 v2', () => {
     });
   });
 
-  describe('状态持续期', () => {
+  describe('状态持续期（未迁移）', () => {
     it('应正确计算各状态持续天数', () => {
       const history: MarketRegime[] = ['bull', 'bull', 'bull', 'bear', 'bear', 'sideways'];
       const durations = calcRegimeDuration(history);
@@ -163,21 +161,35 @@ describe('市场状态检测引擎 v2', () => {
     });
   });
 
-  describe('技术指标', () => {
-    it('MA应正确计算移动平均', () => {
+  describe('技术指标（迁移 calcMA / calcRSI）', () => {
+    it('MA应正确计算移动平均（生产返回 null 前缀）', () => {
       const data = [1, 2, 3, 4, 5];
       const ma3 = calcMA(data, 3);
+      expect(ma3).toEqual([null, null, 2, 3, 4]);
       expect(ma3[2]).toBe(2);
       expect(ma3[4]).toBe(4);
     });
 
-    it('RSI应在0-100之间', () => {
+    it('RSI 返回等长数组，前 period 个为 null，值在 0-100 之间', () => {
       const prices = [10, 10.5, 11, 10.8, 11.2, 11.5, 11.3, 12, 12.5, 12.2, 13, 13.5, 13.2, 14, 14.5, 15];
       const rsi = calcRSI(prices, 14);
-      rsi.forEach(v => { expect(v).toBeGreaterThanOrEqual(0); expect(v).toBeLessThanOrEqual(100); });
+      expect(rsi).toHaveLength(prices.length);
+      expect(rsi.slice(0, 14)).toEqual(Array(14).fill(null));
+      const values = rsi.slice(14);
+      expect(values).toHaveLength(2);
+      values.forEach(v => {
+        expect(v).not.toBeNull();
+        expect(v as number).toBeGreaterThanOrEqual(0);
+        expect(v as number).toBeLessThanOrEqual(100);
+      });
     });
 
-    it('ADX应返回正值', () => {
+    it('数据不足时返回等长 null 数组（生产契约）', () => {
+      expect(calcMA([1, 2], 3)).toEqual([null, null]);
+      expect(calcRSI([1, 2, 3], 14)).toEqual([null, null, null]);
+    });
+
+    it('ADX应返回正值（未迁移）', () => {
       const n = 20;
       const closes = Array.from({ length: n }, (_, i) => 100 + i);
       const highs = closes.map(c => c + 1);
