@@ -286,6 +286,48 @@ function scanRuleB() {
 }
 
 // ---------------------------------------------------------------------------
+// 5b. 规则 C：数值兜底扫描（RSI §8 / S3，2026-11-04）
+// ---------------------------------------------------------------------------
+// 判据：backend/src/api/** 内出现 `?? 0` / `?? -1` 即为数值兜底，
+//       把「取不到」伪装成「是 0 / 不存在」，与诚实红线（禁零值顶替空态）冲突。
+// 说明：只扫代码位置（注释/字符串中的示例不算），命中即阻断（--strict），无 allowlist 机制；
+//       如为真实误报，应改本规则而不是加豁免，避免门禁被逐步掏空。
+const NUMERIC_FALLBACK_RE = /\?\?\s*(-1|0)(?![0-9.])/g;
+
+function scanRuleC() {
+  const apiDir = path.join(REPO_ROOT, 'backend', 'src', 'api');
+  const files = walk(apiDir, []);
+  files.sort();
+  const hits = [];
+  for (const abs of files) {
+    const rel = path.relative(REPO_ROOT, abs).split(path.sep).join('/');
+    let src;
+    try { src = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    if (!src.includes('??')) continue;
+    const mask = computeNonCodeMask(src);
+    const lines = src.split('\n');
+    const lineStart = new Array(lines.length);
+    let off = 0;
+    for (let li = 0; li < lines.length; li++) { lineStart[li] = off; off += lines[li].length + 1; }
+    NUMERIC_FALLBACK_RE.lastIndex = 0;
+    let m;
+    while ((m = NUMERIC_FALLBACK_RE.exec(src)) !== null) {
+      const idx = m.index;
+      if (mask[idx] !== 0) continue; // 注释 / 字符串文本
+      let lo = 0, hi = lines.length - 1, li = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (lineStart[mid] <= idx) { li = mid; lo = mid + 1; } else { hi = mid - 1; }
+      }
+      const lineRaw = lines[li].trim();
+      const collapsed = lineRaw.replace(/\s+/g, ' ');
+      hits.push({ file: rel, line: li + 1, text: collapsed.length > MAX_SNIPPET ? collapsed.slice(0, MAX_SNIPPET) + '…' : collapsed });
+    }
+  }
+  return hits;
+}
+
+// ---------------------------------------------------------------------------
 // 6. allowlist 加载与豁免判定
 // ---------------------------------------------------------------------------
 function loadAllowlist() {
@@ -435,7 +477,7 @@ function fmtRedRows(hits) {
   }).join('\n') + '\n';
 }
 
-function renderReport({ ruleA, ruleB, allowlist, exemptions }) {
+function renderReport({ ruleA, ruleB, ruleC, allowlist, exemptions }) {
   const { hits, exemptByFile } = ruleA;
   const contractMissing = ruleB.filter((r) => r.routes > 0 && r.dataSource === 0);
   const now = new Date();
@@ -485,6 +527,7 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions }) {
   L.push(`| 豁免域 | \`_archived\` / \`.bak\` / \`.test.\` / \`.spec.\` / \`__tests__\` / \`seeds/\` | ${exemptLineCount} 行 / ${exemptFileCount} 文件（仅计数） |`);
   L.push(`| 注释/字符串中提及（非违规） | 位于注释或字符串文本内，不产生运行期伪数据 | ${hits.comment.length} |`);
   L.push(`| **规则 B 命中文件数** | 有路由但全文无 \`dataSource\` | **${contractMissing.length}** |`);
+  L.push(`| **规则 C 命中（数值兜底）** | \`backend/src/api/**\` 内代码出现 \`?? 0\` / \`?? -1\` | **${ruleC.length}** |`);
   L.push(`| 豁免台账规模 | allowlist 条目数（未命中 ${unusedEntries.length} 条） | ${allowlist.entries.length} |`);
   L.push('');
 
@@ -606,6 +649,19 @@ function renderReport({ ruleA, ruleB, allowlist, exemptions }) {
   L.push('> 注意：规则 B 必有误报（纯鉴权 / 健康检查 / meta / docs 端点本就不供数），第一版**只列不判死**，供主理人建白名单。');
   L.push('> 已知覆盖边界：本规则仅统计 `router.(get|post|put|delete)(` 前缀，**不涵盖** `app.get` / `router.use` / `router.route` 等其它挂载写法（可能漏计）。');
   L.push('');
+
+  L.push('## 规则 C 明细（backend/src/api/** 数值兜底）');
+  L.push('');
+  L.push('> 判据：代码位置出现 `?? 0` / `?? -1`（注释、字符串示例不算）。**当前为观察项，不阻断**（存量 35 处待分类：排序比较器/计数器良性，响应字段默认值待修）；分类完成后再转阻断。');
+  L.push('');
+  L.push('| 路径:行 | 行内容（截断 120 字符） |');
+  L.push('|---|---|');
+  if (ruleC.length) {
+    for (const h of ruleC) L.push(`| \`${h.file}:${h.line}\` | \`${h.text}\` |`);
+  } else {
+    L.push('| — | （无命中） |');
+  }
+  L.push('');
   L.push('---');
   L.push('');
   L.push('**门禁模式**：脚本默认非阻断（exit 0）；传 `--strict` 时，存在未豁免 RED 或过期豁免则 exit 1。');
@@ -620,10 +676,11 @@ function main() {
   const now = new Date();
   const ruleA = scanRuleA();
   const ruleB = scanRuleB();
+  const ruleC = scanRuleC();
   const allowlist = loadAllowlist();
   const exemptions = annotateExemptions(ruleA.hits, allowlist, now);
 
-  const report = renderReport({ ruleA, ruleB, allowlist, exemptions });
+  const report = renderReport({ ruleA, ruleB, ruleC, allowlist, exemptions });
 
   // R0′-11a：默认**不写**受版本控制的基线（仅 stdout）；仅 --update-baseline 时覆盖写。
   // 这样任何默认运行（含 CI 的 --strict）都不会弄脏工作树，也消除并发运行互相覆盖。
@@ -658,6 +715,7 @@ function main() {
   out.push(`豁免域 (仅计数)        : ${hits.exempt.length} 行 / ${ruleA.exemptByFile.size} 文件`);
   out.push(`注释/字符串提及(非违规): ${hits.comment.length}`);
   out.push(`规则B CONTRACT-MISSING : ${contractMissing.length} 文件`);
+  out.push(`规则C 数值兜底(?? 0/-1) : ${ruleC.length} 处（观察项，暂不阻断；存量待分类）`);
   out.push(`allowlist 条目         : ${allowlist.entries.length}（未命中 ${allowlist.entries.filter((e) => !exemptions.usedIds.has(e.id)).length}）`);
   out.push(`基线文件               : ${wroteBaseline ? `已写入 ${relOut}` : `未写（默认只读；需 --update-baseline 才写 ${relOut}）`}`);
 
@@ -690,6 +748,14 @@ function main() {
     }
   }
 
+  // 规则 C 明细（数值兜底，观察项）
+  if (ruleC.length) {
+    out.push('');
+    out.push(`观察：规则 C 数值兜底（${ruleC.length} 处）—— 供数路径的 `?? 0` / `?? -1` 会把取不到伪装成 0；`);
+    out.push('      当前仅报告不阻断（存量需先分类：排序比较器/计数器属良性，响应字段默认值属待修）。');
+    for (const h of ruleC) out.push(`  ${h.file}:${h.line}  ${h.text}`);
+  }
+
   // R0′-11b：台账同步校验结果（仅 --strict 会真正校验）
   if (STRICT && !sync.ok) {
     out.push('');
@@ -705,7 +771,7 @@ function main() {
     const reasons = [];
     if (unexempted.length) reasons.push('未豁免/过期 RED');
     if (!sync.ok) reasons.push('台账不同步');
-    out.push(reasons.length ? `[STRICT] 阻断项：${reasons.join(' + ')} → exit 1` : `[STRICT] 无未豁免 RED、无过期豁免、台账同步 → exit 0`);
+    out.push(reasons.length ? `[STRICT] 阻断项：${reasons.join(' + ')} → exit 1` : `[STRICT] 无未豁免 RED、无过期豁免、台账同步 → exit 0（规则 C 为观察项）`);
   } else {
     out.push('[NON-BLOCKING] exit 0');
   }
