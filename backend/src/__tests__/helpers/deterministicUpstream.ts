@@ -2,10 +2,14 @@
  * 确定性上游桩（test-only）
  *
  * 存在理由：本目录下的路由/契约测试要验证的是「路由是否注册 + HTTP 方法 +
- * 状态码 + dataSource 诚实契约」，**不是**「东财此刻返回了什么」。
- * 真实上游会随网络环境漂移——`push2.eastmoney.com` 在部分网络下直接
- * 不可达（HTTP 000 / 连接失败），于是同一份断言在 CI 上随机红。
+ * 状态码 + dataSource 诚实契约」，**不是**「上游此刻返回了什么」。
+ * 真实上游会随网络环境漂移——`push2.eastmoney.com` / `push2his.eastmoney.com`
+ * 在部分网络下直接不可达（HTTP 000 / 连接失败），于是同一份断言在 CI 上随机红。
  * 上游数据的正确性由各自的 service 层测试负责（那些已mock）。
+ *
+ * 登记的上游（2026-11-03）：东财 push2 / push2his、东财数据中心、**腾讯 qt.gtimg.cn
+ * （批量报价 + whHKDCNY 汇率）**、**腾讯 web.ifzq.gtimg.cn（日线 bfq 不复权）**。
+ * 后两者是 `/api/ai/*` 与 `/api/hk-connect/ah-premium` 在 push2 不可达后的真实源。
  *
  * 三条纪律：
  * 1. **任何 URL 都必须在本桩登记**；未登记 → 立即抛错，绝不静默打真实网络。
@@ -268,6 +272,68 @@ function jsonResponse(payload: unknown) {
   } as unknown as Response;
 }
 
+/**
+ * 腾讯报价/汇率的纯文本响应。
+ * 上游真实响应是 GBK 字节流，本桩的 payload **刻意全为 ASCII**（名称用 TEST-<code>），
+ * 因此 utf8 与 gbk 字节序一致，无需在测试里做 GBK 编码。
+ */
+function textResponse(body: string) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => JSON.parse(body),
+    text: async () => body,
+    arrayBuffer: async () => {
+      const buf = Buffer.from(body, 'utf8');
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    },
+  } as unknown as Response;
+}
+
+/**
+ * 腾讯 A 股报价行（qt.gtimg.cn）。
+ * 字段位与 services/tencentQuoteService.ts 标定一致：
+ * 1=名称 3=最新价 4=昨收 6=成交量 30=时间 32=涨跌幅 39=PE 45=总市值(亿) 46=PB 82=币种
+ * 三源自洽：最新价/涨跌幅取自该 profile 的 K 线末根，PE/PB/市值取自同一 profile。
+ */
+function tencentQuoteLine(code: string): string | null {
+  const m = /^(sh|sz)(\d{6})$/.exec(code);
+  if (!m) return null;
+  const digits = m[2];
+  const p = profileOf(digits);
+  const rows = klineOf(p);
+  const last = rows[rows.length - 1];
+  const prev = rows[rows.length - 2] ?? last;
+  const f = new Array(88).fill('');
+  f[0] = '1';
+  f[1] = `TEST-${digits}`; // 桩标记，杜绝与真实行情混淆
+  f[2] = digits;
+  f[3] = String(last.close);
+  f[4] = String(prev.close);
+  f[6] = String(last.volume);
+  f[30] = '20260105150000';
+  f[32] = String(last.changePercent);
+  f[37] = String(Math.round((last.volume * last.close) / 1e4)); // 万元
+  f[39] = String(p.pe);
+  f[45] = String(+(p.marketCap / 1e8).toFixed(2)); // 亿元
+  f[46] = String(p.pb);
+  f[82] = 'CNY';
+  return `v_${code}="${f.join('~')}";`;
+}
+
+/** 腾讯 fqkline（bfq，不复权）：键名 day，行序 日期,开,收,高,低,成交量 */
+function tencentKlinePayload(tencentCode: string) {
+  const digits = tencentCode.slice(2);
+  const rows = klineOf(profileOf(digits)).map((r) => [
+    r.date, String(r.open), String(r.close), String(r.high), String(r.low), String(r.volume),
+  ]);
+  return { code: 0, msg: '', data: { [tencentCode]: { day: rows } } };
+}
+
+/** 真实汇率形态（数值为公开行情量级；本桩不参与溢价断言，仅供端点不降级） */
+const TENCENT_FX_LINE =
+  'v_whHKDCNY="310~HKDCNY~HKDCNY~0.8499~0~20260105150000~0.8470~0.8470~0.8507~0.8469~0.8499~0.8505~0.0029~0.34~0.05~-0.07~-0.53~-1.31~-5.29~0.9171~0.8465~2026-01-05";';
+
 /** 本 stub 已应答过的 URL（用于「零未登记上游」自证）。 */
 export const servedUrls: string[] = [];
 /** 试图打到本 stub 但未登记的 URL —— 非空即说明有新的外部依赖。 */
@@ -304,6 +370,25 @@ export function makeStubFetch(): typeof fetch {
       if (!code) { unstubbedUrls.push(url); throw new Error(`[stub] 无法解析 SECUCODE: ${url}`); }
       servedUrls.push(url);
       return jsonResponse(financialsPayload(code));
+    }
+
+    // ---- 腾讯报价（qt.gtimg.cn）：/api/ai/* 与 /api/hk-connect/ah-premium 的真实源 ----
+    if (url.includes('qt.gtimg.cn/q=')) {
+      servedUrls.push(url);
+      if (url.includes('whHKDCNY')) return textResponse(TENCENT_FX_LINE);
+      const list = (url.match(/\/q=([^&]+)/)?.[1] ?? '').split(',').filter(Boolean);
+      const lines = list.map(tencentQuoteLine).filter((l): l is string => Boolean(l));
+      // 未知/非 A 股代码 → 上游真实行为是回 none_match 行，而不是 4xx
+      return textResponse(lines.length > 0 ? `${lines.join('\n')}\n` : 'v_pv_none_match="1";');
+    }
+
+    // ---- 腾讯 K 线（web.ifzq.gtimg.cn fqkline，不复权 bfq）----
+    if (url.includes('web.ifzq.gtimg.cn/appstock/app/fqkline/get')) {
+      servedUrls.push(url);
+      const decoded = decodeURIComponent(url);
+      const m = /param=([a-z]{2}\d{6})/.exec(decoded);
+      if (!m) { unstubbedUrls.push(url); throw new Error(`[stub] 无法解析腾讯 K 线代码: ${url}`); }
+      return jsonResponse(tencentKlinePayload(m[1]));
     }
 
     unstubbedUrls.push(url);

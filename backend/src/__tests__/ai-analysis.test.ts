@@ -2,7 +2,8 @@
  * AI 智能分析 API 路由测试（诚实数据版）
  *
  * 约定（同 marketBreadth.test.ts 风格）：
- * - mock global.fetch 拦截东财 push2/push2his 真实源；
+ * - mock global.fetch 拦截**腾讯**真实源（qt.gtimg.cn 报价 + web.ifzq.gtimg.cn 日线 bfq）；
+ *   2026-11-03 起本端点已不再打 push2/push2his（该域名实测不可达）；
  * - mock financialsDataService 拦截财务指标真实源；
  * - 真实路径：所有源可用 → 返回 dataSource:'real' + 真实结构；
  * - 诚实空路径：源不可达 → 返回 dataSource:'unavailable' + 空 data；
@@ -26,35 +27,67 @@ vi.mock('../services/financialsDataService', () => ({
 
 import { getFinancialIndicators } from '../services/financialsDataService';
 import router from '../api/ai-analysis';
+import { queryCache } from '../utils/queryCache';
 
-// 东财个股实时行情返回（push2 stock/get）
-function makeQuoteJson(symbol: string, name: string, overrides: Record<string, number> = {}) {
-  return {
-    data: {
-      f12: symbol,
-      f14: name,
-      f2: (overrides.price ?? 100) * 1000,
-      f3: (overrides.changePercent ?? 2) * 100,
-      f5: overrides.volume ?? 100000,
-      f6: overrides.turnover ?? 10000000,
-      f9: (overrides.pe ?? 20) * 100,
-      f23: (overrides.pb ?? 3) * 100,
-      f20: overrides.marketCap ?? 500000000000,
-    },
-  };
+/** 测试进程未初始化 DB → 候选池降级为内置名单（15 只），报价需覆盖这 15 个腾讯代码 */
+const FALLBACK_TENCENT_CODES = [
+  'sh600519', 'sz000858', 'sz300750', 'sz002594', 'sh601318',
+  'sh600036', 'sz000333', 'sz002415', 'sh688981', 'sh601012',
+  'sz002475', 'sh603259', 'sh601888', 'sz300059', 'sh600900',
+];
+
+/**
+ * 构造 A 股腾讯报价行（字段位与 services/tencentQuoteService.ts 标定一致）。
+ * 3=最新价 4=昨收 30=时间 32=涨跌幅 39=PE 45=总市值(亿) 46=PB 82=币种
+ */
+function tencentQuoteLine(
+  code: string,
+  name: string,
+  overrides: { price?: number; pe?: number; pb?: number; changePercent?: number } = {},
+): string {
+  const f = new Array(88).fill('');
+  f[0] = '1';
+  f[1] = name;
+  f[2] = code.replace(/^(sh|sz)/, '');
+  f[3] = String(overrides.price ?? 100);
+  f[4] = String(overrides.price ?? 100);
+  f[6] = '100000';
+  f[30] = '20261103150000';
+  f[32] = String(overrides.changePercent ?? 2);
+  f[37] = '100000';
+  f[39] = String(overrides.pe ?? 12);
+  f[45] = '5000.00';
+  f[46] = String(overrides.pb ?? 3);
+  f[82] = 'CNY';
+  return `v_${code}="${f.join('~')}";`;
 }
 
-// 东财个股日 K 线返回（push2his stock/kline/get）
-function makeKlineJson(count = 60): { data: { klines: string[] } } {
-  const klines: string[] = [];
+/** 腾讯报价响应：按 URL 里的代码列表拼行（含真实汇率行，本端点不消费但保持一致） */
+function makeQuoteText(codes: string[], overrides: { pe?: number } = {}): string {
+  return codes
+    // 名称用 ASCII：本桩经 latin1 伪编码后再由 TextDecoder('gbk') 解码，
+    // 中文字符的字节对可能吞掉后随的 '~' 分隔符，导致字段错位（真实 GBK 响应无此问题）。
+    .map((c) => tencentQuoteLine(c, 'TEST', { pe: overrides.pe }))
+    .join('\n');
+}
+
+/** 腾讯 fqkline 响应（bfq 不复权，键名 day，行序 O-C-H-L），60 根稳定上行便于触发 MA 多头 */
+function makeTencentKlineJson(tencentCode: string, count = 60): { code: number; data: Record<string, any> } {
+  const rows: string[][] = [];
   let price = 100;
   for (let i = 0; i < count; i++) {
-    price += 1; // 稳定上行，便于触发 MA 多头排列
+    price += 1;
     const dd = String((i % 28) + 1).padStart(2, '0');
     const mm = String(Math.floor(i / 28) + 1).padStart(2, '0');
-    klines.push(`2024-${mm}-${dd},${price - 0.5},${price},${price + 0.5},${price - 1},${100000 + i * 1000},${10000000 + i * 100000}`);
+    rows.push([`2024-${mm}-${dd}`, String(price - 0.5), String(price), String(price + 0.5), String(price - 1), String(100000 + i * 1000)]);
   }
-  return { data: { klines } };
+  return { code: 0, data: { [tencentCode]: { day: rows } } };
+}
+
+/** 从 fqkline URL 的 param 里取出腾讯代码：param=sh600519,day,,,60,bfq */
+function tencentCodeOfKlineUrl(url: string): string {
+  const m = url.match(/param=([a-z]{2}\d{6})/);
+  return m ? m[1] : 'sh600519';
 }
 
 // 财务指标返回（financialsDataService.getFinancialIndicators）
@@ -92,34 +125,50 @@ function createApp() {
   return app;
 }
 
-/** 安装 fetch mock，返回恢复函数 */
-function installFetchMock(handler: (url: string) => Promise<any>): () => void {
+/** 安装 fetch mock，返回恢复函数。
+ * handler 返回**响应体字符串**：腾讯报价是 GBK 文本、fqkline 是 JSON 文本，
+ * 两种形态都能被同一个 mock 同时提供 json() / text() / arrayBuffer()。 */
+function installFetchMock(handler: (url: string) => Promise<string>): () => void {
   const origFetch = global.fetch;
   (global as any).fetch = vi.fn(async (url: string) => {
-    const data = await handler(url);
+    const body = await handler(url);
     return {
       ok: true,
       status: 200,
-      json: async () => data,
-      text: async () => JSON.stringify(data),
+      json: async () => JSON.parse(body),
+      text: async () => body,
+      arrayBuffer: async () => {
+        const buf = Buffer.from(body, 'latin1');
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      },
     } as any;
   });
   return () => { (global as any).fetch = origFetch; };
 }
 
+/** 标准上游响应：腾讯报价 + 腾讯日线（bfq） */
+async function defaultUpstream(url: string): Promise<string> {
+  if (url.includes('qt.gtimg.cn/q=')) {
+    const codes = (url.match(/\/q=([^&]+)/)?.[1] ?? '').split(',').filter(Boolean);
+    return `${makeQuoteText(codes)}\n`;
+  }
+  if (url.includes('fqkline/get')) {
+    return JSON.stringify(makeTencentKlineJson(tencentCodeOfKlineUrl(url)));
+  }
+  throw new Error(`unexpected url: ${url}`);
+}
+
 describe('AI Analysis API (honest-data)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 候选池装配结果有 2 分钟进程内缓存，用例之间必须清掉，否则失败用例会读到上一个用例的缓存
+    queryCache.invalidate('ai-universe');
   });
 
   describe('GET /ai/recommendations', () => {
     it('真实源可用时返回 dataSource:real + 推荐列表', async () => {
       (getFinancialIndicators as any).mockResolvedValue(makeIndicators());
-      const restore = installFetchMock(async (url) => {
-        if (url.includes('/qt/stock/get')) return makeQuoteJson('600519.SH', '贵州茅台');
-        if (url.includes('/stock/kline/get')) return makeKlineJson();
-        throw new Error(`unexpected url: ${url}`);
-      });
+      const restore = installFetchMock(defaultUpstream);
 
       try {
         const res = await request(createApp()).get('/ai/recommendations');
@@ -128,10 +177,17 @@ describe('AI Analysis API (honest-data)', () => {
         expect(res.body.data.dataSource).toBe('real');
         expect(res.body.data.stocks).toBeInstanceOf(Array);
         expect(res.body.data.stocks.length).toBeGreaterThan(0);
-        expect(res.body.data.stocks.length).toBeLessThanOrEqual(5);
+        // 候选池扩到 60 只后榜单输出前 20（原为 5）
+        expect(res.body.data.stocks.length).toBeLessThanOrEqual(20);
         for (let i = 1; i < res.body.data.stocks.length; i++) {
           expect(res.body.data.stocks[i - 1].totalScore).toBeGreaterThanOrEqual(res.body.data.stocks[i].totalScore);
         }
+        // 候选池来源必须显式声明（测试进程无 DB → 内置兜底名单，不得谎报全市场）
+        const u = res.body.data.universe;
+        expect(u).toBeTruthy();
+        expect(['daily_quotes.topByTurnover', 'builtinWatchlistFallback']).toContain(u.source);
+        expect(typeof u.scored).toBe('number');
+        expect(u.dropped).toBeTruthy();
       } finally {
         restore();
       }
@@ -148,7 +204,9 @@ describe('AI Analysis API (honest-data)', () => {
         expect(res.body.data.dataSource).toBe('unavailable');
         expect(res.body.data.stocks).toEqual([]);
         expect(res.body.data.confidence).toBeNull();
-        expect(res.body.data.message).toContain('失败');
+        // 失败态不得声明候选池来源（否则前端会读成「全市场 0 机会」）
+        expect(res.body.data.universe).toBeNull();
+        expect(res.body.data.message).toContain('不可用');
       } finally {
         restore();
       }
@@ -158,11 +216,8 @@ describe('AI Analysis API (honest-data)', () => {
   describe('GET /ai/analyze/:symbol', () => {
     it('真实源可用时返回单股 AI 分析 + dataSource:real', async () => {
       (getFinancialIndicators as any).mockResolvedValue(makeIndicators());
-      const restore = installFetchMock(async (url) => {
-        if (url.includes('/qt/stock/get')) return makeQuoteJson('600519.SH', '贵州茅台', { pe: 12 });
-        if (url.includes('/stock/kline/get')) return makeKlineJson();
-        throw new Error(`unexpected url: ${url}`);
-      });
+      // PE 取 12（<15）以稳定命中「估值偏低」加分分支，断言只看结构与分值域
+      const restore = installFetchMock(defaultUpstream);
 
       try {
         const res = await request(createApp()).get('/ai/analyze/600519.SH');
@@ -200,11 +255,7 @@ describe('AI Analysis API (honest-data)', () => {
   describe('GET /ai/alerts', () => {
     it('真实源可用时返回 alerts + dataSource:real', async () => {
       (getFinancialIndicators as any).mockResolvedValue(makeIndicators());
-      const restore = installFetchMock(async (url) => {
-        if (url.includes('/qt/stock/get')) return makeQuoteJson('600519.SH', '贵州茅台');
-        if (url.includes('/stock/kline/get')) return makeKlineJson();
-        throw new Error(`unexpected url: ${url}`);
-      });
+      const restore = installFetchMock(defaultUpstream);
 
       try {
         const res = await request(createApp()).get('/ai/alerts?limit=10');
@@ -238,11 +289,7 @@ describe('AI Analysis API (honest-data)', () => {
   describe('GET /ai/sector-rotation', () => {
     it('真实源可用时返回 sector rotation + dataSource:real', async () => {
       (getFinancialIndicators as any).mockResolvedValue(makeIndicators());
-      const restore = installFetchMock(async (url) => {
-        if (url.includes('/qt/stock/get')) return makeQuoteJson('600519.SH', '贵州茅台');
-        if (url.includes('/stock/kline/get')) return makeKlineJson();
-        throw new Error(`unexpected url: ${url}`);
-      });
+      const restore = installFetchMock(defaultUpstream);
 
       try {
         const res = await request(createApp()).get('/ai/sector-rotation');
@@ -274,11 +321,7 @@ describe('AI Analysis API (honest-data)', () => {
   describe('GET /ai/market-sentiment', () => {
     it('真实源可用时返回 sentiment + dataSource:real', async () => {
       (getFinancialIndicators as any).mockResolvedValue(makeIndicators());
-      const restore = installFetchMock(async (url) => {
-        if (url.includes('/qt/stock/get')) return makeQuoteJson('600519.SH', '贵州茅台');
-        if (url.includes('/stock/kline/get')) return makeKlineJson();
-        throw new Error(`unexpected url: ${url}`);
-      });
+      const restore = installFetchMock(defaultUpstream);
 
       try {
         const res = await request(createApp()).get('/ai/market-sentiment');

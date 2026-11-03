@@ -103,11 +103,11 @@ describe('klineDataService (honest-data)', () => {
       expect(data.prices).toEqual([1700.0, 1690.0, 1712.5]);
     });
 
-    it('腾讯兜底路径成交量同样直接透传「手」（不 ×100）', async () => {
-      // 第一次（东财）失败 → 第二次（腾讯 fqkline）成功
+    it('腾讯兜底路径成交量同样直接透传「手」（不 ×100），且必须请求 bfq 不复权', async () => {
+      // 第一次（东财）失败 → 第二次（腾讯 fqkline bfq）成功；bfq 的键名是 day
       const tencentBody = {
         code: 0,
-        data: { sh600519: { qfqday: [['2026-08-10', '1680.00', '1700.00', '1705.00', '1675.00', '35000']] } },
+        data: { sh600519: { day: [['2026-08-10', '1680.00', '1700.00', '1705.00', '1675.00', '35000']] } },
       };
       const fetchMock = vi
         .fn()
@@ -116,6 +116,12 @@ describe('klineDataService (honest-data)', () => {
       setFetch(fetchMock);
 
       const data = await getKline('600519', 250);
+      const txUrl = (fetchMock.mock.calls[1] as any[])[0] as string;
+      // 口径红线：必须 bfq（不复权），不得 qfq/hfq —— 否则与库内 daily_quotes 成两套数
+      expect(txUrl).toContain('bfq');
+      expect(txUrl).not.toContain('qfq');
+      expect(txUrl).not.toContain('hfq');
+
       expect(data.dates).toEqual(['2026-08-10']);
       // 单位=手，与东财路径一致；两路径若单位不同会造成「换源即换量纲」
       expect(data.volumes).toEqual([35000]);
@@ -201,7 +207,7 @@ describe('klineDataService (honest-data)', () => {
       const url = (fetchMock.mock.calls[0] as any[])[0] as string;
       expect(url).toContain('secid=1.600519');
       expect(url).toContain('klt=101');
-      expect(url).toContain('fqt=1');
+      expect(url).toContain('fqt=0'); // 不复权：与库内 daily_quotes 同口径（口径红线，勿改回 fqt=1）
       expect(url).toContain('push2his.eastmoney.com');
     });
   });

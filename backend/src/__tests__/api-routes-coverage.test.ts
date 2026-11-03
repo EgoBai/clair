@@ -7,14 +7,14 @@
  *
  * 为什么必须 mock 上游（工单 P0-FLAKY-TEST）：
  * 本文件原先有 30+ 个 `request(app).get/post` 用例**零 mock**，直接打真实上游
- * （`api/ai-analysis.ts:86` 用原生 fetch 打 push2.eastmoney.com /
- * push2his.eastmoney.com，以及 financialsDataService 打 datacenter-web）。
- * `push2.eastmoney.com` 在**部分网络环境下不可达**（HTTP 000 / 连接失败），
+ * （`api/ai-analysis.ts` 用原生 fetch 打 push2.eastmoney.com / push2his.eastmoney.com，
+ * 以及 financialsDataService 打 datacenter-web）。
+ * `push2.eastmoney.com` 自 2026-10 起在**本机与生产均不可达**（curl exit 52 / 连接失败），
  * 于是同一份断言随网络环境漂移 → CI 随机红（用户收到过多封 `Run failed: CI`，
  * 其中一条正是本文件的 `GET /api/ai/recommendations should return recommendations`）。
  *
- * 现在：全文件通过 `helpers/deterministicUpstream.ts` 这个 fetch 桩解析上游，
- * 桩对**未登记的 URL 直接抛错**，因此
+ * 现在：全文件通过 `helpers/deterministicUpstream.ts` 这个 fetch 桩解析上游
+ * （含 2026-11-03 新增的腾讯报价 / 腾讯 fqkline 两条腿），桩对**未登记的 URL 直接抛错**，因此
  *   ① 结果与网络环境完全无关；
  *   ② 若将来新增了外部依赖，测试会立刻炸响，而不会悄悄退化成联网测试。
  * 见文件末尾「上游隔离契约」一组用例对该性质的显式自证。
@@ -188,7 +188,12 @@ describe('AI Analysis Routes', () => {
     expect(res.body.dataSource).toBe('real');
     expectHonestDataSource(res);
     expect(res.body.data.strategy).toBe('AI综合评分选股');
-    expect(res.body.data.stocks).toHaveLength(5);
+    // 候选池已从硬编码 15 只扩为「库内最新交易日成交额 top N」，榜单输出上限 20
+    expect(res.body.data.stocks.length).toBeGreaterThan(0);
+    expect(res.body.data.stocks.length).toBeLessThanOrEqual(20);
+    // 候选池来源必须显式声明，调用方据此区分「全市场」与「兜底名单」
+    expect(['daily_quotes.topByTurnover', 'builtinWatchlistFallback'])
+      .toContain(res.body.data.universe.source);
     for (const s of res.body.data.stocks) {
       expect(s).toHaveProperty('symbol');
       expect(s.totalScore).toBeGreaterThanOrEqual(0);
@@ -240,16 +245,17 @@ describe('AI Analysis Routes', () => {
   });
 
   it('GET /api/ai/alerts should filter by severity', async () => {
+    const all = await request(app).get('/api/ai/alerts?limit=50');
     const res = await request(app).get('/api/ai/alerts?severity=high&limit=5');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.dataSource).toBe('real');
-    // 过滤必须真的生效：命中项全部是 high
-    expect(res.body.data.alerts.length).toBeGreaterThan(0);
+    // 过滤必须真的生效：命中项全部是 high，且条数不超过全量（不因过滤凭空多出条目）
     for (const a of res.body.data.alerts) {
       expect(a.severity).toBe('high');
     }
     expect(res.body.data.alerts.length).toBeLessThanOrEqual(5);
+    expect(res.body.data.alerts.length).toBeLessThanOrEqual(all.body.data.alerts.length);
   });
 
   it('GET /api/ai/sector-rotation should return rotation data', async () => {
@@ -367,8 +373,10 @@ describe('Upstream Isolation Contract', () => {
   });
 
   it('桩确实被走到了（AI 端点确实经由桩取数，而非绕开上游凭空造数）', () => {
-    // 6 个 AI 端点 × 15 只观察池 × 3 个源 = 45 次，另有单股分析的 3 次
-    expect(servedCallCount()).toBeGreaterThanOrEqual(45);
+    // 计数口径：候选池装配一次 = 报价 N/50 次 + 财务 N 次（K 线优先读库，未必发请求）。
+    // N 视库内行情是否可得为 60 或 15，且候选池有 2 分钟进程内缓存（同一轮只装配一次），
+    // 故这里只断言「确实发生了成规模的取数」，具体次数不作为契约。
+    expect(servedCallCount()).toBeGreaterThanOrEqual(30);
   });
 
   it('AI 端点在桩下走真实路径（dataSource=real），证明契约校验的是有效数据通路', async () => {

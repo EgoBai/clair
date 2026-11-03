@@ -239,20 +239,74 @@ describe('hkConnect /summary — 诚实契约（P0-HK：不可得字段不得为
   });
 });
 
+// ==================== 腾讯行情 fixture（AH 溢价腿已从 push2 换到 qt.gtimg.cn） ====================
+
+/**
+ * 构造一行腾讯报价（字段位与 services/tencentQuoteService.ts 标定一致）。
+ * 88 个字段对齐 A 股真实长度；关键位：1=名称 3=最新价 32=涨跌幅 39=PE 45=总市值(亿) 46=PB 82=币种。
+ */
+function tencentLine(
+  code: string,
+  name: string,
+  price: string,
+  extra: { pe?: string; pb?: string; mcapYi?: string; chg?: string; currency?: string } = {},
+): string {
+  const f = new Array(88).fill('');
+  f[0] = code.startsWith('hk') ? '100' : '1';
+  f[1] = name;
+  f[2] = code.replace(/^(sh|sz|hk)/, '');
+  f[3] = price;
+  f[4] = price;
+  f[6] = '1000';
+  f[30] = '20261103150000';
+  f[32] = extra.chg ?? '1.00';
+  f[37] = '10000';
+  f[39] = extra.pe ?? '10.00';
+  f[45] = extra.mcapYi ?? '1000.00';
+  f[46] = extra.pb ?? '1.00';
+  f[82] = extra.currency ?? 'CNY';
+  return `v_${code}="${f.join('~')}";`;
+}
+
+/** 真实汇率 fixture（腾讯 whHKDCNY，2026-11-03） */
+const TENCENT_FX_LINE =
+  'v_whHKDCNY="310~港元人民币~HKDCNY~0.8499~0~20261103233206~0.8470~0.8470~0.8507~0.8469~0.8499~0.8505~0.0029~0.34~0.05~-0.07~-0.53~-1.31~-5.29~0.9171~0.8465~2026-11-03";';
+
+/** 把文本响应包装成 tencentQuoteService 需要的形态（GBK 字节 + json） */
+function textResponse(body: string) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => JSON.parse(body),
+    text: async () => body,
+    arrayBuffer: async () => {
+      const buf = Buffer.from(body, 'latin1');
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    },
+  } as unknown as Response;
+}
+
+/** 按请求 URL 里的代码列表拼出腾讯响应（含汇率行） */
+function tencentQuoteFetcher(lines: Record<string, string>) {
+  return vi.fn(async (url: string) => {
+    if (url.includes('whHKDCNY')) return textResponse(TENCENT_FX_LINE);
+    const m = url.match(/\/q=([^&]+)/);
+    const codes = (m?.[1] ?? '').split(',').filter(Boolean);
+    const body = codes
+      .map((c) => lines[c])
+      .filter((l): l is string => Boolean(l))
+      .join('\n');
+    return textResponse(body ? `${body}\n` : 'v_pv_none_match="1";');
+  });
+}
+
 describe('hkConnect /ah-premium — 价格缺失不得用 0 顶替', () => {
   it('A/H 任一侧报价缺失时跳过该行，而不是用 0 参与溢价计算', async () => {
-    const fetchSpy = vi.fn(async (url: string) => {
-      // A 股正常返回，H 股返回空 diff（模拟 H 股报价拿不到）
-      if (url.includes('128.')) return jsonResponse({ data: { diff: [] } });
-      return jsonResponse({
-        data: {
-          diff: [
-            { f12: '601398', f14: '工商银行', f2: 700, f3: 1.1, f4: 0.07 },
-          ],
-        },
-      });
-    });
-    vi.stubGlobal('fetch', fetchSpy as any);
+    // A 股正常返回，H 股缺行（模拟 H 股报价拿不到）
+    vi.stubGlobal(
+      'fetch',
+      tencentQuoteFetcher({ sh601398: tencentLine('sh601398', '工商银行', '7.00') }) as any,
+    );
 
     const res = await request(app).get('/api/hk-connect/ah-premium');
     const p = res.body.data;
@@ -265,42 +319,67 @@ describe('hkConnect /ah-premium — 价格缺失不得用 0 顶替', () => {
   });
 
   it('双边价格齐全时给出真实溢价，且价格不为 0', async () => {
-    const fetchSpy = vi.fn(async (url: string) => {
-      if (url.includes('128.')) {
-        return jsonResponse({ data: { diff: [{ f12: '01398', f14: '工商银行', f2: 7500 }] } });
-      }
-      return jsonResponse({ data: { diff: [{ f12: '601398', f14: '工商银行', f2: 700 }] } });
-    });
-    vi.stubGlobal('fetch', fetchSpy as any);
+    vi.stubGlobal(
+      'fetch',
+      tencentQuoteFetcher({
+        sh601398: tencentLine('sh601398', '工商银行', '7.00'),
+        hk01398: tencentLine('hk01398', '工商银行', '7.500', { currency: 'HKD' }),
+      }) as any,
+    );
 
     const res = await request(app).get('/api/hk-connect/ah-premium');
     const p = res.body.data;
 
     expect(p.dataSource).toBe('real');
-    expect(p.count).toBe(1);
-    const row = p.data[0];
+    // 汇率必须是真实行情值，且不得再是历史常量 0.92
+    expect(p.exchangeRate).toBeCloseTo(0.8499, 4);
+    expect(p.exchangeRate).not.toBe(0.92);
+    expect(p.count).toBeGreaterThanOrEqual(1);
+    const row = p.data.find((r: any) => r.codeA === '601398');
+    expect(row).toBeTruthy();
     expect(row.priceA).toBeCloseTo(7, 2);
     expect(row.priceH).toBeCloseTo(7.5, 2);
     expect(row.priceA).not.toBe(0);
     expect(row.priceH).not.toBe(0);
-    // premium = (7 - 7.5*0.92) / (7.5*0.92) * 100
-    expect(row.premium).toBeCloseTo(1.4493, 2);
+    // premium = (7 - 7.5*0.8499) / (7.5*0.8499) * 100
+    expect(row.premium).toBeCloseTo(((7 - 7.5 * 0.8499) / (7.5 * 0.8499)) * 100, 2);
   });
 
-  it('上游报价字段缺失（非数字）时整行跳过，不产生 0 价行', async () => {
-    const fetchSpy = vi.fn(async (url: string) => {
-      // f2 为 '-'（东财停牌/无价的典型返回）
-      if (url.includes('128.')) {
-        return jsonResponse({ data: { diff: [{ f12: '01398', f14: '工商银行', f2: '-' }] } });
-      }
-      return jsonResponse({ data: { diff: [{ f12: '601398', f14: '工商银行', f2: 700 }] } });
-    });
-    vi.stubGlobal('fetch', fetchSpy as any);
+  it('上游报价字段缺失（空价）时整行跳过，不产生 0 价行', async () => {
+    vi.stubGlobal(
+      'fetch',
+      tencentQuoteFetcher({
+        sh601398: tencentLine('sh601398', '工商银行', '7.00'),
+        // 港股价格为空的典型返回（停牌/无价）
+        hk01398: tencentLine('hk01398', '工商银行', '', { currency: 'HKD' }),
+      }) as any,
+    );
 
     const res = await request(app).get('/api/hk-connect/ah-premium');
     const p = res.body.data;
 
     expect(p.data).toEqual([]);
     expect(p.count).toBe(0);
+    expect(p.dataSource).toBe('unavailable');
+  });
+
+  it('汇率源不可达 → exchangeRate 必须为 null（不得回落 0.92 常量）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('whHKDCNY')) throw new Error('fx down');
+        return textResponse(
+          `${tencentLine('sh601398', '工商银行', '7.00')}\n${tencentLine('hk01398', '工商银行', '7.500', { currency: 'HKD' })}\n`,
+        );
+      }) as any,
+    );
+
+    const res = await request(app).get('/api/hk-connect/ah-premium');
+    const p = res.body.data;
+
+    expect(p.dataSource).toBe('unavailable');
+    expect(p.exchangeRate).toBeNull();
+    expect(p.exchangeRate).not.toBe(0.92);
+    expect(typeof p.unavailableReason).toBe('string');
   });
 });

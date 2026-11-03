@@ -1,23 +1,34 @@
 /**
  * 港股通 + A-H 溢价数据 API（真实源版）
- * - A-H 溢价：东方财富 push2 实时行情（免 key），分别取 A 股与 H 股实时价，
- *   按 published 参考汇率 HKD→CNY 计算溢价率。A/H 价格为真实行情，溢价率由真实价派生。
+ * - A-H 溢价：腾讯行情 qt.gtimg.cn 同时取 A 股与 H 股实时价（免 key），
+ *   按**实时**港币兑人民币汇率（腾讯外汇 whHKDCNY）计算溢价率。
+ *   A/H 价格与汇率均为真实行情，溢价率由真实值派生。
  * - 今日沪深港通：东方财富 push2 kamt 实时额度/净买数据（免 key）。
  * - A+H 标的目录（代码/名称/行业）为公开事实参考目录，非模拟数据。
- * - 遵守「诚实数据」红线：行情/额度源不可达 → 返回 dataSource:'unavailable'，绝不回填演示/伪造。
+ * - 遵守「诚实数据」红线：行情/汇率源不可达 → exchangeRate 一律 null + unavailableReason，
+ *   绝不回填演示/伪造数据，也绝不用常数冒充汇率。
  *
- * 价格缩放经验值（已对 6 只样本交叉校验涨跌幅一致）：
- *   A 股 f2 / 100（沪深价格量级），H 股 f2 / 1000（港股价格量级）。
- * 汇率采用 published 参考值 0.92（港币兑人民币），作为透明标注的参考常数。
+ * ★ 为什么换掉 push2（2026-11-03 实测）：`push2.eastmoney.com` 在本机与生产均不可达
+ *   （curl exit 52 / fetch failed），原 AH 腿走 push2 ulist 因而长期 100% 失败。
+ *   `qt.gtimg.cn` 稳定 200 且一次请求即可同时带 A 股与 H 股代码。
+ *
+ * ★★ 已修正的诚实红线违规：原实现硬编码 `HKD_TO_CNY = 0.92` 并**在失败态也返回 0.92**。
+ *   2026-11-03 三源交叉实测真实汇率为 0.8499（腾讯 whHKDCNY 0.8499 /
+ *   新浪 hq.sinajs.cn 0.8499 / open.er-api.com 0.849562），
+ *   0.92 会让每只标的溢价率系统性偏低约 8 个百分点 —— 属于「用常量冒充真实汇率」。
+ *   现改为：汇率取不到 → exchangeRate:null + unavailableReason，不再有任何常数兜底。
  */
 
 import { Router, Request, Response } from 'express';
 import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import {
+  fetchTencentQuotes,
+  fetchHkdCnyRate,
+  toTencentCode,
+  toTencentHkCode,
+} from '../services/tencentQuoteService';
 
 const router = Router();
-
-/** HKD → CNY 参考汇率（公开事实参考常数，透明标注） */
-const HKD_TO_CNY = 0.92;
 
 const FETCH_TIMEOUT_MS = 8000;
 
@@ -54,7 +65,7 @@ export interface AhPremiumRow {
   name: string;
   priceA: number; // A 股实时价(RMB)
   priceH: number; // H 股实时价(HKD)
-  exchangeRate: number; // HKD→CNY
+  exchangeRate: number; // HKD→CNY（真实行情值，非常数）
   industry: string;
   premium: number; // AH 溢价率 % = (A价 - H价*汇率)/(H价*汇率)*100
 }
@@ -75,45 +86,66 @@ async function fetchJson(url: string): Promise<any> {
   }
 }
 
-/** 批量抓取实时报价（东方财富 push2 ulist）。返回 code(f12) → diff 映射 */
-async function fetchQuotes(secids: string): Promise<Record<string, any>> {
-  const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fields=f12,f14,f2,f3,f4&secids=${secids}&pz=${Math.max(secids.split(',').length, 1)}`;
-  const json = await fetchJson(url);
-  const diff: any[] = json?.data?.diff ?? [];
-  const map: Record<string, any> = {};
-  for (const d of diff) map[String(d.f12)] = d;
-  return map;
+/** AH 溢价构建结果：行情与汇率都取到才算成功；任一缺失则 rows 为空并给出原因 */
+interface AhPremiumBuild {
+  rows: AhPremiumRow[];
+  exchangeRate: number | null;
+  exchangeRateAsOf: string | null;
+  exchangeRateSource: string | null;
+  /** 非空表示该腿不可用（rows 必为空） */
+  unavailableReason: string | null;
 }
 
 /**
- * 取 A 股实时价（f2 / 100）。**缺失一律返回 null**，绝不返回 0 ——
- * 0 是一个合法的价格量级（如 0.01 元极低价股），用 0 顶替缺失会让「拿不到」与「真实低价」不可区分。
+ * 构建 A-H 溢价排行（腾讯报价 + 腾讯实时汇率）。
+ *
+ * 诚实约束：
+ *  - 汇率取不到 → 直接整腿置空（不返回任何溢价率），因为溢价率对汇率高度敏感，
+ *    用任何"参考值"顶替都会产出与真实值系统性偏离的数字；
+ *  - 单只标的任一腿缺价 → 跳过该行，不用 0 或昨收顶替。
  */
-function aSharePrice(d: any): number | null {
-  const n = numOrNull(d?.f2);
-  return n === null ? null : n / 100;
-}
+async function buildAhPremium(): Promise<AhPremiumBuild> {
+  const aSymbols = AH_CATALOG.map((c) => toTencentCode(`${c.codeA}.${c.marketA === '1' ? 'SH' : 'SZ'}`));
+  const hkSymbols = AH_CATALOG.map((c) => toTencentHkCode(c.codeH));
+  const codes = [...aSymbols, ...hkSymbols].filter((c): c is string => Boolean(c));
 
-/** 取 H 股实时价（f2 / 1000）。缺失一律 null，理由同 {@link aSharePrice} */
-function hSharePrice(d: any): number | null {
-  const n = numOrNull(d?.f2);
-  return n === null ? null : n / 1000;
-}
-
-async function buildAhPremium(): Promise<AhPremiumRow[]> {
-  const aSecids = AH_CATALOG.map((c) => `${c.marketA}.${c.codeA}`).join(',');
-  const hSecids = AH_CATALOG.map((c) => `128.${c.codeH}`).join(',');
-  const [aMap, hMap] = await Promise.all([
-    fetchQuotes(aSecids),
-    fetchQuotes(hSecids),
+  const [rate, quotes] = await Promise.all([
+    fetchHkdCnyRate(),
+    fetchTencentQuotes(codes),
   ]);
+
+  if (!rate) {
+    return {
+      rows: [],
+      exchangeRate: null,
+      exchangeRateAsOf: null,
+      exchangeRateSource: null,
+      unavailableReason:
+        '港币兑人民币实时汇率源（腾讯 qt.gtimg.cn whHKDCNY）不可用；' +
+        '溢价率对汇率高度敏感，故不提供任何溢价数值，也不用常数顶替',
+    };
+  }
+  if (quotes.size === 0) {
+    return {
+      rows: [],
+      exchangeRate: rate.rate,
+      exchangeRateAsOf: rate.asOf,
+      exchangeRateSource: rate.source,
+      unavailableReason: '腾讯 A/H 实时报价源不可用，未取到任何标的报价',
+    };
+  }
+
   const rows: AhPremiumRow[] = [];
   for (const c of AH_CATALOG) {
-    const pa = aSharePrice(aMap[c.codeA]);
-    const ph = hSharePrice(hMap[c.codeH]);
-    // 任一侧价格缺失（null）或非正 → 跳过该行，不编造、不用 0 顶替
+    const aCode = toTencentCode(`${c.codeA}.${c.marketA === '1' ? 'SH' : 'SZ'}`);
+    const hCode = toTencentHkCode(c.codeH);
+    if (!aCode || !hCode) continue;
+    const pa = quotes.get(aCode)?.price ?? null;
+    const ph = quotes.get(hCode)?.price ?? null;
+    // 任一侧价格缺失或非正 → 跳过该行，不编造、不用 0 / 昨收顶替
     if (pa === null || ph === null || pa <= 0 || ph <= 0) continue;
-    const phCny = ph * HKD_TO_CNY;
+    const phCny = ph * rate.rate;
+    if (!(phCny > 0)) continue;
     const premium = +(((pa - phCny) / phCny) * 100).toFixed(2);
     rows.push({
       codeA: c.codeA,
@@ -121,49 +153,67 @@ async function buildAhPremium(): Promise<AhPremiumRow[]> {
       name: c.name,
       priceA: +pa.toFixed(2),
       priceH: +ph.toFixed(2),
-      exchangeRate: HKD_TO_CNY,
+      exchangeRate: rate.rate,
       industry: c.industry,
       premium,
     });
   }
-  return rows.sort((a, b) => b.premium - a.premium);
+
+  if (rows.length === 0) {
+    return {
+      rows: [],
+      exchangeRate: rate.rate,
+      exchangeRateAsOf: rate.asOf,
+      exchangeRateSource: rate.source,
+      unavailableReason: '腾讯报价源已连通但目标标的均无有效 A/H 双报价，未生成任何溢价行',
+    };
+  }
+
+  return {
+    rows: rows.sort((a, b) => b.premium - a.premium),
+    exchangeRate: rate.rate,
+    exchangeRateAsOf: rate.asOf,
+    exchangeRateSource: rate.source,
+    unavailableReason: null,
+  };
 }
 
 /**
  * A-H 溢价排行（真实源）
  * GET /api/hk-connect/ah-premium
+ *
+ * 失败态契约：exchangeRate **必须是 null**，并给出 unavailableReason。
+ * 绝不再出现「count:0 + exchangeRate:0.92」这种「空数据配假汇率」的形态。
  */
 router.get(
   '/ah-premium',
   asyncHandler(async (_req: Request, res: Response) => {
+    let built: AhPremiumBuild;
     try {
-      const rows = await buildAhPremium();
-      if (rows.length === 0) {
-        // 真实源完全不可达 → 诚实空态，不回填演示
-        return sendSuccess(res, {
-          data: [],
-          count: 0,
-          dataSource: 'unavailable',
-          exchangeRate: HKD_TO_CNY,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      sendSuccess(res, {
-        data: rows,
-        count: rows.length,
-        dataSource: 'real',
-        exchangeRate: HKD_TO_CNY,
-        updatedAt: new Date().toISOString(),
-      });
+      built = await buildAhPremium();
     } catch (e) {
-      sendSuccess(res, {
-        data: [],
-        count: 0,
-        dataSource: 'unavailable',
-        exchangeRate: HKD_TO_CNY,
-        error: e instanceof Error ? e.message : 'unknown',
-      });
+      built = {
+        rows: [],
+        exchangeRate: null,
+        exchangeRateAsOf: null,
+        exchangeRateSource: null,
+        unavailableReason: `A-H 溢价真实源不可用：${e instanceof Error ? e.message : 'unknown'}`,
+      };
     }
+
+    const ok = built.rows.length > 0 && built.exchangeRate !== null;
+    sendSuccess(res, {
+      data: built.rows,
+      count: built.rows.length,
+      dataSource: ok ? 'real' : 'unavailable',
+      // 汇率：只有整条腿真的可用（有真实溢价行）时才给数值，其余一律 null。
+      // 「拿不到」与「拿到了但没标的」都不该让调用方读到 0.92 或任何常数。
+      exchangeRate: ok ? built.exchangeRate : null,
+      exchangeRateAsOf: ok ? built.exchangeRateAsOf : null,
+      exchangeRateSource: ok ? built.exchangeRateSource : null,
+      ...(built.unavailableReason ? { unavailableReason: built.unavailableReason } : {}),
+      updatedAt: new Date().toISOString(),
+    });
   }),
 );
 
