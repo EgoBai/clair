@@ -85,3 +85,22 @@ frontend/vite.config.bt-temp.ts
 # 同一目录下其他脚本（stale-px-*.mjs / probe-*.ts / backfill-missing-kline.ts 等）
 # 的产物默认都落在 /tmp/，只有本脚本默认落在仓库内 —— 故只针对本脚本的模式收口，不扩大化。
 scripts/data/.backfill-kline-history.*
+
+# ⚠️ scripts/data/ 下「点开头 + .json」一律视为一次性运行快照，不入库（2026-11-03 补）
+# 上一节只点了 backfill-kline-history 一个脚本，于是同一个坑换脚本立刻复发：
+#   scripts/data/.backfill-kline-pilot.ckpt.json
+#   scripts/data/.backfill-kline-pilot.report.json
+#   scripts/data/.backfill-kline-pilot.report.verify.json
+#   scripts/data/.pilot-full.report.json          ← 连脚本名都不在 .backfill-* 前缀里
+# 逐脚本点名是**打地鼠**（每个新 pilot 脚本都要再补一条），而共同特征其实很稳定：
+# 它们都是「点开头的隐藏文件 + .json」，是人眼看不见、`ls` 默认不显示的运行残留。
+# 故收敛为按形态匹配，而不是按脚本名匹配。
+#
+# 为什么**不是** `scripts/data/`（整目录忽略）：
+# 该目录还放着必须入库的清单与脚本本身 —— ddl-daily-quotes-hist.sql、
+# backfill-kline-pilot.cjs、scrub-smeared-daily-quotes.ts、protected-dates.ts 等，
+# 都是可复现输入/建表 DDL，忽略整目录等于把基线删掉。
+# 边界的判据：**点开头的是产出，无点前缀的是源码**。
+# 生效前提已核：`git ls-files scripts/data/ | rg '/\.'` 为空 —— 该目录当前没有任何
+# 点开头文件被跟踪，本规则不会把已入库文件变成「已跟踪但被忽略」的僵尸。
+scripts/data/.*.json
