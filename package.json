@@ -12,6 +12,7 @@
     "build:backend": "cd backend && npm run build",
     "start": "cd backend && npm start",
     "test": "npm run test:frontend && npm run test:backend",
+    "e2e": "cd frontend && npm run e2e",
     "test:frontend": "cd frontend && npm test",
     "test:backend": "cd backend && npm test",
     "lint": "npm run lint:frontend && npm run lint:backend",
