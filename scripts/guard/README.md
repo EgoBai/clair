@@ -139,3 +139,33 @@ npm run guard:honesty                                   # 等价于无参调用
 | 关系 | —— | **互补，不替代**；两者应并行接入 CI |
 
 > 注：仓库根 `scripts/ui-quality-scan.ts` 为**死脚本**（扫描不存在的 `<repo>/src`，且未接入任何 npm script 或 CI），本门禁**未复用、未修改、未删除**它。
+
+## 7. 红绿对照工具 `redgreen.mjs`（E3，2026-11-04 新增）
+
+**解决的问题**：新增的防复发断言若"生来就是绿的"，无法证明它真的挂着被修的缺陷（影子断言）。E3 要求每条断言提交两次运行证据：投毒后必红、还原后必绿。
+
+**用法**：
+
+```bash
+# 从仓库根执行
+node scripts/guard/redgreen.mjs \
+  --spec frontend/src/__tests__/noRootAbsoluteAnchor.test.ts \
+  --poison frontend/src/pages/LockupCalendarPage.tsx:383 \
+  --to '<a href={`/stocks/${record.symbol}`} style={{ fontWeight: 600 }}>{record.name}</a>'
+```
+
+- `--spec`：测试文件（frontend/ 或 backend/ 下，脚本自动选对工作目录跑 `npx vitest run`）。
+- `--poison <file:line>`：投毒位置；脚本先打印该行当前内容并校验文件 git 干净。
+- `--to "<替换后的整行>"`：投毒形态。
+- `--json`：额外输出结构化结果。
+
+**与设计稿的差异（有意，需留档）**：设计稿写的是 `--poison <file:line>` 即可，但不同断言需要不同形态的投毒，工具无法凭空推断，静默造一个通用变异只会产生假红/假绿。故实现增加必填 `--to`，由操作者显式给出"缺陷复现形态"；`file:line` 仍负责定位与前置校验。
+
+**纪律**：
+
+- 内部**不传** `--retry`：红就是红，不用重试掩盖。
+- 目标文件必须 git 干净；运行前后各取一次 `git status --short -- <file>`，非空即 exit 2，不继续。
+- 还原用 `try/finally` + 原始字节写回；即使投毒运行抛错也会还原。
+- 退出码：0=PASS（poisoned=FAIL, restored=PASS）；1=断言无效（投毒后仍绿）或还原后仍红；2=参数/环境/工作树错误。
+
+**实测（2026-11-04）**：上面命令输出 `poisoned=FAIL restored=PASS`，投毒跑 1.2s、还原跑 0.7s，工作树最终干净。
