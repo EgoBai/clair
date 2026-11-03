@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **764（49.8%）** |
-| 真实导入 | 769 |
-| 影子测试代码行 | **203,206 行** |
-| 真实测试代码行 | 158,475 行 |
+| 影子测试 | **760（49.6%）** |
+| 真实导入 | 773 |
+| 影子测试代码行 | **202,340 行** |
+| 真实测试代码行 | 159,666 行 |
 
-按行数算，56.2% 的测试代码在断言副本而不是产品代码。
+按行数算，55.9% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 395/640 | 61.7% |
-| frontend/src/__tests__（扁平） | 369/868 | 42.5% |
+| backend/src/__tests__（扁平） | 393/640 | 61.4% |
+| frontend/src/__tests__（扁平） | 367/868 | 42.3% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -241,11 +241,19 @@
 - **验证**：我独立复验 4 文件 124 passed（41+27+32+24）；无 Math.random / Date.now / 无参 new Date / .skip/.only。
 - **效果**：影子 768→764（49.8%），shadowLoc 204,347→203,206，realLoc 157,321→158,475；frontend 373→369；候选分布 2 个 41、1 个 248、零重叠 475。
 
+## 六（续）、批次 27（2026-11-04 07:16）
+
+- **批次 27a**（2 文件，frontend）：`tableInteractionEngine.test.ts`（190→204，18→20；bloombergExportEngine:584/607 filterData/sortData、dataTable:76/85/124 DataTableProcessor）、`componentRendering.test.ts`（259→275，29→31；formatters:60/99/148/174/219、dataTransformUtils:74/120/136 transformStock/sortByField/filterByChangeRange、SearchHighlight.tsx:20 渲染）。旧断言错：formatChangePercent(0) '0.00%'→'+0.00%'、getChangeClass 'rise/fall/flat'→getChangeColor 'positive/negative/neutral'、formatLargeNumber 不再万亿缩写（2.4e12→'2,400,000,000,000'）、sortData 调用形态 (data,key,order)、表格唯一值生产升序、SearchHighlight 用真实组件渲染断言 <mark>。
+- **批次 27b**（2 文件，backend）：`statisticalArbitrage.test.ts`（202→306，20→21；correlationMatrix:78、pairsTradingEngine:48/110/249）、`riskManagement.test.ts`（211→402，21→24；riskManagementEngine:64/127/261、globalCorrelationEngine:334、drawdownProtectionEngine:37/113、positionSizingEngine:37/81、portfolioRiskBudgetEngine:41/77/106、riskScenarioEngine:61、monteCarloEngine:70 randomSeed=42、trendFollowingEngine:298）。旧断言错：历史法 VaR 乘市值 1200/2000、CVaR 尾均值 1600、最大回撤 peak/trough 为下标、零回撤 Calmar null、fKelly 不夹取 -0.4、ATR 止损以 currentPrice、止盈 115、压力测试权重口径 -0.25、风险预算协方差分解 30.77/69.23、ADF 统计量 ρ*sqrt(n)。
+- **未迁移**：表格 paginateData/toggleSort/getColumnWidth/generateColumnDefs、组件 getRankBadge/filterStocks/paginate；27b 无未迁移（calculateVaR/calculateDrawdown 经 calculatePortfolioRisk 公共出口绑定）。均文件内注明。
+- **验证**：我独立复验 27a frontend 51 passed、27b backend 45 passed；无 Math.random / Date.now / 无参 new Date / .skip/.only。
+- **效果**：影子 764→760（49.6%），shadowLoc 203,206→202,340，realLoc 158,475→159,666；backend 393/640、frontend 367/868；候选分布 2 个 37、1 个 248、零重叠 475。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 764 / total 1533 / shadowLoc 203,206（批次 26 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 760 / total 1533 / shadowLoc 202,340（批次 27 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -254,12 +262,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：764 个影子测试中 41 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 26 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：760 个影子测试中 37 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 27 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 26 已消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep；批次 23 消化 responsiveLogic/optionsGreeksAdvanced 等 8 个。
-- 下一批候选（2 符号重叠 41 个里价值较高的）：`frontend/src/__tests__/tableInteractionEngine.test.ts`（191，bloomberg/export 的 filterData/sortData）、`backend/src/__tests__/statisticalArbitrage.test.ts`（203，pairsTradingEngine 的 generatePairsSignals/testCointegration）、`backend/src/__tests__/riskManagement.test.ts`（212，VaR/CVaR/calmar）、`backend/src/__tests__/optionsPricing.test.ts`（215，blackScholes/impliedVolatility）、`frontend/src/__tests__/dataVizLogic.test.ts`（236，technical/trendFollowing 的 MA/EMA）、`frontend/src/__tests__/formInputValidationDeep.test.ts`（254）、`frontend/src/__tests__/componentRendering.test.ts`（260）、`backend/src/__tests__/microstructure.test.ts`（265）、`backend/src/__tests__/backtestCombinations.test.ts`（267）、`frontend/src/__tests__/formValidationEnhanced.test.ts`（357）、`backend/src/__tests__/quantitativeStrategies.test.ts`（365）、`backend/src/__tests__/technicalPatterns.test.ts`（314）。
+- 批次 27 已消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep；批次 23 消化 responsiveLogic/optionsGreeksAdvanced 等 8 个。
+- 下一批候选（2 符号重叠 37 个里价值较高的）：`backend/src/__tests__/optionsPricing.test.ts`（215，blackScholes/impliedVolatility）、`frontend/src/__tests__/dataVizLogic.test.ts`（236，technical/trendFollowing 的 MA/EMA）、`frontend/src/__tests__/formInputValidationDeep.test.ts`（254）、`backend/src/__tests__/microstructure.test.ts`（265）、`backend/src/__tests__/backtestCombinations.test.ts`（267）、`frontend/src/__tests__/formValidationEnhanced.test.ts`（357）、`backend/src/__tests__/quantitativeStrategies.test.ts`（365）、`backend/src/__tests__/technicalPatterns.test.ts`（314）。
 - 体量大需逐段确认：`frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
 - 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR、formatters formatVolume/formatTurnover 无 null 守卫、`StockDetailPage.tsx:141-153` 自带格式化副本、validateStockCode 只校验 6 位数字。
