@@ -8,7 +8,8 @@
  *
  * 覆盖两个现 Reader 取数形态：
  *   A) /api/stocks/:symbol/quotes → Database.getDailyQuotes：按区间取 daily_quotes
- *   B) /api/stocks/:symbol/kline   → 直接取 daily_quotes，ORDER BY trade_date ASC LIMIT 250
+ *   B) /api/stocks/:symbol/kline   → 直接取 daily_quotes，ORDER BY trade_date DESC LIMIT 250
+ *      （2026-11-04 修复后形态：DESC 取最近 250 根再 reverse 回升序，见 backend/src/api/stock.ts）
  *
  * 样本：20 只 = 11 只已知 qfq 残污标的 + 6 只 pilot 干净标的 + 3 只本轮刚回填标的
  *
@@ -164,10 +165,10 @@ async function main() {
     const rA = await q(`SELECT ${READER_A_COLS} FROM daily_quotes WHERE stock_id = $1 AND trade_date BETWEEN $2 AND $3`, [st.id, RANGE.start, RANGE.end]);
     const vA = await q(`SELECT ${READER_A_COLS}, _src, _qfq_suspect FROM v_daily_quotes_all WHERE stock_id = $1 AND trade_date BETWEEN $2 AND $3`, [st.id, RANGE.start, RANGE.end]);
     const a = cmpRows(symbol, rA, vA, totals.A, true);
-    // B) /kline 形态（ASC LIMIT 250）
+    // B) /kline 形态（2026-11-04 修复后：DESC 取最近 250 根 → reverse 回升序）
     const bcols = "stock_id, to_char(trade_date,'YYYY-MM-DD') AS trade_date, open_price, close_price, high_price, low_price, volume, turnover";
-    const rB = await q(`SELECT ${bcols} FROM daily_quotes WHERE stock_id = $1 ORDER BY trade_date ASC LIMIT ${KLINE_LIMIT}`, [st.id]);
-    const vB = await q(`SELECT ${bcols}, _src, _qfq_suspect FROM v_daily_quotes_all WHERE stock_id = $1 ORDER BY trade_date ASC LIMIT ${KLINE_LIMIT}`, [st.id]);
+    const rB = (await q(`SELECT ${bcols} FROM daily_quotes WHERE stock_id = $1 ORDER BY trade_date DESC LIMIT ${KLINE_LIMIT}`, [st.id])).reverse();
+    const vB = (await q(`SELECT ${bcols}, _src, _qfq_suspect FROM v_daily_quotes_all WHERE stock_id = $1 ORDER BY trade_date DESC LIMIT ${KLINE_LIMIT}`, [st.id])).reverse();
     const b = cmpRows(symbol, rB, vB, totals.B, false);
     perSymbol.push({
       symbol, isQfq: QFQ.includes(symbol), A: a, B: b,
@@ -186,7 +187,7 @@ async function main() {
   console.log('样本:', SAMPLE.length, '只 区间:', RANGE.start, '~', RANGE.end, ' 分界:', BOUNDARY);
   console.log('A) getDailyQuotes 形态: readerOnly=' + totals.A.readerOnly + ' viewOnly(新增历史)=' + totals.A.viewOnly + ' 共同=' + totals.A.common);
   console.log('   差异分类:', JSON.stringify(totals.A.byCode));
-  console.log('B) kline ASC LIMIT ' + KLINE_LIMIT + ': readerOnly=' + totals.B.readerOnly + ' viewOnly=' + totals.B.viewOnly + ' 共同=' + totals.B.common + ' 差异:', JSON.stringify(totals.B.byCode));
+  console.log('B) kline DESC LIMIT ' + KLINE_LIMIT + '（reverse 后）: readerOnly=' + totals.B.readerOnly + ' viewOnly=' + totals.B.viewOnly + ' 共同=' + totals.B.common + ' 差异:', JSON.stringify(totals.B.byCode));
   for (const s of perSymbol) {
     if (s.error) { console.log(' -', s.symbol, s.error); continue; }
     const u = Object.keys(s.A.byCode).filter((k) => k.startsWith('UNEXPLAINED'));
