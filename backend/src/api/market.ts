@@ -31,17 +31,30 @@ const router = Router();
  * 为什么顶层与 data 内**由同一个入参**写出：IP-20 曾踩过「两级 dataSource 互相矛盾」的坑
  * （顶层 real / 行级 unavailable）。这里让两处都从唯一的 dataSource 变量派生，
  * 结构上就不可能漂移。
+ *
+ * 【三态语义（#107-C7）】取值沿用项目既有枚举，不自创：
+ *   - 'real'        本端点供的数全部是真实值
+ *   - 'partial'     真拿到一部分，另一部分缺失（如：三大指数真实、涨跌分布 null）
+ *   - 'unavailable' 一条真实数据都没拿到
+ * 'partial' 必须配 unavailableReason 说明**缺的是哪一段**，否则下游只知道「部分缺」却无法处置。
+ * 字段名沿用 hkConnect.ts / margin.ts 既有约定 unavailableReason（不新造 availableReason）。
  */
 function sendHonest(
   res: Response,
-  dataSource: 'real' | 'unavailable',
+  dataSource: 'real' | 'partial' | 'unavailable',
   data: Record<string, unknown>,
+  unavailableReason?: string,
 ): void {
+  // 顶层与 data 内同源同值：结构上不可能出现「顶层 partial / 行级 real」这类漂移
+  const honestFields = {
+    dataSource,
+    ...(unavailableReason ? { unavailableReason } : {}),
+  };
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(200).json({
     success: true,
-    dataSource,
-    data: { ...data, dataSource },
+    ...honestFields,
+    data: { ...data, ...honestFields },
     timestamp: new Date().toISOString(),
   });
 }
@@ -53,7 +66,20 @@ router.get(
       const data = await getRealMarketData();
       // RealMarketData 为具体 interface（无索引签名），不能直接赋给 Record<string, unknown>；
       // 展开为普通对象即可，字段与运行期行为完全不变。
-      sendHonest(res, 'real', { ...data });
+      //
+      // 【#107-C7】getRealMarketData() 的契约是「三大指数必返回（失败即抛）+ 涨跌分布可选
+      // （fetchBreadth 失败 → breadth=null）」。旧实现无条件标 'real'，于是 breadth:null 的
+      // 响应仍对外声称「全部真实」——涨跌家数/成交额/涨跌停全不可用却带 real 背书。
+      // 现按实际可用性分档：指数真实 + 广度缺失 = 'partial'，并说明缺的是哪一段。
+      const breadthMissing = data.breadth === null;
+      sendHonest(
+        res,
+        breadthMissing ? 'partial' : 'real',
+        { ...data },
+        breadthMissing
+          ? '涨跌分布数据源不可达（breadth=null）：三大指数为真实值；上涨/下跌/涨停家数与成交额不可用'
+          : undefined,
+      );
     } catch (e) {
       // 诚实降级：指数源失败时如实标注不可达，不编造数据
       sendHonest(res, 'unavailable', {
