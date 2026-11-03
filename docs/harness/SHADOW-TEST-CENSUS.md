@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 4 迁移后更新 05:00（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 5 迁移后更新 05:06（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,10 +16,10 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **855（55.8%）** |
-| 真实导入 | 678 |
-| 影子测试代码行 | **224,605 行** |
-| 真实测试代码行 | 135,715 行 |
+| 影子测试 | **853（55.6%）** |
+| 真实导入 | 680 |
+| 影子测试代码行 | **224,028 行** |
+| 真实测试代码行 | 136,164 行 |
 
 按行数算，63% 的测试代码在断言副本而不是产品代码。
 
@@ -27,7 +27,7 @@
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 430/640 | 67.2% |
+| backend/src/__tests__（扁平） | 429/640 | 67.0% |
 | frontend/src/__tests__（扁平） | 425/868 | 49.0% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
@@ -94,11 +94,21 @@
 - 验证：cd backend && npx vitest run 两个文件 → 35 passed；node scripts/guard/shadow-test-census.mjs --check → 855/1533。
 - 效果：影子 857→855，shadowLoc 225,172→224,605，realLoc 135,282→135,715。
 
+## 六（续）、批次 5（2026-11-04 05:06）
+
+- backend/src/__tests__/derivativesPricing.test.ts：25 用例保留，删自抄 BS/希腊值/IV，改为 import `backend/src/services/impliedVolEngine.ts` 的 `bsmPrice/impliedVol` 与 `backend/src/services/optionsGreeksEngine.ts` 的 `delta/gamma/theta/vega`；接口由 `type:'call'|'put'` 改为生产口径 `isCall:boolean`（旧 API 生产根本不存在，改签名测试不会红）。
+- frontend/src/__tests__/optionsGreeks.test.ts：36 用例保留，改为 import `frontend/src/utils/optionsPricingEngine.ts` 的 `normalCDF/blackScholesPrice/calculateGreeks/calculateImpliedVolatility`；量纲核对：vega/rho 每 1%、theta 每自然日，与旧断言一致。
+- 旧测试错在哪：旧「到期 ITM call delta=1」在生产 `calculateGreeks` 的 `timeToExpiry<=0` 早退分支下返回全零（生产测试 optionsPricingEngine.test.ts:185-189 已固化）；旧二分 IV 无解返回 null，`if (iv !== null)` 守卫让用例可零断言通过，生产恒返回 number，已删守卫直接断言（零价格→0.001、价格 10→0.18797）。
+- 残留未迁移（保留 helper 并注明）：后端 putCallParity/binomialTree（backend 无对应实现），前端 spreadPayoff（生产 priceStrategy 语义不同）。
+- 发现（未改生产）：前端到期 delta 归零是生产已知局限（数学上到期 ITM call 应为 1）；本批按生产口径固化，未来修生产时该断言需反转。
+- 验证：backend 25 passed、frontend 36 passed；census --check 853/1533。
+- 效果：影子 855→853，shadowLoc 224,605→224,028，realLoc 135,715→136,164。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 855 / total 1533 / shadowLoc 224,605（批次 4 后；批次 3 后为 857）。
+- 基线：shadow 853 / total 1533 / shadowLoc 224,028（批次 5 后；批次 4 后为 855）。
 
 ## 八、迁移候选扫描（工具）
 
@@ -107,9 +117,10 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：855 个影子测试中 99 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：853 个影子测试中 97 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
 
 ## 九、下一步
 
-- 批次 5 候选：`priceFormatter.test.ts`（257 行，5 个 format* 符号重叠）对接 `frontend/src/utils/formatters.ts`；`dateTimeUtils.test.ts`（233 行）对接 `backend/src/utils/tradingCalendar.ts`；`sharedTypes.test.ts`（394 行，16 符号重叠 formatters.ts）需先判断前端 utils 与后端测试的边界是否合理。
+- 批次 6 候选：`priceFormatter.test.ts`（257 行）对接 `frontend/src/utils/formatters.ts`（注意格式差异：生产 formatNumber 带千分位、NaN 处理不同）；`dateTimeUtils.test.ts`（233 行）对接 `backend/src/utils/tradingCalendar.ts`；`numberFormatEngine.test.ts`（386 行）对接 formatters 的 formatDuration/formatFileSize/formatNumber/formatPercent。
+- 关注点：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零属生产已知局限，已由测试固化，待产品阶段评估是否修。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。
