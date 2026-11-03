@@ -1,6 +1,52 @@
-import { describe, it, expect } from 'vitest';
+/**
+ * 影子测试迁移（批次 31b）
+ *
+ * 迁移前：本文件只 import vitest，formatNumber / formatDate / escapeCSV 三组实现全部自抄；迁移后：能对上生产导出的
+ * 符号一律 import 真源，生产契约不同的 helper 保留本地并逐条注明「未迁移：生产对应导出契约不同」。
+ * 用例数：29 → 32（原有 describe/it 保留并逐条按生产口径订正，另新增 3 条生产边界用例，只增不减）。
+ *
+ * 已绑定生产实现：
+ * - formatNumber → frontend/src/utils/exportEngine.ts:73（null/undefined→'-' :74；Number 后 NaN→String(value) :75-76；
+ *   其余 num.toLocaleString('zh-CN', { minimumFractionDigits, maximumFractionDigits }) :77-80；无 separator 参数）
+ * - formatDate → frontend/src/utils/exportEngine.ts:112（falsy→'-' :113；Date 原样、其余 new Date(String(value)) :114；
+ *   无效值原样返回 String(value) :115；YYYY/MM/DD/HH/mm/ss 替换链 :117-130）
+ * - escapeCSVValue → frontend/src/utils/exportEngine.ts:136（含 delimiter/双引号/\n/\r 时双引号包裹并把内部引号翻倍 :137-139）
+ * 跨包 import 先例：backend/src/__tests__/dataPipelineEngine.test.ts:55。
+ *
+ * 旧断言错在哪（旧值 → 生产值 + 依据行号）：
+ * - 千分位分隔符：旧 formatNumber(1000000, 2, '.') 得 '1.000.000.00' → 生产 formatNumber 只有两参（exportEngine.ts:73），
+ *   千分位由 toLocaleString('zh-CN') 固定为逗号（:77-80），得 '1,000,000.00'。
+ * - NaN：旧 '0' → 生产 'NaN'（Number(NaN) 为 NaN 后 String(value)，exportEngine.ts:75-76）。
+ * - Infinity：旧 '0' → 生产 '∞'（toLocaleString('zh-CN') 输出，exportEngine.ts:77-80；Node 25.8.0 实测）。
+ * - formatDate 的 number 时间戳：旧实现 new Date(timestamp) 可格式化 → 生产 :114 对非 Date 输入执行 new Date(String(value))，
+ *   数字字符串是无效日期，:115 原样返回 String(value)（如 '1710469800000'）；因此改传 Date 对象 / 带时间的字符串。
+ * - formatDate('')：旧 'NaN-NaN-NaN' → 生产 '-'（exportEngine.ts:113 falsy 守卫）。
+ * - escapeCSV 回车：旧实现不处理 '\r' → 生产 escapeCSVValue 会引号包裹（exportEngine.ts:137），补用例钉住。
+ *
+ * 未迁移（生产对应导出契约不同，保留本地 helper，断言值与旧文件保持一致）：
+ * - arrayToCSV：生产 exportToCSV 返回 ExportResult（含 filename/mimeType/size/rowCount/columnCount，exportEngine.ts:148-190），
+ *   默认 includeTimestamp 追加「# 导出时间」「# 数据行数」（:174-178），列配置是 columns[{ key,label,format }] 而非 fields+headers，
+ *   与本文件「返回纯 CSV 文本 + fields/headers」契约不同。本地保留拼装，值格式化委托已绑定的生产 formatNumber/formatDate/escapeCSVValue；
+ * 注意生产 formatNumber 无 separator 参数（:73），config.numberFormat.thousandSeparator 已不生效。
+ * - arrayToJSON：生产 exportToJSON 返回 ExportResult 且内容包装为 { data, exportTime, rowCount }（exportEngine.ts:195-230），
+ *   列 key 同时作源字段与输出键（:206-208），无法用 headers 做中文重命名，契约不同。
+ * - generateReportSummary：生产 aggregateData 返回扁平的 { 'price_sum': … } 且键名带聚合后缀（exportEngine.ts:381-412，:392-406
+ *   四舍五入两位，count 统计 v !== 0 :400），与本文件 { sum, avg, min, max, count } 结构不同；全仓无同形报告摘要导出。
+ *
+ * 新增用例（29 → 32）：
+ * - formatNumber › null 与 undefined 返回占位符（exportEngine.ts:74）
+ * - formatDate › 空值返回占位符（exportEngine.ts:113）
+ * - escapeCSV › 含回车应该被引号包裹（exportEngine.ts:137）
+ */
 
-// 数据导出/报告生成引擎
+import { describe, it, expect } from 'vitest';
+import {
+  formatNumber,
+  formatDate,
+  escapeCSVValue,
+} from '../../../frontend/src/utils/exportEngine';
+
+// 本地导出配置类型（生产用 ExportOptions/ExportColumn，见 exportEngine.ts:10-27，契约不同故未迁移）。
 interface ExportConfig {
   format: 'csv' | 'json' | 'xlsx';
   fields: string[];
@@ -10,51 +56,14 @@ interface ExportConfig {
   filters?: Record<string, any>;
 }
 
-interface ExportResult {
-  data: string | Buffer;
-  filename: string;
-  mimeType: string;
-  size: number;
-}
-
-function formatNumber(value: number, decimal = 2, separator = ','): string {
-  if (isNaN(value) || !isFinite(value)) return '0';
-  const parts = value.toFixed(decimal).split('.');
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, separator);
-  return parts.join('.');
-}
-
-function formatDate(timestamp: number | string, format = 'YYYY-MM-DD'): string {
-  const d = typeof timestamp === 'number' ? new Date(timestamp) : new Date(timestamp);
-  const yyyy = d.getFullYear();
-  const MM = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const HH = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-
-  return format
-    .replace('YYYY', String(yyyy))
-    .replace('MM', MM)
-    .replace('DD', dd)
-    .replace('HH', HH)
-    .replace('mm', mm)
-    .replace('ss', ss);
-}
-
-function escapeCSV(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
+// 未迁移：生产对应导出契约不同（exportToCSV 返回 ExportResult 并追加时间戳，exportEngine.ts:148-190）。
+// 本地保留 CSV 文本拼装，值格式化委托已绑定的生产 formatNumber / formatDate / escapeCSVValue。
 function arrayToCSV(data: Record<string, any>[], config: ExportConfig): string {
   const lines: string[] = [];
 
   // Header row
   if (config.fields.length > 0) {
-    const headers = config.fields.map(f => escapeCSV(config.headers[f] || f));
+    const headers = config.fields.map(f => escapeCSVValue(config.headers[f] || f));
     lines.push(headers.join(','));
   }
 
@@ -63,9 +72,10 @@ function arrayToCSV(data: Record<string, any>[], config: ExportConfig): string {
     const values = config.fields.map(f => {
       const val = row[f];
       if (val === null || val === undefined) return '';
-      if (typeof val === 'number') return formatNumber(val, config.numberFormat.decimal, config.numberFormat.thousandSeparator);
+      // 生产 formatNumber 无 separator 参数（exportEngine.ts:73），千分位固定为 zh-CN 逗号。
+      if (typeof val === 'number') return formatNumber(val, config.numberFormat.decimal);
       if (typeof val === 'string' && /\d{4}-\d{2}-\d{2}/.test(val)) return formatDate(val, config.dateFormat);
-      return escapeCSV(String(val));
+      return escapeCSVValue(String(val));
     });
     lines.push(values.join(','));
   }
@@ -73,6 +83,7 @@ function arrayToCSV(data: Record<string, any>[], config: ExportConfig): string {
   return lines.join('\n');
 }
 
+// 未迁移：生产 exportToJSON 返回 ExportResult 并包装 { data, exportTime, rowCount }（exportEngine.ts:195-230），契约不同。
 function arrayToJSON(data: Record<string, any>[], config: ExportConfig): string {
   const filtered = data.map(row => {
     const obj: Record<string, any> = {};
@@ -84,6 +95,7 @@ function arrayToJSON(data: Record<string, any>[], config: ExportConfig): string 
   return JSON.stringify(filtered, null, 2);
 }
 
+// 未迁移：生产 aggregateData 返回 { 'price_sum': … } 扁平结构（exportEngine.ts:381-412），无 { sum, avg, min, max, count } 导出。
 function generateReportSummary(data: Record<string, any>[], numericFields: string[]): Record<string, { sum: number; avg: number; min: number; max: number; count: number }> {
   const summary: Record<string, { sum: number; avg: number; min: number; max: number; count: number }> = {};
 
@@ -120,16 +132,16 @@ describe('数据导出/报告生成', () => {
       expect(formatNumber(1234.5678, 4)).toBe('1,234.5678');
     });
 
-    it('应该支持不同的千分位分隔符', () => {
-      expect(formatNumber(1000000, 2, '.')).toBe('1.000.000.00');
+    it('千分位固定为 zh-CN 逗号（生产无 separator 参数）', () => {
+      expect(formatNumber(1000000, 2)).toBe('1,000,000.00');
     });
 
-    it('NaN应该返回0', () => {
-      expect(formatNumber(NaN)).toBe('0');
+    it('NaN 原样返回字符串', () => {
+      expect(formatNumber(NaN)).toBe('NaN');
     });
 
-    it('Infinity应该返回0', () => {
-      expect(formatNumber(Infinity)).toBe('0');
+    it('Infinity 按 zh-CN 数字格式输出', () => {
+      expect(formatNumber(Infinity)).toBe('∞');
     });
 
     it('负数应该正确格式化', () => {
@@ -143,49 +155,64 @@ describe('数据导出/报告生成', () => {
     it('小数应该正确处理', () => {
       expect(formatNumber(0.123, 3)).toBe('0.123');
     });
+
+    it('null 与 undefined 返回占位符', () => {
+      expect(formatNumber(null)).toBe('-');
+      expect(formatNumber(undefined)).toBe('-');
+    });
   });
 
   describe('formatDate', () => {
     it('应该格式化为默认格式', () => {
-      const result = formatDate(new Date('2024-03-15T10:30:00').getTime());
-      expect(result).toMatch(/^2024-03-15$/);
+      const result = formatDate(new Date('2024-03-15T10:30:00'));
+      expect(result).toBe('2024-03-15');
     });
 
     it('应该支持自定义格式', () => {
-      const result = formatDate(new Date('2024-03-15T10:30:45').getTime(), 'YYYY/MM/DD HH:mm:ss');
+      const result = formatDate(new Date('2024-03-15T10:30:45'), 'YYYY/MM/DD HH:mm:ss');
       expect(result).toBe('2024/03/15 10:30:45');
     });
 
     it('应该支持字符串输入', () => {
-      const result = formatDate('2024-06-01', 'MM-DD');
+      // 使用带时间的本地时间字符串，避免 date-only 按 UTC 解析造成跨时区日期偏移。
+      const result = formatDate('2024-06-01T12:00:00', 'MM-DD');
       expect(result).toBe('06-01');
     });
 
     it('应该支持全格式', () => {
-      const result = formatDate(new Date('2024-01-05T08:09:07').getTime(), 'YYYY-MM-DD HH:mm:ss');
+      const result = formatDate(new Date('2024-01-05T08:09:07'), 'YYYY-MM-DD HH:mm:ss');
       expect(result).toBe('2024-01-05 08:09:07');
+    });
+
+    it('空值返回占位符', () => {
+      expect(formatDate('')).toBe('-');
+      expect(formatDate(null)).toBe('-');
     });
   });
 
   describe('escapeCSV', () => {
     it('普通字符串不需要转义', () => {
-      expect(escapeCSV('hello')).toBe('hello');
+      expect(escapeCSVValue('hello')).toBe('hello');
     });
 
     it('含逗号应该被引号包裹', () => {
-      expect(escapeCSV('hello,world')).toBe('"hello,world"');
+      expect(escapeCSVValue('hello,world')).toBe('"hello,world"');
     });
 
     it('含引号应该被双引号转义', () => {
-      expect(escapeCSV('say "hi"')).toBe('"say ""hi"""');
+      expect(escapeCSVValue('say "hi"')).toBe('"say ""hi"""');
     });
 
     it('含换行应该被引号包裹', () => {
-      expect(escapeCSV('line1\nline2')).toBe('"line1\nline2"');
+      expect(escapeCSVValue('line1\nline2')).toBe('"line1\nline2"');
     });
 
     it('空字符串不应该被包裹', () => {
-      expect(escapeCSV('')).toBe('');
+      expect(escapeCSVValue('')).toBe('');
+    });
+
+    it('含回车应该被引号包裹', () => {
+      expect(escapeCSVValue('line1\rline2')).toBe('"line1\rline2"');
     });
   });
 

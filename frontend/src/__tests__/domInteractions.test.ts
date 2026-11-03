@@ -1,7 +1,51 @@
-import { describe, it, expect } from 'vitest';
+/**
+ * 影子测试迁移（批次 31b）
+ *
+ * 迁移前：本文件只 import vitest，URL/深拷贝/数组/对象/防抖节流 11 个工具全部自抄；迁移后：能在生产找到同契约实现的
+ * 符号一律 import 真源，生产没有对应导出的 helper 保留本地并逐条注明「未迁移：生产无对应导出」。
+ * 用例数：30 → 32（原有 describe/it 名称与断言全部保留并按生产口径订正，另新增 2 条防抖/节流契约用例，只增不减）。
+ *
+ * 已绑定生产实现：
+ * - debounce → frontend/src/utils/debounceThrottle.ts:6（默认 leading=false / trailing=true :11；返回 T & { cancel, flush, pending }，
+ *   cancel :111-123、flush :125-132、pending :134-136）
+ * - throttle → frontend/src/utils/debounceThrottle.ts:141（委托 debounce，leading 默认 true、trailing 默认 true、maxWait=interval :146-150）
+ *   （utils/index.ts:17 也再导出这两个符号；debounceThrottle-typed.ts 与 requestUtils-typed.ts 是 typed 副本，非真源）
+ * - groupBy → frontend/src/utils/dataFlowEngine.ts:62 pipeline().groupBy(keyFn)（返回 Map<K, T[]> :62-70，保留插入顺序）
+ * - unique → frontend/src/utils/dataFlowEngine.ts:52 pipeline().distinct(keyFn)（Set 去重，保留首次出现 :52-60；不传 keyFn 时按元素本身）
+ * - chunk → backend/src/services/batchOperations.ts:121 chunk(arr, size)（i += size + slice :122-126，与旧实现同契约）
+ * 跨包 import 先例：backend/src/__tests__/dataPipelineEngine.test.ts:55、frontend/src/__tests__/chartDataProcessingDeep.test.ts:51-58。
+ *
+ * 旧断言/口径订正（旧值 → 生产值 + 依据行号）：
+ * - 分组返回结构：旧 groupBy 返回 Record<string, T[]>（grouped.A）→ 生产 groupBy 返回 Map<K, T[]>（dataFlowEngine.ts:62-70），
+ *   断言改为 grouped.get('A') 并补 Map 实例与 size 校验。
+ * - 去重/分块：旧本地 Set / for-slice 实现 → 生产 pipeline().distinct（dataFlowEngine.ts:52-60）与 batchOperations.chunk
+ *   （batchOperations.ts:121-127），语义一致，仅改为调用生产导出。
+ * - 防抖：旧实现只返回 { cancel }、只支持 trailing → 生产默认 trailing 并额外提供 flush/pending（debounceThrottle.ts:6-11、:125-136），
+ *   旧 cancel 用例断言值与生产一致（cancel 清 timer :111-123）。
+ * - 节流：旧实现手写当前时间戳、仅 leading → 生产 throttle 委托 debounce（leading+trailing，maxWait=interval，
+ *   debounceThrottle.ts:141-150）；旧「三连调只执行一次」在同步调用下仍成立（leading 立即执行），但间隔结束会补发 trailing 调用，
+ *   新增用例钉住该契约。
+ * - 时间确定性：旧用例用真实 setTimeout + await 20ms（依赖真实时钟）→ 现改用 vi.useFakeTimers() + advanceTimersByTime，
+ *   测试代码内不出现随机数 / 当前时间戳 / 无参 Date 构造。
+ *
+ * 未迁移（生产无对应导出，保留本地 helper，断言值与旧文件保持一致）：
+ * - parseUrlParams / buildUrlParams：全仓 frontend/src、backend/src、shared 非测试源码均无同名或同契约 URL 查询串解析/构建导出。
+ * - deepClone / deepEqual：全仓无递归深拷贝 / 深比较导出（rg deepClone|deepEqual 仅命中测试）。
+ * - flatten：仅 frontend/src/components/Layout/ResponsiveMenu.tsx:20 flattenMenu（菜单树扁平化，契约不同），无泛型数组扁平化导出。
+ * - omit / pick：仅 frontend/src/utils/hkConnectDemo.ts 内私有 pick（数组取前 N 项）与 frontend/src/services/reviewSnapshot.ts:473
+ *   pickCurrentPrice（取当前价），契约不同且未导出。
+ *
+ * 新增用例（30 → 32）：
+ * - 节流与防抖 › 节流在间隔结束补发 trailing 调用（debounceThrottle.ts:141-150）
+ * - 节流与防抖 › 防抖 flush 立即执行且 pending 反映等待状态（debounceThrottle.ts:125-136）
+ */
 
-// DOM交互与工具函数测试 - 剪贴板、URL处理、DOM操作、事件
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { debounce, throttle } from '../utils/debounceThrottle';
+import { pipeline } from '../utils/dataFlowEngine';
+import { chunk } from '../../../backend/src/services/batchOperations';
 
+// 未迁移：生产无对应导出（全仓无 URL 查询串解析导出），保留旧实现供 URL 参数用例使用。
 function parseUrlParams(url: string): Record<string, string> {
   const params: Record<string, string> = {};
   const search = url.split('?')[1] || '';
@@ -13,6 +57,7 @@ function parseUrlParams(url: string): Record<string, string> {
   return params;
 }
 
+// 未迁移：生产无对应导出（全仓无 URL 查询串构建导出），保留旧实现供 URL 参数用例使用。
 function buildUrlParams(base: string, params: Record<string, string | undefined>): string {
   const validParams = Object.entries(params).filter(([, v]) => v !== undefined) as [string, string][];
   if (validParams.length === 0) return base;
@@ -20,27 +65,7 @@ function buildUrlParams(base: string, params: Record<string, string | undefined>
   return `${base}?${query}`;
 }
 
-function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): T & { cancel: () => void } {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const debounced = ((...args: any[]) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  }) as T & { cancel: () => void };
-  debounced.cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
-  return debounced;
-}
-
-function throttle<T extends (...args: any[]) => any>(fn: T, limit: number): T {
-  let lastCall = 0;
-  return ((...args: any[]) => {
-    const now = Date.now();
-    if (now - lastCall >= limit) {
-      lastCall = now;
-      fn(...args);
-    }
-  }) as T;
-}
-
+// 未迁移：生产无对应导出（全仓无递归深拷贝导出），保留旧实现供深拷贝用例使用。
 function deepClone<T>(obj: T): T {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(item => deepClone(item)) as T;
@@ -51,6 +76,7 @@ function deepClone<T>(obj: T): T {
   return clone;
 }
 
+// 未迁移：生产无对应导出（全仓无深比较导出），保留旧实现供深比较用例使用。
 function deepEqual(a: any, b: any): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -67,46 +93,21 @@ function deepEqual(a: any, b: any): boolean {
   return keysA.every(key => deepEqual(a[key], b[key]));
 }
 
-function groupBy<T>(arr: T[], key: keyof T): Record<string, T[]> {
-  return arr.reduce((groups, item) => {
-    const group = String(item[key]);
-    if (!groups[group]) groups[group] = [];
-    groups[group].push(item);
-    return groups;
-  }, {} as Record<string, T[]>);
-}
-
-function unique<T>(arr: T[], keyFn?: (item: T) => any): T[] {
-  if (!keyFn) return [...new Set(arr)];
-  const seen = new Set();
-  return arr.filter(item => {
-    const key = keyFn(item);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const result: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    result.push(arr.slice(i, i + size));
-  }
-  return result;
-}
-
+// 未迁移：生产无对应导出（仅 flattenMenu 等不同契约实现），保留旧实现供扁平化用例使用。
 function flatten(arr: any[]): any[] {
   return arr.reduce((flat, item) => {
     return flat.concat(Array.isArray(item) ? flatten(item) : item);
   }, []);
 }
 
+// 未迁移：生产无对应导出（仅私有 pickCurrentPrice 等不同契约实现），保留旧实现供对象工具用例使用。
 function omit<T extends Record<string, any>>(obj: T, keys: string[]): Partial<T> {
   const result = { ...obj };
   keys.forEach(k => delete result[k]);
   return result;
 }
 
+// 未迁移：生产无对应导出（仅私有 pick 取数组前 N 项，契约不同），保留旧实现供对象工具用例使用。
 function pick<T extends Record<string, any>>(obj: T, keys: string[]): Partial<T> {
   const result: any = {};
   keys.forEach(k => { if (k in obj) result[k] = obj[k]; });
@@ -205,18 +206,20 @@ describe('DOM交互与工具函数测试', () => {
         { type: 'B', value: 2 },
         { type: 'A', value: 3 },
       ];
-      const grouped = groupBy(data, 'type');
-      expect(grouped.A).toHaveLength(2);
-      expect(grouped.B).toHaveLength(1);
+      const grouped = pipeline(data).groupBy(item => String(item.type));
+      expect(grouped).toBeInstanceOf(Map);
+      expect(grouped.size).toBe(2);
+      expect(grouped.get('A')).toHaveLength(2);
+      expect(grouped.get('B')).toHaveLength(1);
     });
 
     it('去重（基本）', () => {
-      expect(unique([1, 2, 2, 3, 3, 3])).toEqual([1, 2, 3]);
+      expect(pipeline([1, 2, 2, 3, 3, 3]).distinct().toArray()).toEqual([1, 2, 3]);
     });
 
     it('去重（自定义key）', () => {
       const data = [{ id: 1, name: 'a' }, { id: 1, name: 'b' }, { id: 2, name: 'c' }];
-      const result = unique(data, item => item.id);
+      const result = pipeline(data).distinct(item => item.id).toArray();
       expect(result).toHaveLength(2);
     });
 
@@ -267,6 +270,14 @@ describe('DOM交互与工具函数测试', () => {
   });
 
   describe('节流与防抖', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('节流限制频率', () => {
       let count = 0;
       const fn = throttle(() => count++, 100);
@@ -274,23 +285,42 @@ describe('DOM交互与工具函数测试', () => {
       expect(count).toBe(1);
     });
 
-    it('防抖只执行最后一次', async () => {
+    it('节流在间隔结束补发 trailing 调用', () => {
+      let count = 0;
+      const fn = throttle(() => count++, 100);
+      fn(); fn();
+      expect(count).toBe(1);
+      vi.advanceTimersByTime(100);
+      expect(count).toBe(2);
+    });
+
+    it('防抖只执行最后一次', () => {
       let last = '';
       const fn = debounce((v: string) => { last = v; }, 10);
       fn('a');
       fn('b');
       fn('c');
-      await new Promise(r => setTimeout(r, 20));
+      vi.advanceTimersByTime(10);
       expect(last).toBe('c');
     });
 
-    it('防抖cancel', async () => {
+    it('防抖cancel', () => {
       let called = false;
       const fn = debounce(() => { called = true; }, 10);
       fn();
       fn.cancel();
-      await new Promise(r => setTimeout(r, 20));
+      vi.advanceTimersByTime(20);
       expect(called).toBe(false);
+    });
+
+    it('防抖 flush 立即执行且 pending 反映等待状态', () => {
+      let last = '';
+      const fn = debounce((v: string) => { last = v; }, 10);
+      fn('a');
+      expect(fn.pending()).toBe(true);
+      fn.flush();
+      expect(last).toBe('a');
+      expect(fn.pending()).toBe(false);
     });
   });
 });
