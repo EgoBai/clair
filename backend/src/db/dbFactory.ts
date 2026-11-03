@@ -289,8 +289,10 @@ export async function resolveStockCount(
  *   这三个字段是运维判断「这台实例现在到底在服务真数据还是在降级兜底」的唯一依据。
  *   之前 dbType 只在 app.ts 内联 handler 里出现（且用的是内部词表 'postgres'），
  *   导致「同一语义两种拼写」+「契约无处可测」。这里收口后：
- *     - app.ts 的 /health、api/health.ts 的 /health、services/healthCheck.ts 的
- *       database 检查项，三处共用同一份推导，物理上不可能漂移。
+ *     - app.ts 的 /health 内联 handler 统一走本函数。
+ *       （2026-11-04 台账 #38：原先还有 api/health.ts / services/healthCheck.ts 两处
+ *        引用同一份推导，经全仓 rg 证为零 import/mount 死链，已删除并由
+ *        __tests__/deadHealthChainRemoved.test.ts 守卫，防复活。）
  *
  * 语义：
  *   - dbType: 'postgresql' 表示真 PG；'memory' 表示走了内存库降级。

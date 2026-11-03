@@ -129,34 +129,6 @@ describe('/health 诚实降级契约（dbType / degraded / dataSource）', () =>
       expect(res.body.database.dbType).toBe(res.body.dbType);
       expect(res.body.database.degraded).toBe(res.body.degraded);
     });
-
-    it('api/health.ts 的独立路由也暴露同一契约（防两处实现漂移）', async () => {
-      // backend/src/api/health.ts 当前是**死代码**（全仓无 import/mount 引用点，
-      // 真实 /health 由 app.ts 的内联 handler 兑现）。任务 #38 计划删除该文件，
-      // 故此处先探测可用性：文件被删 ≠ 契约回归，不该因此报红。
-      let healthRouter: express.Router | null = null;
-      try {
-        healthRouter = (await import('../api/health')).default;
-      } catch {
-        healthRouter = null;
-      }
-      if (!healthRouter) {
-        // 该路由已被删除（#38 落地）：契约的真源仍是 deriveHealthContract + app.ts，
-        // 由本文件其余用例覆盖。此处跳过即可，不算失败。
-        expect(true).toBe(true);
-        return;
-      }
-
-      const probe = express();
-      probe.use('/health', healthRouter);
-
-      const res = await request(probe as never).get('/health');
-
-      expect(res.status).toBe(200);
-      expect(res.body.dbType).toBe('memory');
-      expect(res.body.degraded).toBe(true);
-      expect(res.body.dataSource).toBe('unavailable');
-    });
   });
 
   // ============================================================
