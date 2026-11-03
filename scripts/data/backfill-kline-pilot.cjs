@@ -518,7 +518,8 @@ async function verifyMode(symbols) {
     const st = (await q('SELECT id, symbol FROM stocks WHERE symbol = $1', [symbol]))[0];
     if (!st) { out.push({ symbol, error: 'stocks 无此标的' }); continue; }
     const tencent = await fetchTencentBfq(st.symbol, START, END);
-    const years = [...new Set([...Array(6)].map((_, i) => Number(START.slice(0, 4)) + i))];
+    // 只取 START~END 覆盖年份（原先固定 6 年，会请求 2027+ 触发重试，校验被拖到 7 分钟）
+    const years = [...new Set([...Array(Number(END.slice(0, 4)) - Number(START.slice(0, 4)) + 1)].map((_, i) => Number(START.slice(0, 4)) + i))];
     const { amounts } = await loadThsAmounts(symbol.slice(0, 6), years);
     const { unit } = await resolveVolumeUnit(st.id, st.symbol, tencent, amounts);
     const mult = unit === 'hand' ? 100 : 1;
