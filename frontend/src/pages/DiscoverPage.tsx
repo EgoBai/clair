@@ -465,7 +465,8 @@ const DiscoverPage: React.FC = () => {
       setPulseLoading(true);
       fetch('/api/ai/market-pulse', { signal: ac.signal })
         .then(r => { if (!r.ok) throw new Error(`market-pulse HTTP ${r.status}`); return r.json(); })
-        .then(d => { if (d?.data?.data) setPulse(d.data.data); })
+        // #107-C8 信封已拍平：data 直接是业务载荷（旧实现是 d.data.data）
+        .then(d => { if (d?.data) setPulse(d.data); })
         .catch(() => {})
         .finally(() => setPulseLoading(false));
 

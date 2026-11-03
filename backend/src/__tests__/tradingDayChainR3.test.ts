@@ -183,7 +183,8 @@ describe('R3 · /api/ai/market-pulse：先解析交易日再查库 + asOf 透出
     expectCalledWithResolvedDate(dbMock.getMarketSummary);
     expect(dbMock.getMarketSummary).toHaveBeenCalledTimes(1);
 
-    const d = res.body.data.data;
+    // #107-C8 已拍平：data 直接是业务载荷
+    const d = res.body.data;
     expect(d.dataSource).toBe('real');
     expect(d.asOf).toBe(RESOLVED_AS_OF);
     expect(d.asOfIsFallback).toBe(true);

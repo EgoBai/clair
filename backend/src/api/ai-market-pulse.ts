@@ -12,7 +12,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { asyncHandler, sendSuccess } from '../utils/apiResponse';
+import { asyncHandler } from '../utils/apiResponse';
 import { getDb } from '../db/dbFactory';
 import { resolveMarketQueryDate, localDayKey } from '../utils/tradingCalendar';
 import aiService from '../services/aiService';
@@ -22,6 +22,32 @@ import { aiTiming } from '../middleware/aiTiming';
 const log = createLogger('AIMarketPulse');
 const router = Router();
 router.use(aiTiming);
+
+/**
+ * 诚实数据契约发送器（本文件统一出口，风格对齐 api/market.ts sendHonest）
+ *
+ * 【#107-C8】旧实现成功路径走 sendSuccess(res, { data: {...} })，实际响应变成
+ * { success, data: { data: {...} } } —— data 双层嵌套；而 catch 降级路径与文件头
+ * 注释的契约都是单层。同一端点成功/降级两套形状，所有消费方只能写 data.data，
+ * 一旦改动任一分支就必然漏另一边。
+ *
+ * 现统一为：业务载荷**直接**放 data 下（单层），dataSource 顶层与 data 内由同一入参
+ * 派生（结构上不可能出现「顶层 real / 行级 unavailable」）。
+ */
+function sendHonest(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  data: Record<string, unknown>,
+): void {
+  const honestFields = { dataSource };
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    ...honestFields,
+    data: { ...data, ...honestFields },
+    timestamp: new Date().toISOString(),
+  });
+}
 
 interface ThemeHit {
   industry: string;
@@ -329,57 +355,50 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
     // dataSource 由**实际可用性**推导，禁止硬编码 'real'（P0-PULSE 缺陷②）
     const dataSource = hasMarketData ? 'real' : 'unavailable';
 
-    sendSuccess(res, {
-      data: {
-        temperature,
-        // breadth 三字段均为业务量：不可得时是 null（=查不到），不是 0
-        breadth: risingRatio === null
-          ? null
-          : { rising, falling, risingRatio: Number((risingRatio * 100).toFixed(1)) },
-        limitUp,
-        themes,
-        risks,
-        candidates,
-        narrative,
-        llmUsed,
-        dataSource,
-        // 分块可用性：让前端/下游能区分「广度缺失」与「板块缺失」，
-        // 而不是只看到一个笼统的 unavailable
-        availability: { breadth: hasMarketData && risingRatio !== null, sectors: hasSectorData },
-        // 数据所属交易日如实披露（R3 交易日收口）
-        asOf: q.asOf,
-        asOfIsFallback: q.isFallback,
-        ...(q.note ? { asOfNote: q.note } : {}),
-        generatedAt: new Date().toISOString(),
-      },
+    sendHonest(res, dataSource, {
+      temperature,
+      // breadth 三字段均为业务量：不可得时是 null（=查不到），不是 0
+      breadth: risingRatio === null
+        ? null
+        : { rising, falling, risingRatio: Number((risingRatio * 100).toFixed(1)) },
+      limitUp,
+      themes,
+      risks,
+      candidates,
+      narrative,
+      llmUsed,
+      // 分块可用性：让前端/下游能区分「广度缺失」与「板块缺失」，
+      // 而不是只看到一个笼统的 unavailable
+      availability: { breadth: hasMarketData && risingRatio !== null, sectors: hasSectorData },
+      // 数据所属交易日如实披露（R3 交易日收口）
+      asOf: q.asOf,
+      asOfIsFallback: q.isFallback,
+      ...(q.note ? { asOfNote: q.note } : {}),
+      generatedAt: new Date().toISOString(),
     });
   } catch (e) {
     log.error('market-pulse 计算失败:', e as Error);
-    res.status(200).json({
-      success: true,
-      data: {
-        // 诚实红线（P0-HONESTY2）：score 是 0-100 的**业务量**（市场温度评分），
-        // 0 会被下游/前端当成「市场极度弱势」这个真实结论（computeTemperature
-        // 里 0 分对应 label '弱势'）。计算失败时必须为 null，
-        // 由前端显示「不可用」，绝不用 0 冒充一个真实评分。
-        temperature: { score: null, label: '未知' },
-        // breadth / limitUp 同样是业务量（上涨家数 / 涨停家数）。旧实现在降级分支
-        // **整个省略**这两个字段，前端 `pulse.breadth?.rising` 拿到 undefined，
-        // React 渲染成空串→ 显示「上涨/下跌（占比%）」「涨停只」，
-        // 用户看到的是残缺文案而非明确的「不可用」。
-        // 显式声明为 null（而非省略）：既让契约形状完整、前端能区分
-        // 「不可用」与「字段不存在」，也避免将来有人误用 ?? 0 再造一个假 0。
-        breadth: null,
-        limitUp: null,
-        themes: [],
-        risks: [{ level: 'low', label: '数据暂不可用', detail: '市场信号计算失败' }],
-        candidates: [],
-        narrative: '市场信号暂不可用，请稍后重试。',
-        llmUsed: false,
-        dataSource: 'unavailable',
-        availability: { breadth: false, sectors: false },
-      },
-      timestamp: new Date().toISOString(),
+    // 与成功路径**同形**（#107-C8）：单层 data + 顶层 dataSource
+    sendHonest(res, 'unavailable', {
+      // 诚实红线（P0-HONESTY2）：score 是 0-100 的**业务量**（市场温度评分），
+      // 0 会被下游/前端当成「市场极度弱势」这个真实结论（computeTemperature
+      // 里 0 分对应 label '弱势'）。计算失败时必须为 null，
+      // 由前端显示「不可用」，绝不用 0 冒充一个真实评分。
+      temperature: { score: null, label: '未知' },
+      // breadth / limitUp 同样是业务量（上涨家数 / 涨停家数）。旧实现在降级分支
+      // **整个省略**这两个字段，前端 `pulse.breadth?.rising` 拿到 undefined，
+      // React 渲染成空串→ 显示「上涨/下跌（占比%）」「涨停只」，
+      // 用户看到的是残缺文案而非明确的「不可用」。
+      // 显式声明为 null（而非省略）：既让契约形状完整、前端能区分
+      // 「不可用」与「字段不存在」，也避免将来有人误用 ?? 0 再造一个假 0。
+      breadth: null,
+      limitUp: null,
+      themes: [],
+      risks: [{ level: 'low', label: '数据暂不可用', detail: '市场信号计算失败' }],
+      candidates: [],
+      narrative: '市场信号暂不可用，请稍后重试。',
+      llmUsed: false,
+      availability: { breadth: false, sectors: false },
     });
   }
 }));

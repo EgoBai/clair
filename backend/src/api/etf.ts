@@ -51,6 +51,34 @@ function buildListEnvelope(data: EtfItem[]) {
 }
 
 /**
+ * ETF 列表诚实信封（#107-C8）——与 api/market.ts sendHonest 同风格：
+ *   { success, dataSource, data: [...], count/覆盖率等元信息..., message?, timestamp }
+ *
+ * 【为什么单列一个发送器】旧实现走 sendSuccess(res, { data, count, ... })，实际响应是
+ * { success, data: { data: [...], count, ... } } —— data 双层嵌套，消费方必须写
+ * json.data.data；而本项目的统一诚实信封是「dataSource 在顶层 + 业务载荷直接放 data」。
+ * 列表端点的业务载荷就是 ETF 数组本身，故 data 直接是数组，元信息与 data 平级放顶层。
+ */
+function sendEtfListEnvelope(
+  res: Response,
+  dataSource: 'real' | 'unavailable',
+  items: EtfItem[],
+  meta: Record<string, unknown>,
+  message?: string,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(200).json({
+    success: true,
+    dataSource,
+    data: items,
+    count: items.length,
+    ...meta,
+    ...(message ? { message } : {}),
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
  * 获取 ETF 列表（真实源）
  * GET /api/etf/list
  */
@@ -68,23 +96,18 @@ router.get(
         const bv = (b[sortKey] as number) ?? 0;
         return sortOrder === 'desc' ? bv - av : av - bv;
       });
-      const env = buildListEnvelope(data);
-      sendSuccess(res, {
+      const { hasQuotes, ...env } = buildListEnvelope(data);
+      sendEtfListEnvelope(
+        res,
+        // 行情真取到才标 real，否则 unavailable（顶层唯一真源）
+        hasQuotes ? 'real' : 'unavailable',
         data,
-        count: data.length,
-        // 顶层与行级同源：行情真取到才标 real，否则 unavailable
-        dataSource: env.hasQuotes ? 'real' : 'unavailable',
-        ...(env.hasQuotes ? {} : { message: 'ETF 行情源未返回任何报价，列表价格字段不可用' }),
-        ...env,
-      });
+        env,
+        hasQuotes ? undefined : 'ETF 行情源未返回任何报价，列表价格字段不可用',
+      );
     } catch (e) {
-      // 诚实降级：行情源不可达 → 空数据 + 明确标注
-      sendSuccess(res, {
-        data: [],
-        count: 0,
-        dataSource: 'unavailable',
-        message: e instanceof Error ? e.message : 'unknown',
-      });
+      // 诚实降级：行情源不可达 → 空数组 + 顶层明确标注（与成功路径同形）
+      sendEtfListEnvelope(res, 'unavailable', [], {}, e instanceof Error ? e.message : 'unknown');
     }
   }),
 );

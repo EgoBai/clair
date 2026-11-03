@@ -129,7 +129,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
       expect(res.status).toBe(200);
       // 修复前这里是 catch 兜底的形状（data 下直接是 payload、无 availability）
       // 修复后必须走 sendSuccess 正常路径
-      const d = res.body.data.data;
+      const d = res.body.data;
       expect(d).toBeDefined();
       expect(d.availability).toEqual({ breadth: false, sectors: false });
       // 正常路径必然带 generatedAt（catch 分支没有）
@@ -139,7 +139,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
     it('dataSource 必须由可用性推导，不得硬编码 real', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
 
-      expect(res.body.data.data.dataSource).toBe('unavailable');
+      expect(res.body.data.dataSource).toBe('unavailable');
     });
 
     it('核心断言：不得出现由 0 反推出来的风险信号', async () => {
@@ -151,7 +151,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
       expect(text).not.toContain('恐慌');
       expect(text).not.toContain('0.0%');
       // breadth 整块为 null，绝不能出现 risingStocks:0 这种假 0
-      expect(res.body.data.data.breadth).toBeNull();
+      expect(res.body.data.breadth).toBeNull();
       expect(text).not.toMatch(/"rising"\s*:\s*0/);
     });
 
@@ -159,13 +159,13 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
       const res = await request(buildApp()).get('/api/ai/market-pulse');
 
       expect(allText(res)).not.toContain('结构平稳');
-      const labels = res.body.data.data.risks.map((r: any) => r.label);
+      const labels = res.body.data.risks.map((r: any) => r.label);
       expect(labels).toEqual(['数据暂不可用']);
     });
 
     it('数值字段必须是 null（查不到），绝不能是 0（真的是 0）', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const d = res.body.data.data;
+      const d = res.body.data;
 
       expect(d.breadth).toBeNull();
       expect(d.limitUp).toBeNull();
@@ -179,8 +179,8 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
 
       expect(chatMock).not.toHaveBeenCalled();
       // 必须走规则结论，且规则结论本身不含编造数值
-      expect(res.body.data.data.llmUsed).toBe(false);
-      expect(res.body.data.data.narrative).toContain('板块数据不可用');
+      expect(res.body.data.llmUsed).toBe(false);
+      expect(res.body.data.narrative).toContain('板块数据不可用');
     });
   });
 
@@ -196,7 +196,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
 
     it('仍不得声称 real，也不得由缺失的广度造出普跌信号', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const d = res.body.data.data;
+      const d = res.body.data;
       const text = allText(res);
 
       expect(d.dataSource).toBe('unavailable');
@@ -207,7 +207,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
 
     it('真实的板块数据必须保留（不因广度缺失而丢弃）', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const d = res.body.data.data;
+      const d = res.body.data;
 
       expect(d.availability).toEqual({ breadth: false, sectors: true });
       expect(d.themes.map((t: any) => t.industry)).toEqual(['半导体', '钢铁']);
@@ -232,7 +232,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
 
     it('必须仍生成「普跌/恐慌」——0.0% 在此是事实，不是编造', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const d = res.body.data.data;
+      const d = res.body.data;
 
       expect(d.dataSource).toBe('real');
       expect(d.breadth.rising).toBe(0);      // 真的是 0，必须保留 0
@@ -245,7 +245,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
 
     it('temperature 必须真的算出来（分母 4800 > 0，不是 0/0）', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const d = res.body.data.data;
+      const d = res.body.data;
 
       // 0*60 + min(30,100)*0.4 = 12→ 「弱势」
       expect(d.temperature.score).toBe(12);
@@ -269,7 +269,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
 
     it('0/0 必须判为不可得，不得当成「0% 上涨」→ 不得生成普跌信号', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const d = res.body.data.data;
+      const d = res.body.data;
       const text = allText(res);
 
       // 广度「真的拿到了」→ 仍算real
@@ -293,7 +293,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
     it('全平盘时 limitUp 仍是真实值 0，不得因 breadth 不可算而丢弃', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
 
-      expect(res.body.data.data.limitUp).toBe(0);
+      expect(res.body.data.limitUp).toBe(0);
     });
   });
 
@@ -315,7 +315,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
 
     it('dataSource 必须 real，且数值与 DB 完全一致', async () => {
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const d = res.body.data.data;
+      const d = res.body.data;
 
       expect(d.dataSource).toBe('real');
       expect(d.availability).toEqual({ breadth: true, sectors: true });
@@ -344,7 +344,7 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
       });
 
       const res = await request(buildApp()).get('/api/ai/market-pulse');
-      const labels = res.body.data.data.risks.map((r: any) => r.label);
+      const labels = res.body.data.risks.map((r: any) => r.label);
 
       expect(labels).toContain('分化加剧');
       expect(labels).not.toContain('普跌/恐慌');

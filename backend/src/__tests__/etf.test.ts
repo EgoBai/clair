@@ -77,37 +77,41 @@ describe('ETF API (honest-data)', () => {
   });
 
   describe('GET /api/etf/list', () => {
-    it('真实源可用时返回 dataSource:"real" 与真实结构数据', async () => {
+    // #107-C8：信封已拍平 —— data 直接是 ETF 数组，dataSource / count / 覆盖率元信息在顶层
+    it('真实源可用时返回顶层 dataSource:"real" 与真实结构数据', async () => {
       (getEtfList as any).mockResolvedValue([realEtfItem]);
 
       const res = await request(buildApp()).get('/api/etf/list');
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.dataSource).toBe('real');
-      expect(res.body.data.count).toBe(1);
-      expect(Array.isArray(res.body.data.data)).toBe(true);
-      expect(res.body.data.data[0]).toMatchObject({
+      expect(res.body.dataSource).toBe('real');
+      expect(res.body.count).toBe(1);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data[0]).toMatchObject({
         symbol: '510300',
         name: '沪深300ETF',
         nav: 4.7258,
         changePercent: -0.65,
       });
       // 不含 Math.random 伪造字段
-      expect(res.body.data.data[0]).not.toHaveProperty('mockRandom');
+      expect(res.body.data[0]).not.toHaveProperty('mockRandom');
+      // 元信息在顶层（与 data 平级）
+      expect(res.body.quoteCoverage).toBe('1/1');
+      expect(res.body.quoteSource).toBe('tencent');
     });
 
-    it('真实源缺失时返回 dataSource:"unavailable" 与诚实空数组', async () => {
+    it('真实源缺失时返回顶层 dataSource:"unavailable" 与诚实空数组', async () => {
       (getEtfList as any).mockRejectedValue(new EtfUnavailableError('网络受限'));
 
       const res = await request(buildApp()).get('/api/etf/list');
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.dataSource).toBe('unavailable');
-      expect(res.body.data.data).toEqual([]);
-      expect(res.body.data.count).toBe(0);
-      expect(res.body.data.message).toBe('网络受限');
+      expect(res.body.dataSource).toBe('unavailable');
+      expect(res.body.data).toEqual([]);
+      expect(res.body.count).toBe(0);
+      expect(res.body.message).toBe('网络受限');
     });
 
     it('支持 type 筛选与 sortBy 排序', async () => {
@@ -119,9 +123,9 @@ describe('ETF API (honest-data)', () => {
       const res = await request(buildApp()).get('/api/etf/list?type=index&sortBy=totalAssets&sortOrder=desc');
 
       expect(res.status).toBe(200);
-      expect(res.body.data.dataSource).toBe('real');
+      expect(res.body.dataSource).toBe('real');
       // 只保留 type=index 的项
-      expect(res.body.data.data.every((e: any) => e.type === 'index')).toBe(true);
+      expect(res.body.data.every((e: any) => e.type === 'index')).toBe(true);
       expect(getEtfList).toHaveBeenCalledTimes(1);
     });
   });

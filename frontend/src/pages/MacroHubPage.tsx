@@ -199,11 +199,16 @@ const MODULES: ModuleDef[] = [
     icon: PieChartOutlined,
     path: ROUTE_PATHS.ETF,
     load: async (): Promise<ModuleState> => {
-      const d = await getJson('/api/etf/list');
-      const list: any[] = d?.data ?? [];
+      // #107-C8 信封已拍平：data 直接是 ETF 数组，dataSource 在顶层（与后端 sendHonest 同风格）。
+      // 旧实现 getJson 已剥掉外层 data 后再读 d.data（等价于原响应 data.data，双层）。
+      const env = await getEnvelope('/api/etf/list');
+      const list: any[] = Array.isArray(env?.data) ? env.data : [];
       const total = list.reduce((s: number, x: any) => s + (x.totalAssets || 0), 0);
+      const status: Status =
+        env?.dataSource === 'unavailable' ? 'unavailable' : list.length ? 'real' : 'unavailable';
       return {
-        status: list.length ? 'real' : 'unavailable',
+        status,
+        statusNote: typeof env?.notes === 'string' ? env.notes : undefined,
         metrics: [
           { label: 'ETF 数量', value: `${list.length}` },
           { label: '总规模', value: list.length ? fmtYi(total) : '—' },

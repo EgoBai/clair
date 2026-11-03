@@ -165,20 +165,22 @@ export default function ETFPage() {
         // 所以这里显式过一次判别，而不是默认成功就什么都不说。
         const st = classifyApiResponse(200, json);
         setListStatus(st);
-        if (json?.success && json.data && Array.isArray(json.data.data)) {
-          setEtfList(json.data.data as ETFData[]);
-          setDataSource(json.data.dataSource === 'unavailable' ? 'unavailable' : 'real');
+        // #107-C8 信封已拍平（与后端 sendHonest 同风格）：data 直接是 ETF 数组，
+        // dataSource / count / 覆盖率等元信息在**顶层**。旧实现读 json.data.data（双层嵌套）。
+        if (json?.success && Array.isArray(json.data)) {
+          setEtfList(json.data as ETFData[]);
+          setDataSource(json.dataSource === 'unavailable' ? 'unavailable' : 'real');
           setCoverage({
-            quoteCoverage: json.data.quoteCoverage,
-            navCoverage: json.data.navCoverage,
-            premiumCoverage: json.data.premiumCoverage,
-            notes: json.data.notes,
-            message: json.data.message,
+            quoteCoverage: json.quoteCoverage,
+            navCoverage: json.navCoverage,
+            premiumCoverage: json.premiumCoverage,
+            notes: json.notes,
+            message: json.message,
           });
         } else {
           setEtfList([]);
           setDataSource('unavailable');
-          setCoverage({ message: json?.data?.message });
+          setCoverage({ message: json?.message });
         }
       })
       .catch((err) => {

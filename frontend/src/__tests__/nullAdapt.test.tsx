@@ -76,16 +76,15 @@ const mockFetchPayload = (etfs: ETFData[], extra: Record<string, unknown> = {}) 
       status: 200,
       json: async () => ({
         success: true,
-        data: {
-          data: etfs,
-          count: etfs.length,
-          dataSource: 'real',
-          quoteCoverage: `${etfs.filter((e) => e.price > 0).length}/${etfs.length}`,
-          navCoverage: `${etfs.filter((e) => e.nav > 0).length}/${etfs.length}`,
-          premiumCoverage: `${etfs.filter((e) => e.premiumRate !== null).length}/${etfs.length}`,
-          notes: '1 只净值源无数据（nav=0，premiumRate=null）',
-          ...extra,
-        },
+        // #107-C8：后端信封已拍平 —— data 直接是 ETF 数组，元信息在顶层
+        data: etfs,
+        count: etfs.length,
+        dataSource: 'real',
+        quoteCoverage: `${etfs.filter((e) => e.price > 0).length}/${etfs.length}`,
+        navCoverage: `${etfs.filter((e) => e.nav > 0).length}/${etfs.length}`,
+        premiumCoverage: `${etfs.filter((e) => e.premiumRate !== null).length}/${etfs.length}`,
+        notes: '1 只净值源无数据（nav=0，premiumRate=null）',
+        ...extra,
       }),
     }),
   );
