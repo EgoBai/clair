@@ -540,9 +540,9 @@ async function verifyMode(symbols) {
       const h = [...dates[i]].reduce((s, ch) => (s * 31 + ch.charCodeAt(0)) % 9973, 7);
       if (h % 7 === 0) picked.push(dates[i]);
     }
-    while (picked.length < Math.min(VERIFY_DAYS, dates.length)) {
-      const d = dates[Math.floor((picked.length * 37 + 11) % dates.length)];
-      if (!picked.includes(d)) picked.push(d);
+    // 补齐到 VERIFY_DAYS：按顺序取未选日期（原 while 用 picked.length 作种子，遇重复即死循环；--verify-days≥日期数会挂死）
+    for (let i = 0; i < dates.length && picked.length < Math.min(VERIFY_DAYS, dates.length); i++) {
+      if (!picked.includes(dates[i])) picked.push(dates[i]);
     }
 
     const checks = [];
