@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 11 迁移后更新 05:50（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 14 迁移后更新 06:00（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,19 +16,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **841（54.9%）** |
-| 真实导入 | 692 |
-| 影子测试代码行 | **220,244 行** |
-| 真实测试代码行 | 139,728 行 |
+| 影子测试 | **835（54.5%）** |
+| 真实导入 | 698 |
+| 影子测试代码行 | **218,223 行** |
+| 真实测试代码行 | 141,872 行 |
 
-按行数算，61% 的测试代码在断言副本而不是产品代码。
+按行数算，60.6% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 421/640 | 65.8% |
-| frontend/src/__tests__（扁平） | 420/868 | 48.4% |
+| backend/src/__tests__（扁平） | 419/640 | 65.5% |
+| frontend/src/__tests__（扁平） | 416/868 | 47.9% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -160,11 +160,22 @@
 - 未迁移（生产无对应可导出 API）：calculateAlpha、calculateTreynorRatio、calcTradeSign、calcAutocorrelation、calcRollSpread、calcHasbrouckLambda，保留本地 helper 并在文件头注明。
 - 验证：backend 44 passed（29+15）；census --check 841/1533。
 - 效果：影子 843→841，shadowLoc 220,676→220,244，realLoc 139,270→139,728。
+## 六（续）、批次 12–14（2026-11-04 05:56）
+
+- **批次 12**：`frontend/src/__tests__/numberFormatEngine.test.ts`（385→411 行，65→66 例）import `frontend/src/utils/formatters.ts` 的 formatNumber/formatPercent/formatChangePercent/formatFileSize/formatDuration 与 `chartAnimation.ts` 的 lerp；`frontend/src/__tests__/dateTimeUtils.test.ts`（232→227 行，26 例）import `tradingCalendarEngine.ts` 的 isTradingDay/getTradingDayInfo/countTradingDays、`marketCalendarEngine.ts` 的 MarketCalendar、`i18nManager.ts` 的 formatRelativeTime。92 passed。
+- **批次 13**：`frontend/src/__tests__/klineProcessing.test.ts`（423→419 行，54→55 例）与 `chineseFinancialFormat.test.ts`（468→474 行，52→53 例）import `formatters.ts`（formatVolume/formatMarketCap/formatChangePercent/formatLargeNumber/formatTurnoverRate/getColorByChange）、`dataTransformUtils.ts`（formatAmount/sortByField）、`bloombergExportEngine.ts`（filterData）。108 passed。
+- **批次 14**：`backend/src/__tests__/indexCalculations.test.ts`（264→316 行，38→41 例）import `backend/src/models/Stock.ts` 的 calculateChange/calculateAmplitude/calculateTurnoverRate、`utils/exRights.ts` 的 calculateDividendYield、`shared/formatters.ts` 的 formatMarketCap、`frontend/src/utils/financialAnalysisEngine.ts` 的 calculateRatios/calculateWACC、`featureEngineeringEngine.ts` 的 calculateVWAP；`indicatorsAPI.test.ts`（243→291 行，16→20 例）import `backend/src/indicators/technical.ts` 的 MA/EMA/MACD/RSI/KDJ/BOLL/calculateAllIndicators。61 passed。
+- 旧测试错在哪（生产正确、测试改口径）：formatNumber(Infinity)='∞' 且无 separator 参数；正号只在 formatChangePercent；formatFileSize(0)='0.00 B'；formatDuration 为中文口径（500ms→'0秒'、3500ms→'3秒'）；lerp 不钳制 t；相对时间 30 秒='30秒钟前'、45 天='上个月'、400 天='去年'；涨跌色 #ef4444/#22c55e/#6b7280；formatVolume 单位「手」（亿手/万手）；formatLargeNumber 为千分位（非万亿缩写）；formatAmount 不带亿缩写；calculateRatios 返回小数、grossMargin 入参为 grossProfit、流动负债 0 → 0；calculateChange(100,0) 返回 {change:100,changePercent:0}；calculateVWAP 返回累计序列且无成交量回退 close；MA/EMA/BOLL 与输入等长并带预热 null、EMA 用 SMA 播种；RSI 返回数组、首个值 index=period、Wilder 平滑；KDJ 入参 high/low/close、首有效 bar K=D=50；BOLL 字段名 middle；MACD 30 根 K 线时 signal/histogram 全 null（需 longPeriod+signalPeriod-1=34 根）。
+- 未迁移残留：number 文件 36/66 例仍为本地 helper（abbreviateNumber/factorial/combination/clamp/safeDivide/toPrecision/mapRange 生产无导出）；date 文件 Date Range 5/26 例保留（生产无对应）；K 线形态校验/分页/paginator/formatPrice/classifyTurnover/多列排序/URL state 均生产无对应导出，已注释标明。
+- 新发现生产缺口（只报告未修）：formatDuration 丢亚秒精度（500ms→'0秒'）；formatFileSize 无 PB；formatPercent 收小数而 formatChangePercent 收百分数且无正号；formatNumber 无 NaN/null 守卫；styles/theme.ts、performanceAnalytics.ts、enhancedFormatters.ts、i18nEngine.ts 多套同名 formatter；tradingCalendarEngine.ts:48 注释称 2025-2026 但 HOLIDAYS 仅 2025 年 13 组，且 new Date(dateStr)/toISOString 在 UTC 负偏移时区会错一天；i18nManager 45 天显示「上个月」；MarketCalendar 除测试外无生产调用方（但 isMarketOpen 是唯一 A 股时段实现，故仍绑定）。
+- 验证：cd frontend && npx vitest run 两文件 = 92 passed；cd frontend 另两文件 = 108 passed；cd backend 两文件 = 61 passed；census --check 835/1533。
+- 效果：影子 841→835（-6），shadowLoc 220,244→218,223，realLoc 139,728→141,872。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 841 / total 1533 / shadowLoc 220,244（批次 11 后；批次 10 后 843、批次 7 后 849、批次 6 后 851）。
+- 基线：shadow 835 / total 1533 / shadowLoc 218,223（批次 14 后；批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851）。
 
 ## 八、迁移候选扫描（工具）
 
@@ -173,12 +184,13 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：841 个影子测试中 85 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 15、4 个 4、5 个 3）；另有 1 个符号重叠 248 个、零重叠 508 个（批次 11 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：835 个影子测试中 79 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 13、4 个 3、5 个 0）；另有 1 个符号重叠 248 个、零重叠 508 个（批次 14 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 12（进行中）：`numberFormatEngine.test.ts`（386 行）与 `dateTimeUtils.test.ts`（233 行）对接 `frontend/src/utils/formatters.ts` 与 `backend/src/utils/tradingCalendar.ts` / `frontend/src/utils/tradingCalendarEngine.ts` 真源。
-- 备选：`klineProcessing.test.ts`（424 行）、`chineseFinancialFormat.test.ts`（469 行）对接 `frontend/src/utils/formatters.ts` / `dataTransformUtils.ts` / `bloombergExportEngine.ts`；`securityEnhancements.test.ts` 与 `apiSecurityComprehensive.test.ts` 对接 `backend/src/middleware/auth.ts`、`frontend/src/utils/securityEngine.ts`、`backend/src/models/User.ts`。
+- 批次 15（候选）：`securityEnhancements.test.ts`（315 行）与 `apiSecurityComprehensive.test.ts`（379 行）对接 `backend/src/middleware/auth.ts`（signAccessToken/verifyAccessToken/generateRefreshToken/consumeRefreshToken）、`frontend/src/utils/securityEngine.ts`（mask/validate）、`backend/src/models/User.ts`、`backend/src/middleware/validation.ts`（sanitizeInput）。注意 auth.ts 在非生产缺 JWT_SECRET 会生成一次性随机密钥，测试内需固定语义（同进程内签发/校验仍成立）。
+- 次选：`frontendLogicComprehensive.test.ts`（581 行）对接 `frontend/src/utils/formatters.ts` / `exportEngine.ts`；`tableEngineV2.test.ts`、`tableDataGrid.test.ts` 对接 `bloombergExportEngine.ts` / `exportEngine.ts` 的 aggregateData/filterData/sortData/exportToCSV。
+- 零重叠 508：30 样本审计已完成（结论见 DSH 侧 `handover/10-零重叠影子审计.md`），归档候选清单分析进行中；删除须用户批准，且不得计入迁移数字。
 - 新增关注：`backend/src/indicators/technical.ts` 无 OBV/CCI/WilliamsR 实现，相关测试暂留本地 helper。
 - 关注点：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零属生产已知局限，已由测试固化，待产品阶段评估是否修。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。
