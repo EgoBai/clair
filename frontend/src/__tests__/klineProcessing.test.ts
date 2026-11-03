@@ -1,6 +1,36 @@
 import { describe, it, expect } from 'vitest';
+import {
+  formatChangePercent,
+  formatLargeNumber,
+  formatMarketCap,
+  formatVolume,
+  getColorByChange,
+} from '../utils/formatters';
+import { sortByField } from '../utils/dataTransformUtils';
 
-// K线数据处理
+/**
+ * K 线数据处理测试
+ *
+ * 生产实现（唯一真源）：
+ * - getColorByChange      → src/utils/formatters.ts:228（入参是涨跌值，不是现价/昨收）
+ * - formatChangePercent   → src/utils/formatters.ts:148（入参是百分比数值）
+ * - formatLargeNumber     → src/utils/formatters.ts:219（千分位，非万亿/亿/万缩写）
+ * - formatVolume          → src/utils/formatters.ts:37（亿手/万手/手）
+ * - formatMarketCap       → src/utils/formatters.ts:24（万亿/亿/万/原值）
+ * - sortByField           → src/utils/dataTransformUtils.ts:120（单列排序，返回副本）
+ *
+ * 未迁移（生产无对应导出，保留本文件内联实现）：
+ * - validateKLine / getKLineType / calculateUpperShadow / calculateLowerShadow / calculateBody /
+ *   isHammer / isDoji：src/utils/chartPatternEngine.ts:34 detectDoji、:51 detectHammer 是模块私有
+ *   函数，未导出；src/utils/workerManager.ts:90 computeKLine 在 Worker 内计算影线，也未导出。
+ * - filterStocksByKeyword：生产 useStockStore.ts:398 searchStocks 是 zustand action，
+ *   在 action 内联 code/name 的 toLowerCase().includes()，不是可 import 的纯函数。
+ * - calculatePagination：生产 dataTable.ts:38 DataTableProcessor 只提供
+ *   page/pageSize/total 与 getPageData() 切片，没有 totalPages/pageRange/isValidPage 导出。
+ */
+
+// ---- 未迁移：K 线校验/形态（生产无对应导出，见文件头） ----
+
 interface KLineData {
   date: string;
   open: number;
@@ -12,14 +42,14 @@ interface KLineData {
 
 function validateKLine(data: KLineData): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  
+
   if (data.high < data.low) errors.push('最高价低于最低价');
   if (data.high < data.open && data.high < data.close) errors.push('最高价低于开盘/收盘价');
   if (data.low > data.open && data.low > data.close) errors.push('最低价高于开盘/收盘价');
   if (data.open < 0 || data.close < 0) errors.push('价格为负');
   if (data.volume < 0) errors.push('成交量为负');
   if (data.high < 0 || data.low < 0) errors.push('最高/最低价为负');
-  
+
   return { valid: errors.length === 0, errors };
 }
 
@@ -158,90 +188,70 @@ describe('K线形态', () => {
   });
 });
 
-// 涨跌幅着色
-function getChangeColor(current: number, previous: number): string {
-  if (current > previous) return '#e74c3c'; // 红涨
-  if (current < previous) return '#27ae60'; // 绿跌
-  return '#95a5a6'; // 平盘
-}
-
-function formatChangePercent(current: number, previous: number): string {
-  if (previous === 0) return '0.00%';
-  const change = ((current - previous) / previous) * 100;
-  const sign = change > 0 ? '+' : '';
-  return `${sign}${change.toFixed(2)}%`;
-}
-
+// ---- 已迁移：涨跌颜色 / 涨跌幅格式化 ----
+// 生产 getColorByChange 接收“涨跌值”本身（UI 由后端 changePercent 驱动），不是 (现价, 昨收)。
+// 旧内联用 #e74c3c/#27ae60/#95a5a6，生产 hex 为 #ef4444/#22c55e/#6b7280。
 describe('涨跌幅显示', () => {
   it('上涨红色', () => {
-    expect(getChangeColor(11, 10)).toBe('#e74c3c');
+    expect(getColorByChange(1)).toBe('#ef4444');
   });
 
   it('下跌绿色', () => {
-    expect(getChangeColor(9, 10)).toBe('#27ae60');
+    expect(getColorByChange(-1)).toBe('#22c55e');
   });
 
   it('平盘灰色', () => {
-    expect(getChangeColor(10, 10)).toBe('#95a5a6');
+    expect(getColorByChange(0)).toBe('#6b7280');
   });
 
+  // 生产 formatChangePercent(percent) 只接收百分比数值；旧签名 (current, previous) 已删除。
+  // 旧用例 formatChangePercent(11, 10) 等价于生产 formatChangePercent(10)。
   it('涨幅格式化带+号', () => {
-    expect(formatChangePercent(11, 10)).toBe('+10.00%');
+    expect(formatChangePercent(10)).toBe('+10.00%');
   });
 
   it('跌幅格式化带-号', () => {
-    expect(formatChangePercent(9, 10)).toBe('-10.00%');
+    expect(formatChangePercent(-10)).toBe('-10.00%');
   });
 
-  it('零基期返回0%', () => {
-    expect(formatChangePercent(10, 0)).toBe('0.00%');
+  // 旧断言 '0.00%'（previous === 0 守卫）→ 生产 percent >= 0 一律加 '+'，返回 '+0.00%'。
+  it('零涨跌幅带+号（生产口径）', () => {
+    expect(formatChangePercent(0)).toBe('+0.00%');
   });
 
   it('小数涨跌幅', () => {
-    expect(formatChangePercent(10.15, 10)).toBe('+1.50%');
+    expect(formatChangePercent(1.5)).toBe('+1.50%');
   });
 
   it('大幅涨跌', () => {
-    expect(formatChangePercent(110, 100)).toBe('+10.00%');
-    expect(formatChangePercent(90, 100)).toBe('-10.00%');
+    expect(formatChangePercent(10)).toBe('+10.00%');
+    expect(formatChangePercent(-10)).toBe('-10.00%');
   });
 });
 
-// 数值格式化
-function formatLargeNumber(num: number): string {
-  if (num >= 1e12) return (num / 1e12).toFixed(2) + '万亿';
-  if (num >= 1e8) return (num / 1e8).toFixed(2) + '亿';
-  if (num >= 1e4) return (num / 1e4).toFixed(2) + '万';
-  return num.toFixed(2);
-}
-
-function formatVolume(volume: number): string {
-  return formatLargeNumber(volume);
-}
-
-function formatMarketCap(cap: number): string {
-  return formatLargeNumber(cap);
-}
-
-describe('大数值格式化', () => {
-  it('万亿级别', () => {
-    expect(formatLargeNumber(2.5e12)).toBe('2.50万亿');
+// ---- 已迁移：大数值 / 成交量 / 市值 ----
+// 生产 formatLargeNumber 是千分位（formatters.ts:219），不是万亿/亿/万缩写。
+// 旧内联实现其实是 dataTransformUtils.ts:45 formatAmount 的副本（无负号分支），已删除。
+describe('大数值格式化（千分位）', () => {
+  it('2.5e12 千分位', () => {
+    expect(formatLargeNumber(2.5e12)).toBe('2,500,000,000,000');
   });
 
-  it('亿级别', () => {
-    expect(formatLargeNumber(5e8)).toBe('5.00亿');
+  it('5e8 千分位', () => {
+    expect(formatLargeNumber(5e8)).toBe('500,000,000');
   });
 
-  it('万级别', () => {
-    expect(formatLargeNumber(1.5e4)).toBe('1.50万');
+  it('1.5e4 千分位', () => {
+    expect(formatLargeNumber(1.5e4)).toBe('15,000');
   });
 
-  it('小于万的原样返回', () => {
-    expect(formatLargeNumber(5000)).toBe('5000.00');
+  it('小于万仍千分位', () => {
+    expect(formatLargeNumber(5000)).toBe('5,000');
   });
 
+  // 生产 formatVolume 带“手”单位（亿手/万手/手）。
   it('成交量格式化', () => {
-    expect(formatVolume(1e9)).toBe('10.00亿');
+    expect(formatVolume(1e9)).toBe('10.00亿手');
   });
 
   it('市值格式化', () => {
@@ -249,66 +259,52 @@ describe('大数值格式化', () => {
   });
 
   it('零值', () => {
-    expect(formatLargeNumber(0)).toBe('0.00');
+    expect(formatLargeNumber(0)).toBe('0');
   });
 
   it('负值处理', () => {
-    expect(formatLargeNumber(-5e8)).toBe('-500000000.00'); // negative falls through to default
+    expect(formatLargeNumber(-5e8)).toBe('-500,000,000');
+  });
+
+  // 生产缺口：formatMarketCap 无 abs/sign 分支，负值落到 toFixed(2) 原值分支。
+  it('市值负值落入原值分支（生产缺口）', () => {
+    expect(formatMarketCap(-5e8)).toBe('-500000000.00');
   });
 });
 
-// 表格排序
-function sortStockData<T extends Record<string, any>>(
-  data: T[],
-  key: string,
-  order: 'asc' | 'desc'
-): T[] {
-  return [...data].sort((a, b) => {
-    const aVal = a[key];
-    const bVal = b[key];
-    
-    if (typeof aVal === 'number' && typeof bVal === 'number') {
-      return order === 'asc' ? aVal - bVal : bVal - aVal;
-    }
-    
-    const aStr = String(aVal);
-    const bStr = String(bVal);
-    return order === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
-  });
-}
-
+// ---- 已迁移：单列排序（dataTransformUtils.sortByField） ----
 describe('表格排序', () => {
   it('数字升序', () => {
     const data = [{ price: 10 }, { price: 5 }, { price: 15 }];
-    const sorted = sortStockData(data, 'price', 'asc');
+    const sorted = sortByField(data, 'price', 'asc');
     expect(sorted.map(d => d.price)).toEqual([5, 10, 15]);
   });
 
   it('数字降序', () => {
     const data = [{ price: 10 }, { price: 5 }, { price: 15 }];
-    const sorted = sortStockData(data, 'price', 'desc');
+    const sorted = sortByField(data, 'price', 'desc');
     expect(sorted.map(d => d.price)).toEqual([15, 10, 5]);
   });
 
   it('字符串排序', () => {
     const data = [{ name: 'C' }, { name: 'A' }, { name: 'B' }];
-    const sorted = sortStockData(data, 'name', 'asc');
+    const sorted = sortByField(data, 'name', 'asc');
     expect(sorted.map(d => d.name)).toEqual(['A', 'B', 'C']);
   });
 
   it('不修改原数组', () => {
     const data = [{ price: 10 }, { price: 5 }];
-    sortStockData(data, 'price', 'asc');
+    sortByField(data, 'price', 'asc');
     expect(data[0].price).toBe(10);
   });
 
   it('空数组排序', () => {
-    expect(sortStockData([], 'price', 'asc')).toEqual([]);
+    expect(sortByField([], 'price', 'asc')).toEqual([]);
   });
 
   it('单元素排序', () => {
     const data = [{ price: 10 }];
-    expect(sortStockData(data, 'price', 'asc')).toEqual([{ price: 10 }]);
+    expect(sortByField(data, 'price', 'asc')).toEqual([{ price: 10 }]);
   });
 
   it('混合数据按涨跌幅排序', () => {
@@ -317,13 +313,13 @@ describe('表格排序', () => {
       { name: 'B', change: 2.1 },
       { name: 'C', change: 0 }
     ];
-    const sorted = sortStockData(data, 'change', 'desc');
+    const sorted = sortByField(data, 'change', 'desc');
     expect(sorted[0].name).toBe('B');
     expect(sorted[2].name).toBe('A');
   });
 });
 
-// 搜索过滤
+// ---- 未迁移：生产无导出纯函数（useStockStore.ts:398 searchStocks 为 zustand action） ----
 function filterStocksByKeyword<T extends { code: string; name: string }>(
   stocks: T[], keyword: string
 ): T[] {
@@ -367,12 +363,12 @@ describe('股票搜索过滤', () => {
   });
 });
 
-// 分页计算
+// ---- 未迁移：dataTable.ts:38 DataTableProcessor 无 totalPages/pageRange/isValidPage 导出 ----
 function calculatePagination(total: number, pageSize: number, currentPage: number) {
   const totalPages = Math.ceil(total / pageSize);
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = Math.min(startIndex + pageSize, total);
-  
+
   return {
     totalPages,
     startIndex,

@@ -1,18 +1,41 @@
 import { describe, it, expect } from 'vitest';
+import {
+  formatChangePercent,
+  formatMarketCap,
+  formatTurnoverRate,
+  formatVolume,
+  getColorByChange,
+} from '../utils/formatters';
+import { formatAmount, sortByField } from '../utils/dataTransformUtils';
+import { filterData } from '../utils/bloombergExportEngine';
+
+/**
+ * 中文金融数据格式化测试
+ *
+ * 生产实现（唯一真源）：
+ * - formatAmount        → src/utils/dataTransformUtils.ts:45（紧凑单位；负值无 abs/sign 分支）
+ * - formatChangePercent → src/utils/formatters.ts:148（null/undefined→'-'；>=0 加 '+'；NaN 无守卫）
+ * - getColorByChange    → src/utils/formatters.ts:228（旧内联名 getChangeColor；灰为 #6b7280）
+ * - formatVolume        → src/utils/formatters.ts:37（亿手/万手/手）
+ * - formatMarketCap     → src/utils/formatters.ts:24（万亿/亿/万/toFixed）
+ * - formatTurnoverRate  → src/utils/formatters.ts:166（null/undefined→'-'）
+ * - sortByField         → src/utils/dataTransformUtils.ts:120（单列排序，返回副本）
+ * - filterData          → src/utils/bloombergExportEngine.ts:584（声明式操作符 eq/gt/gte/...）
+ *
+ * 未迁移（生产无对应导出，保留本文件内联实现）：
+ * - formatPrice：utils 中无同名导出（batch10 priceFormatter.test.ts 亦保留内联）
+ * - classifyTurnover：rg 全 frontend/src 无 'extremely_high' 分类导出
+ * - parseStockCode / classifyPE / classifyPB：无对应导出
+ * - multiColumnSort：生产只有单列 sortByField / bloomberg sortData，无多列排序导出（仅保留多列用例）
+ * - createPaginator：src/utils/dataTable.ts:38 DataTableProcessor 无 totalPages/pageRange/isValidPage
+ * - serializeState / deserializeState：src/store/useAppStore.ts:186-212 为 store action，
+ *   契约不同（默认值省略、数组不 join），无法直接 import 断言
+ */
 
 // Chinese Financial Data Formatting Tests
 describe('Chinese Financial Data Formatting', () => {
   // 金额格式化 (亿/万)
   describe('Amount Formatting', () => {
-    const formatAmount = (value: number) => {
-      const abs = Math.abs(value);
-      const sign = value < 0 ? '-' : '';
-      if (abs >= 1e12) return sign + (abs / 1e12).toFixed(2) + '万亿';
-      if (abs >= 1e8) return sign + (abs / 1e8).toFixed(2) + '亿';
-      if (abs >= 1e4) return sign + (abs / 1e4).toFixed(2) + '万';
-      return sign + abs.toFixed(2);
-    };
-
     it('should format 万亿', () => {
       expect(formatAmount(1.5e12)).toBe('1.50万亿');
     });
@@ -29,8 +52,10 @@ describe('Chinese Financial Data Formatting', () => {
       expect(formatAmount(999)).toBe('999.00');
     });
 
-    it('should handle negative amounts', () => {
-      expect(formatAmount(-3e8)).toBe('-3.00亿');
+    // 旧断言 '-3.00亿'（内联有 Math.abs + 单独符号）→ 生产无 abs/sign 分支，
+    // 负值不满足任何缩写阈值，落到 amount.toFixed(2) 原值分支。
+    it('should not abbreviate negative amounts (production has no abs branch)', () => {
+      expect(formatAmount(-3e8)).toBe('-300000000.00');
     });
 
     it('should handle zero', () => {
@@ -40,12 +65,6 @@ describe('Chinese Financial Data Formatting', () => {
 
   // 涨跌幅格式化
   describe('Change Percent Formatting', () => {
-    const formatChangePercent = (value: number | null | undefined) => {
-      if (value === null || value === undefined || !Number.isFinite(value)) return '--';
-      const prefix = value > 0 ? '+' : '';
-      return prefix + value.toFixed(2) + '%';
-    };
-
     it('should add + prefix for positive', () => {
       expect(formatChangePercent(3.45)).toBe('+3.45%');
     });
@@ -54,76 +73,62 @@ describe('Chinese Financial Data Formatting', () => {
       expect(formatChangePercent(-2.18)).toBe('-2.18%');
     });
 
-    it('should handle zero', () => {
-      expect(formatChangePercent(0)).toBe('0.00%');
+    // 旧断言 '0.00%' → 生产 sign = percent >= 0 ? '+'，0 也带 '+'。
+    it('should handle zero (production: +0.00%)', () => {
+      expect(formatChangePercent(0)).toBe('+0.00%');
     });
 
-    it('should handle null', () => {
-      expect(formatChangePercent(null)).toBe('--');
+    // 旧断言 '--' → 生产 null/undefined 返回 '-'。
+    it('should handle null (production: "-")', () => {
+      expect(formatChangePercent(null)).toBe('-');
     });
 
-    it('should handle NaN', () => {
-      expect(formatChangePercent(NaN)).toBe('--');
+    // 旧断言 '--' → 生产无 Number.isFinite 守卫，NaN.toFixed(2) 得 'NaN'。
+    it('should handle NaN (production: "NaN%")', () => {
+      expect(formatChangePercent(NaN)).toBe('NaN%');
     });
   });
 
   // 涨跌颜色
   describe('Rise/Fall Colors', () => {
-    const getChangeColor = (value: number) => {
-      if (value > 0) return '#ef4444'; // 红涨
-      if (value < 0) return '#22c55e'; // 绿跌
-      return '#9ca3af'; // 灰平
-    };
-
+    // 生产 getColorByChange：红涨绿跌，平盘 #6b7280（旧内联为 #9ca3af）。
     it('should return red for rise', () => {
-      expect(getChangeColor(1.5)).toBe('#ef4444');
+      expect(getColorByChange(1.5)).toBe('#ef4444');
     });
 
     it('should return green for fall', () => {
-      expect(getChangeColor(-1.5)).toBe('#22c55e');
+      expect(getColorByChange(-1.5)).toBe('#22c55e');
     });
 
-    it('should return gray for flat', () => {
-      expect(getChangeColor(0)).toBe('#9ca3af');
+    it('should return gray for flat (production: #6b7280)', () => {
+      expect(getColorByChange(0)).toBe('#6b7280');
     });
 
     // A股特色：红涨绿跌（与美股相反）
     it('should follow A-stock convention: red=up, green=down', () => {
-      expect(getChangeColor(1)).toBe('#ef4444'); // 红色
-      expect(getChangeColor(-1)).toBe('#22c55e'); // 绿色
+      expect(getColorByChange(1)).toBe('#ef4444'); // 红色
+      expect(getColorByChange(-1)).toBe('#22c55e'); // 绿色
     });
   });
 
   // 成交量格式化
   describe('Volume Formatting', () => {
-    const formatVolume = (value: number) => {
-      if (value >= 1e8) return (value / 1e8).toFixed(2) + '亿股';
-      if (value >= 1e4) return (value / 1e4).toFixed(2) + '万股';
-      return value + '股';
-    };
-
-    it('should format 亿股', () => {
-      expect(formatVolume(2.5e8)).toBe('2.50亿股');
+    // 生产单位是“手”（亿手/万手/手），旧内联写的是“股”。
+    it('should format 亿手', () => {
+      expect(formatVolume(2.5e8)).toBe('2.50亿手');
     });
 
-    it('should format 万股', () => {
-      expect(formatVolume(150000)).toBe('15.00万股');
+    it('should format 万手', () => {
+      expect(formatVolume(150000)).toBe('15.00万手');
     });
 
     it('should format small volumes', () => {
-      expect(formatVolume(500)).toBe('500股');
+      expect(formatVolume(500)).toBe('500手');
     });
   });
 
   // 市值格式化
   describe('Market Cap Formatting', () => {
-    const formatMarketCap = (value: number) => {
-      if (value >= 1e12) return (value / 1e12).toFixed(2) + '万亿';
-      if (value >= 1e8) return (value / 1e8).toFixed(2) + '亿';
-      if (value >= 1e4) return (value / 1e4).toFixed(2) + '万';
-      return value.toFixed(2);
-    };
-
     it('should format large caps in 万亿', () => {
       expect(formatMarketCap(2.5e12)).toBe('2.50万亿');
     });
@@ -138,6 +143,7 @@ describe('Chinese Financial Data Formatting', () => {
   });
 
   // 价格格式化
+  // 未迁移：utils 无 formatPrice 同名导出（batch10 priceFormatter.test.ts 同样保留内联）。
   describe('Price Formatting', () => {
     const formatPrice = (value: number | null | undefined, decimals: number = 2) => {
       if (value === null || value === undefined || !Number.isFinite(value)) return '--';
@@ -159,10 +165,7 @@ describe('Chinese Financial Data Formatting', () => {
 
   // 换手率
   describe('Turnover Rate', () => {
-    const formatTurnoverRate = (value: number) => {
-      return value.toFixed(2) + '%';
-    };
-
+    // 未迁移：生产无 'extremely_high' 等换手率分类导出，classifyTurnover 保留内联。
     const classifyTurnover = (rate: number) => {
       if (rate > 15) return 'extremely_high';
       if (rate > 8) return 'very_high';
@@ -176,6 +179,12 @@ describe('Chinese Financial Data Formatting', () => {
       expect(formatTurnoverRate(3.456)).toBe('3.46%');
     });
 
+    // 生产 formatTurnoverRate 对 null/undefined 返回 '-'（旧内联无守卫，会抛 TypeError）。
+    it('should return - for null/undefined (production guard)', () => {
+      expect(formatTurnoverRate(null)).toBe('-');
+      expect(formatTurnoverRate(undefined)).toBe('-');
+    });
+
     it('should classify turnover levels', () => {
       expect(classifyTurnover(20)).toBe('extremely_high');
       expect(classifyTurnover(10)).toBe('very_high');
@@ -187,6 +196,7 @@ describe('Chinese Financial Data Formatting', () => {
   });
 
   // 股票代码解析
+  // 未迁移：生产无交易所/板块解析的导出纯函数，parseStockCode 保留内联。
   describe('Stock Code Parsing', () => {
     const parseStockCode = (code: string) => {
       if (code.startsWith('6')) return { exchange: 'SH', board: code.startsWith('688') ? '科创板' : '主板' };
@@ -217,6 +227,7 @@ describe('Chinese Financial Data Formatting', () => {
   });
 
   // PE/PB 分析
+  // 未迁移：生产无 classifyPE/classifyPB 导出（formatters.formatRatio 只处理单值显示）。
   describe('Valuation Analysis', () => {
     const classifyPE = (pe: number) => {
       if (pe < 0) return '亏损';
@@ -258,6 +269,7 @@ describe('Chinese Financial Data Formatting', () => {
 describe('Table Sorting Engine', () => {
   type SortDirection = 'asc' | 'desc';
 
+  // 未迁移：生产只有单列 sortByField / bloomberg sortData，无多列排序导出；本 helper 仅服务多列用例。
   const multiColumnSort = <T extends Record<string, unknown>>(
     data: T[],
     sortKeys: { key: string; direction: SortDirection }[]
@@ -280,14 +292,14 @@ describe('Table Sorting Engine', () => {
 
   it('should sort by single column ascending', () => {
     const data = [{ name: 'c', price: 3 }, { name: 'a', price: 1 }, { name: 'b', price: 2 }];
-    const sorted = multiColumnSort(data, [{ key: 'name', direction: 'asc' }]);
+    const sorted = sortByField(data, 'name', 'asc');
     expect(sorted[0].name).toBe('a');
     expect(sorted[2].name).toBe('c');
   });
 
   it('should sort by single column descending', () => {
     const data = [{ price: 1 }, { price: 3 }, { price: 2 }];
-    const sorted = multiColumnSort(data, [{ key: 'price', direction: 'desc' }]);
+    const sorted = sortByField(data, 'price', 'desc');
     expect(sorted[0].price).toBe(3);
     expect(sorted[2].price).toBe(1);
   });
@@ -310,27 +322,18 @@ describe('Table Sorting Engine', () => {
   it('should not mutate original array', () => {
     const data = [{ x: 3 }, { x: 1 }, { x: 2 }];
     const original = [...data];
-    multiColumnSort(data, [{ key: 'x', direction: 'asc' }]);
+    sortByField(data, 'x', 'asc');
     expect(data).toEqual(original);
   });
 
-  // Column filter
-  const filterData = <T extends Record<string, unknown>>(
-    data: T[],
-    filters: Record<string, (value: unknown) => boolean>
-  ) => {
-    return data.filter(item =>
-      Object.entries(filters).every(([key, predicate]) => predicate(item[key]))
-    );
-  };
-
+  // 已迁移：filterData 改用生产 bloombergExportEngine 的声明式 filters（eq/gt/gte/...）。
   it('should filter by single condition', () => {
     const data = [
       { name: 'A', price: 10 },
       { name: 'B', price: 20 },
       { name: 'C', price: 5 },
     ];
-    const filtered = filterData(data, { price: (v) => (v as number) >= 10 });
+    const filtered = filterData(data, [{ key: 'price', operator: 'gte', value: 10 }]);
     expect(filtered).toHaveLength(2);
   });
 
@@ -340,16 +343,17 @@ describe('Table Sorting Engine', () => {
       { name: 'B', price: 20, sector: 'tech' },
       { name: 'C', price: 15, sector: 'bank' },
     ];
-    const filtered = filterData(data, {
-      price: (v) => (v as number) > 10,
-      sector: (v) => v === 'tech',
-    });
+    const filtered = filterData(data, [
+      { key: 'price', operator: 'gt', value: 10 },
+      { key: 'sector', operator: 'eq', value: 'tech' },
+    ]);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].name).toBe('B');
   });
 });
 
 // Pagination Logic Deep
+// 未迁移：src/utils/dataTable.ts:38 DataTableProcessor 无 totalPages/getPageRange/isValidPage 导出。
 describe('Pagination Engine Deep', () => {
   const createPaginator = (total: number, pageSize: number) => {
     const totalPages = Math.ceil(total / pageSize);
@@ -422,6 +426,8 @@ describe('Pagination Engine Deep', () => {
 });
 
 // URL State Sync Tests
+// 未迁移：src/store/useAppStore.ts:186-212 为 store action（默认值省略、数组不 join），
+// 与本文件内联的通用序列化契约不同，无法直接 import 断言。
 describe('URL State Synchronization', () => {
   const serializeState = (state: Record<string, unknown>) => {
     const params = new URLSearchParams();
@@ -447,7 +453,7 @@ describe('URL State Synchronization', () => {
     const qs = serializeState({ page: 1, q: 'test' });
     expect(qs).toContain('page=1');
     expect(qs).toContain('q=test');
-    });
+  });
 
   it('should skip null/undefined/empty', () => {
     const qs = serializeState({ a: 1, b: null, c: undefined, d: '' });
