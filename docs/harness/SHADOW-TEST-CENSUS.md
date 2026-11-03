@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **768（50.1%）** |
-| 真实导入 | 765 |
-| 影子测试代码行 | **204,347 行** |
-| 真实测试代码行 | 157,321 行 |
+| 影子测试 | **764（49.8%）** |
+| 真实导入 | 769 |
+| 影子测试代码行 | **203,206 行** |
+| 真实测试代码行 | 158,475 行 |
 
-按行数算，56.5% 的测试代码在断言副本而不是产品代码。
+按行数算，56.2% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
 | backend/src/__tests__（扁平） | 395/640 | 61.7% |
-| frontend/src/__tests__（扁平） | 373/868 | 43.0% |
+| frontend/src/__tests__（扁平） | 369/868 | 42.5% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -233,11 +233,19 @@
 - **验证**：24a frontend 26 passed；24b backend 38 passed；25a frontend 39 passed；均无 Math.random / .skip/.only。
 - **效果**：影子 774→768（50.1%），shadowLoc 205,583→204,347，realLoc 156,118→157,321；候选分布 2 个 45、1 个 248、零重叠 475。
 
+## 六（续）、批次 26（2026-11-04 07:05）
+
+- **批次 26a**（2 文件，frontend）：`dateTimeEngine.test.ts`（306→295，39→41；formatters:70-91 formatDate、i18nManager:176-202 formatRelativeTime、tradingCalendarEngine:62/70/191/195 isTradingDay/getTradingDayInfo/countTradingDays/getNthTradingDay）、`formProcessing.test.ts`（250→269，24→27；validation:43/57/75/118、securityEngine:54/86/150/163/192、debounceThrottle:6）。旧断言错：日期 token 只认小写、30 秒→「30秒钟前」、9 天→「上周」、2025-10-01 不是交易日（国庆节）、sanitizeStockCode 不补零、validatePrice('10.123') 生产为 true、sanitizeHTML 额外转义 `/` 为 `&#x2F;`、2026-02-30 严格判非法、validatePhone/Email 返回 {valid,errors,sanitized}。
+- **批次 26b**（2 文件，frontend）：`chartDataUtils.test.ts`（339→298，29→32；chartDataProcessing:20/53/73/145、correlationMatrix:78、heatmapEngine:60、chartDataEngine:55 normalizeToRange 跨包）、`kLineChart.test.ts`（242→288，23→24；chartDataProcessing:20/73/89、formatters:37/48/148、chart-theme:10/74、trendFollowingEngine:113 detectCrossovers）。旧断言错：normalizeToRange 的 min/max 是输出区间、布林带预热 null/对象数组、相关性长度不等按 min 截断（≈0.8165）、热力图 hex、downsampleData 等距点抽样、MA/EMA 不舍入、涨跌幅带正号、均线交叉返回结构化 TrendSignal。
+- **未迁移（生产无对应导出）**：getQuarter/daysSinceYearStart/endOfMonth/dateRange/parseDate/daysDiff/isSameDay/timestampToDate、债券价格与数量校验、multiSelectFilter/filterOptions/createFormDraft、interpolateData、KLineChart.tsx 内联 OHLC 提取与阳阴判定；均文件内注明原因。
+- **验证**：我独立复验 4 文件 124 passed（41+27+32+24）；无 Math.random / Date.now / 无参 new Date / .skip/.only。
+- **效果**：影子 768→764（49.8%），shadowLoc 204,347→203,206，realLoc 157,321→158,475；frontend 373→369；候选分布 2 个 41、1 个 248、零重叠 475。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 768 / total 1533 / shadowLoc 204,347（批次 25 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 764 / total 1533 / shadowLoc 203,206（批次 26 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -246,12 +254,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：768 个影子测试中 45 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 25 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：764 个影子测试中 41 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 26 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 24–25 已消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep；批次 23 消化 responsiveLogic/optionsGreeksAdvanced 等 8 个。
-- 下一批候选（2 符号重叠 45 个里价值较高的）：`frontend/src/__tests__/dateTimeEngine.test.ts`（307，tradingCalendarEngine/i18nManager/bloomberg 的 formatDate/countTradingDays）、`backend/src/__tests__/technicalPatterns.test.ts`（314，chartPatternEngine/patternRecognition 的 detectPatterns/findSupportResistance）、`frontend/src/__tests__/chartDataUtils.test.ts`（340，chartDataProcessing/technical 的 calculateBollingerBands/downsampleData）、`frontend/src/__tests__/kLineChart.test.ts`（243，technical/trendFollowing 的 calculateEMA/calculateMA）、`frontend/src/__tests__/formProcessing.test.ts`（251，validation/securityEngine 的 validatePrice/validateQuantity/validateEmail）。
+- 批次 26 已消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep；批次 23 消化 responsiveLogic/optionsGreeksAdvanced 等 8 个。
+- 下一批候选（2 符号重叠 41 个里价值较高的）：`frontend/src/__tests__/tableInteractionEngine.test.ts`（191，bloomberg/export 的 filterData/sortData）、`backend/src/__tests__/statisticalArbitrage.test.ts`（203，pairsTradingEngine 的 generatePairsSignals/testCointegration）、`backend/src/__tests__/riskManagement.test.ts`（212，VaR/CVaR/calmar）、`backend/src/__tests__/optionsPricing.test.ts`（215，blackScholes/impliedVolatility）、`frontend/src/__tests__/dataVizLogic.test.ts`（236，technical/trendFollowing 的 MA/EMA）、`frontend/src/__tests__/formInputValidationDeep.test.ts`（254）、`frontend/src/__tests__/componentRendering.test.ts`（260）、`backend/src/__tests__/microstructure.test.ts`（265）、`backend/src/__tests__/backtestCombinations.test.ts`（267）、`frontend/src/__tests__/formValidationEnhanced.test.ts`（357）、`backend/src/__tests__/quantitativeStrategies.test.ts`（365）、`backend/src/__tests__/technicalPatterns.test.ts`（314）。
 - 体量大需逐段确认：`frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
 - 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR、formatters formatVolume/formatTurnover 无 null 守卫、`StockDetailPage.tsx:141-153` 自带格式化副本、validateStockCode 只校验 6 位数字。
