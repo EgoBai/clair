@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 10 迁移后更新 05:44（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 11 迁移后更新 05:50（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,10 +16,10 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **843（55.0%）** |
-| 真实导入 | 690 |
-| 影子测试代码行 | **220,676 行** |
-| 真实测试代码行 | 139,270 行 |
+| 影子测试 | **841（54.9%）** |
+| 真实导入 | 692 |
+| 影子测试代码行 | **220,244 行** |
+| 真实测试代码行 | 139,728 行 |
 
 按行数算，61% 的测试代码在断言副本而不是产品代码。
 
@@ -27,7 +27,7 @@
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 423/640 | 66.1% |
+| backend/src/__tests__（扁平） | 421/640 | 65.8% |
 | frontend/src/__tests__（扁平） | 420/868 | 48.4% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
@@ -152,11 +152,19 @@
 - 验证：backend 56 passed、frontend 40 passed；census --check 843/1533。
 - 效果：影子 845→843，shadowLoc 222,610→220,676，realLoc 137,509→139,270。
 
+## 六（续）、批次 11（2026-11-04 05:48）
+
+- backend/src/__tests__/riskMetricsEngine.test.ts：29 用例保留；VaR/CVaR 绑 frontend/src/utils/portfolioRiskBudgetEngine.ts（参数法），Calmar/Omega/历史 CVaR 绑 frontend/src/utils/backtestPerformanceAnalyzer.ts，Beta 绑 frontend/src/utils/correlationMatrix.ts，IR 绑 frontend/src/utils/globalCorrelationEngine.ts。
+- backend/src/__tests__/marketMicrostructureV2.test.ts：15 用例保留；Kyle/Amihud/VPIN 绑 backend/src/services/orderFlowToxicityEngine.ts 的 calcKyleLambda/calcAmihudIlliquidity/calcVPIN。
+- 旧测试错在哪（生产正确、测试改口径）：VaR 旧为历史分位数取绝对值，生产只有参数法（预期收益/风险入参），预期盈利时 VaR 为负；历史 CVaR 生产返回带符号尾部均值；Calmar 生产签名 (annualizedReturn, maxDrawdown)、maxDD=0 返回 Infinity；IR 生产用 min 长度 + 样本标准差 n-1；Beta 补精确值防参数顺序颠倒仍 >0 蒙混；VPIN/Amihud 生产按 tick rule 分类且返回滚动数组。
+- 未迁移（生产无对应可导出 API）：calculateAlpha、calculateTreynorRatio、calcTradeSign、calcAutocorrelation、calcRollSpread、calcHasbrouckLambda，保留本地 helper 并在文件头注明。
+- 验证：backend 44 passed（29+15）；census --check 841/1533。
+- 效果：影子 843→841，shadowLoc 220,676→220,244，realLoc 139,270→139,728。
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 843 / total 1533 / shadowLoc 220,676（批次 10 后；批次 7 后 849、批次 6 后 851）。
+- 基线：shadow 841 / total 1533 / shadowLoc 220,244（批次 11 后；批次 10 后 843、批次 7 后 849、批次 6 后 851）。
 
 ## 八、迁移候选扫描（工具）
 
@@ -165,12 +173,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：843 个影子测试中 87 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 17、4 个 4、5 个 3）；另有 248 个只有 1 个符号重叠、508 个零重叠。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：841 个影子测试中 85 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 15、4 个 4、5 个 3）；另有 1 个符号重叠 248 个、零重叠 508 个（批次 11 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 8 候选：`optionsAndDerivatives.test.ts`（307 行）对接 `backend/src/services/optionsGreeksEngine.ts`；`volatilityRisk.test.ts`（346 行）对接 `frontend/src/utils/backtestPerformanceAnalyzer.ts` 与 `globalCorrelationEngine.ts`（注意：batch 3 已确认 calculateMaxDrawdown 的 peak 取全局峰值，与 trough 不属同一回撤区间，需谨慎）。
-- 备选：`priceFormatter.test.ts` / `numberFormatEngine.test.ts` 对接 `frontend/src/utils/formatters.ts`（formatNumber 带千分位、formatPercent 收 0.15 这类小数）。
+- 批次 12（进行中）：`numberFormatEngine.test.ts`（386 行）与 `dateTimeUtils.test.ts`（233 行）对接 `frontend/src/utils/formatters.ts` 与 `backend/src/utils/tradingCalendar.ts` / `frontend/src/utils/tradingCalendarEngine.ts` 真源。
+- 备选：`klineProcessing.test.ts`（424 行）、`chineseFinancialFormat.test.ts`（469 行）对接 `frontend/src/utils/formatters.ts` / `dataTransformUtils.ts` / `bloombergExportEngine.ts`；`securityEnhancements.test.ts` 与 `apiSecurityComprehensive.test.ts` 对接 `backend/src/middleware/auth.ts`、`frontend/src/utils/securityEngine.ts`、`backend/src/models/User.ts`。
 - 新增关注：`backend/src/indicators/technical.ts` 无 OBV/CCI/WilliamsR 实现，相关测试暂留本地 helper。
 - 关注点：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零属生产已知局限，已由测试固化，待产品阶段评估是否修。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。
