@@ -37,6 +37,98 @@ async function fetchJson(url: string, headers?: Record<string, string>): Promise
   }
 }
 
+// ==================== 东财 F10 companyType 口径 ====================
+
+/**
+ * 东财 F10 财报接口（zcfzbAjaxNew / lrbAjaxNew / xjllbAjaxNew）用 companyType
+ * 区分四套报表模板，**四者字段口径不同、不可互换**：
+ *
+ *   1 = 证券   2 = 保险   3 = 银行   4 = 工商业（通用）
+ *
+ * 实测（2026-11，600000 浦发 / 601318 中国平安 / 600030 中信证券 / 600519 茅台）：
+ * 请求的 companyType 与标的实际类型不匹配时，接口返回 HTTP 200 + `{"$type":"1"}`
+ * （**没有 data 字段**），不会返回错口径的数据。因此「按候选顺序试、首个非空即用」
+ * 是安全的——错类型只会得到空，不会得到错数。
+ *
+ * 另注：银行/保险模板不披露 TOTAL_OPERATE_INCOME，营业收入只落在 OPERATE_INCOME；
+ * 且两者均无「营业成本」概念（OPERATE_COST 缺失），故毛利率等成本类指标不能现算（见 mapIncomeStatement）。
+ */
+const COMPANY_TYPE = { SECURITIES: 1, INSURANCE: 2, BANK: 3, INDUSTRIAL: 4 } as const;
+
+/** 类型未知时的回退链：工商业 → 银行 → 保险 → 证券（按 A 股标的分布，非金融占绝大多数） */
+const COMPANY_TYPE_FALLBACK_CHAIN: number[] = [
+  COMPANY_TYPE.INDUSTRIAL,
+  COMPANY_TYPE.BANK,
+  COMPANY_TYPE.INSURANCE,
+  COMPANY_TYPE.SECURITIES,
+];
+
+/** companyType 是公司固有属性，命中后缓存 1 小时，避免每次请求都试错 */
+const COMPANY_TYPE_TTL_MS = 60 * 60 * 1000;
+const companyTypeCache = new Map<string, { type: number; at: number }>();
+
+/** 清空 companyType 解析缓存（供单测隔离用） */
+export function resetCompanyTypeCache(): void {
+  companyTypeCache.clear();
+}
+
+/** 报表标识：缓存键与对外 companyTypeUsed 均以此区分（三表各自独立解析） */
+export type StatementKind = 'balance-sheet' | 'income-statement' | 'cash-flow';
+
+const STATEMENT_ENDPOINT: Record<StatementKind, string> = {
+  'balance-sheet': 'zcfzbAjaxNew',
+  'income-statement': 'lrbAjaxNew',
+  'cash-flow': 'xjllbAjaxNew',
+};
+
+/** 上一次解析实际采用的 companyType（供路由层回填 companyTypeUsed，便于事后排查口径） */
+export function getCompanyTypeUsed(symbol: string, kind: StatementKind): number | null {
+  const entry = companyTypeCache.get(`${kind}|${normalizeSymbol(symbol).digits}`);
+  return entry ? entry.type : null;
+}
+
+/**
+ * 由 stocks.industry（+ name 用于细分「非银金融」）推导首选 companyType。
+ * industry 缺失（如库未初始化 / 上市新股）时返回 null，交由纯回退链处理。
+ */
+function primaryCompanyType(industry: string | null, name: string | null): number | null {
+  const ind = industry ?? '';
+  const nm = name ?? '';
+  if (/银行/.test(ind)) return COMPANY_TYPE.BANK;
+  if (/保险/.test(ind)) return COMPANY_TYPE.INSURANCE;
+  if (/证券|券商/.test(ind)) return COMPANY_TYPE.SECURITIES;
+  if (/非银金融|多元金融|其他金融|金融服务/.test(ind)) {
+    // 「非银金融」是粗分类（保险 + 证券 + 信托 + 金控混装），用名称细分；
+    // 细分不出时按保险模板起步，错类型只会返回空，回退链会继续试证券。
+    return /证券|券商|投行/.test(nm) ? COMPANY_TYPE.SECURITIES : COMPANY_TYPE.INSURANCE;
+  }
+  // 明确属于非金融行业 → 工商业模板
+  return ind ? COMPANY_TYPE.INDUSTRIAL : null;
+}
+
+/** 读取标的行业；库未初始化/降级时诚实返回 null（不阻断财报抓取） */
+async function lookupStockProfile(symbol: string): Promise<{ industry: string | null; name: string | null }> {
+  try {
+    const { db } = await import('../db/dbFactory');
+    const stock = await db.getStockBySymbol(symbol);
+    return { industry: stock?.industry ?? null, name: stock?.name ?? null };
+  } catch {
+    // 单测/未初始化场景：退化为纯 companyType 回退链
+    return { industry: null, name: null };
+  }
+}
+
+/**
+ * 候选 companyType 序列（首位 = 行业推导的首选类型，其后为回退链）。
+ * 上限 4 个，**只走一轮**，不做无限重试。
+ */
+async function companyTypeCandidates(symbol: string): Promise<number[]> {
+  const { industry, name } = await lookupStockProfile(symbol);
+  const primary = primaryCompanyType(industry, name);
+  if (primary === null) return [...COMPANY_TYPE_FALLBACK_CHAIN];
+  return [primary, ...COMPANY_TYPE_FALLBACK_CHAIN.filter((c) => c !== primary)];
+}
+
 /** 将多种符号格式归一化为东财所需的两种形式：emCode=SH600519, secucode=600519.SH */
 function normalizeSymbol(symbol: string): { emCode: string; secucode: string; digits: string } {
   const trimmed = (symbol || '').trim().toUpperCase();
@@ -75,7 +167,12 @@ export interface FinancialIndicator {
   roe: number; // 加权净资产收益率
   bps: number; // 每股净资产
   ocfPerShare: number; // 每股经营现金流
-  grossMargin: number; // 销售毛利率
+  /**
+   * 销售毛利率（%）。**null = 该标的无此口径**：
+   * 东财指标源 XSMLL 对银行/保险为空（这两类公司没有「营业成本/毛利」概念），
+   * 不得用 0 顶替 —— 0 会被前端渲染成真实存在的「0.00%」。
+   */
+  grossMargin: number | null;
   revenueGrowth: number; // 营收同比 %
   profitGrowth: number; // 归母净利同比 %
   dividendYield: number; // 股息率 %
@@ -125,7 +222,8 @@ export async function getFinancialIndicators(
       roe: num(r.WEIGHTAVG_ROE),
       bps: num(r.BPS),
       ocfPerShare: num(r.MGJYXJJE),
-      grossMargin: num(r.XSMLL),
+      // XSMLL 缺失（银行/保险）→ null，不用 0 冒充「毛利率 0.00%」
+      grossMargin: r.XSMLL === null || r.XSMLL === undefined ? null : fmt(num(r.XSMLL)),
       revenueGrowth: num(r.YSTZ),
       profitGrowth: num(r.SJLTZ),
       dividendYield: num(r.ZXGXL),
@@ -173,7 +271,8 @@ export interface IncomeStatement {
   operatingRevenue: number;
   otherRevenue: number;
   operatingCost: number;
-  grossProfit: number;
+  /** 单位：元。null = 该标的报表无「营业成本」口径（银行/保险），毛利润无从计算 */
+  grossProfit: number | null;
   sellingExpenses: number;
   adminExpenses: number;
   financeExpenses: number;
@@ -187,11 +286,18 @@ export interface IncomeStatement {
   parentNetProfit: number;
   minorityInterest: number;
   eps: number;
-  grossMargin: number;
+  /** 毛利率（%）。null = 无营业成本口径，不得现算 */
+  grossMargin: number | null;
   operatingMargin: number;
   netMargin: number;
-  roe: number;
-  roa: number;
+  /**
+   * ROE/ROA（%）。**恒为 null**：利润表单期数据无法独立算出 ROE/ROA
+   * （需要资产负债表期初期末净资产/总资产）。历史实现硬编码 0，会被前端渲染成
+   * 「ROE 0.00%」冒充真实值，并与 summary.indicators.roe 形成同页两个 ROE。
+   * 唯一可信来源是 summary.indicators.roe（东财 WEIGHTAVG_ROE 加权净资产收益率）。
+   */
+  roe: null;
+  roa: null;
 }
 
 export interface CashFlow {
@@ -262,10 +368,21 @@ function mapBalanceSheet(symbol: string, r: any): BalanceSheet {
 }
 
 function mapIncomeStatement(symbol: string, r: any): IncomeStatement {
-  const totalRevenue = num(r.TOTAL_OPERATE_INCOME);
+  // 银行/保险模板不披露 TOTAL_OPERATE_INCOME，营业收入只落在 OPERATE_INCOME；
+  // 缺 TOTAL_OPERATE_INCOME 时用它兜底（两者都是真实披露字段，非估算）。
+  const totalRevenue = num(r.TOTAL_OPERATE_INCOME) || num(r.OPERATE_INCOME);
   const operatingRevenue = num(r.OPERATE_INCOME);
   const operatingCost = num(r.OPERATE_COST);
-  const grossProfit = operatingRevenue - operatingCost - num(r.OPERATE_TAX_ADD);
+  // 营业成本缺失（银行/保险无此科目）时 num() 会得到 0，若继续现算毛利率会得到
+  // 虚高的假毛利率（实测银行股 98.82%）。此种情形毛利率/毛利润一律 null。
+  const hasOperatingCost =
+    r.OPERATE_COST !== null && r.OPERATE_COST !== undefined && Number(r.OPERATE_COST) > 0;
+  // 毛利口径：营业收入 − 营业成本。
+  // **不减「税金及附加」**：东财指标源 XSMLL（销售毛利率）实测就是 (营业收入−营业成本)/营业收入
+  // （茅台 2025 年报：15394.58亿/16883.81亿 = 91.1795%，与 XSMLL 完全一致）。
+  // 历史实现多减了 OPERATE_TAX_ADD，白酒/烟草等消费税重的行业会凭空低十几个点
+  // （茅台 74.98% vs 91.18%），同页出现两个互相矛盾的毛利率。
+  const grossProfit = operatingRevenue - operatingCost;
   const netProfit = num(r.NETPROFIT);
   const parentNetProfit = num(r.PARENT_NETPROFIT);
   return {
@@ -276,7 +393,7 @@ function mapIncomeStatement(symbol: string, r: any): IncomeStatement {
     operatingRevenue,
     otherRevenue: fmt(totalRevenue - operatingRevenue),
     operatingCost,
-    grossProfit: fmt(grossProfit),
+    grossProfit: hasOperatingCost ? fmt(grossProfit) : null,
     sellingExpenses: num(r.SALE_EXPENSE),
     adminExpenses: num(r.MANAGE_EXPENSE),
     financeExpenses: num(r.FINANCE_EXPENSE),
@@ -290,12 +407,15 @@ function mapIncomeStatement(symbol: string, r: any): IncomeStatement {
     parentNetProfit,
     minorityInterest: fmt(netProfit - parentNetProfit),
     eps: num(r.BASIC_EPS),
-    grossMargin: operatingRevenue > 0 ? fmt((grossProfit / operatingRevenue) * 100) : 0,
+    grossMargin:
+      hasOperatingCost && operatingRevenue > 0 ? fmt((grossProfit / operatingRevenue) * 100) : null,
     operatingMargin: totalRevenue > 0 ? fmt((num(r.OPERATE_PROFIT) / totalRevenue) * 100) : 0,
     netMargin: totalRevenue > 0 ? fmt((netProfit / totalRevenue) * 100) : 0,
-    // ROE/ROA 需资产负债表数据；利润表端无法独立计算，诚实置 0（由 summary 结合资产负债表计算）
-    roe: 0,
-    roa: 0,
+    // ROE/ROA 需资产负债表（期初/期末净资产、总资产），利润表端无法独立计算。
+    // 诚实置 null（而非 0）：0 会被渲染成「0.00%」冒充真实值，且与 summary 的
+    // indicators.roe 并存时同页出现两个互相矛盾的 ROE。
+    roe: null,
+    roa: null,
   };
 }
 
@@ -329,13 +449,35 @@ function mapCashFlow(symbol: string, r: any): CashFlow {
   };
 }
 
+/** 单期单模板抓取：返回该报告期的原始行（无数据时返回 []） */
+async function fetchStatementRows(
+  endpoint: string,
+  emCode: string,
+  date: string,
+  companyType: number,
+): Promise<any[]> {
+  let json: any;
+  try {
+    json = await fetchJson(
+      `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/${endpoint}` +
+        `?companyType=${companyType}&reportDateType=0&reportType=1&dates=${date}&code=${emCode}`,
+      { 'User-Agent': 'Mozilla/5.0', Referer: 'https://emweb.securities.eastmoney.com/' },
+    );
+  } catch (e) {
+    throw new FinancialsUnavailableError(e instanceof Error ? e.message : '财报源请求失败');
+  }
+  const rows = json?.data;
+  return Array.isArray(rows) ? rows : [];
+}
+
 async function fetchStatement<T>(
   symbol: string,
-  endpoint: string,
+  kind: StatementKind,
   periods: number,
   mapper: (symbol: string, r: any) => T,
 ): Promise<T[]> {
-  const { emCode } = normalizeSymbol(symbol);
+  const { emCode, digits } = normalizeSymbol(symbol);
+  const endpoint = STATEMENT_ENDPOINT[kind];
   let dates: string[];
   try {
     dates = await getAnnualDates(symbol, periods);
@@ -347,42 +489,58 @@ async function fetchStatement<T>(
     throw new FinancialsUnavailableError(`未获取到 ${symbol} 的年报报告期`);
   }
   const want = dates.slice(0, periods);
-  let results: any[];
-  try {
-    results = await Promise.all(
-      want.map((d) =>
-        fetchJson(
-          `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/${endpoint}` +
-            `?companyType=4&reportDateType=0&reportType=1&dates=${d}&code=${emCode}`,
-          { 'User-Agent': 'Mozilla/5.0', Referer: 'https://emweb.securities.eastmoney.com/' },
-        ),
-      ),
-    );
-  } catch (e) {
-    throw new FinancialsUnavailableError(e instanceof Error ? e.message : '财报源请求失败');
+
+  // ---- 第 1 步：按候选 companyType 逐类型试最新报告期，首个非空即定案 ----
+  // 「新希望 = 行业首选类型」；缓存的类型排最前，命中后其余类型不再请求。
+  const cacheKey = `${kind}|${digits}`;
+  const cached = companyTypeCache.get(cacheKey);
+  const cachedFresh = cached && Date.now() - cached.at < COMPANY_TYPE_TTL_MS ? cached.type : null;
+  if (cached && cachedFresh === null) companyTypeCache.delete(cacheKey);
+
+  const candidates = await companyTypeCandidates(symbol);
+  const tryOrder = cachedFresh !== null ? [cachedFresh, ...candidates.filter((c) => c !== cachedFresh)] : candidates;
+
+  let companyTypeUsed: number | null = null;
+  let firstRows: any[] = [];
+  for (const ct of tryOrder) {
+    const rows = await fetchStatementRows(endpoint, emCode, want[0], ct);
+    if (rows.length > 0) {
+      companyTypeUsed = ct;
+      firstRows = rows;
+      break;
+    }
   }
-  const out: T[] = [];
-  want.forEach((d, i) => {
-    const rows: any[] = results[i]?.data ?? [];
-    if (rows.length > 0) out.push(mapper(symbol, rows[0]));
-    // 该报告期无数据则跳过（诚实，不补伪造）
-  });
-  if (out.length === 0) {
-    throw new FinancialsUnavailableError(`未获取到 ${symbol} 的报表数据`);
+  if (companyTypeUsed === null) {
+    throw new FinancialsUnavailableError(
+      `未获取到 ${symbol} 的报表数据（companyType 依次尝试 ${tryOrder.join('/')} 均无数据）`,
+    );
+  }
+  companyTypeCache.set(cacheKey, { type: companyTypeUsed, at: Date.now() });
+
+  const out: T[] = [mapper(symbol, firstRows[0])];
+  // ---- 第 2 步：其余报告期用已定案的 companyType 并行拉取 ----
+  // 某期无数据则跳过（诚实，不补伪造），也不再跨类型回退（类型已定案，换类型只会是空）。
+  if (want.length > 1) {
+    const rest = await Promise.all(
+      want.slice(1).map((d) => fetchStatementRows(endpoint, emCode, d, companyTypeUsed as number)),
+    );
+    rest.forEach((rows) => {
+      if (rows.length > 0) out.push(mapper(symbol, rows[0]));
+    });
   }
   return out;
 }
 
 export async function getBalanceSheet(symbol: string, periods: number): Promise<BalanceSheet[]> {
-  return fetchStatement(symbol, 'zcfzbAjaxNew', periods, mapBalanceSheet);
+  return fetchStatement(symbol, 'balance-sheet', periods, mapBalanceSheet);
 }
 
 export async function getIncomeStatement(symbol: string, periods: number): Promise<IncomeStatement[]> {
-  return fetchStatement(symbol, 'lrbAjaxNew', periods, mapIncomeStatement);
+  return fetchStatement(symbol, 'income-statement', periods, mapIncomeStatement);
 }
 
 export async function getCashFlow(symbol: string, periods: number): Promise<CashFlow[]> {
-  return fetchStatement(symbol, 'xjllbAjaxNew', periods, mapCashFlow);
+  return fetchStatement(symbol, 'cash-flow', periods, mapCashFlow);
 }
 
 // ==================== 汇总 ====================
@@ -394,8 +552,9 @@ export interface FinancialSummary {
   incomeStatement: IncomeStatement | null;
   cashFlow: CashFlow | null;
   indicators: {
-    grossMargin: number;
-    netMargin: number;
+    /** 销售毛利率（%）。null = 该标的无此口径（银行/保险无营业成本） */
+    grossMargin: number | null;
+    netMargin: number | null;
     roe: number;
     roa: number;
     currentRatio: number;
@@ -436,7 +595,10 @@ export async function getFinancialSummary(symbol: string): Promise<FinancialSumm
     const revenue = incomeStatement.totalRevenue;
     const operatingCost = incomeStatement.operatingCost;
     indicators = {
-      grossMargin: ind.grossMargin || incomeStatement.grossMargin,
+      // 口径优先级：东财指标源（XSMLL，与 Wind/Choice 同口径）> 利润表现算。
+      // 用 ?? 而非 ||：指标源为 0（真实 0%）时不能被现算值顶掉；
+      // 两者都为 null（银行/保险无营业成本）时诚实给 null，前端渲染「—」。
+      grossMargin: ind.grossMargin ?? incomeStatement.grossMargin,
       netMargin: ind.netMargin || incomeStatement.netMargin,
       roe: ind.roe,
       roa: totalAssets > 0 ? fmt((incomeStatement.parentNetProfit / totalAssets) * 100) : 0,

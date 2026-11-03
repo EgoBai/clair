@@ -210,17 +210,17 @@ describe('financialsDataService 三大报表 (honest-data)', () => {
       const inc = rows[0];
       expect(inc.totalRevenue).toBe(1.5e11);
       expect(inc.operatingRevenue).toBe(1.48e11);
-      // grossProfit = 1.48e11 - 1.2e10 - 2.0e9 = 1.34e11
-      expect(inc.grossProfit).toBe(1.34e11);
+      // grossProfit = 1.48e11 - 1.2e10 = 1.36e11（毛利不含「税金及附加」，与 XSMLL 口径一致）
+      expect(inc.grossProfit).toBe(1.36e11);
       // minorityInterest = NETPROFIT - PARENT_NETPROFIT = 1e9
       expect(inc.minorityInterest).toBe(1.0e9);
-      // grossMargin = 1.34e11 / 1.48e11 * 100 ≈ 90.54
-      expect(inc.grossMargin).toBeCloseTo(90.54, 2);
+      // grossMargin = 1.36e11 / 1.48e11 * 100 ≈ 91.89
+      expect(inc.grossMargin).toBeCloseTo(91.89, 2);
       // netMargin = 7.6e10 / 1.5e11 * 100 ≈ 50.67
       expect(inc.netMargin).toBeCloseTo(50.67, 2);
-      // ROE/ROA 利润表端诚实置 0（由 summary 结合资产负债表计算）
-      expect(inc.roe).toBe(0);
-      expect(inc.roa).toBe(0);
+      // ROE/ROA 利润表端诚实置 null（不用 0 冒充；唯一口径是 summary.indicators.roe）
+      expect(inc.roe).toBeNull();
+      expect(inc.roa).toBeNull();
     });
 
     it('getCashFlow 映射现金流量表（支出项取负）', async () => {

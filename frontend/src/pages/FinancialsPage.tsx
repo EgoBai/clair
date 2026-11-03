@@ -39,24 +39,29 @@ interface IncomeStatement {
   period: string;
   totalRevenue: number;
   operatingCost: number;
-  grossProfit: number;
+  /** 单位：元。null = 无营业成本口径（银行/保险） */
+  grossProfit: number | null;
   operatingProfit: number;
   netProfit: number;
   eps: number;
-  grossMargin: number;
+  /** 毛利率（%）。null = 无营业成本口径，不能现算 */
+  grossMargin: number | null;
   netMargin: number;
-  roe: number;
-  roa: number;
+  /** 利润表端恒为 null：ROE 唯一可信来源是 summary.indicators.roe */
+  roe: null;
+  roa: null;
 }
 
 interface CashFlow {
   symbol: string;
   period: string;
+  /** 以下金额单位均为「元」（东财现金流量表原始口径） */
   netOperatingCashFlow: number;
   netInvestingCashFlow: number;
   netFinancingCashFlow: number;
   netCashFlow: number;
   freeCashFlow: number;
+  /** 经营现金流/净利润 × 100，**百分数**（72.12 表示 72.12%，不是倍数 72.12x） */
   operatingCashToNetProfit: number;
 }
 
@@ -65,7 +70,8 @@ interface FinancialSummary {
   incomeStatement: IncomeStatement;
   cashFlow: CashFlow;
   indicators: {
-    grossMargin: number;
+    /** 毛利率（%）。null = 该标的无此口径（银行/保险无营业成本） */
+    grossMargin: number | null;
     netMargin: number;
     roe: number;
     roa: number;
@@ -78,11 +84,25 @@ interface FinancialSummary {
 
 const COLORS = ['#1890ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1', '#13c2c2'];
 
-function formatMoney(value: number): string {
+/** 金额格式化。**入参单位：元**（后端三表金额均为元），输出带中文量级后缀 */
+function formatMoney(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
   const abs = Math.abs(value);
-  if (abs >= 10000) return `${(value / 10000).toFixed(2)}万亿`;
-  if (abs >= 1) return `${value.toFixed(2)}亿`;
-  return `${(value * 10000).toFixed(0)}万`;
+  if (abs >= 1e12) return `${(value / 1e12).toFixed(2)}万亿`;
+  if (abs >= 1e8) return `${(value / 1e8).toFixed(2)}亿`;
+  if (abs >= 1e4) return `${(value / 1e4).toFixed(2)}万`;
+  return `${value.toFixed(2)}元`;
+}
+
+/** 元 → 亿元（配合 Statistic suffix="亿" 使用，避免出现「61522204989 亿」） */
+function toYi(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  return value / 1e8;
+}
+
+/** 百分比/倍率类指标缺失时的占位，不用 0 冒充真实值 */
+function pctOrDash(value: number | null | undefined): string | number {
+  return value === null || value === undefined ? '—' : value;
 }
 
 export default function FinancialsPage() {
@@ -163,7 +183,7 @@ export default function FinancialsPage() {
     { name: '其他', value: balanceSheet.totalAssets - balanceSheet.cash - balanceSheet.accountsReceivable - balanceSheet.inventory - balanceSheet.fixedAssets },
   ];
 
-  // 收入成本结构
+  // 收入成本结构（当前未渲染，保留结构；毛利润为 null 时不得当作 0 使用）
   const revenueStructure = [
     { name: '营业成本', value: incomeStatement.operatingCost },
     { name: '毛利润', value: incomeStatement.grossProfit },
@@ -177,7 +197,7 @@ export default function FinancialsPage() {
     筹资现金流: cf.netFinancingCashFlow,
   }));
 
-  // 盈利能力雷达图
+  // 盈利能力雷达图（null = 该标的本期无此口径，直接剔除该维度，不画成 0）
   const radarData = [
     { metric: 'ROE', value: indicators.roe, fullMark: 30 },
     { metric: '毛利率', value: indicators.grossMargin, fullMark: 60 },
@@ -185,7 +205,7 @@ export default function FinancialsPage() {
     { metric: 'ROA', value: indicators.roa, fullMark: 15 },
     { metric: '收入增长', value: Math.max(0, indicators.revenueGrowth), fullMark: 30 },
     { metric: '利润增长', value: Math.max(0, indicators.profitGrowth), fullMark: 40 },
-  ];
+  ].filter((d): d is { metric: string; value: number; fullMark: number } => d.value !== null);
 
   // 资产负债表表格
   const bsColumns = [
@@ -242,12 +262,14 @@ export default function FinancialsPage() {
           <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
             <Col xs={12} sm={8} md={6}>
               <Card size="small">
-                <Statistic title="ROE" value={indicators.roe} precision={2} suffix="%" valueStyle={{ color: indicators.roe > 10 ? '#52c41a' : '#ff4d4f' }} />
+                {/* ROE 唯一口径：summary.indicators.roe（东财加权净资产收益率）。利润表端 roe 恒为 null */}
+                <Statistic title="ROE" value={pctOrDash(indicators.roe)} precision={2} suffix="%" valueStyle={{ color: indicators.roe > 10 ? '#52c41a' : '#ff4d4f' }} />
               </Card>
             </Col>
             <Col xs={12} sm={8} md={6}>
               <Card size="small">
-                <Statistic title="毛利率" value={indicators.grossMargin} precision={2} suffix="%" valueStyle={{ color: indicators.grossMargin > 30 ? '#52c41a' : '#faad14' }} />
+                {/* 毛利率口径：东财指标源 XSMLL；银行/保险无营业成本 → null → 显示「—」 */}
+                <Statistic title="毛利率" value={pctOrDash(indicators.grossMargin)} precision={2} suffix="%" valueStyle={{ color: (indicators.grossMargin ?? 0) > 30 ? '#52c41a' : '#faad14' }} />
               </Card>
             </Col>
             <Col xs={12} sm={8} md={6}>
@@ -272,7 +294,13 @@ export default function FinancialsPage() {
             </Col>
             <Col xs={12} sm={8} md={6}>
               <Card size="small">
-                <Statistic title="流动比率" value={indicators.currentRatio} precision={2} suffix="倍" />
+                {/* 银行/保险报表不区分流动/非流动，缺失科目被记 0 → 现算必得「0.00 倍」假数，故置「—」 */}
+                <Statistic
+                  title="流动比率"
+                  value={pctOrDash(balanceSheet.currentLiabilities > 0 && balanceSheet.currentAssets > 0 ? indicators.currentRatio : null)}
+                  precision={2}
+                  suffix={balanceSheet.currentLiabilities > 0 && balanceSheet.currentAssets > 0 ? '倍' : ''}
+                />
               </Card>
             </Col>
             <Col xs={12} sm={8} md={6}>
@@ -369,7 +397,8 @@ export default function FinancialsPage() {
                     <Legend />
                     <Line type="monotone" dataKey="grossMargin" name="毛利率" stroke="#1890ff" strokeWidth={2} />
                     <Line type="monotone" dataKey="netMargin" name="净利率" stroke="#52c41a" strokeWidth={2} />
-                    <Line type="monotone" dataKey="roe" name="ROE" stroke="#722ed1" strokeWidth={2} />
+                    {/* 利润表端不再提供 ROE（恒 null，见后端 IncomeStatement.roe 注释），
+                        此处不画 ROE 折线，避免图例出现一个永远无数据的 ROE 系列 */}
                   </LineChart>
                 </ResponsiveContainer>
               </Card>
@@ -383,20 +412,22 @@ export default function FinancialsPage() {
       label: '现金流量表',
       children: (
         <>
+          {/* 单位：后端 net*CashFlow 为「元」，展示前统一 /1e8 换算成「亿元」，
+              否则会出现「61522204989.35 亿」这类量级错乱 */}
           <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
             <Col xs={8}>
               <Card size="small">
-                <Statistic title="经营现金流" value={cashFlow.netOperatingCashFlow} precision={2} suffix="亿" valueStyle={{ color: cashFlow.netOperatingCashFlow > 0 ? '#52c41a' : '#ff4d4f' }} />
+                <Statistic title="经营现金流" value={pctOrDash(toYi(cashFlow.netOperatingCashFlow))} precision={2} suffix="亿" valueStyle={{ color: cashFlow.netOperatingCashFlow > 0 ? '#52c41a' : '#ff4d4f' }} />
               </Card>
             </Col>
             <Col xs={8}>
               <Card size="small">
-                <Statistic title="投资现金流" value={cashFlow.netInvestingCashFlow} precision={2} suffix="亿" />
+                <Statistic title="投资现金流" value={pctOrDash(toYi(cashFlow.netInvestingCashFlow))} precision={2} suffix="亿" />
               </Card>
             </Col>
             <Col xs={8}>
               <Card size="small">
-                <Statistic title="筹资现金流" value={cashFlow.netFinancingCashFlow} precision={2} suffix="亿" />
+                <Statistic title="筹资现金流" value={pctOrDash(toYi(cashFlow.netFinancingCashFlow))} precision={2} suffix="亿" />
               </Card>
             </Col>
           </Row>
@@ -474,8 +505,8 @@ function AiInsightPanel({ insight }: { insight: FinancialInsight }) {
               }
             >
               <Statistic
-                value={d.headline}
-                suffix={d.headlineSuffix}
+                value={d.headline === null ? '—' : d.headline}
+                suffix={d.headline === null ? '' : d.headlineSuffix}
                 precision={d.headlinePrecision}
                 valueStyle={{ color: d.color, fontSize: 22 }}
               />

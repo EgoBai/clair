@@ -16,6 +16,7 @@ import {
   getIncomeStatement,
   getCashFlow,
   getFinancialSummary,
+  getCompanyTypeUsed,
   FinancialsUnavailableError,
 } from '../services/financialsDataService';
 import { getFactorSeries, FactorSeriesUnavailableError } from '../services/factorSeriesService';
@@ -33,13 +34,24 @@ function unavailable(e: unknown) {
 /**
  * 资产负债表（真实源，多期年报）
  * GET /api/financials/balance-sheet?symbol=600519&periods=4
+ *
+ * companyTypeUsed 记录本次实际采用的东财 F10 报表模板：
+ *   1=证券 2=保险 3=银行 4=工商业。金融股不再因写死 4 而空表；
+ *   留下该字段便于事后排查「口径是否取错」。
  */
 router.get('/financials/balance-sheet', validateQuery(schemas.financialsQuery), asyncHandler(async (req, res) => {
   const symbol = (req.query.symbol as string) || '600519';
   const periods = Math.min(parseInt(req.query.periods as string) || 4, 10);
   try {
     const data = await getBalanceSheet(symbol, periods);
-    sendSuccess(res, { symbol, type: 'balance_sheet', periods: data, updatedAt: new Date().toISOString(), dataSource: 'real' });
+    sendSuccess(res, {
+      symbol,
+      type: 'balance_sheet',
+      periods: data,
+      companyTypeUsed: getCompanyTypeUsed(symbol, 'balance-sheet'),
+      updatedAt: new Date().toISOString(),
+      dataSource: 'real',
+    });
   } catch (e) {
     sendSuccess(res, { symbol, type: 'balance_sheet', periods: [], updatedAt: new Date().toISOString(), ...unavailable(e) });
   }
@@ -54,7 +66,14 @@ router.get('/financials/income-statement', validateQuery(schemas.financialsQuery
   const periods = Math.min(parseInt(req.query.periods as string) || 4, 10);
   try {
     const data = await getIncomeStatement(symbol, periods);
-    sendSuccess(res, { symbol, type: 'income_statement', periods: data, updatedAt: new Date().toISOString(), dataSource: 'real' });
+    sendSuccess(res, {
+      symbol,
+      type: 'income_statement',
+      periods: data,
+      companyTypeUsed: getCompanyTypeUsed(symbol, 'income-statement'),
+      updatedAt: new Date().toISOString(),
+      dataSource: 'real',
+    });
   } catch (e) {
     sendSuccess(res, { symbol, type: 'income_statement', periods: [], updatedAt: new Date().toISOString(), ...unavailable(e) });
   }
@@ -69,7 +88,14 @@ router.get('/financials/cash-flow', validateQuery(schemas.financialsQuery), asyn
   const periods = Math.min(parseInt(req.query.periods as string) || 4, 10);
   try {
     const data = await getCashFlow(symbol, periods);
-    sendSuccess(res, { symbol, type: 'cash_flow', periods: data, updatedAt: new Date().toISOString(), dataSource: 'real' });
+    sendSuccess(res, {
+      symbol,
+      type: 'cash_flow',
+      periods: data,
+      companyTypeUsed: getCompanyTypeUsed(symbol, 'cash-flow'),
+      updatedAt: new Date().toISOString(),
+      dataSource: 'real',
+    });
   } catch (e) {
     sendSuccess(res, { symbol, type: 'cash_flow', periods: [], updatedAt: new Date().toISOString(), ...unavailable(e) });
   }
@@ -83,7 +109,18 @@ router.get('/financials/summary', validateQuery(schemas.financialsQuery), asyncH
   const symbol = (req.query.symbol as string) || '600519';
   try {
     const summary = await getFinancialSummary(symbol);
-    sendSuccess(res, { ...summary, updatedAt: new Date().toISOString(), dataSource: 'real' });
+    sendSuccess(res, {
+      ...summary,
+      // 三表可能各自解析到不同模板（实测银行股资产负债表只认 3，利润表 3/4 均可），
+      // 逐表留下实际采用的 companyType，便于事后排查口径。
+      companyTypeUsed: {
+        balanceSheet: getCompanyTypeUsed(symbol, 'balance-sheet'),
+        incomeStatement: getCompanyTypeUsed(symbol, 'income-statement'),
+        cashFlow: getCompanyTypeUsed(symbol, 'cash-flow'),
+      },
+      updatedAt: new Date().toISOString(),
+      dataSource: 'real',
+    });
   } catch (e) {
     if (e instanceof FinancialsUnavailableError) {
       sendSuccess(res, { symbol, period: '', balanceSheet: null, incomeStatement: null, cashFlow: null, indicators: null, updatedAt: new Date().toISOString(), ...unavailable(e) });
@@ -162,7 +199,8 @@ router.get('/financials/trends', validateQuery(schemas.financialsTrendsQuery), a
     for (let i = 0; i < indicators.length; i++) {
       const ind = indicators[i];
       const bal = balanceArr[i];
-      let value = 0;
+      // null = 该期无此口径（如银行/保险的毛利率），跳过而非用 0 冒充
+      let value: number | null = 0;
       switch (metric) {
         case 'roe': value = ind.roe; break;
         case 'netMargin': value = ind.netMargin; break;
@@ -181,6 +219,7 @@ router.get('/financials/trends', validateQuery(schemas.financialsTrendsQuery), a
           break;
         default: value = 0;
       }
+      if (value === null || !Number.isFinite(Number(value))) continue;
       data.push({ period: String(ind.dataYear || ind.reportDate.slice(0, 4)), value: +Number(value).toFixed(2) });
     }
     sendSuccess(res, { symbol, metric, values: data.reverse(), dataSource: 'real' });

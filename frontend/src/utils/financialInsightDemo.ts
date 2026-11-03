@@ -18,14 +18,17 @@ export interface FIncomeStatement {
   period: string;
   totalRevenue: number;
   operatingCost: number;
-  grossProfit: number;
+  /** 单位：元。null = 无营业成本口径（银行/保险） */
+  grossProfit: number | null;
   operatingProfit: number;
   netProfit: number;
   eps: number;
-  grossMargin: number;
+  /** 毛利率（%）。null = 无营业成本口径，不得现算 */
+  grossMargin: number | null;
   netMargin: number;
-  roe: number;
-  roa: number;
+  /** 后端利润表端恒为 null（ROE 需资产负债表，唯一可信来源是 summary.indicators.roe） */
+  roe: number | null;
+  roa: number | null;
 }
 
 export interface FBalanceSheet {
@@ -57,7 +60,7 @@ export interface FCashFlow {
 }
 
 export interface FIndicators {
-  grossMargin: number;
+  grossMargin: number | null;
   netMargin: number;
   roe: number;
   roa: number;
@@ -96,8 +99,8 @@ export interface InsightDetail {
 
 export interface DimensionResult {
   title: string;
-  /** 主指标数值（用于 Statistic） */
-  headline: number;
+  /** 主指标数值（用于 Statistic）。null = 该标的本期无此口径（如银行无毛利率），渲染为「—」 */
+  headline: number | null;
   headlineSuffix: string;
   headlinePrecision: number;
   /** 趋势方向（决定红/绿） */
@@ -172,46 +175,58 @@ export function computeFinancialInsight(
   const lastCash = summary.cashFlow;
 
   // 多期序列
-  const grossMargins = incomeHistory.map((i) => i.grossMargin);
   const netMargins = incomeHistory.map((i) => i.netMargin);
-  const roes = incomeHistory.map((i) => i.roe);
   const revenues = incomeHistory.map((i) => i.totalRevenue);
   const profits = incomeHistory.map((i) => i.netProfit);
   const debtRatios = balanceHistory.map((b) => b.debtToAssetRatio);
   const currentRatios = balanceHistory.map((b) => b.currentRatio);
   const cashRatios = cashFlowHistory.map((c) => c.operatingCashToNetProfit);
 
-  const roeTrend = trendOf(roes);
+  const netMarginTrend = trendOf(netMargins);
   const revTrend = trendOf(revenues);
   const profitTrend = trendOf(profits);
   const debtTrend = trendOf(debtRatios);
   const cashTrend = trendOf(cashRatios);
 
   const fmt = (v: number, d = 2) => `${v >= 0 ? '' : ''}${v.toFixed(d)}`;
+  /** 百分比渲染：null（无此口径）→ 「—」（带百分号会变成「—%」） */
+  const fmtPct = (v: number | null | undefined, d = 2) => (v === null || v === undefined ? '—' : `${fmt(v, d)}%`);
+  /**
+   * 金额渲染：后端三表金额单位是「元」，展示统一按「亿元」。
+   * 曾是 `${fmt(元值)} 亿` → 页面出现「61522204989.35 亿」这种量级错乱。
+   */
+  const YI = 1e8;
+  const fmtYi = (v: number | null | undefined, d = 2) =>
+    v === null || v === undefined ? '—' : `${fmt(v / YI, d)} 亿`;
 
   // ---------- 1. 盈利能力 ----------
-  const profTag = trendTag(roeTrend.dir, '改善', '恶化', '稳定');
+  // ROE 全页唯一口径 = summary.indicators.roe（东财 WEIGHTAVG_ROE 加权净资产收益率）。
+  // 利润表端 roe 恒为 null，历史实现把它当 0 渲染 → 同页并列出现「ROE 0.00%」与
+  // 「ROE 32.53%」两个互相矛盾的值。
+  const roe = ind.roe;
+  const grossMargin = ind.grossMargin;
+  const profTag = trendTag(netMarginTrend.dir, '改善', '恶化', '稳定');
   const profConclusion =
-    roeTrend.dir === 'up'
-      ? '盈利能力持续改善，ROE 与利润率均呈上行趋势。'
-      : roeTrend.dir === 'down'
+    netMarginTrend.dir === 'up'
+      ? '盈利能力持续改善，净利率与 ROE 均呈上行趋势。'
+      : netMarginTrend.dir === 'down'
         ? '盈利能力有所弱化，需关注利润率下行风险。'
         : '盈利能力保持平稳，未见明显趋势性变化。';
   const profitability: DimensionResult = {
     title: '盈利能力',
-    headline: round(lastIncome.roe),
+    headline: roe === null || roe === undefined ? null : round(roe),
     headlineSuffix: '%',
     headlinePrecision: 2,
-    trend: roeTrend.dir,
-    trendText: `ROE ${fmt(roeTrend.first)}% → ${fmt(roeTrend.last)}%`,
+    trend: netMarginTrend.dir,
+    trendText: `净利率 ${fmtPct(netMarginTrend.first)} → ${fmtPct(netMarginTrend.last)}`,
     conclusion: profConclusion,
-    color: colorForTrend(roeTrend.dir),
+    color: colorForTrend(netMarginTrend.dir),
     tagText: profTag.text,
     tagColor: profTag.color,
     details: [
-      { label: '毛利率', value: `${fmt(lastIncome.grossMargin)}%` },
+      { label: '毛利率', value: fmtPct(grossMargin) },
       { label: '净利率', value: `${fmt(lastIncome.netMargin)}%` },
-      { label: 'ROE', value: `${fmt(lastIncome.roe)}%` },
+      // ROE 只在上方 headline 展示一次；此处不再重复，避免同页并列两个 ROE 百分比
     ],
   };
 
@@ -238,15 +253,19 @@ export function computeFinancialInsight(
     details: [
       { label: '营收同比', value: `${fmt(ind.revenueGrowth)}%` },
       { label: '净利同比', value: `${fmt(ind.profitGrowth)}%` },
-      { label: '最新营收', value: `${fmt(lastIncome.totalRevenue)} 亿` },
+      { label: '最新营收', value: fmtYi(lastIncome.totalRevenue) },
     ],
   };
 
   // ---------- 3. 偿债能力 ----------
   const debtRatio = lastBal.debtToAssetRatio;
-  const currentRatio = lastBal.currentRatio;
-  const solvencyHealthy = debtRatio <= 50 && currentRatio >= 1.5;
-  const solvencyRisk = debtRatio > 65 || currentRatio < 1;
+  // 流动比率只在「有流动资产负债科目」时才有意义：银行/保险报表不区分流动/非流动，
+  // 后端这两项缺失被 num() 记为 0，继续现算就是「流动比率 0.00 倍」的假数
+  // （浦发银行实测），还会凭空生成「短期偿债缓冲不足」的风险结论。
+  const hasCurrentItems = lastBal.currentLiabilities > 0 && lastBal.currentAssets > 0;
+  const currentRatio: number | null = hasCurrentItems ? lastBal.currentRatio : null;
+  const solvencyHealthy = debtRatio <= 50 && currentRatio !== null && currentRatio >= 1.5;
+  const solvencyRisk = debtRatio > 65 || (currentRatio !== null && currentRatio < 1);
   const solvencyTag = solvencyRisk
     ? { text: '偏高风险', color: 'red' }
     : solvencyHealthy
@@ -270,13 +289,16 @@ export function computeFinancialInsight(
     tagColor: solvencyTag.color,
     details: [
       { label: '资产负债率', value: `${fmt(debtRatio)}%` },
-      { label: '流动比率', value: `${fmt(currentRatio)} 倍` },
-      { label: '股东权益', value: `${fmt(lastBal.totalEquity)} 亿` },
+      { label: '流动比率', value: currentRatio === null ? '—' : `${fmt(currentRatio)} 倍` },
+      { label: '股东权益', value: fmtYi(lastBal.totalEquity) },
     ],
   };
 
   // ---------- 4. 现金流质量 ----------
-  const cashRatio = lastCash.operatingCashToNetProfit;
+  // 后端 operatingCashToNetProfit = 经营现金流/净利润 × 100，是**百分数**（72.12 = 72.12%），
+  // 不是倍数。历史实现直接配 'x' 后缀，页面写出「现金含量 72.12x」。
+  const cashRatioPct = lastCash.operatingCashToNetProfit;
+  const cashRatio = cashRatioPct / 100; // 真正的倍数，用于阈值与评分
   const cashTag =
     cashRatio >= 1 ? { text: '高含量', color: 'green' } : cashRatio >= 0.8 ? { text: '尚可', color: 'gold' } : { text: '偏低', color: 'red' };
   const cashConclusion =
@@ -287,28 +309,34 @@ export function computeFinancialInsight(
         : '利润含金量偏低，需关注应收与回款节奏。';
   const cashQuality: DimensionResult = {
     title: '现金流质量',
-    headline: round(cashRatio),
-    headlineSuffix: 'x',
+    headline: round(cashRatioPct),
+    headlineSuffix: '%',
     headlinePrecision: 2,
     trend: cashTrend.dir,
-    trendText: `经营现金流/净利润 ${fmt(cashTrend.first)}x → ${fmt(cashTrend.last)}x`,
+    trendText: `经营现金流/净利润 ${fmt(cashTrend.first)}% → ${fmt(cashTrend.last)}%`,
     conclusion: cashConclusion,
     color: cashRatio >= 1 ? UP_COLOR : cashRatio >= 0.8 ? NEUTRAL_COLOR : DOWN_COLOR,
     tagText: cashTag.text,
     tagColor: cashTag.color,
     details: [
-      { label: '现金含量', value: `${fmt(cashRatio)}x` },
-      { label: '经营现金流', value: `${fmt(lastCash.netOperatingCashFlow)} 亿` },
-      { label: '净利润', value: `${fmt(lastIncome.netProfit)} 亿` },
+      { label: '现金含量', value: `${fmt(cashRatioPct)}%` },
+      { label: '经营现金流', value: fmtYi(lastCash.netOperatingCashFlow) },
+      { label: '净利润', value: fmtYi(lastIncome.netProfit) },
     ],
   };
 
   // ---------- 5. 综合健康度评分 ----------
-  const profScore = clamp(Math.round(lastIncome.roe * 2 + lastIncome.grossMargin * 0.3 + lastIncome.netMargin * 0.5), 0, 100);
+  const profScore = clamp(
+    Math.round((roe ?? 0) * 2 + (grossMargin ?? 0) * 0.3 + lastIncome.netMargin * 0.5),
+    0,
+    100,
+  );
   const growthScore = clamp(Math.round(50 + ind.revenueGrowth * 1.5 + ind.profitGrowth * 1.0), 0, 100);
   let solvencyScore = Math.round(100 - debtRatio);
-  if (currentRatio >= 2) solvencyScore += 10;
-  else if (currentRatio < 1) solvencyScore -= 20;
+  if (currentRatio !== null) {
+    if (currentRatio >= 2) solvencyScore += 10;
+    else if (currentRatio < 1) solvencyScore -= 20;
+  }
   solvencyScore = clamp(solvencyScore, 0, 100);
   const cashScore = clamp(Math.round(cashRatio * 60), 0, 100);
 
@@ -321,7 +349,8 @@ export function computeFinancialInsight(
   // 动态风险提示
   const risks: string[] = [];
   if (debtRatio > 60) risks.push(`资产负债率 ${debtRatio.toFixed(1)}% 偏高，长期偿债压力需关注。`);
-  if (currentRatio < 1.2) risks.push(`流动比率仅 ${currentRatio.toFixed(2)} 倍，短期偿债缓冲不足。`);
+  if (currentRatio !== null && currentRatio < 1.2)
+    risks.push(`流动比率仅 ${currentRatio.toFixed(2)} 倍，短期偿债缓冲不足。`);
   if (cashRatio < 0.9) risks.push(`经营现金流/净利润为 ${cashRatio.toFixed(2)}，利润含金量一般。`);
   if (ind.profitGrowth < 0) risks.push(`净利润同比 ${ind.profitGrowth.toFixed(1)}%，成长性承压。`);
   if (ind.revenueGrowth < 0) risks.push(`营收同比 ${ind.revenueGrowth.toFixed(1)}%，市场需求或走弱。`);

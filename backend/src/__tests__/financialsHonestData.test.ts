@@ -49,6 +49,8 @@ vi.mock('../services/financialsDataService', () => {
     getIncomeStatement: vi.fn(),
     getCashFlow: vi.fn(),
     getFinancialSummary: vi.fn(),
+    // 路由会回填本次实际采用的东财 F10 报表模板（1=证券 2=保险 3=银行 4=工商业）
+    getCompanyTypeUsed: vi.fn().mockReturnValue(4),
   };
 });
 
