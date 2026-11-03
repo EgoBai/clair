@@ -32,6 +32,8 @@
  *   node scripts/data/backfill-kline-pilot.cjs --start 2023-11-01 --apply
  *   node scripts/data/backfill-kline-pilot.cjs --limit 800 --apply --concurrency 6
  *   node scripts/data/backfill-kline-pilot.cjs --verify 600519.SH,000001.SZ,688981.SH --verify-days 5
+ *   node scripts/data/backfill-kline-pilot.cjs --universe all --apply --rps 6      # 全市场缺口（近期有行情且 hist 无行）
+ *   node scripts/data/backfill-kline-pilot.cjs --universe all --recheck --apply    # 启动时用库内行数校正 checkpoint
  */
 'use strict';
 
@@ -63,6 +65,7 @@ const LIMIT = Number(val('--limit', '0')); // 0 = 不限制
 const START = val('--start', '2023-11-01');
 const END = val('--end', new Date().toISOString().slice(0, 10));
 const INDEX = val('--index', 'both'); // both | csi300 | csi500
+const UNIVERSE = val('--universe', 'index'); // index | all（all=近期有行情且 hist 无行的全市场缺口）
 const SYMBOLS_ARG = val('--symbols', '');
 const CONCURRENCY = Number(val('--concurrency', '6'));
 const SLEEP_MS = Number(val('--sleep-ms', '120'));
@@ -101,6 +104,9 @@ async function throttle() {
   if (wait > 0) await sleep(wait);
 }
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+// 网络请求计数（含重试，供回填审计报告用）
+let reqCount = 0; const _fetch = globalThis.fetch;
+globalThis.fetch = (...a) => { reqCount++; return _fetch(...a); };
 
 // ---------------- 日志 ----------------
 const T0 = Date.now();
@@ -584,7 +590,11 @@ async function main() {
 
   // 目标清单
   let targets = [];
-  if (SYMBOLS_ARG) {
+  if (UNIVERSE === 'all' && !SYMBOLS_ARG) {
+    targets = await q(`SELECT s.id, s.symbol, s.name FROM stocks s
+      WHERE EXISTS (SELECT 1 FROM daily_quotes q WHERE q.stock_id = s.id AND q.trade_date >= $1::date - 150)
+        AND NOT EXISTS (SELECT 1 FROM daily_quotes_hist h WHERE h.stock_id = s.id) ORDER BY s.symbol`, [END]);
+  } else if (SYMBOLS_ARG) {
     const list = SYMBOLS_ARG.split(',').map((s) => s.trim()).filter(Boolean);
     const rows = await q(
       `SELECT id, symbol, name FROM stocks WHERE symbol = ANY($1::text[]) ORDER BY symbol`, [list]
@@ -605,6 +615,13 @@ async function main() {
   log(`目标标的：${targets.length} 只  start=${START} end=${END} apply=${APPLY} overwrite=${OVERWRITE}`);
 
   const ckpt = loadCkpt();
+  if (has('--recheck') && Object.keys(ckpt.done).length) {
+    const have = new Map((await q(
+      `SELECT s.symbol, count(*)::int n FROM daily_quotes_hist h JOIN stocks s ON s.id = h.stock_id
+        WHERE h.trade_date BETWEEN $1 AND $2 GROUP BY s.symbol`, [START, END])).map((r) => [r.symbol, r.n]));
+    for (const sym of Object.keys(ckpt.done)) if (!(have.get(sym) > 0)) delete ckpt.done[sym];
+    saveCkpt(ckpt); log(`--recheck：checkpoint 校正为 ${Object.keys(ckpt.done).length} 只`);
+  }
   const thsYears = [];
   for (let y = Number(START.slice(0, 4)); y <= Number(END.slice(0, 4)); y++) thsYears.push(y);
 
@@ -674,6 +691,7 @@ async function main() {
   const report = {
     ranAt: new Date().toISOString(),
     elapsedSec: +((Date.now() - T0) / 1000).toFixed(1),
+    requests: reqCount,
     params: { start: START, end: END, index: INDEX, apply: APPLY, overwrite: OVERWRITE, limit: LIMIT, concurrency: CONCURRENCY, targets: targets.length },
     statusCounts: stat,
     insertedRows, skippedRows, skippedNoAmountDays: noAmountRows,
