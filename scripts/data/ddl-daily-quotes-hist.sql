@@ -66,9 +66,16 @@ CREATE TABLE IF NOT EXISTS daily_quotes_hist (
         OR (turnover_cny >= volume_shares * 0.01
             AND turnover_cny <= volume_shares * 100000)),
 
+    -- 新股例外（2026-11-04）：回填 301551.SZ 实测其 2024-09-26 上市后前 5 个交易日无涨跌幅限制，
+    -- 2024-09-30 单日 +257.42% 属合法行情，被原 200 上限误拒。200% 是历史经验值、不是市场规则；
+    -- 故上限放宽至 1000，这是唯一允许的例外口径，不得再放宽。下限 -100 不变（单日跌幅不可能超过 100%）。
     CONSTRAINT dqh_pct_range CHECK (
-        change_percent IS NULL OR (change_percent BETWEEN -100 AND 200))
+        change_percent IS NULL OR (change_percent BETWEEN -100 AND 1000))
 ) PARTITION BY RANGE (trade_date);
+
+-- 存量库迁移（2026-11-04 已在本机执行；CREATE TABLE 定义不会自动套到已有表）：
+--   ALTER TABLE daily_quotes_hist DROP CONSTRAINT dqh_pct_range;
+--   ALTER TABLE daily_quotes_hist ADD CONSTRAINT dqh_pct_range CHECK (change_percent IS NULL OR change_percent BETWEEN -100 AND 1000);
 
 COMMENT ON TABLE  daily_quotes_hist IS
   '日线历史深档。价格=不复权(元/股)，成交量=股，成交额=元。与 daily_quotes（元/万元/手&股混用）的映射见 docs/harness/KLINE-STORAGE-DESIGN.md §5/§7。';
