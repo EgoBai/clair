@@ -201,6 +201,9 @@ async function loadConstituents() {
 // 故按列表轮换，任一域名成功即止。
 const TX_HOSTS = (process.env.TX_HOSTS || 'web.ifzq.gtimg.cn,ifzq.gtimg.cn').split(',');
 let txHostIdx = 0;
+// fqkline 被 WAF 501 时，改走同源 kline/kline（不复权，逐值与 bfq 一致；实测 2026-11-04）
+let txUseRaw = false;
+let rawFallbackSymbols = 0;
 
 /**
  * 单次请求最多返回 800 根（实测硬上限）——3 年 726 根刚好够，但 `--start 2020-01-01` 会被静默截断。
@@ -232,9 +235,8 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
   const tx = `${m[2] === 'SH' ? 'sh' : 'sz'}${m[1]}`;
   for (let i = 0; i < tries; i++) {
     const host = TX_HOSTS[(txHostIdx + i) % TX_HOSTS.length];
-    const url =
-      `https://${host}/appstock/app/fqkline/get` +
-      `?param=${tx},day,${start},${end},800,bfq`;
+    const endpoint = txUseRaw ? 'kline/kline' : 'fqkline/get';
+    const url = `https://${host}/appstock/app/${endpoint}?param=${tx},day,${start},${end},800${txUseRaw ? '' : ',bfq'}`;
     try {
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 25000);
@@ -247,6 +249,7 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
       const raw = node?.day || node?.bfqday; // bfq 参数下键名为 day
       if (!Array.isArray(raw)) throw new Error(`返回结构异常 code=${j?.code} msg=${j?.msg}`);
       txHostIdx = (txHostIdx + i) % TX_HOSTS.length; // 记住可用域名
+      if (txUseRaw) rawFallbackSymbols++;
       return raw
         .filter((r) => Array.isArray(r) && /^\d{4}-\d{2}-\d{2}$/.test(r[0]))
         .map((r) => ({
@@ -261,6 +264,7 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
     } catch (e) {
       if (i === tries - 1) throw e;
       const limited = /^HTTP (429|501|503)$/.test(String(e.message));
+      if (limited && !txUseRaw) { txUseRaw = true; continue; } // fqkline 被限 → 同源不复权端点重试
       if (limited) txCoolUntil = Math.max(txCoolUntil, Date.now() + 120000);
       await sleep((limited ? 2500 : 700) * 2 ** i + Math.floor(Math.random() * 300));
     }
@@ -469,6 +473,7 @@ async function processSymbol(st, thsYears) {
       chg == null ? null : r4(chg), r4(chgPct), r4(amp),
       a.turnRate == null ? null : r4(a.turnRate),
       'N', // price_adj：不复权（表上 CHECK 只允许 N）
+      txUseRaw ? 'tencent_raw' : 'tencent_bfq', // price_source：kline/kline 回退时如实标 raw
     ]);
   }
   if (!rows.length) return { status: 'NO_AMOUNT', inserted: 0, skipped: 0, bars: bars.length, noAmount, failed };
@@ -476,7 +481,7 @@ async function processSymbol(st, thsYears) {
   if (!APPLY) return { status: 'DRY', inserted: 0, skipped: 0, bars: bars.length, rows: rows.length, noAmount, failed, unit, basis };
 
   // 单标的单事务
-  const cols = 14;
+  const cols = 15;
   const values = [];
   const params = [];
   rows.forEach((r, ri) => {
@@ -499,7 +504,7 @@ async function processSymbol(st, thsYears) {
     INSERT INTO daily_quotes_hist
       (stock_id, trade_date, open_price, high_price, low_price, close_price, prev_close,
        volume_shares, turnover_cny, change_amount, change_percent, amplitude, turnover_rate,
-       price_adj)
+       price_adj, price_source)
     VALUES ${values.join(',')}
     ${conflict}
     RETURNING 1`;
@@ -697,6 +702,7 @@ async function main() {
     ranAt: new Date().toISOString(),
     elapsedSec: +((Date.now() - T0) / 1000).toFixed(1),
     requests: reqCount,
+    priceFallbackSymbols: rawFallbackSymbols,
     params: { start: START, end: END, index: INDEX, apply: APPLY, overwrite: OVERWRITE, limit: LIMIT, concurrency: CONCURRENCY, targets: targets.length },
     statusCounts: stat,
     insertedRows, skippedRows, skippedNoAmountDays: noAmountRows,
