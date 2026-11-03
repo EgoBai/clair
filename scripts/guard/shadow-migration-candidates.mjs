@@ -103,10 +103,19 @@ rows.sort((a, b) => (b.score - a.score) || (a.loc - b.loc));
 const topArg = process.argv.indexOf('--top');
 const topN = topArg > -1 ? Number(process.argv[topArg + 1]) || 25 : 25;
 const strong = rows.filter((r) => r.score >= 2);
+// 分数分布：让「有多少影子一个生产符号都对不上」可量化，用于制定收口策略
+const distribution = rows.reduce((m, r) => {
+  const k = String(r.score);
+  m[k] = (m[k] || 0) + 1;
+  return m;
+}, {});
 const out = {
   shadowTests: rows.length,
   withExportOverlap: strong.length,
+  distribution,
   top: strong.slice(0, topN),
+  // --all 输出全部影子行（含 0/1 重叠），供抽样审计分类，不改变默认输出
+  all: process.argv.includes('--all') ? rows : undefined,
 };
 if (process.argv.includes('--json')) {
   console.log(JSON.stringify(out, null, 2));

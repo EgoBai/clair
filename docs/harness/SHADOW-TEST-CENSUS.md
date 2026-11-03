@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 7 迁移后更新 05:33（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 10 迁移后更新 05:44（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,19 +16,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **849（55.4%）** |
-| 真实导入 | 684 |
-| 影子测试代码行 | **222,610 行** |
-| 真实测试代码行 | 137,509 行 |
+| 影子测试 | **843（55.0%）** |
+| 真实导入 | 690 |
+| 影子测试代码行 | **220,676 行** |
+| 真实测试代码行 | 139,270 行 |
 
-按行数算，63% 的测试代码在断言副本而不是产品代码。
+按行数算，61% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 427/640 | 66.7% |
-| frontend/src/__tests__（扁平） | 422/868 | 48.6% |
+| backend/src/__tests__（扁平） | 423/640 | 66.1% |
+| frontend/src/__tests__（扁平） | 420/868 | 48.4% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -124,11 +124,39 @@
 - 验证：backend 66 passed；census --check 849/1533。
 - 效果：影子 851→849，shadowLoc 223,504→222,610，realLoc 136,677→137,509。
 
+## 六（续）、批次 8（2026-11-04 05:36）
+
+- backend/src/__tests__/optionsAndDerivatives.test.ts：35→36 用例（新增 rho），删自抄 BS/希腊值/IV/基差，改为 import backend/src/services/impliedVolEngine.ts、optionsGreeksEngine.ts（isCall:boolean）、frontend/src/utils/futuresBasisEngine.ts。
+- backend/src/__tests__/volatilityRisk.test.ts：30 用例保留，改为 import frontend/src/utils/globalCorrelationEngine.ts、backtestPerformanceAnalyzer.ts 与 backend/src/indicators/technical.ts。
+- 旧测试错在哪（生产正确、测试改口径）：ATM call delta 在 r=0.05 时应为 0.6368（旧断言 0.5±0.1 只在 r=0 成立）；权证杠杆旧把 delta 写死 0.6，生产 0.8097；旧 IV 用例只算自抄 d1 是否有限、从未求 IV，改为 bsmPrice→impliedVol 往返断言；ATR 的 trueRange[0]=null、首个 ATR 在 index=period；布林键名 mid、空位 null；最大回撤返回索引非价格；Calmar(0,0)=Infinity；beta 参数序为 (market,stock)。
+- 残留：期货持有成本定价、期货保证金、权证溢价/盈亏平衡、滚动波动率、CAPM alpha（生产无对应实现）。
+- 验证：两文件 66 passed；census --check 847/1533。
+- 效果：影子 849→847。
+
+## 六（续）、批次 9（2026-11-04 05:40）
+
+- backend/src/__tests__/tradingStrategyEngine.test.ts：27→31 用例，删自抄 MA/EMA/RSI/MACD/BOLL/止损，改为 import backend/src/utils/futureValueUtils.ts（calcMA/calcEMA/calcRSI/calcMACD）、chartDataEngine.calcBollingerBands、aiMarketAnalysis.StopLossCalculator。
+- frontend/src/__tests__/chartCalculations.test.ts：26 用例保留，改为 import indicatorCalc.computeIndicatorSeries（StockDetailPage 实际取数路径）、trendFollowingEngine.calculateMA、styles/chart-theme.CHART_COLORS；EMA/RSI 因前端无导出纯函数，绑 backend futureValueUtils（跨包含先例）。
+- 旧测试错在哪（生产正确、测试改口径）：前端 EMA 预热 null 且 index=period-1 用 SMA 作种子（旧 NaN）；computeIndicatorSeries 的 DEA 由 dif 补 0 后 EMA 得到、自 index 25 起（旧仅对有效 dif 求 EMA、起点 33）；RSI 为 Wilder 平滑（旧简单均值）；KDJ 出口 undefined（旧 null）；BOLL 生产前 19 个 undefined；K 线着色真实值 up #cf2a2a / down #1db468 且无平盘灰分支（旧 #ef4444/#22c55e/#888888）；后端 BOLL 数据不足返回 []、长度 n-period+1、键名 mid；止损 ATR 止盈 1.5×ATR（旧 2×ATR）；两处恒真断言（length >= 0）改为精确断言；数据工厂里 Math.random 改确定性序列。
+- 口径差异：futureValueUtils.calcMACD histogram=2*(dif-dea)，与 technical.ts 的 macd-signal 不同，两文件各绑各的真源，未强行统一。
+- 残留：MA/MACD 交叉信号（backtestEngine.generateSignalMA 未导出）、K 线着色与 ECharts 数据转换（内联在 Charts/KLineChart.tsx，无导出纯函数）。
+- 验证：backend 31 passed、frontend 26 passed；census --check 845/1533。
+- 效果：影子 847→845。
+
+## 六（续）、批次 10（2026-11-04 05:42）
+
+- backend/src/__tests__/sharedTypes.test.ts：56 用例保留，17 个自抄符号中 16 个改 import frontend/src/utils/formatters.ts；formatPrice 未迁移（该文件无此导出）。
+- frontend/src/__tests__/priceFormatter.test.ts：40 用例保留，10 组中 9 组改 import frontend/src/utils/formatters.ts 与 dataTransformUtils.formatAmount；formatPrice 未迁移（前端无统一导出，价格由组件内联 toFixed）。
+- 旧测试错在哪（生产正确、测试改口径）：backend 自抄块逐字来自 shared/formatters.ts（零产品引用），与产品真源 frontend 版分叉——空值 '-' vs '--'、0 值 '0' vs '0.00'、formatMarketCap 小值不带小数；frontend 侧成交量统一带「手」后缀（1.50亿手/500手）、零涨跌幅输出 '+0.00%'、涨跌色 #EF4444/#22C55E/#6B7280、负 PE 输出「亏损」。
+- 发现的生产缺口（未修，暂按现状注释断言）：formatVolume 无 null/undefined 分支（输出 'null手'）；formatChangePercent/formatRatio 无 isFinite 守卫（NaN→'NaN%'、Infinity→'Infinity'）；formatMarketCap 无负值分支；shared/formatters.ts 与 frontend/src/utils/formatters.ts 长期分叉。
+- 验证：backend 56 passed、frontend 40 passed；census --check 843/1533。
+- 效果：影子 845→843，shadowLoc 222,610→220,676，realLoc 137,509→139,270。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 849 / total 1533 / shadowLoc 222,610（批次 7 后；批次 6 后为 851）。
+- 基线：shadow 843 / total 1533 / shadowLoc 220,676（批次 10 后；批次 7 后 849、批次 6 后 851）。
 
 ## 八、迁移候选扫描（工具）
 
@@ -137,7 +165,7 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：849 个影子测试中 93 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：843 个影子测试中 87 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 17、4 个 4、5 个 3）；另有 248 个只有 1 个符号重叠、508 个零重叠。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
