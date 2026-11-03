@@ -335,7 +335,16 @@ function buildDemoStockData(symbol: string): Record<string, unknown> {
 }
 
 // 优先取真实数据库数据；查不到或异常时降级为确定性演示数据
-async function resolveStockData(symbol: string): Promise<{ stockData: Record<string, unknown>; dataSource: 'real' | 'demo' }> {
+//
+// 【台账 #33】dataSource 三态由**实际拿到的部分**推导，禁止「有股票行就标 real」：
+//   - 股票行 + 最新行情都在 → 'real'
+//   - 股票行在、最新行情缺失 → 'partial'（股票身份/行业/技术/财务可能是真的，
+//     但 price/change/pe/pb/marketCap 全为 null——此时标 real 等于用空值给 AI 结论背书）
+//   - 股票行都查不到 / 查询异常 → 'demo'（确定性演示数据，明示 demo，不冒充真实）
+async function resolveStockData(symbol: string): Promise<{
+  stockData: Record<string, unknown>;
+  dataSource: 'real' | 'partial' | 'demo';
+}> {
   try {
     const db = getDb();
     const stock = await db.getStockWithLatestQuote(symbol);
@@ -369,7 +378,9 @@ async function resolveStockData(symbol: string): Promise<{ stockData: Record<str
         macd: stockData.macd,
         rsi: stockData.rsi,
       };
-      return { stockData, dataSource: 'real' };
+      // 【台账 #33】q 缺失时上面 price/change/pe/pb/marketCap 均为 null；
+      // 此时只能是 'partial'（部分真实），不得标 'real' 让 AI 结论被空行情背书。
+      return { stockData, dataSource: q ? 'real' : 'partial' };
     }
   } catch (e) {
     console.warn('[AIChat] 获取真实股票数据失败，降级演示数据:', e);
