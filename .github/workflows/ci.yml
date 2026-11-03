@@ -150,6 +150,26 @@ jobs:
         run: node scripts/guard/honesty-scan.mjs --strict
 
   # ---------------------------------------------------------------
+  # 影子测试守卫: 只统计、不安装依赖, 与基线比数量。
+  # 口径见 docs/harness/SHADOW-TEST-CENSUS.md:
+  #   测试文件不 import 任何产品代码 = 断言的是自抄实现, 产品改坏它不会红。
+  # 规则: 数量只许降不许升（基线 scripts/guard/shadow-baseline.json）。
+  # 迁移一批后手动下调基线, 不允许用删测试冲抵。
+  # ---------------------------------------------------------------
+  shadow-test-guard:
+    name: Shadow test guard (baseline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Shadow test census (fail if ratio rises)
+        run: node scripts/guard/shadow-test-census.mjs --check
+
+  # ---------------------------------------------------------------
   # E2E 冒烟 (观察期: job 级 continue-on-error, 失败可见但不阻断合并)
   # - 此前 frontend/e2e 下两个 spec（route-render-smoke / stock-app）从未被执行:
   #   没有 npm script、没有 CI job —— 等于「有测试文件, 无测试」。

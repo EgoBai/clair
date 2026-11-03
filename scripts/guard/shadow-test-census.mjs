@@ -90,6 +90,27 @@ const summary = {
     .map((r) => ({ file: r.file, loc: r.loc })),
 };
 
+if (process.argv.includes('--check')) {
+  // 基线守卫：影子测试数量只许降不许升。新增测试必须真实 import 产品代码。
+  const baselinePath = join(ROOT, 'scripts/guard/shadow-baseline.json');
+  let baseline;
+  try {
+    baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
+  } catch {
+    console.error('缺少基线文件 scripts/guard/shadow-baseline.json，无法判定');
+    process.exit(2);
+  }
+  console.log('影子测试: ' + shadow + '/' + total + '，基线上限 ' + baseline.shadow + '/' + baseline.total);
+  if (shadow > baseline.shadow) {
+    console.error('失败：影子测试从 ' + baseline.shadow + ' 升到 ' + shadow + '（新增测试未 import 产品代码）');
+    process.exit(1);
+  }
+  if (shadow < baseline.shadow) {
+    console.log('改善：影子测试减少 ' + (baseline.shadow - shadow) + '，请手动下调基线文件');
+  }
+  process.exit(0);
+}
+
 if (process.argv.includes('--json')) {
   console.log(JSON.stringify(summary, null, 2));
 } else {
