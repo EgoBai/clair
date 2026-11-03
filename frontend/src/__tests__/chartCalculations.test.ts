@@ -1,45 +1,53 @@
 import { describe, it, expect } from 'vitest';
+import { computeIndicatorSeries } from '../utils/indicatorCalc';
+import type { IndicatorInput } from '../utils/indicatorCalc';
+import { calculateMA } from '../utils/trendFollowingEngine';
+import { CHART_COLORS } from '../styles/chart-theme';
+// 前端无导出的 EMA 纯函数、页面图表 RSI 只暴露 6/12/24，14 周期 RSI 与 EMA 绑定后端生产实现
+import { calcEMA, calcRSI } from '../../../backend/src/utils/futureValueUtils';
+
+/**
+ * 图表指标计算测试（批次 9：绑定生产实现）
+ *
+ * 生产实现（唯一真源）：
+ * - frontend/src/utils/indicatorCalc.ts 的 computeIndicatorSeries（StockDetailPage 实际取数）：
+ *   MACD 12/26/9（dif/dea/macd 自 index 25 起有值，DEA 由 dif 补 0 后的 9 周期 EMA 得到，
+ *   macd = 2*(dif-dea)）；KDJ 9（前 8 个 undefined，K/D 初值 50，J=3K-2D）；
+ *   BOLL 20/2（前 19 个 undefined）；数值统一四舍五入到 4 位小数，null 转 undefined。
+ * - frontend/src/utils/trendFollowingEngine.ts 的 calculateMA：任意周期，预热期为 NaN（不是 null）。
+ * - frontend/src/styles/chart-theme.ts 的 CHART_COLORS：涨 #cf2a2a / 跌 #1db468 / 平 #64748b。
+ * - backend/src/utils/futureValueUtils.ts 的 calcEMA / calcRSI：EMA 前 period-1 为 null，
+ *   index=period-1 用 SMA 作种子；RSI 为 Wilder 平滑，index=period 起有值，数据不足全 null。
+ *
+ * 未迁移（前端无导出的纯函数，保留本地 helper，不虚构生产代码）：
+ * - getColor / toChartData：K 线着色与 ECharts 数据转换内联在 Charts/KLineChart.tsx 里
+ *   （:232 成交量、:329 tooltip 都是 close >= open ? CHART_COLORS.up : CHART_COLORS.down，
+ *   产品没有平盘灰分支），src/utils 下无导出函数，故保留本地实现并复刻该口径；
+ *   旧断言的 #ef4444/#22c55e/#888888 与产品 K 线色不符。
+ */
+
+/** 构造 indicatorCalc 输入：未传 highs/lows 时以收盘价充当（对应指标不依赖这些字段） */
+const toKline = (closes: number[], highs?: number[], lows?: number[]): IndicatorInput[] =>
+  closes.map((c, i) => ({
+    date: `2026-03-${String(i + 1).padStart(2, '0')}`,
+    open: c,
+    high: highs ? highs[i] : c,
+    low: lows ? lows[i] : c,
+    close: c,
+    volume: 1000,
+  }));
 
 // 图表数据处理测试
 describe('Chart Data Processing', () => {
   interface RawKLine { date: string; open: number; high: number; low: number; close: number; volume: number; }
 
-  // MA计算
-  const calcMA = (data: number[], period: number): (number | null)[] => {
-    const result: (number | null)[] = [];
-    for (let i = 0; i < data.length; i++) {
-      if (i < period - 1) { result.push(null); continue; }
-      const slice = data.slice(i - period + 1, i + 1);
-      result.push(slice.reduce((a, b) => a + b, 0) / period);
-    }
-    return result;
-  };
-
-  // EMA计算
-  const calcEMA = (data: number[], period: number): (number | null)[] => {
-    const result: (number | null)[] = [];
-    const multiplier = 2 / (period + 1);
-    let ema: number | null = null;
-    for (let i = 0; i < data.length; i++) {
-      if (i < period - 1) { result.push(null); continue; }
-      if (ema === null) {
-        ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      } else {
-        ema = (data[i] - ema) * multiplier + ema;
-      }
-      result.push(ema);
-    }
-    return result;
-  };
-
-  // 涨跌着色
+  // 未迁移：K 线颜色内联在 Charts/KLineChart.tsx，无导出函数；此处复刻其口径
+  // close >= open 取涨色（十字星也算涨），生产没有平盘灰分支
   const getColor = (close: number, open: number): string => {
-    if (close > open) return '#ef4444';
-    if (close < open) return '#22c55e';
-    return '#888888';
+    return close >= open ? CHART_COLORS.up : CHART_COLORS.down;
   };
 
-  // K线转图表数据
+  // K线转图表数据（未迁移：生产无导出的转换函数）
   const toChartData = (klines: RawKLine[]) => {
     return klines.map(k => ({
       x: k.date,
@@ -59,15 +67,16 @@ describe('Chart Data Processing', () => {
 
   it('calculates MA5 correctly', () => {
     const closes = testKLines.map(k => k.close);
-    const ma = calcMA(closes, 5);
-    expect(ma[0]).toBeNull();
-    expect(ma[3]).toBeNull();
+    const ma = calculateMA(closes, 5);
+    // 生产口径：预热期是 NaN，不是 null
+    expect(Number.isNaN(ma[0])).toBe(true);
+    expect(Number.isNaN(ma[3])).toBe(true);
     expect(ma[4]).toBeCloseTo(106.8, 1);
   });
 
   it('calculates MA with period 1 equals original data', () => {
     const closes = testKLines.map(k => k.close);
-    const ma = calcMA(closes, 1);
+    const ma = calculateMA(closes, 1);
     expect(ma).toEqual(closes.map(c => c));
   });
 
@@ -75,19 +84,22 @@ describe('Chart Data Processing', () => {
     const closes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     const ema = calcEMA(closes, 5);
     const nonNull = ema.filter(v => v !== null);
+    // 前 4 个 null，index=4 起为值（首值 SMA 种子 = 3）
     expect(nonNull.length).toBe(6);
+    expect(ema[4]).toBe(3);
   });
 
   it('colors red for up candle', () => {
-    expect(getColor(105, 100)).toBe('#ef4444');
+    expect(getColor(105, 100)).toBe(CHART_COLORS.up);
   });
 
   it('colors green for down candle', () => {
-    expect(getColor(95, 100)).toBe('#22c55e');
+    expect(getColor(95, 100)).toBe(CHART_COLORS.down);
   });
 
-  it('colors gray for doji', () => {
-    expect(getColor(100, 100)).toBe('#888888');
+  it('colors doji as up (production: close >= open)', () => {
+    // 生产图表没有平盘分支，十字星落入上涨色
+    expect(getColor(100, 100)).toBe(CHART_COLORS.up);
   });
 
   it('converts KLines to chart data', () => {
@@ -111,93 +123,48 @@ describe('Chart Data Processing', () => {
   });
 });
 
-// MACD计算测试
+// MACD计算测试（绑定前端页面图表真实实现 computeIndicatorSeries）
 describe('MACD Calculation', () => {
-  const calcEMA = (data: number[], period: number): number[] => {
-    const result: number[] = [];
-    const multiplier = 2 / (period + 1);
-    let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-    for (let i = 0; i < period - 1; i++) result.push(NaN);
-    result.push(ema);
-    for (let i = period; i < data.length; i++) {
-      ema = (data[i] - ema) * multiplier + ema;
-      result.push(ema);
-    }
-    return result;
-  };
-
-  const calcMACD = (closes: number[], fast = 12, slow = 26, signal = 9) => {
-    const emaFast = calcEMA(closes, fast);
-    const emaSlow = calcEMA(closes, slow);
-    const dif: number[] = [];
-    for (let i = 0; i < closes.length; i++) {
-      if (isNaN(emaFast[i]) || isNaN(emaSlow[i])) { dif.push(NaN); continue; }
-      dif.push(emaFast[i] - emaSlow[i]);
-    }
-    const validDif = dif.filter(d => !isNaN(d));
-    const deaRaw = calcEMA(validDif, signal);
-    const dea: number[] = [];
-    let j = 0;
-    for (let i = 0; i < dif.length; i++) {
-      if (isNaN(dif[i])) { dea.push(NaN); continue; }
-      dea.push(deaRaw[j++]);
-    }
-    const histogram = dif.map((d, i) => isNaN(d) || isNaN(dea[i]) ? NaN : 2 * (d - dea[i]));
-    return { dif, dea, histogram };
-  };
-
   const prices = Array.from({ length: 50 }, (_, i) => 100 + Math.sin(i * 0.3) * 10 + i * 0.5);
 
   it('DIF is difference of fast and slow EMA', () => {
-    const { dif } = calcMACD(prices);
-    const validDif = dif.filter(d => !isNaN(d));
-    expect(validDif.length).toBeGreaterThan(0);
-  });
-
-  it('histogram is 2 * (DIF - DEA)', () => {
-    const { dif, dea, histogram } = calcMACD(prices);
-    for (let i = 0; i < dif.length; i++) {
-      if (!isNaN(dif[i]) && !isNaN(dea[i]) && !isNaN(histogram[i])) {
-        expect(histogram[i]).toBeCloseTo(2 * (dif[i] - dea[i]), 5);
-      }
+    const series = computeIndicatorSeries(toKline(prices));
+    const emaFast = calcEMA(prices, 12);
+    const emaSlow = calcEMA(prices, 26);
+    expect(series[24].dif).toBeUndefined();
+    for (let i = 25; i < prices.length; i++) {
+      expect(series[i].dif).toBeCloseTo((emaFast[i] as number) - (emaSlow[i] as number), 3);
     }
   });
 
-  it('MACD with insufficient data returns NaN values', () => {
-    const { dif } = calcMACD([1, 2, 3, 4, 5]);
-    expect(dif.every(d => isNaN(d))).toBe(true);
+  it('histogram is 2 * (DIF - DEA)', () => {
+    const series = computeIndicatorSeries(toKline(prices));
+    let checked = 0;
+    for (const point of series) {
+      const { dif, dea, macd } = point;
+      if (dif === undefined || dea === undefined || macd === undefined) continue;
+      expect(macd).toBeCloseTo(2 * (dif - dea), 3);
+      checked++;
+    }
+    expect(checked).toBe(25);
+  });
+
+  it('MACD with insufficient data returns undefined values', () => {
+    const series = computeIndicatorSeries(toKline([1, 2, 3, 4, 5]));
+    expect(series.every(p => p.dif === undefined && p.dea === undefined && p.macd === undefined)).toBe(true);
   });
 
   it('DIF crosses zero indicate trend change', () => {
     const upPrices = Array.from({ length: 50 }, (_, i) => 100 + i * 2);
-    const { dif } = calcMACD(upPrices);
-    const validDif = dif.filter(d => !isNaN(d));
+    const series = computeIndicatorSeries(toKline(upPrices));
+    expect(series[49].dif).toBeDefined();
     // 均匀上涨趋势下DIF应该为正
-    expect(validDif[validDif.length - 1]).toBeGreaterThan(0);
+    expect(series[49].dif!).toBeGreaterThan(0);
   });
 });
 
-// RSI计算测试
+// RSI计算测试（14 周期绑定后端生产实现；页面图表只暴露 6/12/24）
 describe('RSI Calculation', () => {
-  const calcRSI = (closes: number[], period = 14): (number | null)[] => {
-    const result: (number | null)[] = [];
-    for (let i = 0; i < closes.length; i++) {
-      if (i < period) { result.push(null); continue; }
-      let gains = 0, losses = 0;
-      for (let j = i - period + 1; j <= i; j++) {
-        const change = closes[j] - closes[j - 1];
-        if (change > 0) gains += change;
-        else losses -= change;
-      }
-      const avgGain = gains / period;
-      const avgLoss = losses / period;
-      if (avgLoss === 0) { result.push(100); continue; }
-      const rs = avgGain / avgLoss;
-      result.push(100 - 100 / (1 + rs));
-    }
-    return result;
-  };
-
   it('RSI of all positive changes approaches 100', () => {
     const upPrices = Array.from({ length: 20 }, (_, i) => 100 + i);
     const rsi = calcRSI(upPrices);
@@ -213,9 +180,12 @@ describe('RSI Calculation', () => {
   });
 
   it('RSI is between 0 and 100', () => {
-    const prices = Array.from({ length: 30 }, () => 100 + Math.random() * 20 - 10);
+    // 确定性数据，替代原 Math.random
+    const prices = Array.from({ length: 30 }, (_, i) => 100 + Math.sin(i * 1.1) * 8 + i * 0.2);
     const rsi = calcRSI(prices);
-    rsi.filter(v => v !== null).forEach(v => {
+    const valid = rsi.filter((v): v is number => v !== null);
+    expect(valid.length).toBeGreaterThan(0);
+    valid.forEach(v => {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(100);
     });
@@ -233,57 +203,41 @@ describe('RSI Calculation', () => {
   it('flat prices give RSI near 50', () => {
     const flat = Array.from({ length: 20 }, () => 100);
     const rsi = calcRSI(flat);
-    // 没有涨跌，avgLoss为0，RSI=100
+    // 没有涨跌，avgLoss为0，RSI=100（生产口径）
     const last = rsi[rsi.length - 1];
     expect(last).toBe(100);
   });
 });
 
-// KDJ计算测试
+// KDJ计算测试（绑定 computeIndicatorSeries）
 describe('KDJ Calculation', () => {
-  const calcKDJ = (highs: number[], lows: number[], closes: number[], n = 9) => {
-    const K: (number | null)[] = [];
-    const D: (number | null)[] = [];
-    const J: (number | null)[] = [];
-    let prevK = 50, prevD = 50;
-
-    for (let i = 0; i < closes.length; i++) {
-      if (i < n - 1) { K.push(null); D.push(null); J.push(null); continue; }
-      const h = Math.max(...highs.slice(i - n + 1, i + 1));
-      const l = Math.min(...lows.slice(i - n + 1, i + 1));
-      const rsv = h === l ? 50 : ((closes[i] - l) / (h - l)) * 100;
-      const k = (2 * prevK + rsv) / 3;
-      const d = (2 * prevD + k) / 3;
-      const j = 3 * k - 2 * d;
-      K.push(k); D.push(d); J.push(j);
-      prevK = k; prevD = d;
-    }
-    return { K, D, J };
-  };
-
   const highs = [105, 108, 110, 107, 112, 115, 113, 118, 120, 117, 119, 122, 125, 123, 128];
-  const lows = [99, 102, 104, 101, 106, 108, 107, 112, 114, 111, 113, 116, 119, 117, 122];
+  const lows = [99, 102, 104, 101, 106, 108, 107, 112, 114, 111, 113, 119, 119, 117, 122];
   const closes = [104, 107, 106, 105, 110, 113, 111, 116, 118, 115, 117, 120, 123, 121, 126];
 
   it('K, D, J arrays have same length', () => {
-    const { K, D, J } = calcKDJ(highs, lows, closes);
-    expect(K.length).toBe(D.length);
-    expect(D.length).toBe(J.length);
+    const series = computeIndicatorSeries(toKline(closes, highs, lows));
+    expect(series.length).toBe(closes.length);
+    series.forEach(p => {
+      expect(p.k === undefined).toBe(p.d === undefined);
+      expect(p.d === undefined).toBe(p.j === undefined);
+    });
+    expect(series.filter(p => p.k !== undefined).length).toBe(closes.length - 8);
   });
 
   it('first n-1 values are null', () => {
-    const { K } = calcKDJ(highs, lows, closes, 9);
+    const series = computeIndicatorSeries(toKline(closes, highs, lows));
     for (let i = 0; i < 8; i++) {
-      expect(K[i]).toBeNull();
+      expect(series[i].k).toBeUndefined();
     }
-    expect(K[8]).not.toBeNull();
+    expect(series[8].k).toBeDefined();
   });
 
   it('J = 3K - 2D', () => {
-    const { K, D, J } = calcKDJ(highs, lows, closes);
-    for (let i = 0; i < K.length; i++) {
-      if (K[i] !== null && D[i] !== null && J[i] !== null) {
-        expect(J[i]).toBeCloseTo(3 * K[i]! - 2 * D[i]!, 5);
+    const series = computeIndicatorSeries(toKline(closes, highs, lows));
+    for (const { k, d, j } of series) {
+      if (k !== undefined && d !== undefined && j !== undefined) {
+        expect(j).toBeCloseTo(3 * k - 2 * d, 3);
       }
     }
   });
@@ -292,66 +246,53 @@ describe('KDJ Calculation', () => {
     const h = Array(15).fill(100);
     const l = Array(15).fill(100);
     const c = Array(15).fill(100);
-    const { K, D, J } = calcKDJ(h, l, c, 9);
-    const last = K.length - 1;
-    expect(K[last]).not.toBeNull();
+    const series = computeIndicatorSeries(toKline(c, h, l));
+    // 高低点相同 → RSV=50，K/D 停留在初值 50，J=50
+    expect(series[14].k).toBe(50);
+    expect(series[14].d).toBe(50);
+    expect(series[14].j).toBe(50);
   });
 });
 
-// BOLL计算测试
+// BOLL计算测试（绑定 computeIndicatorSeries，固定 20/2 口径）
 describe('BOLL Calculation', () => {
-  const calcBOLL = (closes: number[], period = 20, multiplier = 2) => {
-    const upper: (number | null)[] = [];
-    const middle: (number | null)[] = [];
-    const lower: (number | null)[] = [];
-
-    for (let i = 0; i < closes.length; i++) {
-      if (i < period - 1) { upper.push(null); middle.push(null); lower.push(null); continue; }
-      const slice = closes.slice(i - period + 1, i + 1);
-      const mean = slice.reduce((a, b) => a + b, 0) / period;
-      const variance = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / period;
-      const std = Math.sqrt(variance);
-      middle.push(mean);
-      upper.push(mean + multiplier * std);
-      lower.push(mean - multiplier * std);
-    }
-    return { upper, middle, lower };
-  };
-
   const prices = Array.from({ length: 30 }, (_, i) => 100 + Math.sin(i * 0.5) * 5);
 
   it('upper > middle > lower', () => {
-    const { upper, middle, lower } = calcBOLL(prices);
-    for (let i = 0; i < prices.length; i++) {
-      if (upper[i] !== null) {
-        expect(upper[i]).toBeGreaterThan(middle[i]!);
-        expect(middle[i]).toBeGreaterThan(lower[i]!);
+    const series = computeIndicatorSeries(toKline(prices));
+    for (const { bollUpper, bollMiddle, bollLower } of series) {
+      if (bollUpper !== undefined && bollMiddle !== undefined && bollLower !== undefined) {
+        expect(bollUpper).toBeGreaterThan(bollMiddle);
+        expect(bollMiddle).toBeGreaterThan(bollLower);
       }
     }
   });
 
   it('bandwidth is 4 * std', () => {
-    const { upper, lower } = calcBOLL(prices);
-    for (let i = 0; i < prices.length; i++) {
-      if (upper[i] !== null) {
-        const bandwidth = upper[i]! - lower[i]!;
-        expect(bandwidth).toBeGreaterThan(0);
-      }
+    const series = computeIndicatorSeries(toKline(prices));
+    for (const { bollUpper, bollMiddle, bollLower } of series) {
+      if (bollUpper === undefined || bollMiddle === undefined || bollLower === undefined) continue;
+      const bandwidth = bollUpper - bollLower;
+      expect(bandwidth).toBeGreaterThan(0);
+      // 上下轨对称于中轨（4 位小数舍入误差内）
+      expect(bollUpper - bollMiddle).toBeCloseTo(bollMiddle - bollLower, 2);
     }
   });
 
   it('flat prices give zero bandwidth', () => {
     const flat = Array(25).fill(100);
-    const { upper, lower } = calcBOLL(flat);
-    const last = flat.length - 1;
-    expect(upper[last]).toBeCloseTo(100, 5);
-    expect(lower[last]).toBeCloseTo(100, 5);
+    const series = computeIndicatorSeries(toKline(flat));
+    const last = series[flat.length - 1];
+    expect(last.bollUpper).toBe(100);
+    expect(last.bollLower).toBe(100);
+    expect(last.bollMiddle).toBe(100);
   });
 
   it('first period-1 values are null', () => {
-    const { middle } = calcBOLL(prices, 20);
+    const series = computeIndicatorSeries(toKline(prices));
     for (let i = 0; i < 19; i++) {
-      expect(middle[i]).toBeNull();
+      expect(series[i].bollMiddle).toBeUndefined();
     }
+    expect(series[19].bollMiddle).toBeDefined();
   });
 });
