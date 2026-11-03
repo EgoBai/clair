@@ -181,3 +181,20 @@ node scripts/guard/metrics.mjs --week 2026-W45 --json   # JSON
 - **缺数据显式 `n/a` + 原因，不用 0 顶替**。当前真实可算的只有「门禁拦截数」（`gh run list --workflow=CI` 按 ISO 周窗口统计 failure）；其余四项因台账只有当前状态、没有流转日志/历史快照，一律 `n/a`。
 - 台账表头缺 `编号`/`状态` 列时 `exit 2` 并打印缺失列名（防止「解析失败 = 0 条 = 零缺陷」的静默错误）。
 - 口径说明：门禁拦截数统计的是**整条 CI workflow 的失败 run 数**（含 unit/honesty/e2e 任一 job），比设计稿的「honesty-guard / unit-tests 失败次数」略宽；若需按 job 精确统计，后续改用 `gh run view --json jobs`。
+
+## 9. 证据门禁 `evidence-check.mjs`（E2，2026-11-04 新增）
+
+```bash
+node scripts/guard/evidence-check.mjs --ticket T-2611-01          # 解析 docs/rsi/T-2611-01.md
+node scripts/guard/evidence-check.mjs --file docs/rsi/T-2611-01.md
+node scripts/guard/evidence-check.mjs --ticket T-2611-01 --json
+```
+
+- **只认两类运行时证据**（设计稿 §2-E2）：
+  - `curl <URL> | HTTP <状态码> | <响应体片段>`：必须 2xx，片段含 `dataSource` 且 ≥3 个业务字段；
+  - `playwright <frontend/e2e/*.spec.ts> :: <测试标题>`：spec 必须存在，标题用 `npx playwright test --list` 校验（可选 `--no-list` 跳过，仅调试）。
+- **证据区块**：工单里标题为「证据」的 Markdown 区块（`## 证据` 或 `## 5. 证据`）；「证据要求」区块不计。
+- **grep、读文件、「我检查过」一律 FAIL**；页面改动（工单提到 `frontend/src/pages|components/`）必须至少 1 条 playwright 证据；无证据条目 FAIL。
+- **退出码**：0=PASS；1=有 FAIL；2=参数/工单不存在。失败行格式：`E2 FAIL <file>:<line> <code> observed=... expected=curl|playwright ticket=<编号>`。
+- **实测（2026-11-04）**：T-2611-01 解析 1 条 playwright 证据 → PASS exit 0；同文件删掉证据区块 → `missing-evidence` FAIL exit 1；证据块只写 grep → `evidence-grep-only` FAIL exit 1。
+- **约束**：不真跑 playwright（只 `--list`），不进 CI（工单格式尚未全面落地）；新收口单须先按本格式写证据区块。
