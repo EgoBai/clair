@@ -169,3 +169,15 @@ node scripts/guard/redgreen.mjs \
 - 退出码：0=PASS（poisoned=FAIL, restored=PASS）；1=断言无效（投毒后仍绿）或还原后仍红；2=参数/环境/工作树错误。
 
 **实测（2026-11-04）**：上面命令输出 `poisoned=FAIL restored=PASS`，投毒跑 1.2s、还原跑 0.7s，工作树最终干净。
+
+## 8. 度量采集 `metrics.mjs`（S5，2026-11-04 新增）
+
+```bash
+node scripts/guard/metrics.mjs --week 2026-W45          # 文本
+node scripts/guard/metrics.mjs --week 2026-W45 --json   # JSON
+```
+
+- 输出设计稿 §5 的五个指标：一次通过率 / 缺陷回潮率 / 验收返工轮次 / 门禁拦截数 / 平均修复时长。
+- **缺数据显式 `n/a` + 原因，不用 0 顶替**。当前真实可算的只有「门禁拦截数」（`gh run list --workflow=CI` 按 ISO 周窗口统计 failure）；其余四项因台账只有当前状态、没有流转日志/历史快照，一律 `n/a`。
+- 台账表头缺 `编号`/`状态` 列时 `exit 2` 并打印缺失列名（防止「解析失败 = 0 条 = 零缺陷」的静默错误）。
+- 口径说明：门禁拦截数统计的是**整条 CI workflow 的失败 run 数**（含 unit/honesty/e2e 任一 job），比设计稿的「honesty-guard / unit-tests 失败次数」略宽；若需按 job 精确统计，后续改用 `gh run view --json jobs`。
