@@ -39,8 +39,10 @@ const COMPARE_METRICS: CompareMetric[] = [
   { label: '市盈率(PE)', key: 'pe', unit: '倍', higher: 'worse' },
   { label: '市净率(PB)', key: 'pb', unit: '倍', higher: 'worse' },
   { label: '净资产收益率(ROE)', key: 'roe', unit: '%', higher: 'better' },
+  // 毛利率对银行/保险不适用（无营业成本科目）→ 后端给 null，前端渲染「—」而非 0.0%
   { label: '毛利率', key: 'grossMargin', unit: '%', higher: 'better' },
-  { label: '净利率', key: 'netMargin', unit: '%', higher: 'better' },
+  // 净利率统一取归母口径，文案自带口径说明（对外与东财/同花顺对齐）
+  { label: '归母净利率', key: 'netMargin', unit: '%', higher: 'better' },
   { label: '营收增长率', key: 'revenueGrowth', unit: '%', higher: 'better' },
   { label: '净利润增长率', key: 'profitGrowth', unit: '%', higher: 'better' },
   { label: '资产负债率', key: 'debtRatio', unit: '%', higher: 'worse' },
@@ -249,6 +251,10 @@ async function loadFinancialMetrics(digits: string): Promise<Partial<CompareMetr
     const latest = inds[0];
     if (latest) {
       out.roe = num(latest.roe);
+      // 注意：本文件的 num() 对 null/'' 返回 **null**（不是 0），
+      // 所以银行股 grossMargin=null 会如实传给前端 → 前端必须渲染「—」。
+      // 若哪天把 num() 改成 `Number(v) || 0`，这里会退化成「毛利率 0.0%」的假数，
+      // 前端 StockComparePage 的断言（600000 不出现「毛利率 0.0%」）会兜住。
       out.grossMargin = num(latest.grossMargin);
       out.netMargin = num(latest.netMargin);
       out.revenueGrowth = num(latest.revenueGrowth);

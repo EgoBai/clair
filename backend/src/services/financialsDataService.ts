@@ -176,7 +176,12 @@ export interface FinancialIndicator {
   revenueGrowth: number; // 营收同比 %
   profitGrowth: number; // 归母净利同比 %
   dividendYield: number; // 股息率 %
-  netMargin: number; // 净利率（归母净利/营收）%
+  /**
+   * **归母净利率**（%）= 归母净利润 / 营业总收入。
+   * 全站唯一净利率口径（对外可比：东财/同花顺均用归母）；
+   * 营收 ≤ 0（取不到）时返回 null，不用 0 冒充分母缺失。
+   */
+  netMargin: number | null;
 }
 
 /**
@@ -227,7 +232,7 @@ export async function getFinancialIndicators(
       revenueGrowth: num(r.YSTZ),
       profitGrowth: num(r.SJLTZ),
       dividendYield: num(r.ZXGXL),
-      netMargin: revenue > 0 ? fmt((parentNetProfit / revenue) * 100) : 0,
+      netMargin: revenue > 0 ? fmt((parentNetProfit / revenue) * 100) : null,
     };
   });
 }
@@ -554,6 +559,7 @@ export interface FinancialSummary {
   indicators: {
     /** 销售毛利率（%）。null = 该标的无此口径（银行/保险无营业成本） */
     grossMargin: number | null;
+    /** **归母净利率**（%）。null = 营收缺失，不可算 */
     netMargin: number | null;
     roe: number;
     roa: number;
@@ -599,7 +605,11 @@ export async function getFinancialSummary(symbol: string): Promise<FinancialSumm
       // 用 ?? 而非 ||：指标源为 0（真实 0%）时不能被现算值顶掉；
       // 两者都为 null（银行/保险无营业成本）时诚实给 null，前端渲染「—」。
       grossMargin: ind.grossMargin ?? incomeStatement.grossMargin,
-      netMargin: ind.netMargin || incomeStatement.netMargin,
+      // **归母净利率唯一口径**：只取指标源（归母净利/营收）。
+      // 历史实现用 `ind.netMargin || incomeStatement.netMargin` 回退到利润表口径
+      // （净利润含少数股东），导致同页并列 49.58% 与 47.85% 两个「净利率」。
+      // 裁决：归母口径对外可比；取不到就 null（渲染「—」），**不回退**到利润表口径。
+      netMargin: ind.netMargin,
       roe: ind.roe,
       roa: totalAssets > 0 ? fmt((incomeStatement.parentNetProfit / totalAssets) * 100) : 0,
       currentRatio: balanceSheet.currentRatio,

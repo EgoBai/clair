@@ -101,6 +101,8 @@ interface StubOpts {
   /** 全部 companyType 都返回 data（东财对 lrbAjaxNew 宽松，4 也能出数据） */
   anyCompanyType?: boolean;
   incomeRow?: typeof BANK_INCOME_ROW | Record<string, unknown>;
+  /** 覆盖指标源行（用于构造「归母不可得」等场景） */
+  indicatorRows?: unknown[];
 }
 
 /** 按 URL 分发：datacenter → 指标；emweb → 按 URL 里的 companyType 决定有无 data */
@@ -108,7 +110,7 @@ function stubEastmoney(opts: StubOpts = {}) {
   const fn = vi.fn().mockImplementation(async (url: string) => {
     const u = String(url);
     if (u.includes('datacenter-web.eastmoney.com')) {
-      return jsonResponse({ result: { data: ANNUAL_INDICATORS, pages: 1 } });
+      return jsonResponse({ result: { data: opts.indicatorRows ?? ANNUAL_INDICATORS, pages: 1 } });
     }
     if (!u.includes('emweb.securities.eastmoney.com')) {
       throw new Error(`unexpected url: ${u}`);
@@ -300,9 +302,39 @@ describe('financialsDataService 毛利率 / ROE 口径', () => {
     expect(summary.indicators).not.toBeNull();
     expect(summary.indicators!.grossMargin).toBeNull();
     expect(summary.indicators!.roe).toBe(6.76); // 唯一 ROE 口径来自指标源
+    // 归母净利率 = 归母净利 5.0405e10 / 营收 1.73964e11 ≈ 28.97%
+    expect(summary.indicators!.netMargin).toBeCloseTo(28.97, 1);
     // 三表 companyType 均留痕
     expect(getCompanyTypeUsed('600000', 'balance-sheet')).toBe(3);
     expect(getCompanyTypeUsed('600000', 'income-statement')).toBe(3);
     expect(getCompanyTypeUsed('600000', 'cash-flow')).toBe(3);
+  });
+
+  it('summary：归母净利率取不到时为 null，**不回退**利润表口径（净利率只有一个口径）', async () => {
+    stubIndustry('食品饮料', '贵州茅台');
+    stubEastmoney({
+      anyCompanyType: true,
+      // 指标源营收缺失（东财个别标的新上市/重述时会空）→ 归母净利率算不出
+      indicatorRows: [
+        {
+          REPORTDATE: '2025-12-31 00:00:00',
+          DATEMMDD: '年报',
+          DATATYPE: '2025年 年报',
+          DATAYEAR: '2025',
+          TOTAL_OPERATE_INCOME: null,
+          PARENT_NETPROFIT: 5.0405e10,
+          WEIGHTAVG_ROE: 32.53,
+          XSMLL: 91.18,
+        },
+      ],
+      // 利润表口径算得出来（营收 1.73964e11、净利 5.0405e10 → 28.97%）
+      incomeRow: { ...BANK_INCOME_ROW, OPERATE_COST: 1.2e10, OPERATE_TAX_ADD: 0 },
+    });
+
+    const summary = await getFinancialSummary('600519');
+
+    // 利润表口径是 28.97%，但**不许**拿它顶替归母口径
+    expect(summary.incomeStatement!.netMargin).toBeCloseTo(28.97, 1);
+    expect(summary.indicators!.netMargin).toBeNull();
   });
 });

@@ -22,9 +22,12 @@ export interface FIncomeStatement {
   grossProfit: number | null;
   operatingProfit: number;
   netProfit: number;
+  /** 归母净利润（元）：归母净利率口径的唯一来源 */
+  parentNetProfit: number;
   eps: number;
   /** 毛利率（%）。null = 无营业成本口径，不得现算 */
   grossMargin: number | null;
+  /** 利润表自算净利率（含少数股东），**不用于展示**（全站取归母口径） */
   netMargin: number;
   /** 后端利润表端恒为 null（ROE 需资产负债表，唯一可信来源是 summary.indicators.roe） */
   roe: number | null;
@@ -61,7 +64,8 @@ export interface FCashFlow {
 
 export interface FIndicators {
   grossMargin: number | null;
-  netMargin: number;
+  /** **归母净利率**（%）。null = 营收缺失，不可算 */
+  netMargin: number | null;
   roe: number;
   roa: number;
   currentRatio: number;
@@ -175,7 +179,12 @@ export function computeFinancialInsight(
   const lastCash = summary.cashFlow;
 
   // 多期序列
-  const netMargins = incomeHistory.map((i) => i.netMargin);
+  // **归母净利率（%）**：归母净利润 / 营业总收入。全站唯一净利率口径。
+  // 不用 incomeHistory.netMargin（含少数股东损益），否则同页与指标卡差 1.7pp。
+  // 营收缺失的期次为 null，先剔除再算趋势（不补 0）。
+  const netMargins = incomeHistory
+    .map((i) => (i.totalRevenue > 0 ? (i.parentNetProfit / i.totalRevenue) * 100 : null))
+    .filter((v): v is number => v !== null && Number.isFinite(v));
   const revenues = incomeHistory.map((i) => i.totalRevenue);
   const profits = incomeHistory.map((i) => i.netProfit);
   const debtRatios = balanceHistory.map((b) => b.debtToAssetRatio);
@@ -205,10 +214,13 @@ export function computeFinancialInsight(
   // 「ROE 32.53%」两个互相矛盾的值。
   const roe = ind.roe;
   const grossMargin = ind.grossMargin;
+  // 归母净利率唯一口径 = summary.indicators.netMargin（后端只用指标源，不回退利润表口径）；
+  // 取不到 → null → 渲染「—」，**不许**拿 lastIncome.netMargin 顶替。
+  const netMargin = ind.netMargin;
   const profTag = trendTag(netMarginTrend.dir, '改善', '恶化', '稳定');
   const profConclusion =
     netMarginTrend.dir === 'up'
-      ? '盈利能力持续改善，净利率与 ROE 均呈上行趋势。'
+      ? '盈利能力持续改善，归母净利率与 ROE 均呈上行趋势。'
       : netMarginTrend.dir === 'down'
         ? '盈利能力有所弱化，需关注利润率下行风险。'
         : '盈利能力保持平稳，未见明显趋势性变化。';
@@ -218,14 +230,14 @@ export function computeFinancialInsight(
     headlineSuffix: '%',
     headlinePrecision: 2,
     trend: netMarginTrend.dir,
-    trendText: `净利率 ${fmtPct(netMarginTrend.first)} → ${fmtPct(netMarginTrend.last)}`,
+    trendText: `归母净利率 ${fmtPct(netMarginTrend.first)} → ${fmtPct(netMarginTrend.last)}`,
     conclusion: profConclusion,
     color: colorForTrend(netMarginTrend.dir),
     tagText: profTag.text,
     tagColor: profTag.color,
     details: [
       { label: '毛利率', value: fmtPct(grossMargin) },
-      { label: '净利率', value: `${fmt(lastIncome.netMargin)}%` },
+      { label: '归母净利率', value: fmtPct(netMargin) },
       // ROE 只在上方 headline 展示一次；此处不再重复，避免同页并列两个 ROE 百分比
     ],
   };
@@ -327,7 +339,7 @@ export function computeFinancialInsight(
 
   // ---------- 5. 综合健康度评分 ----------
   const profScore = clamp(
-    Math.round((roe ?? 0) * 2 + (grossMargin ?? 0) * 0.3 + lastIncome.netMargin * 0.5),
+    Math.round((roe ?? 0) * 2 + (grossMargin ?? 0) * 0.3 + (netMargin ?? 0) * 0.5),
     0,
     100,
   );

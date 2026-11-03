@@ -43,9 +43,15 @@ interface IncomeStatement {
   grossProfit: number | null;
   operatingProfit: number;
   netProfit: number;
+  /** 归母净利润（元）。用于「归母净利率」口径的逐期计算 */
+  parentNetProfit: number;
   eps: number;
   /** 毛利率（%）。null = 无营业成本口径，不能现算 */
   grossMargin: number | null;
+  /**
+   * 利润表自算净利率（%）= 净利润(含少数股东)/营业总收入。
+   * **不用于展示**：全站净利率统一归母口径（见下面的 parentNetMargin 派生序列）。
+   */
   netMargin: number;
   /** 利润表端恒为 null：ROE 唯一可信来源是 summary.indicators.roe */
   roe: null;
@@ -72,7 +78,8 @@ interface FinancialSummary {
   indicators: {
     /** 毛利率（%）。null = 该标的无此口径（银行/保险无营业成本） */
     grossMargin: number | null;
-    netMargin: number;
+    /** **归母净利率**（%）。null = 营收缺失，不可算 */
+    netMargin: number | null;
     roe: number;
     roa: number;
     currentRatio: number;
@@ -197,11 +204,18 @@ export default function FinancialsPage() {
     筹资现金流: cf.netFinancingCashFlow,
   }));
 
+  // 归母净利率逐期序列（%）：归母净利润 / 营业总收入。
+  // 全站唯一净利率口径；营收缺失的期次为 null（图表断点，不补 0）。
+  const incomeHistoryWithMargin = incomeHistory.map((is) => ({
+    ...is,
+    parentNetMargin: is.totalRevenue > 0 ? +((is.parentNetProfit / is.totalRevenue) * 100).toFixed(2) : null,
+  }));
+
   // 盈利能力雷达图（null = 该标的本期无此口径，直接剔除该维度，不画成 0）
   const radarData = [
     { metric: 'ROE', value: indicators.roe, fullMark: 30 },
     { metric: '毛利率', value: indicators.grossMargin, fullMark: 60 },
-    { metric: '净利率', value: indicators.netMargin, fullMark: 40 },
+    { metric: '归母净利率', value: indicators.netMargin, fullMark: 40 },
     { metric: 'ROA', value: indicators.roa, fullMark: 15 },
     { metric: '收入增长', value: Math.max(0, indicators.revenueGrowth), fullMark: 30 },
     { metric: '利润增长', value: Math.max(0, indicators.profitGrowth), fullMark: 40 },
@@ -274,7 +288,8 @@ export default function FinancialsPage() {
             </Col>
             <Col xs={12} sm={8} md={6}>
               <Card size="small">
-                <Statistic title="净利率" value={indicators.netMargin} precision={2} suffix="%" />
+                {/* 归母口径（东财/同花顺同源），营收缺失时为 null → 显示「—」 */}
+                <Statistic title="归母净利率" value={pctOrDash(indicators.netMargin)} precision={2} suffix="%" />
               </Card>
             </Col>
             <Col xs={12} sm={8} md={6}>
@@ -389,14 +404,17 @@ export default function FinancialsPage() {
             <Col xs={24} md={12}>
               <Card title="利润率趋势" size="small">
                 <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={[...incomeHistory].reverse()}>
+                  <LineChart data={[...incomeHistoryWithMargin].reverse()}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
                     <YAxis tickFormatter={v => `${v}%`} />
-                    <Tooltip formatter={(v) => `${v ?? 0}%`} />
+                    <Tooltip formatter={(v) => (v === null || v === undefined ? '—' : `${v}%`)} />
                     <Legend />
                     <Line type="monotone" dataKey="grossMargin" name="毛利率" stroke="#1890ff" strokeWidth={2} />
-                    <Line type="monotone" dataKey="netMargin" name="净利率" stroke="#52c41a" strokeWidth={2} />
+                    {/* 归母净利率（parentNetMargin）替代利润表自算 netMargin：
+                        后者含少数股东损益，与卡片/洞察卡的归母口径差 1.7pp，
+                        同页并列会出现两个「净利率」 */}
+                    <Line type="monotone" dataKey="parentNetMargin" name="归母净利率" stroke="#52c41a" strokeWidth={2} />
                     {/* 利润表端不再提供 ROE（恒 null，见后端 IncomeStatement.roe 注释），
                         此处不画 ROE 折线，避免图例出现一个永远无数据的 ROE 系列 */}
                   </LineChart>

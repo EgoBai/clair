@@ -17,8 +17,9 @@ import {
 interface CompareStock {
   symbol: string;
   name: string;
-  metrics: Record<string, number>;
-  radarScores: Record<string, number>;
+  /** 指标值可能为 null：银行/保险无营业成本 → 毛利率不适用（后端诚实给 null，不用 0 顶替） */
+  metrics: Record<string, number | null>;
+  radarScores: Record<string, number | null>;
   price: number;
   changePercent: number;
   marketCap: number;
@@ -138,8 +139,14 @@ export default function StockComparePage() {
       dataIndex: stock.symbol,
       key: stock.symbol,
       align: 'right' as const,
-      render: (v: number, record: Record<string, unknown>) => {
+      render: (v: number | null, record: Record<string, unknown>) => {
         const def = metrics.find(m => m.key === record.key);
+        // null = 该标的无此口径（例：银行/保险的毛利率）。
+        // 渲染「—」而不是 0/空：{null} 只会输出单位，表格里会出现一个孤零零的「%」，
+        // 且视觉上与"取不到"无法区分；也绝不能落成「0.0%」冒充真实值。
+        if (v === null || v === undefined || !Number.isFinite(Number(v))) {
+          return <span style={{ color: '#bfbfbf' }}>—</span>;
+        }
         const isPositive = def?.higher === 'better' ? v > 0 : def?.higher === 'worse' ? v < 0 : null;
         return (
           <span style={{ color: isPositive === true ? '#52c41a' : isPositive === false ? '#ff4d4f' : undefined }}>
@@ -150,8 +157,8 @@ export default function StockComparePage() {
     })),
   ];
 
-  const compareDataSource = metrics.map((m, i) => {
-    const row: Record<string, string | number> = { key: m.key, label: m.label };
+  const compareDataSource = metrics.map((m) => {
+    const row: Record<string, string | number | null> = { key: m.key, label: m.label };
     stocks.forEach(s => {
       row[s.symbol] = s.metrics[m.key];
     });
@@ -160,7 +167,7 @@ export default function StockComparePage() {
 
   // 柱状图数据
   const barData = metrics.slice(0, 8).map(m => {
-    const row: Record<string, string | number> = { metric: m.label.replace(/[()]/g, '') };
+    const row: Record<string, string | number | null> = { metric: m.label.replace(/[()]/g, '') };
     stocks.forEach(s => {
       row[s.name] = s.metrics[m.key];
     });
