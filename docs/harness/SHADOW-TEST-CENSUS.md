@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 5 迁移后更新 05:06（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 6 迁移后更新 05:22（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,10 +16,10 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **853（55.6%）** |
-| 真实导入 | 680 |
-| 影子测试代码行 | **224,028 行** |
-| 真实测试代码行 | 136,164 行 |
+| 影子测试 | **851（55.5%）** |
+| 真实导入 | 682 |
+| 影子测试代码行 | **223,504 行** |
+| 真实测试代码行 | 136,677 行 |
 
 按行数算，63% 的测试代码在断言副本而不是产品代码。
 
@@ -28,7 +28,7 @@
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
 | backend/src/__tests__（扁平） | 429/640 | 67.0% |
-| frontend/src/__tests__（扁平） | 425/868 | 49.0% |
+| frontend/src/__tests__（扁平） | 422/868 | 48.6% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -104,11 +104,21 @@
 - 验证：backend 25 passed、frontend 36 passed；census --check 853/1533。
 - 效果：影子 855→853，shadowLoc 224,605→224,028，realLoc 135,715→136,164。
 
+## 六（续）、批次 6（2026-11-04 05:22）
+
+- frontend/src/__tests__/chartInteractions.test.ts：31→33 用例，删自抄 findNearestPoint/calculateTooltipPosition/dataToScreen/screenToData/zoom/pan，改为 import `frontend/src/utils/chartInteractionEngine.ts` 的 12 个真实函数（含 createViewport/calculateCrosshair/updateSelection/getSelectedData/findNearestIndex）。
+- frontend/src/__tests__/dashboardCustomization2.test.ts：12→13 用例，改为 import `frontend/src/utils/dashboardLayoutEngine.ts` 的 validateLayout/checkOverlap/autoArrange/cloneLayout/getLayoutStats。
+- 旧测试错在哪（生产正确、测试改口径）：`findNearestPoint(data,targetX)` 生产只按 x、无阈值（旧「超阈值返回 null」不成立）；`calculateCrosshair` 无画布边界裁剪（越界仍 visible=true，visible 是启用开关）；`calculateTooltipPosition` 只返回 {x,y}、默认光标右下、仅右/下翻转（无 placement/top）；`zoomViewport/panViewport` 在数据空间缩放/平移，无 offsetX/offsetY；`updateSelection` 以 dataX 生成 startX/endX + startIndex/endIndex；`validateLayout` 列溢出/重叠只进 warnings，不校验 layout.id/name/rows；`getLayoutStats` 利用率分母为已占用行（12x4=48 → 100%，旧按 12x8 算 50%）；生产 WidgetType 无 'card'（改 'gauge'）。
+- 残留未迁移：画布边界判定 3 例（生产无越界裁剪，属组件层）、Widget resize 1 例（生产无 resize/行数概念），保留 helper 并注明。
+- 发现（未改生产）：tooltip 无上方放置且极端尺寸仍可能溢出、crosshair 无裁剪、findNearest 隐含要求 x 升序、cloneLayout 用 Date.now 生成 id（同毫秒可能重复）且 widget 浅拷贝共享 config、validateLayout 不校验 id/name。
+- 验证：frontend 46 passed（2 files）；census --check 851/1533。
+- 效果：影子 853→851，shadowLoc 224,028→223,504，realLoc 136,164→136,677。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 853 / total 1533 / shadowLoc 224,028（批次 5 后；批次 4 后为 855）。
+- 基线：shadow 851 / total 1533 / shadowLoc 223,504（批次 6 后；批次 5 后为 853）。
 
 ## 八、迁移候选扫描（工具）
 
@@ -117,10 +127,11 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：853 个影子测试中 97 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：851 个影子测试中 95 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
 
 ## 九、下一步
 
-- 批次 6 候选：`priceFormatter.test.ts`（257 行）对接 `frontend/src/utils/formatters.ts`（注意格式差异：生产 formatNumber 带千分位、NaN 处理不同）；`dateTimeUtils.test.ts`（233 行）对接 `backend/src/utils/tradingCalendar.ts`；`numberFormatEngine.test.ts`（386 行）对接 formatters 的 formatDuration/formatFileSize/formatNumber/formatPercent。
+- 批次 7 候选：`advancedIndicatorsV2.test.ts`（511 行）与 `marketSentiment.test.ts`（383 行）同为 backend，均对接 `backend/src/indicators/technical.ts` 的 calculateATR/calculateEMA/calculateMACD/calculateRSI/calculateOBV，可合并一批。
+- 备选：`priceFormatter.test.ts`（257 行）对接 `frontend/src/utils/formatters.ts`（注意 formatNumber 带千分位、formatPercent 收 0.15 这类小数）；`numberFormatEngine.test.ts`（386 行）同理。
 - 关注点：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零属生产已知局限，已由测试固化，待产品阶段评估是否修。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。

@@ -170,26 +170,23 @@ jobs:
         run: node scripts/guard/shadow-test-census.mjs --check
 
   # ---------------------------------------------------------------
-  # E2E 冒烟 (观察期: job 级 continue-on-error, 失败可见但不阻断合并)
+  # E2E 冒烟 (2026-11-04 起真阻断: 连续 5 次 CI 全绿后摘除 continue-on-error)
   # - 此前 frontend/e2e 下两个 spec（route-render-smoke / stock-app）从未被执行:
   #   没有 npm script、没有 CI job —— 等于「有测试文件, 无测试」。
-  #   本次补 e2e npm script（frontend/package.json + 根 package.json）并接入 CI。
-  # - 只跑 chromium: mobile-chrome 项目留本地/后续夜间跑, 先压住观察期时长。
+  #   补 e2e npm script（frontend/package.json + 根 package.json）并接入 CI。
+  # - 只跑 chromium: mobile-chrome 项目留本地/后续夜间跑。
   # - 不依赖后端: 诚实空态用例 frontend/e2e/honest-empty-states.spec.ts 用
   #   context.route 接管 /api/lockup/calendar, 断言「取不到数据 ≠ 没有数据, 也不显示 0 值统计卡」;
-  #   路由渲染冒烟只要求布局/路由挂载, 不要求真实行情。
+  #   个股详情降级用例 stock-detail-degraded.spec.ts 用 502 + 空 body 复现 CI 形态,
+  #   断言页面显式报「取不到」而不是「暂无」; 路由渲染冒烟只要求布局/路由挂载。
   #   CI 无后端时 /api 经 vite proxy 失败, 由页面既有降级路径承接 —— 正是本 job 要盯的行为。
-  # - continue-on-error 的语义: 失败不拦截合并, 但 job 显示红叉而不是伪装成绿。
-  #   与 unit-tests / honesty-guard 的「阻断」刻意不同: e2e 要先积累真实通行数据。
-  #   转阻断的前置条件(Lead 复盘时定, 不在本 PR 内切换):
-  #     (1) 观察期内无 flaky 用例, 或已修复并注明;
-  #     (2) honest-empty-states 的三条降级断言连续 3-5 次 CI 全绿;
-  #     (3) route-render-smoke 不再依赖后端真实数据。
+  # - 转阻断依据: 观察期 5 次全绿（run 41715016160 / 41716545090 / 41717771650 /
+  #   41718722692 / 41720547656），期间修复了 StockDetailPage 未检查 resp.ok 导致的
+  #   JSON 解析未捕获异常（commit c735dbb14）。任一次红先判真回归还是环境抖动。
   # ---------------------------------------------------------------
   e2e-smoke:
-    name: E2E smoke (playwright, advisory)
+    name: E2E smoke (playwright)
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
