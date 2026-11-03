@@ -409,21 +409,19 @@ function detectUnitByPriceAnchor(bars, amounts) {
     else if (okHand && !okShares) voteHand++;
   }
   if (!tested) return null;
-  if (voteShares > voteHand) return { unit: 'shares', tested, voteShares, voteHand };
-  if (voteHand > voteShares) return { unit: 'hand', tested, voteShares, voteHand };
-  return null;
+  return { unit: voteShares > voteHand ? 'shares' : voteHand > voteShares ? 'hand' : null, tested, voteShares, voteHand };
 }
 
 async function resolveVolumeUnit(stockId, symbol, tencentBars, amounts) {
   if (volUnitCache.has(symbol)) return volUnitCache.get(symbol);
   let r = null;
   const det = detectUnitByPriceAnchor(tencentBars, amounts);
-  if (det) {
-    r = { unit: det.unit, basis: `价格锚定投票 ${det.unit}:${Math.max(det.voteShares, det.voteHand)}/${det.tested}（股票=${det.voteShares} 手票=${det.voteHand}）` };
+  if (det && det.unit) {
+    r = { unit: det.unit, verified: true, tested: det.tested, basis: `价格锚定投票 ${det.unit}:${Math.max(det.voteShares, det.voteHand)}/${det.tested}（股票=${det.voteShares} 手票=${det.voteHand}）` };
   }
   if (!r) {
     const prefixShares = /^68[89]/.test(symbol.slice(0, 3));
-    r = { unit: prefixShares ? 'shares' : 'hand', basis: `价格锚定失败 → 代码段兜底(${prefixShares ? 'shares' : 'hand'})` };
+    r = { unit: prefixShares ? 'shares' : 'hand', verified: false, tested: det ? det.tested : 0, basis: `价格锚定失败 → 代码段兜底(${prefixShares ? 'shares' : 'hand'})` };
   }
   // 附带一项独立旁证：库内已有一行与腾讯同日的 volume 比值（应为 1.0000，说明库内是"腾讯原样落库"）
   try {
@@ -475,8 +473,14 @@ async function processSymbol(st, thsYears) {
   if (failed > 0 && amounts.size === 0) {
     return { status: 'FETCH_ERROR', stage: 'ths', inserted: 0, skipped: 0, bars: bars.length, detail: `同花顺 ${failed} 个年份全部失败` };
   }
-  const { unit, basis } = await resolveVolumeUnit(st.id, st.symbol, bars, amounts);
+  const vu = await resolveVolumeUnit(st.id, st.symbol, bars, amounts);
+  const { unit, basis } = vu;
   const mult = unit === 'hand' ? 100 : 1;
+  // 成交额与价格不自洽（THS 代码串号等）→ 整只不写，避免写入错误 turnover
+  if (!vu.verified && amounts.size > 0 && vu.tested > 0) {
+    return { status: 'NO_AMOUNT', inserted: 0, skipped: 0, bars: bars.length, noAmount: bars.length, failed,
+             detail: `价格锚定失败：THS 成交额与腾讯价格不自洽（疑似代码串号），整只跳过 | ${basis}` };
+  }
 
   const rows = [];
   let noAmount = 0;
