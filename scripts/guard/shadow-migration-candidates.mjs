@@ -16,6 +16,8 @@ import { join, dirname, resolve, relative, sep } from 'node:path';
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), '../..');
 const SCAN_DIRS = ['backend/src', 'frontend/src'];
 const IMPORT_RE = /(?:^|\n)\s*(?:import\s+(?:[^'"]*?from\s*)?|export\s+[^'"]*?from\s*|require\()\s*['"]([^'"]+)['"]/g;
+// 动态 import `await import('../x')` 不在行首，需单独匹配（与 census 口径一致）
+const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*['"]([^'"]+)['"]/g;
 const EXPORT_RE = /export\s+(?:async\s+)?(?:default\s+)?(?:function|const|let|class)\s+([A-Za-z_$][\w$]*)/g;
 const TEST_FN_RE = /(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g;
 const TEST_CONST_RE = /(?:^|\n)\s*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\(|function|[A-Za-z_$][\w$]*\s*=>)/g;
@@ -39,7 +41,7 @@ const isSource = (n) => /\.(t|j)sx?$/.test(n) && !isTest(n);
 function isShadow(file) {
   const src = readFileSync(file, 'utf8');
   const testDir = dirname(file);
-  for (const m of src.matchAll(IMPORT_RE)) {
+  for (const m of [...src.matchAll(IMPORT_RE), ...src.matchAll(DYNAMIC_IMPORT_RE)]) {
     const s = m[1];
     if (!s.startsWith('.')) continue;
     const rel = relative(ROOT, resolve(testDir, s));

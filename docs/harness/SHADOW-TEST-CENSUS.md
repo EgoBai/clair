@@ -1,8 +1,8 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 14 迁移后更新 06:00（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 15–16 迁移与动态 import 扫描修复后更新 06:12（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
-> 基线：HEAD 7da89354f
+> 基线：HEAD 0abea057a
 
 ## 一、判定口径
 
@@ -11,24 +11,26 @@
 
 统计范围：`backend/src` + `frontend/src` 下全部 `*.test.*` / `*.spec.*`，排除 node_modules。
 
+口径修正（2026-11-04）：此前正则只认行首静态 import，漏判 `await import('../x')` 动态导入，把 34 个真实导入测试误记为影子；census 与 candidates 两个脚本均已补 `import(` 分支，后续数字以新口径为准。
+
 ## 二、结论（数字）
 
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **835（54.5%）** |
-| 真实导入 | 698 |
-| 影子测试代码行 | **218,223 行** |
-| 真实测试代码行 | 141,872 行 |
+| 影子测试 | **798（52.1%）** |
+| 真实导入 | 735 |
+| 影子测试代码行 | **211,476 行** |
+| 真实测试代码行 | 149,046 行 |
 
-按行数算，60.6% 的测试代码在断言副本而不是产品代码。
+按行数算，58.7% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 419/640 | 65.5% |
-| frontend/src/__tests__（扁平） | 416/868 | 47.9% |
+| backend/src/__tests__（扁平） | 406/640 | 63.4% |
+| frontend/src/__tests__（扁平） | 392/868 | 45.2% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -41,20 +43,20 @@
 | 行数 | 文件 |
 |------|------|
 | 869 | frontend/src/__tests__/userDeepDive.test.ts |
-| 707 | backend/src/__tests__/notification-service.test.ts |
-| 696 | frontend/src/__tests__/i18nEnhanced.test.ts |
 | 682 | frontend/src/__tests__/advancedCandlestickPatterns.test.ts |
 | 658 | frontend/src/__tests__/advancedPageLogic.test.ts |
 | 637 | frontend/src/__tests__/dashboardCustomization.test.ts |
 | 628 | frontend/src/__tests__/serviceWorkerEnhanced.test.ts |
 | 610 | backend/src/__tests__/stockLogicComprehensive.test.ts |
 | 595 | backend/src/__tests__/tradingEngineDeep.test.ts |
-| 581 | backend/src/__tests__/quantitativeAnalysis.test.ts |
-| 581 | frontend/src/__tests__/frontendLogicComprehensive.test.ts |
 | 580 | backend/src/__tests__/userSystemEnhanced.test.ts |
 | 576 | backend/src/__tests__/batchCalcsEngine.test.ts |
 | 570 | frontend/src/__tests__/macroEconomicAnalysis.test.ts |
 | 558 | frontend/src/__tests__/pageDataLogic.test.ts |
+| 547 | frontend/src/__tests__/parameterOptimizer.test.ts |
+| 546 | frontend/src/__tests__/cssAndVisualization.test.ts |
+| 541 | frontend/src/__tests__/tradeSimulator.test.ts |
+| 538 | backend/src/__tests__/technicalAnalysis.test.ts |
 
 ## 五、迁移策略
 
@@ -171,11 +173,22 @@
 - 验证：cd frontend && npx vitest run 两文件 = 92 passed；cd frontend 另两文件 = 108 passed；cd backend 两文件 = 61 passed；census --check 835/1533。
 - 效果：影子 841→835（-6），shadowLoc 220,244→218,223，realLoc 139,728→141,872。
 
+## 六（续）、批次 15–16 与扫描器修复（2026-11-04 06:05）
+
+- **批次 15**：`backend/src/__tests__/securityEnhancements.test.ts`（315→430 行，26 例）与 `apiSecurityComprehensive.test.ts`（379→691 行，51→55 例）改接 `backend/src/middleware/auth.ts:120/143/176/190/328/362/418`（signAccessToken/verifyAccessToken/generateRefreshToken/consumeRefreshToken/requireRole/handleTokenRefresh/cleanup）、`frontend/src/utils/securityEngine.ts:86/150/163/177/192/291/303/561/583`（sanitizeHTML/validateEmail/validatePhone/validateStockCode/validatePassword/maskPhone/maskEmail/signRequest/verifyRequestSignature）、`backend/src/middleware/securityHeaders.ts:41`、`validation.ts:716/734`（limitBodySize/sanitizeInput）、`corsConfig.ts:146`、`rateLimit.ts:90`、`backend/src/models/User.ts:118/122`。81 passed。
+- **批次 15 旧断言错在哪**：maskEmail('test@example.com') 生产为 `t**t@example.com`（只留 local 首尾，长度≤2 不遮挡）；生产 signAccessToken 无过期参数（固定 15 分钟），旧用 -1 造过期改为 fake timers 推进；3 条"全局安全策略"恒真断言改为对 enhancedSecurityHeaders/limitBodySize/corsMiddleware 的真实断言；请求签名为冒号分隔 base36（旧竖线+8 位 hex）；requireRole 允许角色集合平铺匹配（无 guest/user/admin 层级）；刷新错误码为 400 VALIDATION_ERROR / 401 REFRESH_TOKEN_INVALID；密码策略只返回 {valid,errors}（旧强/中/弱判定全错）。
+- **批次 15 残留**：maskSensitiveValue（`requestLogger.ts:62` 未 export）、nonce 存储、IP 白名单、API Key 管理器——生产无对应实现/导出，保留并注明；API Key 用例的随机 key 改确定性序号。
+- **批次 16**：`frontend/src/__tests__/frontendLogicComprehensive.test.ts`（581→578 行，63 例）改接 `frontend/src/store/useAppStore.ts:156-212`（主题/K线周期/成交量/侧边栏/URLState）、`i18nManager.ts:27-51`、`useStockStore.ts:170/331-353/398-405/465-474`（自选股/搜索/reset）、`exportEngine.ts:316-356`（filterData/sortData）、`formatters.ts:70/99-108/148-152/266-275`、`enhancedFormatters.ts:138-176`、`routes/paths.ts:11-54`。63 passed。
+- **批次 16 旧断言错在哪**：初始主题 'light'→'dark'；URL 默认值省略（默认 toURLParams() 为空串）、键名 sort→sortBy/sortOrder；60 秒→'刚刚'（阈值 5 分钟）、1 天以上→完整日期 yyyy-MM-dd；0%→'+0.00%'；美元→'US$1,234.50'；/sectors 参数 code→symbol；formatPercent 入参是小数（旧语义对应 formatChangePercent）。
+- **批次 16 残留**：highlight/truncateHighlight（生产在 `SearchHighlight.tsx:16-72` 组件内未导出）、generateBreadcrumbs（各页面内联 antd items）；测试内用 vi.hoisted 装 Map-backed Storage 绕开 Node 25 空壳 localStorage。
+- **扫描器修复**：census 与 candidates 的 IMPORT_RE 都不识别 `await import('../x')`，把 34 个真实导入测试误判成影子。两脚本均补 `import(` 分支后重扫：835→832（批次 15/16 三个文件迁完）→798（动态 import 修正），shadowLoc 218,223→216,948→211,476，realLoc 141,872→149,046。
+- **验证**：backend 81 passed（26+55）、frontend 63 passed；`census --check` 798/1533 exit 0。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 835 / total 1533 / shadowLoc 218,223（批次 14 后；批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851）。
+- 基线：shadow 798 / total 1533 / shadowLoc 211,476（批次 15–16 + 扫描器修复后）。历史基线：批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——均为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -184,13 +197,13 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：835 个影子测试中 79 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 13、4 个 3、5 个 0）；另有 1 个符号重叠 248 个、零重叠 508 个（批次 14 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：798 个影子测试中 75 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 12）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 15–16 后重扫，含动态 import 修复）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 15（候选）：`securityEnhancements.test.ts`（315 行）与 `apiSecurityComprehensive.test.ts`（379 行）对接 `backend/src/middleware/auth.ts`（signAccessToken/verifyAccessToken/generateRefreshToken/consumeRefreshToken）、`frontend/src/utils/securityEngine.ts`（mask/validate）、`backend/src/models/User.ts`、`backend/src/middleware/validation.ts`（sanitizeInput）。注意 auth.ts 在非生产缺 JWT_SECRET 会生成一次性随机密钥，测试内需固定语义（同进程内签发/校验仍成立）。
-- 次选：`frontendLogicComprehensive.test.ts`（581 行）对接 `frontend/src/utils/formatters.ts` / `exportEngine.ts`；`tableEngineV2.test.ts`、`tableDataGrid.test.ts` 对接 `bloombergExportEngine.ts` / `exportEngine.ts` 的 aggregateData/filterData/sortData/exportToCSV。
-- 零重叠 508：30 样本审计已完成（结论见 DSH 侧 `handover/10-零重叠影子审计.md`），归档候选清单分析进行中；删除须用户批准，且不得计入迁移数字。
+- 批次 17 候选（≥2 符号重叠）：`backend/src/__tests__/tableEngineV2.test.ts`、`tableDataGrid.test.ts` 对接 `bloombergExportEngine.ts` / `exportEngine.ts` 的 aggregateData/filterData/sortData/exportToCSV；体量更大的 `frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedPageLogic.test.ts`（658 行）需先逐段确认生产对应物。
+- 零重叠 475（新口径）：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由本次扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
+- 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR。
 - 新增关注：`backend/src/indicators/technical.ts` 无 OBV/CCI/WilliamsR 实现，相关测试暂留本地 helper。
 - 关注点：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零属生产已知局限，已由测试固化，待产品阶段评估是否修。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。

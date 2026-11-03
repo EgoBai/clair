@@ -17,6 +17,8 @@ import { join, dirname, resolve, relative, sep } from 'node:path';
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), '../..');
 const SCAN_DIRS = ['backend/src', 'frontend/src'];
 const IMPORT_RE = /(?:^|\n)\s*(?:import\s+(?:[^'"]*?from\s*)?|export\s+[^'"]*?from\s*|require\()\s*['"]([^'"]+)['"]/g;
+// 动态 import `await import('../x')` 不在行首，上面的正则会漏判，导致真实导入被算成影子（2026-11-04 审计发现 14 例假阴性）
+const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*['"]([^'"]+)['"]/g;
 
 function walk(dir, out = []) {
   let entries;
@@ -38,6 +40,8 @@ function classify(file) {
   let m;
   IMPORT_RE.lastIndex = 0;
   while ((m = IMPORT_RE.exec(src))) specs.push(m[1]);
+  DYNAMIC_IMPORT_RE.lastIndex = 0;
+  while ((m = DYNAMIC_IMPORT_RE.exec(src))) specs.push(m[1]);
   const testDir = dirname(file);
   let projectImports = 0;
   for (const s of specs) {
