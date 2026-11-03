@@ -1,31 +1,43 @@
+/**
+ * 影子测试迁移（批次 22a）
+ *
+ * 旧文件在测试内自抄了 SMA / EMA / WMA / 金叉 / 三均线五套实现（只 import vitest），断言的是副本
+ * 而不是产品。本批把 SMA/EMA 两组改为 import 真实生产实现，其余保留本地 helper 并逐处注明原因。
+ *
+ * 已绑定生产实现：
+ * - calculateSMA → frontend/src/utils/chartDataProcessing.ts:73
+ * - calculateEMA → frontend/src/utils/chartDataProcessing.ts:89
+ *   （null 预热、EMA 以前 period 个值的 SMA 播种、multiplier = 2/(period+1)；跨包 import 与选型理由
+ *    同 backend/src/__tests__/maAndVolumeAnalysis.test.ts:39（批次 19）。未选
+ *    frontend/src/utils/featureEngineeringEngine.ts:32/45 的同名实现：其 SMA 预热为 NaN、EMA 以首价
+ *    播种、不产生 null，与本文件下游「null 跳过」契约不兼容。）
+ *
+ * 旧断言错在哪（旧值 → 生产值）：
+ * - EMA「starting from first price」：旧副本以首价播种，period=2 时 [10,20,30] → [10, 16.667]；生产
+ *   null 预热 + SMA 播种 → [null, 15, 25]。旧 10 → 生产 null；旧 16.667 → 生产 15。
+ * - EMA 趋势用例：旧副本无 null 预热（从 i=1 起每项都是数），比较从 i=1 开始；生产前 period-1 项为
+ *   null，改为从首个有效值（i=period）起比较；非空段数值 [2,3,...,10] 与旧副本一致。
+ * - SMA 五例与生产逐条一致（null 预热与窗口均值口径相同），断言值不变，只把断言对象从副本换成 import。
+ *
+ * 未迁移——生产无对应导出（保留本地 helper，其数值断言不对生产作声明）：
+ * - calculateWMA：全仓无导出（grep calculateWMA 仅命中测试）；同 maAndVolumeAnalysis.test.ts:22/44（批次 19）。
+ * - goldenCrossStrategy：生产无通用金叉/死叉函数，只有写死均线对的组件内联判断
+ *   （frontend/src/utils/marketTimingEngine.ts:163/167 为 MA50/200；frontend/src/utils/strategy.ts:121/125
+ *   为 MA5/20），与 (number|null)[] + prices 的通用签名不同。
+ * - tripleMASystem：生产无三均线系统导出；本地只保留信号状态机，均线原语改用上方生产 calculateSMA
+ *   （null 预热契约一致），信号判定因此建立在生产 SMA 之上。
+ *
+ * 生产缺陷候选：无。calculateEMA 的 null 预热 + SMA 播种是标准口径，旧副本的首价播种才是偏差，
+ * 未发现与标准 EMA 定义冲突的生产行为。
+ */
+
 import { describe, it, expect } from 'vitest';
+import { calculateSMA, calculateEMA } from '../../../frontend/src/utils/chartDataProcessing';
 
 // Moving Average Systems
 interface MACrossResult { signals: { date: number; type: 'buy' | 'sell'; price: number }[]; winRate: number }
-interface EMAParams { period: number; smoothing: number }
 
-function calculateSMA(prices: number[], period: number): (number | null)[] {
-  const result: (number | null)[] = [];
-  for (let i = 0; i < prices.length; i++) {
-    if (i < period - 1) { result.push(null); continue; }
-    let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) sum += prices[j];
-    result.push(sum / period);
-  }
-  return result;
-}
-
-function calculateEMA(prices: number[], period: number): (number | null)[] {
-  const result: (number | null)[] = [];
-  const multiplier = 2 / (period + 1);
-  for (let i = 0; i < prices.length; i++) {
-    if (i === 0) { result.push(prices[0]); continue; }
-    const prev = result[i - 1] ?? prices[i - 1];
-    result.push((prices[i] - prev) * multiplier + prev);
-  }
-  return result;
-}
-
+// 未迁移：生产无对应导出（calculateWMA 全仓仅测试出现），保留本地 helper。
 function calculateWMA(prices: number[], period: number): (number | null)[] {
   const result: (number | null)[] = [];
   const weightSum = (period * (period + 1)) / 2;
@@ -40,6 +52,7 @@ function calculateWMA(prices: number[], period: number): (number | null)[] {
   return result;
 }
 
+// 未迁移：生产无通用交叉检测函数（见文件头），保留本地策略 helper。
 function goldenCrossStrategy(shortMA: (number | null)[], longMA: (number | null)[], prices: number[]): MACrossResult {
   const signals: MACrossResult['signals'] = [];
   let position = false;
@@ -61,6 +74,7 @@ function goldenCrossStrategy(shortMA: (number | null)[], longMA: (number | null)
   return { signals, winRate: total > 0 ? wins / total : 0 };
 }
 
+// 未迁移（策略层）：生产无三均线系统导出；均线原语使用生产 calculateSMA，本地只保留信号状态机。
 function tripleMASystem(prices: number[], fast: number, mid: number, slow: number): string[] {
   const fastMA = calculateSMA(prices, fast);
   const midMA = calculateSMA(prices, mid);
@@ -113,10 +127,18 @@ describe('Moving Average Systems', () => {
   });
 
   describe('EMA', () => {
-    it('should calculate EMA starting from first price', () => {
+    it('should seed EMA from SMA of the first period', () => {
+      // 生产口径：前 period-1 项 null，i=period-1 处用前 period 个值的 SMA 播种
       const ema = calculateEMA([10, 20, 30], 2);
-      expect(ema[0]).toBe(10);
-      expect(ema[1]).toBeCloseTo(16.667, 1);
+      expect(ema[0]).toBeNull(); // 旧副本此处为 10（首价播种）
+      expect(ema[1]).toBeCloseTo(15, 10); // (10+20)/2；旧副本为 16.667
+      expect(ema[2]).toBeCloseTo(25, 10); // (30-15)*2/3+15
+    });
+
+    it('should have null for period-1 items', () => {
+      const ema = calculateEMA(testPrices, 5);
+      for (let i = 0; i < 4; i++) expect(ema[i]).toBeNull();
+      expect(ema[4]).not.toBeNull();
     });
 
     it('should have length equal to input', () => {
@@ -127,9 +149,9 @@ describe('Moving Average Systems', () => {
     it('should follow price trend', () => {
       const prices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
       const ema = calculateEMA(prices, 3);
-      // EMA should be increasing for increasing prices
-      for (let i = 1; i < ema.length; i++) {
-        expect(ema[i]).toBeGreaterThanOrEqual(ema[i - 1]!);
+      // 生产前 period-1 项为 null，从首个有效值 i=period 起比较
+      for (let i = 3; i < ema.length; i++) {
+        expect(ema[i]!).toBeGreaterThanOrEqual(ema[i - 1]!);
       }
     });
   });
