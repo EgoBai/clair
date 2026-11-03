@@ -9,8 +9,8 @@
  * @vitest-environment jsdom
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import NavigationMenu from '../../components/Layout/NavigationMenu';
 import { NAV_GROUPS } from '../../config/navGroups';
@@ -18,6 +18,38 @@ import { NAV_GROUPS } from '../../config/navGroups';
 const COLLAPSED_STORAGE_KEY = 'clair-nav-collapsed-groups';
 // 平板 icon-rail「固定展开」持久化 key，存 '1' / '0' 字符串（见 NavigationMenu.tsx）
 const RAIL_PINNED_STORAGE_KEY = 'clair-nav-rail-pinned';
+
+/**
+ * 底部状态灯自 2026-11-03 起是**真实探测**（/api/version + /health），
+ * 不再是字面量，故所有用例都必须给出 fetch 桩，否则渲染结果取决于运行环境的网络。
+ * 桩只用 ok/status/json 三个成员（组件不读 response 其它字段），不依赖 Response 构造器。
+ */
+type FetchStub = { ok: boolean; status: number; json: () => Promise<unknown> };
+
+const jsonResponse = (body: unknown, status = 200): FetchStub => ({
+  ok: status >= 200 && status < 300,
+  status,
+  json: async () => body,
+});
+
+/** 让 /api/version 与 /health 的返回可控；未匹配路径按 404 处理 */
+const stubBackend = (opts: {
+  version?: () => FetchStub | Promise<FetchStub>;
+  health?: () => FetchStub | Promise<FetchStub>;
+}) => {
+  const fn = vi.fn(async (input: unknown) => {
+    const url = String(input);
+    if (url.includes('/api/version')) {
+      return opts.version ? await opts.version() : jsonResponse({ appVersion: '1.7.0' });
+    }
+    if (url.includes('/health')) {
+      return opts.health ? await opts.health() : jsonResponse({ status: 'healthy', degraded: false });
+    }
+    return jsonResponse({ error: 'Not found' }, 404);
+  });
+  vi.stubGlobal('fetch', fn);
+  return fn;
+};
 
 const renderWithRouter = (initialEntries = ['/']) => {
   return render(
@@ -29,6 +61,14 @@ const renderWithRouter = (initialEntries = ['/']) => {
 
 beforeEach(() => {
   localStorage.clear();
+  // 默认桩：永不返回。让不关心状态灯的用例停在「检测中」，避免异步 setState 触发 act 警告。
+  // 需要具体三态的用例各自用 stubBackend / vi.stubGlobal 覆盖。
+  vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('NavigationMenu（品牌与骨架）', () => {
@@ -42,10 +82,16 @@ describe('NavigationMenu（品牌与骨架）', () => {
     expect(screen.getByText('Clair · 水静则明')).toBeDefined();
   });
 
-  it('渲染底部服务状态与版本号', () => {
+  it('底部状态灯显示真实探测结论与后端版本号', async () => {
+    stubBackend({});
     renderWithRouter();
-    expect(screen.getByText('服务正常')).toBeDefined();
-    expect(screen.getByText('v1.0.0')).toBeDefined();
+
+    // 初态先「检测中」，探测返回后转「服务正常」——绝不以「正常」当默认值
+    expect(screen.getByText('检测中')).toBeDefined();
+    await waitFor(() => expect(screen.getByText('服务正常')).toBeDefined());
+    // 版本号来自 /api/version 的 appVersion，不是硬编码
+    expect(screen.getByText('v1.7.0')).toBeDefined();
+    expect(screen.queryByText('v1.0.0')).toBeNull();
   });
 
   it('nav 根节点带主导航 aria-label', () => {
@@ -220,5 +266,73 @@ describe('NavigationMenu（平板 rail 固定开关）', () => {
     renderWithRouter();
 
     expect(getRailToggle().getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+/**
+ * 侧栏状态灯三态（2026-11-03 假状态灯缺陷回归）
+ *
+ * 改前：`服务正常` 与 `v1.0.0` 是字面量，后端关掉/拦截接口后侧栏照样亮绿灯，
+ * 与同屏右下角的 "v1.7.0 · 未知" 自相矛盾。以下用例把"拔线"场景钉死：
+ * 请求失败 / 4xx-5xx / 200 但不是 JSON（静态托管兜 index.html）都必须是「服务异常」。
+ */
+describe('NavigationMenu（底部状态灯：真实探测三态）', () => {
+  it('degraded=true 时显示「服务降级」而非「服务正常」', async () => {
+    stubBackend({ health: () => jsonResponse({ status: 'degraded', degraded: true }) });
+    renderWithRouter();
+
+    await waitFor(() => expect(screen.getByText('服务降级')).toBeDefined());
+    expect(screen.queryByText('服务正常')).toBeNull();
+    // 降级时后端仍可达，版本号照常显示（不因为降级就不敢显示版本）
+    expect(screen.getByText('v1.7.0')).toBeDefined();
+  });
+
+  it('后端不可达（网络层失败）时显示「服务异常」，版本显示「—」', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    renderWithRouter();
+
+    await waitFor(() => expect(screen.getByText('服务异常')).toBeDefined());
+    expect(screen.queryByText('服务正常')).toBeNull();
+    expect(screen.getByText('—')).toBeDefined();
+  });
+
+  it('/api/version 返回 500 时显示「服务异常」', async () => {
+    stubBackend({ version: () => jsonResponse({ error: 'boom' }, 500) });
+    renderWithRouter();
+
+    await waitFor(() => expect(screen.getByText('服务异常')).toBeDefined());
+    expect(screen.queryByText('服务正常')).toBeNull();
+  });
+
+  it('/api/version 返回 200 但不是 JSON（SPA 兜底页）时也判「服务异常」', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('Unexpected token <'); },
+    })));
+    renderWithRouter();
+
+    await waitFor(() => expect(screen.getByText('服务异常')).toBeDefined());
+    expect(screen.queryByText('服务正常')).toBeNull();
+  });
+
+  it('appVersion 缺失时版本渲染「—」，不回退硬编码字符串', async () => {
+    stubBackend({ version: () => jsonResponse({ commit: 'abc1234' }) });
+    renderWithRouter();
+
+    await waitFor(() => expect(screen.getByText('服务正常')).toBeDefined());
+    expect(screen.getByText('—')).toBeDefined();
+    expect(screen.queryByText('v1.0.0')).toBeNull();
+  });
+
+  it('挂载即探一次即止：60s 轮询不缩成毫秒级刷接口', async () => {
+    const fn = stubBackend({});
+    renderWithRouter();
+
+    await waitFor(() => expect(screen.getByText('服务正常')).toBeDefined());
+    expect(fn.mock.calls.some(([u]) => String(u).includes('/api/version'))).toBe(true);
+    // 只做一次挂载探测 + 60s 定时器，不应在毫秒级内自我轮询刷接口
+    const versionCalls = fn.mock.calls.filter(([u]) => String(u).includes('/api/version')).length;
+    expect(versionCalls).toBe(1);
   });
 });

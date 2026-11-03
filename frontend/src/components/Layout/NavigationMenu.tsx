@@ -1,8 +1,112 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import { NAV_GROUPS } from '../../config/navGroups';
 import { ROUTE_PATHS } from '../../routes/paths';
+import { resolveApiOrigin } from '../../config/apiBase';
+
+/**
+ * ============================================================================
+ * 侧栏底部服务状态灯 —— 从「纯硬编码」改为真实探测（2026-11-03）
+ * ============================================================================
+ * 缺陷：此处原先恒渲染绿点「服务正常」与 `v1.0.0` 两个**字面量**，没有任何请求。
+ * 后端关掉、域名配错、进降级态时，侧栏依旧亮绿灯——这是"假状态灯"，
+ * 比缺功能更伤信任（同屏右下角还显示着另一个版本号 "v1.7.0 · 未知"，自相矛盾）。
+ *
+ * 现在的口径：
+ *   - 可达性与版本：`GET /api/version`（后端自报 appVersion 的唯一真源）。
+ *     该路径在 dev 由 Vite proxy 转发、生产由 main.tsx 的 /api 前缀重写指向后端，
+ *     是两种模式下都能打到后端的路径。
+ *   - 降级态：`GET /health` 顶层 `degraded`（唯一真源，dbFactory.deriveHealthContract）。
+ *     /health 挂在后端**根路径**（不在 /api 下），故用 resolveApiOrigin() 拼绝对地址；
+ *     取不到时**不臆造降级结论**，也不因此把可达的后端报成异常。
+ *   - 三态：正常（200 且 degraded=false）/ 降级（200 且 degraded=true）/ 异常（请求失败或 4xx/5xx）。
+ *     版本号取 /api/version 的 appVersion，取不到显示「—」，**绝不回退成硬编码版本字符串**。
+ *   - 轮询 60s：只为发现「后端变挂/恢复」，不为实时性；间隔过短会加剧后端限流。
+ * ============================================================================
+ */
+
+/** 侧栏状态三态 + 首次探测中的过渡态 */
+type BackendStatus = 'checking' | 'healthy' | 'degraded' | 'error';
+
+/** 状态文案（对外可见，测试与用户共用同一份真源） */
+const STATUS_TEXT: Record<BackendStatus, string> = {
+  checking: '检测中',
+  healthy: '服务正常',
+  degraded: '服务降级',
+  error: '服务异常',
+};
+
+/** 悬停说明：让用户知道这个灯是**探测**出来的，而不是装饰 */
+const STATUS_TITLE: Record<BackendStatus, string> = {
+  checking: '正在检测后端 /api/version 与 /health',
+  healthy: '/api/version 可达，/health 未报告降级',
+  degraded: '/api/version 可达，但 /health 报告 degraded=true（数据库降级或数据源不可用）',
+  error: '后端不可达：/api/version 请求失败或返回 4xx/5xx',
+};
+
+/** 探测间隔下限 60s：再短只是在给后端限流添压，不会让状态更准 */
+const PROBE_INTERVAL_MS = 60_000;
+const PROBE_TIMEOUT_MS = 5_000;
+
+interface ProbeResult {
+  status: BackendStatus;
+  /** 后端自报版本号；不可得为 null（UI 渲染「—」） */
+  version: string | null;
+}
+
+/**
+ * 真实探测后端状态。任一环节失败都不抛错，只如实降级为对应状态。
+ * 注意「200 但不是 JSON」必须判为异常：静态托管常把未命中的 /api/* 兜成 index.html，
+ * 那种 200 恰恰说明后端没在服务，按 ok 处理就是又一次假绿灯。
+ */
+async function probeBackend(): Promise<ProbeResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    let res: Response;
+    try {
+      res = await fetch('/api/version', {
+        signal: controller.signal,
+        headers: { accept: 'application/json' },
+      });
+    } catch {
+      // 网络层失败 / 超时 / 跨域被拒
+      return { status: 'error', version: null };
+    }
+    if (!res.ok) return { status: 'error', version: null };
+
+    let version: string | null = null;
+    try {
+      const payload = (await res.json()) as { appVersion?: unknown } | null;
+      if (typeof payload?.appVersion === 'string' && payload.appVersion.trim()) {
+        version = payload.appVersion.trim();
+      }
+    } catch {
+      return { status: 'error', version: null };
+    }
+
+    // 降级态：/health 顶层 degraded 是唯一真源
+    let degraded: boolean | null = null;
+    try {
+      const origin = resolveApiOrigin(); // dev: ''（相对路径）；生产：后端根地址
+      const healthRes = await fetch(`${origin}/health`, {
+        signal: controller.signal,
+        headers: { accept: 'application/json' },
+      });
+      if (healthRes.ok) {
+        const health = (await healthRes.json()) as { degraded?: unknown } | null;
+        if (typeof health?.degraded === 'boolean') degraded = health.degraded;
+      }
+    } catch {
+      // 取不到降级态：不改变「服务可达」这一已证实的事实，也不编造降级
+    }
+
+    return { status: degraded === true ? 'degraded' : 'healthy', version };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // 折叠状态持久化 key（localStorage）
 const COLLAPSED_STORAGE_KEY = 'clair-nav-collapsed-groups';
@@ -35,6 +139,26 @@ export const NavigationMenu: React.FC = () => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsedGroups);
   // 平板断点（769–1024px）icon-rail 是否固定展开；固定时忽略 hover 收起
   const [railPinned, setRailPinned] = useState<boolean>(readRailPinned);
+  // 后端起态：先「检测中」，由真实探测结果替换（绝不以「正常」作为初始值假装已知）
+  const [backend, setBackend] = useState<ProbeResult>({ status: 'checking', version: null });
+
+  // 真实轮询后端状态：挂载即探一次，之后每 60s 一次；卸载时停止（不再对已卸载组件 setState）
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const result = await probeBackend();
+      if (!cancelled) setBackend(result);
+    };
+
+    void run();
+    const timer = setInterval(() => { void run(); }, PROBE_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   // 判断路径是否激活：首页精确匹配，其余前缀匹配（覆盖 /stocks/:symbol 等详情级）
   const isActivePath = (path: string): boolean => {
@@ -158,13 +282,20 @@ export const NavigationMenu: React.FC = () => {
           })}
         </div>
 
-        {/* 导航底部状态区 */}
+        {/* 导航底部状态区：真实探测（/api/version + /health），非硬编码 */}
         <div className="nav-footer">
-          <div className="nav-status">
-            <span className="status-indicator" aria-hidden="true" />
-            <span className="status-text">服务正常</span>
+          <div className="nav-status" role="status" aria-live="polite" title={STATUS_TITLE[backend.status]}>
+            <span
+              className={`status-indicator status-${backend.status}`}
+              data-status={backend.status}
+              aria-hidden="true"
+            />
+            <span className="status-text">{STATUS_TEXT[backend.status]}</span>
           </div>
-          <div className="nav-version">v1.0.0</div>
+          {/* 版本号来自后端 /api/version；取不到显示「—」，不回退任何硬编码版本 */}
+          <div className="nav-version" title={backend.version ? `后端自报版本 v${backend.version}` : '后端未返回 appVersion'}>
+            {backend.version ? `v${backend.version}` : '—'}
+          </div>
         </div>
       </div>
 
@@ -412,6 +543,26 @@ export const NavigationMenu: React.FC = () => {
           border-radius: var(--radius-full);
           background: var(--accent-solid);
           animation: clair-status-pulse 2s infinite;
+        }
+
+        /* 三态配色：绿=正常 / 黄=降级 / 红=异常。
+           设计系统没有单独的 success 绿，--color-down 就是那支绿（A 股语义下叫"下跌色"，
+           此处只取颜色值）。检测中用中性蓝，不带脉冲——还没结论时不该摆出"活着"的姿态。 */
+        .status-indicator.status-healthy {
+          background: var(--color-down);
+        }
+
+        .status-indicator.status-degraded {
+          background: var(--color-warning);
+        }
+
+        .status-indicator.status-error {
+          background: var(--color-up);
+        }
+
+        .status-indicator.status-checking {
+          background: var(--text-tertiary);
+          animation: none;
         }
 
         @keyframes clair-status-pulse {
