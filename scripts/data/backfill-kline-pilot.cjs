@@ -94,8 +94,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 简单令牌桶：全局吞吐上限 RPS 次/秒 */
 let _nextSlot = 0;
+let txCoolUntil = 0; // 腾讯 501/429/503 时全局限速暂停的截止时间（实测跑到 ~1.2k 请求会被拦）
 async function throttle() {
   if (!(RPS > 0)) return;
+  if (Date.now() < txCoolUntil) await sleep(txCoolUntil - Date.now());
   const gap = 1000 / RPS;
   const now = Date.now();
   const slot = Math.max(now, _nextSlot);
@@ -258,7 +260,9 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
         .filter((b) => [b.open, b.close, b.high, b.low, b.volume].every((x) => Number.isFinite(x)));
     } catch (e) {
       if (i === tries - 1) throw e;
-      await sleep(700 * 2 ** i + Math.floor(Math.random() * 300));
+      const limited = /^HTTP (429|501|503)$/.test(String(e.message));
+      if (limited) txCoolUntil = Math.max(txCoolUntil, Date.now() + 120000);
+      await sleep((limited ? 2500 : 700) * 2 ** i + Math.floor(Math.random() * 300));
     }
   }
   return [];
