@@ -364,9 +364,12 @@ for (const { path: p, allow } of MULTI_MODULE_ROUTES) {
     assert.ok(allow.includes(body.dataSource),
       `dataSource 应为 ${allow.join('/')}，实际 ${body.dataSource}`);
     assert.ok(body.data && typeof body.data === 'object', '应含 data 对象（空态也要给形状）');
-    // 顶层与 data 内两处 dataSource 必须同源，杜绝「两级 dataSource 互相矛盾」
-    assert.equal(body.data.dataSource, body.dataSource,
-      `顶层 ${body.dataSource} 与 data.dataSource ${body.data.dataSource} 必须一致`);
+    // 顶层与 data 内两处 dataSource 必须同源，杜绝「两级 dataSource 互相矛盾」。
+    // 例外：data 为数组的端点（etf/list）没有 data 内层，dataSource 只在顶层。
+    if (!Array.isArray(body.data)) {
+      assert.equal(body.data.dataSource, body.dataSource,
+        `顶层 ${body.dataSource} 与 data.dataSource ${body.data.dataSource} 必须一致`);
+    }
     if (body.dataSource === 'unavailable') {
       assert.equal(body.success, false, '诚实不可用时 success 必须为 false');
       assert.ok(typeof body.message === 'string' && body.message.length > 10, '必须给出中文原因');
@@ -420,13 +423,15 @@ await test('breadth/current：涨跌家数自洽（adv+dec+flat===total）、new
   assert.ok(d.sentimentScore >= -100 && d.sentimentScore <= 100);
 });
 
-await test('etf/list：嵌套契约 json.data.data、覆盖率自洽、premiumRate 只在行情+净值都有时才给数', async () => {
+await test('etf/list：扁平契约 json.data 为数组、覆盖率自洽、premiumRate 只在行情+净值都有时才给数', async () => {
   const { body } = await callWorker('https://clair-api.pages.dev/api/etf/list');
   assert.equal(body.dataSource, 'real');
+  // 2026-11-04 契约变更：data 由 {data:[...]} 拍平为直接数组（与 Express 侧 #107-C8 同形），
+  // 元信息提到顶层。这条断言防止任何人把它改回双层嵌套。
   const d = body.data;
-  assert.ok(Array.isArray(d.data) && d.data.length > 0, 'data.data 应为非空数组（ETFPage 读的就是它）');
-  assert.equal(d.count, d.data.length);
-  for (const e of d.data) {
+  assert.ok(Array.isArray(d) && d.length > 0, 'data 应为非空数组（ETFPage 读的就是它）');
+  assert.equal(body.count, d.length, 'count 必须等于数组长度');
+  for (const e of d) {
     assert.match(e.symbol, /^\d{6}$/, `ETF 代码应为 6 位，实际 ${e.symbol}`);
     assert.ok(e.name.length > 0);
     if (e.premiumRate !== null) {
@@ -443,7 +448,7 @@ await test('etf/list：嵌套契约 json.data.data、覆盖率自洽、premiumRa
       assert.equal(e.fieldSources[k], 'unavailable');
     }
   }
-  assert.match(d.quoteCoverage, /^\d+\/\d+$/);
+  assert.match(body.quoteCoverage, /^\d+\/\d+$/, 'quoteCoverage 应在顶层');
 });
 
 await test('macro/overview：core 六张卡齐全、不可用卡 valueText=不可用（不是 0）、无编造序列', async () => {
