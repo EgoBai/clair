@@ -1,8 +1,8 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 23 迁移后更新 06:50（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 25 迁移后更新 07:00（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
-> 基线：批次 23 后重扫（产品仓本地 e0dc76807 + 23b 工作区）
+> 基线：批次 25 后重扫（批次 23 提交 0adc30879 + 批次 24/25 工作区）
 
 ## 一、判定口径
 
@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **774（50.5%）** |
-| 真实导入 | 759 |
-| 影子测试代码行 | **205,583 行** |
-| 真实测试代码行 | 156,118 行 |
+| 影子测试 | **768（50.1%）** |
+| 真实导入 | 765 |
+| 影子测试代码行 | **204,347 行** |
+| 真实测试代码行 | 157,321 行 |
 
-按行数算，56.8% 的测试代码在断言副本而不是产品代码。
+按行数算，56.5% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 397/640 | 62.0% |
-| frontend/src/__tests__（扁平） | 377/868 | 43.4% |
+| backend/src/__tests__（扁平） | 395/640 | 61.7% |
+| frontend/src/__tests__（扁平） | 373/868 | 43.0% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -224,11 +224,20 @@
 - **验证**：23a frontend 44 + backend 20 passed；23b frontend 44 + backend 49 passed；均无 .skip/.only/Math.random。
 - **效果**：影子 782→774（50.5%），shadowLoc 206,875→205,583，realLoc 154,498→156,118；候选分布 2 个 51、1 个 248、零重叠 475。
 
+## 六（续）、批次 24–25（2026-11-04 07:00）
+
+- **批次 24a**（2 文件，frontend）：`advancedChartEngine.test.ts`（154→161，16→16；chartPatternEngine:136/151、chartInteractionEngine:617、formatters:37/70）、`optionStrategyEngine.test.ts`（170→168，10→10；advancedOptionsEngine:180/226/240）。旧断言错：锤子线生产严格 `<`（同夹具旧 true→false，high 改 102.5）、日期 token 只认小写（`YYYY-01-DD`→`2025-01-15`）、成交量恒带「手」、牛市价差/铁鹰/跨式生产按每股不乘 100（maxProfit 500→5、maxLoss -500→5、name 加「策略」后缀）。
+- **批次 24b**（2 文件，backend）：`optionChainEngine.test.ts`（181→162，14→14；impliedVolEngine:16/25/40、optionsGreeksEngine:12/18/24/33）、`movingAverageSystem.test.ts`（297→304，24→24；chartDataProcessing:73/89 跨包）。旧断言错：volatilitySmile 返回 `number[]` 非 `{strike,moneyness,iv}[]`、隐含波动率二分法→Newton-Raphson、greeks 拆 4 个导出、SMA 预热 NaN→null、DEMA 断言加强（旧守卫可静默通过）。
+- **批次 25a**（2 文件，frontend）：`index.test.ts`（188→175，12→12）、`performanceUtilsDeep.test.ts`（240→227，27→27）；两文件 `debounce/throttle` 绑 `frontend/src/utils/debounceThrottle.ts:6/141`，真源依据 `utils/index.ts:19` 显式再导出（`-typed` 副本仅测试引用）。旧断言无冲突，仅加 `fn.cancel()` 清定时器。
+- **未迁移（生产无对应导出）**：到期 payoff、covered call、WMA/DEMA/金叉死叉/趋势强度、deltaHedge/portfolioPnL、createPagination/mergeConfigs/deepClone/shallowEqual/chunk/unique/groupBy；均文件内注明原因。
+- **验证**：24a frontend 26 passed；24b backend 38 passed；25a frontend 39 passed；均无 Math.random / .skip/.only。
+- **效果**：影子 774→768（50.1%），shadowLoc 205,583→204,347，realLoc 156,118→157,321；候选分布 2 个 45、1 个 248、零重叠 475。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 774 / total 1533 / shadowLoc 205,583（批次 23 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 768 / total 1533 / shadowLoc 204,347（批次 25 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -237,12 +246,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：774 个影子测试中 51 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 23 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：768 个影子测试中 45 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 25 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 24 候选（2 符号重叠 51 个里价值较高的）：`frontend/src/__tests__/advancedChartEngine.test.ts`（155，bloomberg/export/formatters 的 formatDate/formatVolume）、`optionStrategyEngine.test.ts`（171，advancedOptionsEngine buildIronCondor/buildStraddle）、`backend/src/__tests__/optionChainEngine.test.ts`（182，impliedVolEngine/optionImpliedDistEngine 的 impliedVol/volatilitySmile）、`backend/src/__tests__/movingAverageSystem.test.ts`（298，chartDataProcessing/technical 的 calculateEMA/calculateSMA）、`frontend/src/__tests__/dateTimeEngine.test.ts`（307，tradingCalendarEngine/i18nManager/bloomberg 的 formatDate/countTradingDays）。
-- 批次 23 已消化 responsiveLogic/optionsGreeksAdvanced（2 符号）与 securityLogic/tableInteraction/regimeDetectionV2/apiValidation/tradingCostOptimizer/convertibleBondArbV2；批次 22 已消化原 ≥3 四个与 movingAverageSystemV2/liquidityAnalysis/i18nLogic/tableSortFilter。
+- 批次 24–25 已消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep；批次 23 消化 responsiveLogic/optionsGreeksAdvanced 等 8 个。
+- 下一批候选（2 符号重叠 45 个里价值较高的）：`frontend/src/__tests__/dateTimeEngine.test.ts`（307，tradingCalendarEngine/i18nManager/bloomberg 的 formatDate/countTradingDays）、`backend/src/__tests__/technicalPatterns.test.ts`（314，chartPatternEngine/patternRecognition 的 detectPatterns/findSupportResistance）、`frontend/src/__tests__/chartDataUtils.test.ts`（340，chartDataProcessing/technical 的 calculateBollingerBands/downsampleData）、`frontend/src/__tests__/kLineChart.test.ts`（243，technical/trendFollowing 的 calculateEMA/calculateMA）、`frontend/src/__tests__/formProcessing.test.ts`（251，validation/securityEngine 的 validatePrice/validateQuantity/validateEmail）。
 - 体量大需逐段确认：`frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
 - 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR、formatters formatVolume/formatTurnover 无 null 守卫、`StockDetailPage.tsx:141-153` 自带格式化副本、validateStockCode 只校验 6 位数字。
