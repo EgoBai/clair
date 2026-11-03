@@ -19,6 +19,7 @@ const KLineChart = React.lazy(() => import('../components/Charts/KLineChart'));
 const IndicatorPanel = React.lazy(() => import('../components/Charts/IndicatorPanel'));
 import { useStockActions, useWatchlist } from '../store/useStockStore';
 import { analyze } from '../utils/strategy';
+import { readJson } from '../utils/api';
 import { computeIndicatorSeries } from '../utils/indicatorCalc';
 import { getNthTradingDay, countTradingDays } from '../utils/tradingCalendarEngine';
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
@@ -87,6 +88,8 @@ const StockDetailPage: React.FC = () => {
   const [klineData, setKlineData] = useState<KLineData[]>([]);
   const [loading, setLoading] = useState(true);
   const [klineLoading, setKlineLoading] = useState(true);
+  const [stockError, setStockError] = useState<string | null>(null);
+  const [klineError, setKlineError] = useState<string | null>(null);
   const [klinePeriod, setKlinePeriod] = useState<string>('daily');
   const [subIndicator, setSubIndicator] = useState<'volume'|'macd'|'kdj'|'rsi'>('volume');
   const [indicatorParams, setIndicatorParams] = useState({
@@ -103,6 +106,7 @@ const StockDetailPage: React.FC = () => {
   // 该区块改为常驻「未接入」说明卡片，见页面下方 AI策略建议 卡片。
   const [aiDiagnosis, setAiDiagnosis] = useState<any>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
+  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
 
   const changeColor = useMemo(() => {
     if (!latestQuote) return COLOR_FLAT;
@@ -151,12 +155,14 @@ const StockDetailPage: React.FC = () => {
   const fetchStockData = useCallback(async () => {
     if (!symbol) return;
     setLoading(true);
+    setStockError(null);
     try {
       // 去后缀，纯代码查询
       const pureSymbol = symbol.replace(/\.(SH|SZ)$/, '');
       const resp = await fetch(`/api/stocks/${pureSymbol}`);
-      const data = await resp.json();
-      
+      if (!resp.ok) throw new Error(`行情接口返回 HTTP ${resp.status}`);
+      const data = await readJson<any>(resp);
+
       if (data.success && data.data) {
         const d = data.data;
         setStockInfo({
@@ -169,7 +175,12 @@ const StockDetailPage: React.FC = () => {
         if (d.latestQuote && d.latestQuote.closePrice > 0) {
           setLatestQuote(d.latestQuote);
         }
+      } else {
+        setStockError(`行情接口未返回该股数据${data?.message ? `：${data.message}` : ''}`);
       }
+    } catch (e) {
+      const message = (e as Error)?.message || String(e);
+      setStockError(`个股行情请求失败：${message}；本页不展示该股行情数据（取不到 ≠ 该股没有行情）`);
     } finally {
       setLoading(false);
     }
@@ -178,9 +189,12 @@ const StockDetailPage: React.FC = () => {
   const fetchKlineData = useCallback(async () => {
     if (!symbol) return;
     setKlineLoading(true);
+    setKlineError(null);
     try {
       const pureSymbol = symbol.replace(/\.(SH|SZ)$/, '');
-      const kResp = await fetch(`/api/stocks/${pureSymbol}/kline?period=${klinePeriod}`).then(r => r.json());
+      const resp = await fetch(`/api/stocks/${pureSymbol}/kline?period=${klinePeriod}`);
+      if (!resp.ok) throw new Error(`K线接口返回 HTTP ${resp.status}`);
+      const kResp = await readJson<any>(resp);
       // K-line data
       if (kResp.success && kResp.data?.quotes?.length > 0) {
         const kData: KLineData[] = kResp.data.quotes
@@ -196,7 +210,10 @@ const StockDetailPage: React.FC = () => {
         setKlineData(kData);
       }
     } catch (e) {
+      const message = (e as Error)?.message || String(e);
       console.error('获取K线数据失败:', e);
+      setKlineData([]);
+      setKlineError(`K线数据请求失败：${message}；取不到 ≠ 该股没有K线`);
     } finally {
       setKlineLoading(false);
     }
@@ -212,7 +229,10 @@ const StockDetailPage: React.FC = () => {
     setFundFlow(null);
     const ac = new AbortController();
     fetch(`/api/fund-flow/${symbol}`, { signal: ac.signal })
-      .then(r => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return readJson<any>(r);
+      })
       .then(d => { if (!ac.signal.aborted && d?.data) setFundFlow(d.data); })
       .catch(() => { /* 诚实红线：失败即无面板，不注入演示数据 */ });
     return () => ac.abort();
@@ -245,14 +265,19 @@ const StockDetailPage: React.FC = () => {
     if (!symbol) return;
     const timer = setTimeout(async () => {
       setDiagnosisLoading(true);
+      setDiagnosisError(null);
       try {
         const resp = await fetch(`/api/ai/diagnose/${symbol}`);
-        const data = await resp.json();
+        if (!resp.ok) throw new Error(`AI 诊断接口返回 HTTP ${resp.status}`);
+        const data = await readJson<any>(resp);
         if (data.success && data.data) {
           setAiDiagnosis(data.data);
+        } else {
+          setDiagnosisError(`AI 诊断接口未返回结果${data?.message ? `：${data.message}` : ''}`);
         }
-      } catch {
-        // silent
+      } catch (e) {
+        const message = (e as Error)?.message || String(e);
+        setDiagnosisError(`AI 诊断请求失败：${message}；未生成任何评分或建议`);
       } finally {
         setDiagnosisLoading(false);
       }
@@ -286,6 +311,17 @@ const StockDetailPage: React.FC = () => {
           { title: stockInfo?.name || displaySymbol },
         ]}
       />
+
+      {stockError && (
+        <Alert
+          data-testid="stock-data-error"
+          type="warning"
+          showIcon
+          message="个股行情取不到"
+          description={stockError}
+          style={{ marginBottom: 12 }}
+        />
+      )}
 
       <Spin spinning={loading}>
         {/* ===== 顶部: 股票名称 + 实时价格 ===== */}
@@ -578,8 +614,16 @@ const StockDetailPage: React.FC = () => {
               )}
             </>
           ) : (
-            <div style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {klineLoading ? <LoadingState /> : <EmptyKLine />}
+            <div style={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {klineLoading ? (
+                <LoadingState />
+              ) : klineError ? (
+                <div data-testid="kline-error" style={{ width: '100%' }}>
+                  <EmptyState title="K线数据取不到" description={klineError} />
+                </div>
+              ) : (
+                <EmptyKLine />
+              )}
             </div>
           )}
         </Card>
@@ -632,14 +676,19 @@ const StockDetailPage: React.FC = () => {
                 onClick={async () => {
                   if (!symbol) return;
                   setDiagnosisLoading(true);
+                  setDiagnosisError(null);
                   try {
                     const resp = await fetch(`/api/ai/diagnose/${symbol}`);
-                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(`AI 诊断接口返回 HTTP ${resp.status}`);
+                    const data = await readJson<any>(resp);
                     if (data.success && data.data) {
                       setAiDiagnosis(data.data);
+                    } else {
+                      setDiagnosisError(`AI 诊断接口未返回结果${data?.message ? `：${data.message}` : ''}`);
                     }
-                  } catch {
-                    // silent
+                  } catch (e) {
+                    const message = (e as Error)?.message || String(e);
+                    setDiagnosisError(`AI 诊断请求失败：${message}；未生成任何评分或建议`);
                   } finally {
                     setDiagnosisLoading(false);
                   }
@@ -651,6 +700,16 @@ const StockDetailPage: React.FC = () => {
           }
           style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
         >
+          {diagnosisError && !aiDiagnosis && (
+            <Alert
+              data-testid="diagnosis-error"
+              type="warning"
+              showIcon
+              message="AI 诊断取不到数据"
+              description={diagnosisError}
+              style={{ marginBottom: 12 }}
+            />
+          )}
           {aiDiagnosis ? (
             <div style={{ padding: '8px 0' }}>
               {/* 总分 */}
