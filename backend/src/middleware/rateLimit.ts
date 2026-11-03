@@ -55,6 +55,16 @@ class RateLimiter {
 
   /**
    * 获取客户端标识
+   *
+   * ⚠️ 这里取 `req.ip` 的正确性**完全依赖** `app.set('trust proxy', N)`（见 app.ts）：
+   *   - 不设 trust proxy 时，Express 的 `req.ip` 是**直连对端**地址。生产部署在
+   *     Render / nginx / 云负载均衡之后时，直连对端就是代理自身（内网 10.x / 172.x），
+   *     于是全体用户共用同一个 req.ip，也就共用同一个「120 次/分」计数器 ——
+   *     任何一个用户把配额打满，全站用户同时收到 429 白屏。这是「一个人拖垮全站」的根因。
+   *   - 设置 trust proxy（只信第一层代理）后，Express 才会按 `X-Forwarded-For`
+   *     的最左可信值解出真实客户端 IP，`req.ip` 才是「每个用户一个桶」。
+   *
+   * 因此本文件与 app.ts 的 trust proxy 设置是**成对契约**，不可单独回退任何一方。
    */
   getClientKey(req: Request): string {
     return req.ip || req.socket.remoteAddress || 'unknown';

@@ -460,26 +460,51 @@ const ScreenerPage: React.FC = () => {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // 为当前页股票加载技术指标
+  //
+  // P0-请求回环（2026-11-03）：原实现把 `techData` 放进了本 useCallback 的依赖，
+  // 而调用方 useEffect 的依赖是 [paged, fetchTechBatch] ⟹
+  //   setTechData → techData 变 → fetchTechBatch 重建 → effect 重跑 → 再发请求 → setTechData …
+  // 只要「已加载集合」永远填不满，这个环就永不终止：实测 /screener 首屏发了 120 个 /api/ 请求，
+  // 打满 120 次/分后其余路由（/top-traders、/margin-trading 等）全部 429，页面整片空白。
+  //
+  // 两处一起改才能闭合：
+  //   1. 用 ref 记录「已请求过的代码」，函数本身零依赖（useCallback([])），effect 依赖稳定；
+  //   2. **发请求前**就登记，且按「请求的代码」取结果 —— 后端返回缺失/空 map 时也不会重复拉。
+  const techRequestedRef = useRef<Set<string>>(new Set());
+
   const fetchTechBatch = useCallback(async (symbols: string[]) => {
     if (!symbols.length) return;
-    // Skip already-loaded symbols
-    const toLoad = symbols.filter(s => !techData[s]);
+    // Skip already-requested symbols（用 ref 而非 state，避免进入渲染依赖链）
+    const toLoad = symbols.filter(s => !techRequestedRef.current.has(s));
     if (!toLoad.length) return;
-    
+    // 先登记后请求：即使本次响应缺字段/为空，同一批代码也不会被再次拉取
+    toLoad.forEach(s => techRequestedRef.current.add(s));
+
     try {
       const resp = await apiFetch('/api/tech/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: toLoad }),
       });
-      const data = await resp.json();
-      if (data?.success && data.data) {
-        setTechData(prev => ({ ...prev, ...data.data }));
+      const body = await resp.json();
+      if (body?.success) {
+        // 后端实际信封为 { success, dataSource, data: { data: { [symbol]: TechData } } }
+        // （历史形态是 { success, data: { [symbol]: TechData } }），两种都解，避免再有「解错一层」。
+        const payload = body.data;
+        const map = payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object'
+          ? payload.data
+          : payload;
+        if (map && typeof map === 'object') {
+          // 只取本次请求的代码，杜绝把 dataSource 之类的元字段混进 techData 键空间
+          const next: Record<string, TechData> = {};
+          for (const s of toLoad) if (map[s]) next[s] = map[s];
+          if (Object.keys(next).length) setTechData(prev => ({ ...prev, ...next }));
+        }
       }
-    } catch (e) {
+    } catch {
       // Silent fail — tech indicators are supplementary
     }
-  }, [techData]);
+  }, []);
 
   useEffect(() => {
     const metric = searchParams.get('metric');

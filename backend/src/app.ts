@@ -161,6 +161,18 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const httpServer = createServer(app);
 
+// ==================== 反向代理信任（限流 key 正确性的前置条件）====================
+// P0-限流雪崩：线上 backend 部署在 Render / nginx / 云负载均衡之后。不声明 trust proxy 时，
+// Express 的 `req.ip` 恒为「直连对端」= 代理自身的内网地址，于是
+//   rateLimit.ts:getClientKey 取到的 key 对**所有用户都相同**
+// ⇒ 全体用户共用同一个「120 次/分」计数器，一个人把配额打满，全站用户同时 429 白屏。
+// 这是「单个页面发了 120 个请求 → 其他路由全部 429」在**线上必然发生**的原因。
+//
+// 只信第 1 层代理：既能让 Express 按 X-Forwarded-For 解出真实客户端 IP，
+// 又不会盲信客户端可自行伪造的多层 XFF 链（信任层数越多，越容易伪造来源 IP 绕过限流）。
+// 该设置与 middleware/rateLimit.ts 的 getClientKey 是**成对契约**，不可单独回退任一方。
+app.set('trust proxy', 1);
+
 // ==================== 安全中间件 ====================
 app.use(helmet({
   contentSecurityPolicy: false,
