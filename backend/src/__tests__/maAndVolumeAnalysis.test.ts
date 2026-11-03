@@ -1,33 +1,46 @@
+/**
+ * 影子测试迁移（批次 19）
+ *
+ * 旧文件在测试内自抄了 MA / 量价 / 支撑阻力三套实现（只 import vitest），断言的是副本而不是产品。
+ * 本批把有生产对应的 SMA/EMA 两组改为 import 真实实现，其余保留本地 helper 并逐处注明原因。
+ *
+ * 已绑定生产实现：
+ * - calculateSMA → frontend/src/utils/chartDataProcessing.ts:73
+ * - calculateEMA → frontend/src/utils/chartDataProcessing.ts:89
+ *   （该模块是无依赖纯函数；跨包 import 先例见 backend/src/__tests__/quantitativeAnalysis.test.ts:3、
+ *    sharedTypes.test.ts:40 等批次 3/10/14 文件。未选 backend/src/indicators/technical.ts:120/139 的
+ *    同名 calculateMA/calculateEMA：后者每步 parseFloat(x.toFixed(4)) 舍入到 4 位，口径不同。）
+ *
+ * 旧断言错在哪：
+ * - SMA（5 例）与 EMA（4 例）逐条复核：生产 chartDataProcessing.ts 的 null 预热、EMA 以 period 个
+ *   SMA 播种、multiplier = 2/(period+1) 与旧副本完全一致，未改任何数值断言（无「旧值→生产值」变更）。
+ *   旧问题在于断言对象是副本，生产演进时测试不会跟随。
+ * - 其余组（WMA/DEMA/交叉/OBV/VRSI/量均线/异动/枢轴/聚类/接近判定）生产端无同签名实现，未迁移，
+ *   因此不对其口径作生产声明。
+ *
+ * 未迁移——生产无对应导出（保留本地 helper）：
+ * - calculateWMA / calculateDEMA：全仓无导出（grep calculateWMA|calculateDEMA 仅命中测试）。
+ * - detectGoldenCross / detectDeathCross：生产无通用交叉检测函数，只有组件内联的专用判断
+ *   （frontend/src/utils/marketTimingEngine.ts:163/167 为 MA50/200，strategy.ts:122/126 为 MA5/20），
+ *   与 (number|null)[] 的通用签名不同；同 backend/src/__tests__/technicalIndicatorsAdvanced.test.ts:11。
+ * - calculateOBV：backend 无 OBV 导出；前端候选 frontend/src/utils/volumePriceEngine.ts:50 入参是
+ *   VolumePriceData[]（7 字段）且首值 = data[0].volume，featureEngineeringEngine.ts:156 入参
+ *   (close[], volume[]) 首值同、且无空守卫（[] → [undefined]），都偏离旧副本「首值 0」的累积口径，
+ *   故保留本地 helper；同处理见 advancedIndicatorsV2.test.ts:160、marketSentiment.test.ts:173。
+ * - calculateVRSI / calculateVolumeMA / isVolumeSpike：生产无导出；volumePriceEngine 在
+ *   analyzeVolumePrice 内联计算 avgVolume5（最近 5 日均量，非滚动序列），签名/返回结构不同。
+ * - findPivotHighs / findPivotLows / clusterLevels / isPriceNearLevel：生产只有
+ *   backend/src/services/patternRecognitionEngine.ts 的 class 方法 findPivots:85 /
+ *   findSupportResistance:261（返回对象数组、strength 默认 3、带 type 归类），无同签名纯函数；
+ *   frontend/src/utils/regimeDetectionEngine.ts:79-94 未导出。
+ */
+
 import { describe, it, expect } from 'vitest';
+import { calculateEMA, calculateSMA } from '../../../frontend/src/utils/chartDataProcessing';
 
 // ===== 移动平均线系统 =====
 describe('Moving Average Systems', () => {
-  const calculateSMA = (data: number[], period: number): (number | null)[] => {
-    if (data.length < period) return Array(data.length).fill(null);
-    const result: (number | null)[] = [];
-    for (let i = 0; i < period - 1; i++) result.push(null);
-    for (let i = period - 1; i < data.length; i++) {
-      const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-      result.push(sum / period);
-    }
-    return result;
-  };
-
-  const calculateEMA = (data: number[], period: number): (number | null)[] => {
-    if (data.length === 0) return [];
-    if (data.length < period) return Array(data.length).fill(null);
-    const result: (number | null)[] = [];
-    for (let i = 0; i < period - 1; i++) result.push(null);
-    const multiplier = 2 / (period + 1);
-    let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-    result.push(ema);
-    for (let i = period; i < data.length; i++) {
-      ema = (data[i] - ema) * multiplier + ema;
-      result.push(ema);
-    }
-    return result;
-  };
-
+  // 未迁移：生产无对应导出（calculateWMA 全仓仅测试出现），保留本地 helper。
   const calculateWMA = (data: number[], period: number): (number | null)[] => {
     if (data.length < period) return Array(data.length).fill(null);
     const result: (number | null)[] = [];
@@ -43,6 +56,7 @@ describe('Moving Average Systems', () => {
     return result;
   };
 
+  // 未迁移：生产无 DEMA 导出。EMA 部分已绑定生产实现（上方 import），其余为本地组合。
   const calculateDEMA = (data: number[], period: number): (number | null)[] => {
     const ema1 = calculateEMA(data, period);
     const ema1Values = ema1.map((v, i) => v !== null ? v : data[i]);
@@ -53,6 +67,7 @@ describe('Moving Average Systems', () => {
     });
   };
 
+  // 未迁移：生产无通用金叉/死叉检测导出，只有按 MA50/200、MA5/20 写死的组件内联判断。
   const detectGoldenCross = (shortMA: (number | null)[], longMA: (number | null)[]): number[] => {
     const crosses: number[] = [];
     for (let i = 1; i < shortMA.length; i++) {
@@ -217,6 +232,9 @@ describe('Volume Analysis', () => {
     volume: number;
   }
 
+  // 未迁移：生产无对应导出。前端 volumePriceEngine.calculateOBV 入参是 7 字段 VolumePriceData[]
+  // 且首值 = data[0].volume；featureEngineeringEngine.calculateOBV 首值同且无空守卫，
+  // 与「首值 0」的累积口径不同（详见文件头）。
   const calculateOBV = (bars: VolumeBar[]): number[] => {
     if (bars.length === 0) return [];
     const obv = [0];
@@ -228,6 +246,7 @@ describe('Volume Analysis', () => {
     return obv;
   };
 
+  // 未迁移：生产无 VRSI 导出（全仓 grep 仅测试出现）。
   const calculateVRSI = (bars: VolumeBar[], period: number = 14): (number | null)[] => {
     if (bars.length < period + 1) return Array(bars.length).fill(null);
     const result: (number | null)[] = [];
@@ -248,6 +267,7 @@ describe('Volume Analysis', () => {
     return result;
   };
 
+  // 未迁移：生产无滚动量均线导出；volumePriceEngine 内联算 avgVolume5（最近 5 日均量）。
   const calculateVolumeMA = (bars: VolumeBar[], period: number): number[] => {
     const result: number[] = [];
     for (let i = 0; i < bars.length; i++) {
@@ -258,6 +278,7 @@ describe('Volume Analysis', () => {
     return result;
   };
 
+  // 未迁移：生产无 isVolumeSpike 导出（放量判断内联在 volumePriceEngine 的量价信号里）。
   const isVolumeSpike = (bars: VolumeBar[], index: number, threshold: number = 2): boolean => {
     if (index < 5) return false;
     const avg = bars.slice(index - 5, index).reduce((s, b) => s + b.volume, 0) / 5;
@@ -358,6 +379,8 @@ describe('Support & Resistance Detection', () => {
     close: number;
   }
 
+  // 未迁移：生产只有 patternRecognitionEngine 的 class 方法 findPivots/findSupportResistance
+  // （返回对象数组），无同签名纯函数导出（详见文件头）。
   const findPivotHighs = (data: PricePoint[], lookback: number = 2): number[] => {
     const pivots: number[] = [];
     for (let i = lookback; i < data.length - lookback; i++) {

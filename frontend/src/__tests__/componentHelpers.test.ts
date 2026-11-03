@@ -1,7 +1,49 @@
+/**
+ * 影子测试迁移（批次 20）
+ *
+ * 绑定实现：
+ * - validateEmail/validatePhone/validateStockCode ← frontend/src/utils/securityEngine.ts:150/163/177
+ *   （生产返回 {valid,errors,sanitized}，本文件用 .valid 适配为旧 boolean 口径）
+ * - hexToRgb ← frontend/src/utils/a11yEngine.ts:153 parseColor
+ *   （生产支持 3/6 位 hex 与 rgb()，旧内联仅支持 6 位 hex）
+ * - calculateColumns ← frontend/src/utils/responsiveUtils.ts:130（生产带 maxColumns=6 上限）
+ * - 断点判定 ← frontend/src/utils/responsiveUtils.ts:58 getCurrentBreakpoint / :258 getAdaptiveConfig
+ *
+ * 未迁移（生产无对应导出，保留内联 helper）：
+ * - parseSize/getSizeUnit：生产无 CSS 尺寸解析导出
+ * - rgbToHex/adjustBrightness/isLightColor：生产无对应导出；isLightColor 的简单亮度口径
+ *   与 a11yEngine.relativeLuminance:186 的 WCAG 公式不同，未强行替换
+ * - paginateData/getTotalPages：生产无分页纯函数导出
+ * - calculateAnimationDuration/springAnimation：生产 chartAnimation.ts 只有缓动/lerpColor，无该动画模型
+ * - formatPhoneNumber：securityEngine.maskPhone:291 是脱敏而非格式化
+ * - createNotification/filterNotifications/countUnread：生产无前端通知工厂导出；
+ *   id 的 Math.random 已改确定性序号（禁随机）
+ * - clamp：工具报告指向 backend/src/utils/futureValueUtils.ts:255，但前端测试不跨包 import backend；
+ *   且旧文件中它是 adjustBrightness 内嵌箭头函数，不是文件级符号
+ *
+ * 旧断言错在哪（旧值→生产值）：
+ * - getBreakpoint(1200): 'xl' → 'lg'（生产 BREAKPOINTS.xl=1280）
+ * - getBreakpoint(1920): 'xxl' → '2xl'（生产命名 2xl，阈值 1536）
+ * - 断点阈值：旧 576/768/992/1200/1600 → 生产 640/768/1024/1280/1536；
+ *   isTablet 上界 992→1024、isDesktop 下界 992→1024
+ * - 旧 validateEmail/validatePhone/validateStockCode 返回 boolean → 生产 {valid,errors,sanitized}，
+ *   此处包装取 .valid，断言值本身未变
+ * - validatePhone 旧不接受分隔符 → 生产先去除空格/连字符（'138-0013-8000' 旧 false → 生产 true）
+ * - validateStockCode 旧不 trim → 生产 trim+toUpperCase（' sh600519 ' 旧 false → 生产 true）
+ * - calculateColumns 旧无上限 → 生产 maxColumns=6
+ */
 import { describe, it, expect } from 'vitest';
+import { parseColor as hexToRgb } from '../utils/a11yEngine';
+import {
+  validateEmail as validateEmailResult,
+  validatePhone as validatePhoneResult,
+  validateStockCode as validateStockCodeResult,
+} from '../utils/securityEngine';
+import { calculateColumns, getAdaptiveConfig, getCurrentBreakpoint } from '../utils/responsiveUtils';
 
 describe('Component Helper Functions', () => {
   // Size utilities
+  // 生产无 CSS 尺寸解析导出，未迁移（保留内联实现）
   const parseSize = (size: string): number => {
     const match = size.match(/^(\d+(?:\.\d+)?)(px|rem|em|%)?$/);
     if (!match) return 0;
@@ -14,16 +56,7 @@ describe('Component Helper Functions', () => {
   };
 
   // Color utilities
-  const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
-    const match = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-    if (!match) return null;
-    return {
-      r: parseInt(match[1], 16),
-      g: parseInt(match[2], 16),
-      b: parseInt(match[3], 16),
-    };
-  };
-
+  // hexToRgb 已改绑 a11yEngine.parseColor；rgbToHex/adjustBrightness/isLightColor 生产无对应导出，保留内联。
   const rgbToHex = (r: number, g: number, b: number): string => {
     return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
   };
@@ -47,29 +80,14 @@ describe('Component Helper Functions', () => {
   };
 
   // Breakpoint utilities
-  const breakpoints = { xs: 0, sm: 576, md: 768, lg: 992, xl: 1200, xxl: 1600 };
-
-  const getBreakpoint = (width: number): string => {
-    if (width >= breakpoints.xxl) return 'xxl';
-    if (width >= breakpoints.xl) return 'xl';
-    if (width >= breakpoints.lg) return 'lg';
-    if (width >= breakpoints.md) return 'md';
-    if (width >= breakpoints.sm) return 'sm';
-    return 'xs';
-  };
-
-  const isMobile = (width: number): boolean => width < breakpoints.md;
-  const isTablet = (width: number): boolean => width >= breakpoints.md && width < breakpoints.lg;
-  const isDesktop = (width: number): boolean => width >= breakpoints.lg;
+  // 已改绑 responsiveUtils（生产断点为 Tailwind 口径：sm 640 / md 768 / lg 1024 / xl 1280 / 2xl 1536）。
+  // 本地 breakpoints/getBreakpoint/isMobile/isTablet/isDesktop 副本已删除。
 
   // Responsive grid
-  const calculateColumns = (containerWidth: number, minItemWidth: number, gap: number): number => {
-    const availableWidth = containerWidth + gap;
-    const itemWidth = minItemWidth + gap;
-    return Math.max(1, Math.floor(availableWidth / itemWidth));
-  };
+  // calculateColumns 已改绑 responsiveUtils，本地副本已删除。
 
   // Animation utilities
+  // 生产无对应动画模型导出，未迁移（保留内联实现）
   const calculateAnimationDuration = (distance: number, speed: number): number => {
     return distance / speed;
   };
@@ -80,6 +98,7 @@ describe('Component Helper Functions', () => {
   };
 
   // Table utilities
+  // 生产无分页纯函数导出，未迁移（保留内联实现）
   const paginateData = <T>(data: T[], page: number, pageSize: number): T[] => {
     const start = (page - 1) * pageSize;
     return data.slice(start, start + pageSize);
@@ -90,18 +109,12 @@ describe('Component Helper Functions', () => {
   };
 
   // Form utilities
-  const validateEmail = (email: string): boolean => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  };
+  // 生产返回 {valid,errors,sanitized}；以下布尔包装只取 .valid，不复制校验逻辑。
+  const validateEmail = (email: string): boolean => validateEmailResult(email).valid;
+  const validatePhone = (phone: string): boolean => validatePhoneResult(phone).valid;
+  const validateStockCode = (code: string): boolean => validateStockCodeResult(code).valid;
 
-  const validatePhone = (phone: string): boolean => {
-    return /^1[3-9]\d{9}$/.test(phone);
-  };
-
-  const validateStockCode = (code: string): boolean => {
-    return /^(sh|sz|bj)\d{6}$/i.test(code) || /^\d{6}$/.test(code);
-  };
-
+  // 生产无手机号格式化导出（maskPhone 是脱敏），未迁移（保留内联实现）
   const formatPhoneNumber = (phone: string): string => {
     const digits = phone.replace(/\D/g, '');
     if (digits.length !== 11) return phone;
@@ -109,8 +122,10 @@ describe('Component Helper Functions', () => {
   };
 
   // Notification utilities
+  // 生产无前端通知工厂导出，未迁移（保留内联实现）；id 改为确定性序号，避免 Math.random。
+  let notificationSequence = 0;
   const createNotification = (type: 'success' | 'error' | 'warning' | 'info', message: string) => ({
-    id: Math.random().toString(36).slice(2),
+    id: `notification-${++notificationSequence}`,
     type,
     message,
     timestamp: Date.now(),
@@ -160,6 +175,11 @@ describe('Component Helper Functions', () => {
 
     it('should return null for invalid hex', () => {
       expect(hexToRgb('xyz')).toBeNull();
+    });
+
+    it('should parse shorthand hex (production parseColor)', () => {
+      // 生产 parseColor 额外支持 3 位缩写；旧内联正则会返回 null
+      expect(hexToRgb('#f00')).toEqual({ r: 255, g: 0, b: 0 });
     });
 
     it('should convert rgb to hex', () => {
@@ -213,22 +233,40 @@ describe('Component Helper Functions', () => {
 
   describe('Breakpoints', () => {
     it('should identify mobile', () => {
-      expect(getBreakpoint(375)).toBe('xs');
-      expect(isMobile(375)).toBe(true);
+      const config = getAdaptiveConfig(375);
+      expect(config.breakpoint).toBe('xs');
+      expect(config.isMobile).toBe(true);
     });
 
     it('should identify tablet', () => {
-      expect(getBreakpoint(800)).toBe('md');
-      expect(isTablet(800)).toBe(true);
+      const config = getAdaptiveConfig(800);
+      expect(config.breakpoint).toBe('md');
+      expect(config.isTablet).toBe(true);
     });
 
     it('should identify desktop', () => {
-      expect(getBreakpoint(1200)).toBe('xl');
-      expect(isDesktop(1200)).toBe(true);
+      const config = getAdaptiveConfig(1200);
+      // 生产 xl 从 1280 起，1200 落在 lg（旧断言 'xl'）
+      expect(config.breakpoint).toBe('lg');
+      expect(config.isDesktop).toBe(true);
     });
 
-    it('should identify xxl', () => {
-      expect(getBreakpoint(1920)).toBe('xxl');
+    it('should identify 2xl', () => {
+      // 生产命名 2xl、阈值 1536（旧断言 'xxl'）
+      expect(getCurrentBreakpoint(1920)).toBe('2xl');
+    });
+
+    it('should match production breakpoint boundaries', () => {
+      expect(getCurrentBreakpoint(639)).toBe('xs');
+      expect(getCurrentBreakpoint(640)).toBe('sm');
+      expect(getCurrentBreakpoint(767)).toBe('sm');
+      expect(getCurrentBreakpoint(768)).toBe('md');
+      expect(getCurrentBreakpoint(1023)).toBe('md');
+      expect(getCurrentBreakpoint(1024)).toBe('lg');
+      expect(getCurrentBreakpoint(1279)).toBe('lg');
+      expect(getCurrentBreakpoint(1280)).toBe('xl');
+      expect(getCurrentBreakpoint(1535)).toBe('xl');
+      expect(getCurrentBreakpoint(1536)).toBe('2xl');
     });
   });
 
@@ -239,6 +277,11 @@ describe('Component Helper Functions', () => {
 
     it('should return at least 1', () => {
       expect(calculateColumns(100, 200, 16)).toBe(1);
+    });
+
+    it('should cap at production maxColumns', () => {
+      // 生产默认 maxColumns=6；旧内联无上限
+      expect(calculateColumns(5000, 200, 16)).toBe(6);
     });
   });
 
@@ -268,6 +311,8 @@ describe('Component Helper Functions', () => {
       expect(validatePhone('13800138000')).toBe(true);
       expect(validatePhone('12345678901')).toBe(false);
       expect(validatePhone('1380013800')).toBe(false);
+      // 生产先去除空格/连字符；旧内联正则不接受分隔符（旧 false → 生产 true）
+      expect(validatePhone('138-0013-8000')).toBe(true);
     });
 
     it('should validate stock code', () => {
@@ -275,6 +320,8 @@ describe('Component Helper Functions', () => {
       expect(validateStockCode('sh600519')).toBe(true);
       expect(validateStockCode('sz000001')).toBe(true);
       expect(validateStockCode('12345')).toBe(false);
+      // 生产 trim+toUpperCase 后校验；旧内联不接受空白（旧 false → 生产 true）
+      expect(validateStockCode(' sh600519 ')).toBe(true);
     });
 
     it('should format phone number', () => {

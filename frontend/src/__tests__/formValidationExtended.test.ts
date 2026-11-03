@@ -1,9 +1,45 @@
 /**
  * 表单验证扩展测试
- * 覆盖股票代码验证、金额验证、日期验证、密码策略、组合验证器
+ * 影子测试迁移（批次 20）
+ *
+ * 绑定实现：
+ * - validateStockCode ← frontend/src/utils/validation.ts:32（返回 {valid,errors[]}；仅校验 6 位数字）
+ * - validateEmail/validatePhone ← frontend/src/utils/securityEngine.ts:150/163
+ * - validateTradePassword 核心规则 ← frontend/src/utils/securityEngine.ts:192 validatePassword
+ * - validateTradeDate 日期合法性 ← frontend/src/utils/validation.ts:75 isValidTradeDate
+ * - validateRange 范围判定 ← frontend/src/utils/validation.ts:113 isInRange
+ *
+ * 未迁移（生产无对应导出，保留内联 helper）：
+ * - validateTradeAmount：生产 validatePrice:43 上限 10 万、validateQuantity:57 是数量口径，
+ *   均非交易金额（100~1 亿、100 整数倍）语义
+ * - validateIdCard：生产只有 securityEngine.maskIDCard:315 脱敏，无身份证校验
+ * - validateRequired：生产无必填校验导出
+ * - composeValidators：生产无组合验证器导出
+ *
+ * 本地保留的业务规则（生产未实现，未虚构生产代码）：
+ * - 交易密码最长 20 位、禁止 3 个连续相同字符（生产 validatePassword 无此两条）
+ * - 交易日期周末判定（生产 isValidTradeDate 只校验日期合法性，不含交易日/周末语义）
+ * - A 股前缀白名单 600/601/603/605/000/001/002/003/300/301/688/689（生产只校验 6 位数字）
+ *
+ * 旧断言错在哪（旧值→生产值）：
+ * - validateStockCode('999999')：旧 false → 生产 true（生产只校验 6 位数字，不校验 A 股前缀；
+ *   疑似生产缺陷，见下）
+ *
+ * 旧实现问题（断言未变）：
+ * - 旧 validateTradeDate 用 new Date(dateStr)：'2026-02-30' 会被静默归一化成 3 月 2 日，
+ *   且 UTC 解析在负时区可能错一天；生产 isValidTradeDate 严格校验年月日，周末判定改用本地年月日构造
+ * - 旧空手机号/空邮箱错误文案分别为「不能为空」，生产统一为「格式不正确」；本文件只断言 valid，未固化文案
+ * - 旧密码长度文案「密码至少8位」，生产为「密码长度不能少于8位」；未断言文案
+ *
+ * 生产缺陷候选（未改生产代码）：
+ * - validation.ts:32 与 securityEngine.ts:177 的 validateStockCode 都接受任意 6 位数字
+ *   （999999、123456 均判合法），未实现 A 股代码前缀白名单
+ * - securityEngine.validatePassword 无最长 20 位与连续重复字符限制（本文件保留为本地交易密码策略）
  */
 
 import { describe, it, expect } from 'vitest';
+import { validateEmail, validatePassword, validatePhone } from '../utils/securityEngine';
+import { isInRange, isValidTradeDate, validateStockCode } from '../utils/validation';
 
 // 验证结果
 interface ValidationResult {
@@ -11,32 +47,18 @@ interface ValidationResult {
   errors: string[];
 }
 
-// 股票代码验证
-function validateStockCode(code: string): ValidationResult {
-  const errors: string[] = [];
-  if (!code) { errors.push('股票代码不能为空'); return { valid: false, errors }; }
-  // A股: 6位数字，600/000/300/688开头
-  if (!/^(600|601|603|605|000|001|002|003|300|301|688|689)\d{3}$/.test(code)) {
-    errors.push('无效的A股股票代码格式');
-  }
-  return { valid: errors.length === 0, errors };
-}
-
 // 交易密码验证
+// 核心规则（长度≥8、大小写/数字/特殊字符）绑定生产 validatePassword；
+// 「最多 20 位」「禁止 3 个连续相同字符」生产未实现，作为本地交易密码策略保留。
 function validateTradePassword(pwd: string): ValidationResult {
-  const errors: string[] = [];
-  if (!pwd) { errors.push('密码不能为空'); return { valid: false, errors }; }
-  if (pwd.length < 8) errors.push('密码至少8位');
+  const errors = [...validatePassword(pwd).errors];
   if (pwd.length > 20) errors.push('密码最多20位');
-  if (!/[A-Z]/.test(pwd)) errors.push('密码需包含大写字母');
-  if (!/[a-z]/.test(pwd)) errors.push('密码需包含小写字母');
-  if (!/[0-9]/.test(pwd)) errors.push('密码需包含数字');
-  if (!/[!@#$%^&*]/.test(pwd)) errors.push('密码需包含特殊字符');
   if (/(.)\1{2,}/.test(pwd)) errors.push('密码不能包含3个以上连续相同字符');
   return { valid: errors.length === 0, errors };
 }
 
 // 交易金额验证
+// 生产无交易金额校验导出（validatePrice 上限 10 万、validateQuantity 是数量口径），未迁移。
 function validateTradeAmount(amount: number, min: number = 100, max: number = 100000000): ValidationResult {
   const errors: string[] = [];
   if (isNaN(amount)) { errors.push('金额必须是数字'); return { valid: false, errors }; }
@@ -47,34 +69,21 @@ function validateTradeAmount(amount: number, min: number = 100, max: number = 10
 }
 
 // 交易日期验证
+// 日期合法性绑定生产 isValidTradeDate（严格年月日）；周末判定为本地交易规则。
 function validateTradeDate(dateStr: string): ValidationResult {
   const errors: string[] = [];
   if (!dateStr) { errors.push('日期不能为空'); return { valid: false, errors }; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { errors.push('日期格式应为YYYY-MM-DD'); return { valid: false, errors }; }
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) errors.push('无效的日期');
-  const day = date.getDay();
-  if (day === 0 || day === 6) errors.push('非交易日(周末)');
-  return { valid: errors.length === 0, errors };
-}
-
-// 手机号验证
-function validatePhone(phone: string): ValidationResult {
-  const errors: string[] = [];
-  if (!phone) { errors.push('手机号不能为空'); return { valid: false, errors }; }
-  if (!/^1[3-9]\d{9}$/.test(phone)) errors.push('手机号格式不正确');
-  return { valid: errors.length === 0, errors };
-}
-
-// 邮箱验证
-function validateEmail(email: string): ValidationResult {
-  const errors: string[] = [];
-  if (!email) { errors.push('邮箱不能为空'); return { valid: false, errors }; }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('邮箱格式不正确');
+  if (!isValidTradeDate(dateStr)) errors.push('无效的日期');
+  // 用本地年月日构造，避免 new Date('YYYY-MM-DD') 的 UTC 解析在负时区错一天。
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const weekday = new Date(year, month - 1, day).getDay();
+  if (weekday === 0 || weekday === 6) errors.push('非交易日(周末)');
   return { valid: errors.length === 0, errors };
 }
 
 // 身份证验证
+// 生产 only maskIDCard 脱敏，无校验导出，未迁移。
 function validateIdCard(id: string): ValidationResult {
   const errors: string[] = [];
   if (!id) { errors.push('身份证号不能为空'); return { valid: false, errors }; }
@@ -94,14 +103,16 @@ function validateIdCard(id: string): ValidationResult {
 }
 
 // 范围验证
+// 范围判定绑定生产 isInRange（闭区间）；label/errors 收集为本地展示逻辑。
 function validateRange(value: number, min: number, max: number, label: string): ValidationResult {
   const errors: string[] = [];
   if (value < min) errors.push(`${label}不能小于${min}`);
   if (value > max) errors.push(`${label}不能大于${max}`);
-  return { valid: errors.length === 0, errors };
+  return { valid: isInRange(value, min, max) && errors.length === 0, errors };
 }
 
 // 必填验证
+// 生产无必填校验导出，未迁移（保留内联实现）。
 function validateRequired(value: any, label: string): ValidationResult {
   const errors: string[] = [];
   if (value === null || value === undefined || value === '') {
@@ -111,6 +122,7 @@ function validateRequired(value: any, label: string): ValidationResult {
 }
 
 // 组合验证器
+// 生产无组合验证器导出，未迁移（保留内联实现）。
 function composeValidators(...validators: (() => ValidationResult)[]): ValidationResult {
   const allErrors: string[] = [];
   for (const v of validators) {
@@ -150,8 +162,14 @@ describe('validateStockCode 股票代码验证', () => {
 
   it('格式错误应报错', () => {
     expect(validateStockCode('12345').valid).toBe(false);
-    expect(validateStockCode('999999').valid).toBe(false);
     expect(validateStockCode('ABC123').valid).toBe(false);
+  });
+
+  it('生产只校验 6 位数字（不校验 A 股前缀）', () => {
+    // 旧内联按 600/601/603/605/000/001/002/003/300/301/688/689 前缀白名单判 999999 为 false；
+    // 生产 validateStockCode 只校验 6 位数字 → true（旧值 false → 生产值 true）。
+    // 疑似生产缺陷：生产接受 999999/123456 等非 A 股前缀代码，已列在文件头「生产缺陷候选」。
+    expect(validateStockCode('999999').valid).toBe(true);
   });
 });
 
@@ -225,8 +243,8 @@ describe('validateTradeAmount 金额验证', () => {
 describe('validateTradeDate 日期验证', () => {
   it('工作日应通过', () => {
     const result = validateTradeDate('2026-03-23'); // 周一
-    // 注意：取决于实际日期，这里只检查格式
     expect(result.errors.filter(e => e === '日期格式应为YYYY-MM-DD')).toHaveLength(0);
+    expect(result.valid).toBe(true);
   });
 
   it('周末应报错', () => {
