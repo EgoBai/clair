@@ -100,8 +100,14 @@ function resolveBuildCommit(): string | null {
     process.env.SOURCE_COMMIT,
     // Cloudflare Pages / Workers 会自动注入这两个；后端跑在 Pages Functions 上时也能用
     process.env.CF_PAGES_COMMIT_SHA,
-    // Render 托管平台自动注入（render.yaml 定义的 clair-api web service）
+    // Render 托管平台自动注入（render.yaml 定义的 clair-api web service）。
+    // 注意：Render 官方变量名是 RENDER_GIT_COMMIT（无 _SHA 后缀）；早期按
+    // RENDER_GIT_COMMIT_SHA 实现，导致线上 /health.build.commit 长期为 null。
+    // 两个名字都接受，避免平台变量名差异再次静默失效。
+    process.env.RENDER_GIT_COMMIT,
     process.env.RENDER_GIT_COMMIT_SHA,
+    // 本机 / 自建 CI 的通用注入名
+    process.env.GIT_COMMIT,
     process.env.VERCEL_GIT_COMMIT_SHA,
   ];
   for (const raw of candidates) {

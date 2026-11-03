@@ -30,9 +30,10 @@ const COMMIT_ENV_KEYS = [
   'SOURCE_COMMIT',
   'CF_PAGES_COMMIT_SHA',
   // Render 托管平台自动注入（render.yaml 定义的 clair-api web service）。
-  // 必须进这个清单：cleanCommitEnv() 靠它逐个 delete，漏列会让注入值泄漏到后续用例，
-  // 造成「本该为 null 却读到了 sha」的假失败。
+  // 官方名是 RENDER_GIT_COMMIT（无 _SHA）；两个都列，避免注入值泄漏到后续用例。
+  'RENDER_GIT_COMMIT',
   'RENDER_GIT_COMMIT_SHA',
+  'GIT_COMMIT',
   'VERCEL_GIT_COMMIT_SHA',
 ] as const;
 
@@ -233,6 +234,18 @@ describe('commit 解析的诚实性（动态重载 app.ts）', { timeout: 60_000
     // 同源性：与 /api/version 不得分歧
     const versionRes = await request(a).get('/api/version');
     expect(healthRes.body.build.commit).toBe(versionRes.body.commit);
+  });
+
+  it('Render 平台：官方变量名 RENDER_GIT_COMMIT（无 _SHA）同样生效', async () => {
+    // 回归背景（2026-11-04）：线上 /health.build.commit 长期为 null，
+    // 根因是候选清单里只有 RENDER_GIT_COMMIT_SHA，而 Render 实际注入的是
+    // RENDER_GIT_COMMIT。这条用例把「官方名必须能读到」钉死，防止再改回去。
+    const a = await loadWithEnv({ ...cleanCommitEnv(), RENDER_GIT_COMMIT: RENDER_SHA });
+
+    const healthRes = await request(a).get('/health');
+    expect([200, 503]).toContain(healthRes.status);
+    expect(healthRes.body.build.commit).toBe(RENDER_SHA);
+    expect(healthRes.body.build.commitKnown).toBe(true);
   });
 
   it('Render 平台：RENDER_GIT_COMMIT_SHA 未注入时为诚实空值，脏值继续回退到 null', async () => {
