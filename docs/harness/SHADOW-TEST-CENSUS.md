@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 15–16 迁移与动态 import 扫描修复后更新 06:12（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 17–18 迁移后更新 06:20（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 0abea057a
 
@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **798（52.1%）** |
-| 真实导入 | 735 |
-| 影子测试代码行 | **211,476 行** |
-| 真实测试代码行 | 149,046 行 |
+| 影子测试 | **794（51.8%）** |
+| 真实导入 | 739 |
+| 影子测试代码行 | **210,442 行** |
+| 真实测试代码行 | 150,131 行 |
 
-按行数算，58.7% 的测试代码在断言副本而不是产品代码。
+按行数算，58.4% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 406/640 | 63.4% |
-| frontend/src/__tests__（扁平） | 392/868 | 45.2% |
+| backend/src/__tests__（扁平） | 404/640 | 63.1% |
+| frontend/src/__tests__（扁平） | 390/868 | 44.9% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -184,11 +184,21 @@
 - **扫描器修复**：census 与 candidates 的 IMPORT_RE 都不识别 `await import('../x')`，把 34 个真实导入测试误判成影子。两脚本均补 `import(` 分支后重扫：835→832（批次 15/16 三个文件迁完）→798（动态 import 修正），shadowLoc 218,223→216,948→211,476，realLoc 141,872→149,046。
 - **验证**：backend 81 passed（26+55）、frontend 63 passed；`census --check` 798/1533 exit 0。
 
+## 六（续）、批次 17–18（2026-11-04 06:15）
+
+- **批次 17**：`frontend/src/__tests__/tableEngineV2.test.ts`（256→246 行，29 例）与 `tableDataGrid.test.ts`（319→310 行，34 例）改接 `frontend/src/utils/bloombergExportEngine.ts:584/607/628/645`（filterData/sortData/groupData/aggregateData）与 `exportEngine.ts:148`（exportToCSV）；63 passed。
+- **批次 17 旧断言错在哪**：direction:null 生产无此语义（默认 asc）；operator 'in' 生产无分支（default true，行数 3→5）；between 改 gte+lte；分组缺失键由 'undefined' 变 '未分组'；starts_with/ends_with/ne 改 startsWith/endsWith/neq；aggregateData 签名由 (data,组字段,值字段,op) 变 (data, aggregations) 且键为 price_sum；groupBy 普通对象变 Map；contains 区分大小写（'ali' 命中 1→0）；Column.render 变 ExportColumn.format；exportToCSV 返回 ExportResult.content。
+- **批次 17 残留**：paginateData（生产无 totalPages/hasNext 导出）、getColumnWidths（表格 UI 布局，生产无导出），均注明未迁移。
+- **批次 18**：`backend/src/__tests__/advanced-screener2.test.ts`（222→229 行，14→15 例）与 `orderFlowAnalysis.test.ts`（233→296 行，22→25 例）改接 `futureValueUtils.ts:59`（calcRSI）、`orderFlowToxicityEngine.ts:134/293/374/492`（calcVPIN/orderImbalance/calcKyleLambda/detectIcebergOrders）、`classifyTrade:60`、Trade 类型；40 passed。
+- **批次 18 旧断言错在哪**：RSI 四舍五入 77.78→77.77777777777777、不足数据 50→全 null；方向判定按 tick rule 而非 side（恒价+交替 side 全判 BUY → VPIN [1,1]/imbalance 1）；VPIN 第二参由桶数变累计成交量阈值；imbalance 从 i=1 起；Kyle Lambda 由 Δp/p 变价格差且 |Cov/Var|；冰山返回结构由 {time,side,count} 变 {price,estimatedHiddenVolume,confidence}。
+- **批次 18 残留**：calcMicroPrice、tickSigns（生产无对应导出）；旧随机 makeTicks 改确定性 makeTrades。
+- **验证**：frontend 63 passed、backend 40 passed；census --check 794/1533 exit 0。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 798 / total 1533 / shadowLoc 211,476（批次 15–16 + 扫描器修复后）。历史基线：批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——均为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 794 / total 1533 / shadowLoc 210,442（批次 17–18 后）。历史基线：批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——均为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -197,13 +207,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：798 个影子测试中 75 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 12）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 15–16 后重扫，含动态 import 修复）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：794 个影子测试中 71 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 8）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 17–18 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 17 候选（≥2 符号重叠）：`backend/src/__tests__/tableEngineV2.test.ts`、`tableDataGrid.test.ts` 对接 `bloombergExportEngine.ts` / `exportEngine.ts` 的 aggregateData/filterData/sortData/exportToCSV；体量更大的 `frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedPageLogic.test.ts`（658 行）需先逐段确认生产对应物。
-- 零重叠 475（新口径）：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由本次扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
-- 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR。
-- 新增关注：`backend/src/indicators/technical.ts` 无 OBV/CCI/WilliamsR 实现，相关测试暂留本地 helper。
-- 关注点：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零属生产已知局限，已由测试固化，待产品阶段评估是否修。
+- 批次 19 候选（≥3 符号重叠共 8 个）：`frontend/src/__tests__/microstructureAnalytics.test.ts`、`stockDetailPageLogic.test.ts`、`languageSwitcherLogic.test.ts`、`componentHelpers.test.ts`、`dataAggregation.test.ts`、`formValidationExtended.test.ts`、`backend/src/__tests__/maAndVolumeAnalysis.test.ts`、`userSystemEnhanced.test.ts`。其中 3 个已是安全/格式化域，剩余多为 3 个符号中仅 1 个可迁，需先读源码确认收益。
+- 体量大需逐段确认：`frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
+- 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
+- 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR（相关测试暂留本地 helper）。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。
