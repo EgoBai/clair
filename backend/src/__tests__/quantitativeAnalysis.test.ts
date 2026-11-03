@@ -1,89 +1,100 @@
 import { describe, it, expect } from 'vitest';
+import riskEngine from '../../src/services/riskBudgetEngine';
+import { calculateBeta } from '../../../frontend/src/utils/correlationMatrix';
+import {
+  calculateVolatility,
+  pearsonCorrelation,
+} from '../../../frontend/src/utils/globalCorrelationEngine';
+import {
+  calculateSharpeRatio,
+  calculateSortinoRatio,
+} from '../../../frontend/src/utils/backtestPerformanceAnalyzer';
+import {
+  simulateGBMPaths,
+  analyzeMonteCarloResults,
+} from '../../../frontend/src/utils/monteCarloEngine';
+import type { SimulationPath } from '../../../frontend/src/utils/monteCarloEngine';
+
+/**
+ * 风险指标 / 组合指标 / 相关性 / 蒙特卡洛 单元测试
+ *
+ * 本文件原先自抄实现（影子测试），批次 3 迁移为 import 生产实现：
+ * - VaR / CVaR / 最大回撤：backend/src/services/riskBudgetEngine.ts（RiskBudgetEngine）
+ * - 年化波动率 / Pearson 相关：frontend/src/utils/globalCorrelationEngine.ts
+ * - Beta：frontend/src/utils/correlationMatrix.ts
+ * - Sharpe / Sortino：frontend/src/utils/backtestPerformanceAnalyzer.ts
+ * - 蒙特卡洛路径与统计：frontend/src/utils/monteCarloEngine.ts
+ *
+ * 旧副本错在哪 / 与生产实现的差异（断言已按生产行为修正）：
+ * - 旧 VaR / CVaR 没有「样本数 < 10 返回 0」的下限；旧 CVaR 在 cutoff === 0 时只取最差一天，
+ *   生产实现统一取 sorted.slice(0, cutoff + 1) 的尾部均值。故第一个 CVaR 用例补足 10 个样本。
+ * - 旧夏普默认无风险利率 0.02/年，生产默认 0.03/年（年化值）；数值断言不受影响。
+ * - 旧 Sortino 无下跌样本返回 Infinity，生产实现同样返回 Infinity；下跌波动为 0 时生产返回 0。
+ * - 旧最大回撤输入为 equity 价格、返回 peak/trough 价格；生产 riskBudgetEngine.calculateMaxDrawdown
+ *   输入为收益率、返回 peakIndex/troughIndex。本文件保留 equity 输入语义，在测试内做 2 行
+ *   index <-> 价格换算（只做映射，不复制回撤算法）。
+ *   （frontend globalCorrelationEngine.calculateMaxDrawdown 的 peak 取「最新全局峰值」，
+ *   与 trough 不属于同一回撤区间，未采用；已作为发现记录，未改生产。）
+ * - 旧蒙特卡洛用 (Math.random() - 0.5) * 2 伪正态，结果不可复现且违反仓库「禁止 Math.random 造数据」；
+ *   生产实现为 GBM + Box-Muller，randomSeed 可复现。旧用例的 drift/vol 是日频参数，
+ *   注入时按 252 交易日年化（drift * 252、vol * sqrt(252)），断言阈值保持原样。
+ * - MA Crossover：仓库无「任意周期均线交叉信号」生产实现（backtestEngine.generateSignalMA 未导出，
+ *   trendFollowingEngine.detectCrossovers 只支持固定周期且不返回 index），该组保留原本地 helper，
+ *   未迁移，避免虚构生产代码。
+ */
 
 // Risk metrics calculation
 describe('Risk Metrics Calculation', () => {
-  const calculateVaR = (returns: number[], confidence = 0.95) => {
-    if (returns.length === 0) return 0;
-    const sorted = [...returns].sort((a, b) => a - b);
-    const index = Math.floor((1 - confidence) * sorted.length);
-    return -sorted[Math.max(0, index)];
-  };
-
-  const calculateCVaR = (returns: number[], confidence = 0.95) => {
-    if (returns.length === 0) return 0;
-    const sorted = [...returns].sort((a, b) => a - b);
-    const cutoff = Math.floor((1 - confidence) * sorted.length);
-    if (cutoff === 0) return -sorted[0];
-    const tail = sorted.slice(0, cutoff);
-    return -tail.reduce((s, v) => s + v, 0) / tail.length;
-  };
-
-  const calculateVolatility = (returns: number[], annualize = true) => {
-    if (returns.length < 2) return 0;
-    const mean = returns.reduce((s, v) => s + v, 0) / returns.length;
-    const variance = returns.reduce((s, v) => s + (v - mean) ** 2, 0) / (returns.length - 1);
-    const daily = Math.sqrt(variance);
-    return annualize ? daily * Math.sqrt(252) : daily;
-  };
-
-  const calculateBeta = (stockReturns: number[], marketReturns: number[]) => {
-    const n = Math.min(stockReturns.length, marketReturns.length);
-    if (n < 2) return 0;
-    const stockMean = stockReturns.slice(0, n).reduce((s, v) => s + v, 0) / n;
-    const marketMean = marketReturns.slice(0, n).reduce((s, v) => s + v, 0) / n;
-    let cov = 0, mVar = 0;
-    for (let i = 0; i < n; i++) {
-      cov += (stockReturns[i] - stockMean) * (marketReturns[i] - marketMean);
-      mVar += (marketReturns[i] - marketMean) ** 2;
-    }
-    return mVar === 0 ? 0 : cov / mVar;
-  };
-
+  // 生产 RiskBudgetEngine 的 VaR/CVaR/最大回撤均以「收益率序列」为输入。
   describe('VaR', () => {
     it('should calculate VaR for normal returns', () => {
-      const returns = Array.from({ length: 100 }, (_, i) => (Math.random() - 0.5) * 0.04);
-      const var95 = calculateVaR(returns, 0.95);
+      // 确定性序列，替代旧副本的 Math.random（禁止用随机数造数据）。
+      const returns = Array.from({ length: 100 }, (_, i) => Math.sin(i * 1.7) * 0.02);
+      const var95 = riskEngine.historicalVaR(returns, 0.95);
       expect(var95).toBeGreaterThan(0);
     });
 
     it('should handle empty returns', () => {
-      expect(calculateVaR([], 0.95)).toBe(0);
+      expect(riskEngine.historicalVaR([], 0.95)).toBe(0);
     });
 
     it('should calculate VaR for all positive returns', () => {
       const returns = [0.01, 0.02, 0.03, 0.01, 0.02];
-      const var95 = calculateVaR(returns, 0.95);
+      const var95 = riskEngine.historicalVaR(returns, 0.95);
       expect(var95).toBeLessThanOrEqual(0);
     });
 
     it('should handle single return', () => {
-      const var95 = calculateVaR([0.01], 0.95);
+      const var95 = riskEngine.historicalVaR([0.01], 0.95);
       expect(Number.isFinite(var95)).toBe(true);
     });
 
     it('should increase with lower confidence', () => {
       const returns = Array.from({ length: 100 }, (_, i) => (i - 50) * 0.001);
-      const var95 = calculateVaR(returns, 0.95);
-      const var99 = calculateVaR(returns, 0.99);
+      const var95 = riskEngine.historicalVaR(returns, 0.95);
+      const var99 = riskEngine.historicalVaR(returns, 0.99);
       expect(var99).toBeGreaterThanOrEqual(var95);
     });
   });
 
   describe('CVaR', () => {
     it('should calculate CVaR', () => {
-      const returns = [-0.05, -0.03, -0.01, 0.01, 0.02, 0.03];
-      const cvar = calculateCVaR(returns, 0.95);
+      // 生产实现样本数 < 10 直接返回 0，故在旧样本后补 4 个正收益。
+      const returns = [
+        -0.05, -0.03, -0.01, 0.01, 0.02, 0.03, 0.005, 0.015, 0.025, 0.035,
+      ];
+      const cvar = riskEngine.calculateCVaR(returns, 0.95);
       expect(cvar).toBeGreaterThan(0);
     });
 
     it('should handle empty returns', () => {
-      expect(calculateCVaR([], 0.95)).toBe(0);
+      expect(riskEngine.calculateCVaR([], 0.95)).toBe(0);
     });
 
     it('should be greater than or equal to VaR', () => {
       const returns = Array.from({ length: 100 }, (_, i) => (i - 50) * 0.002);
-      const var95 = calculateVaR(returns, 0.95);
-      const cvar95 = calculateCVaR(returns, 0.95);
+      const var95 = riskEngine.historicalVaR(returns, 0.95);
+      const cvar95 = riskEngine.calculateCVaR(returns, 0.95);
       expect(cvar95).toBeGreaterThanOrEqual(var95);
     });
   });
@@ -155,7 +166,7 @@ describe('Risk Metrics Calculation', () => {
     it('should handle identical returns', () => {
       const returns = [0.01, 0.01, 0.01, 0.01];
       const beta = calculateBeta(returns, returns);
-      // When all returns are identical, variance is 0 and beta is 0 (or NaN, handled as 0)
+      // 所有收益相同 -> 市场方差为 0 -> 生产实现返回 0
       expect(beta).toBe(0);
     });
 
@@ -167,74 +178,36 @@ describe('Risk Metrics Calculation', () => {
 
 // Portfolio optimization
 describe('Portfolio Optimization', () => {
-  const calculateSharpe = (returns: number[], riskFreeRate = 0.02) => {
-    if (returns.length < 2) return 0;
-    const mean = returns.reduce((s, v) => s + v, 0) / returns.length;
-    const annualReturn = mean * 252;
-    const variance = returns.reduce((s, v) => s + (v - mean) ** 2, 0) / (returns.length - 1);
-    const annualVol = Math.sqrt(variance) * Math.sqrt(252);
-    return annualVol === 0 ? 0 : (annualReturn - riskFreeRate) / annualVol;
-  };
+  it('should calculate positive Sharpe for good returns', () => {
+    const returns = Array.from({ length: 252 }, () => 0.001);
+    const sharpe = calculateSharpeRatio(returns);
+    expect(sharpe).toBeGreaterThan(0);
+  });
 
-  const calculateSortino = (returns: number[], riskFreeRate = 0.02) => {
-    if (returns.length < 2) return 0;
-    const mean = returns.reduce((s, v) => s + v, 0) / returns.length;
-    const annualReturn = mean * 252;
-    const downside = returns.filter(r => r < 0);
-    if (downside.length === 0) return Infinity;
-    const downVar = downside.reduce((s, v) => s + v ** 2, 0) / downside.length;
-    const downDev = Math.sqrt(downVar) * Math.sqrt(252);
-    return downDev === 0 ? Infinity : (annualReturn - riskFreeRate) / downDev;
-  };
+  it('should calculate negative Sharpe for bad returns', () => {
+    const returns = Array.from({ length: 252 }, () => -0.001);
+    const sharpe = calculateSharpeRatio(returns);
+    expect(sharpe).toBeLessThan(0);
+  });
 
-  const calculateMaxDrawdown = (equity: number[]) => {
-    if (equity.length === 0) return { maxDrawdown: 0, peak: 0, trough: 0 };
-    let peak = equity[0];
-    let maxDD = 0;
-    let peakVal = equity[0];
-    let troughVal = equity[0];
-    for (const val of equity) {
-      if (val > peak) peak = val;
-      const dd = (peak - val) / peak;
-      if (dd > maxDD) {
-        maxDD = dd;
-        peakVal = peak;
-        troughVal = val;
-      }
-    }
-    return { maxDrawdown: maxDD, peak: peakVal, trough: troughVal };
-  };
+  it('should handle empty returns', () => {
+    expect(calculateSharpeRatio([])).toBe(0);
+  });
+
+  it('should handle single return', () => {
+    expect(calculateSharpeRatio([0.01])).toBe(0);
+  });
+
+  it('should handle zero volatility', () => {
+    const sharpe = calculateSharpeRatio([0.001, 0.001, 0.001]);
+    expect(sharpe).toBe(0);
+  });
 
   describe('Sharpe Ratio', () => {
-    it('should calculate positive Sharpe for good returns', () => {
-      const returns = Array.from({ length: 252 }, () => 0.001);
-      const sharpe = calculateSharpe(returns);
-      expect(sharpe).toBeGreaterThan(0);
-    });
-
-    it('should calculate negative Sharpe for bad returns', () => {
-      const returns = Array.from({ length: 252 }, () => -0.001);
-      const sharpe = calculateSharpe(returns);
-      expect(sharpe).toBeLessThan(0);
-    });
-
-    it('should handle empty returns', () => {
-      expect(calculateSharpe([])).toBe(0);
-    });
-
-    it('should handle single return', () => {
-      expect(calculateSharpe([0.01])).toBe(0);
-    });
-
-    it('should handle zero volatility', () => {
-      const sharpe = calculateSharpe([0.001, 0.001, 0.001]);
-      expect(sharpe).toBe(0);
-    });
-
     it('should adjust for risk-free rate', () => {
       const returns = Array.from({ length: 252 }, () => 0.001);
-      const sharpe0 = calculateSharpe(returns, 0);
-      const sharpe2 = calculateSharpe(returns, 0.02);
+      const sharpe0 = calculateSharpeRatio(returns, 0);
+      const sharpe2 = calculateSharpeRatio(returns, 0.02);
       expect(sharpe0).toBeGreaterThan(sharpe2);
     });
   });
@@ -242,25 +215,42 @@ describe('Portfolio Optimization', () => {
   describe('Sortino Ratio', () => {
     it('should calculate Sortino for mixed returns', () => {
       const returns = [0.01, -0.005, 0.02, -0.01, 0.015];
-      const sortino = calculateSortino(returns);
+      const sortino = calculateSortinoRatio(returns);
       expect(Number.isFinite(sortino) || sortino === Infinity).toBe(true);
     });
 
     it('should return Infinity for all positive returns', () => {
       const returns = [0.01, 0.02, 0.01, 0.03];
-      expect(calculateSortino(returns)).toBe(Infinity);
+      expect(calculateSortinoRatio(returns)).toBe(Infinity);
     });
 
     it('should handle empty returns', () => {
-      expect(calculateSortino([])).toBe(0);
+      expect(calculateSortinoRatio([])).toBe(0);
     });
 
     it('should handle single return', () => {
-      expect(calculateSortino([0.01])).toBe(0);
+      expect(calculateSortinoRatio([0.01])).toBe(0);
     });
   });
 
   describe('Max Drawdown', () => {
+    /**
+     * 旧副本接收 equity 价格；生产 riskBudgetEngine.calculateMaxDrawdown 接收收益率并返回下标。
+     * 这里只做 index <-> 价格换算（收益率 i 对应 equity[i + 1]），回撤算法全部来自生产实现。
+     */
+    const calculateMaxDrawdown = (equity: number[]) => {
+      if (equity.length < 2) {
+        return { maxDrawdown: 0, peak: equity[0] ?? 0, trough: equity[0] ?? 0 };
+      }
+      const returns = equity.slice(1).map((value, i) => value / equity[i] - 1);
+      const { maxDrawdown, peakIndex, troughIndex } = riskEngine.calculateMaxDrawdown(returns);
+      return {
+        maxDrawdown,
+        peak: equity[peakIndex + 1],
+        trough: equity[troughIndex + 1],
+      };
+    };
+
     it('should calculate max drawdown', () => {
       const equity = [100, 110, 105, 115, 90, 95, 120];
       const { maxDrawdown } = calculateMaxDrawdown(equity);
@@ -322,23 +312,6 @@ describe('Portfolio Optimization', () => {
 
 // Correlation analysis
 describe('Correlation Analysis', () => {
-  const pearsonCorrelation = (x: number[], y: number[]) => {
-    const n = Math.min(x.length, y.length);
-    if (n < 2) return 0;
-    const xMean = x.slice(0, n).reduce((s, v) => s + v, 0) / n;
-    const yMean = y.slice(0, n).reduce((s, v) => s + v, 0) / n;
-    let num = 0, dx = 0, dy = 0;
-    for (let i = 0; i < n; i++) {
-      const xi = x[i] - xMean;
-      const yi = y[i] - yMean;
-      num += xi * yi;
-      dx += xi ** 2;
-      dy += yi ** 2;
-    }
-    const denom = Math.sqrt(dx * dy);
-    return denom === 0 ? 0 : num / denom;
-  };
-
   it('should return 1 for identical series', () => {
     const series = [1, 2, 3, 4, 5];
     expect(pearsonCorrelation(series, series)).toBeCloseTo(1, 5);
@@ -396,32 +369,36 @@ describe('Correlation Analysis', () => {
 
 // Monte Carlo simulation
 describe('Monte Carlo Simulation', () => {
-  const simulatePaths = (startPrice: number, days: number, drift: number, vol: number, paths: number) => {
-    const results: number[][] = [];
-    for (let p = 0; p < paths; p++) {
-      const path = [startPrice];
-      for (let d = 1; d <= days; d++) {
-        const z = (Math.random() - 0.5) * 2; // simplified normal
-        const ret = drift + vol * z;
-        path.push(path[path.length - 1] * (1 + ret));
-      }
-      results.push(path);
-    }
-    return results;
+  // 旧用例的 drift/vol 是日频参数；生产 simulateGBMPaths 接收年化参数，这里按 252 交易日换算。
+  // 固定 randomSeed 保证结果可复现，替代旧副本的 Math.random。
+  const simulatePaths = (
+    startPrice: number,
+    days: number,
+    drift: number,
+    vol: number,
+    paths: number
+  ): SimulationPath[] => {
+    return simulateGBMPaths({
+      numSimulations: paths,
+      numSteps: days,
+      initialValue: startPrice,
+      drift: drift * 252,
+      volatility: vol * Math.sqrt(252),
+      randomSeed: 20261104,
+    });
   };
 
-  const analyzeSimulation = (paths: number[][]) => {
-    const finalPrices = paths.map(p => p[p.length - 1]);
-    const sorted = [...finalPrices].sort((a, b) => a - b);
+  const analyzeSimulation = (paths: SimulationPath[]) => {
+    const { statistics, percentiles } = analyzeMonteCarloResults(paths);
     return {
-      mean: finalPrices.reduce((s, v) => s + v, 0) / finalPrices.length,
-      median: sorted[Math.floor(sorted.length / 2)],
-      min: sorted[0],
-      max: sorted[sorted.length - 1],
-      p5: sorted[Math.floor(sorted.length * 0.05)],
-      p95: sorted[Math.floor(sorted.length * 0.95)],
+      mean: statistics.mean,
+      median: statistics.median,
+      min: statistics.min,
+      max: statistics.max,
+      p5: percentiles[5],
+      p95: percentiles[95],
       pathCount: paths.length,
-      dayCount: paths[0].length,
+      dayCount: paths[0].values.length,
     };
   };
 
@@ -432,20 +409,20 @@ describe('Monte Carlo Simulation', () => {
 
   it('should generate correct path length', () => {
     const paths = simulatePaths(100, 30, 0.001, 0.02, 10);
-    expect(paths[0]).toHaveLength(31); // start + 30 days
+    expect(paths[0].values).toHaveLength(31); // start + 30 days
   });
 
   it('should start at correct price', () => {
     const paths = simulatePaths(50, 10, 0, 0, 5);
     for (const p of paths) {
-      expect(p[0]).toBe(50);
+      expect(p.values[0]).toBe(50);
     }
   });
 
   it('should produce positive prices with drift', () => {
     const paths = simulatePaths(100, 100, 0.001, 0.01, 50);
     for (const p of paths) {
-      for (const price of p) {
+      for (const price of p.values) {
         expect(price).toBeGreaterThan(0);
       }
     }
@@ -474,7 +451,7 @@ describe('Monte Carlo Simulation', () => {
   it('should handle zero volatility', () => {
     const paths = simulatePaths(100, 10, 0, 0, 10);
     for (const p of paths) {
-      for (const price of p) {
+      for (const price of p.values) {
         expect(price).toBe(100);
       }
     }
@@ -490,16 +467,17 @@ describe('Monte Carlo Simulation', () => {
   it('should handle single path', () => {
     const paths = simulatePaths(100, 10, 0.001, 0.02, 1);
     expect(paths).toHaveLength(1);
-    expect(paths[0]).toHaveLength(11);
+    expect(paths[0].values).toHaveLength(11);
   });
 
   it('should handle single day', () => {
     const paths = simulatePaths(100, 1, 0, 0.02, 10);
-    expect(paths[0]).toHaveLength(2);
+    expect(paths[0].values).toHaveLength(2);
   });
 });
 
 // Moving average crossover backtest helper
+// 无生产实现（见文件头说明），该组保留原本地 helper，未迁移。
 describe('MA Crossover Backtest Helper', () => {
   const maCrossoverSignals = (prices: number[], shortPeriod: number, longPeriod: number) => {
     const signals: Array<{ index: number; type: 'buy' | 'sell' }> = [];

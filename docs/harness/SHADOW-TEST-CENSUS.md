@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 2 迁移后更新 04:15（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 3 迁移后更新 04:52（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,10 +16,10 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **858（56.0%）** |
-| 真实导入 | 675 |
-| 影子测试代码行 | **225,750 行** |
-| 真实测试代码行 | 134,723 行 |
+| 影子测试 | **857（55.9%）** |
+| 真实导入 | 676 |
+| 影子测试代码行 | **225,172 行** |
+| 真实测试代码行 | 135,282 行 |
 
 按行数算，63% 的测试代码在断言副本而不是产品代码。
 
@@ -27,7 +27,7 @@
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 433/640 | 67.7% |
+| backend/src/__tests__（扁平） | 432/640 | 67.5% |
 | frontend/src/__tests__（扁平） | 425/868 | 49.0% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
@@ -77,13 +77,22 @@
 - 效果：影子 860→858，shadowLoc 227,153→225,750，realLoc 133,658→134,723。
 - 顺带发现：真实 createNotification 按 isAllowedActionUrl 白名单丢弃 '/test' 这类非法 actionUrl（旧副本无此校验，旧断言错误）；en-US 相对时间真实输出 '5 min ago'（旧断言 '5min ago' 错误）；均已按真实行为修正。
 
+## 六（续）、批次 3（2026-11-04 04:52）
+
+- backend/src/__tests__/quantitativeAnalysis.test.ts：72 用例保留，其中 63 例改接生产实现——VaR/CVaR/最大回撤 ← backend/src/services/riskBudgetEngine.ts；年化波动率/Pearson ← frontend/src/utils/globalCorrelationEngine.ts；Beta ← frontend/src/utils/correlationMatrix.ts；Sharpe/Sortino ← frontend/src/utils/backtestPerformanceAnalyzer.ts；蒙特卡洛 ← frontend/src/utils/monteCarloEngine.ts（固定 seed，移除 Math.random）。
+- 旧副本行为差异（均判定生产正确）：VaR/CVaR 样本<10 返回 0；CVaR 取 cutoff+1 尾部均值；最大回撤吃收益率并返回 peakIndex/troughIndex（测试内 2 行换算，不复制算法）；Sharpe 默认 rf=0.03（旧 0.02）。
+- 残留：MA Crossover 9 例无生产实现（backend/src/utils/backtestEngine.ts 的 generateSignalMA 未导出），保留本地 helper 并在文件头标注「未迁移」，未虚构生产代码 → 本文件按文件级计为非影子。
+- 发现（未改生产）：frontend/src/utils/globalCorrelationEngine.ts 的 calculateMaxDrawdown 返回的 peak 是「最新全局峰值」而非回撤起点，与 trough 不属同一区间；本批未采用该函数。
+- 不可迁移候选（无生产实现）：tradingEngineDeep.test.ts（撮合/VWAP/保证金/盘口深度）、batchCalcsEngine.test.ts（除 KDJ 外）、stockLogicComprehensive.test.ts（validateStockCode 接口不符）。
+- 效果：影子 858→857，shadowLoc 225,750→225,172，realLoc 134,723→135,282。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 858 / total 1533 / shadowLoc 225,750（批次 2 后；批次 1 后为 860）。
+- 基线：shadow 857 / total 1533 / shadowLoc 225,172（批次 3 后；批次 2 后为 858）。
 
 ## 八、下一步
 
-- 批次 3 候选：backend 纯计算类（batchCalcsEngine / quantitativeAnalysis / tradingEngineDeep 同族）与能与真实实现一一对应的服务；无真实对应物的 UI 形状用例不硬造生产代码。
-- 迁移后同步下调基线数字，并在本文件「已完成的迁移」追加一行。
+- 批次 4 候选：先做「生产实现存在但测试自抄」的映射扫描（如 backend/src/indicators/technical.ts 对 batchCalcsEngine 的 KDJ 段可先部分迁移）；无真实对应物的 UI 形状用例不硬造生产代码。
+- 每批迁移后同步下调基线数字，并在本文件追加一节。
