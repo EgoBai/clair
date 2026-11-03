@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { debounce, throttle } from '../utils/debounceThrottle';
 
 /**
  * 工具函数索引测试
- * 测试公共导出和类型定义
+ * 迁移批次 25a：debounce/throttle 绑定产品实现 frontend/src/utils/debounceThrottle.ts
+ * （utils/index.ts:19 是唯一再导出点；-typed 副本仅被自身测试引用，非产品真源）。
+ * 其余符号产品仓无通用导出，保留内联 helper 并逐处标注「未迁移」。
  */
 
 // 类型定义验证
@@ -37,6 +40,7 @@ interface PaginatedResponse<T> {
   hasPrev: boolean;
 }
 
+// 未迁移：产品仓无通用分页工具导出（全仓 rg 无 `export ... createPagination`），保留内联 helper。
 function createPagination<T>(data: T[], params: PaginationParams): PaginatedResponse<T> {
   const total = data.length;
   const totalPages = Math.ceil(total / params.pageSize);
@@ -55,6 +59,7 @@ function createPagination<T>(data: T[], params: PaginationParams): PaginatedResp
   };
 }
 
+// 未迁移：产品仓无通用配置合并导出（仅有 mergeTheme/mergeSeries 等专用合并），保留内联 helper。
 function mergeConfigs<T extends Record<string, any>>(defaults: T, overrides: Partial<T>): T {
   const result = { ...defaults };
   for (const key in overrides) {
@@ -65,25 +70,7 @@ function mergeConfigs<T extends Record<string, any>>(defaults: T, overrides: Par
   return result;
 }
 
-function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): T {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return ((...args: any[]) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  }) as T;
-}
-
-function throttle<T extends (...args: any[]) => any>(fn: T, interval: number): T {
-  let lastTime = 0;
-  return ((...args: any[]) => {
-    const now = Date.now();
-    if (now - lastTime >= interval) {
-      lastTime = now;
-      fn(...args);
-    }
-  }) as T;
-}
-
+// 未迁移：产品仓无通用 deepClone 导出（dashboardLayoutEngine 的 cloneLayout 仅用于布局），保留内联 helper。
 function deepClone<T>(obj: T): T {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(deepClone) as T;

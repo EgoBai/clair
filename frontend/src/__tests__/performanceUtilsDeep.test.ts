@@ -1,26 +1,19 @@
 import { describe, it, expect } from 'vitest';
+import { debounce, throttle } from '../utils/debounceThrottle';
 
-// 前端性能工具函数测试 — 55用例
+// 前端性能工具函数测试 — 27用例
+// 迁移批次 25a：节流/防抖绑定产品实现 frontend/src/utils/debounceThrottle.ts；
+// 深拷贝/对象比较/数组工具产品仓无通用导出，保留内联 helper 并标注「未迁移」。
 describe('前端性能工具函数', () => {
 
-  // 节流函数
+  // 节流函数（已迁移：frontend/src/utils/debounceThrottle.ts:141 throttle）
   describe('节流函数', () => {
-    function throttle<T extends (...args: unknown[]) => unknown>(fn: T, delay: number) {
-      let lastCall = 0;
-      return function (this: unknown, ...args: Parameters<T>) {
-        const now = Date.now();
-        if (now - lastCall >= delay) {
-          lastCall = now;
-          return fn.apply(this, args);
-        }
-      };
-    }
-
     it('首次调用应立即执行', () => {
       let called = false;
       const fn = throttle(() => { called = true; }, 100);
       fn();
       expect(called).toBe(true);
+      fn.cancel();
     });
 
     it('短时间内重复调用应跳过', () => {
@@ -28,6 +21,7 @@ describe('前端性能工具函数', () => {
       const fn = throttle(() => { count++; }, 100);
       fn(); fn(); fn();
       expect(count).toBe(1);
+      fn.cancel();
     });
 
     it('延迟后可再次调用', async () => {
@@ -37,19 +31,12 @@ describe('前端性能工具函数', () => {
       await new Promise(r => setTimeout(r, 20));
       fn();
       expect(count).toBe(2);
+      fn.cancel();
     });
   });
 
-  // 防抖函数
+  // 防抖函数（已迁移：frontend/src/utils/debounceThrottle.ts:6 debounce）
   describe('防抖函数', () => {
-    function debounce<T extends (...args: unknown[]) => unknown>(fn: T, delay: number) {
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      return function (this: unknown, ...args: Parameters<T>) {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => fn.apply(this, args), delay);
-      };
-    }
-
     it('快速调用只执行最后一次', async () => {
       let lastValue = 0;
       const fn = debounce((v: number) => { lastValue = v; }, 20);
@@ -68,7 +55,7 @@ describe('前端性能工具函数', () => {
     });
   });
 
-  // 深拷贝
+  // 深拷贝（未迁移：产品仓无通用 deepClone 导出，保留内联 helper）
   describe('深拷贝', () => {
     function deepClone<T>(obj: T): T {
       if (obj === null || typeof obj !== 'object') return obj;
@@ -126,7 +113,7 @@ describe('前端性能工具函数', () => {
     });
   });
 
-  // 对象比较
+  // 对象比较（未迁移：产品仓无通用 shallowEqual/deepEqual 导出，保留内联 helper）
   describe('对象比较', () => {
     function shallowEqual(a: Record<string, unknown>, b: Record<string, unknown>) {
       const keysA = Object.keys(a), keysB = Object.keys(b);
@@ -176,7 +163,7 @@ describe('前端性能工具函数', () => {
     });
   });
 
-  // 数组工具
+  // 数组工具（未迁移：产品仓无通用 chunk/unique/groupBy 导出，保留内联 helper）
   describe('数组工具', () => {
     function chunk<T>(arr: T[], size: number): T[][] {
       const result: T[][] = [];
