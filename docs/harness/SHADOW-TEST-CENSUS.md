@@ -1,8 +1,8 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 19–20 迁移后更新 06:30（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 22 迁移后更新 06:40（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
-> 基线：HEAD 43d67eac1
+> 基线：批次 22 后重扫（产品仓本地 227b2dbb5 + 22a/22b 工作区）
 
 ## 一、判定口径
 
@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **790（51.5%）** |
-| 真实导入 | 743 |
-| 影子测试代码行 | **209,061 行** |
-| 真实测试代码行 | 151,650 行 |
+| 影子测试 | **782（51.0%）** |
+| 真实导入 | 751 |
+| 影子测试代码行 | **206,875 行** |
+| 真实测试代码行 | 154,498 行 |
 
-按行数算，58.0% 的测试代码在断言副本而不是产品代码。
+按行数算，57.2% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 403/640 | 63.0% |
-| frontend/src/__tests__（扁平） | 387/868 | 44.6% |
+| backend/src/__tests__（扁平） | 400/640 | 62.5% |
+| frontend/src/__tests__（扁平） | 382/868 | 44.0% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -49,7 +49,6 @@
 | 628 | frontend/src/__tests__/serviceWorkerEnhanced.test.ts |
 | 610 | backend/src/__tests__/stockLogicComprehensive.test.ts |
 | 595 | backend/src/__tests__/tradingEngineDeep.test.ts |
-| 580 | backend/src/__tests__/userSystemEnhanced.test.ts |
 | 576 | backend/src/__tests__/batchCalcsEngine.test.ts |
 | 570 | frontend/src/__tests__/macroEconomicAnalysis.test.ts |
 | 558 | frontend/src/__tests__/pageDataLogic.test.ts |
@@ -57,6 +56,7 @@
 | 546 | frontend/src/__tests__/cssAndVisualization.test.ts |
 | 541 | frontend/src/__tests__/tradeSimulator.test.ts |
 | 538 | backend/src/__tests__/technicalAnalysis.test.ts |
+| 533 | frontend/src/__tests__/dataManager.test.ts |
 
 ## 五、迁移策略
 
@@ -204,11 +204,22 @@
 - **批次 20 残留**：validateTradeAmount/validateIdCard/validateRequired/composeValidators（无生产导出）；密码 20 位上限、禁 3 连、A 股前缀白名单作为本地业务规则保留；parseSize/adjustBrightness/formatPhoneNumber 等无生产导出。
 - **验证**：backend 43 passed；frontend 22+38+47 = 107 passed；无 .skip/.only/Math.random。
 
+## 六（续）、批次 21–22（2026-11-04 06:35）
+
+- **批次 21**（commit 227b2dbb5，4 文件）：`frontend/src/__tests__/microstructureAnalytics.test.ts`（12→26 例，绑 `backend/src/services/orderFlowToxicityEngine.ts` classifyTrade:60/calcVPIN:134/calcKyleLambda:374/calcAmihudIlliquidity:429/tradeIntensity:331/generateOrderFlowSnapshot:557）；`backend/src/__tests__/userSystemEnhanced.test.ts`（49→51，绑 tokenManager:33、userEnhanced:23/166/274/446、userDeepDive:29/511、User:114/118/122/126、securityEngine:150/163/192）；`frontend/src/__tests__/languageSwitcherLogic.test.ts`（25→45，绑 i18nManager:23/134/151/162、i18n/index:31/146/149/161/214、LanguageSwitcher:20/31/36/41/100-111）；`frontend/src/__tests__/dataAggregation.test.ts`（17→40，绑 chartDataProcessing:20/73/145、dataFlowEngine:209/220、globalCorrelationEngine:98/106/114/268、correlationMatrix:46/59/78/92、dataQualityEngine:164）。
+- **批次 21 旧断言错在哪**：JWT payload 无 email；refresh 是 96 hex 不透明串（TTL 在 Map）；Session 按 createdAt 删最旧；可疑 IP=同 IP 15 分钟 >20 次；重置/验证 token 前缀 rst_/vrf_；生产仅 4 语言（无 zh-TW）；Intl 日期 zh-CN '2024/03/15'、ko-KR '2024. 03. 15.'；currency zh-CN 小额无符号、大额 '1234.57万'；calculateReturns 不补首 0；minMax/zScore 4 位小数；detectOutliers 默认 3 返回 AnomalyRecord[]；相关矩阵入参 Record<string,number[]>；t() 用点号嵌套键。
+- **批次 21 残留**：resampleKlines/interpolateMissing、colon 键与 storage prefix、avgTradeSize/blockTradeRatio/buyPressure、bcrypt 哈希、Session.requestCount、WMA/金叉/三均线/流动性评分/volume profile/turnoverRate（均注明原因）。
+- **批次 22a**（commit cbd1491b3）：`backend/src/__tests__/movingAverageSystemV2.test.ts`（19→20，SMA/EMA 绑 `frontend/src/utils/chartDataProcessing.ts:73/89`）、`liquidityAnalysis.test.ts`（17，绑 orderFlowToxicityEngine:429/374）。旧断言：EMA 首价播种 10/16.667 → null/15/25；Amihud 标量 7.08e-10 → 滚动数组末元素 7.0768e-12；Kyle 未去均值 8.770e-5 → |Cov/Var| 8.1268e-5。残留 WMA/金叉/三均线/流动性评分/volume profile/turnoverRate。
+- **批次 22b**：`frontend/src/__tests__/tableSortFilter.test.ts`（16→19，绑 bloombergExportEngine:584/607 与 exportEngine:148）、`i18nLogic.test.ts`（16→23，绑 i18n/index:22/214/42/71、i18nManager:134/151、i18nEngine:490/452/322/411）。旧断言：filterData 单键签名 → filters[] 数组、contains 区分大小写；排序 localeCompare('zh-CN') 精确顺序；t('app.title') 实为 home.title；detectBrowserLocale 返回完整码；en currency 缺 $；zh 日期不补零；pluralize 带 {n}；2 语言×27 键 → 4 语言×141 键。
+- **批次 22b 缺陷候选（未改）**：i18nEngine:467 formatMarketCapLocalized 对非中文仍按 1e8/1e4 缩放（1.5e9→'15.00B'）；三套数字/日期格式化并存无单一真源；exportEngine:148 CSV 无 BOM/charset；两模块同名导出能力不同；i18nManager 无单例且无生产调用方。
+- **验证**：批次 21 frontend 111 + backend 51 passed；批次 22a backend 37 passed；批次 22b frontend 42 passed；均无 .skip/.only/Math.random。
+- **效果**：影子 790→782，shadowLoc 209,061→206,875，realLoc 151,650→154,498；候选分布变为 ≥3 重叠 0、2 个 59、1 个 248、零重叠 475。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 790 / total 1533 / shadowLoc 209,061（批次 19–20 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 782 / total 1533 / shadowLoc 206,875（批次 22 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -217,12 +228,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：790 个影子测试中 67 个检测到 ≥2 个生产 export 符号重叠（2 个 63、3 个 4）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 19–20 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：782 个影子测试中 59 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 22 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 21 候选（≥3 符号重叠剩 4 个）：`frontend/src/__tests__/microstructureAnalytics.test.ts`（182 行，绑 `backend/src/services/orderFlowToxicityEngine.ts` calcAmihudIlliquidity/calcKyleLambda/calcVPIN）、`languageSwitcherLogic.test.ts`（293，i18nManager/bloombergExportEngine/exportEngine 的 formatCurrency/formatDate/formatNumber）、`dataAggregation.test.ts`（345，globalCorrelationEngine 的 calculateCorrelationMatrix/calculateLogReturns/calculateReturns）、`backend/src/__tests__/userSystemEnhanced.test.ts`（580，securityEngine 与 User.ts 的 validateEmail/validatePhone/validateUsername）。四个的 3 符号均为同域工具函数，先读源码确认接口再迁。
-- 2 符号重叠里价值较高的：`movingAverageSystemV2.test.ts`（chartDataProcessing/featureEngineeringEngine 的 calculateEMA/calculateSMA）、`optionsGreeksAdvanced.test.ts`（optionsPricingEngine normalCDF/normalPDF）、`i18nLogic.test.ts`（i18nManager formatDate/formatNumber）、`tableSortFilter.test.ts`（bloombergExportEngine filterData/sortData）、`liquidityAnalysis.test.ts`（calcAmihudIlliquidity/calcKyleLambda）、`responsiveLogic.test.ts`（debounceThrottle debounce/throttle）。
+- 批次 23 候选（2 符号重叠 59 个里价值较高的）：`frontend/src/__tests__/optionsGreeksAdvanced.test.ts`（168 行，optionsPricingEngine normalCDF/normalPDF）、`responsiveLogic.test.ts`（138，debounceThrottle debounce/throttle）、`backend/src/__tests__/microstructure.test.ts`（265，orderFlowToxicityEngine calcAmihudIlliquidity/calcKyleLambda）、`backtestCombinations.test.ts`（267，chartDataProcessing/technical 的 calculateRSI/calculateSMA）、`chartDataProcessingDeep.test.ts`（273，futureValueUtils/zScoreEngine 的 normalize/zScore）。
+- 批次 22 已消化原 ≥3 四个（microstructureAnalytics/languageSwitcherLogic/dataAggregation/userSystemEnhanced）；`movingAverageSystemV2`、`liquidityAnalysis`、`i18nLogic`、`tableSortFilter` 已在一批 22a/22b 完成。
 - 体量大需逐段确认：`frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
 - 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR、formatters formatVolume/formatTurnover 无 null 守卫、`StockDetailPage.tsx:141-153` 自带格式化副本、validateStockCode 只校验 6 位数字。
