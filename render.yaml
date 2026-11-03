@@ -106,9 +106,11 @@ services:
         value: info
       # Build 信息：后端读取的 5 个候选变量是 GIT_COMMIT_SHA / BUILD_COMMIT /
       # SOURCE_COMMIT / CF_PAGES_COMMIT_SHA / VERCEL_GIT_COMMIT_SHA，
-      # 都不含 Render 自有的 RENDER_GIT_COMMIT_SHA，故本机部署后
-      # /health.build.commit 与 buildTime 预期为 null —— 这是诚实空值，不伪造。
-      # （要填实需要改 backend 代码的候选列表，属后续工单，本工单文件域不含源码。）
+      # （2026-11-04 已把 RENDER_GIT_COMMIT / RENDER_GIT_COMMIT_SHA / GIT_COMMIT
+      #   补进候选表，见 backend/src/app.ts resolveBuildCommit）。
+      # 只要 Render 在运行时注入该变量，/health.build.commit 就会自证；
+      # 若线上仍为 null，说明运行时未注入，备选方案是在 backend/Dockerfile
+      # 用 ARG/ENV 把 commit 烘进镜像。buildTime 仍可能为 null，属诚实空值。
 
       # ---------------- AI / 数据源密钥（Dashboard 手填，不进 git） ----------------
       - key: AI_PROVIDER
