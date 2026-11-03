@@ -97,7 +97,7 @@ P0 载体日真身已实测补齐（2026-07-10=5,191 行、2026-09-04=5,189 行�
 |---|---|---|---|
 | 0 前置 | 重定工单基线（101 天/24 行）；dump 备份；确认 `_default`=0；冻结旧脚本 | Lead 书面确认新基线；dump 文件存在 | 不符即停 |
 | 1 P1 缺口 | 4,411 只×2026-01-05~06-08 写入 hist（2026-11-04 已完成，见 §十） | 101/101 天 ≥5,000；累计≈103 万行；20 只 0 差；重跑 0 新增 | 抽样不符即停 + L1 回滚 |
-| 2 扩到 3,000 | 新增 2,201 只×3 年（symbol 升序前 2,201） | 完整 3 年标的（≥700 行）=3,000；累计≈238 万行；非缺口日均 ≥2,950；20 只 0 差 | 同上 |
+| 2 扩到 3,000 | 新增 2,201 只×3 年（symbol 升序前 2,201；2026-11-04 已完成，见 §十） | 已接入 3 年窗口标的=3,000（其中 ≥600 行 2,934，余 66 只为窗口起点后上市）；hist 累计 217.7 万行（原估 238 万含 P1 重叠重复计数，已按实测修正）；非缺口日均 2,938~2,984（低 12 行为 IPO 时点，非缺口）；20 只 0 差 | 同上 |
 | 3 全量 | 新增 2,210 只×3 年（余量） | 726/726 天 ≥5,000；完整标的=5,210；累计≈373 万行；与 live 重叠 0 差 | 同上 |
 | 4 读取切换（另批需批准） | 按 §九 三步走；切换暂不批准 | 见 §九 | 见 §九 |
 
@@ -127,10 +127,10 @@ node scripts/data/backfill-kline-pilot.cjs --universe all --start 2026-01-05 --e
 | 步骤 | 内容 | 状态 / 实测结果 |
 |---|---|---|
 | 1 建视图 | `v_daily_quotes_all` v2：历史段（≤2026-06-08）hist 优先、热段（≥2026-06-09）live、其余回退 live；新增 `_src` 与 `_qfq_suspect` 标记；不切换任何消费方 | 已建（DDL v2 已写入 scripts/data/ddl-daily-quotes-hist.sql 并执行） |
-| 2 shadow 比对 | `scripts/data/shadow-kline-reader-diff.cjs`：20 只样本（11 qfq 残污 + 6 干净 + 3 本轮回填），比 A=getDailyQuotes 形态、B=/kline ASC LIMIT 250 形态，差异逐条分类落 JSON | 已跑通：A readerOnly=0、viewOnly=4,482、共同 8,425；差异分类 5,499 qfq 修正 / 9,443 qfq 派生 / 366 旧零换手率 / 77 量舍入 / 13 旧派生 / 55 估值 NULL，**UNEXPLAINED=0**（逐条差异 5,802 行见 `.shadow-reader-diff.json`） |
-| 3 开关切换 | 环境变量默认 legacy、可一键回退；改动点仅 `Database.getDailyQuotes` 与 `stock.ts /kline` 两处取数 | **未实施**，待步骤 2 结果评审通过后另批；另：/kline 现为 ASC LIMIT 250，切视图会从「最近 250」变「最早 250」，须同步改 DESC 取数（shadow B 已暴露 853/1,984 窗口漂移） |
+| 2 shadow 比对 | `scripts/data/shadow-kline-reader-diff.cjs`：20 只样本（11 qfq 残污 + 6 干净 + 3 本轮回填），比 A=getDailyQuotes 形态、B=/kline 最近 250 根形态（已改 DESC 取数再反转），差异逐条分类落 JSON | Phase 2 后终版复跑（脚本 7d6b8ca1d）：A readerOnly=0、viewOnly=5,528、共同 8,425；分类 5,499 qfq 修正 / 9,443 qfq 派生 / 366 旧零换手率 / 77 量舍入 / 13 旧派生 / 55 估值 NULL；B readerOnly=5、viewOnly=1,236、共同 3,645、qfq 差 849，窗口漂移已消失；**UNEXPLAINED=0**（逐条差异见 `.shadow-reader-diff.json`） |
+| 3 开关切换 | 环境变量默认 legacy、可一键回退；改动点仅 `Database.getDailyQuotes` 与 `stock.ts /kline` 两处取数 | **未实施，待批准**（Lead 不批）；前置已修：`/kline` 改 DESC 取数再反转（2a6261b72）+ 回归测试 `backend/src/__tests__/klineWindow.test.ts`，shadow B 复跑无窗口漂移（readerOnly=5 均为 QFQ_FIX） |
 
-## 十、Phase 1 执行记录（2026-11-04，只写 hist）
+## 十、Phase 1 / Phase 2 执行记录（2026-11-04，只写 hist）
 
 | 动作 | 实测结果 |
 |---|---|
@@ -142,9 +142,9 @@ node scripts/data/backfill-kline-pilot.cjs --universe all --start 2026-01-05 --e
 | 验收（机器） | 101/101 天 ≥5,000 ✓；_default=0 ✓；同 checkpoint 重跑 0 新增 ✓；20 只新样本×101 天 maxAbsDiff=0 ✓；视图 101 天日均 5,139~5,194 |
 | 未回填 20 只 | 5 指数（000001/000300/000905.SH、399001/399006.SZ，THS 无指数代码或串号）+ 15 只退市/停牌（THS 404 无成交额），按设计整只不写，非缺口 |
 | 磁盘增量 | DB 271→338 MB（+67 MB）；hist 115→182 MB、2026 分区 39→106 MB；磁盘余 26 GiB |
-| 后续 | Phase 2/3 另批（P2 先收口 620 行遮蔽）；Phase 4 见 §九，步骤 3 环境变量开关未实施、待评审；不 push |
+| Phase 2（2026-11-04） | 前置：dump 59 MB/7 s 有效；20 只冒烟 20/20 OK、requests=82、21 s、inserted=10,559、verify 20 天 0 差；全量 2,181 只（另 20 已冒烟）/ 33.4 min / requests=9,545 / inserted=1,138,133 / OK=2,181、失败 0、跳存量 219,470 行（P1 重叠）；全部走 tencent_raw 回退（fqkline 全程 501，THS 成交额与价格锚定校验通过；与 live 同键重叠 7,543 行，close 差 5,529 行全为 12 只 qfq 残污股，其余 0 差）；20 只随机样本×20 天 verify maxAbsDiff=0；累计 hist 2,177,354 行/5,190 标的；daily_quotes 539,829 行未动；DB 338→540 MB、hist 182→384 MB、磁盘余 26 GiB |
+| 后续 | Phase 3（余 2,190 只×3 年）待 Lead 放行；Phase 4 见 §九，步骤 3 环境变量开关未实施、待评审；不 push |
 
 ## 附：本轮证据
 
-- 证据：方案期只读实测（psql 基线/缺口/交集；curl+node 探针：腾讯 3 年/101 天、THS 2026、24 请求限流）+ Phase 1 执行与验收（§十）；关键文件 `scripts/data/backfill-kline-pilot.cjs`（限流/重试/断点/verify）、`scripts/data/ddl-daily-quotes-hist.sql`（分区/索引/视图）。
-- 文档：`KLINE-STORAGE-DESIGN.md` §4.5（185 B/行实测）/§7.5（11 只清洗 SQL）、`KLINE-BACKFILL-PILOT.md`（pilot 全部实测与四证）；`backend/db/migrations/001_init_tables.sql:40-61` 已与线上表漂移，以 information_schema 为准。
+- 证据：方案期只读实测 + Phase 1/2 执行与验收（§十）；关键文件 `scripts/data/backfill-kline-pilot.cjs`（限流/重试/断点/verify）、`scripts/data/ddl-daily-quotes-hist.sql`（分区/索引/视图）、`scripts/data/shadow-kline-reader-diff.cjs`（shadow）；文档 `KLINE-STORAGE-DESIGN.md` §4.5（185 B/行实测）/§7.5（11 只清洗 SQL）、`KLINE-BACKFILL-PILOT.md`；`backend/db/migrations/001_init_tables.sql:40-61` 已与线上表漂移，以 information_schema 为准。
