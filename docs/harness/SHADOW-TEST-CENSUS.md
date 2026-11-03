@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 3 迁移后更新 04:52（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 4 迁移后更新 05:00（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,10 +16,10 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **857（55.9%）** |
-| 真实导入 | 676 |
-| 影子测试代码行 | **225,172 行** |
-| 真实测试代码行 | 135,282 行 |
+| 影子测试 | **855（55.8%）** |
+| 真实导入 | 678 |
+| 影子测试代码行 | **224,605 行** |
+| 真实测试代码行 | 135,715 行 |
 
 按行数算，63% 的测试代码在断言副本而不是产品代码。
 
@@ -27,7 +27,7 @@
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 432/640 | 67.5% |
+| backend/src/__tests__（扁平） | 430/640 | 67.2% |
 | frontend/src/__tests__（扁平） | 425/868 | 49.0% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
@@ -86,13 +86,30 @@
 - 不可迁移候选（无生产实现）：tradingEngineDeep.test.ts（撮合/VWAP/保证金/盘口深度）、batchCalcsEngine.test.ts（除 KDJ 外）、stockLogicComprehensive.test.ts（validateStockCode 接口不符）。
 - 效果：影子 858→857，shadowLoc 225,750→225,172，realLoc 134,723→135,282。
 
+## 六（续）、批次 4（2026-11-04 05:00）
+
+- backend/src/__tests__/technicalIndicators.test.ts：19→20 用例（新增 Wilder 平滑口径对照），删除自抄 MA/EMA/MACD/RSI/KDJ/BOLL，改为 import backend/src/indicators/technical.ts；KDJ 生产入参为 high/low/close 三数组、返回 {k,d,j} 且首个有效 bar K=D=50（旧副本用 OHLCV[]、首值 (2/3)*50+(1/3)*RSV）；RSI 生产为 Wilder 平滑（index 6 = 68.9655，旧简单均值 66.6667）。
+- backend/src/__tests__/technicalIndicatorsAdvanced.test.ts：15 用例保留，删除自抄实现改 import 同一模块；EMA 生产前 period-1 为 null、首值 SMA；MACD 生产返回 {macd,signal,histogram} 且 hist=macd-signal（旧副本 dif/dea 且 *2）；旧「线性上涨金叉」用例在生产 12/26/9 下 macd 与 signal 于 index 33 后精确收敛相等、本无金叉，改为先跌 40 再涨 40 → index 41 上穿；BOLL/MA 生产返回等长数组带 null 预热；3 处 Math.random 全部换成确定性序列。
+- 残留：detectGoldenCross 保留为测试观测 helper（生产无金叉检测函数，grep 仅命中模型字符串 macd_golden_cross 与其他测试的自建 helper），已标注「未迁移」，未虚构生产代码。
+- 验证：cd backend && npx vitest run 两个文件 → 35 passed；node scripts/guard/shadow-test-census.mjs --check → 855/1533。
+- 效果：影子 857→855，shadowLoc 225,172→224,605，realLoc 135,282→135,715。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 857 / total 1533 / shadowLoc 225,172（批次 3 后；批次 2 后为 858）。
+- 基线：shadow 855 / total 1533 / shadowLoc 224,605（批次 4 后；批次 3 后为 857）。
 
-## 八、下一步
+## 八、迁移候选扫描（工具）
 
-- 批次 4 候选：先做「生产实现存在但测试自抄」的映射扫描（如 backend/src/indicators/technical.ts 对 batchCalcsEngine 的 KDJ 段可先部分迁移）；无真实对应物的 UI 形状用例不硬造生产代码。
+不再凭感觉挑文件：`node scripts/guard/shadow-migration-candidates.mjs [--json] [--top N]`（只读）给出两条证据：
+
+1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
+2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
+
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：855 个影子测试中 99 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
+
+## 九、下一步
+
+- 批次 5 候选：`priceFormatter.test.ts`（257 行，5 个 format* 符号重叠）对接 `frontend/src/utils/formatters.ts`；`dateTimeUtils.test.ts`（233 行）对接 `backend/src/utils/tradingCalendar.ts`；`sharedTypes.test.ts`（394 行，16 符号重叠 formatters.ts）需先判断前端 utils 与后端测试的边界是否合理。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。

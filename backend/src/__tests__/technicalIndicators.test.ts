@@ -1,160 +1,24 @@
-import { describe, it, expect } from 'vitest';
-
 /**
- * 技术指标计算模块测试
- * MA/EMA/MACD/RSI/KDJ/布林带
+ * 技术指标计算模块测试（绑定生产实现）
+ *
+ * 生产实现（唯一真源）：backend/src/indicators/technical.ts
+ * 本文件不再保留任何自抄实现，断言口径以生产实际行为为准：
+ * - 预热期返回 null，数组长度恒等于输入长度（不补 0、不跳过）
+ * - MACD 返回 { macd, signal, histogram }，HIST = MACD - Signal
+ * - RSI 使用 Wilder 平滑，首个 RSI 位于 index = period
+ * - KDJ 入参为 high[] / low[] / close[]，首个有效 bar 直接置 K=D=50
  */
 
-interface OHLCV {
-  tradeDate: string;
-  open: number;
-  close: number;
-  high: number;
-  low: number;
-  volume: number;
-}
-
-function calculateMA(data: number[], period: number): (number | null)[] {
-  const result: (number | null)[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) {
-      result.push(null);
-    } else {
-      let sum = 0;
-      for (let j = 0; j < period; j++) {
-        sum += data[i - j];
-      }
-      result.push(parseFloat((sum / period).toFixed(4)));
-    }
-  }
-  return result;
-}
-
-function calculateEMA(data: number[], period: number): (number | null)[] {
-  const result: (number | null)[] = [];
-  const multiplier = 2 / (period + 1);
-  for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) {
-      result.push(null);
-    } else if (i === period - 1) {
-      let sum = 0;
-      for (let j = 0; j < period; j++) {
-        sum += data[i - j];
-      }
-      result.push(parseFloat((sum / period).toFixed(4)));
-    } else {
-      const prevEMA = result[i - 1]!;
-      const ema = (data[i] - prevEMA) * multiplier + prevEMA;
-      result.push(parseFloat(ema.toFixed(4)));
-    }
-  }
-  return result;
-}
-
-function calculateMACD(data: number[], shortPeriod = 12, longPeriod = 26, signalPeriod = 9) {
-  const shortEMA = calculateEMA(data, shortPeriod);
-  const longEMA = calculateEMA(data, longPeriod);
-  const macdLine: (number | null)[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (shortEMA[i] === null || longEMA[i] === null) {
-      macdLine.push(null);
-    } else {
-      macdLine.push(parseFloat((shortEMA[i]! - longEMA[i]!).toFixed(4)));
-    }
-  }
-  const validMacd = macdLine.filter(v => v !== null) as number[];
-  const signalEMA = calculateEMA(validMacd, signalPeriod);
-  const signalLine: (number | null)[] = [];
-  let si = 0;
-  for (let i = 0; i < macdLine.length; i++) {
-    if (macdLine[i] === null) {
-      signalLine.push(null);
-    } else {
-      signalLine.push(signalEMA[si++] ?? null);
-    }
-  }
-  const histogram: (number | null)[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (macdLine[i] === null || signalLine[i] === null) {
-      histogram.push(null);
-    } else {
-      histogram.push(parseFloat((macdLine[i]! - signalLine[i]!).toFixed(4)));
-    }
-  }
-  return { macd: macdLine, signal: signalLine, histogram };
-}
-
-function calculateRSI(data: number[], period = 14): (number | null)[] {
-  const result: (number | null)[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < period) {
-      result.push(null);
-    } else {
-      let gains = 0, losses = 0;
-      for (let j = i - period + 1; j <= i; j++) {
-        const diff = data[j] - data[j - 1];
-        if (diff > 0) gains += diff;
-        else losses += Math.abs(diff);
-      }
-      const avgGain = gains / period;
-      const avgLoss = losses / period;
-      if (avgLoss === 0) {
-        result.push(100);
-      } else {
-        const rs = avgGain / avgLoss;
-        result.push(parseFloat((100 - 100 / (1 + rs)).toFixed(4)));
-      }
-    }
-  }
-  return result;
-}
-
-function calculateKDJ(data: OHLCV[], n = 9, m1 = 3, m2 = 3) {
-  const K: (number | null)[] = [];
-  const D: (number | null)[] = [];
-  const J: (number | null)[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < n - 1) {
-      K.push(null); D.push(null); J.push(null);
-    } else {
-      let highest = -Infinity, lowest = Infinity;
-      for (let j = i - n + 1; j <= i; j++) {
-        highest = Math.max(highest, data[j].high);
-        lowest = Math.min(lowest, data[j].low);
-      }
-      const rsv = highest === lowest ? 50 : ((data[i].close - lowest) / (highest - lowest)) * 100;
-      const prevK = K[i - 1] ?? 50;
-      const prevD = D[i - 1] ?? 50;
-      const k = (2 / m1) * prevK + (1 / m1) * rsv;
-      const d = (2 / m2) * prevD + (1 / m2) * k;
-      const j = 3 * k - 2 * d;
-      K.push(parseFloat(k.toFixed(4)));
-      D.push(parseFloat(d.toFixed(4)));
-      J.push(parseFloat(j.toFixed(4)));
-    }
-  }
-  return { K, D, J };
-}
-
-function calculateBollingerBands(data: number[], period = 20, multiplier = 2) {
-  const middle = calculateMA(data, period);
-  const upper: (number | null)[] = [];
-  const lower: (number | null)[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (middle[i] === null) {
-      upper.push(null); lower.push(null);
-    } else {
-      let sumSq = 0;
-      for (let j = i - period + 1; j <= i; j++) {
-        sumSq += (data[j] - middle[i]!) ** 2;
-      }
-      const std = Math.sqrt(sumSq / period);
-      upper.push(parseFloat((middle[i]! + multiplier * std).toFixed(4)));
-      lower.push(parseFloat((middle[i]! - multiplier * std).toFixed(4)));
-    }
-  }
-  return { upper, middle, lower };
-}
+import { describe, it, expect } from 'vitest';
+import {
+  calculateMA,
+  calculateEMA,
+  calculateMACD,
+  calculateRSI,
+  calculateKDJ,
+  calculateBollingerBands,
+} from '../indicators/technical';
+import type { OHLCV } from '../indicators/technical';
 
 describe('技术指标计算', () => {
   const prices = [10, 11, 12, 11, 13, 14, 13, 15, 16, 15, 17, 18, 17, 19, 20, 19, 21, 22, 21, 23];
@@ -211,6 +75,8 @@ describe('技术指标计算', () => {
     it('should return nulls for insufficient data', () => {
       const macd = calculateMACD([1, 2, 3], 12, 26, 9);
       expect(macd.macd.every(v => v === null)).toBe(true);
+      expect(macd.signal.every(v => v === null)).toBe(true);
+      expect(macd.histogram.every(v => v === null)).toBe(true);
     });
 
     it('should have correct structure', () => {
@@ -218,6 +84,9 @@ describe('技术指标计算', () => {
       expect(macd.macd.length).toBe(prices.length);
       expect(macd.signal.length).toBe(prices.length);
       expect(macd.histogram.length).toBe(prices.length);
+      // MACD 预热到 longPeriod-1，signal 再预热 signalPeriod-1（生产行为）
+      expect(macd.macd.slice(0, 4).every(v => v === null)).toBe(true);
+      expect(macd.signal.slice(0, 6).every(v => v === null)).toBe(true);
     });
 
     it('histogram should equal macd minus signal', () => {
@@ -225,6 +94,8 @@ describe('技术指标计算', () => {
       for (let i = 0; i < prices.length; i++) {
         if (macd.macd[i] !== null && macd.signal[i] !== null) {
           expect(macd.histogram[i]).toBeCloseTo(macd.macd[i]! - macd.signal[i]!, 4);
+        } else {
+          expect(macd.histogram[i]).toBeNull();
         }
       }
     });
@@ -251,6 +122,15 @@ describe('技术指标计算', () => {
         }
       }
     });
+
+    it('should use Wilder smoothing after the first RSI', () => {
+      // 前 5 根预热为 null；index 5 首个 RSI = 83.3333（5 涨 1 跌）
+      const rsi = calculateRSI(prices, 5);
+      expect(rsi.slice(0, 5).every(v => v === null)).toBe(true);
+      expect(rsi[5]).toBeCloseTo(83.3333, 4);
+      // index 6 用 Wilder 平滑 = 68.9655；若仍用简单滚动窗口则为 66.6667
+      expect(rsi[6]).toBeCloseTo(68.9655, 4);
+    });
   });
 
   describe('calculateKDJ', () => {
@@ -262,24 +142,32 @@ describe('技术指标计算', () => {
       low: close - 1,
       volume: 1000000,
     }));
+    const highs = ohlcv.map(d => d.high);
+    const lows = ohlcv.map(d => d.low);
+    const closes = ohlcv.map(d => d.close);
 
     it('should return nulls for insufficient data', () => {
-      const kdj = calculateKDJ(ohlcv.slice(0, 3), 9);
-      expect(kdj.K.every(v => v === null)).toBe(true);
+      const kdj = calculateKDJ(highs.slice(0, 3), lows.slice(0, 3), closes.slice(0, 3), 9);
+      expect(kdj.k.every(v => v === null)).toBe(true);
+      expect(kdj.d.every(v => v === null)).toBe(true);
+      expect(kdj.j.every(v => v === null)).toBe(true);
     });
 
     it('should have K, D, J arrays of correct length', () => {
-      const kdj = calculateKDJ(ohlcv, 5);
-      expect(kdj.K.length).toBe(ohlcv.length);
-      expect(kdj.D.length).toBe(ohlcv.length);
-      expect(kdj.J.length).toBe(ohlcv.length);
+      const kdj = calculateKDJ(highs, lows, closes, 5);
+      expect(kdj.k.length).toBe(ohlcv.length);
+      expect(kdj.d.length).toBe(ohlcv.length);
+      expect(kdj.j.length).toBe(ohlcv.length);
+      // 生产实现首个有效 bar 直接置 50（旧自抄实现的 2/3*50 + 1/3*RSV 口径不同）
+      expect(kdj.k[4]).toBe(50);
+      expect(kdj.d[4]).toBe(50);
     });
 
     it('J should equal 3K - 2D', () => {
-      const kdj = calculateKDJ(ohlcv, 5);
+      const kdj = calculateKDJ(highs, lows, closes, 5);
       for (let i = 0; i < ohlcv.length; i++) {
-        if (kdj.K[i] !== null && kdj.D[i] !== null) {
-          expect(kdj.J[i]).toBeCloseTo(3 * kdj.K[i]! - 2 * kdj.D[i]!, 3);
+        if (kdj.k[i] !== null && kdj.d[i] !== null) {
+          expect(kdj.j[i]).toBeCloseTo(3 * kdj.k[i]! - 2 * kdj.d[i]!, 3);
         }
       }
     });
@@ -289,6 +177,8 @@ describe('技术指标计算', () => {
     it('should return nulls for insufficient data', () => {
       const boll = calculateBollingerBands([1, 2, 3], 20);
       expect(boll.upper.every(v => v === null)).toBe(true);
+      expect(boll.middle.every(v => v === null)).toBe(true);
+      expect(boll.lower.every(v => v === null)).toBe(true);
     });
 
     it('upper should be above middle, lower below', () => {
