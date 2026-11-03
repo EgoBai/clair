@@ -1,7 +1,18 @@
 import { describe, it, expect } from 'vitest';
+import { calculateSMA, calculateRSI } from '../../../frontend/src/utils/chartDataProcessing';
+import { calculateReturns } from '../../../frontend/src/utils/correlationMatrix';
+import { calculateMaxDrawdown } from '../models/Backtest';
 
 // ===== 回测策略组合测试 =====
+// 影子测试迁移（批次 29a）：数值口径直接绑定生产实现
+// - calculateSMA / calculateRSI → frontend/src/utils/chartDataProcessing.ts:73 / :111（无舍入，预热 null）
+// - calculateReturns → frontend/src/utils/correlationMatrix.ts:46（prev===0 时返回 0 的零价守卫）
+// - calculateMaxDrawdown → backend/src/models/Backtest.ts:164（(峰值-当前)/峰值 的最大值）
+// 本地仅保留 maCrossStrategy：生产 backend/src/utils/backtestEngine.ts:212 的 generateSignalMA
+// 未导出且是「均线交叉事件」语义（返回 Signal 对象、依赖 IndicatorCache），与本地「均线相对位置」不同，
+// 故标注未迁移：生产无对应导出。
 describe('Backtest Strategy Combinations', () => {
+  // 夹具类型（仅用于本地 generateTrendData 的返回形状，不是生产实现副本）
   interface OHLCV {
     date: string;
     open: number;
@@ -11,62 +22,47 @@ describe('Backtest Strategy Combinations', () => {
     volume: number;
   }
 
+  // 确定性伪随机发生器（固定种子 LCG），替代非确定随机数保证用例可复现
+  const createRng = (seed: number): (() => number) => {
+    let state = seed >>> 0;
+    return () => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  };
+
+  const toIsoDate = (offset: number): string =>
+    new Date(Date.UTC(2026, 0, 1 + offset)).toISOString().slice(0, 10);
+
   const generateTrendData = (days: number, trend: 'up' | 'down' | 'sideways' | 'volatile'): OHLCV[] => {
+    const seeds: Record<typeof trend, number> = {
+      up: 20260101,
+      down: 20260202,
+      sideways: 20260303,
+      volatile: 20260404,
+    };
+    const rng = createRng(seeds[trend]);
     const data: OHLCV[] = [];
     let price = 100;
     for (let i = 0; i < days; i++) {
-      let change: number;
-      switch (trend) {
-        case 'up': change = Math.random() * 3 - 0.5; break;
-        case 'down': change = Math.random() * 3 - 2.5; break;
-        case 'sideways': change = Math.random() * 2 - 1; break;
-        case 'volatile': change = Math.random() * 8 - 4; break;
-      }
+      const drift = trend === 'up' ? 1.2 : trend === 'down' ? -1.2 : 0;
+      const spread = trend === 'volatile' ? 8 : 2;
+      const change = drift + (rng() - 0.5) * spread;
       const open = price;
       const close = price + change;
-      const high = Math.max(open, close) + Math.random() * 2;
-      const low = Math.min(open, close) - Math.random() * 2;
+      const high = Math.max(open, close) + rng() * 2;
+      const low = Math.min(open, close) - rng() * 2;
       data.push({
-        date: `2026-01-${String(i + 1).padStart(2, '0')}`,
+        date: toIsoDate(i),
         open, high, low, close,
-        volume: Math.floor(1000000 + Math.random() * 500000),
+        volume: Math.floor(1_000_000 + rng() * 500_000),
       });
       price = close;
     }
     return data;
   };
 
-  const calculateSMA = (data: number[], period: number): (number | null)[] => {
-    const result: (number | null)[] = [];
-    for (let i = 0; i < data.length; i++) {
-      if (i < period - 1) { result.push(null); continue; }
-      const slice = data.slice(i - period + 1, i + 1);
-      result.push(slice.reduce((a, b) => a + b, 0) / period);
-    }
-    return result;
-  };
-
-  const calculateRSI = (closes: number[], period: number = 14): (number | null)[] => {
-    const result: (number | null)[] = [];
-    if (closes.length < period + 1) return Array(closes.length).fill(null);
-    let gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-      const diff = closes[i] - closes[i - 1];
-      if (diff > 0) gains += diff; else losses -= diff;
-    }
-    for (let i = 0; i < period; i++) result.push(null);
-    let avgGain = gains / period, avgLoss = losses / period;
-    result.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
-    for (let i = period + 1; i < closes.length; i++) {
-      const diff = closes[i] - closes[i - 1];
-      avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
-      avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
-      result.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
-    }
-    return result;
-  };
-
-  // MA交叉策略
+  // MA交叉策略（未迁移：生产无对应导出，见文件头说明；MA 计算复用生产 calculateSMA）
   const maCrossStrategy = (data: OHLCV[], shortPeriod: number, longPeriod: number) => {
     const closes = data.map(d => d.close);
     const shortMA = calculateSMA(closes, shortPeriod);
@@ -126,6 +122,7 @@ describe('Backtest Strategy Combinations', () => {
       const closes = data.map(d => d.close);
       const rsi = calculateRSI(closes, 14);
       const validValues = rsi.filter((v): v is number => v !== null);
+      expect(validValues.length).toBeGreaterThan(0);
       validValues.forEach(v => {
         expect(v).toBeGreaterThanOrEqual(0);
         expect(v).toBeLessThanOrEqual(100);
@@ -154,7 +151,7 @@ describe('Backtest Strategy Combinations', () => {
     });
   });
 
-  // SMA计算
+  // SMA计算（绑定生产 calculateSMA：frontend/src/utils/chartDataProcessing.ts:73）
   describe('SMA计算', () => {
     it('应正确计算简单移动平均', () => {
       const data = [10, 20, 30, 40, 50];
@@ -215,52 +212,39 @@ describe('Backtest Strategy Combinations', () => {
     });
   });
 
-  // 收益率计算
+  // 收益率计算（绑定生产 calculateReturns / calculateMaxDrawdown）
   describe('收益率分析', () => {
-    const calcReturns = (prices: number[]): number[] => {
-      const returns: number[] = [];
-      for (let i = 1; i < prices.length; i++) {
-        returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
-      }
-      return returns;
-    };
-
-    const calcMaxDrawdown = (prices: number[]): number => {
-      let peak = prices[0], maxDD = 0;
-      for (const p of prices) {
-        if (p > peak) peak = p;
-        const dd = (peak - p) / peak;
-        if (dd > maxDD) maxDD = dd;
-      }
-      return maxDD;
-    };
-
     it('上涨趋势收益率应为正', () => {
       const data = generateTrendData(50, 'up');
-      const returns = calcReturns(data.map(d => d.close));
+      const returns = calculateReturns(data.map(d => d.close));
       expect(returns.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
     });
 
     it('最大回撤应≥0', () => {
       const data = generateTrendData(100, 'volatile');
-      const dd = calcMaxDrawdown(data.map(d => d.close));
+      const dd = calculateMaxDrawdown(data.map(d => d.close));
       expect(dd).toBeGreaterThanOrEqual(0);
     });
 
     it('纯上涨回撤应为0', () => {
       const prices = [1, 2, 3, 4, 5];
-      expect(calcMaxDrawdown(prices)).toBeCloseTo(0);
+      expect(calculateMaxDrawdown(prices)).toBeCloseTo(0);
     });
 
     it('收益率序列长度应等于数据长度减1', () => {
       const data = generateTrendData(20, 'sideways');
-      const returns = calcReturns(data.map(d => d.close));
+      const returns = calculateReturns(data.map(d => d.close));
       expect(returns.length).toBe(19);
     });
 
     it('相同价格收益率应为0', () => {
-      const returns = calcReturns([100, 100, 100]);
+      const returns = calculateReturns([100, 100, 100]);
       expect(returns.every(r => r === 0)).toBe(true);
+    });
+
+    it('零价收益率应返回0（生产零价守卫）', () => {
+      // 旧自抄 calcReturns([0, 100]) 为 (100-0)/0 = Infinity；生产 correlationMatrix.ts:48 用 prev===0 → 0
+      expect(calculateReturns([0, 100])).toEqual([0]);
     });
   });
 });
