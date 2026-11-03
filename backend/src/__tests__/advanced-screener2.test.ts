@@ -1,7 +1,28 @@
 import { describe, it, expect } from 'vitest';
+import { calcRSI } from '../utils/futureValueUtils';
 
 /**
- * 高级筛选器 - 技术指标筛选测试
+ * 高级筛选器 - 技术指标筛选测试（影子测试迁移 · 批次 18）
+ *
+ * 生产真源：backend/src/utils/futureValueUtils.ts
+ *   → calcRSI(L59-84)：Wilder 平滑，index=period 起才有值，数据不足返回等长全 null 数组；
+ *     calcEMA(L89-104)：index=period-1 起有值（SMA 作种子）；
+ *     calcMACD(L109-145)：dif 自 index 25 起、dea 自 index 33 起，histogram = 2*(dif-dea)（L140）。
+ *
+ * 迁移：旧内联 calcRSI（迁移前 L72-85，返回四舍五入标量）→ 生产 calcRSI（返回 (number|null)[]）。
+ *
+ * 旧断言修正（旧行号指迁移前版本）：
+ *   1) 旧内联数据不足 period+1 条时返回 50（旧 L73）；生产返回等长全 null 数组（L59-61）。
+ *   2) 旧内联返回两位小数标量；生产返回数组且不取整：本数据末值 77.77777777777777（旧值 77.78）。
+ *   3) 旧断言直接比较标量；迁移后取数组末元素，并显式断言 [0, period-1] 为预热期 null。
+ *
+ * 已删除（原测试从未调用，无断言可迁移，不补造断言）：
+ *   旧内联 calcMACD（迁移前 L87-93，递归实现、histogram=dif-dea）与 calcEMA（旧 L95-103）。
+ *
+ * 未迁移（生产无对应导出，保留本地 helper，不虚构生产代码）：
+ *   filterByTechnical / TechnicalCriteria / StockTechnicalData：生产高级筛选在
+ *   backend/src/api/advanced-screener.ts:468-517 通过 SQL 条件构造（applyConditions）实现，
+ *   无内存版技术指标筛选函数，故该 helper 仅作筛选行为夹具保留。
  */
 
 interface TechnicalCriteria {
@@ -25,6 +46,7 @@ interface StockTechnicalData {
   price: number;
 }
 
+// 未迁移：生产无内存版技术指标筛选函数（见文件头说明），保留为筛选行为夹具。
 function filterByTechnical(data: StockTechnicalData[], criteria: TechnicalCriteria): StockTechnicalData[] {
   return data.filter(stock => {
     if (criteria.rsi) {
@@ -67,39 +89,6 @@ function filterByTechnical(data: StockTechnicalData[], criteria: TechnicalCriter
 
     return true;
   });
-}
-
-function calcRSI(prices: number[], period: number = 14): number {
-  if (prices.length < period + 1) return 50;
-  let gains = 0, losses = 0;
-  for (let i = prices.length - period; i < prices.length; i++) {
-    const change = prices[i] - prices[i - 1];
-    if (change > 0) gains += change;
-    else losses -= change;
-  }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return Math.round((100 - 100 / (1 + rs)) * 100) / 100;
-}
-
-function calcMACD(prices: number[]): { value: number; signal: number; histogram: number } {
-  const ema12 = calcEMA(prices, 12);
-  const ema26 = calcEMA(prices, 26);
-  const dif = ema12 - ema26;
-  const dea = dif * 0.2 + (prices.length > 1 ? calcMACD(prices.slice(0, -1)).signal * 0.8 : dif);
-  return { value: dif, signal: dea, histogram: dif - dea };
-}
-
-function calcEMA(prices: number[], period: number): number {
-  if (prices.length === 0) return 0;
-  const k = 2 / (period + 1);
-  let ema = prices[0];
-  for (let i = 1; i < prices.length; i++) {
-    ema = prices[i] * k + ema * (1 - k);
-  }
-  return ema;
 }
 
 describe('Advanced Screener - Technical', () => {
@@ -209,14 +198,32 @@ describe('Advanced Screener - Technical', () => {
     it('应该计算RSI值', () => {
       const prices = [10, 11, 12, 11, 13, 14, 13, 15, 16, 15, 17, 18, 17, 19, 20];
       const rsi = calcRSI(prices, 14);
-      expect(rsi).toBeGreaterThan(0);
-      expect(rsi).toBeLessThanOrEqual(100);
+      // 生产：长度与输入一致，前 period 个（index 0..13）为预热期 null
+      expect(rsi).toHaveLength(prices.length);
+      expect(rsi.slice(0, 14).every(v => v === null)).toBe(true);
+
+      const latest = rsi[rsi.length - 1];
+      expect(latest).not.toBeNull();
+      const value = latest as number;
+      // 旧内联四舍五入为 77.78；生产不取整
+      expect(value).toBeCloseTo(77.77777777777777, 8);
+      expect(value).toBeGreaterThan(0);
+      expect(value).toBeLessThanOrEqual(100);
     });
 
     it('全部上涨应该RSI接近100', () => {
       const prices = Array.from({ length: 20 }, (_, i) => i + 1);
       const rsi = calcRSI(prices, 14);
-      expect(rsi).toBe(100);
+      // 全为上涨、avgLoss=0 → 生产在 index=period 起返回 100
+      expect(rsi[19]).toBe(100);
+      expect(rsi.slice(0, 14).every(v => v === null)).toBe(true);
+    });
+
+    it('数据不足时应该返回全null（旧内联返回50）', () => {
+      const prices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      const rsi = calcRSI(prices, 14);
+      expect(rsi).toHaveLength(prices.length);
+      expect(rsi.every(v => v === null)).toBe(true);
     });
   });
 });

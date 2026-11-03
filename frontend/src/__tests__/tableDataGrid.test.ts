@@ -1,27 +1,48 @@
+/**
+ * 影子测试迁移（批次 17）
+ *
+ * 旧文件在测试内联了 sortData/paginateData/filterData/groupBy/aggregateColumn/
+ * getColumnWidths/exportToCSV 的副本，断言的是副本而非生产实现。现已按语义等价
+ * 分别 import exportEngine 与 bloombergExportEngine。
+ *
+ * 已绑定生产实现：
+ * - sortData      → src/utils/exportEngine.ts:337    (data, key, order)；字符串直接用 localeCompare，与旧内联同口径
+ * - exportToCSV   → src/utils/exportEngine.ts:148    返回 ExportResult，CSV 文本在 .content
+ * - filterData    → src/utils/bloombergExportEngine.ts:584  声明式操作符数组（exportEngine 版仅 eq/gt/lt/contains）
+ * - groupData     → src/utils/bloombergExportEngine.ts:628  (data, groupBy) => Map<string, rows>
+ * - aggregateData → src/utils/bloombergExportEngine.ts:645  (data, aggregations) => { score_sum: ... }
+ *
+ * 未迁移（生产无对应导出，未迁移）：
+ * - paginateData：生产无 totalPages/hasNext/hasPrev 导出。src/utils/dataTable.ts:38
+ *   DataTableProcessor.paginate / execute 只返回 { page, pageSize, total }（:109-118）。
+ * - getColumnWidths：列宽分配属表格 UI 布局，生产无导出纯函数；
+ *   VirtualStockTable.tsx:85-91 直接写固定 px 宽，bloombergExportEngine.ts:336
+ *   exportToExcel 的 wch 估算与容器宽度无关。
+ *
+ * 旧断言错在哪（旧内联副本 → 生产行为）：
+ *
+ * | 旧断言 | 生产输出 | 依据 |
+ * | --- | --- | --- |
+ * | contains 'ali' 命中 Alice（旧内联 toLowerCase 忽略大小写） | 0 行（生产 contains 区分大小写）；'Ali' 才命中 1 行 | bloombergExportEngine.ts:598 |
+ * | filterData(data, { age: { min, max } }) 对象式区间，仅断言 every | 生产接收操作符数组：gte 28 + lte 32 → 3 行，补齐长度断言 | bloombergExportEngine.ts:595-596 |
+ * | filterData(data, { name: '', dept: null }) 跳过空值 → 5 行 | 生产不做空值归一化；空操作符数组 [] → 5 行 | bloombergExportEngine.ts:584-588 |
+ * | groupBy 返回普通对象（Object.keys / groups['Engineering']） | groupData 返回 Map（size / get / keys） | bloombergExportEngine.ts:628-643 |
+ * | aggregateColumn(data, 'score', 'sum') 返回数字 | aggregateData(data, [{ key: 'score', type: 'sum' }]).score_sum | bloombergExportEngine.ts:645-656 |
+ * | exportToCSV(data, cols) 返回字符串 | 返回 ExportResult，CSV 文本在 .content（includeTimestamp:false 才无尾注） | exportEngine.ts:148-180 |
+ * | Column.render 列渲染 | ExportColumn.format（(value: unknown) => string） | exportEngine.ts:10 |
+ */
 import { describe, it, expect } from 'vitest';
+import type { ExportColumn } from '../utils/exportEngine';
+import { exportToCSV, sortData } from '../utils/exportEngine';
+import { aggregateData, filterData, groupData } from '../utils/bloombergExportEngine';
 
-// Table & Data Grid Logic
-interface Column<T> {
-  key: keyof T;
-  label: string;
-  sortable?: boolean;
-  width?: number;
-  align?: 'left' | 'center' | 'right';
-  render?: (value: any, row: T) => string;
-}
-
-function sortData<T>(data: T[], key: keyof T, direction: 'asc' | 'desc'): T[] {
-  return [...data].sort((a, b) => {
-    const va = a[key], vb = b[key];
-    let cmp = 0;
-    if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
-    else if (typeof va === 'string' && typeof vb === 'string') cmp = va.localeCompare(vb);
-    else cmp = String(va).localeCompare(String(vb));
-    return direction === 'asc' ? cmp : -cmp;
-  });
-}
-
-function paginateData<T>(data: T[], page: number, pageSize: number): { items: T[]; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } {
+// 未迁移（生产无对应导出，未迁移）：分页语义（totalPages/hasNext/hasPrev）。
+// 生产 dataTable.ts:38 DataTableProcessor.paginate / execute 只返回 { page, pageSize, total }（:109-118）。
+function paginateData<T>(
+  data: T[],
+  page: number,
+  pageSize: number,
+): { items: T[]; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } {
   const total = data.length;
   const totalPages = Math.ceil(total / pageSize) || 1;
   const safePage = Math.max(1, Math.min(page, totalPages));
@@ -31,66 +52,23 @@ function paginateData<T>(data: T[], page: number, pageSize: number): { items: T[
     total,
     totalPages,
     hasNext: safePage < totalPages,
-    hasPrev: safePage > 1
+    hasPrev: safePage > 1,
   };
 }
 
-function filterData<T extends Record<string, any>>(data: T[], filters: Record<string, any>): T[] {
-  return data.filter(row => {
-    for (const [key, filter] of Object.entries(filters)) {
-      if (filter === undefined || filter === null || filter === '') continue;
-      if (typeof filter === 'string') {
-        if (!String(row[key]).toLowerCase().includes(filter.toLowerCase())) return false;
-      } else if (typeof filter === 'object' && filter !== null) {
-        if (filter.min !== undefined && row[key] < filter.min) return false;
-        if (filter.max !== undefined && row[key] > filter.max) return false;
-        if (filter.eq !== undefined && row[key] !== filter.eq) return false;
-      }
-    }
-    return true;
-  });
+// 未迁移（生产无对应导出，未迁移）：列宽分配属表格 UI 布局，生产无导出纯函数。
+interface LayoutColumn {
+  key: string;
+  label: string;
+  width?: number;
 }
 
-function groupBy<T extends Record<string, any>>(data: T[], key: keyof T): Record<string, T[]> {
-  const groups: Record<string, T[]> = {};
-  for (const item of data) {
-    const groupKey = String(item[key]);
-    if (!groups[groupKey]) groups[groupKey] = [];
-    groups[groupKey].push(item);
-  }
-  return groups;
-}
-
-function aggregateColumn<T extends Record<string, any>>(data: T[], key: keyof T, operation: 'sum' | 'avg' | 'min' | 'max' | 'count'): number {
-  const values = data.map(d => Number(d[key])).filter(v => !isNaN(v));
-  if (values.length === 0) return 0;
-  switch (operation) {
-    case 'sum': return values.reduce((a, b) => a + b, 0);
-    case 'avg': return values.reduce((a, b) => a + b, 0) / values.length;
-    case 'min': return Math.min(...values);
-    case 'max': return Math.max(...values);
-    case 'count': return values.length;
-  }
-}
-
-function getColumnWidths<T>(columns: Column<T>[], containerWidth: number): number[] {
+function getColumnWidths(columns: LayoutColumn[], containerWidth: number): number[] {
   const fixedWidths = columns.filter(c => c.width).reduce((sum, c) => sum + (c.width || 0), 0);
   const flexColumns = columns.filter(c => !c.width).length;
   const remaining = containerWidth - fixedWidths;
   const flexWidth = flexColumns > 0 ? remaining / flexColumns : 0;
   return columns.map(c => c.width || flexWidth);
-}
-
-function exportToCSV<T extends Record<string, any>>(data: T[], columns: Column<T>[]): string {
-  const header = columns.map(c => c.label).join(',');
-  const rows = data.map(row => 
-    columns.map(c => {
-      const val = row[c.key];
-      const str = c.render ? c.render(val, row) : String(val ?? '');
-      return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
-    }).join(',')
-  );
-  return [header, ...rows].join('\n');
 }
 
 describe('Table & Data Grid', () => {
@@ -175,84 +153,95 @@ describe('Table & Data Grid', () => {
 
   describe('Filtering', () => {
     it('should filter by string contains', () => {
-      const result = filterData(testData, { name: 'ali' });
+      // 旧内联忽略大小写（'ali' → Alice）；生产 contains 区分大小写（bloombergExportEngine.ts:598）。
+      const result = filterData(testData, [{ key: 'name', operator: 'contains', value: 'Ali' }]);
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Alice');
+      expect(filterData(testData, [{ key: 'name', operator: 'contains', value: 'ali' }])).toHaveLength(0);
     });
 
     it('should filter by number range', () => {
-      const result = filterData(testData, { age: { min: 28, max: 32 } });
-      expect(result.every(d => d.age >= 28 && d.age <= 32)).toBe(true);
+      // 旧内联对象式 { min, max } 且只断言 every；生产用操作符数组 gte + lte（:595-596）。
+      const result = filterData(testData, [
+        { key: 'age', operator: 'gte', value: 28 },
+        { key: 'age', operator: 'lte', value: 32 },
+      ]);
+      expect(result).toHaveLength(3);
+      expect(result.every(d => Number(d.age) >= 28 && Number(d.age) <= 32)).toBe(true);
     });
 
     it('should filter by exact match', () => {
-      const result = filterData(testData, { dept: { eq: 'Engineering' } });
+      const result = filterData(testData, [{ key: 'dept', operator: 'eq', value: 'Engineering' }]);
       expect(result).toHaveLength(2);
     });
 
     it('should combine filters (AND)', () => {
-      const result = filterData(testData, { dept: { eq: 'Engineering' }, age: { min: 35 } });
+      const result = filterData(testData, [
+        { key: 'dept', operator: 'eq', value: 'Engineering' },
+        { key: 'age', operator: 'gte', value: 35 },
+      ]);
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Charlie');
     });
 
-    it('should skip empty filters', () => {
-      expect(filterData(testData, { name: '', dept: null })).toHaveLength(5);
+    it('should return all rows for empty filter list', () => {
+      // 旧内联把 name:''/dept:null 当空条件跳过；生产不做空值归一化，空操作符数组即不过滤。
+      expect(filterData(testData, [])).toHaveLength(5);
     });
 
     it('should return empty for no matches', () => {
-      expect(filterData(testData, { name: 'zzzzz' })).toHaveLength(0);
+      expect(filterData(testData, [{ key: 'name', operator: 'contains', value: 'zzzzz' }])).toHaveLength(0);
     });
   });
 
   describe('Grouping', () => {
     it('should group by string key', () => {
-      const groups = groupBy(testData, 'dept');
-      expect(Object.keys(groups)).toContain('Engineering');
-      expect(groups['Engineering']).toHaveLength(2);
+      const groups = groupData(testData, 'dept');
+      expect([...groups.keys()]).toContain('Engineering');
+      expect(groups.get('Engineering')).toHaveLength(2);
     });
 
     it('should group by number key', () => {
       const data = [{ type: 1, v: 'a' }, { type: 1, v: 'b' }, { type: 2, v: 'c' }];
-      const groups = groupBy(data, 'type');
-      expect(groups['1']).toHaveLength(2);
-      expect(groups['2']).toHaveLength(1);
+      const groups = groupData(data, 'type');
+      expect(groups.get('1')).toHaveLength(2);
+      expect(groups.get('2')).toHaveLength(1);
     });
 
     it('should handle empty data', () => {
-      expect(groupBy([], 'dept')).toEqual({});
+      expect(groupData([], 'dept').size).toBe(0);
     });
   });
 
   describe('Aggregation', () => {
     it('should sum values', () => {
-      expect(aggregateColumn(testData, 'score', 'sum')).toBe(438);
+      expect(aggregateData(testData, [{ key: 'score', type: 'sum' }]).score_sum).toBe(438);
     });
 
     it('should calculate average', () => {
-      expect(aggregateColumn(testData, 'score', 'avg')).toBeCloseTo(87.6, 1);
+      expect(aggregateData(testData, [{ key: 'score', type: 'avg' }]).score_avg).toBeCloseTo(87.6, 1);
     });
 
     it('should find min', () => {
-      expect(aggregateColumn(testData, 'score', 'min')).toBe(78);
+      expect(aggregateData(testData, [{ key: 'score', type: 'min' }]).score_min).toBe(78);
     });
 
     it('should find max', () => {
-      expect(aggregateColumn(testData, 'score', 'max')).toBe(95);
+      expect(aggregateData(testData, [{ key: 'score', type: 'max' }]).score_max).toBe(95);
     });
 
     it('should count values', () => {
-      expect(aggregateColumn(testData, 'score', 'count')).toBe(5);
+      expect(aggregateData(testData, [{ key: 'score', type: 'count' }]).score_count).toBe(5);
     });
 
     it('should handle empty data', () => {
-      expect(aggregateColumn([], 'score', 'sum')).toBe(0);
+      expect(aggregateData([], [{ key: 'score', type: 'sum' }]).score_sum).toBe(0);
     });
   });
 
   describe('Column Widths', () => {
     it('should distribute flex columns evenly', () => {
-      const cols: Column<any>[] = [
+      const cols: LayoutColumn[] = [
         { key: 'a', label: 'A' },
         { key: 'b', label: 'B' },
       ];
@@ -260,7 +249,7 @@ describe('Table & Data Grid', () => {
     });
 
     it('should respect fixed widths', () => {
-      const cols: Column<any>[] = [
+      const cols: LayoutColumn[] = [
         { key: 'a', label: 'A', width: 50 },
         { key: 'b', label: 'B' },
       ];
@@ -270,7 +259,7 @@ describe('Table & Data Grid', () => {
     });
 
     it('should handle all fixed widths', () => {
-      const cols: Column<any>[] = [
+      const cols: LayoutColumn[] = [
         { key: 'a', label: 'A', width: 100 },
         { key: 'b', label: 'B', width: 100 },
       ];
@@ -280,39 +269,41 @@ describe('Table & Data Grid', () => {
 
   describe('CSV Export', () => {
     it('should export basic CSV', () => {
-      const cols: Column<typeof testData[0]>[] = [
+      const cols: ExportColumn[] = [
         { key: 'name', label: 'Name' },
         { key: 'age', label: 'Age' },
       ];
-      const csv = exportToCSV(testData.slice(0, 2), cols);
+      const csv = exportToCSV(testData.slice(0, 2), { columns: cols, includeTimestamp: false }).content;
       expect(csv).toContain('Name,Age');
       expect(csv).toContain('Alice,30');
     });
 
     it('should escape commas', () => {
       const data = [{ name: 'Hello, World', value: 42 }];
-      const cols: Column<any>[] = [{ key: 'name', label: 'Name' }, { key: 'value', label: 'V' }];
-      const csv = exportToCSV(data, cols);
+      const cols: ExportColumn[] = [{ key: 'name', label: 'Name' }, { key: 'value', label: 'V' }];
+      const csv = exportToCSV(data, { columns: cols, includeTimestamp: false }).content;
       expect(csv).toContain('"Hello, World"');
     });
 
     it('should escape quotes', () => {
       const data = [{ name: 'Say "Hi"', value: 1 }];
-      const cols: Column<any>[] = [{ key: 'name', label: 'Name' }, { key: 'value', label: 'V' }];
-      const csv = exportToCSV(data, cols);
+      const cols: ExportColumn[] = [{ key: 'name', label: 'Name' }, { key: 'value', label: 'V' }];
+      const csv = exportToCSV(data, { columns: cols, includeTimestamp: false }).content;
       expect(csv).toContain('""Hi""');
     });
 
     it('should handle empty data', () => {
-      const cols: Column<any>[] = [{ key: 'a', label: 'A' }];
-      const csv = exportToCSV([], cols);
+      const cols: ExportColumn[] = [{ key: 'a', label: 'A' }];
+      const csv = exportToCSV([], { columns: cols, includeTimestamp: false }).content;
       expect(csv).toBe('A');
     });
 
-    it('should use render function', () => {
+    it('should use column format function', () => {
       const data = [{ val: 0.85 }];
-      const cols: Column<any>[] = [{ key: 'val', label: 'V', render: (v: number) => `${(v * 100).toFixed(1)}%` }];
-      const csv = exportToCSV(data, cols);
+      const cols: ExportColumn[] = [
+        { key: 'val', label: 'V', format: (v) => `${(Number(v) * 100).toFixed(1)}%` },
+      ];
+      const csv = exportToCSV(data, { columns: cols, includeTimestamp: false }).content;
       expect(csv).toContain('85.0%');
     });
   });

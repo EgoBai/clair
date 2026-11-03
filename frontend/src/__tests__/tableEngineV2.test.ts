@@ -1,77 +1,57 @@
+/**
+ * 影子测试迁移（批次 17）
+ *
+ * 旧文件在测试内联了 sortData/filterData/paginateData/groupBy/aggregateData 的副本，
+ * 断言的是副本而非生产实现。现已改为 import ../utils/bloombergExportEngine。
+ *
+ * 已绑定生产实现（frontend/src/utils/bloombergExportEngine.ts）：
+ * - filterData    → :584
+ * - sortData      → :607
+ * - groupData     → :628
+ * - aggregateData → :645
+ *
+ * 未迁移（生产无对应导出，未迁移）：
+ * - paginateData：生产无 totalPages/hasNext/hasPrev 导出。src/utils/dataTable.ts:38
+ *   DataTableProcessor.paginate / execute 只返回 { page, pageSize, total }（:109-118），
+ *   无法断言 totalPages/hasNext/hasPrev，故保留原内联分页函数。
+ *
+ * 旧断言错在哪（旧内联副本 → 生产行为）：
+ *
+ * | 旧断言 | 生产输出 | 依据 |
+ * | --- | --- | --- |
+ * | sortData(data, { field, direction: null }) 原样返回（首行 茅台 1900） | 生产无 null 方向；省略 order 时默认 'asc'，首行 price 35 | bloombergExportEngine.ts:610 |
+ * | operator 'in' 过滤出 3 行 | 生产 switch 无 'in' 分支，default 返回 true → 5 行 | bloombergExportEngine.ts:601 |
+ * | operator 'between' [30, 200] 过滤出 3 行 | 生产无 'between' 分支；改用 gte 30 + lte 200 等价表达 → 3 行 | bloombergExportEngine.ts:594-597 |
+ * | 缺失分组字段的键为 'undefined' | 归入 '未分组' | bloombergExportEngine.ts:635 |
+ * | operator starts_with / ends_with / ne | startsWith / endsWith / neq | bloombergExportEngine.ts:599-600, :593 |
+ * | aggregateData(data, 组字段, 值字段, op) 返回按组名索引的对象 | 生产 (data, aggregations) 返回扁平 Record，键为「值字段_操作符」；分组需先 groupData | bloombergExportEngine.ts:645-656 |
+ * | 分组返回普通对象（Object.keys / g['白酒']） | 返回 Map（size / get） | bloombergExportEngine.ts:628-643 |
+ */
 import { describe, it, expect } from 'vitest';
+import {
+  aggregateData,
+  filterData,
+  groupData,
+  sortData,
+} from '../utils/bloombergExportEngine';
 
-// 表格交互引擎
-interface SortConfig { field: string; direction: 'asc' | 'desc' | null }
-interface FilterCondition { field: string; operator: string; value: any }
-
-function sortData<T extends Record<string, any>>(data: T[], config: SortConfig): T[] {
-  if (!config.direction) return [...data];
-  return [...data].sort((a, b) => {
-    const av = a[config.field], bv = b[config.field];
-    if (av === null && bv === null) return 0;
-    if (av === null) return 1;
-    if (bv === null) return -1;
-    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
-    return config.direction === 'asc' ? cmp : -cmp;
-  });
-}
-
-function filterData<T extends Record<string, any>>(data: T[], conditions: FilterCondition[]): T[] {
-  return data.filter(item =>
-    conditions.every(c => {
-      const val = item[c.field];
-      switch (c.operator) {
-        case 'eq': return val === c.value;
-        case 'ne': return val !== c.value;
-        case 'gt': return val > c.value;
-        case 'lt': return val < c.value;
-        case 'gte': return val >= c.value;
-        case 'lte': return val <= c.value;
-        case 'contains': return String(val).includes(c.value);
-        case 'in': return Array.isArray(c.value) && c.value.includes(val);
-        case 'between': return Array.isArray(c.value) && val >= c.value[0] && val <= c.value[1];
-        case 'starts_with': return String(val).startsWith(c.value);
-        case 'ends_with': return String(val).endsWith(c.value);
-        default: return true;
-      }
-    })
-  );
-}
-
-function paginateData<T>(data: T[], page: number, pageSize: number): { items: T[]; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } {
+// 未迁移（生产无对应导出，未迁移）：分页语义（totalPages/hasNext/hasPrev）。
+// 生产 dataTable.ts:38 DataTableProcessor.paginate / execute 只返回 { page, pageSize, total }（:109-118）。
+function paginateData<T>(
+  data: T[],
+  page: number,
+  pageSize: number,
+): { items: T[]; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } {
   const total = data.length;
   const totalPages = Math.ceil(total / pageSize);
   const start = (page - 1) * pageSize;
   return {
     items: data.slice(start, start + pageSize),
-    total, totalPages,
+    total,
+    totalPages,
     hasNext: page < totalPages,
     hasPrev: page > 1,
   };
-}
-
-function groupBy<T extends Record<string, any>>(data: T[], key: string): Record<string, T[]> {
-  return data.reduce((acc, item) => {
-    const k = String(item[key] ?? 'undefined');
-    (acc[k] = acc[k] || []).push(item);
-    return acc;
-  }, {} as Record<string, T[]>);
-}
-
-function aggregateData<T extends Record<string, any>>(data: T[], groupField: string, valueField: string, op: 'sum' | 'avg' | 'count' | 'min' | 'max'): Record<string, number> {
-  const groups = groupBy(data, groupField);
-  const result: Record<string, number> = {};
-  for (const [key, items] of Object.entries(groups)) {
-    const values = items.map(i => Number(i[valueField]) || 0);
-    switch (op) {
-      case 'sum': result[key] = values.reduce((a, b) => a + b, 0); break;
-      case 'avg': result[key] = values.reduce((a, b) => a + b, 0) / values.length; break;
-      case 'count': result[key] = values.length; break;
-      case 'min': result[key] = Math.min(...values); break;
-      case 'max': result[key] = Math.max(...values); break;
-    }
-  }
-  return result;
 }
 
 describe('表格交互引擎', () => {
@@ -85,95 +65,104 @@ describe('表格交互引擎', () => {
 
   describe('排序', () => {
     it('数字升序', () => {
-      const sorted = sortData(sampleData, { field: 'price', direction: 'asc' });
+      const sorted = sortData(sampleData, 'price', 'asc');
       expect(sorted[0].price).toBe(35);
       expect(sorted[4].price).toBe(1900);
     });
 
     it('数字降序', () => {
-      const sorted = sortData(sampleData, { field: 'price', direction: 'desc' });
+      const sorted = sortData(sampleData, 'price', 'desc');
       expect(sorted[0].price).toBe(1900);
     });
 
-    it('null方向不排序', () => {
-      const sorted = sortData(sampleData, { field: 'price', direction: null });
-      expect(sorted[0].name).toBe('茅台');
+    it('默认升序（生产无 direction:null 语义）', () => {
+      // 旧内联 direction:null 原样返回（首行 茅台 1900）；生产 sortData 的 order 只有 'asc'|'desc'，
+      // 省略时默认 'asc'（bloombergExportEngine.ts:610），不存在“不排序”分支。
+      const sorted = sortData(sampleData, 'price');
+      expect(sorted[0].price).toBe(35);
+      expect(sorted[4].price).toBe(1900);
     });
 
     it('null值排最后', () => {
       const data = [{ name: 'A', price: 10 }, { name: 'B', price: null }, { name: 'C', price: 5 }];
-      const sorted = sortData(data, { field: 'price', direction: 'asc' });
+      const sorted = sortData(data, 'price', 'asc');
       expect(sorted[2].name).toBe('B');
     });
 
     it('原数组不被修改', () => {
       const original = [...sampleData];
-      sortData(sampleData, { field: 'price', direction: 'asc' });
+      sortData(sampleData, 'price', 'asc');
       expect(sampleData).toEqual(original);
     });
 
     it('空数组排序返回空', () => {
-      expect(sortData([], { field: 'price', direction: 'asc' })).toHaveLength(0);
+      expect(sortData([], 'price', 'asc')).toHaveLength(0);
     });
 
     it('涨跌幅排序', () => {
-      const sorted = sortData(sampleData, { field: 'change', direction: 'desc' });
+      const sorted = sortData(sampleData, 'change', 'desc');
       expect(sorted[0].change).toBe(3.2);
     });
   });
 
   describe('筛选', () => {
     it('gt条件', () => {
-      const r = filterData(sampleData, [{ field: 'price', operator: 'gt', value: 100 }]);
+      const r = filterData(sampleData, [{ key: 'price', operator: 'gt', value: 100 }]);
       expect(r).toHaveLength(4); // 1900, 250, 150, 200
     });
 
     it('lt条件', () => {
-      const r = filterData(sampleData, [{ field: 'price', operator: 'lt', value: 100 }]);
+      const r = filterData(sampleData, [{ key: 'price', operator: 'lt', value: 100 }]);
       expect(r).toHaveLength(1); // 35
     });
 
     it('eq条件', () => {
-      const r = filterData(sampleData, [{ field: 'industry', operator: 'eq', value: '白酒' }]);
+      const r = filterData(sampleData, [{ key: 'industry', operator: 'eq', value: '白酒' }]);
       expect(r).toHaveLength(2);
     });
 
     it('contains条件', () => {
-      const r = filterData(sampleData, [{ field: 'name', operator: 'contains', value: '行' }]);
+      const r = filterData(sampleData, [{ key: 'name', operator: 'contains', value: '行' }]);
       expect(r).toHaveLength(1);
     });
 
-    it('in条件', () => {
-      const r = filterData(sampleData, [{ field: 'industry', operator: 'in', value: ['白酒', '银行'] }]);
-      expect(r).toHaveLength(3);
+    it('in条件（生产无 in 分支：不过滤）', () => {
+      // 旧内联按数组包含过滤出 3 行；生产 switch 无 'in'，default 返回 true（:601），该条件不生效。
+      const r = filterData(sampleData, [
+        { key: 'industry', operator: 'in' as never, value: ['白酒', '银行'] },
+      ]);
+      expect(r).toHaveLength(5);
     });
 
-    it('between条件', () => {
-      const r = filterData(sampleData, [{ field: 'price', operator: 'between', value: [30, 200] }]);
-      expect(r).toHaveLength(3);
+    it('区间条件（生产无 between：gte + lte 等价表达）', () => {
+      const r = filterData(sampleData, [
+        { key: 'price', operator: 'gte', value: 30 },
+        { key: 'price', operator: 'lte', value: 200 },
+      ]);
+      expect(r).toHaveLength(3); // 35, 150, 200
     });
 
     it('多条件AND', () => {
       const r = filterData(sampleData, [
-        { field: 'industry', operator: 'eq', value: '白酒' },
-        { field: 'price', operator: 'gt', value: 160 },
+        { key: 'industry', operator: 'eq', value: '白酒' },
+        { key: 'price', operator: 'gt', value: 160 },
       ]);
       expect(r).toHaveLength(1);
       expect(r[0].name).toBe('茅台');
     });
 
     it('无匹配返回空', () => {
-      const r = filterData(sampleData, [{ field: 'price', operator: 'gt', value: 10000 }]);
+      const r = filterData(sampleData, [{ key: 'price', operator: 'gt', value: 10000 }]);
       expect(r).toHaveLength(0);
     });
 
-    it('starts_with条件', () => {
-      const r = filterData(sampleData, [{ field: 'name', operator: 'starts_with', value: '招' }]);
+    it('startsWith条件', () => {
+      const r = filterData(sampleData, [{ key: 'name', operator: 'startsWith', value: '招' }]);
       expect(r).toHaveLength(1);
     });
 
-    it('ends_with条件', () => {
-      const r = filterData(sampleData, [{ field: 'name', operator: 'ends_with', value: '液' }]);
+    it('endsWith条件', () => {
+      const r = filterData(sampleData, [{ key: 'name', operator: 'endsWith', value: '液' }]);
       expect(r).toHaveLength(1);
     });
   });
@@ -209,48 +198,49 @@ describe('表格交互引擎', () => {
 
   describe('分组', () => {
     it('按行业分组', () => {
-      const g = groupBy(sampleData, 'industry');
-      expect(Object.keys(g)).toHaveLength(4);
-      expect(g['白酒']).toHaveLength(2);
+      const g = groupData(sampleData, 'industry');
+      expect(g.size).toBe(4);
+      expect(g.get('白酒')).toHaveLength(2);
     });
 
-    it('空数据返回空对象', () => {
-      expect(Object.keys(groupBy([], 'x'))).toHaveLength(0);
+    it('空数据返回空Map', () => {
+      expect(groupData([], 'x').size).toBe(0);
     });
 
-    it('缺失字段分到undefined组', () => {
+    it('缺失字段分到「未分组」组', () => {
       const data = [{ name: 'A' }, { name: 'B', type: 'x' }];
-      const g = groupBy(data, 'type');
-      expect(g['undefined']).toHaveLength(1);
-      expect(g['x']).toHaveLength(1);
+      const g = groupData(data, 'type');
+      expect(g.has('undefined')).toBe(false);
+      expect(g.get('未分组')).toHaveLength(1);
+      expect(g.get('x')).toHaveLength(1);
     });
   });
 
   describe('聚合', () => {
+    const groups = groupData(sampleData, 'industry');
+    // 生产 aggregateData 无「按组聚合」签名：先 groupData 分组，再对单组调用 aggregateData。
+    const groupAgg = (group: string, type: 'sum' | 'avg' | 'count' | 'min' | 'max') =>
+      aggregateData(groups.get(group)!, [{ key: 'price', type }])[`price_${type}`];
+
     it('按行业求和价格', () => {
-      const r = aggregateData(sampleData, 'industry', 'price', 'sum');
-      expect(r['白酒']).toBe(1900 + 150);
+      expect(groupAgg('白酒', 'sum')).toBe(1900 + 150);
     });
 
     it('按行业平均价格', () => {
-      const r = aggregateData(sampleData, 'industry', 'price', 'avg');
-      expect(r['白酒']).toBe((1900 + 150) / 2);
+      expect(groupAgg('白酒', 'avg')).toBe((1900 + 150) / 2);
     });
 
     it('按行业计数', () => {
-      const r = aggregateData(sampleData, 'industry', 'price', 'count');
-      expect(r['白酒']).toBe(2);
-      expect(r['银行']).toBe(1);
+      expect(groupAgg('白酒', 'count')).toBe(2);
+      expect(groupAgg('银行', 'count')).toBe(1);
     });
 
     it('按行业最大值', () => {
-      const r = aggregateData(sampleData, 'industry', 'price', 'max');
-      expect(r['白酒']).toBe(1900);
+      expect(groupAgg('白酒', 'max')).toBe(1900);
     });
 
     it('按行业最小值', () => {
-      const r = aggregateData(sampleData, 'industry', 'price', 'min');
-      expect(r['白酒']).toBe(150);
+      expect(groupAgg('白酒', 'min')).toBe(150);
     });
   });
 });
