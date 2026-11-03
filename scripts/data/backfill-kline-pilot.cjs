@@ -91,13 +91,15 @@ if (!['both', 'csi300', 'csi500'].includes(INDEX)) {
 for (const d of [CACHE_DIR, THS_CACHE]) fs.mkdirSync(d, { recursive: true });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DBG = process.env.BF_DEBUG ? (...a) => console.error('[dbg]', new Date().toISOString().slice(11, 23), ...a) : () => {};
 
 /** 简单令牌桶：全局吞吐上限 RPS 次/秒 */
 let _nextSlot = 0;
 let txCoolUntil = 0; // 腾讯 501/429/503 时全局限速暂停的截止时间（实测跑到 ~1.2k 请求会被拦）
+let rawLimitedStreak = 0; // 不复权端点连续被限流次数（跨 host 累计；≥4 才升级为 60s 全域冷却）
 async function throttle() {
   if (!(RPS > 0)) return;
-  if (Date.now() < txCoolUntil) await sleep(txCoolUntil - Date.now());
+  if (Date.now() < txCoolUntil) { DBG('throttle wait cooldown', txCoolUntil - Date.now(), 'ms'); await sleep(txCoolUntil - Date.now()); }
   const gap = 1000 / RPS;
   const now = Date.now();
   const slot = Math.max(now, _nextSlot);
@@ -229,7 +231,7 @@ async function fetchTencentBfq(symbol, start, end) {
   return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
-async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
+async function fetchTencentBfqPage(symbol, start, end, tries = 6) {
   const m = /^(\d{6})\.(SH|SZ)$/.exec(symbol);
   if (!m) throw new Error(`非法 symbol：${symbol}`);
   const tx = `${m[2] === 'SH' ? 'sh' : 'sz'}${m[1]}`;
@@ -238,6 +240,7 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
     const endpoint = txUseRaw ? 'kline/kline' : 'fqkline/get';
     const url = `https://${host}/appstock/app/${endpoint}?param=${tx},day,${start},${end},800${txUseRaw ? '' : ',bfq'}`;
     try {
+      DBG('tx try', i, url);
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 25000);
       await throttle();
@@ -249,6 +252,7 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
       const raw = node?.day || node?.bfqday; // bfq 参数下键名为 day
       if (!Array.isArray(raw)) throw new Error(`返回结构异常 code=${j?.code} msg=${j?.msg}`);
       txHostIdx = (txHostIdx + i) % TX_HOSTS.length; // 记住可用域名
+      rawLimitedStreak = 0;
       if (txUseRaw) rawFallbackSymbols++;
       return raw
         .filter((r) => Array.isArray(r) && /^\d{4}-\d{2}-\d{2}$/.test(r[0]))
@@ -264,9 +268,25 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
     } catch (e) {
       if (i === tries - 1) throw e;
       const limited = /^HTTP (429|501|503)$/.test(String(e.message));
-      if (limited && !txUseRaw) { txUseRaw = true; continue; } // fqkline 被限 → 同源不复权端点重试
-      if (limited) txCoolUntil = Math.max(txCoolUntil, Date.now() + 120000);
-      await sleep((limited ? 2500 : 700) * 2 ** i + Math.floor(Math.random() * 300));
+      DBG('tx err', i, JSON.stringify(String(e.message)), 'raw=', txUseRaw, 'limited=', limited);
+      if (!limited) {
+        await sleep(700 * 2 ** i + Math.floor(Math.random() * 300));
+        continue;
+      }
+      if (!txUseRaw) {
+        // fqkline 被 WAF 拦：立刻切同源不复权端点（实测逐值等同 bfq），优先 web.ifzq 主机
+        txUseRaw = true;
+        txHostIdx = 0;
+        continue;
+      }
+      // 不复权端点也被限：换 host 短退避，不因单个坏响应冻住整个并发池（实测 ifzq 会间歇 501）
+      rawLimitedStreak++;
+      txHostIdx = (txHostIdx + 1) % TX_HOSTS.length;
+      if (rawLimitedStreak >= 4) {
+        rawLimitedStreak = 0;
+        txCoolUntil = Math.max(txCoolUntil, Date.now() + 60000);
+      }
+      await sleep(1200 * i + Math.floor(Math.random() * 300));
     }
   }
   return [];
@@ -276,6 +296,7 @@ async function fetchTencentBfqPage(symbol, start, end, tries = 4) {
 /** @returns {Promise<Map<string,'NODATA'|{amount:number,turnRate:number|null}>>} */
 const thsCache = new Map();
 async function fetchThsYear(code, year, tries = 5) {
+  DBG('ths start', code, year);
   const key = `${code}/${year}`;
   if (thsCache.has(key)) return thsCache.get(key);
 
