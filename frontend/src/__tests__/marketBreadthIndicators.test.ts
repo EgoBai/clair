@@ -97,14 +97,17 @@ describe('市场宽度指标引擎', () => {
     aboveMA50: 2200, aboveMA200: 1800, totalStocks: 3500, date: '2024-03-15',
   };
 
+  // 确定性历史样本：原先用 Math.random 生成，导致 "涨多跌少应为看涨" 随机翻红
+  // （mcclellan/thrust 抖动会把 bullishCount 从 3 拉到 2，信号变 neutral）。
+  // 测试数据必须可复现：用序号取模生成小幅波动，整体保持涨多跌少。
   const history: BreadthData[] = Array.from({ length: 40 }, (_, i) => ({
-    advancing: 1500 + Math.random() * 1500,
-    declining: 800 + Math.random() * 1000,
+    advancing: 2400 + (i % 5) * 100,
+    declining: 900 + (i % 3) * 50,
     unchanged: 200,
-    newHighs: 50 + Math.random() * 200,
-    newLows: 20 + Math.random() * 100,
-    aboveMA50: 1500 + Math.random() * 1500,
-    aboveMA200: 1200 + Math.random() * 1200,
+    newHighs: 150,
+    newLows: 30,
+    aboveMA50: 2200,
+    aboveMA200: 1800,
     totalStocks: 3500,
     date: `2024-02-${String(i + 1).padStart(2, '0')}`,
   }));
