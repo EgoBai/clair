@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest';
+import {
+  calculateATR,
+  calculateBollingerBands,
+  calculateEMA,
+  calculateRSI,
+} from '../indicators/technical';
 
-// Market Sentiment & Indicators Engine
+/**
+ * 市场情绪与指标测试（批次 7：绑定生产实现）
+ *
+ * 生产实现（唯一真源）：backend/src/indicators/technical.ts
+ * - EMA：前 period-1 个 null，index=period-1 为前 period 个值的 SMA 种子。
+ * - RSI：Wilder 平滑，前 period 个 null；不足 period+1 个价格时全为 null
+ *   （旧副本返回 50 是伪造中性值，已改口径）。
+ * - ATR：返回 { atr, trueRange }，trueRange[0] 为 null（首根缺前收），
+ *   atr 首个有效值在 index=period；数据不足返回 null（旧副本用 0 顶替空态，已改口径）。
+ * - 布林带：上下轨由生产 calculateBollingerBands 计算（总体标准差口径）；
+ *   position/signal 是测试侧派生观测——生产 frontend 的 calculateBBPosition
+ *   只返回 position 数组，没有 overbought/oversold 阈值，不能虚构生产实现。
+ *
+ * 未迁移（后端无生产实现，保留本地 helper，不虚构生产代码）：
+ * - 涨跌家数比、恐惧贪婪指数、TRIN、市场宽度聚合、OBV。
+ * - McClellan 振荡器的组合逻辑未迁移；其 EMA 基元已改用生产实现。
+ * - 前端 featureEngineeringEngine / momentumOscillatorEngine 有同名 RSI/OBV 副本，
+ *   但仅被自身测试引用、未被产品页面使用，且预热期与边界口径不同，本批不绑定。
+ */
+
 interface DayData {
   date: string;
   open: number;
@@ -25,44 +50,25 @@ interface SentimentScore {
   components: Record<string, number>;
 }
 
+// 未迁移：后端无涨跌家数比纯函数（marketBreadthService 走真实行情 + DB，无此纯函数口径）。
 function calculateAdvanceDeclineRatio(data: DayData): number {
   const total = data.upCount + data.downCount + data.flatCount;
   return total > 0 ? Math.round((data.upCount / (data.upCount + data.downCount || 1)) * 100) / 100 : 0.5;
 }
 
+// 未迁移：McClellan 组合逻辑；EMA 基元已改用生产实现（null 预热需显式处理）。
 function calculateMcClellanOscillator(advances: number[], declines: number[], period = 19): number {
   if (advances.length < period || declines.length < period) return 0;
   const diff = advances.map((a, i) => a - declines[i]);
   const emaShort = calculateEMA(diff, 10);
   const emaLong = calculateEMA(diff, period);
-  return Math.round((emaShort[emaShort.length - 1] - emaLong[emaLong.length - 1]) * 100) / 100;
+  const shortLast = emaShort[emaShort.length - 1];
+  const longLast = emaLong[emaLong.length - 1];
+  if (shortLast === null || shortLast === undefined || longLast === null || longLast === undefined) return 0;
+  return Math.round((shortLast - longLast) * 100) / 100;
 }
 
-function calculateEMA(values: number[], period: number): number[] {
-  if (values.length === 0) return [];
-  const k = 2 / (period + 1);
-  const ema = [values[0]];
-  for (let i = 1; i < values.length; i++) {
-    ema.push(values[i] * k + ema[i - 1] * (1 - k));
-  }
-  return ema;
-}
-
-function calculateRSI(prices: number[], period = 14): number {
-  if (prices.length < period + 1) return 50;
-  let gain = 0, loss = 0;
-  for (let i = prices.length - period; i < prices.length; i++) {
-    const change = prices[i] - prices[i - 1];
-    if (change > 0) gain += change;
-    else loss -= change;
-  }
-  const avgGain = gain / period;
-  const avgLoss = loss / period;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return Math.round(100 - 100 / (1 + rs) * 100) / 100;
-}
-
+// 未迁移：后端无恐惧贪婪指数生产实现。
 function calculateFearGreedIndex(dayData: DayData, prevData?: DayData): SentimentScore {
   const components: Record<string, number> = {};
 
@@ -96,6 +102,7 @@ function calculateFearGreedIndex(dayData: DayData, prevData?: DayData): Sentimen
   return { date: dayData.date, score, level, components };
 }
 
+// 未迁移：后端无 TRIN 生产实现。
 function calculateTRIN(upVolume: number, downVolume: number, upCount: number, downCount: number): number {
   if (downVolume === 0 || downCount === 0) return 0;
   const advRatio = upCount / downCount;
@@ -103,6 +110,7 @@ function calculateTRIN(upVolume: number, downVolume: number, upCount: number, do
   return Math.round((advRatio / volRatio) * 1000) / 1000;
 }
 
+// 未迁移：后端 marketBreadthService 为 async 类且依赖真实行情 + PG，无同口径纯函数。
 function calculateMarketBreadth(stocks: { code: string; change: number; volume: number }[]): {
   advancers: number;
   decliners: number;
@@ -127,6 +135,7 @@ function calculateMarketBreadth(stocks: { code: string; change: number; volume: 
   return { advancers, decliners, unchanged, upVolume, downVolume, trin, breadth };
 }
 
+// 布林带上下轨绑定生产实现；position 与 overbought/oversold signal 是测试侧派生观测。
 function calculateBollingerPosition(close: number, prices: number[], period = 20, multiplier = 2): {
   upper: number;
   middle: number;
@@ -137,14 +146,16 @@ function calculateBollingerPosition(close: number, prices: number[], period = 20
   if (prices.length < period) {
     return { upper: close, middle: close, lower: close, position: 0, signal: 'neutral' };
   }
-  const recent = prices.slice(-period);
-  const mean = recent.reduce((a, b) => a + b, 0) / period;
-  const variance = recent.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / period;
-  const stdDev = Math.sqrt(variance);
-  const upper = mean + multiplier * stdDev;
-  const lower = mean - multiplier * stdDev;
+  const bands = calculateBollingerBands(prices, period, multiplier);
+  const last = prices.length - 1;
+  const upper = bands.upper[last];
+  const middle = bands.middle[last];
+  const lower = bands.lower[last];
+  if (upper === null || middle === null || lower === null) {
+    return { upper: close, middle: close, lower: close, position: 0, signal: 'neutral' };
+  }
   const range = upper - lower;
-  const position = range > 0 ? ((close - mean) / (range / 2)) : 0;
+  const position = range > 0 ? ((close - middle) / (range / 2)) : 0;
 
   let signal: 'overbought' | 'oversold' | 'neutral' = 'neutral';
   if (position > 0.8) signal = 'overbought';
@@ -152,28 +163,14 @@ function calculateBollingerPosition(close: number, prices: number[], period = 20
 
   return {
     upper: Math.round(upper * 100) / 100,
-    middle: Math.round(mean * 100) / 100,
+    middle: Math.round(middle * 100) / 100,
     lower: Math.round(lower * 100) / 100,
     position: Math.round(position * 1000) / 1000,
     signal,
   };
 }
 
-function calculateATR(highs: number[], lows: number[], closes: number[], period = 14): number {
-  if (highs.length < period + 1) return 0;
-  const trueRanges: number[] = [];
-  for (let i = 1; i < highs.length; i++) {
-    const tr = Math.max(
-      highs[i] - lows[i],
-      Math.abs(highs[i] - closes[i - 1]),
-      Math.abs(lows[i] - closes[i - 1])
-    );
-    trueRanges.push(tr);
-  }
-  const recent = trueRanges.slice(-period);
-  return Math.round(recent.reduce((a, b) => a + b, 0) / period * 100) / 100;
-}
-
+// 未迁移：后端无 OBV 生产实现（前端副本首值为 volume[0]，口径不同）。
 function calculateOBV(prices: number[], volumes: number[]): number[] {
   if (prices.length === 0) return [];
   const obv = [0];
@@ -204,10 +201,14 @@ describe('Market Sentiment & Indicators', () => {
   });
 
   describe('EMA', () => {
-    it('should calculate EMA', () => {
+    it('should calculate EMA with SMA seed and null warmup', () => {
       const ema = calculateEMA([1, 2, 3, 4, 5], 3);
       expect(ema).toHaveLength(5);
-      expect(ema[0]).toBe(1);
+      expect(ema[0]).toBeNull();
+      expect(ema[1]).toBeNull();
+      expect(ema[2]).toBe(2); // 前 3 个值的 SMA 种子
+      expect(ema[3]).toBe(3);
+      expect(ema[4]).toBe(4);
     });
 
     it('should return empty for empty input', () => {
@@ -225,22 +226,25 @@ describe('Market Sentiment & Indicators', () => {
     it('should calculate RSI for uptrend', () => {
       const prices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
       const rsi = calculateRSI(prices, 14);
-      expect(rsi).toBeGreaterThan(50);
+      expect(rsi).toHaveLength(prices.length);
+      expect(rsi[14]).toBe(100);
     });
 
     it('should calculate RSI for downtrend', () => {
       const prices = [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
       const rsi = calculateRSI(prices, 14);
-      expect(rsi).toBeLessThan(50);
+      expect(rsi[14]).toBe(0);
     });
 
-    it('should return 50 for insufficient data', () => {
-      expect(calculateRSI([1, 2, 3], 14)).toBe(50);
+    it('should return null for insufficient data', () => {
+      expect(calculateRSI([1, 2, 3], 14)).toEqual([null, null, null]);
     });
 
     it('should return 100 for all gains', () => {
       const prices = Array.from({ length: 16 }, (_, i) => i);
-      expect(calculateRSI(prices, 14)).toBe(100);
+      const rsi = calculateRSI(prices, 14);
+      expect(rsi[14]).toBe(100);
+      expect(rsi[15]).toBe(100);
     });
   });
 
@@ -346,12 +350,16 @@ describe('Market Sentiment & Indicators', () => {
       const highs = [10, 11, 12, 11, 13, 12, 14, 13, 11, 12, 13, 14, 15, 14, 16, 15].map(x => x + 1);
       const lows = [10, 11, 12, 11, 13, 12, 14, 13, 11, 12, 13, 14, 15, 14, 16, 15].map(x => x - 1);
       const closes = [10, 11, 12, 11, 13, 12, 14, 13, 11, 12, 13, 14, 15, 14, 16, 15];
-      const atr = calculateATR(highs, lows, closes, 14);
-      expect(atr).toBeGreaterThan(0);
+      const { atr } = calculateATR(highs, lows, closes, 14);
+      const lastAtr = atr[atr.length - 1];
+      expect(lastAtr).not.toBeNull();
+      expect(lastAtr!).toBeGreaterThan(0);
     });
 
-    it('should return 0 for insufficient data', () => {
-      expect(calculateATR([1], [0], [0.5], 14)).toBe(0);
+    it('should return null for insufficient data', () => {
+      const { atr, trueRange } = calculateATR([1], [0], [0.5], 14);
+      expect(atr).toEqual([null]);
+      expect(trueRange).toEqual([null]);
     });
   });
 

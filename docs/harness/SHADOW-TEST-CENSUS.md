@@ -1,6 +1,6 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 6 迁移后更新 05:22（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 7 迁移后更新 05:33（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
 > 基线：HEAD 7da89354f
 
@@ -16,10 +16,10 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **851（55.5%）** |
-| 真实导入 | 682 |
-| 影子测试代码行 | **223,504 行** |
-| 真实测试代码行 | 136,677 行 |
+| 影子测试 | **849（55.4%）** |
+| 真实导入 | 684 |
+| 影子测试代码行 | **222,610 行** |
+| 真实测试代码行 | 137,509 行 |
 
 按行数算，63% 的测试代码在断言副本而不是产品代码。
 
@@ -27,7 +27,7 @@
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 429/640 | 67.0% |
+| backend/src/__tests__（扁平） | 427/640 | 66.7% |
 | frontend/src/__tests__（扁平） | 422/868 | 48.6% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
@@ -114,11 +114,21 @@
 - 验证：frontend 46 passed（2 files）；census --check 851/1533。
 - 效果：影子 853→851，shadowLoc 224,028→223,504，realLoc 136,164→136,677。
 
+## 六（续）、批次 7（2026-11-04 05:33）
+
+- backend/src/__tests__/advancedIndicatorsV2.test.ts：38 用例保留，删自抄 EMA/MACD/BOLL/ATR，改为 import `backend/src/indicators/technical.ts` 的 calculateEMA/calculateMACD/calculateBollingerBands/calculateATR（511→440 行）。
+- backend/src/__tests__/marketSentiment.test.ts：28 用例保留，改为 import technical.ts 的 calculateEMA/calculateRSI/calculateATR/calculateBollingerBands。
+- 旧测试错在哪（生产正确、测试改口径）：MACD histogram 旧写 (DIF-DEA)*2，生产为 macd-signal；ATR 旧从 i=0 算 TR、首值 index13，生产 trueRange[0]=null、首个 ATR index14；RSI 数据不足旧返回伪造中性 50、旧公式优先级 bug 使下降趋势得 -9900（旧断言「<50」正好掩盖），生产不足返回全 null、下降趋势 0、Wilder 平滑；ATR 不足旧返回 0（零值顶替空态），生产 null；EMA 旧无预热，生产前 period-1 为 null；去掉 advanced 里 Math.random 数据。
+- 残留未迁移：advanced 19 例（OBV 9/CCI 5/WR 5）与 marketSentiment 15 例（涨跌家数/恐惧贪婪/TRIN/市场宽度/OBV）——backend technical.ts 无对应纯函数，前端副本无产品引用且口径不同，保留 helper 并注明。
+- 发现（未改生产）：technical.ts 缺 OBV/CCI/WilliamsR 纯函数；市场情绪指标仅前端未使用副本。
+- 验证：backend 66 passed；census --check 849/1533。
+- 效果：影子 851→849，shadowLoc 223,504→222,610，realLoc 136,677→137,509。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 851 / total 1533 / shadowLoc 223,504（批次 6 后；批次 5 后为 853）。
+- 基线：shadow 849 / total 1533 / shadowLoc 222,610（批次 7 后；批次 6 后为 851）。
 
 ## 八、迁移候选扫描（工具）
 
@@ -127,11 +137,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：851 个影子测试中 95 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：849 个影子测试中 93 个检测到生产 export 符号重叠（其余多为纯 UI 形状或虚构能力，不硬造生产代码）。
 
 ## 九、下一步
 
-- 批次 7 候选：`advancedIndicatorsV2.test.ts`（511 行）与 `marketSentiment.test.ts`（383 行）同为 backend，均对接 `backend/src/indicators/technical.ts` 的 calculateATR/calculateEMA/calculateMACD/calculateRSI/calculateOBV，可合并一批。
-- 备选：`priceFormatter.test.ts`（257 行）对接 `frontend/src/utils/formatters.ts`（注意 formatNumber 带千分位、formatPercent 收 0.15 这类小数）；`numberFormatEngine.test.ts`（386 行）同理。
+- 批次 8 候选：`optionsAndDerivatives.test.ts`（307 行）对接 `backend/src/services/optionsGreeksEngine.ts`；`volatilityRisk.test.ts`（346 行）对接 `frontend/src/utils/backtestPerformanceAnalyzer.ts` 与 `globalCorrelationEngine.ts`（注意：batch 3 已确认 calculateMaxDrawdown 的 peak 取全局峰值，与 trough 不属同一回撤区间，需谨慎）。
+- 备选：`priceFormatter.test.ts` / `numberFormatEngine.test.ts` 对接 `frontend/src/utils/formatters.ts`（formatNumber 带千分位、formatPercent 收 0.15 这类小数）。
+- 新增关注：`backend/src/indicators/technical.ts` 无 OBV/CCI/WilliamsR 实现，相关测试暂留本地 helper。
 - 关注点：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零属生产已知局限，已由测试固化，待产品阶段评估是否修。
 - 每批迁移后同步下调基线数字，并在本文件追加一节。

@@ -1,155 +1,108 @@
 import { describe, it, expect } from 'vitest';
+import {
+  calculateATR,
+  calculateBollingerBands,
+  calculateEMA,
+  calculateMACD,
+} from '../indicators/technical';
 
-// MACD指标计算
-function calculateEMA(data: number[], period: number): (number | null)[] {
-  if (data.length === 0) return [];
-  const result: (number | null)[] = new Array(period - 1).fill(null);
-  const multiplier = 2 / (period + 1);
-  
-  let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  result.push(ema);
-  
-  for (let i = period; i < data.length; i++) {
-    ema = (data[i] - ema) * multiplier + ema;
-    result.push(ema);
-  }
-  return result;
-}
-
-function calculateMACD(data: number[], fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
-  const fastEMA = calculateEMA(data, fastPeriod);
-  const slowEMA = calculateEMA(data, slowPeriod);
-  
-  const dif: (number | null)[] = [];
-  const dea: (number | null)[] = [];
-  const histogram: (number | null)[] = [];
-  
-  for (let i = 0; i < data.length; i++) {
-    if (fastEMA[i] === null || slowEMA[i] === null) {
-      dif.push(null);
-      dea.push(null);
-      histogram.push(null);
-    } else {
-      dif.push(fastEMA[i]! - slowEMA[i]!);
-    }
-  }
-  
-  // Calculate DEA as EMA of DIF
-  const validDif = dif.filter((v): v is number => v !== null);
-  const deaEma = calculateEMA(validDif, signalPeriod);
-  
-  let deaIdx = 0;
-  for (let i = 0; i < dif.length; i++) {
-    if (dif[i] === null) {
-      dea.push(null);
-      histogram.push(null);
-    } else {
-      const deaVal = deaEma[deaIdx] ?? null;
-      dea.push(deaVal);
-      if (deaVal !== null) {
-        histogram.push((dif[i]! - deaVal) * 2);
-      } else {
-        histogram.push(null);
-      }
-      deaIdx++;
-    }
-  }
-  
-  return { dif, dea, histogram };
-}
+/**
+ * 技术指标测试（批次 7：绑定生产实现）
+ *
+ * 生产实现（唯一真源）：backend/src/indicators/technical.ts
+ * - EMA：前 period-1 个 null，index=period-1 用 SMA 作种子，之后按 2/(period+1) 平滑。
+ * - MACD：返回 { macd, signal, histogram }，histogram = macd - signal（不是 (DIF-DEA)*2）；
+ *   macd 首个有效值在 index=longPeriod-1，signal 还需再累积 signalPeriod 个有效 macd。
+ * - 布林带：返回 { upper, middle, lower }，middle 为 MA，标准差为总体口径（除以 period）。
+ * - ATR：返回 { atr, trueRange }，trueRange[0] 为 null（首根 K 线缺前收），
+ *   atr 首个有效值在 index=period，之后 Wilder 平滑。
+ *
+ * 未迁移（后端无生产实现，保留本地 helper，不虚构生产代码）：
+ * - OBV / CCI / WR 在 backend/src/indicators/technical.ts 中无导出，后端其余非测试代码
+ *   也没有同名实现；前端 featureEngineeringEngine 虽有副本，但未被产品页面引用，
+ *   且口径不同（OBV 首值为 volume[0]、WilliamsR 在 range=0 时返回 -50、预热期为 NaN），
+ *   因此保留以下本地实现，仅作为待迁移的测试口径。
+ */
 
 describe('MACD指标计算', () => {
-  it('DIF = 快速EMA - 慢速EMA', () => {
+  it('MACD = 快速EMA - 慢速EMA', () => {
     const data = Array.from({ length: 30 }, (_, i) => 10 + i * 0.5);
-    const { dif } = calculateMACD(data);
-    const lastDif = dif[dif.length - 1];
-    expect(lastDif).not.toBeNull();
+    const { macd } = calculateMACD(data);
+    const fastEMA = calculateEMA(data, 12);
+    const slowEMA = calculateEMA(data, 26);
+
+    expect(macd[25]).not.toBeNull();
+    for (let i = 0; i < data.length; i++) {
+      if (fastEMA[i] === null || slowEMA[i] === null) {
+        expect(macd[i]).toBeNull();
+      } else {
+        expect(macd[i]!).toBeCloseTo(fastEMA[i]! - slowEMA[i]!, 3);
+      }
+    }
   });
 
-  it('数据不足时返回null', () => {
+  it('数据不足时全部为 null 且长度与输入一致', () => {
     const data = Array.from({ length: 20 }, (_, i) => 10 + i);
-    const { dif, dea, histogram } = calculateMACD(data);
-    expect(dif.slice(0, 25).every(v => v === null)).toBe(true);
+    const { macd, signal, histogram } = calculateMACD(data);
+    expect(macd).toHaveLength(20);
+    expect(macd.every(v => v === null)).toBe(true);
+    expect(signal.every(v => v === null)).toBe(true);
+    expect(histogram.every(v => v === null)).toBe(true);
   });
 
-  it('上升趋势DIF为正', () => {
+  it('上升趋势MACD为正', () => {
     const data = Array.from({ length: 50 }, (_, i) => 10 + i * 0.1);
-    const { dif } = calculateMACD(data);
-    const lastDif = dif.filter(v => v !== null).pop();
-    expect(lastDif).toBeGreaterThan(0);
+    const { macd } = calculateMACD(data);
+    const lastMacd = macd.filter(v => v !== null).pop();
+    expect(lastMacd).toBeGreaterThan(0);
   });
 
-  it('下降趋势DIF为负', () => {
+  it('下降趋势MACD为负', () => {
     const data = Array.from({ length: 50 }, (_, i) => 20 - i * 0.1);
-    const { dif } = calculateMACD(data);
-    const lastDif = dif.filter(v => v !== null).pop();
-    expect(lastDif).toBeLessThan(0);
+    const { macd } = calculateMACD(data);
+    const lastMacd = macd.filter(v => v !== null).pop();
+    expect(lastMacd).toBeLessThan(0);
   });
 
-  it('柱状图 = (DIF-DEA)*2', () => {
+  it('柱状图 = MACD - SIGNAL', () => {
     const data = Array.from({ length: 50 }, (_, i) => 10 + Math.sin(i * 0.2) * 2);
-    const { dif, dea, histogram } = calculateMACD(data);
-    for (let i = 0; i < dif.length; i++) {
-      if (dif[i] !== null && dea[i] !== null && histogram[i] !== null) {
-        expect(histogram[i]).toBeCloseTo((dif[i]! - dea[i]!) * 2, 6);
+    const { macd, signal, histogram } = calculateMACD(data);
+    const validCount = histogram.filter(v => v !== null).length;
+    expect(validCount).toBeGreaterThan(0);
+    for (let i = 0; i < data.length; i++) {
+      if (macd[i] !== null && signal[i] !== null && histogram[i] !== null) {
+        expect(histogram[i]!).toBeCloseTo(macd[i]! - signal[i]!, 4);
       }
     }
   });
 
   it('返回数组长度与输入一致', () => {
     const data = Array.from({ length: 40 }, (_, i) => 10 + i);
-    const { dif, dea, histogram } = calculateMACD(data);
-    // MACD outputs may have different internal lengths due to EMA calculations
-    expect(dif.length).toBeGreaterThanOrEqual(40);
-    expect(dea.length).toBeGreaterThanOrEqual(40);
-    expect(histogram.length).toBeGreaterThanOrEqual(40);
+    const { macd, signal, histogram } = calculateMACD(data);
+    expect(macd).toHaveLength(40);
+    expect(signal).toHaveLength(40);
+    expect(histogram).toHaveLength(40);
   });
 
-  it('平坦数据DIF接近零', () => {
+  it('平坦数据MACD接近零', () => {
     const data = new Array(50).fill(100);
-    const { dif } = calculateMACD(data);
-    const lastDif = dif.filter(v => v !== null).pop();
-    expect(Math.abs(lastDif!)).toBeLessThan(0.1);
+    const { macd } = calculateMACD(data);
+    const lastMacd = macd.filter(v => v !== null).pop();
+    expect(Math.abs(lastMacd!)).toBeLessThan(0.1);
   });
 
   it('空数据返回空数组', () => {
-    const { dif, dea, histogram } = calculateMACD([]);
-    expect(dif).toHaveLength(0);
-    expect(dea).toHaveLength(0);
+    const { macd, signal, histogram } = calculateMACD([]);
+    expect(macd).toHaveLength(0);
+    expect(signal).toHaveLength(0);
     expect(histogram).toHaveLength(0);
   });
 });
 
-// 布林带计算
-function calculateBOLL(data: number[], period = 20, numStdDev = 2) {
-  const upper: (number | null)[] = [];
-  const middle: (number | null)[] = [];
-  const lower: (number | null)[] = [];
-  
-  for (let i = 0; i < period - 1; i++) {
-    upper.push(null);
-    middle.push(null);
-    lower.push(null);
-  }
-  
-  for (let i = period - 1; i < data.length; i++) {
-    const slice = data.slice(i - period + 1, i + 1);
-    const mean = slice.reduce((a, b) => a + b, 0) / period;
-    const variance = slice.reduce((sum, val) => sum + (val - mean) ** 2, 0) / period;
-    const std = Math.sqrt(variance);
-    
-    middle.push(mean);
-    upper.push(mean + numStdDev * std);
-    lower.push(mean - numStdDev * std);
-  }
-  
-  return { upper, middle, lower };
-}
-
 describe('布林带计算', () => {
   it('上轨 > 中轨 > 下轨', () => {
     const data = Array.from({ length: 30 }, (_, i) => 10 + Math.sin(i * 0.3) * 2);
-    const { upper, middle, lower } = calculateBOLL(data);
+    const { upper, middle, lower } = calculateBollingerBands(data);
     for (let i = 0; i < upper.length; i++) {
       if (upper[i] !== null) {
         expect(upper[i]).toBeGreaterThan(middle[i]!);
@@ -160,7 +113,7 @@ describe('布林带计算', () => {
 
   it('平坦数据带宽接近零', () => {
     const data = new Array(30).fill(50);
-    const { upper, lower } = calculateBOLL(data);
+    const { upper, lower } = calculateBollingerBands(data);
     const lastUpper = upper.filter(v => v !== null).pop();
     const lastLower = lower.filter(v => v !== null).pop();
     expect(Math.abs(lastUpper! - lastLower!)).toBeLessThan(0.01);
@@ -168,22 +121,22 @@ describe('布林带计算', () => {
 
   it('空值期处理', () => {
     const data = Array.from({ length: 25 }, (_, i) => 10 + i);
-    const { upper, middle, lower } = calculateBOLL(data);
+    const { upper, middle, lower } = calculateBollingerBands(data);
     expect(upper.slice(0, 19).every(v => v === null)).toBe(true);
     expect(middle[19]).not.toBeNull();
   });
 
   it('返回数组长度与输入一致', () => {
     const data = Array.from({ length: 25 }, (_, i) => 10);
-    const { upper, middle, lower } = calculateBOLL(data);
-    expect(upper.length).toBe(25);
-    expect(middle.length).toBe(25);
-    expect(lower.length).toBe(25);
+    const { upper, middle, lower } = calculateBollingerBands(data);
+    expect(upper).toHaveLength(25);
+    expect(middle).toHaveLength(25);
+    expect(lower).toHaveLength(25);
   });
 
   it('带宽 = (上轨-下轨)/中轨', () => {
     const data = Array.from({ length: 30 }, (_, i) => 10 + Math.sin(i * 0.3) * 2);
-    const { upper, middle, lower } = calculateBOLL(data);
+    const { upper, middle, lower } = calculateBollingerBands(data);
     for (let i = 0; i < upper.length; i++) {
       if (upper[i] !== null) {
         const bandwidth = (upper[i]! - lower[i]!) / middle[i]!;
@@ -194,20 +147,20 @@ describe('布林带计算', () => {
 
   it('标准差2倍宽度', () => {
     const data = Array.from({ length: 25 }, (_, i) => 10 + (i % 2 === 0 ? 1 : -1));
-    const { upper, middle, lower } = calculateBOLL(data, 20, 2);
-    const boll2 = calculateBOLL(data, 20, 1);
+    const { upper, lower } = calculateBollingerBands(data, 20, 2);
+    const boll1 = calculateBollingerBands(data, 20, 1);
     for (let i = 20; i < upper.length; i++) {
       const width2 = upper[i]! - lower[i]!;
-      const width1 = boll2.upper[i]! - boll2.lower[i]!;
+      const width1 = boll1.upper[i]! - boll1.lower[i]!;
       expect(width2).toBeCloseTo(width1 * 2, 4);
     }
   });
 });
 
-// OBV能量潮
+// 未迁移：backend/src/indicators/technical.ts 无 OBV 生产实现（后端其余代码也无）。
 function calculateOBV(closes: number[], volumes: number[]): number[] {
   if (closes.length !== volumes.length || closes.length === 0) return [];
-  
+
   const obv: number[] = [0];
   for (let i = 1; i < closes.length; i++) {
     if (closes[i] > closes[i - 1]) {
@@ -285,47 +238,17 @@ describe('OBV能量潮', () => {
   });
 });
 
-// ATR真实波幅
-function calculateATR(highs: number[], lows: number[], closes: number[], period = 14): (number | null)[] {
-  if (highs.length !== lows.length || highs.length !== closes.length) return [];
-  
-  const tr: number[] = [];
-  for (let i = 0; i < highs.length; i++) {
-    if (i === 0) {
-      tr.push(highs[i] - lows[i]);
-    } else {
-      tr.push(Math.max(
-        highs[i] - lows[i],
-        Math.abs(highs[i] - closes[i - 1]),
-        Math.abs(lows[i] - closes[i - 1])
-      ));
-    }
-  }
-  
-  const atr: (number | null)[] = [];
-  for (let i = 0; i < period - 1; i++) atr.push(null);
-  
-  if (tr.length >= period) {
-    let sum = tr.slice(0, period).reduce((a, b) => a + b, 0);
-    atr.push(sum / period);
-    
-    for (let i = period; i < tr.length; i++) {
-      sum = (atr[atr.length - 1] as number) * (period - 1) + tr[i];
-      atr.push(sum / period);
-    }
-  }
-  
-  return atr;
-}
-
 describe('ATR真实波幅', () => {
   it('返回数组长度与输入一致', () => {
     const n = 20;
     const highs = Array.from({ length: n }, (_, i) => 10 + i * 0.5);
     const lows = Array.from({ length: n }, (_, i) => 9 + i * 0.5);
     const closes = Array.from({ length: n }, (_, i) => 9.5 + i * 0.5);
-    const atr = calculateATR(highs, lows, closes);
-    expect(atr.length).toBe(n);
+    const { atr, trueRange } = calculateATR(highs, lows, closes);
+    expect(atr).toHaveLength(n);
+    expect(trueRange).toHaveLength(n);
+    // 首根 K 线没有前收，TR 从第 2 根起算
+    expect(trueRange[0]).toBeNull();
   });
 
   it('空值期处理', () => {
@@ -333,23 +256,30 @@ describe('ATR真实波幅', () => {
     const highs = Array.from({ length: n }, () => 10);
     const lows = Array.from({ length: n }, () => 9);
     const closes = Array.from({ length: n }, () => 9.5);
-    const atr = calculateATR(highs, lows, closes);
-    expect(atr.slice(0, 13).every(v => v === null)).toBe(true);
-    expect(atr[13]).not.toBeNull();
+    const { atr } = calculateATR(highs, lows, closes);
+    // 前 period 个点为 null（含 index=period-1），首个 ATR 在 index=period
+    expect(atr.slice(0, 14).every(v => v === null)).toBe(true);
+    expect(atr[14]).not.toBeNull();
   });
 
   it('ATR为正数', () => {
     const n = 20;
-    const highs = Array.from({ length: n }, (_, i) => 10 + Math.random());
-    const lows = Array.from({ length: n }, (_, i) => 9 + Math.random());
-    const closes = Array.from({ length: n }, (_, i) => 9.5 + Math.random());
-    const atr = calculateATR(highs, lows, closes);
+    const highs = Array.from({ length: n }, (_, i) => 10 + i * 0.1 + 0.3 * Math.sin(i));
+    const lows = Array.from({ length: n }, (_, i) => 9 + i * 0.1 - 0.2 * Math.cos(i));
+    const closes = Array.from({ length: n }, (_, i) => 9.5 + i * 0.1 + 0.1 * Math.sin(i * 1.3));
+    const { atr } = calculateATR(highs, lows, closes);
     const valid = atr.filter((v): v is number => v !== null);
+    expect(valid.length).toBeGreaterThan(0);
     expect(valid.every(v => v > 0)).toBe(true);
   });
 
-  it('长度不一致返回空', () => {
-    expect(calculateATR([10], [9], [9, 9.5])).toHaveLength(0);
+  it('长度不一致时不抛错且按收盘价长度返回预热 null', () => {
+    // 生产实现不校验三个数组等长：以 closeData.length 为准，缺失的 high/low 产生 NaN TR，
+    // 但不抛错；数据不足 period 时 atr 全为 null。
+    const { atr, trueRange } = calculateATR([10], [9], [9, 9.5]);
+    expect(atr).toHaveLength(2);
+    expect(atr.every(v => v === null)).toBe(true);
+    expect(trueRange[0]).toBeNull();
   });
 
   it('平坦数据ATR很小', () => {
@@ -357,34 +287,34 @@ describe('ATR真实波幅', () => {
     const highs = new Array(n).fill(10.01);
     const lows = new Array(n).fill(9.99);
     const closes = new Array(n).fill(10);
-    const atr = calculateATR(highs, lows, closes);
+    const { atr } = calculateATR(highs, lows, closes);
     const lastAtr = atr.filter(v => v !== null).pop();
     expect(lastAtr).toBeCloseTo(0.02, 2);
   });
 });
 
-// CCI商品通道指标
+// 未迁移：backend/src/indicators/technical.ts 无 CCI 生产实现（后端其余代码也无）。
 function calculateCCI(highs: number[], lows: number[], closes: number[], period = 20): (number | null)[] {
   const cci: (number | null)[] = [];
-  
+
   for (let i = 0; i < period - 1; i++) cci.push(null);
-  
+
   for (let i = period - 1; i < closes.length; i++) {
     const typicalPrices: number[] = [];
     for (let j = i - period + 1; j <= i; j++) {
       typicalPrices.push((highs[j] + lows[j] + closes[j]) / 3);
     }
-    
+
     const mean = typicalPrices.reduce((a, b) => a + b, 0) / period;
     const meanDev = typicalPrices.reduce((sum, v) => sum + Math.abs(v - mean), 0) / period;
-    
+
     if (meanDev === 0) {
       cci.push(0);
     } else {
       cci.push((typicalPrices[typicalPrices.length - 1] - mean) / (0.015 * meanDev));
     }
   }
-  
+
   return cci;
 }
 
@@ -439,23 +369,23 @@ describe('CCI商品通道指标', () => {
   });
 });
 
-// WR威廉指标
+// 未迁移：backend/src/indicators/technical.ts 无 WR 生产实现（后端其余代码也无）。
 function calculateWR(highs: number[], lows: number[], closes: number[], period = 14): (number | null)[] {
   const wr: (number | null)[] = [];
-  
+
   for (let i = 0; i < period - 1; i++) wr.push(null);
-  
+
   for (let i = period - 1; i < closes.length; i++) {
     const periodHigh = Math.max(...highs.slice(i - period + 1, i + 1));
     const periodLow = Math.min(...lows.slice(i - period + 1, i + 1));
-    
+
     if (periodHigh === periodLow) {
       wr.push(0);
     } else {
       wr.push(((periodHigh - closes[i]) / (periodHigh - periodLow)) * -100);
     }
   }
-  
+
   return wr;
 }
 
