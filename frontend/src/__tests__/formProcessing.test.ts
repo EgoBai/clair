@@ -1,137 +1,151 @@
-import { describe, it, expect } from 'vitest'
+/**
+ * 批次 26a：影子测试迁移 —— 表单处理与输入验证
+ *
+ * 已绑定生产实现：
+ * - validation.sanitizeStockCode（去非数字、截断 6 位、不补零）
+ * - validation.validatePrice（0..100000，不限制小数位）
+ * - validation.validateQuantity（正整数、A 股 100 的整数倍）
+ * - validation.isValidTradeDate（严格日历回读）
+ * - securityEngine.validateEmail / validatePhone / validatePassword
+ * - securityEngine.encodeHTML / sanitizeHTML
+ * - debounceThrottle.debounce
+ *
+ * 未迁移（生产无对应实现）：
+ * - 债券价格 3 位小数、债券数量 10 手口径（生产 validatePrice/validateQuantity 无 market 参数）
+ * - 多选组合筛选 multiSelectFilter（生产无通用导出）
+ * - 下拉按 label 过滤 filterOptions（生产无通用导出；useSearchHistory.ts:65 仅针对字符串历史）
+ * - 表单草稿 createFormDraft（生产无 save/discard/isDirty 对应实现）
+ * - 日期区间 365 天上限/起止先后规则（生产只有 isValidTradeDate 单日校验）
+ *
+ * 旧断言订正（旧值 -> 生产值）：
+ * - formatStockCode('1') 旧 '000001' -> sanitizeStockCode '1'（validation.ts:118-121 不补零）
+ * - validatePrice('10.123') 旧 false -> true（validation.ts:43-50 不限制小数位）
+ * - passwordStrength 的 score/feedback -> validatePassword 的 valid/errors
+ *   （securityEngine.ts:192-216）
+ * - sanitizeInput 旧不转义 '/' -> encodeHTML 转义为 '&#x2F;'（securityEngine.ts:54-65）
+ * - 日期 '2026-02-30' 旧 new Date 归一化后视为合法 -> isValidTradeDate false（validation.ts:75-83）
+ *
+ * 生产缺口（只记录不修）：validateStockCode('999999') 返回 valid true（validation.ts:28-36 仅校验 6 位数字）；
+ * validateEmail 用原始串判合法但返回 trim 后 sanitized（securityEngine.ts:150-158）。
+ */
+import { describe, it, expect, vi } from 'vitest'
+import { isValidTradeDate, sanitizeStockCode, validatePrice, validateQuantity } from '../utils/validation'
+import { encodeHTML, sanitizeHTML, validateEmail, validatePassword, validatePhone } from '../utils/securityEngine'
+import { debounce } from '../utils/debounceThrottle'
 
 // 前端表单处理与输入验证引擎测试
 describe('Form Processing & Input Validation', () => {
-  // 股票代码格式化
-  function formatStockCode(input: string): string {
-    const cleaned = input.replace(/[^0-9]/g, '').slice(0, 6)
-    return cleaned.padStart(6, '0')
-  }
-
-  it('should pad with zeros', () => {
-    expect(formatStockCode('1')).toBe('000001')
-    expect(formatStockCode('600519')).toBe('600519')
+  // 股票代码格式化（validation.sanitizeStockCode：去非数字、截断 6 位、不补零）
+  it('should sanitize stock code without zero padding', () => {
+    expect(sanitizeStockCode('1')).toBe('1')
+    expect(sanitizeStockCode('600519')).toBe('600519')
   })
 
   it('should remove non-digits', () => {
-    expect(formatStockCode('abc600519xyz')).toBe('600519')
+    expect(sanitizeStockCode('abc600519xyz')).toBe('600519')
   })
 
   it('should truncate to 6 digits', () => {
-    expect(formatStockCode('123456789')).toBe('123456')
+    expect(sanitizeStockCode('123456789')).toBe('123456')
   })
 
-  // 价格输入验证
-  function validatePrice(input: string, market: 'stock' | 'bond' | 'fund' = 'stock') {
-    const num = parseFloat(input)
-    if (isNaN(num) || num <= 0) return { valid: false, error: '价格必须为正数' }
-    const decimals = market === 'bond' ? 3 : 2
-    const decimalPart = input.split('.')[1] || ''
-    if (decimalPart.length > decimals) return { valid: false, error: `最多${decimals}位小数` }
-    return { valid: true, value: parseFloat(num.toFixed(decimals)) }
-  }
-
+  // 价格输入验证（validation.validatePrice：0..100000，不限小数位）
   it('should validate stock price', () => {
     expect(validatePrice('10.50').valid).toBe(true)
-    expect(validatePrice('10.123').valid).toBe(false)
+    expect(validatePrice('10.123').valid).toBe(true) // 生产不限制小数位
+    expect(validatePrice(100001).valid).toBe(false)
   })
 
+  // 未迁移：生产 validatePrice 无 market 参数与小数位限制，债券 3 位小数口径保留内联 helper
+  function validateBondPrice(input: string): { valid: boolean } {
+    const num = parseFloat(input)
+    if (isNaN(num) || num <= 0) return { valid: false }
+    const decimalPart = input.split('.')[1] || ''
+    return { valid: decimalPart.length <= 3 }
+  }
+
   it('should validate bond price with 3 decimals', () => {
-    expect(validatePrice('100.123', 'bond').valid).toBe(true)
+    expect(validateBondPrice('100.123').valid).toBe(true)
+    expect(validateBondPrice('100.1234').valid).toBe(false)
   })
 
   it('should reject negative', () => {
-    expect(validatePrice('-5').valid).toBe(false)
+    const result = validatePrice('-5')
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('价格不能为负数')
   })
 
-  // 数量输入验证
-  function validateQuantity(input: string, market: 'stock' | 'bond' | 'fund' = 'stock') {
-    const num = parseInt(input, 10)
-    if (isNaN(num) || num <= 0) return { valid: false, error: '数量必须为正整数' }
-    const lot = market === 'bond' ? 10 : 100
-    if (num % lot !== 0) return { valid: false, error: `必须为${lot}的整数倍` }
-    return { valid: true, value: num }
-  }
-
+  // 数量输入验证（validation.validateQuantity：正整数、A 股 100 整数倍）
   it('should validate 100 share lots', () => {
     expect(validateQuantity('500').valid).toBe(true)
     expect(validateQuantity('150').valid).toBe(false)
+    expect(validateQuantity('150').errors).toContain('A股数量必须是100的整数倍')
   })
 
-  it('should validate bond 10 lot', () => {
-    expect(validateQuantity('50', 'bond').valid).toBe(true)
-    expect(validateQuantity('15', 'bond').valid).toBe(false)
-  })
-
-  // 密码强度检测
-  function passwordStrength(password: string): { score: number; label: string; feedback: string[] } {
-    const feedback: string[] = []
-    let score = 0
-    if (password.length >= 8) score++; else feedback.push('至少8个字符')
-    if (password.length >= 12) score++
-    if (/[a-z]/.test(password)) score++; else feedback.push('包含小写字母')
-    if (/[A-Z]/.test(password)) score++; else feedback.push('包含大写字母')
-    if (/[0-9]/.test(password)) score++; else feedback.push('包含数字')
-    if (/[^a-zA-Z0-9]/.test(password)) score++; else feedback.push('包含特殊字符')
-    const labels = ['非常弱', '弱', '一般', '较强', '强', '非常强']
-    return { score, label: labels[Math.min(score, 5)], feedback }
+  // 未迁移：生产 validateQuantity 只支持 A 股 100 整数倍，无债券 10 手口径
+  function validateBondQuantity(input: string): { valid: boolean } {
+    const num = parseInt(input, 10)
+    if (isNaN(num) || num <= 0) return { valid: false }
+    return { valid: num % 10 === 0 }
   }
 
+  it('should validate bond 10 lot', () => {
+    expect(validateBondQuantity('50').valid).toBe(true)
+    expect(validateBondQuantity('15').valid).toBe(false)
+  })
+
+  // 密码强度检测（securityEngine.validatePassword：长度/大小写/数字/特殊字符）
   it('should rate strong password', () => {
-    const result = passwordStrength('Abc123!@#$%')
-    expect(result.score).toBeGreaterThanOrEqual(4)
-    expect(result.feedback).toHaveLength(0)
+    const result = validatePassword('Abc123!@#$%')
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
   })
 
   it('should give feedback for weak password', () => {
-    const result = passwordStrength('abc')
-    expect(result.score).toBeLessThan(3)
-    expect(result.feedback.length).toBeGreaterThan(0)
+    const result = validatePassword('abc')
+    expect(result.valid).toBe(false)
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(result.errors).toContain('密码长度不能少于8位')
   })
 
-  // 手机号验证
-  function validatePhone(input: string) {
-    const cleaned = input.replace(/[\s-]/g, '')
-    return /^1[3-9]\d{9}$/.test(cleaned)
-  }
-
+  // 手机号验证（securityEngine.validatePhone）
   it('should validate Chinese phone numbers', () => {
-    expect(validatePhone('13812345678')).toBe(true)
-    expect(validatePhone('12345678901')).toBe(false)
-    expect(validatePhone('138-1234-5678')).toBe(true)
+    expect(validatePhone('13812345678').valid).toBe(true)
+    expect(validatePhone('13812345678').sanitized).toBe('13812345678')
+    expect(validatePhone('12345678901').valid).toBe(false)
+    expect(validatePhone('138-1234-5678').valid).toBe(true)
   })
 
-  // 邮箱验证
-  function validateEmail(input: string) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input)
-  }
-
+  // 邮箱验证（securityEngine.validateEmail）
   it('should validate email format', () => {
-    expect(validateEmail('user@example.com')).toBe(true)
-    expect(validateEmail('invalid')).toBe(false)
-    expect(validateEmail('@example.com')).toBe(false)
+    expect(validateEmail('user@example.com').valid).toBe(true)
+    expect(validateEmail('invalid').valid).toBe(false)
+    expect(validateEmail('@example.com').valid).toBe(false)
   })
 
-  // 输入消毒
-  function sanitizeInput(input: string) {
-    return input
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;')
-  }
+  it('should normalize valid email', () => {
+    const result = validateEmail('User@Example.COM')
+    expect(result.valid).toBe(true)
+    expect(result.sanitized).toBe('user@example.com')
+  })
 
+  // 输入消毒（securityEngine.encodeHTML 还会转义 '/' 与反引号）
   it('should escape HTML special chars', () => {
-    expect(sanitizeInput('<script>alert("xss")</script>'))
-      .toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;')
+    expect(encodeHTML('<script>alert("xss")</script>'))
+      .toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;&#x2F;script&gt;')
   })
 
   it('should escape ampersand first', () => {
-    expect(sanitizeInput('&lt;')).toBe('&amp;lt;')
+    expect(encodeHTML('&lt;')).toBe('&amp;lt;')
+  })
+
+  it('should strip script tags but keep allowed tags', () => {
+    expect(sanitizeHTML('<b>ok</b><script>alert(1)</script>')).toBe('<b>ok</b>')
+    expect(sanitizeHTML('<img src=x onerror=alert(1)>')).toBe('')
   })
 
   // 多选筛选器
+  // 未迁移：生产无通用 multiSelectFilter 导出
   function multiSelectFilter<T>(items: T[], filters: Record<string, (item: T) => boolean>): T[] {
     return items.filter(item => Object.values(filters).every(fn => fn(item)))
   }
@@ -146,10 +160,11 @@ describe('Form Processing & Input Validation', () => {
   })
 
   // 日期范围选择器
+  // 未迁移：生产无区间校验/365 天上限，保留本地规则；日期合法性绑定 isValidTradeDate
   function validateDateRange(start: string, end: string) {
+    if (!isValidTradeDate(start) || !isValidTradeDate(end)) return { valid: false, error: '日期格式无效' }
     const startDate = new Date(start)
     const endDate = new Date(end)
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return { valid: false, error: '日期格式无效' }
     if (startDate > endDate) return { valid: false, error: '开始日期不能晚于结束日期' }
     const days = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000)
     if (days > 365) return { valid: false, error: '日期范围不能超过一年' }
@@ -172,31 +187,34 @@ describe('Form Processing & Input Validation', () => {
     expect(result.valid).toBe(false)
   })
 
-  // 搜索防抖状态
-  function createDebouncedSearch(delay: number) {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    let lastQuery = ''
-    return {
-      search: (query: string): Promise<string> => {
-        lastQuery = query
-        return new Promise(resolve => {
-          if (timer) clearTimeout(timer)
-          timer = setTimeout(() => resolve(lastQuery), delay)
-        })
-      },
-      cancel: () => { if (timer) clearTimeout(timer) },
-    }
-  }
+  it('should reject impossible calendar date', () => {
+    expect(isValidTradeDate('2026-02-30')).toBe(false)
+    expect(validateDateRange('2026-02-30', '2026-03-01').valid).toBe(false)
+  })
 
-  it('should debounce search calls', async () => {
-    const { search } = createDebouncedSearch(50)
-    const p1 = search('a')
-    const p2 = search('ab')
-    const result = await p2
-    expect(result).toBe('ab')
+  // 搜索防抖（debounceThrottle.debounce：trailing 模式，delay 内重置定时器）
+  it('should debounce search calls', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 0, 1, 12, 0, 0))
+    try {
+      const calls: string[] = []
+      const search = debounce((...args: unknown[]) => {
+        calls.push(args[0] as string)
+      }, 50)
+
+      search('a')
+      search('ab')
+      expect(calls).toHaveLength(0)
+
+      vi.advanceTimersByTime(50)
+      expect(calls).toEqual(['ab'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // 下拉选择器过滤
+  // 未迁移：生产无通用 filterOptions 导出
   function filterOptions<T>(options: T[], query: string, getLabel: (opt: T) => string) {
     if (!query) return options
     const lower = query.toLowerCase()
@@ -214,6 +232,7 @@ describe('Form Processing & Input Validation', () => {
   })
 
   // 表单草稿保存
+  // 未迁移：生产无 createFormDraft / save / discard / isDirty 对应实现
   function createFormDraft<T>(initialValues: T) {
     let current = { ...initialValues as any }
     let saved = { ...initialValues as any }
