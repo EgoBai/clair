@@ -30,6 +30,7 @@ export interface StockData {
   debtToEquity: number;
   currentRatio: number;
   grossMargin: number;
+  /** 净利率（**口径未声明**，见 registerBuiltinFactors 里 net_margin 的注释） */
   netMargin: number;
   dividendYield: number;
   sharesOutstanding: number;
@@ -148,7 +149,17 @@ export class QuantFactorEngine {
     this.registerFactor({
       name: 'net_margin',
       category: 'quality',
-      description: '净利率',
+      // 口径未声明 —— 这是实测追溯的结论，不是偷懒：
+      //   1) StockData.netMargin 在本仓库**没有任何生产构造点**：QuantFactorEngine
+      //      只被 __tests__/quantFactorEngine.test.ts 实例化，netMargin 的唯一赋值点是
+      //      该测试第 25 行的手写 fixture（netMargin: 0.5），无来源字段。
+      //   2) 真正对外供数的 /api/factors/overview 走的是 services/factorEngine.ts
+      //      （computeFactorUniverse，只读 pe_ratio/pb_ratio/market_cap/turnover_rate），
+      //      与本引擎无关，也不暴露 net_margin。
+      // 所以既不能说「归母」（会与页面口径无证据地绑定），也不能说是利润表口径
+      // （同样无证据）。接入生产时**必须**从 financialsDataService 的
+      // indicators.netMargin（归母净利/营收）取值，并同步把描述改成「归母净利率」。
+      description: '净利率（口径未声明）',
       calculate: (data) => data.netMargin
     });
 

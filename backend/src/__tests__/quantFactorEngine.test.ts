@@ -72,6 +72,20 @@ describe('QuantFactorEngine', () => {
         expect(typeof f.calculate).toBe('function');
       }
     });
+
+    /**
+     * 口径守卫：`net_margin` 的 StockData.netMargin 在本仓库**没有生产构造点**
+     * （本引擎只被本测试文件实例化，netMargin 唯一赋值点是下方 createStockData 的手写
+     * fixture），来源字段无从核实。因此描述必须如实写「口径未声明」，
+     * **不得**声称是归母口径（那是没证据的绑定），也不得声称是利润表口径。
+     * 若将来接入真实来源并确认口径，请同时改描述 + 改这条断言。
+     */
+    it('net_margin 描述必须如实标注「口径未声明」，不得凭空声称归母口径', () => {
+      const factor = engine.getFactor('net_margin');
+      expect(factor).toBeDefined();
+      expect(factor!.description).toContain('口径未声明');
+      expect(factor!.description).not.toContain('归母');
+    });
   });
 
   describe('getFactorsByCategory', () => {
