@@ -7,6 +7,8 @@
 import { createLogger } from '../utils/logger';
 import { getDb } from '../db/dbFactory';
 import { analyzeRegime } from './engineOrchestrator';
+import { marketBreadthService } from './marketBreadth';
+import { INDEX_SYMBOL_SQL_PATTERNS } from '../utils/indexSymbol';
 
 const log = createLogger('MultiSignalEngine');
 
@@ -206,44 +208,62 @@ async function fetchTechnicalSignals(symbol: string): Promise<Signal[]> {
     }
     
     // 市场宽度信号 (涨跌家数)
+    //
+    // 单一真源：直接调用 marketBreadthService（腾讯逐标的行情 + utils/exchangeLimit
+    // 按**交易所涨跌停价**判定），与 /api/breadth/current 同源同口径，本文件不再
+    // 自己算一套。
+    //
+    // 缺陷背景（2026-11-03 实测）：旧实现用 `change_percent >= 9.9 / <= -9.9` 的
+    // 涨跌幅阈值近似，且未剔除 stocks 表里的 5 条指数行。同一时刻本端点报
+    // 涨停 54 / 跌停 85 / 样本 5187，而同屏 /api/breadth/current 与
+    // /api/market/summary 都是 51 / 22 / 5182 —— 跌停虚高近 4 倍。
+    // 阈值近似是口径级的错，不是精度问题：创业板/科创板 ±20% 制度下涨 10% 不是涨停，
+    // ST ±5% 制度下涨 5% 却是涨停，任何单一阈值都必然两头错。
+    try {
+      const breadth = await marketBreadthService.calculateBreadth();
+      const total = breadth.totalStocks;
+      if (total > 0) {
+        const ratio = breadth.advancing / (breadth.declining || 1);
+        signals.push({
+          name: '市场宽度',
+          source: `市场宽度服务（${breadth.dataSource}）`,
+          value: `涨${breadth.advancing}/跌${breadth.declining}`,
+          direction: ratio > 1.5 ? 'bullish' : ratio < 0.67 ? 'bearish' : 'neutral',
+          confidence: 0.7,
+          timeframe: 'short',
+          detail: `涨跌比 ${ratio.toFixed(2)}，涨停${breadth.limitUp}家 跌停${breadth.limitDown}家，样本${total}只`,
+        });
+      }
+    } catch (e) {
+      // 源不可用/覆盖率不足时**不输出**这个信号（也绝不回退到阈值近似冒充精确），
+      // 让「信号缺失」如实呈现，而不是给一个口径错误的数字。
+      log.warn(`Market breadth signal failed: ${e}`);
+    }
+
+    // 市场波动率信号（全市场涨跌幅均值/标准差）
+    // 与涨跌停判定无关，故仍走 PG 聚合；但必须剔除指数行——指数涨跌幅不是个股
+    // 涨跌幅，混入会把「全市场平均涨跌」拉向指数自身涨跌。剔除判据与
+    // Database.ts / marketBreadth 同一真源（utils/indexSymbol 的 SQL 形态）。
     try {
       const db = getDb();
       const knex = (db as any).connection || (db as any).knexInstance;
-      const widthQuery = await knex('daily_quotes as dq')
+      const [shIndexPattern, szIndexPattern] = INDEX_SYMBOL_SQL_PATTERNS;
+      const volatilityQuery = await knex('daily_quotes as dq')
         .join('stocks as s', 'dq.stock_id', 's.id')
         .whereRaw('dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)')
+        .whereRaw('s.symbol NOT LIKE ?', [shIndexPattern])
+        .whereRaw('s.symbol NOT LIKE ?', [szIndexPattern])
+        .whereRaw('s.symbol <> ?', ['899050'])
         .select(
-          knex.raw('SUM(CASE WHEN dq.change_percent > 0 THEN 1 ELSE 0 END) as up_count'),
-          knex.raw('SUM(CASE WHEN dq.change_percent < 0 THEN 1 ELSE 0 END) as down_count'),
-          knex.raw('SUM(CASE WHEN dq.change_percent >= 9.9 THEN 1 ELSE 0 END) as limit_up'),
-          knex.raw('SUM(CASE WHEN dq.change_percent <= -9.9 THEN 1 ELSE 0 END) as limit_down'),
           knex.raw('COUNT(*) as total'),
           knex.raw('AVG(dq.change_percent) as avg_change'),
           knex.raw('STDDEV(dq.change_percent) as std_change')
         )
         .first();
-      
-      if (widthQuery && widthQuery.total > 0) {
-        const upCount = parseInt(widthQuery.up_count) || 0;
-        const downCount = parseInt(widthQuery.down_count) || 0;
-        const limitUp = parseInt(widthQuery.limit_up) || 0;
-        const limitDown = parseInt(widthQuery.limit_down) || 0;
-        const total = parseInt(widthQuery.total) || 1;
-        const ratio = upCount / (downCount || 1);
-        const avgChange = parseFloat(widthQuery.avg_change) || 0;
-        const stdChange = parseFloat(widthQuery.std_change) || 0;
-        
-        signals.push({
-          name: '市场宽度',
-          source: '数据库统计',
-          value: `涨${upCount}/跌${downCount}`,
-          direction: ratio > 1.5 ? 'bullish' : ratio < 0.67 ? 'bearish' : 'neutral',
-          confidence: 0.7,
-          timeframe: 'short',
-          detail: `涨跌比 ${ratio.toFixed(2)}，涨停${limitUp}家 跌停${limitDown}家，样本${total}只`,
-        });
-        
-        // 市场波动率信号
+
+      if (volatilityQuery && Number(volatilityQuery.total) > 0) {
+        const avgChange = parseFloat(volatilityQuery.avg_change) || 0;
+        const stdChange = parseFloat(volatilityQuery.std_change) || 0;
         if (stdChange > 0) {
           signals.push({
             name: '市场波动率',
@@ -252,12 +272,12 @@ async function fetchTechnicalSignals(symbol: string): Promise<Signal[]> {
             direction: stdChange > 5 ? 'bearish' : stdChange < 2 ? 'neutral' : 'neutral',
             confidence: 0.6,
             timeframe: 'short',
-            detail: `平均涨跌 ${avgChange.toFixed(2)}%，标准差 ${stdChange.toFixed(2)}%`,
+            detail: `平均涨跌 ${avgChange.toFixed(2)}%，标准差 ${stdChange.toFixed(2)}%（样本 ${Number(volatilityQuery.total)} 只，已剔除指数行）`,
           });
         }
       }
     } catch (e) {
-      log.warn(`Market breadth signal failed: ${e}`);
+      log.warn(`Market volatility signal failed: ${e}`);
     }
     
     // 价格相对位置信号 (基于历史数据)
