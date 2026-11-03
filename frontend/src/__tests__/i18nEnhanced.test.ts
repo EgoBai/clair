@@ -1,32 +1,118 @@
 /**
  * Round 164 - 国际化深化测试
  * 测试语言切换UI/RTL支持/动态加载/SEO多语言/日期货币完善
+ *
+ * 影子测试治理批次 2：能绑定真实实现的段落已改为 import 生产代码：
+ * - frontend/src/components/Common/LanguageSwitcher.tsx（LOCALE_OPTIONS / isCJKLocale / 组件渲染）
+ * - frontend/src/utils/rtlSupport.ts
+ * - frontend/src/utils/seoI18n.ts
+ * - frontend/src/utils/enhancedFormatters.ts
+ * - frontend/src/i18n/index.tsx 与 locales/zh-CN、locales/en-US
+ *
+ * 仅 "Dynamic Locale Loader" 段落仍为内联副本：生产代码目前是静态 import 语言包，
+ * 没有 preload/cache/status 这套动态加载机制，无法绑定（详见迁移报告）。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import React from 'react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-// ==================== 类型定义 ====================
-type Locale = 'zh-CN' | 'en-US' | 'ja-JP' | 'ko-KR';
+import LanguageSwitcher, {
+  LOCALE_OPTIONS,
+  isCJKLocale,
+} from '../components/Common/LanguageSwitcher';
+import { I18nProvider, createTranslator, messages, formatters } from '../i18n';
+import type { Locale } from '../i18n';
+import {
+  RTL_LOCALES,
+  getDirection,
+  RTL_PROPERTIES,
+  getFlexDirection,
+} from '../utils/rtlSupport';
+import {
+  formatRelativeTime,
+  formatTradingSession,
+  getChangeColor,
+  getCurrencySymbol,
+  formatLargeNumber,
+  getMarketTrendLabel,
+} from '../utils/enhancedFormatters';
+import seoI18n, {
+  generateHreflangTags,
+  generateLanguageStructuredData,
+} from '../utils/seoI18n';
 
-interface LocaleOption {
-  key: Locale;
-  label: string;
-  nativeLabel: string;
-  flag: string;
-  dir: 'ltr' | 'rtl';
-  group: 'cjk' | 'latin';
+/** 用真实 I18nProvider + LanguageSwitcher 渲染指定语言 */
+function renderSwitcher(
+  defaultLocale: Locale = 'zh-CN',
+  variant?: 'dropdown' | 'segmented' | 'minimal'
+) {
+  return render(
+    React.createElement(
+      I18nProvider,
+      { defaultLocale },
+      React.createElement(LanguageSwitcher, variant ? { variant } : {})
+    )
+  );
 }
-
-const LOCALE_OPTIONS: LocaleOption[] = [
-  { key: 'zh-CN', label: 'Chinese', nativeLabel: '中文', flag: '🇨🇳', dir: 'ltr', group: 'cjk' },
-  { key: 'en-US', label: 'English', nativeLabel: 'English', flag: '🇺🇸', dir: 'ltr', group: 'latin' },
-  { key: 'ja-JP', label: 'Japanese', nativeLabel: '日本語', flag: '🇯🇵', dir: 'ltr', group: 'cjk' },
-  { key: 'ko-KR', label: 'Korean', nativeLabel: '한국어', flag: '🇰🇷', dir: 'ltr', group: 'cjk' },
-];
 
 // ==================== 语言切换UI ====================
 
+/**
+ * Node 25 自带一个无 --localstorage-file 时为空壳的全局 localStorage（没有 clear/getItem 等方法），
+ * 会遮蔽 jsdom 提供的 window.localStorage；因此测试内注入内存版 Storage。
+ * 仅影响测试进程，不涉及生产代码。
+ */
+function createMemoryStorage(): Storage {
+  const store = new Map<string, string>();
+  return {
+    get length() {
+      return store.size;
+    },
+    clear: () => store.clear(),
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+  } as Storage;
+}
+
+function installMemoryStorage(): Storage {
+  const storage = createMemoryStorage();
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: storage,
+  });
+  try {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: storage,
+    });
+  } catch {
+    // jsdom 的 window.localStorage 可能不可重定义；生产代码读的是全局 localStorage
+  }
+  return storage;
+}
+
 describe('LanguageSwitcher Enhanced', () => {
+  beforeEach(() => {
+    installMemoryStorage();
+    localStorage.clear();
+    document.documentElement.lang = '';
+    document.documentElement.removeAttribute('dir');
+    document.documentElement.classList.remove('cjk-locale');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
   describe('Locale Options完整性', () => {
     it('应该有4种语言', () => {
       expect(LOCALE_OPTIONS).toHaveLength(4);
@@ -57,69 +143,97 @@ describe('LanguageSwitcher Enhanced', () => {
   });
 
   describe('当前语言匹配', () => {
-    const findCurrent = (locale: string) =>
-      LOCALE_OPTIONS.find(o => o.key === locale) || LOCALE_OPTIONS[0];
-
     it('应该正确匹配zh-CN', () => {
-      const cur = findCurrent('zh-CN');
-      expect(cur.nativeLabel).toBe('中文');
+      renderSwitcher('zh-CN');
+      const btn = screen.getByRole('button');
+      expect(btn.textContent).toContain('中文');
+      expect(btn.textContent).toContain('🇨🇳');
     });
 
     it('应该正确匹配en-US', () => {
-      const cur = findCurrent('en-US');
-      expect(cur.nativeLabel).toBe('English');
+      renderSwitcher('en-US');
+      const btn = screen.getByRole('button');
+      expect(btn.textContent).toContain('English');
+      expect(btn.textContent).toContain('🇺🇸');
     });
 
     it('应该正确匹配ja-JP', () => {
-      const cur = findCurrent('ja-JP');
-      expect(cur.nativeLabel).toBe('日本語');
+      renderSwitcher('ja-JP');
+      const btn = screen.getByRole('button');
+      expect(btn.textContent).toContain('日本語');
+      expect(btn.textContent).toContain('🇯🇵');
     });
 
     it('应该正确匹配ko-KR', () => {
-      const cur = findCurrent('ko-KR');
-      expect(cur.nativeLabel).toBe('한국어');
+      renderSwitcher('ko-KR');
+      const btn = screen.getByRole('button');
+      expect(btn.textContent).toContain('한국어');
+      expect(btn.textContent).toContain('🇰🇷');
     });
 
     it('未知语言应该fallback到zh-CN', () => {
-      const cur = findCurrent('xx-XX');
-      expect(cur.key).toBe('zh-CN');
+      // 组件内 current = find(locale) || LOCALE_OPTIONS[0]，用非法 locale 触发 fallback 分支
+      renderSwitcher('xx-XX' as unknown as Locale);
+      expect(screen.getByRole('button').textContent).toContain('中文');
     });
   });
 
   describe('快捷键循环切换', () => {
-    const getNextLocale = (current: Locale): Locale => {
-      const idx = LOCALE_OPTIONS.findIndex(o => o.key === current);
-      return LOCALE_OPTIONS[(idx + 1) % LOCALE_OPTIONS.length].key;
-    };
+    const pressShortcut = () =>
+      fireEvent.keyDown(window, { key: 'l', ctrlKey: true, shiftKey: true });
 
     it('zh-CN → en-US', () => {
-      expect(getNextLocale('zh-CN')).toBe('en-US');
+      renderSwitcher('zh-CN');
+      pressShortcut();
+      expect(document.documentElement.lang).toBe('en-US');
+      expect(localStorage.getItem('locale')).toBe('en-US');
     });
 
     it('en-US → ja-JP', () => {
-      expect(getNextLocale('en-US')).toBe('ja-JP');
+      renderSwitcher('en-US');
+      pressShortcut();
+      expect(document.documentElement.lang).toBe('ja-JP');
+      expect(localStorage.getItem('locale')).toBe('ja-JP');
     });
 
     it('ja-JP → ko-KR', () => {
-      expect(getNextLocale('ja-JP')).toBe('ko-KR');
+      renderSwitcher('ja-JP');
+      pressShortcut();
+      expect(document.documentElement.lang).toBe('ko-KR');
+      expect(localStorage.getItem('locale')).toBe('ko-KR');
     });
 
     it('ko-KR → zh-CN (循环)', () => {
-      expect(getNextLocale('ko-KR')).toBe('zh-CN');
+      renderSwitcher('ko-KR');
+      pressShortcut();
+      expect(document.documentElement.lang).toBe('zh-CN');
+      expect(localStorage.getItem('locale')).toBe('zh-CN');
     });
   });
 
   describe('显示变体', () => {
-    const variants = ['dropdown', 'segmented', 'minimal'];
-
     it('支持3种显示变体', () => {
-      expect(variants).toHaveLength(3);
+      const cases = [
+        { variant: 'dropdown' as const, buttons: 1 },
+        { variant: 'segmented' as const, buttons: 4 },
+        { variant: 'minimal' as const, buttons: 4 },
+      ];
+      cases.forEach(({ variant, buttons }) => {
+        renderSwitcher('zh-CN', variant);
+        expect(screen.getAllByRole('button')).toHaveLength(buttons);
+        cleanup();
+      });
     });
 
     it('每种变体都有效', () => {
-      variants.forEach(v => {
-        expect(['dropdown', 'segmented', 'minimal']).toContain(v);
-      });
+      renderSwitcher('zh-CN', 'minimal');
+      const labels = screen.getAllByRole('button').map(b => b.getAttribute('aria-label'));
+      expect(labels).toEqual([
+        'Switch to Chinese',
+        'Switch to English',
+        'Switch to Japanese',
+        'Switch to Korean',
+      ]);
     });
   });
 });
@@ -127,12 +241,6 @@ describe('LanguageSwitcher Enhanced', () => {
 // ==================== RTL支持 ====================
 
 describe('RTL Support', () => {
-  const RTL_LOCALES: Locale[] = [];
-
-  const isRTL = (locale: Locale) => RTL_LOCALES.includes(locale);
-  const getDirection = (locale: Locale) => isRTL(locale) ? 'rtl' : 'ltr';
-  const getLocaleDir = (locale: Locale) => getDirection(locale);
-
   describe('方向检测', () => {
     it('zh-CN应该是ltr', () => {
       expect(getDirection('zh-CN')).toBe('ltr');
@@ -151,20 +259,14 @@ describe('RTL Support', () => {
     });
 
     it('当前所有语言都不是RTL', () => {
+      expect(RTL_LOCALES).toHaveLength(0);
       LOCALE_OPTIONS.forEach(opt => {
-        expect(getLocaleDir(opt.key as Locale)).toBe('ltr');
+        expect(getDirection(opt.key)).toBe('ltr');
       });
     });
   });
 
   describe('RTL属性映射', () => {
-    const RTL_PROPERTIES = {
-      marginStart: (locale: Locale) => isRTL(locale) ? 'marginRight' : 'marginLeft',
-      marginEnd: (locale: Locale) => isRTL(locale) ? 'marginLeft' : 'marginRight',
-      paddingStart: (locale: Locale) => isRTL(locale) ? 'paddingRight' : 'paddingLeft',
-      textAlign: (locale: Locale) => isRTL(locale) ? 'right' : 'left',
-    };
-
     it('LTR模式下marginStart是marginLeft', () => {
       expect(RTL_PROPERTIES.marginStart('zh-CN')).toBe('marginLeft');
     });
@@ -179,12 +281,6 @@ describe('RTL Support', () => {
   });
 
   describe('Flex方向适配', () => {
-    const getFlexDirection = (locale: Locale, base: string = 'row') => {
-      if (base === 'column' || base === 'column-reverse') return base;
-      if (isRTL(locale)) return base === 'row' ? 'row-reverse' : 'row';
-      return base;
-    };
-
     it('LTR模式row不变', () => {
       expect(getFlexDirection('en-US', 'row')).toBe('row');
     });
@@ -196,6 +292,8 @@ describe('RTL Support', () => {
 });
 
 // ==================== 动态语言包加载 ====================
+// 注意：生产代码暂无动态加载/缓存实现（i18n/index.tsx 为静态 import），
+// 本段保留为设计意图用例，属于无法绑定真实实现的影子用例。
 
 describe('Dynamic Locale Loader', () => {
   const LOCALE_IMPORTERS: Record<Locale, () => Promise<any>> = {
@@ -276,24 +374,13 @@ describe('Dynamic Locale Loader', () => {
 // ==================== SEO多语言 ====================
 
 describe('SEO i18n', () => {
-  const HREFLANG_MAP: Record<Locale, string> = {
-    'zh-CN': 'zh-CN',
-    'en-US': 'en-US',
-    'ja-JP': 'ja-JP',
-    'ko-KR': 'ko-KR',
-  };
-
-  const OG_LOCALE_MAP: Record<Locale, string> = {
-    'zh-CN': 'zh_CN',
-    'en-US': 'en_US',
-    'ja-JP': 'ja_JP',
-    'ko-KR': 'ko_KR',
-  };
+  const HREFLANG_MAP = seoI18n.HREFLANG_MAP;
+  const OG_LOCALE_MAP = seoI18n.OG_LOCALE_MAP;
 
   describe('hreflang映射', () => {
     it('每种语言都有hreflang代码', () => {
       LOCALE_OPTIONS.forEach(opt => {
-        expect(HREFLANG_MAP[opt.key as Locale]).toBeTruthy();
+        expect(HREFLANG_MAP[opt.key]).toBeTruthy();
       });
     });
 
@@ -309,7 +396,7 @@ describe('SEO i18n', () => {
   describe('Open Graph locale', () => {
     it('每种语言都有OG locale', () => {
       LOCALE_OPTIONS.forEach(opt => {
-        expect(OG_LOCALE_MAP[opt.key as Locale]).toBeTruthy();
+        expect(OG_LOCALE_MAP[opt.key]).toBeTruthy();
       });
     });
 
@@ -321,15 +408,6 @@ describe('SEO i18n', () => {
   });
 
   describe('hreflang标签生成', () => {
-    const generateHreflangTags = (alternateUrls: Record<string, string>): string => {
-      const tags: string[] = [];
-      Object.entries(alternateUrls).forEach(([loc, url]) => {
-        tags.push(`<link rel="alternate" hreflang="${HREFLANG_MAP[loc as Locale]}" href="${url}" />`);
-      });
-      tags.push(`<link rel="alternate" hreflang="x-default" href="${alternateUrls['en-US']}" />`);
-      return tags.join('\n');
-    };
-
     it('应该生成4个hreflang标签 + x-default', () => {
       const urls = {
         'zh-CN': 'https://example.com/zh',
@@ -343,31 +421,22 @@ describe('SEO i18n', () => {
     });
 
     it('应该包含x-default', () => {
-      const urls = { 'en-US': 'https://example.com/en' };
+      const urls = { 'en-US': 'https://example.com/en' } as Record<Locale, string>;
       const html = generateHreflangTags(urls);
       expect(html).toContain('x-default');
+      expect(html).toContain('https://example.com/en');
     });
   });
 
   describe('结构化数据', () => {
-    const generateStructuredData = (locale: Locale, title: string, url: string) => {
-      return {
-        '@context': 'https://schema.org',
-        '@type': 'WebPage',
-        name: title,
-        url,
-        inLanguage: locale,
-      };
-    };
-
     it('应该包含正确的语言标记', () => {
-      const data = generateStructuredData('zh-CN', '首页', 'https://example.com');
+      const data = JSON.parse(generateLanguageStructuredData('zh-CN', '首页', 'https://example.com'));
       expect(data.inLanguage).toBe('zh-CN');
+      expect(data['@type']).toBe('WebPage');
     });
 
     it('应该生成有效的JSON-LD', () => {
-      const data = generateStructuredData('en-US', 'Home', 'https://example.com');
-      const json = JSON.stringify(data);
+      const json = generateLanguageStructuredData('en-US', 'Home', 'https://example.com');
       expect(() => JSON.parse(json)).not.toThrow();
     });
   });
@@ -377,20 +446,6 @@ describe('SEO i18n', () => {
 
 describe('Enhanced Formatters', () => {
   describe('相对时间', () => {
-    const formatRelativeTime = (date: Date, locale: Locale, now: Date): string => {
-      const diffMin = Math.floor((now.getTime() - date.getTime()) / 60000);
-      const labels: Record<Locale, Record<string, string>> = {
-        'zh-CN': { justNow: '刚刚', min: '分钟前', hour: '小时前', day: '天前' },
-        'en-US': { justNow: 'just now', min: 'min ago', hour: 'h ago', day: 'd ago' },
-        'ja-JP': { justNow: 'たった今', min: '分前', hour: '時間前', day: '日前' },
-        'ko-KR': { justNow: '방금', min: '분 전', hour: '시간 전', day: '일 전' },
-      };
-      if (diffMin < 1) return labels[locale].justNow;
-      if (diffMin < 60) return `${diffMin}${labels[locale].min}`;
-      if (diffMin < 1440) return `${Math.floor(diffMin / 60)}${labels[locale].hour}`;
-      return `${Math.floor(diffMin / 1440)}${labels[locale].day}`;
-    };
-
     const now = new Date('2024-01-15T10:00:00');
 
     it('30秒前 → 刚刚', () => {
@@ -410,7 +465,7 @@ describe('Enhanced Formatters', () => {
 
     it('英文：5 min ago', () => {
       const d = new Date('2024-01-15T09:55:00');
-      expect(formatRelativeTime(d, 'en-US', now)).toBe('5min ago');
+      expect(formatRelativeTime(d, 'en-US', now)).toBe('5 min ago');
     });
 
     it('日文：5分前', () => {
@@ -425,13 +480,6 @@ describe('Enhanced Formatters', () => {
   });
 
   describe('涨跌颜色', () => {
-    const getChangeColor = (value: number, locale: Locale): string => {
-      const isCJK = ['zh-CN', 'ja-JP', 'ko-KR'].includes(locale);
-      if (value > 0) return isCJK ? '#ef4444' : '#22c55e';
-      if (value < 0) return isCJK ? '#22c55e' : '#ef4444';
-      return '#6b7280';
-    };
-
     it('CJK地区：涨=红', () => {
       expect(getChangeColor(1.5, 'zh-CN')).toBe('#ef4444');
     });
@@ -454,13 +502,6 @@ describe('Enhanced Formatters', () => {
   });
 
   describe('币种符号', () => {
-    const getCurrencySymbol = (locale: Locale) => {
-      const symbols: Record<Locale, string> = {
-        'zh-CN': '¥', 'en-US': '$', 'ja-JP': '¥', 'ko-KR': '₩',
-      };
-      return symbols[locale];
-    };
-
     it('人民币 ¥', () => expect(getCurrencySymbol('zh-CN')).toBe('¥'));
     it('美元 $', () => expect(getCurrencySymbol('en-US')).toBe('$'));
     it('日元 ¥', () => expect(getCurrencySymbol('ja-JP')).toBe('¥'));
@@ -468,25 +509,6 @@ describe('Enhanced Formatters', () => {
   });
 
   describe('大数字格式化', () => {
-    const formatLargeNumber = (value: number, locale: Locale): string => {
-      if (locale === 'zh-CN') {
-        if (value >= 1e12) return `${(value / 1e12).toFixed(2)}万亿`;
-        if (value >= 1e8) return `${(value / 1e8).toFixed(2)}亿`;
-        if (value >= 1e4) return `${(value / 1e4).toFixed(2)}万`;
-      } else if (locale === 'ja-JP') {
-        if (value >= 1e12) return `${(value / 1e12).toFixed(2)}兆`;
-        if (value >= 1e8) return `${(value / 1e8).toFixed(2)}億`;
-      } else if (locale === 'ko-KR') {
-        if (value >= 1e12) return `${(value / 1e12).toFixed(2)}조`;
-        if (value >= 1e8) return `${(value / 1e8).toFixed(2)}억`;
-      } else {
-        if (value >= 1e12) return `${(value / 1e12).toFixed(2)}T`;
-        if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-        if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
-      }
-      return value.toFixed(2);
-    };
-
     it('中文：1万亿', () => {
       expect(formatLargeNumber(1.5e12, 'zh-CN')).toBe('1.50万亿');
     });
@@ -513,16 +535,6 @@ describe('Enhanced Formatters', () => {
   });
 
   describe('交易时段', () => {
-    const formatTradingSession = (isOpen: boolean, locale: Locale): string => {
-      const labels: Record<Locale, Record<string, string>> = {
-        'zh-CN': { open: '交易中', closed: '已休市' },
-        'en-US': { open: 'Market Open', closed: 'Market Closed' },
-        'ja-JP': { open: '取引中', closed: '取引終了' },
-        'ko-KR': { open: '거래 중', closed: '거래 종료' },
-      };
-      return labels[locale][isOpen ? 'open' : 'closed'];
-    };
-
     it('中文：交易中/已休市', () => {
       expect(formatTradingSession(true, 'zh-CN')).toBe('交易中');
       expect(formatTradingSession(false, 'zh-CN')).toBe('已休市');
@@ -545,16 +557,6 @@ describe('Enhanced Formatters', () => {
   });
 
   describe('市场趋势文案', () => {
-    const getMarketTrendLabel = (trend: 'up' | 'down' | 'flat', locale: Locale): string => {
-      const labels: Record<Locale, Record<string, string>> = {
-        'zh-CN': { up: '上涨', down: '下跌', flat: '平盘' },
-        'en-US': { up: 'Rising', down: 'Falling', flat: 'Unchanged' },
-        'ja-JP': { up: '上昇', down: '下落', flat: '変動なし' },
-        'ko-KR': { up: '상승', down: '하락', flat: '보합' },
-      };
-      return labels[locale][trend];
-    };
-
     it('中文四态', () => {
       expect(getMarketTrendLabel('up', 'zh-CN')).toBe('上涨');
       expect(getMarketTrendLabel('down', 'zh-CN')).toBe('下跌');
@@ -575,66 +577,51 @@ describe('Enhanced Formatters', () => {
   });
 
   describe('CJK检测', () => {
-    const isCJK = (locale: Locale) => ['zh-CN', 'ja-JP', 'ko-KR'].includes(locale);
-
-    it('zh-CN是CJK', () => expect(isCJK('zh-CN')).toBe(true));
-    it('ja-JP是CJK', () => expect(isCJK('ja-JP')).toBe(true));
-    it('ko-KR是CJK', () => expect(isCJK('ko-KR')).toBe(true));
-    it('en-US不是CJK', () => expect(isCJK('en-US')).toBe(false));
+    it('zh-CN是CJK', () => expect(isCJKLocale('zh-CN')).toBe(true));
+    it('ja-JP是CJK', () => expect(isCJKLocale('ja-JP')).toBe(true));
+    it('ko-KR是CJK', () => expect(isCJKLocale('ko-KR')).toBe(true));
+    it('en-US不是CJK', () => expect(isCJKLocale('en-US')).toBe(false));
   });
 });
 
 // ==================== 动态语言包内容验证 ====================
 
 describe('Dynamic Locale Pack Content', () => {
-  const zhCN = {
-    advancedScreener: { title: '高级选股器', saveAsTemplate: '另存为模板', loadTemplate: '加载模板', clearAll: '清除全部' },
-    export: { title: '数据导出', csv: 'CSV', excel: 'Excel', pdf: 'PDF', success: '导出成功', failed: '导出失败' },
-    notification: { newAlert: '新预警触发', marketOpen: '市场开盘', marketClose: '市场收盘' },
-    help: { title: '帮助中心', shortcuts: '快捷键', faq: '常见问题', contact: '联系我们', feedback: '意见反馈' },
-    errors: { networkError: '网络错误，请检查连接', serverError: '服务器错误，请稍后重试', notFound: '页面不存在' },
-  };
-
-  const enUS = {
-    advancedScreener: { title: 'Advanced Screener', saveAsTemplate: 'Save as Template' },
-    export: { title: 'Export Data', success: 'Export successful', failed: 'Export failed' },
-    notification: { newAlert: 'New Alert Triggered', marketOpen: 'Market Open' },
-    help: { title: 'Help Center', faq: 'FAQ' },
-    errors: { networkError: 'Network error, please check your connection', notFound: 'Page not found' },
-  };
+  const tZh = createTranslator('zh-CN');
+  const tEn = createTranslator('en-US');
 
   describe('中文语言包', () => {
     it('有完整的高级筛选翻译', () => {
-      expect(zhCN.advancedScreener.title).toBe('高级选股器');
-      expect(zhCN.advancedScreener.saveAsTemplate).toBeTruthy();
+      expect(tZh('advancedScreener.title')).toBe('高级选股器');
+      expect(tZh('advancedScreener.saveAsTemplate')).toBeTruthy();
     });
 
     it('有完整的导出翻译', () => {
-      expect(zhCN.export.title).toBe('数据导出');
-      expect(zhCN.export.success).toBe('导出成功');
+      expect(tZh('export.title')).toBe('数据导出');
+      expect(tZh('export.success')).toBe('导出成功');
     });
 
     it('有完整的错误翻译', () => {
-      expect(zhCN.errors.networkError).toBeTruthy();
-      expect(zhCN.errors.serverError).toBeTruthy();
-      expect(zhCN.errors.notFound).toBeTruthy();
+      expect(tZh('errors.networkError')).toBeTruthy();
+      expect(tZh('errors.serverError')).toBeTruthy();
+      expect(tZh('errors.notFound')).toBeTruthy();
     });
   });
 
   describe('英文语言包', () => {
     it('有完整的英文翻译', () => {
-      expect(enUS.advancedScreener.title).toBe('Advanced Screener');
-      expect(enUS.export.success).toBe('Export successful');
+      expect(tEn('advancedScreener.title')).toBe('Advanced Screener');
+      expect(tEn('export.success')).toBe('Export successful');
     });
   });
 
   describe('语言包完整性对比', () => {
-    const zhKeys = JSON.stringify(zhCN).match(/"[^"]+":/g)?.length || 0;
-    const enKeys = JSON.stringify(enUS).match(/"[^"]+":/g)?.length || 0;
-
     it('中英文语言包都有内容', () => {
-      expect(zhKeys).toBeGreaterThan(0);
-      expect(enKeys).toBeGreaterThan(0);
+      const zhKeys = Object.keys(messages['zh-CN']);
+      const enKeys = Object.keys(messages['en-US']);
+      expect(zhKeys.length).toBeGreaterThan(0);
+      expect(enKeys.length).toBeGreaterThan(0);
+      expect(enKeys.sort()).toEqual(zhKeys.sort());
     });
   });
 });
@@ -645,34 +632,30 @@ describe('i18n Integration Scenarios', () => {
   describe('语言切换流程', () => {
     let currentLocale: Locale = 'zh-CN';
     const setLocale = (l: Locale) => { currentLocale = l; };
-    const getDir = (l: Locale) => 'ltr';
-    const isCJK = (l: Locale) => ['zh-CN', 'ja-JP', 'ko-KR'].includes(l);
 
     it('切换到en-US时方向为ltr，非CJK', () => {
       setLocale('en-US');
-      expect(getDir(currentLocale)).toBe('ltr');
-      expect(isCJK(currentLocale)).toBe(false);
+      expect(getDirection(currentLocale)).toBe('ltr');
+      expect(isCJKLocale(currentLocale)).toBe(false);
     });
 
     it('切换到ja-JP时方向为ltr，CJK', () => {
       setLocale('ja-JP');
-      expect(getDir(currentLocale)).toBe('ltr');
-      expect(isCJK(currentLocale)).toBe(true);
+      expect(getDirection(currentLocale)).toBe('ltr');
+      expect(isCJKLocale(currentLocale)).toBe(true);
     });
 
     it('切换回zh-CN恢复CJK', () => {
       setLocale('zh-CN');
-      expect(isCJK(currentLocale)).toBe(true);
+      expect(isCJKLocale(currentLocale)).toBe(true);
     });
   });
 
   describe('完整格式化链', () => {
-    const format = (value: number, locale: Locale) => {
-      const isCJK = ['zh-CN', 'ja-JP', 'ko-KR'].includes(locale);
-      const sign = value >= 0 ? '+' : '';
-      const color = value > 0 ? (isCJK ? '#ef4444' : '#22c55e') : value < 0 ? (isCJK ? '#22c55e' : '#ef4444') : '#6b7280';
-      return { text: `${sign}${value.toFixed(2)}%`, color };
-    };
+    const format = (value: number, locale: Locale) => ({
+      text: formatters.percent(value, locale),
+      color: getChangeColor(value, locale),
+    });
 
     it('中文 +3.5% → 红色', () => {
       const r = format(3.5, 'zh-CN');
