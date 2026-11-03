@@ -276,6 +276,12 @@ router.get('/stocks/:symbol/kline', validateParams(schemas.stockSymbol), asyncHa
   if (!stock) return sendNotFound(res, '股票');
 
   // 查询日K数据
+  // P0-KLINE-WINDOW（2026-11-04）：先按 DESC 取「最近 limit 根」，取回后反转为升序。
+  // 旧实现 orderBy('trade_date','asc').limit(limit) 取的是**最早** limit 根：
+  // 日K 窗口从「最近 250 日」漂移成「上市最初 250 日」（实测 000858 首条为 2018-01-02，
+  // 而库里最新为 2026-11-03）；周/月K 也随之聚合了最老的一段。
+  // DESC 取数 + reverse 保证：① 日K 响应仍是升序（前端契约不变）；
+  // ② 周/月K 聚合仍按时间升序（bars[0].open / bars[last].close 语义不变）。
   const klineRows = await db.connection('daily_quotes')
     .where('stock_id', stock.id)
     .select(
@@ -287,8 +293,9 @@ router.get('/stocks/:symbol/kline', validateParams(schemas.stockSymbol), asyncHa
       'volume',
       'turnover'
     )
-    .orderBy('trade_date', 'asc')
+    .orderBy('trade_date', 'desc')
     .limit(limit);
+  klineRows.reverse();
 
   if (klineRows.length === 0) {
     // 诚实空态：真实库无 K 线时置 unavailable，绝不返回 count:0 冒充「真实但无行情」
