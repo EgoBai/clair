@@ -298,3 +298,7 @@
 ### D42 · 防复发资产独立索引，不改台账列 ✅ 2026-11-04 执行
 - **结论**：新建 `docs/harness/REGRESSION-ASSETS.md`，四列（对账台账编号 / 防复发物 / 引入 commit / 红→绿证据），不为 `TICKET-LEDGER.md` 加列（多人并发编辑易冲突，历史行全空）。索引先登记 4 个已收口单；E3 工具晚于这些收口（2026-11-04 才落地），如实标注「E3 未覆盖/待补跑」，不补造红→绿输出；T-2610-03 已用 redgreen 补跑（投毒 0.7s 红 / 还原 0.6s 绿）。
 - **代价**：索引与台账需人工同步行数；未做 E3 的老单只有替代证据（行为探针/定向测试），证明力弱于双跑。
+### D43 · 跨包 import 的浏览器依赖用「投毒替身」隔离 ✅ 2026-11-04 执行
+- **结论**：批次 32 的 `backend/src/__tests__/dataWarehouse.test.ts` 跨包 import `frontend/src/utils/bloombergExportEngine.ts`（groupData/aggregateData），该模块顶层 `import * as XLSX from 'xlsx'`、`import { saveAs } from 'file-saver'`。CI 只安装 backend 依赖，Vite 报 `Failed to load url xlsx`，导致整个 backend 套件 1 failed / 649 passed（run 41758036717）；本地因 frontend/node_modules 存在而常绿。修法：`backend/vitest.config.ts` 把 `xlsx`/`file-saver` alias 到 `backend/vitest.stubs/*.ts`，替身**只满足解析、任何调用立即抛错**，避免测试静默产出假工作簿；`__probe_stub.test.ts` 实测两条 alias 均抛「前端浏览器依赖」，删探针后 dataWarehouse 33 passed。
+- **代价**：backend 测试环境不再真实加载这两个包；若将来后端确实要用 xlsx 导出，必须显式覆盖 alias。跨包 import 仍会引入前端模块的其它浏览器依赖，出现新缺包时按同一方式补替身，不得用 `server.deps.inline` 或安装前端包糊过去。
+
