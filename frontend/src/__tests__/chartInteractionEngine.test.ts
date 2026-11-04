@@ -166,6 +166,25 @@ describe('calculateCrosshair', () => {
       expect(ch.dataPoint.index).toBeGreaterThanOrEqual(0);
     }
   });
+
+  it('鼠标移出绘图区应不可见，且不吸附数据点', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    for (const [mx, my] of [[101, 50], [50, 101], [-1, 50], [50, -1]]) {
+      const ch = calculateCrosshair(mx, my, 100, 100, vp, mockPoints);
+      expect(ch.visible).toBe(false);
+      expect(ch.dataPoint).toBeNull();
+    }
+  });
+
+  it('画布尺寸非法（0/负数）应安全返回不可见，不产生 NaN', () => {
+    const vp = createViewport(0, 100, 0, 100);
+    for (const [w, h] of [[0, 100], [100, 0], [-10, 100]]) {
+      const ch = calculateCrosshair(0, 0, w, h, vp, mockPoints);
+      expect(ch.visible).toBe(false);
+      expect(Number.isNaN(ch.x)).toBe(false);
+      expect(Number.isNaN(ch.y)).toBe(false);
+    }
+  });
 });
 
 describe('formatCrosshairData', () => {
@@ -278,6 +297,25 @@ describe('findNearestPoint', () => {
 
   it('空数据应返回null', () => {
     expect(findNearestPoint([], 10)).toBeNull();
+  });
+
+  it('x 乱序时按真实距离取最近点（原二分实现会取错）', () => {
+    const shuffled = [
+      { x: 900, y: 1, data: {}, index: 0 },
+      { x: 100, y: 1, data: {}, index: 1 },
+      { x: 500, y: 1, data: {}, index: 2 },
+    ];
+    expect(findNearestPoint(shuffled, 480)?.index).toBe(2);
+    expect(findNearestPoint(shuffled, 120)?.index).toBe(1);
+  });
+
+  it('传 maxDistance 时超出阈值返回 null，阈值内照常返回', () => {
+    expect(findNearestPoint(mockPoints, 50, 1)?.x).toBe(50);
+    // mockPoints 的 x 是 0..99 的整数，57 精确命中，最远不过 5
+    expect(findNearestPoint(mockPoints, 57, 5)?.x).toBe(57);
+    expect(findNearestPoint([100, 200, 300].map((x, i) => ({ x, y: 0, data: {}, index: i })), 201, 0.5)).toBeNull();
+    // 不传 maxDistance 保持历史行为：永远返回最近点
+    expect(findNearestPoint([100, 200, 300].map((x, i) => ({ x, y: 0, data: {}, index: i })), 201)?.x).toBe(200);
   });
 });
 

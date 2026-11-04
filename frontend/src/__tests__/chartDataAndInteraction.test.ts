@@ -715,8 +715,9 @@ describe('市场数据图表渲染', () => {
       expect(pos.y).toBe(450);
     });
 
-    it('超大浮层应钳制到offset', () => {
-      expect(calculateTooltipPosition(0, 0, 600, 600, 100, 100)).toEqual({ x: 10, y: 10 });
+    it('超大浮层（比容器还大）应夹紧到容器左上角，不再溢出', () => {
+      // 修复前：x/y 被钳制到 offset=10，浮层实际延伸到 610，仍然溢出 100x100 容器
+      expect(calculateTooltipPosition(0, 0, 600, 600, 100, 100)).toEqual({ x: 0, y: 0 });
     });
 
     it('返回整数坐标', () => {

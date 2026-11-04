@@ -196,6 +196,16 @@ export function calculateCrosshair(
     return { x: 0, y: 0, dataPoint: null, visible: false };
   }
 
+  // 画布外（负坐标、超出宽高、画布尺寸非法）不显示十字光标，也不吸附数据点。
+  // 此前无边界判断：鼠标移出绘图区仍返回 visible=true，组件据此继续画十字线。
+  if (
+    chartWidth <= 0 || chartHeight <= 0 ||
+    mouseX < 0 || mouseY < 0 ||
+    mouseX > chartWidth || mouseY > chartHeight
+  ) {
+    return { x: 0, y: 0, dataPoint: null, visible: false };
+  }
+
   // 将鼠标坐标转换为数据坐标
   const dataX = viewport.xMin + (mouseX / chartWidth) * (viewport.xMax - viewport.xMin);
   const _dataY = viewport.yMax - (mouseY / chartHeight) * (viewport.yMax - viewport.yMin);
@@ -363,9 +373,27 @@ export function findNearestIndex(
 export function findNearestPoint(
   data: ChartPoint[],
   targetX: number,
+  maxDistance?: number,
 ): ChartPoint | null {
-  const index = findNearestIndex(data, targetX);
-  return index >= 0 ? data[index] : null;
+  // 按 |x - targetX| 线性取最小，不依赖 x 升序，乱序序列也能给出正确答案。
+  let nearest: ChartPoint | null = null;
+  let minDist = Infinity;
+
+  for (const point of data) {
+    const dist = Math.abs(point.x - targetX);
+    // 严格小于：等距时保留先出现的点（与原二分实现「取较小索引一侧」一致）
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = point;
+    }
+  }
+
+  if (nearest === null) return null;
+  // maxDistance 不传 = 永远返回最近点（历史行为）；传了才启用阈值判定。
+  if (typeof maxDistance === 'number' && Number.isFinite(maxDistance) && minDist > maxDistance) {
+    return null;
+  }
+  return nearest;
 }
 
 /**
@@ -414,6 +442,13 @@ export function calculateTooltipPosition(
 
   // 上边界检测
   if (y < 0) y = offset;
+
+  // 最终夹紧：浮层比容器还大时 maxX/maxY 归零，贴容器左上角，
+  // 不再出现「钳制到 offset 却仍然溢出容器」的情况。
+  const maxX = Math.max(0, containerWidth - tooltipWidth);
+  const maxY = Math.max(0, containerHeight - tooltipHeight);
+  x = Math.min(Math.max(x, 0), maxX);
+  y = Math.min(Math.max(y, 0), maxY);
 
   return { x: Math.round(x), y: Math.round(y) };
 }

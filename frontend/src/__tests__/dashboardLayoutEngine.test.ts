@@ -81,6 +81,18 @@ describe('validateLayout', () => {
     expect(result.warnings.length).toBeGreaterThan(0);
   });
 
+  it('布局 id 为空应判非法（错误级）', () => {
+    const result = validateLayout(makeLayout({ id: '' }));
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.includes('Layout id'))).toBe(true);
+  });
+
+  it('布局名称为空只记警告，不阻塞保存（历史存档兼容）', () => {
+    const result = validateLayout(makeLayout({ name: '   ' }));
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some(w => w.includes('name is empty'))).toBe(true);
+  });
+
   it('warns on overlap', () => {
     const layout = makeLayout({
       widgets: [
@@ -224,6 +236,22 @@ describe('cloneLayout', () => {
   it('is not default', () => {
     const layout = makeLayout({ isDefault: true });
     expect(cloneLayout(layout).isDefault).toBe(false);
+  });
+
+  it('config 为深拷贝：改副本不污染原件（浅拷贝会共享引用）', () => {
+    const layout = makeLayout({
+      widgets: [makeWidget({ config: { metric: 'close', nested: { color: '#fff' } } })],
+    });
+    const cloned = cloneLayout(layout);
+
+    expect(cloned.widgets[0].config).not.toBe(layout.widgets[0].config);
+    expect(cloned.widgets[0].config.nested).not.toBe(layout.widgets[0].config.nested);
+
+    (cloned.widgets[0].config.nested as { color: string }).color = '#000';
+    cloned.widgets[0].config.metric = 'volume';
+
+    expect((layout.widgets[0].config.nested as { color: string }).color).toBe('#fff');
+    expect(layout.widgets[0].config.metric).toBe('close');
   });
 });
 

@@ -218,18 +218,19 @@ describe('Dashboard Customization Engine', () => {
       expect(upper.valid).toBe(true);
     });
 
-    it('should not validate layout identity (production gap)', () => {
-      // 生产不校验 layout.id/name，空串仍为合法布局
-      const layout = makeLayout({
-        id: '',
-        name: '',
-        columns: 12,
-        widgets: [makeWidget({ id: 'a', position: { x: 0, y: 0, w: 4, h: 2 } })],
-      });
-      const result = validateLayout(layout);
-      expect(result.valid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-      expect(result.warnings).toHaveLength(0);
+    it('should validate layout identity: empty id is error, empty name is warning', () => {
+      // 2026-11-04 修复前：layout.id/name 完全不校验，空串仍为合法布局。
+      // 现在 id 升为错误级（结构必需），name 只记警告（兼容历史空名存档）。
+      const emptyId = validateLayout(makeLayout({ id: '', columns: 12 }));
+      expect(emptyId.valid).toBe(false);
+      expect(emptyId.errors).toContain('Layout id is required');
+
+      const emptyName = validateLayout(
+        makeLayout({ name: '', columns: 12, widgets: [makeWidget({ id: 'a', position: { x: 0, y: 0, w: 4, h: 2 } })] }),
+      );
+      expect(emptyName.valid).toBe(true);
+      expect(emptyName.errors).toHaveLength(0);
+      expect(emptyName.warnings).toContain('Layout name is empty');
     });
 
     it('should treat touching edges as non-overlapping', () => {

@@ -3,9 +3,8 @@
  * 覆盖缩放、平移、十字光标、tooltip定位、数据点选择
  *
  * 迁移说明：断言已绑定生产实现 frontend/src/utils/chartInteractionEngine.ts。
- * 未迁移：画布边界判定——生产 calculateCrosshair 不做越界裁剪（越界坐标仍返回
- * visible=true），边界裁剪属组件层职责，生产侧暂无对应实现，故该 3 个用例保留
- * 本地 isPointerWithinCanvas 并标注「未迁移」。
+ * 画布边界判定已迁移：生产 calculateCrosshair 自 2026-11-04 起对越界坐标返回
+ * visible=false（此前恒 true），下面 3 个用例直接断言生产实现。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -52,15 +51,7 @@ const nearestPoints: ChartPoint[] = [
   { x: 500, y: 300, data: { value: 90, label: 'C' }, index: 2 },
 ];
 
-// 未迁移：生产 calculateCrosshair 无画布边界判定，越界坐标仍返回 visible=true。
-function isPointerWithinCanvas(
-  mouseX: number,
-  mouseY: number,
-  canvasWidth: number,
-  canvasHeight: number,
-): boolean {
-  return mouseX >= 0 && mouseX <= canvasWidth && mouseY >= 0 && mouseY <= canvasHeight;
-}
+// 画布边界判定已由生产 calculateCrosshair 实现，此处不再需要本地替身。
 
 // ==================== 缩放测试 ====================
 
@@ -206,17 +197,20 @@ describe('calculateCrosshair 十字光标', () => {
     expect(result.dataPoint?.index).toBe(2);
   });
 
-  // 未迁移：以下用例覆盖画布边界判定，生产 calculateCrosshair 无此能力。
-  it('画布外应为无效', () => {
-    expect(isPointerWithinCanvas(900, 200, 800, 400)).toBe(false);
+  it('画布外应为无效（visible=false 且不吸附）', () => {
+    const result = calculateCrosshair(900, 200, 800, 400, viewport, chartPoints);
+    expect(result.visible).toBe(false);
+    expect(result.dataPoint).toBeNull();
   });
 
   it('负坐标应为无效', () => {
-    expect(isPointerWithinCanvas(-10, 200, 800, 400)).toBe(false);
+    expect(calculateCrosshair(-10, 200, 800, 400, viewport, chartPoints).visible).toBe(false);
   });
 
   it('边界坐标应为有效', () => {
-    expect(isPointerWithinCanvas(0, 0, 800, 400)).toBe(true);
+    // 边界本身（0 与右/下沿）仍算画布内，保留可交互
+    expect(calculateCrosshair(0, 0, 800, 400, viewport, chartPoints).visible).toBe(true);
+    expect(calculateCrosshair(800, 400, 800, 400, viewport, chartPoints).visible).toBe(true);
   });
 });
 

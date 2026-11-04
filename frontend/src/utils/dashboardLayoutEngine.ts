@@ -50,6 +50,16 @@ export function validateLayout(layout: DashboardLayout): LayoutValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  // 布局自身的身份与名称此前完全不校验：空 id 会让「保存/覆盖默认布局」认不出目标，
+  // 空名称在切换器里显示为空行。id 升为 error（结构必需），name 先记 warning
+  // ——历史存档里可能有空名称布局，直接判非法会让老用户无法保存。
+  if (!layout.id || !layout.id.trim()) {
+    errors.push('Layout id is required');
+  }
+  if (!layout.name || !layout.name.trim()) {
+    warnings.push('Layout name is empty');
+  }
+
   if (layout.columns < 1 || layout.columns > 24) {
     errors.push('Columns must be between 1 and 24');
   }
@@ -231,6 +241,18 @@ export function deserializeLayout(json: string): DashboardLayout | null {
 }
 
 /**
+ * 克隆嵌套配置（structuredClone 优先，退化到 JSON 往返）
+ * 只用于纯数据对象：widget.config 的取值域是 JSON 兼容结构。
+ */
+function cloneConfig<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
  * 克隆布局
  */
 export function cloneLayout(layout: DashboardLayout, newName?: string): DashboardLayout {
@@ -243,6 +265,9 @@ export function cloneLayout(layout: DashboardLayout, newName?: string): Dashboar
     widgets: layout.widgets.map(w => ({
       ...w,
       id: `widget-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      // config 是嵌套对象，浅拷贝会让副本与原布局共享引用：
+      // 改副本的配置会污染原件。这里深拷贝一份，保证两份互不影响。
+      config: cloneConfig(w.config),
       createdAt: now,
       updatedAt: now,
     })),
