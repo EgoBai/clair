@@ -287,8 +287,8 @@ describe('Index & Market Calculations', () => {
       expect(formatMarketCap(5e5)).toBe('50.00万');
     });
 
-    it('小于 1 万直接返回原始数值字符串（生产口径；旧内联返回 toFixed(2)）', () => {
-      expect(formatMarketCap(9999)).toBe('9999');
+    it('小于 1 万按 toFixed(2) 输出（P2/P3 统一 shared 与 frontend 口径后）', () => {
+      expect(formatMarketCap(9999)).toBe('9999.00');
     });
   });
 

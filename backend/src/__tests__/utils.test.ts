@@ -132,9 +132,9 @@ describe('formatChangePercent（生产带正号口径）', () => {
     expect(formatChangePercent(5.678)).toBe('+5.68%');
   });
 
-  it('空值返回横线', () => {
-    expect(formatChangePercent(undefined)).toBe('-');
-    expect(formatChangePercent(null)).toBe('-');
+  it('空值返回统一占位符 —', () => {
+    expect(formatChangePercent(undefined)).toBe('—');
+    expect(formatChangePercent(null)).toBe('—');
   });
 });
 
@@ -167,8 +167,8 @@ describe('formatLargeNumber', () => {
     expect(formatLargeNumber(0)).toBe('0');
   });
 
-  it('NaN 返回横线', () => {
-    expect(formatLargeNumber(NaN)).toBe('-');
+  it('NaN 返回统一占位符 —', () => {
+    expect(formatLargeNumber(NaN)).toBe('—');
   });
 });
 

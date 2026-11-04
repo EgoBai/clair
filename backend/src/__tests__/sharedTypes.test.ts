@@ -12,12 +12,12 @@
  * 未迁移：formatPrice —— frontend/src/utils/formatters.ts 无该导出；shared/formatters.ts 有同名
  * 实现，但无 decimals 参数、无 isFinite 守卫且无产品代码引用，故保留本地 helper。
  *
- * 本批按生产真实输出改口径（旧自抄实现来自 shared/formatters.ts 的防御版本）：
+ * 本批按生产真实输出改口径（P2 F1–F5 之后统一 EMPTY_VALUE = '—'，U+2014）：
  * - formatMarketCap(0)              '0'   → '0.00'（生产小值走 toFixed(2)，不再 toString）
- * - formatMarketCap(null)           '-'   → '--'  （生产空值统一 '--'）
- * - formatMarketCap(undefined)      '-'   → '--'
- * - formatDate('invalid')           '-'   → '--'
- * - formatVolume(null)              '-'   → 'null手'（生产缺口，见用例内注释）
+ * - formatMarketCap(null)           '-'   → '—' （空/非有限数统一占位符）
+ * - formatMarketCap(undefined)      '-'   → '—'
+ * - formatDate('invalid')           '-'   → '—'
+ * - formatVolume(null)              'null手' → '—'（生产已补 null 守卫）
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -89,12 +89,12 @@ describe('共享格式化函数', () => {
     });
 
     it('应处理 null', () => {
-      // 生产空值统一返回 '--'；旧自抄版为 '-'。
-      expect(formatMarketCap(null)).toBe('--');
+      // 空值统一返回 EMPTY_VALUE '—'；旧自抄版为 '-'。
+      expect(formatMarketCap(null)).toBe('—');
     });
 
     it('应处理 undefined', () => {
-      expect(formatMarketCap(undefined)).toBe('--');
+      expect(formatMarketCap(undefined)).toBe('—');
     });
   });
 
@@ -114,11 +114,10 @@ describe('共享格式化函数', () => {
       expect(result).toContain('手');
     });
 
-    it('应处理 null（生产缺口：formatVolume 无 null 守卫）', () => {
-      // 生产签名是 (vol: number)，没有 null/undefined 分支，null 会被原样拼成 'null手'。
-      // 旧断言 '-' 对应的是 shared/formatters.ts 的防御实现，产品代码走的是 frontend 实现。
-      // 本批按生产现状固化；生产补 null 守卫后此断言应改回 '-'。
-      expect(formatVolume(null as unknown as number)).toBe('null手');
+    it('应处理 null（生产已补 null 守卫）', () => {
+      // P2 F1–F5 之后 formatVolume 对 null/undefined/NaN/±Infinity 统一返回 '—'，
+      // 不再拼出 'null手' 这种伪造文本。
+      expect(formatVolume(null as unknown as number)).toBe('—');
     });
   });
 
@@ -148,7 +147,7 @@ describe('共享格式化函数', () => {
     });
 
     it('应处理 null', () => {
-      expect(formatChangePercent(null)).toBe('-');
+      expect(formatChangePercent(null)).toBe('—');
     });
   });
 
@@ -162,7 +161,7 @@ describe('共享格式化函数', () => {
     });
 
     it('应处理 null', () => {
-      expect(formatChange(null)).toBe('-');
+      expect(formatChange(null)).toBe('—');
     });
   });
 
@@ -172,7 +171,7 @@ describe('共享格式化函数', () => {
     });
 
     it('应处理 null', () => {
-      expect(formatTurnoverRate(null)).toBe('-');
+      expect(formatTurnoverRate(null)).toBe('—');
     });
   });
 
@@ -274,9 +273,9 @@ describe('共享格式化函数', () => {
       expect(formatDate(ts)).toContain('2025');
     });
 
-    it('无效日期应返回 --', () => {
-      // 生产 formatDate 无效输入返回 '--'；旧自抄版为 '-'。
-      expect(formatDate('invalid')).toBe('--');
+    it('无效日期应返回 —', () => {
+      // 生产 formatDate 无效输入返回 '—'（旧自抄版为 '-'）。
+      expect(formatDate('invalid')).toBe('—');
     });
   });
 
@@ -294,8 +293,8 @@ describe('共享格式化函数', () => {
       expect(formatLargeNumber(1234567)).toContain(',');
     });
 
-    it('NaN 应返回 -', () => {
-      expect(formatLargeNumber(NaN)).toBe('-');
+    it('NaN 应返回 —', () => {
+      expect(formatLargeNumber(NaN)).toBe('—');
     });
   });
 
