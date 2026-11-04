@@ -1,9 +1,34 @@
-import { describe, it, expect } from 'vitest';
-
 /**
- * 批量操作服务逻辑测试
- * BatchOperations 并发/分片/限流逻辑
+ * 批量操作逻辑测试（影子测试迁移）
+ *
+ * 迁移说明（测试内自实现 → import 生产真源）：
+ * - chunkArray → chunk：backend/src/services/batchOperations.ts:121
+ *   契约一致：(arr: T[], size: number) => T[][]，空数组、size > length 行为一致。
+ * - 新增生产绑定 batchExecute：backend/src/services/batchOperations.ts:90（并发执行 + 按输入序返回 + 单项错误收集）
+ * - 新增生产绑定 processInChunks：backend/src/services/batchOperations.ts:132（分片顺序处理）
+ *
+ * 保留内联（生产无同契约导出，逐条说明候选为何不符）：
+ * - calcChunksNeeded：候选 backend/src/utils/apiResponse.ts:93 的 totalPages 是「分页页码」语义，
+ *   且封装在响应构造器内部（非独立导出）；没有任何导出接受「总数 + 分片大小」并返回分片数。
+ * - estimateBatchDuration：生产 batchExecute(L90) 只负责执行，不做耗时估算，无估算函数导出。
+ * - calcRateLimitDelay / canProceedRateLimit / createRateLimiter：
+ *   候选 backend/src/middleware/rateLimit.ts:16 的 RateLimiter 类**未导出**；导出的是
+ *   rateLimit(L90) 中间件（按客户端 key 计数、内部读取 Date.now、无法注入 now），
+ *   与测试的 canProceed(now)/recordRequest 纯逻辑签名不同，无法逐断言绑定。
+ *   生产限流中间件行为已由 rateLimit.test.ts / securityEnhancements.test.ts 覆盖。
+ * - summarizeResults / partitionBySuccess：入参 BatchResult{id,success,duration} 与
+ *   batchExecute 返回的 {item,result?,error?} 形状/语义不同，不可直接绑定。
+ * - createRetryPolicy：生产重试为线性退避（backend/src/services/taskScheduler.ts:220
+ *   `retryDelay * task.retries`），不存在指数退避策略对象导出，也无 shouldRetry(attempt) 签名。
+ * - createProgressTracker：生产无进度跟踪器导出。
+ *
+ * 非确定性清理：
+ * - createRateLimiter.reset() 原先读取系统时钟重置窗口，改为 windowStart = -Infinity
+ *   （语义等价：下一次 canProceed(now) 会以传入的 now 开启新窗口），测试不再读墙钟。
  */
+
+import { describe, it, expect } from 'vitest';
+import { batchExecute, chunk, processInChunks } from '../services/batchOperations';
 
 interface BatchItem<T = any> {
   id: string;
@@ -24,14 +49,6 @@ interface BatchConfig {
   retryCount: number;
   retryDelay: number;
   rateLimitPerSecond: number;
-}
-
-function chunkArray<T>(items: T[], chunkSize: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += chunkSize) {
-    chunks.push(items.slice(i, i + chunkSize));
-  }
-  return chunks;
 }
 
 function calcChunksNeeded(totalItems: number, chunkSize: number): number {
@@ -84,7 +101,8 @@ function createRateLimiter(ratePerSecond: number): {
     },
     reset() {
       count = 0;
-      windowStart = Date.now();
+      // 不读取系统时钟：置为 -Infinity，下一次 canProceed(now) 必定开启新窗口
+      windowStart = -Infinity;
     },
   };
 }
@@ -164,24 +182,24 @@ function createProgressTracker(total: number): {
 }
 
 describe('批量操作逻辑', () => {
-  describe('chunkArray', () => {
+  describe('chunk（生产：services/batchOperations.ts:121）', () => {
     it('should split into chunks', () => {
-      const chunks = chunkArray([1, 2, 3, 4, 5], 2);
+      const chunks = chunk([1, 2, 3, 4, 5], 2);
       expect(chunks).toEqual([[1, 2], [3, 4], [5]]);
     });
 
     it('should handle exact division', () => {
-      const chunks = chunkArray([1, 2, 3, 4], 2);
+      const chunks = chunk([1, 2, 3, 4], 2);
       expect(chunks).toHaveLength(2);
     });
 
     it('should handle chunk larger than array', () => {
-      const chunks = chunkArray([1, 2], 10);
+      const chunks = chunk([1, 2], 10);
       expect(chunks).toEqual([[1, 2]]);
     });
 
     it('should handle empty array', () => {
-      expect(chunkArray([], 5)).toEqual([]);
+      expect(chunk([], 5)).toEqual([]);
     });
   });
 
@@ -337,6 +355,59 @@ describe('批量操作逻辑', () => {
       tracker.complete();
       tracker.complete();
       expect(tracker.getProgress().completed).toBe(1);
+    });
+  });
+
+  // ==================== 生产真源绑定（新增） ====================
+
+  describe('batchExecute（生产：services/batchOperations.ts:90）', () => {
+    it('should preserve input order and collect per-item errors', async () => {
+      const results = await batchExecute(
+        [1, 2, 3],
+        async n => {
+          if (n === 2) throw new Error('boom');
+          return n * 10;
+        },
+        2
+      );
+
+      expect(results).toHaveLength(3);
+      expect(results[0]).toEqual({ item: 1, result: 10 });
+      expect(results[1].item).toBe(2);
+      expect(results[1].error).toBeInstanceOf(Error);
+      expect(results[2]).toEqual({ item: 3, result: 30 });
+    });
+
+    it('should execute every item once', async () => {
+      const seen: number[] = [];
+      const results = await batchExecute(
+        [5, 6, 7, 8],
+        async n => {
+          seen.push(n);
+          return n;
+        },
+        3
+      );
+
+      expect(results.map(r => r.result)).toEqual([5, 6, 7, 8]);
+      expect(seen.sort((a, b) => a - b)).toEqual([5, 6, 7, 8]);
+    });
+
+    it('should return empty array for empty input', async () => {
+      const results = await batchExecute([], async (n: number) => n);
+      expect(results).toEqual([]);
+    });
+  });
+
+  describe('processInChunks（生产：services/batchOperations.ts:132）', () => {
+    it('should process in chunks preserving order', async () => {
+      const results = await processInChunks([1, 2, 3, 4, 5], async n => n * 2, 2, 0);
+      expect(results).toEqual([2, 4, 6, 8, 10]);
+    });
+
+    it('should return empty array for empty input', async () => {
+      const results = await processInChunks([], async (n: number) => n, 2, 0);
+      expect(results).toEqual([]);
     });
   });
 });
