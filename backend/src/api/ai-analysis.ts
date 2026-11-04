@@ -310,8 +310,9 @@ async function fetchRealStock(symbol: string, name: string, industry: string): P
     roe: fund.roe,
     revenueGrowth: fund.revenueGrowth,
     profitGrowth: fund.profitGrowth,
-    marketCap: q.marketCap ?? 0,
-    changePercent: q.changePercent ?? 0,
+    // 市值 / 涨跌幅是行情里的可空列：源没给就保持 null 一路透传，不用 0 顶替空态
+    marketCap: q.marketCap,
+    changePercent: q.changePercent,
   };
 }
 
@@ -343,7 +344,7 @@ async function assembleFromUniverse(universe: Universe, historyFromDb: boolean):
     : new Map<string, { prices: number[]; volumes: number[] }>();
 
   const dropped = { noQuote: 0, noHistory: 0, noFinancials: 0, noValuation: 0 };
-  const candidates: Array<{ member: UniverseMember; prices: number[]; volumes: number[]; pe: number; pb: number; marketCap: number; changePercent: number; name: string }> = [];
+  const candidates: Array<{ member: UniverseMember; prices: number[]; volumes: number[]; pe: number; pb: number; marketCap: number | null; changePercent: number | null; name: string }> = [];
 
   for (const m of members) {
     const code = codeOf.get(m.symbol);
@@ -378,8 +379,9 @@ async function assembleFromUniverse(universe: Universe, historyFromDb: boolean):
       volumes: series.volumes,
       pe,
       pb,
-      marketCap: q.marketCap ?? 0,
-      changePercent: q.changePercent ?? 0,
+      // 同上：可空列原样透传，缺失即 null
+      marketCap: q.marketCap,
+      changePercent: q.changePercent,
       name: q.name || m.name,
     });
   }

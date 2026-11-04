@@ -125,6 +125,15 @@ export function resolveTemperatureGauge(temperature: any): {
 }
 
 /**
+ * 规则C 诚实渲染：可空数值 → '—'。
+ * 后端把「可空列缺数」从 0 改成 null 后，直接把 null 丢进比较/算术会退化成 0 或渲染出 "+%"/"NaN"，
+ * 故统一由本函数兜底，不产生任何看起来像真实数值的东西。
+ */
+export function fmtNullablePct(v: number | null | undefined): string {
+  return typeof v === 'number' && Number.isFinite(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '—';
+}
+
+/**
  * 市场温度仪表盘（P0-TEMPGAUGE）。
  *
  * 诚实红线：后端降级态给 `score: null` 时，这里**不渲染 Progress、不给 percent**，
@@ -1175,8 +1184,8 @@ const DiscoverPage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
                   <MarketTemperatureGauge temperature={pulse.temperature} />
                   <div style={{ fontSize: 12, color: TEXT_SEC, lineHeight: 1.8 }}>
-                    <div>上涨 <b style={{ color: COLOR_UP }}>{pulse.breadth?.rising}</b> / 下跌 <b style={{ color: COLOR_DOWN }}>{pulse.breadth?.falling}</b>（占比 {pulse.breadth?.risingRatio}%）</div>
-                    <div>涨停 <b style={{ color: '#f59e0b' }}>{pulse.limitUp}</b> 只</div>
+                    <div>上涨 <b style={{ color: COLOR_UP }}>{pulse.breadth?.rising ?? '—'}</b> / 下跌 <b style={{ color: COLOR_DOWN }}>{pulse.breadth?.falling ?? '—'}</b>（占比 {pulse.breadth?.risingRatio ?? '—'}%）</div>
+                    <div>涨停 <b style={{ color: '#f59e0b' }}>{pulse.limitUp ?? '—'}</b> 只</div>
                   </div>
                 </div>
                 <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 6 }}>资金主线行业</div>
@@ -1187,8 +1196,8 @@ const DiscoverPage: React.FC = () => {
                       <Progress percent={Math.min(100, t.score)} size="small" showInfo={false}
                         strokeColor="#667eea" style={{ flex: 1 }} />
                       <span style={{ width: 96, textAlign: 'right', fontSize: 12, fontFamily: 'monospace',
-                        color: t.avgChangePercent >= 0 ? COLOR_UP : COLOR_DOWN }}>
-                        {t.avgChangePercent >= 0 ? '+' : ''}{t.avgChangePercent?.toFixed(2)}%
+                        color: t.avgChangePercent == null ? TEXT_SEC : t.avgChangePercent >= 0 ? COLOR_UP : COLOR_DOWN }}>
+                        {fmtNullablePct(t.avgChangePercent)}
                       </span>
                     </div>
                   ))}
@@ -1215,13 +1224,13 @@ const DiscoverPage: React.FC = () => {
                 <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 6 }}>主线领涨候选（点击查看个股）</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {pulse.candidates?.map((c: any) => (
-                    <Tooltip key={c.symbol} title={`${c.industry} · 换手 ${c.turnoverRate?.toFixed(2)}%${c.peRatio != null ? ` · PE ${c.peRatio.toFixed(1)}` : ''}`}>
+                    <Tooltip key={c.symbol} title={`${c.industry} · 换手 ${c.turnoverRate == null ? '—' : c.turnoverRate.toFixed(2) + '%'}${c.peRatio != null ? ` · PE ${c.peRatio.toFixed(1)}` : ''}`}>
                       <Tag
                         style={{ cursor: 'pointer', fontSize: 12, padding: '2px 8px' }}
                         color="geekblue"
                         onClick={() => navigate(`/stocks/${c.symbol}`)}
                       >
-                        {c.name} <span style={{ fontFamily: 'monospace', opacity: 0.8 }}>{c.changePercent >= 0 ? '+' : ''}{c.changePercent.toFixed(2)}%</span>
+                        {c.name} <span style={{ fontFamily: 'monospace', opacity: 0.8 }}>{fmtNullablePct(c.changePercent)}</span>
                       </Tag>
                     </Tooltip>
                   ))}

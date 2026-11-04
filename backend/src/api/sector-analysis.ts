@@ -47,7 +47,8 @@ function dbMeta(rowCount: number, emptyReason: string) {
 }
 
 /** 诚实发送器：顶层 dataSource 与 data.dataSource 由同一入参派生，结构上不可能矛盾 */
-function sendHonest(res: Response, dataSource: 'real' | 'unavailable', data: Record<string, unknown>): void {
+// real = 无缺失；partial = 有字段缺失（null）；unavailable = 无可用数据
+function sendHonest(res: Response, dataSource: 'real' | 'partial' | 'unavailable', data: Record<string, unknown>): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(200).json({
     success: true,
@@ -123,8 +124,8 @@ async function fetchIndustryFundFlow(): Promise<Map<string, number> | null> {
  * 源不可达 / 内存库诚实空态（拒绝供行情）→ 返回空 Map，路由层据此把
  * avgPE/avgPB 置 null 并在 fieldSources 标注，绝不用 0 或编造值顶替。
  */
-async function loadIndustryValuation(): Promise<Map<string, { avgPE: number | null; avgPB: number | null; stockCount: number; validPeCount: number; lossOrNoPeCount: number }>> {
-  const out = new Map<string, { avgPE: number | null; avgPB: number | null; stockCount: number; validPeCount: number; lossOrNoPeCount: number }>();
+async function loadIndustryValuation(): Promise<Map<string, { avgPE: number | null; avgPB: number | null; stockCount: number | null; validPeCount: number | null; lossOrNoPeCount: number | null }>> {
+  const out = new Map<string, { avgPE: number | null; avgPB: number | null; stockCount: number | null; validPeCount: number | null; lossOrNoPeCount: number | null }>();
   try {
     const knex = getDb().connection;
     const rows: any[] = await (knex('daily_quotes as dq') as any)
@@ -145,9 +146,10 @@ async function loadIndustryValuation(): Promise<Map<string, { avgPE: number | nu
       out.set(String(r.industry), {
         avgPE: num(r.avg_pe),
         avgPB: num(r.avg_pb),
-        stockCount: Number(r.stock_count ?? 0),
-        validPeCount: Number(r.valid_pe_count ?? 0),
-        lossOrNoPeCount: Number(r.loss_or_no_pe_count ?? 0),
+        // COUNT(*) 聚合在无行时也不该被吞成 0：缺失一律 null（规则 C）
+        stockCount: num(r.stock_count),
+        validPeCount: num(r.valid_pe_count),
+        lossOrNoPeCount: num(r.loss_or_no_pe_count),
       });
     }
   } catch (e) {
@@ -254,9 +256,9 @@ async function aggregateSectors() {
       changePercent: changeCount > 0 ? round(changeSum / changeCount) : num(row.avg_change_percent),
       turnover: turnoverCount > 0 ? round(turnoverSum / turnoverCount) : null,
       totalMarketCap: totalMarketCap > 0 ? totalMarketCap : num(row.total_market_cap),
-      validPeCount: val?.validPeCount ?? 0,
-      lossOrNoPeCount: val?.lossOrNoPeCount ?? 0,
-      limitUpCount: Number(row.limit_up_count ?? 0),
+      validPeCount: val?.validPeCount ?? null,
+      lossOrNoPeCount: val?.lossOrNoPeCount ?? null,
+      limitUpCount: num(row.limit_up_count),
       members,
     });
   }
@@ -275,7 +277,7 @@ router.get('/sectors/analysis', asyncHandler(async (_req: Request, res: Response
     console.error('[sectors/analysis] 行业聚合查询失败:', e instanceof Error ? e.message : e);
   }
 
-  const { meta, dataSource } = dbMeta(
+  const { meta, dataSource: baseDataSource } = dbMeta(
     sectors.length,
     '本地真实行情库无可用行业聚合数据（daily_quotes 为空或未同步）',
   );
@@ -302,9 +304,20 @@ router.get('/sectors/analysis', asyncHandler(async (_req: Request, res: Response
 
   const changes = list.map((s) => s.changePercent).filter((v): v is number => v !== null);
 
+  // 缺失字段清单（null 的字段名）：空库整体 unavailable，否则有缺失即 partial
+  const missing: string[] = [];
+  list.forEach((s, i) => {
+    if (s.validPeCount === null) missing.push(`sectors[${i}].validPeCount`);
+    if (s.lossOrNoPeCount === null) missing.push(`sectors[${i}].lossOrNoPeCount`);
+    if (s.limitUpCount === null) missing.push(`sectors[${i}].limitUpCount`);
+  });
+  const dataSource: 'real' | 'partial' | 'unavailable' =
+    baseDataSource === 'unavailable' ? 'unavailable' : missing.length > 0 ? 'partial' : 'real';
+
   sendHonest(res, dataSource, {
     sectors: list,
     count: list.length,
+    missing,
     summary: {
       totalSectors: list.length,
       upCount: changes.filter((c) => c > 0).length,
@@ -363,7 +376,8 @@ router.get('/sectors/analysis/:code', asyncHandler(async (req: Request, res: Res
     return;
   }
 
-  const totalCap = sector.totalMarketCap ?? 0;
+  // 总市值缺失时权重应为 null，而不是拿 0 当分母（规则 C）
+  const totalCap = sector.totalMarketCap;
   const members = sector.members;
 
   // 成分股估值：getSectorStocks 的 latestQuote 不含 peRatio/pbRatio，
@@ -381,7 +395,7 @@ router.get('/sectors/analysis/:code', asyncHandler(async (req: Request, res: Res
     return {
       symbol: m.symbol,
       name: (m.name || '').trim(),
-      weight: cap !== null && totalCap > 0 ? round((cap / totalCap) * 100, 4) : null,
+      weight: cap !== null && totalCap !== null && totalCap > 0 ? round((cap / totalCap) * 100, 4) : null,
       price: round(num(q?.closePrice)),
       changePercent: round(num(q?.changePercent)),
       marketCap: round(cap, 0),
@@ -402,9 +416,19 @@ router.get('/sectors/analysis/:code', asyncHandler(async (req: Request, res: Res
   const fundFlowMap = await fetchIndustryFundFlow();
 
   // 只有真正取到成分股行情才标 real；否则诚实降级（不返回 0 值假成分股）
-  sendHonest(res, topStocks.length > 0 ? 'real' : 'unavailable', {
+  // 缺失字段清单：COUNT 类与权重字段为 null 时如实列出
+  const missing: string[] = [];
+  if (sector.validPeCount === null) missing.push('validPeCount');
+  if (sector.lossOrNoPeCount === null) missing.push('lossOrNoPeCount');
+  if (sector.limitUpCount === null) missing.push('limitUpCount');
+  if (totalCap === null) missing.push('topStocks[].weight');
+  const dataSource: 'real' | 'partial' | 'unavailable' =
+    topStocks.length === 0 ? 'unavailable' : missing.length > 0 ? 'partial' : 'real';
+
+  sendHonest(res, dataSource, {
     name: sector.name,
     code: sector.code,
+    missing,
     stockCount: sector.stockCount,
     quotedStockCount: sector.quotedStockCount,
     totalMarketCap: sector.totalMarketCap,

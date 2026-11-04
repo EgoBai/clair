@@ -34,9 +34,12 @@ router.use(aiTiming);
  * 现统一为：业务载荷**直接**放 data 下（单层），dataSource 顶层与 data 内由同一入参
  * 派生（结构上不可能出现「顶层 real / 行级 unavailable」）。
  */
+type DataSource = 'real' | 'partial' | 'unavailable';
+
 function sendHonest(
   res: Response,
-  dataSource: 'real' | 'unavailable',
+  // real = 无缺失；partial = 部分字段缺失（如广度缺失但板块可用）；unavailable = 全无
+  dataSource: DataSource,
   data: Record<string, unknown>,
 ): void {
   const honestFields = { dataSource };
@@ -49,13 +52,23 @@ function sendHonest(
   });
 }
 
+/**
+ * 可空数值：来源缺失（null / undefined / ''）一律 → null（=查不到），
+ * 绝不用 0 顶替（0 是合法业务值，两者必须可区分，规则 C）。
+ */
+function numOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 interface ThemeHit {
   industry: string;
   score: number;
-  avgChangePercent: number;
-  limitUpCount: number;
-  turnover: number;
-  leaderSymbols: { symbol: string; name: string; changePercent: number }[];
+  avgChangePercent: number | null;
+  limitUpCount: number | null;
+  turnover: number | null;
+  leaderSymbols: { symbol: string; name: string; changePercent: number | null }[];
 }
 
 interface RiskSignal {
@@ -68,8 +81,8 @@ interface Candidate {
   symbol: string;
   name: string;
   industry: string;
-  changePercent: number;
-  turnoverRate: number;
+  changePercent: number | null;
+  turnoverRate: number | null;
   peRatio: number | null;
 }
 
@@ -175,7 +188,12 @@ function buildRuleNarrative(
   hasSectorData: boolean,
 ): string {
   const themeLine = themes.length
-    ? themes.slice(0, 3).map((t) => `${t.industry}(${t.avgChangePercent >= 0 ? '+' : ''}${t.avgChangePercent.toFixed(2)}%)`).join('、')
+    ? themes.slice(0, 3).map((t) => (
+        t.avgChangePercent === null
+          // 缺数时不得显示 "(+0.00%)" 这种伪造值，只说明不可用
+          ? `${t.industry}(涨跌不可用)`
+          : `${t.industry}(${t.avgChangePercent >= 0 ? '+' : ''}${t.avgChangePercent.toFixed(2)}%)`
+      )).join('、')
     : (hasSectorData ? '暂无清晰主线' : '板块数据不可用');
   const riskLine = risks.length
     ? risks.map((r) => r.label).join('、')
@@ -239,8 +257,8 @@ async function fetchCandidateCards(symbols: string[]): Promise<Candidate[]> {
         symbol: r.symbol,
         name: r.name,
         industry: r.industry,
-        changePercent: Number(r.change_percent ?? 0),
-        turnoverRate: Number(r.turnover_rate ?? 0),
+        changePercent: numOrNull(r.change_percent),
+        turnoverRate: numOrNull(r.turnover_rate),
         peRatio: r.pe_ratio == null ? null : Number(r.pe_ratio),
       });
     }
@@ -302,9 +320,9 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
       topThemes.map(async (t) => ({
         industry: t.industry,
         score: Number(t.score),
-        avgChangePercent: Number(t.avg_change_percent ?? 0),
-        limitUpCount: Number(t.limit_up_count ?? 0),
-        turnover: Number(t.total_turnover ?? 0),
+        avgChangePercent: numOrNull(t.avg_change_percent),
+        limitUpCount: numOrNull(t.limit_up_count),
+        turnover: numOrNull(t.total_turnover),
         leaderSymbols: await fetchCandidatesByIndustry(t.industry, 3),
       })),
     );
@@ -328,7 +346,7 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
       try {
         const themeSummary = themes.length
           ? themes.map((t) =>
-              `${t.industry} 景气度${t.score}，平均涨跌${t.avgChangePercent.toFixed(2)}%，涨停${t.limitUpCount}只`,
+              `${t.industry} 景气度${t.score}，平均涨跌${t.avgChangePercent === null ? '不可用' : `${t.avgChangePercent.toFixed(2)}%`}，涨停${t.limitUpCount === null ? '不可用' : `${t.limitUpCount}只`}`,
             ).join('；')
           : '板块数据不可用';
         const riskSummary = risks.map((r) => `${r.label}：${r.detail}`).join('；');
@@ -352,8 +370,27 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
       }
     }
 
-    // dataSource 由**实际可用性**推导，禁止硬编码 'real'（P0-PULSE 缺陷②）
-    const dataSource = hasMarketData ? 'real' : 'unavailable';
+    // 缺失字段清单：由 null 推导（绝不补 0），前端据此渲染 '--'，
+    // dataSource 据此从 real 降为 partial（有缺失）或 unavailable（全无所获）。
+    const missing: string[] = [];
+    if (rising === null) missing.push('breadth.rising');
+    if (falling === null) missing.push('breadth.falling');
+    if (risingRatio === null) missing.push('breadth.risingRatio');
+    if (limitUp === null) missing.push('limitUp');
+    themes.forEach((t, i) => {
+      if (t.avgChangePercent === null) missing.push(`themes[${i}].avgChangePercent`);
+      if (t.limitUpCount === null) missing.push(`themes[${i}].limitUpCount`);
+      if (t.turnover === null) missing.push(`themes[${i}].turnover`);
+    });
+    candidates.forEach((c, i) => {
+      if (c.changePercent === null) missing.push(`candidates[${i}].changePercent`);
+      if (c.turnoverRate === null) missing.push(`candidates[${i}].turnoverRate`);
+    });
+
+    // dataSource 由**实际缺失**推导，禁止硬编码 'real'（P0-PULSE 缺陷②）
+    const hasAnySignal = hasMarketData || hasSectorData;
+    const dataSource: DataSource =
+      missing.length === 0 ? 'real' : hasAnySignal ? 'partial' : 'unavailable';
 
     sendHonest(res, dataSource, {
       temperature,
@@ -362,6 +399,8 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
         ? null
         : { rising, falling, risingRatio: Number((risingRatio * 100).toFixed(1)) },
       limitUp,
+      // 缺失字段名清单（null 的字段），前端据此渲染 '--'
+      missing,
       themes,
       risks,
       candidates,
@@ -393,6 +432,11 @@ router.get('/market-pulse', asyncHandler(async (_req: Request, res: Response) =>
       // 「不可用」与「字段不存在」，也避免将来有人误用 ?? 0 再造一个假 0。
       breadth: null,
       limitUp: null,
+      // 降级分支同样是「有缺失」而非「字段不存在」
+      missing: [
+        'breadth.rising', 'breadth.falling', 'breadth.risingRatio',
+        'limitUp', 'themes', 'candidates',
+      ],
       themes: [],
       risks: [{ level: 'low', label: '数据暂不可用', detail: '市场信号计算失败' }],
       candidates: [],

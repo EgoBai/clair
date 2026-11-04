@@ -105,10 +105,14 @@ const REAL_BREADTH = {
   unchangedStocks: 60,
   limitUpCount: 39,
 };
+// getSectorMomentumScore 的真实返回形状（含 total_turnover）。total_turnover 是可空列：
+// 带上它 → market-pulse 的 missing 为空、dataSource 才是 'real'。
 const REAL_SECTORS = [
-  { industry: '半导体', score: 78, avg_change_percent: 2.3, limit_up_count: 3, stock_count: 120 },
-  { industry: '白酒', score: 61, avg_change_percent: -0.4, limit_up_count: 0, stock_count: 40 },
+  { industry: '半导体', score: 78, avg_change_percent: 2.3, limit_up_count: 3, stock_count: 120, total_turnover: 1.2345e10 },
+  { industry: '白酒', score: 61, avg_change_percent: -0.4, limit_up_count: 0, stock_count: 40, total_turnover: 6.789e9 },
 ];
+// total_turnover 缺失（NULL）时的同一形状：用于锁定 'partial' + turnover=null 的空态口径
+const SECTORS_WITHOUT_TURNOVER = REAL_SECTORS.map(({ total_turnover, ...rest }) => rest);
 
 function buildApp(router: express.Router, mountPath: string) {
   const app = express();
@@ -185,12 +189,35 @@ describe('R3 · /api/ai/market-pulse：先解析交易日再查库 + asOf 透出
 
     // #107-C8 已拍平：data 直接是业务载荷
     const d = res.body.data;
+    // 夹具带齐 total_turnover → 无可空列缺数，口径必须是 'real'（不得因空态兜底而误降 partial）
     expect(d.dataSource).toBe('real');
+    expect(d.missing).toEqual([]);
+    // 换手额来自真实夹具值，且不是被 0 顶替的空态
+    expect(d.themes[0].turnover).toBe(1.2345e10);
+    expect(d.themes[0].turnover).not.toBe(0);
+    expect(d.themes[1].turnover).toBe(6.789e9);
     expect(d.asOf).toBe(RESOLVED_AS_OF);
     expect(d.asOfIsFallback).toBe(true);
     expect(d.asOfNote).toBe(RESOLVED_NOTE);
     expect(d.breadth.rising).toBe(755);
     expect(d.breadth.falling).toBe(4368);
+  });
+
+  it('total_turnover 缺失 → dataSource partial、missing 点名、turnover 为 null 且 !== 0', async () => {
+    dbMock.getSectorMomentumScore.mockResolvedValueOnce(SECTORS_WITHOUT_TURNOVER);
+    const res = await request(buildApp(marketPulseRouter, '/api/ai')).get('/api/ai/market-pulse');
+
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(d.dataSource).toBe('partial');
+    expect(d.missing).toEqual(expect.arrayContaining(['themes[0].turnover', 'themes[1].turnover']));
+    // 缺数必须是 null，不能退化成 0（0 会被误读为「真实换手为零」）
+    expect(d.themes[0].turnover).toBeNull();
+    expect(d.themes[0].turnover).not.toBe(0);
+    expect(d.themes[1].turnover).toBeNull();
+    // 其余真实字段不受影响（防过度修复）
+    expect(d.themes[0].avgChangePercent).toBe(2.3);
+    expect(d.breadth.rising).toBe(755);
   });
 });
 

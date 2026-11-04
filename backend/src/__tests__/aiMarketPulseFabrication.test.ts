@@ -199,7 +199,9 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
       const d = res.body.data;
       const text = allText(res);
 
-      expect(d.dataSource).toBe('unavailable');
+      // 规则 C 改为 null 后：广度 3 字段缺失 → dataSource 'partial'（板块数据可用，非全无）
+      expect(d.dataSource).toBe('partial');
+      expect(d.missing).toEqual(expect.arrayContaining(['breadth.rising', 'breadth.falling', 'breadth.risingRatio']));
       expect(text).not.toContain('普跌');
       expect(text).not.toContain('0.0%');
       expect(chatMock).not.toHaveBeenCalled();
@@ -272,8 +274,9 @@ describe('P0-PULSE · /api/ai/market-pulse：不得编造市场解读 + 不得�
       const d = res.body.data;
       const text = allText(res);
 
-      // 广度「真的拿到了」→ 仍算real
-      expect(d.dataSource).toBe('real');
+      // 广度 0/0 时 risingRatio 为 null（不可计算）→ 存在缺失字段，按规则 C 口径降为 'partial'
+      expect(d.dataSource).toBe('partial');
+      expect(d.missing).toEqual(expect.arrayContaining(['breadth.risingRatio']));
       // 但占比不可计算
       expect(d.breadth).toBeNull();
       expect(d.availability.breadth).toBe(false);

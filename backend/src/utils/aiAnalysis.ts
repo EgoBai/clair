@@ -50,12 +50,14 @@ export interface SmartAlert {
 export interface SectorRotation {
   sector: string;
   currentPhase: 'leading' | 'lagging' | 'heating' | 'cooling';
-  rotationScore: number;       // 轮动得分 0-100
+  // 轮动得分依赖 avgChangePercent，后者缺失时为 null（0-100 区间内才是数字）
+  rotationScore: number | null;
   trend: 'up' | 'down' | 'sideways';
-  avgChangePercent: number;
+  // 板块内全部成员都没有真实涨跌幅时为 null（不拿 0 顶替）
+  avgChangePercent: number | null;
   momentum: number;            // 动量指标
   capitalInflow: number;       // 资金流入（真实源不可得时诚实置 0）
-  topStocks: { symbol: string; name: string; changePercent: number }[];
+  topStocks: { symbol: string; name: string; changePercent: number | null }[];
   analysis: string;
 }
 
@@ -83,8 +85,10 @@ export interface StockData {
   roe: number;
   revenueGrowth: number;
   profitGrowth: number;
-  marketCap: number;
-  changePercent: number;
+  // 市值 / 涨跌幅在真实行情源里可能缺失（腾讯行情字段为空）：
+  // 缺失一律 null，绝不写 0 —— 0 会被下游读成「市值真的为 0」「今天真的平盘」。
+  marketCap: number | null;
+  changePercent: number | null;
 }
 
 // ==================== 技术指标计算辅助 ====================
@@ -285,7 +289,8 @@ export function analyzeStock(stock: StockData): StockScore {
   let riskScore = 30;
   if (volatility > 5) riskScore += 20;
   if (stock.pe > 50) riskScore += 15;
-  if (stock.changePercent > 8) riskScore += 10; // 涨停风险
+  // 涨跌幅缺失时不做涨停风险加成（缺失 ≠ 平盘）
+  if (stock.changePercent !== null && stock.changePercent > 8) riskScore += 10; // 涨停风险
   riskScore = Math.max(0, Math.min(100, riskScore));
 
   // === 综合评分 ===
@@ -486,6 +491,14 @@ export function detectAbnormalEvents(stocks: StockData[]): SmartAlert[] {
 
 // ==================== 行业轮动分析 ====================
 
+/** 可空数值降序比较：null 表示「无数据」，一律排到末尾，不参与大小比较 */
+function compareNullableDesc(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return b - a;
+}
+
 /**
  * 分析行业轮动趋势（基于真实 StockData 列表）
  * 资金流入字段无免费真实源，诚实置 0（前端按"未接入"处理），绝不伪造。
@@ -502,7 +515,13 @@ export function analyzeSectorRotation(stocks: StockData[]): SectorRotation[] {
   const rotations: SectorRotation[] = [];
 
   for (const [sector, sectorStocks] of sectorMap) {
-    const avgChange = sectorStocks.reduce((a, s) => a + s.changePercent, 0) / sectorStocks.length;
+    // 只对「有真实涨跌幅」的成员求均值；一个都没有 → null（绝不按 0 记账）
+    const knownChanges = sectorStocks
+      .map(s => s.changePercent)
+      .filter((v): v is number => v !== null);
+    const avgChange = knownChanges.length > 0
+      ? knownChanges.reduce((a, b) => a + b, 0) / knownChanges.length
+      : null;
     const momentum = sectorStocks.reduce((a, s) => {
       const p = s.prices;
       const ref = p[p.length - 11] ?? p[0];
@@ -512,7 +531,11 @@ export function analyzeSectorRotation(stocks: StockData[]): SectorRotation[] {
     let currentPhase: SectorRotation['currentPhase'];
     let trend: SectorRotation['trend'];
 
-    if (momentum > 5 && avgChange > 1) {
+    if (avgChange === null) {
+      // 涨跌幅全缺：阶段只能由真实动量推断，不臆断「领涨 / 落后」
+      currentPhase = momentum > 0 ? 'heating' : 'cooling';
+      trend = momentum > 0 ? 'up' : momentum < 0 ? 'down' : 'sideways';
+    } else if (momentum > 5 && avgChange > 1) {
       currentPhase = 'leading';
       trend = 'up';
     } else if (momentum > 0 && avgChange > 0) {
@@ -526,12 +549,16 @@ export function analyzeSectorRotation(stocks: StockData[]): SectorRotation[] {
       trend = avgChange > 0 ? 'sideways' : 'down';
     }
 
-    const rotationScore = Math.round(50 + momentum * 3 + avgChange * 5);
+    // 轮动得分依赖涨跌幅，涨跌幅全缺时诚实置 null（不拿 50 分基线冒充真实得分）
+    const rotationScore = avgChange === null
+      ? null
+      : Math.max(0, Math.min(100, Math.round(50 + momentum * 3 + avgChange * 5)));
     // 资金流入无真实源，诚实置 0（非"无资金流入"的市场结论，仅占位）
     const capitalInflow = 0;
 
     const topStocks = sectorStocks
-      .sort((a, b) => b.changePercent - a.changePercent)
+      .slice()
+      .sort((a, b) => compareNullableDesc(a.changePercent, b.changePercent))
       .slice(0, 3)
       .map(s => ({ symbol: s.symbol, name: s.name, changePercent: s.changePercent }));
 
@@ -553,9 +580,9 @@ export function analyzeSectorRotation(stocks: StockData[]): SectorRotation[] {
     rotations.push({
       sector,
       currentPhase,
-      rotationScore: Math.max(0, Math.min(100, rotationScore)),
+      rotationScore,
       trend,
-      avgChangePercent: Math.round(avgChange * 100) / 100,
+      avgChangePercent: avgChange === null ? null : Math.round(avgChange * 100) / 100,
       momentum: Math.round(momentum * 100) / 100,
       capitalInflow,
       topStocks,
@@ -563,5 +590,7 @@ export function analyzeSectorRotation(stocks: StockData[]): SectorRotation[] {
     });
   }
 
-  return rotations.sort((a, b) => b.rotationScore - a.rotationScore);
+  // 无得分的板块（rotationScore 为 null）排到末尾，仅排序用哨兵，不出现在响应里
+  const scoreRank = (r: SectorRotation): number => (r.rotationScore === null ? -Infinity : r.rotationScore);
+  return rotations.sort((a, b) => scoreRank(b) - scoreRank(a));
 }

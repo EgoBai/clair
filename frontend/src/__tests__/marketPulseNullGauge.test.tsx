@@ -23,6 +23,7 @@ import {
   temperatureGaugeColor,
   MarketTemperatureGauge,
   GAUGE_UNAVAILABLE_COLOR,
+  fmtNullablePct,
 } from '../pages/DiscoverPage';
 
 const RED = '#ef4444';
@@ -221,5 +222,36 @@ describe('P0-TEMPGAUGE · 市场温度仪表盘诚实契约', () => {
       expect(missingHtml).not.toContain('0/100');
       expect(missingHtml).not.toBe(realHtml);
     });
+  });
+});
+// ─────────────────────────────────────────────────────────────
+// 规则C 诚实渲染：可空百分比格式化（并入本文件，不另建文件）
+// 后端把可空列从 0 改成 null 后，前端绝不能把 null 渲染成「+0.00%」——
+// 那等于凭空断言「今天真的平盘」。缺数一律 '—'（U+2014），与全仓约定一致。
+// ─────────────────────────────────────────────────────────────
+describe('fmtNullablePct · 规则C 可空百分比空态', () => {
+  it.each([[null], [undefined], [NaN], [Infinity], [-Infinity]])(
+    '缺数/非法值 %s 渲染为 em dash，绝不出数字',
+    (v) => {
+      const out = fmtNullablePct(v as any);
+      expect(out).toBe('—');
+      // 空态里不得残留任何数字或百分号形态
+      expect(out).not.toMatch(/[0-9%]/);
+      expect(out).not.toBe('--');
+    },
+  );
+
+  it('真实 0 必须是 +0.00%（真实平盘），与缺数不可区分就是缺陷', () => {
+    expect(fmtNullablePct(0)).toBe('+0.00%');
+    expect(fmtNullablePct(0)).not.toBe(fmtNullablePct(null));
+  });
+
+  it.each([
+    [1.234, '+1.23%'],
+    [-1.2, '-1.20%'],
+    [12, '+12.00%'],
+    [-0.005, '-0.01%'],
+  ])('%s → %s', (v, expected) => {
+    expect(fmtNullablePct(v)).toBe(expected);
   });
 });
