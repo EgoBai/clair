@@ -112,10 +112,13 @@ const SYMBOLS = [
   '600030', '000333', '600276', '601012', '600585', '000063',
 ];
 
+// 前端会给 /market/kline 补市场前缀（Worker 拒绝裸 6 位码），mock 按裸码比对。
+const bareOf = (s: string) => s.replace(/^(sh|sz|bj)/i, '').replace(/\.(SH|SZ|BJ)$/i, '');
+
 function setupMockKlines(symbols: string[] = SYMBOLS) {
   apiGet.mockImplementation((_path: string, params?: { symbol?: string }) => {
     const symbol = params?.symbol ?? '';
-    const idx = symbols.indexOf(symbol);
+    const idx = symbols.indexOf(bareOf(symbol));
     if (idx < 0) {
       return Promise.resolve({
         success: true,
@@ -157,6 +160,21 @@ describe('backtestDataService 取数', () => {
     expect(s.returns[1]).toBeCloseTo(s.prices[1] / s.prices[0] - 1, 10);
     expectAllFinite(s.prices, 'prices');
     expectAllFinite(s.returns, 'returns');
+  });
+
+  it('请求 /market/kline 时必须带市场前缀（Worker 拒绝裸 6 位码，2026-11-04 线上 400 回归）', async () => {
+    apiGet.mockClear();
+    await getHistorySeries('600519', N_DAYS);
+    await getHistorySeries('000858', N_DAYS);
+    const sent = apiGet.mock.calls
+      .filter(([path]) => path === '/market/kline')
+      .map(([, params]) => (params as { symbol?: string } | undefined)?.symbol);
+    expect(sent).toEqual(['sh600519', 'sz000858']);
+  });
+
+  it('对外 symbol 保持调用方传入的裸码写法，不被前缀污染', async () => {
+    const s = await getHistorySeries('600519', N_DAYS);
+    expect(s.symbol).toBe('600519');
   });
 
   it('dataSource=unavailable 时诚实降级为空序列，不伪造', async () => {

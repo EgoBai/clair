@@ -69,11 +69,15 @@ function makeFactorSeriesPayload(symbol: string) {
 
 const SYMBOLS = ['600519', '601318', '000858'];
 
+// /market/kline 现在由前端补市场前缀（Worker 拒绝裸 6 位码），mock 按裸码比对，
+// 但 payload.symbol 原样回传请求值，验证「请求带前缀、对外仍是调用方写法」。
+const bareSymbol = (s: string) => s.replace(/^(sh|sz|bj)/i, '').replace(/\.(SH|SZ|BJ)$/i, '');
+
 function setupMocks(factorSymbols: string[] = SYMBOLS) {
   apiGet.mockImplementation((path: string, params?: { symbol?: string }) => {
     const symbol = params?.symbol ?? '';
     if (path === '/market/kline') {
-      if (SYMBOLS.includes(symbol)) {
+      if (SYMBOLS.includes(bareSymbol(symbol))) {
         return Promise.resolve({ success: true, data: makeKlinePayload(symbol) });
       }
       return Promise.resolve({

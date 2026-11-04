@@ -1,8 +1,8 @@
 {
   "shadow": 687,
-  "total": 1525,
+  "total": 1526,
   "shadowLoc": 173372,
   "recordedAt": "2026-11-04",
-  "note": "只许下调：影子数高于基线即失败。批次 47 后 687/1523；轮 19-20 各补 1 个真实导入测试（indexDataService、screenerContract）→ total 1525、影子仍 687",
-  "realLoc": 191980
+  "note": "只许下调：影子数高于基线即失败。批次 47 后 687/1523；轮 19-20 补 3 个真实导入测试（indexDataService、screenerContract、symbolCode）→ total 1526、影子仍 687",
+  "realLoc": 192110
 }

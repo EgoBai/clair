@@ -16,6 +16,7 @@
  */
 
 import { apiService } from './api';
+import { toStockSymbol } from '../utils/symbolCode';
 import logger from '../utils/logger';
 import type { SectorData as RotationSectorData } from '../utils/sectorRotationEngine';
 import type { SectorData as RotationV2SectorData } from '../utils/sectorRotationV2Engine';
@@ -128,9 +129,12 @@ export async function getHistorySeries(symbol: string, days: number = 250): Prom
     return cached.series;
   }
 
+  // Worker /api/market/kline 拒绝裸 6 位码（000001 有歧义），股票域由前端补 sh/sz/bj 前缀。
+  const apiSymbol = toStockSymbol(symbol);
+
   let series: HistorySeries;
   try {
-    const resp = await apiService.get<KlinePayload>('/market/kline', { symbol, days });
+    const resp = await apiService.get<KlinePayload>('/market/kline', { symbol: apiSymbol, days });
     const payload = resp.data;
     if (
       !payload ||
@@ -149,7 +153,8 @@ export async function getHistorySeries(symbol: string, days: number = 250): Prom
         return prev !== 0 ? p / prev - 1 : 0;
       });
       series = {
-        symbol: payload.symbol || symbol,
+        // 对外保持调用方传入的写法（裸码仍是裸码），只有请求参数才带市场前缀。
+        symbol,
         dataSource: 'real',
         dates: payload.dates,
         prices,

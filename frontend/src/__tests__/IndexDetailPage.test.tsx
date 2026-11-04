@@ -340,3 +340,38 @@ describe('indices 补齐 OHLC/成交额：头部不再整排「—」', () => {
     expect(text).not.toMatch(/NaN/);
   });
 });
+
+// ── 场景七：裸代码请求 K 线必须补市场前缀（2026-11-04 线上 400 回归）──
+//
+// Worker /api/market/kline 拒绝裸 6 位码：000001 既是上证指数也是平安银行，
+// 错误原文「无法识别的 symbol「600519」：请使用 sh000001 / sz399006 / 600519.SH 形式」。
+// 指数页知道自己要的是指数，因此由前端补 sh/sz/bj 前缀。
+
+describe('K 线请求符号前缀', () => {
+  const routes = {
+    '/api/market/indices': { body: { success: true, dataSource: 'real', data: { indices: [INDEX_ROW_FULL] } } },
+    '/api/market/index-tech/': { body: TECH_REAL },
+    '/api/market/index-top-movers/': { body: MOVERS_REAL },
+    '/api/market/kline': { status: 404, body: NOT_FOUND_BODY },
+  };
+
+  it('裸指数代码 000001 → 请求 symbol=sh000001（而不是裸码或 sz）', async () => {
+    const fn = routeFetch(routes);
+    renderPage('000001');
+    await waitFor(() => {
+      const urls = fn.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.includes('/api/market/kline?symbol=sh000001'))).toBe(true);
+      expect(urls.some((u) => u.includes('symbol=000001'))).toBe(false);
+    });
+  });
+
+  it('已带前缀 sz399006 原样使用，不重复加前缀', async () => {
+    const fn = routeFetch(routes);
+    renderPage();
+    await waitFor(() => {
+      const urls = fn.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.includes('/api/market/kline?symbol=sz399006'))).toBe(true);
+      expect(urls.some((u) => u.includes('symbol=shsz399006'))).toBe(false);
+    });
+  });
+});

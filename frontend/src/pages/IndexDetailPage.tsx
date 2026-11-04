@@ -29,6 +29,7 @@ import echarts from '@/utils/echarts';
 const { Title, Text } = Typography;
 
 import { THEME } from '../styles/theme-constants';
+import { toIndexSymbol } from '../utils/symbolCode';
 const BG = THEME.bg;
 const _CARD_BG = THEME.cardBg;
 const TEXT = THEME.text;
@@ -200,8 +201,10 @@ const IndexDetailPage: React.FC = () => {
       }
 
       // ---- 3) 指数 K 线：/api/market/kline 返回并行数组，需转成 candlestick 所需的行数组 ----
+      // Worker 拒绝裸 6 位码（000001 既是上证指数又是平安银行），指数域这里补 sh/sz/bj 前缀。
+      const klineSymbol = toIndexSymbol(symbol);
       try {
-        const res = await fetch(`/api/market/kline?symbol=${encodeURIComponent(symbol)}&days=120`, opts);
+        const res = await fetch(`/api/market/kline?symbol=${encodeURIComponent(klineSymbol)}&days=120`, opts);
         const body = await res.json();
         const d = body?.data;
         if (body?.dataSource === 'real' && Array.isArray(d?.dates) && d.dates.length > 0) {
