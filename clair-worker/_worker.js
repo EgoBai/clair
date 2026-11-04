@@ -35,6 +35,57 @@ async function getStockList() {
   return getFallbackStocks();
 }
 
+/**
+ * 北交所/新上市标的兜底解析（2026-11-04）。
+ *
+ * 【为什么需要】getStockList() 来自历史全市场快照（5,541 只），不含北交所
+ * 833171 / 430047 / 920002 等标的 → /api/stocks/:symbol 与
+ * /api/stocks/:symbol/kline 直接 404「Stock not found」。用户看到的不是
+ * 「数据缺失」而是「这只股票不存在」，属于用 404 冒充空态（诚实红线）。
+ * 腾讯行情对 bj 前缀能正常返回名称与报价，故按代码前缀推断市场后用腾讯行情
+ * **验证存在性**：验证失败仍返回 null（404 保持），绝不为未验证的代码伪造
+ * 一只股票，也不给假的行业分类（industry 保持 null）。
+ */
+function marketFromCode(symbol) {
+  const s = String(symbol || '');
+  if (!/^\d{6}$/.test(s)) return null;
+  if (s.startsWith('6')) return 'SH';
+  if (s.startsWith('0') || s.startsWith('3')) return 'SZ';
+  if (s.startsWith('4') || s.startsWith('8') || s.startsWith('92')) return 'BJ';
+  return null;
+}
+
+function tencentPrefix(market) {
+  return market === 'SH' ? 'sh' : market === 'BJ' ? 'bj' : 'sz';
+}
+
+async function resolveStockFallback(symbol) {
+  const market = marketFromCode(symbol);
+  if (!market) return null;
+  try {
+    const prefix = tencentPrefix(market);
+    const qs = await fetchTencentQuotes([`${prefix}${symbol}`]);
+    const q = qs.find(x => x.symbol === symbol && x.tencentSymbol === `${prefix}${symbol}`);
+    if (q && q.name) {
+      return { symbol, name: q.name, market, industry: null, fallbackResolved: true };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** 未在快照清单里的标的：单只取腾讯行情，字段形状与 getAllQuotes 的 quote 一致 */
+async function fetchQuoteFallback(symbol, market) {
+  try {
+    const prefix = tencentPrefix(market);
+    const qs = await fetchTencentQuotes([`${prefix}${symbol}`]);
+    return qs.find(x => x.symbol === symbol && x.tencentSymbol === `${prefix}${symbol}`) || null;
+  } catch {
+    return null;
+  }
+}
+
 // 行业标准化映射 (EastMoney → 申万一级行业)
 const INDUSTRY_NORMALIZE = {
   '银行': '银行', '保险': '非银金融', '证券': '非银金融', '多元金融': '非银金融',
@@ -1333,7 +1384,7 @@ async function handleBatchQuotes(request) {
 async function handleStockDetail(symbol) {
   try {
     const stocks = await getStockList();
-    const stock = stocks.find(s => s.symbol === symbol);
+    const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
     
     // Check if this is an index symbol
     const indexInfo = INDEX_SYMBOLS.find(idx => {
@@ -1372,7 +1423,8 @@ async function handleStockDetail(symbol) {
     }
 
     // Stock detail (with quote matching frontend field names)
-    const q = quotes.find(qu => qu.symbol === symbol);
+    // 快照清单外的标的（北交所/新上市）不在全量 quotes 里，按单只取腾讯行情兜底
+    const q = quotes.find(qu => qu.symbol === symbol) || await fetchQuoteFallback(symbol, stock.market);
     if (!q) return error('Quote not available', 404);
 
     return json({
@@ -1462,7 +1514,18 @@ async function handleSearch(url) {
     }, 400);
   }
 
-  const matches = searchStockList(q, limit);
+  let matches = searchStockList(q, limit);
+  let outsideSnapshot = false;
+  if (matches.length === 0 && /^\d{6}$/.test(q)) {
+    // 清单是 2026-06-22 快照，北交所/新上市代码不在里面（如 833171）。
+    // 纯数字代码再按「代码前缀 + 腾讯行情验证」兜底一次：验证通过才算真命中，
+    // 验证失败继续走下面的诚实降级（绝不凭前缀造股票）。
+    const resolved = await resolveStockFallback(q);
+    if (resolved) {
+      outsideSnapshot = true;
+      matches = [{ symbol: resolved.symbol, name: resolved.name, market: resolved.market, industry: null }];
+    }
+  }
   if (matches.length === 0) {
     // 真实清单里确实没有匹配项 → 如实说明，不返回伪造结果
     return json({
@@ -1480,7 +1543,10 @@ async function handleSearch(url) {
   return json({
     success: true,
     dataSource: 'real',
-    data: { results: matches, query: q, total: matches.length },
+    data: {
+      results: matches, query: q, total: matches.length,
+      ...(outsideSnapshot ? { note: '该标的不在内置快照清单（5,541 只 / 2026-06-22）中，已按代码前缀 + 腾讯行情实时验证' } : {}),
+    },
     results: matches,
     total: matches.length,
     timestamp: Date.now(),
@@ -2216,10 +2282,10 @@ async function fetchDailyKLine(tencentSymbol, symbol, market, limit) {
 async function handleStockKLine(symbol) {
   try {
     const stocks = await getStockList();
-    const stock = stocks.find(s => s.symbol === symbol);
+    const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
     if (!stock) return error('Stock not found', 404);
 
-    const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+    const tencentSymbol = `${tencentPrefix(stock.market)}${symbol}`;
     const { quotes, source, attempts } = await fetchDailyKLine(tencentSymbol, symbol, stock.market, 2000);
 
     if (!quotes || quotes.length === 0) {
@@ -2885,9 +2951,9 @@ function generateAINarrative(quote, score, maAlignment, crossover, macdSignal, r
  */
 async function fetchKLine(symbol) {
   const stocks = await getStockList();
-  const stock = stocks.find(s => s.symbol === symbol);
+  const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
   if (!stock) return null;
-  const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+  const tencentSymbol = `${tencentPrefix(stock.market)}${symbol}`;
 
   try {
     // 多源降级：与个股 K 线同链路，腾讯 WAF 时自动切换
@@ -3149,7 +3215,7 @@ async function fetchStockNewsBySearch(keyword, limit) {
 async function handleStockNews(symbol) {
   try {
     const stocks = await getStockList();
-    const stock = stocks.find(s => s.symbol === symbol);
+    const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
     const name = stock ? stock.name : '';
 
     let items = [];
@@ -3336,10 +3402,10 @@ async function handleAlerts(url) {
 async function handleBacktest(symbol) {
   try {
     const stocks = await getStockList();
-    const stock = stocks.find(s => s.symbol === symbol);
+    const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
     if (!stock) return error('Stock not found', 404);
 
-    const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+    const tencentSymbol = `${tencentPrefix(stock.market)}${symbol}`;
     // 多源降级：与个股 K 线同链路
     const kl = await fetchDailyKLine(tencentSymbol, symbol, stock.market, 250).catch(() => ({ quotes: [] }));
     const dayData = (kl?.quotes || []).map(q => [q.tradeDate, String(q.openPrice), String(q.closePrice), String(q.highPrice), String(q.lowPrice), String(q.volume)]);
@@ -3650,14 +3716,14 @@ async function handleBacktestRun(request) {
 
   try {
     const stocks = await getStockList();
-    const stock = stocks.find(s => s.symbol === symbol);
+    const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
     if (!stock) {
       return json({ success: false, error: `未找到股票 ${symbol}`, details: `未找到股票 ${symbol}` }, 404);
     }
 
     // 需要的K线根数：区间交易日估算 + 预热 + 余量
     const needBars = Math.min(3000, Math.ceil(spanDays * 0.72) + BT_WARMUP_DAYS + 60);
-    const tencentSymbol = `${stock.market === 'SH' ? 'sh' : 'sz'}${symbol}`;
+    const tencentSymbol = `${tencentPrefix(stock.market)}${symbol}`;
     const kl = await fetchDailyKLine(tencentSymbol, symbol, stock.market, needBars)
       .catch(() => ({ quotes: [] }));
     const all = (kl?.quotes || [])
@@ -7947,7 +8013,7 @@ export default {
               : stocks.find(s => s.symbol === pureSymbol || s.symbol === symbol);
             if (!stock) return { symbol };
             // ts 优先用请求市场（权威）；缺失时回退 stockList 的 market。
-            const ts = tencentKey || `${stock.market === 'SH' ? 'sh' : 'sz'}${pureSymbol}`;
+            const ts = tencentKey || `${tencentPrefix(stock.market)}${pureSymbol}`;
             // 多源降级：与个股 K 线共用 fetchDailyKLine（腾讯→新浪→东财），WAF 封禁不再导致指标整体缺失
             const kl = await fetchDailyKLine(ts, pureSymbol, reqMarket, days + 5);
             const closes = (kl?.quotes || []).map(d => d.closePrice).filter(c => c > 0);

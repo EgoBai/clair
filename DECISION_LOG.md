@@ -353,3 +353,11 @@
 - **验证**：worker 契约新增 1 例（实时主机抛错 + 延迟主机回常量 → current null / unavailable / 板块仍在）；`node --test` 86 通过 2 失败（两条既有北向真实网络口径失败）。部署后线上实测 `/api/fund-flow/600519` → `latest:null, current:null, dataSource:unavailable, attempts:['push2.eastmo:non-json','push2delay:untrusted-constant'], source:'eastmoney-boards-only'`。
 - **兜底（同一轮补齐）**：东财双主机都拿不到可信五档时，改走新浪 `MoneyFlow.ssi_ssfx_flzjtj`（与 K 线 sina 源同域，CF 出口可达）：`r0..r3` 的 `in/out` 相减得五档净额，`mainNet = r0_net + r1_net`，`mainNetPct = null`；响应 `dataSource`/`source` 如实标 `sina`，不冒名 `eastmoney`。新浪字段缺失或全为 0 时返回 null，不猜。
 - **代价**：个股资金流变成「东财实时 → 新浪 → unavailable」三级降级，来源必须看 `dataSource` 才知道是谁；两源档位口径可能略有差异（新浪给 in/out，东财给净额），跨源数值不可直接对比。东财 push2 若在 CF 出口恢复，会自动优先东财。
+
+## D54 北交所标的兜底解析：404「Stock not found」就是拿「不存在」冒充「没覆盖」（2026-11-04 14:55）
+
+- **背景**：线上 `/api/stocks/833171`、`/api/stocks/430047`、`/api/stocks/920002` 全部 404 `Stock not found`。根因是 Worker 的 `getStockList()` 读内置快照（5,541 只 / 2026-06-22），北交所整体不在快照里；详情、K 线、新闻、回测、搜索五处都只做 `stocks.find(s => s.symbol === symbol)`，查不到即 404。但同一批标的上游是有真实数据的（腾讯 `bj833171` 返回「国航远洋」，东财 `secid=0.833171` 有 2015 年至今 K 线）。
+- **判定**：这不是「股票不存在」，而是我们没覆盖。**404「不存在」与「没覆盖」对用户是两种语义**，前者会让用户以为代码错了 → 违反诚实红线（错误用状态码冒充事实）。
+- **做法**：新增 `marketFromCode()`（6=SH / 0,3=SZ / 4,8,92=BJ）、`tencentPrefix()`、`resolveStockFallback()`、`fetchQuoteFallback()`。所有 `stocks.find(...)` 改为 `|| await resolveStockFallback(symbol)`；前缀拼接统一走 `tencentPrefix`（原代码写成 `market === 'SH' ? 'sh' : 'sz'`，北交所会被拼成 `sz`）。`industry` 诚实返回 `null`（快照里没有它的分类，不用「综合」冒充）。搜索在纯数字关键词无静态命中时用同一链路兜底，并在响应 `data.note` 注明「不在内置快照清单，已按代码前缀 + 腾讯行情实时验证」。
+- **不做什么**：不批量补 5,541 只清单（快照来源未知、无法回溯日期）；不为未通过腾讯行情验证的代码造股票（`999999` 仍 404）；不猜行业。
+- **证据**：新增契约 5 例（833171 详情 market=BJ/industry=null、833171 日 K 走东财 source 非空、920002 可解析、999999 仍 404、搜索 833171 命中且带 note）；`node --test` 92 通过 2 失败（两条为既有北向真实网络口径）。线上复测见 PROGRESS。

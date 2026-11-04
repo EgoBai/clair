@@ -1588,6 +1588,62 @@ await test('快照超过 48 小时标 stale=true 并说明，不冒充新鲜', a
   });
 });
 
+// ============================================================
+// 三·七、北交所兜底（2026-11-04）
+//
+// 【为什么需要】内置股票清单是历史全市场快照（5,541 只），不含北交所
+// 833171 / 430047 / 920002。修复前 /api/stocks/:symbol 与 /api/stocks/:symbol/kline
+// 对这些代码直接 404「Stock not found」——用户看到的是「股票不存在」，
+// 而不是「我们没覆盖」，属于用 404 冒充空态。
+// 修复方式：按代码前缀推断市场（6=SH / 0,3=SZ / 4,8,92=BJ），再用腾讯行情
+// 验证存在性；验证失败仍 404，绝不为未验证的代码伪造股票。
+// ============================================================
+
+console.log('\n北交所兜底');
+
+await test('个股详情：833171 兜底解析为 BJ（名称来自腾讯，industry 诚实为 null）', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/833171');
+  assert.equal(status, 200, `期望 200，实际 ${status}（修复前是 404 Stock not found）`);
+  assert.equal(body.success, true);
+  assert.equal(body.data.symbol, '833171');
+  assert.equal(body.data.market, 'BJ');
+  assert.ok(typeof body.data.name === 'string' && body.data.name.length > 0, '名称应非空');
+  assert.equal(body.data.industry, null, '快照清单没有它的行业，必须 null 而不是「综合」');
+  assert.ok(body.data.quote && body.data.quote.closePrice > 0, '应有真实报价');
+});
+
+await test('日 K：833171 走东财 secid 0.<code>，返回真实 K 线且标 source', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/833171/kline?limit=20');
+  assert.equal(status, 200);
+  assert.ok(body.data.count > 0, `应有 K 线，实际 count=${body.data.count}`);
+  assert.ok(['eastmoney', 'sina', 'tencent'].includes(body.data.source), `source 应注明来源，实际 ${body.data.source}`);
+  assert.ok(body.data.quotes[0].tradeDate < '2026-11-04', '首根应早于今日，不是伪造');
+});
+
+await test('920 段新代码同样可解析（920002 万达轴承）', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/920002');
+  assert.equal(status, 200, `期望 200，实际 ${status}`);
+  assert.equal(body.data.market, 'BJ');
+  assert.ok(body.data.name.length > 0);
+});
+
+await test('未知代码不伪造：999999 仍 404（兜底必须验证存在性）', async () => {
+  const { status } = await callWorker('https://clair-api.pages.dev/api/stocks/999999');
+  assert.equal(status, 404, '未验证通过的代码不能凭前缀造一只股票');
+});
+
+await test('搜索兜底：q=833171 命中北交所标的，并注明不在内置快照清单内', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/search?q=833171');
+  assert.equal(status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'real');
+  const hit = body.data.results.find((r) => r.symbol === '833171');
+  assert.ok(hit, `应命中 833171，实际 ${JSON.stringify(body.data.results)}`);
+  assert.equal(hit.market, 'BJ');
+  assert.equal(hit.industry, null, '快照里没有它的行业，不能编一个');
+  assert.ok(typeof body.data.note === 'string' && body.data.note.includes('快照'), '应注明不在内置快照清单内');
+});
+
 console.log('\n部署入口一致性');
 
 await test('_worker.js 与 worker.js 逐字节相同（否则线上跑的仍是旧代码）', async () => {
