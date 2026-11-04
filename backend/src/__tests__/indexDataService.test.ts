@@ -47,7 +47,7 @@ describe('normalizeIndexSymbol（指数符号归一化）', () => {
   it('null/undefined 入参不抛错', () => {
     // @ts-expect-error 运行时可能拿到非字符串
     expect(normalizeIndexSymbol(null)).toBeNull();
-    // @ts-expect-error 同上
+    // @ts-expect-error 同上：undefined 也按空值处理
     expect(normalizeIndexSymbol(undefined)).toBeNull();
   });
 });
