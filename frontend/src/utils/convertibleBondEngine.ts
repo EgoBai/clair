@@ -88,7 +88,10 @@ export function calcConversionPremium(bond: ConvertibleBond): number {
  */
 export function calcBondFloor(bond: ConvertibleBond): number {
   let floor = 0;
-  const discountRate = 0.05; // 简化折现率
+  // 折现率优先取债券自身的到期收益率 ytm（小数口径，如 0.03 = 3%）。
+  // ytm 缺失/null/非正时回退 5%——这是缺省假设利率，不是该债券的真实到期收益率。
+  const discountRate =
+    bond.ytm != null && Number.isFinite(bond.ytm) && bond.ytm > 0 ? bond.ytm : 0.05;
 
   // 各年利息
   for (let y = 0; y < bond.yearsToMaturity; y++) {

@@ -332,23 +332,32 @@ export function calculateVolatility(returns: number[], annualize: boolean = true
 }
 
 export function calculateMaxDrawdown(prices: number[]): { maxDrawdown: number; peak: number; trough: number } {
-  let peak = prices[0];
+  // peak/trough 均为下标：peak 必须是产生最大回撤的那段回撤的起点高点，
+  // trough 是该高点之后的最低点，二者必须属于同一段回撤（不能拿最后一次刷新的全局高点）。
+  if (prices.length === 0) {
+    return { maxDrawdown: 0, peak: 0, trough: 0 };
+  }
+
+  let runningPeak = prices[0];
+  let runningPeakIdx = 0;
   let maxDrawdown = 0;
   let peakIdx = 0;
   let troughIdx = 0;
 
   for (let i = 1; i < prices.length; i++) {
-    if (prices[i] > peak) {
-      peak = prices[i];
-      peakIdx = i;
+    if (prices[i] > runningPeak) {
+      runningPeak = prices[i];
+      runningPeakIdx = i;
     }
-    const drawdown = (peak - prices[i]) / peak;
+    const drawdown = (runningPeak - prices[i]) / runningPeak;
     if (drawdown > maxDrawdown) {
       maxDrawdown = drawdown;
+      peakIdx = runningPeakIdx;
       troughIdx = i;
     }
   }
 
+  // 无回撤（maxDrawdown=0）时没有合法的回撤区间，peak/trough 统一给 0 这个诚实占位值。
   return { maxDrawdown, peak: peakIdx, trough: troughIdx };
 }
 

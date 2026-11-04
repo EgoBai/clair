@@ -152,8 +152,14 @@ export function blackScholesPrice(params: OptionParams): number {
 export function calculateGreeks(params: OptionParams): Greeks {
   const { spot, strike, timeToExpiry, riskFreeRate, volatility, dividendYield = 0, type } = params;
 
+  // 到期或零波动时 BS 高阶敏感度退化，gamma/theta/vega/rho/lambda 等无定义，统一归零。
+  // 但 delta 仍应反映实值方向的固有值：call 实值=1/虚值=0，put 实值=-1/虚值=0。
+  // price/intrinsicValue 不在此清空，仍由 blackScholesPrice / priceOption 按内在价值计算，避免伪造。
   if (timeToExpiry <= 0 || volatility <= 0) {
-    return { delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0, lambda: 0, vanna: 0, charm: 0, volga: 0, speed: 0 };
+    const delta = type === 'call'
+      ? (spot > strike ? 1 : 0)
+      : (spot < strike ? -1 : 0);
+    return { delta, gamma: 0, theta: 0, vega: 0, rho: 0, lambda: 0, vanna: 0, charm: 0, volga: 0, speed: 0 };
   }
 
   const d1Val = d1(params);

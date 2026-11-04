@@ -136,15 +136,16 @@ describe('最大回撤 - calculateMaxDrawdown', () => {
   it('返回回撤比例以及 peak/trough 下标', () => {
     expect(calculateMaxDrawdown([100, 120, 110, 90, 95, 130])).toEqual({
       maxDrawdown: 0.25,
-      peak: 5,
+      // peak 是这段回撤的起点高点（下标 1 = 120），不是最后一次刷新的全局高点
+      peak: 1,
       trough: 3,
     });
   });
 
-  it('单调上涨时回撤为 0，peak 为末位下标', () => {
+  it('单调上涨时回撤为 0，peak/trough 无合法区间取 0', () => {
     expect(calculateMaxDrawdown([100, 110, 120, 130])).toEqual({
       maxDrawdown: 0,
-      peak: 3,
+      peak: 0,
       trough: 0,
     });
   });

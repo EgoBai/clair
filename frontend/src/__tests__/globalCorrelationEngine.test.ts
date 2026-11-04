@@ -173,12 +173,16 @@ describe('calculateMaxDrawdown', () => {
     const prices = [100, 110, 105, 90, 95, 120];
     const result = calculateMaxDrawdown(prices);
     expect(result.maxDrawdown).toBeCloseTo(0.1818, 3);
+    expect(result.peak).toBe(1); // 回撤起点 110，而不是最后一次刷新的全局高点 120(下标 5)
+    expect(result.trough).toBe(3); // 同一段回撤区间内的低点 90
   });
 
   it('should return 0 drawdown for always increasing prices', () => {
     const prices = [100, 110, 120, 130, 140];
     const result = calculateMaxDrawdown(prices);
     expect(result.maxDrawdown).toBe(0);
+    expect(result.peak).toBe(0); // 无回撤：诚实占位，不指向某段不存在的回撤
+    expect(result.trough).toBe(0);
   });
 });
 

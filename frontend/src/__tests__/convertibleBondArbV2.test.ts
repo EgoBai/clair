@@ -4,12 +4,12 @@
  * 已绑定生产实现（frontend/src/utils/convertibleBondEngine.ts）：
  * - :73  calcConversionValue   = stockPrice × conversionRatio
  * - :80  calcConversionPremium = (price - cv) / cv，cv === 0 时返回 Infinity
- * - :89  calcBondFloor         = 固定 5% 折现的简化 DCF（完全忽略 ytm）
+ * - :89  calcBondFloor         = 优先按 bond.ytm 折现的简化 DCF（缺失/非正回退 5%）
  *
  * 旧断言错在哪（旧值 → 生产值）：
  * | 旧断言 | 生产行为 | 依据 |
  * | cv = (stockPrice / conversionPrice) × 100，D = 116.67 | 生产 = stockPrice × conversionRatio，D = 14 × 8.33 = 116.62 | convertibleBondEngine.ts:73-75 |
- * | 债底按 ytm 折现，A = 98.09（仅 90~120 松断言） | 生产固定 5% 折现，A = 94.42 | convertibleBondEngine.ts:89-103 |
+ * | 债底按 ytm 折现，A = 98.09（仅 90~120 松断言） | 生产旧实现固定 5% 折现 A = 94.42；P1 修复后按 ytm=0.03 恢复 98.09 | convertibleBondEngine.ts:89-105 |
  * | 转股价值为 0 时溢价率返回 0 | 生产返回 Infinity | convertibleBondEngine.ts:80-84 |
  * | 字段 bondPrice / remainingYears / symbol | 生产字段 price / yearsToMaturity / code | convertibleBondEngine.ts:6-24 |
  *
@@ -20,9 +20,9 @@
  *   语义不同，本文件原有用例不涉及。
  *
  * 本地保留业务规则：套利阈值 -2% / +30%、风险分级、排名与低溢价筛选。
- * 生产缺陷候选：
- * - calcBondFloor 用固定 5% 折现、完全忽略 ytm（新增用例锁定该行为）。
- * 新增：零转股价值溢价率 1 例、ytm 不影响债底 1 例。
+ * 已修复（P1）：
+ * - calcBondFloor 旧实现用固定 5% 折现、完全忽略 ytm；现优先按 ytm 折现，缺失/非正回退 5%。
+ * 新增：零转股价值溢价率 1 例、ytm 影响债底 1 例。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -153,9 +153,9 @@ describe('可转债套利分析引擎', () => {
     expect(low.map((bond) => bond.code)).toEqual(['110062', '110059', '110060']);
   });
 
-  it('应计算债底（生产固定 5% 折现）', () => {
-    const floor = calcBondFloor(bonds[0]!);
-    expect(floor).toBeCloseTo(94.42, 2);
+  it('应计算债底（按 bond.ytm 折现）', () => {
+    const floor = calcBondFloor(bonds[0]!); // coupon [2,2]、ytm 0.03、2 年
+    expect(floor).toBeCloseTo(98.09, 2);
   });
 
   it('转股价值应与正股价格正相关', () => {
@@ -174,10 +174,13 @@ describe('可转债套利分析引擎', () => {
     expect(calcConversionPremium(zeroConversion)).toBe(Infinity);
   });
 
-  it('债底不受 ytm 影响（生产缺陷候选）', () => {
+  it('债底随 ytm 上升而下降，且 ytm 缺失时回退 5%', () => {
     const lowYtm: ConvertibleBond = { ...bonds[0]!, ytm: 0.03 };
     const highYtm: ConvertibleBond = { ...bonds[0]!, ytm: 0.08 };
-    expect(calcBondFloor(highYtm)).toBe(calcBondFloor(lowYtm));
-    expect(calcBondFloor(highYtm)).toBeCloseTo(94.42, 2);
+    const missingYtm: ConvertibleBond = { ...bonds[0]!, ytm: null as unknown as number };
+    expect(calcBondFloor(highYtm)).toBeLessThan(calcBondFloor(lowYtm));
+    expect(calcBondFloor(lowYtm)).toBeCloseTo(98.09, 2);
+    expect(calcBondFloor(highYtm)).toBeCloseTo(89.3, 2);
+    expect(calcBondFloor(missingYtm)).toBeCloseTo(94.42, 2); // 5% 是缺省假设，不是真实 ytm
   });
 });

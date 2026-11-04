@@ -182,10 +182,22 @@ describe('calculateGreeks', () => {
     expect(greeks.rho).toBeLessThan(0);
   });
 
-  it('should return zero greeks at expiry', () => {
-    const greeks = calculateGreeks({ ...atmCall, timeToExpiry: 0 });
-    expect(greeks.delta).toBe(0);
-    expect(greeks.gamma).toBe(0);
+  it('should return intrinsic delta and zero higher greeks at expiry', () => {
+    const itmCallGreeks = calculateGreeks({ ...itmCall, timeToExpiry: 0 });
+    expect(itmCallGreeks.delta).toBe(1); // 实值 call 固有 delta
+    expect(itmCallGreeks.gamma).toBe(0);
+
+    const itmPutGreeks = calculateGreeks({ ...atmPut, spot: 90, timeToExpiry: 0 });
+    expect(itmPutGreeks.delta).toBe(-1); // 实值 put 固有 delta
+    expect(itmPutGreeks.vega).toBe(0);
+
+    const atmExpiryGreeks = calculateGreeks({ ...atmCall, timeToExpiry: 0 });
+    expect(atmExpiryGreeks.delta).toBe(0); // 平价到期无实值方向
+    expect(atmExpiryGreeks.gamma).toBe(0);
+
+    const zeroVolItm = calculateGreeks({ ...itmCall, volatility: 0 });
+    expect(zeroVolItm.delta).toBe(1);
+    expect(zeroVolItm.gamma).toBe(0);
   });
 
   it('ATM call delta should be close to 0.5', () => {

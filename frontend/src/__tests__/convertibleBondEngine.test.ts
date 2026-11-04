@@ -32,7 +32,7 @@ describe('Convertible Bond Engine', () => {
     callPrice: 130,
     callTriggerPrice: 13, // 转股价*1.3
     putTriggerDays: 30,
-    ytm: 2.5,
+    ytm: 0.025, // 小数口径（2.5%），不是百分数 2.5
   };
 
   describe('转股价值', () => {

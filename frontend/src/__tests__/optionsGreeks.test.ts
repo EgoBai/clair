@@ -146,13 +146,12 @@ describe('期权希腊字母与定价引擎', () => {
       expect(greekOf(50, 100, 0.1, 0.05, 0.2, 'call').delta).toBeLessThan(0.05);
     });
 
-    it('到期Delta按生产口径归零(理论阶跃未实现)', () => {
-      // 旧自抄口径：到期 call delta 为阶跃函数（ITM=1 / OTM=0）。
-      // 生产 calculateGreeks 在 timeToExpiry<=0 时整体早退、返回全零希腊值，
-      // 数学上到期 ITM call 的 delta 应为 1，此处属生产已知局限；
-      // 本批不改生产源码，故按生产真实口径断言 0 并保留该回归观测点。
-      expect(greekOf(101, 100, 0, 0.05, 0.2, 'call').delta).toBe(0);
+    it('到期Delta为实值方向固有值', () => {
+      // P1 修复：到期时 BS 高阶敏感度退化，但 delta 取实值方向固有值
+      // （call ITM=1/OTM=0，put ITM=-1/OTM=0）；gamma/vega 等仍为 0（见后续用例）。
+      expect(greekOf(101, 100, 0, 0.05, 0.2, 'call').delta).toBe(1);
       expect(greekOf(99, 100, 0, 0.05, 0.2, 'call').delta).toBe(0);
+      expect(greekOf(99, 100, 0, 0.05, 0.2, 'put').delta).toBe(-1);
     });
 
     it('到期Gamma为0', () => {
