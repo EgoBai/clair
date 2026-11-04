@@ -1,24 +1,69 @@
-import { describe, it, expect } from 'vitest';
+/**
+ * M2 影子治理批次 40a：页面数据逻辑测试 → 生产实现绑定
+ *
+ * 绑定清单（import 处已标注生产 file:line）：
+ * - frontend/src/utils/formatters.ts:24 formatMarketCap —— 市值展示（万亿/亿/万），页面展示层唯一导出实现
+ * - frontend/src/utils/formatters.ts:60 formatPercent —— 比率→百分比，回测最大回撤/胜率用
+ * - frontend/src/utils/formatters.ts:148 formatChangePercent —— 入参已是百分数的带符号格式化，收益率用
+ * - frontend/src/utils/formatters.ts:228 getColorByChange —— A 股红涨绿跌，0/空归灰
+ * - frontend/src/utils/formatters.ts:266 formatRelativeTime —— 新闻相对时间（内部 Date.now，用假时钟固定）
+ * - backend/src/models/Stock.ts:225 calculateChange / :231 calculateAmplitude —— 涨跌幅/振幅唯一导出实现
+ * - frontend/src/utils/newsAggregationEngine.ts:77 filterNews —— 分类/情绪/关键词过滤的生产契约
+ * - frontend/src/utils/stockScreener.ts:97 screenByPatterns —— 52 周高点 0.98 阈值、低点 1.05 阈值
+ * - frontend/src/utils/etfPremiumDiscountEngine.ts:43 calculatePremiumRate / :51 classifyPremiumStatus
+ *
+ * 未绑定（生产无同契约导出，保留内联并在各段首注明原因）：
+ * 涨跌停价/距涨跌停/量比、热点标签、回测评级与回撤阈值、ETF 聚合与类型标签。
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  formatMarketCap,
+  formatPercent,
+  formatChangePercent,
+  getColorByChange,
+  formatRelativeTime,
+} from '../utils/formatters';
+import { calculateChange, calculateAmplitude } from '../../../backend/src/models/Stock';
+import { filterNews, type NewsItem } from '../utils/newsAggregationEngine';
+import { screenByPatterns, type StockData } from '../utils/stockScreener';
+import { calculatePremiumRate, classifyPremiumStatus } from '../utils/etfPremiumDiscountEngine';
 
 // Stock detail page data processing
 describe('Stock Detail Page Logic', () => {
+  // 生产无同契约导出：涨跌停价（±10%）、距涨跌停、量比。
+  // StockDetailPage.tsx:141-153 是未导出的页面内联副本，backend/src/models/Stock.ts 也未导出，
+  // 因此这三项按规格保留内联；change/changePercent/amplitude/color/changeFormatted/marketCapFormatted
+  // 全部改由生产函数组合，52 周高低点改由 stockScreener 的技术形态判定。
+  const screenerStock = (price: number, high52w: number, low52w: number): StockData => ({
+    symbol: '600519', name: '贵州茅台', price, pe: 35, pb: 12, ps: 10, roe: 0.3,
+    revenueGrowth: 0.15, profitGrowth: 0.18, debtToEquity: 0.1, dividendYield: 0.02,
+    marketCap: 2.3e12, volume: 5e4, avgVolume: 4e4,
+    high52w, low52w,
+    ma5: price, ma10: price, ma20: price, ma60: price,
+    rsi: 50, macd: 0, macdSignal: 0, atr: 5, beta: 1,
+    sector: '食品饮料', industry: '白酒',
+  });
+  const isBreakout52w = (price: number, high52w: number) =>
+    screenByPatterns([screenerStock(price, high52w, high52w)], 'breakout_52w').length === 1;
+  const isNearSupport = (price: number, low52w: number) =>
+    screenByPatterns([screenerStock(price, low52w, low52w)], 'near_support').length === 1;
+
   const formatStockDetail = (data: {
     symbol: string; name: string; price: number; prevClose: number;
     open: number; high: number; low: number; volume: number;
     turnover: number; marketCap: number; pe: number; pb: number;
     turnoverRate: number; high52w: number; low52w: number;
   }) => {
-    const change = data.price - data.prevClose;
-    const changePercent = data.prevClose > 0 ? (change / data.prevClose) * 100 : 0;
-    const amplitude = data.prevClose > 0 ? ((data.high - data.low) / data.prevClose) * 100 : 0;
+    const { change, changePercent } = calculateChange(data.price, data.prevClose);
+    const amplitude = calculateAmplitude(data.high, data.low, data.prevClose);
     const isUp = change >= 0;
-    const color = change > 0 ? '#ef4444' : change < 0 ? '#22c55e' : '#6b7280';
+    const color = getColorByChange(change);
     const limitUp = data.prevClose * 1.1;
     const limitDown = data.prevClose * 0.9;
     const distanceToLimitUp = limitUp - data.price;
     const distanceToLimitDown = data.price - limitDown;
-    const is52wHigh = data.price >= data.high52w * 0.98;
-    const is52wLow = data.price <= data.low52w * 1.02;
+    const is52wHigh = isBreakout52w(data.price, data.high52w);
+    const is52wLow = isNearSupport(data.price, data.low52w);
     const volumeRatio = data.turnover > 0 ? data.volume / (data.turnover / data.price) : 0;
 
     return {
@@ -26,12 +71,8 @@ describe('Stock Detail Page Logic', () => {
       change, changePercent, amplitude, isUp, color,
       limitUp, limitDown, distanceToLimitUp, distanceToLimitDown,
       is52wHigh, is52wLow, volumeRatio,
-      changeFormatted: `${isUp ? '+' : ''}${changePercent.toFixed(2)}%`,
-      marketCapFormatted: data.marketCap >= 1e12
-        ? `${(data.marketCap / 1e12).toFixed(2)}万亿`
-        : data.marketCap >= 1e8
-          ? `${(data.marketCap / 1e8).toFixed(2)}亿`
-          : `${data.marketCap}`,
+      changeFormatted: formatChangePercent(changePercent),
+      marketCapFormatted: formatMarketCap(data.marketCap),
     };
   };
 
@@ -89,6 +130,15 @@ describe('Stock Detail Page Logic', () => {
       high52w: 100, low52w: 50
     });
     expect(result.is52wLow).toBe(true);
+    // 旧断言错在阈值：旧内联用 low52w * 1.02，生产 near_support 用 low52w * 1.05
+    // （stockScreener.ts:115），51.5 相对 50 在旧口径下不命中、生产口径下命中。
+    const boundary = formatStockDetail({
+      symbol: 'TEST', name: 'Test', price: 51.5, prevClose: 52,
+      open: 52, high: 53, low: 50, volume: 1000, turnover: 51000,
+      marketCap: 1e10, pe: 20, pb: 3, turnoverRate: 0.5,
+      high52w: 100, low52w: 50
+    });
+    expect(boundary.is52wLow).toBe(true);
   });
 
   it('should format market cap in 万亿', () => {
@@ -165,39 +215,9 @@ describe('Stock Detail Page Logic', () => {
 
 // News page data processing
 describe('News Page Logic', () => {
-  interface NewsItem {
-    id: string; title: string; summary: string; category: string;
-    sentiment: 'positive' | 'negative' | 'neutral';
-    source: string; publishedAt: Date; viewCount: number;
-    tags: string[]; relatedStocks: string[];
-  }
-
-  const filterNews = (news: NewsItem[], filters: {
-    category?: string; sentiment?: string; keyword?: string;
-  }) => {
-    return news.filter(n => {
-      if (filters.category && n.category !== filters.category) return false;
-      if (filters.sentiment && n.sentiment !== filters.sentiment) return false;
-      if (filters.keyword) {
-        const kw = filters.keyword.toLowerCase();
-        if (!n.title.toLowerCase().includes(kw) && !n.summary.toLowerCase().includes(kw)) return false;
-      }
-      return true;
-    });
-  };
-
-  const getRelativeTime = (date: Date, now: Date) => {
-    const diff = now.getTime() - date.getTime();
-    const mins = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    if (mins < 1) return '刚刚';
-    if (mins < 60) return `${mins}分钟前`;
-    if (hours < 24) return `${hours}小时前`;
-    if (days < 30) return `${days}天前`;
-    return `${Math.floor(days / 30)}个月前`;
-  };
-
+  // 生产无同契约导出：热点标签在 backend/src/api/news.ts:252 的路由处理函数内联计算
+  // （tagCount → count 降序 → slice(0, 10)），没有可导入的纯函数；
+  // 因此保留内联规格，注意生产上限是 10、旧内联默认 5。
   const getHotTags = (news: NewsItem[], limit = 5) => {
     const tagCount = new Map<string, number>();
     for (const n of news) {
@@ -211,14 +231,31 @@ describe('News Page Logic', () => {
       .map(([tag, count]) => ({ tag, count }));
   };
 
+  // fixture 改用生产 schema：source/category 是英文枚举，symbols 是数组，时间戳是 number；
+  // 旧 fixture 用中文 category（如 '公司动态'）并直接比较字符串，与生产 NewsCategory 不同口径。
+  const FIXED_TS = 1700000000000;
   const mockNews: NewsItem[] = [
-    { id: '1', title: 'A股大涨', summary: '大盘强势上涨', category: '大盘行情', sentiment: 'positive', source: '财新', publishedAt: new Date(Date.now() - 60000), viewCount: 10000, tags: ['A股', '大涨'], relatedStocks: ['600519'] },
-    { id: '2', title: '茅台业绩超预期', summary: '茅台公布财报', category: '公司动态', sentiment: 'positive', source: '证券时报', publishedAt: new Date(Date.now() - 3600000), viewCount: 5000, tags: ['茅台', '财报'], relatedStocks: ['600519'] },
-    { id: '3', title: '央行降息', summary: '央行下调LPR', category: '政策法规', sentiment: 'neutral', source: '央行', publishedAt: new Date(Date.now() - 86400000), viewCount: 8000, tags: ['央行', '降息'], relatedStocks: [] },
+    { id: '1', title: 'A股大涨', summary: '大盘强势上涨', source: 'media', category: 'industry', sentiment: 'positive', symbols: ['600519'], timestamp: FIXED_TS, importance: 7, tags: ['A股', '大涨'] },
+    { id: '2', title: '茅台业绩超预期', summary: '茅台公布财报', source: 'media', category: 'earnings', sentiment: 'positive', symbols: ['600519'], timestamp: FIXED_TS - 3600000, importance: 9, tags: ['茅台', '财报'] },
+    { id: '3', title: '央行降息', summary: '央行下调LPR', source: 'regulatory', category: 'policy', sentiment: 'neutral', symbols: [], timestamp: FIXED_TS - 86400000, importance: 8, tags: ['央行', '降息'] },
   ];
 
+  // 相对时间绑定 formatters.ts:266；生产内部实时取当前时间，用假时钟固定基准保证确定性。
+  const NOW = new Date('2026-11-04T10:00:00+08:00').getTime();
+  const MINUTE = 60 * 1000;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should filter by category', () => {
-    const result = filterNews(mockNews, { category: '公司动态' });
+    // 旧断言错在过滤契约：生产用 categories 数组 + 英文枚举，旧内联用单个中文 category 字符串。
+    const result = filterNews(mockNews, { categories: ['earnings'] });
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('2');
   });
@@ -229,18 +266,19 @@ describe('News Page Logic', () => {
   });
 
   it('should filter by keyword', () => {
-    const result = filterNews(mockNews, { keyword: '茅台' });
+    // 生产 keywords 是数组且区分大小写（直接 includes），旧内联会 toLowerCase 后再比较。
+    const result = filterNews(mockNews, { keywords: ['茅台'] });
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('2');
   });
 
   it('should combine filters', () => {
-    const result = filterNews(mockNews, { category: '公司动态', sentiment: 'positive' });
+    const result = filterNews(mockNews, { categories: ['earnings'], sentiment: 'positive' });
     expect(result).toHaveLength(1);
   });
 
   it('should return empty when no match', () => {
-    const result = filterNews(mockNews, { keyword: '不存在' });
+    const result = filterNews(mockNews, { keywords: ['不存在'] });
     expect(result).toHaveLength(0);
   });
 
@@ -250,23 +288,31 @@ describe('News Page Logic', () => {
   });
 
   it('should format relative time 刚刚', () => {
-    const result = getRelativeTime(new Date(Date.now() - 30000), new Date());
+    const result = formatRelativeTime(new Date(NOW - 30000));
     expect(result).toBe('刚刚');
   });
 
   it('should format relative time 分钟', () => {
-    const result = getRelativeTime(new Date(Date.now() - 300000), new Date());
-    expect(result).toContain('分钟前');
+    const result = formatRelativeTime(new Date(NOW - 5 * MINUTE));
+    expect(result).toBe('5分钟前');
   });
 
   it('should format relative time 小时', () => {
-    const result = getRelativeTime(new Date(Date.now() - 7200000), new Date());
-    expect(result).toContain('小时前');
+    const result = formatRelativeTime(new Date(NOW - 2 * HOUR));
+    expect(result).toBe('2小时前');
   });
 
   it('should format relative time 天', () => {
-    const result = getRelativeTime(new Date(Date.now() - 172800000), new Date());
-    expect(result).toContain('天前');
+    // 旧断言错在口径：生产 formatRelativeTime 超过 24 小时直接返回 formatDate 日期串，
+    // 没有「X天前 / X个月前」分支，因此这里断言 yyyy-MM-dd。
+    const result = formatRelativeTime(new Date(NOW - 2 * DAY));
+    expect(result).toMatch(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
+    expect(result).not.toContain('天前');
+  });
+
+  it('should switch from 刚刚 at the 5-minute boundary', () => {
+    expect(formatRelativeTime(new Date(NOW - 5 * MINUTE + 1))).toBe('刚刚');
+    expect(formatRelativeTime(new Date(NOW - 5 * MINUTE))).toBe('5分钟前');
   });
 
   it('should get hot tags', () => {
@@ -290,25 +336,28 @@ describe('News Page Logic', () => {
 
 // Backtest page data formatting
 describe('Backtest Page Logic', () => {
+  // 生产无同契约导出：alpha 简单差值（生产 backtestPerformanceAnalyzer.ts:528 走 CAPM 回归再年化，
+  // 不是 annualReturn - benchmarkReturn）、回撤颜色阈值 0.2/0.1、sharpe/winRate 评级均无导出，
+  // 保留内联规格；百分比字符串与涨跌颜色已绑 formatters。
   const formatBacktestSummary = (result: {
     totalReturn: number; annualReturn: number; maxDrawdown: number;
     sharpeRatio: number; winRate: number; totalTrades: number;
     profitFactor: number; benchmarkReturn: number;
   }) => {
     const alpha = result.annualReturn - result.benchmarkReturn;
-    const returnColor = result.totalReturn >= 0 ? '#ef4444' : '#22c55e';
+    const returnColor = getColorByChange(result.totalReturn);
     const ddColor = result.maxDrawdown > 0.2 ? '#ef4444' : result.maxDrawdown > 0.1 ? '#f59e0b' : '#22c55e';
     const sharpeRating = result.sharpeRatio >= 2 ? '优秀' : result.sharpeRatio >= 1 ? '良好' : result.sharpeRatio >= 0 ? '一般' : '较差';
     const winRateRating = result.winRate >= 0.6 ? '高' : result.winRate >= 0.4 ? '中' : '低';
 
     return {
       ...result,
-      totalReturnPercent: `${result.totalReturn >= 0 ? '+' : ''}${(result.totalReturn * 100).toFixed(2)}%`,
-      annualReturnPercent: `${result.annualReturn >= 0 ? '+' : ''}${(result.annualReturn * 100).toFixed(2)}%`,
-      maxDrawdownPercent: `${(result.maxDrawdown * 100).toFixed(2)}%`,
+      totalReturnPercent: formatChangePercent(result.totalReturn * 100),
+      annualReturnPercent: formatChangePercent(result.annualReturn * 100),
+      maxDrawdownPercent: formatPercent(result.maxDrawdown),
       sharpeFormatted: result.sharpeRatio.toFixed(2),
-      winRatePercent: `${(result.winRate * 100).toFixed(1)}%`,
-      alpha, alphaPercent: `${alpha >= 0 ? '+' : ''}${(alpha * 100).toFixed(2)}%`,
+      winRatePercent: formatPercent(result.winRate, 1),
+      alpha, alphaPercent: formatChangePercent(alpha * 100),
       returnColor, ddColor, sharpeRating, winRateRating,
     };
   };
@@ -399,6 +448,9 @@ describe('Backtest Page Logic', () => {
     });
     expect(result.totalReturnPercent).toContain('0');
     expect(result.alpha).toBe(0);
+    // 旧断言错在零值颜色：旧口径把 totalReturn >= 0 一律判红，生产 getColorByChange
+    // 对 0 返回中性灰 #6b7280（formatters.ts:229）。
+    expect(result.returnColor).toBe('#6b7280');
   });
 
   it('should handle decimal percentages', () => {
@@ -424,12 +476,30 @@ describe('Backtest Page Logic', () => {
 
 // ETF page data processing
 describe('ETF Page Logic', () => {
+  // 生产无单一聚合导出：ETFPage.tsx 只导出 hasPremium:47 / hasPrice:51 / sortByPremium:55，
+  // etfAnalysisEngine 只导出 analyzeETF/compareETFs/detectArbitrageOpportunities，
+  // processETFData 的 total/totalSize/advancers/byType/premiumTop5 没有对应实现，保留内联。
+  // 折溢价字段改由 etfPremiumDiscountEngine.calculatePremiumRate 生成，保证与生产口径一致。
   interface ETFData {
     symbol: string; name: string; type: string; nav: number;
     price: number; changePercent: number; premium: number;
     size: number; turnover: number; dividendYield: number;
     managementFee: number; trackingError: number;
   }
+
+  // 生产无同契约导出：formatETFType 对应 ETFPage.tsx:64 的局部常量 typeLabels（未导出），
+  // 且其 color 是 AntD 色名 blue/orange/purple/gold/green/cyan，不是本测试的 hex 口径，
+  // 属同名不同口径，不能硬绑，保留内联。
+  const formatETFType = (type: string) => {
+    const map: Record<string, { label: string; color: string }> = {
+      index: { label: '指数型', color: '#3b82f6' },
+      sector: { label: '行业型', color: '#8b5cf6' },
+      qdii: { label: 'QDII', color: '#f59e0b' },
+      commodity: { label: '商品型', color: '#ef4444' },
+      bond: { label: '债券型', color: '#22c55e' },
+    };
+    return map[type] || { label: type, color: '#6b7280' };
+  };
 
   const processETFData = (etfs: ETFData[]) => {
     const totalSize = etfs.reduce((s, e) => s + e.size, 0);
@@ -456,23 +526,14 @@ describe('ETF Page Logic', () => {
     };
   };
 
-  const formatETFType = (type: string) => {
-    const map: Record<string, { label: string; color: string }> = {
-      index: { label: '指数型', color: '#3b82f6' },
-      sector: { label: '行业型', color: '#8b5cf6' },
-      qdii: { label: 'QDII', color: '#f59e0b' },
-      commodity: { label: '商品型', color: '#ef4444' },
-      bond: { label: '债券型', color: '#22c55e' },
-    };
-    return map[type] || { label: type, color: '#6b7280' };
-  };
-
+  // 旧 fixture 的 premium 是手写值（0.44/0.91 等），与生产 (price - nav) / nav * 100 差 0.0009；
+  // 改为直接调用生产函数生成，断言随之收紧到 4 位小数。
   const mockETFs: ETFData[] = [
-    { symbol: '510300', name: '沪深300ETF', type: 'index', nav: 4.5, price: 4.52, changePercent: 1.2, premium: 0.44, size: 500e8, turnover: 20e8, dividendYield: 2, managementFee: 0.5, trackingError: 0.05 },
-    { symbol: '510500', name: '中证500ETF', type: 'index', nav: 6.2, price: 6.15, changePercent: -0.8, premium: -0.81, size: 300e8, turnover: 10e8, dividendYield: 1.5, managementFee: 0.5, trackingError: 0.08 },
-    { symbol: '159915', name: '创业板ETF', type: 'index', nav: 2.8, price: 2.82, changePercent: 2.5, premium: 0.71, size: 200e8, turnover: 8e8, dividendYield: 0.8, managementFee: 0.5, trackingError: 0.06 },
-    { symbol: '512880', name: '证券ETF', type: 'sector', nav: 1.1, price: 1.09, changePercent: -1.5, premium: -0.91, size: 150e8, turnover: 5e8, dividendYield: 1, managementFee: 0.5, trackingError: 0.1 },
-    { symbol: '518880', name: '黄金ETF', type: 'commodity', nav: 5.5, price: 5.55, changePercent: 0.5, premium: 0.91, size: 100e8, turnover: 3e8, dividendYield: 0, managementFee: 0.6, trackingError: 0.03 },
+    { symbol: '510300', name: '沪深300ETF', type: 'index', nav: 4.5, price: 4.52, changePercent: 1.2, premium: calculatePremiumRate(4.52, 4.5), size: 500e8, turnover: 20e8, dividendYield: 2, managementFee: 0.5, trackingError: 0.05 },
+    { symbol: '510500', name: '中证500ETF', type: 'index', nav: 6.2, price: 6.15, changePercent: -0.8, premium: calculatePremiumRate(6.15, 6.2), size: 300e8, turnover: 10e8, dividendYield: 1.5, managementFee: 0.5, trackingError: 0.08 },
+    { symbol: '159915', name: '创业板ETF', type: 'index', nav: 2.8, price: 2.82, changePercent: 2.5, premium: calculatePremiumRate(2.82, 2.8), size: 200e8, turnover: 8e8, dividendYield: 0.8, managementFee: 0.5, trackingError: 0.06 },
+    { symbol: '512880', name: '证券ETF', type: 'sector', nav: 1.1, price: 1.09, changePercent: -1.5, premium: calculatePremiumRate(1.09, 1.1), size: 150e8, turnover: 5e8, dividendYield: 1, managementFee: 0.5, trackingError: 0.1 },
+    { symbol: '518880', name: '黄金ETF', type: 'commodity', nav: 5.5, price: 5.55, changePercent: 0.5, premium: calculatePremiumRate(5.55, 5.5), size: 100e8, turnover: 3e8, dividendYield: 0, managementFee: 0.6, trackingError: 0.03 },
   ];
 
   it('should process ETF summary', () => {
@@ -502,13 +563,14 @@ describe('ETF Page Logic', () => {
   it('should calculate premium top5', () => {
     const result = processETFData(mockETFs);
     expect(result.premiumTop5[0].symbol).toBe('518880');
-    expect(result.premiumTop5[0].premium).toBe(0.91);
+    // 旧断言 toBe(0.91) 是手写近似值，生产口径 (5.55 - 5.5) / 5.5 * 100 = 0.90909...
+    expect(result.premiumTop5[0].premium).toBeCloseTo(0.9091, 4);
   });
 
   it('should calculate discount top5', () => {
     const result = processETFData(mockETFs);
     expect(result.discountTop5[0].symbol).toBe('512880');
-    expect(result.discountTop5[0].premium).toBe(-0.91);
+    expect(result.discountTop5[0].premium).toBeCloseTo(-0.9091, 4);
   });
 
   it('should handle empty array', () => {
@@ -553,5 +615,13 @@ describe('ETF Page Logic', () => {
     for (let i = 1; i < result.premiumTop5.length; i++) {
       expect(result.premiumTop5[i - 1].premium).toBeGreaterThanOrEqual(result.premiumTop5[i].premium);
     }
+  });
+
+  it('should derive premium and status with production engine', () => {
+    const rate = calculatePremiumRate(4.52, 4.5);
+    expect(rate).toBeCloseTo(0.4444, 3);
+    expect(classifyPremiumStatus(rate)).toBe('par');
+    expect(classifyPremiumStatus(calculatePremiumRate(1.2, 1.0))).toBe('premium');
+    expect(classifyPremiumStatus(calculatePremiumRate(0.8, 1.0))).toBe('discount');
   });
 });
