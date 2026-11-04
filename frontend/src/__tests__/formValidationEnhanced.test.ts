@@ -1,6 +1,42 @@
 import { describe, it, expect } from 'vitest';
+import { formatCurrency, formatPercent } from '../utils/bloombergExportEngine';
+import { debounce, throttle } from '../utils/debounceThrottle';
+import { maskPhone, maskIDCard, maskBankCard } from '../utils/securityEngine';
+import { sanitizeStockCode } from '../utils/validation';
 
-// Enhanced Form Validation & Input Processing
+// ===== 影子测试迁移：增强表单校验 + 货币/百分比格式化 =====
+// 绑定真源（生产实现）：
+// - formatCurrency    → frontend/src/utils/bloombergExportEngine.ts:129（符号表 ¥/$/€/£/¥ + CNY 万亿/亿/万压缩 + null/NaN → '-'）
+// - formatPercent     → frontend/src/utils/bloombergExportEngine.ts:122（入参为比率，内部 ×100）
+// - debounce          → frontend/src/utils/debounceThrottle.ts:6
+// - throttle          → frontend/src/utils/debounceThrottle.ts:141
+// - maskPhone         → frontend/src/utils/securityEngine.ts:291
+// - maskIDCard        → frontend/src/utils/securityEngine.ts:315
+// - maskBankCard      → frontend/src/utils/securityEngine.ts:323
+// - sanitizeStockCode → frontend/src/utils/validation.ts:118
+//
+// 三套货币/百分比口径的选择（按测试意图取 bloombergExportEngine）：
+// - formatters.ts:99 formatCurrency 走 Intl.NumberFormat('zh-CN')：1000 → '¥1,000.00'（千分位、无万/亿压缩），与用例不符。
+// - exportEngine.ts:96 formatCurrency 仅 CNY 压缩：非 CNY 返回 'USD 1000.00'（无 $ 符号），与 USD/EUR 用例不符。
+// - bloombergExportEngine.ts:129 同时满足货币符号与万/亿压缩，故选用。
+// - formatPercent：三处生产实现（formatters.ts:60 / exportEngine.ts:86 / bloombergExportEngine.ts:122）均按比率 ×100，
+//   自抄实现把入参当百分数并加 '+' 号；绑定后统一换算入参。
+//
+// 旧断言订正（旧值 → 生产值 + file:line）：
+// - formatPercent(5.2) '+5.20%' → formatPercent(0.052) '5.20%'（生产无 '+' 号且入参是比率；bloombergExportEngine.ts:122-127）
+// - formatPercent(0) '+0.00%' → formatPercent(0) '0.00%'（无 '+' 号）
+// - formatPercent(-3.1) '-3.10%' → formatPercent(-0.031) '-3.10%'（仅入参换算，输出一致）
+// - formatPercent(5.123, 3) '+5.123%' → formatPercent(0.05123, 3) '5.123%'（无 '+' 号）
+// - maskInput('6222021234567890', 'bank') '6222 **** **** 7890' → maskBankCard('6222021234567890') '************7890'
+//   （securityEngine.ts:323-326 仅保留后四位，不复用前四位）
+// - formatCurrency 4 条、maskPhone、maskIDCard、sanitizeStockCode、debounce/throttle 断言与生产一致，未改写。
+//
+// 未迁移·生产缺口（保留内联 helper）：
+// - validateField / validateForm：生产无同契约规则引擎导出；securityEngine.validateEmail/validatePhone/validateStockCode
+//   返回 ValidationResult，且 validateStockCode 接受任意 6 位数字（'999999' 合法），与本文件「市场前缀 + 6 位」口径不同，内联保留。
+// - parseNumberInput：frontend/backend/shared 均无「万/亿/万亿后缀 + 货币符号」解析导出，内联保留。
+// - inputConstraints：生产无 number/integer/alpha/alphanumeric/chinese 逐字符过滤导出，内联保留。
+
 interface ValidationRule {
   type: 'required' | 'min' | 'max' | 'pattern' | 'custom' | 'range' | 'enum' | 'email' | 'phone' | 'stockCode';
   value?: any;
@@ -67,23 +103,6 @@ function validateForm(data: Record<string, any>, schema: Record<string, Validati
   return errors;
 }
 
-function formatCurrency(value: number, currency = 'CNY'): string {
-  const symbols: Record<string, string> = { CNY: '¥', USD: '$', EUR: '€', GBP: '£', JPY: '¥' };
-  const symbol = symbols[currency] || currency;
-  const abs = Math.abs(value);
-  let formatted: string;
-  if (abs >= 1e12) formatted = (value / 1e12).toFixed(2) + '万亿';
-  else if (abs >= 1e8) formatted = (value / 1e8).toFixed(2) + '亿';
-  else if (abs >= 1e4) formatted = (value / 1e4).toFixed(2) + '万';
-  else formatted = value.toFixed(2);
-  return symbol + formatted;
-}
-
-function formatPercent(value: number, decimals = 2): string {
-  const sign = value >= 0 ? '+' : '';
-  return sign + value.toFixed(decimals) + '%';
-}
-
 function parseNumberInput(input: string): number | null {
   if (!input || typeof input !== 'string') return null;
   const cleaned = input.replace(/[,\s万亿亿万元$¥€£]/g, '');
@@ -93,40 +112,6 @@ function parseNumberInput(input: string): number | null {
   else if (input.includes('万')) multiplier = 1e4;
   const num = parseFloat(cleaned);
   return isNaN(num) ? null : num * multiplier;
-}
-
-function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): (...args: Parameters<T>) => void {
-  let timer: ReturnType<typeof setTimeout>;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  };
-}
-
-function throttle<T extends (...args: any[]) => any>(fn: T, limit: number): (...args: Parameters<T>) => void {
-  let lastCall = 0;
-  return (...args: Parameters<T>) => {
-    const now = Date.now();
-    if (now - lastCall >= limit) {
-      lastCall = now;
-      fn(...args);
-    }
-  };
-}
-
-function maskInput(value: string, type: 'phone' | 'id' | 'bank'): string {
-  switch (type) {
-    case 'phone': return value.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
-    case 'id': return value.replace(/(\d{4})\d{10}(\d{4})/, '$1**********$2');
-    case 'bank': return value.replace(/(\d{4})\d*(\d{4})/, '$1 **** **** $2');
-    default: return value;
-  }
-}
-
-function autoCorrectStockCode(input: string): string {
-  let code = input.replace(/[^0-9]/g, '');
-  if (code.length > 6) code = code.substring(0, 6);
-  return code;
 }
 
 function inputConstraints(value: string, type: 'number' | 'integer' | 'alpha' | 'alphanumeric' | 'chinese'): string {
@@ -248,20 +233,30 @@ describe('Enhanced Form Validation', () => {
     it('should handle zero', () => {
       expect(formatCurrency(0)).toBe('¥0.00');
     });
+
+    it('should return dash for null/undefined', () => {
+      expect(formatCurrency(null)).toBe('-');
+      expect(formatCurrency(undefined)).toBe('-');
+    });
   });
 
   describe('Percent Formatting', () => {
-    it('should add + sign for positive', () => {
-      expect(formatPercent(5.2)).toBe('+5.20%');
-      expect(formatPercent(0)).toBe('+0.00%');
+    it('should format positive ratio without plus sign', () => {
+      expect(formatPercent(0.052)).toBe('5.20%');
+      expect(formatPercent(0)).toBe('0.00%');
     });
 
     it('should keep - sign for negative', () => {
-      expect(formatPercent(-3.1)).toBe('-3.10%');
+      expect(formatPercent(-0.031)).toBe('-3.10%');
     });
 
     it('should respect decimals', () => {
-      expect(formatPercent(5.123, 3)).toBe('+5.123%');
+      expect(formatPercent(0.05123, 3)).toBe('5.123%');
+    });
+
+    it('should return dash for null/undefined', () => {
+      expect(formatPercent(null)).toBe('-');
+      expect(formatPercent(undefined)).toBe('-');
     });
   });
 
@@ -291,29 +286,29 @@ describe('Enhanced Form Validation', () => {
 
   describe('Input Masking', () => {
     it('should mask phone', () => {
-      expect(maskInput('13800138000', 'phone')).toBe('138****8000');
+      expect(maskPhone('13800138000')).toBe('138****8000');
     });
 
     it('should mask ID', () => {
-      expect(maskInput('110101199001011234', 'id')).toBe('1101**********1234');
+      expect(maskIDCard('110101199001011234')).toBe('1101**********1234');
     });
 
     it('should mask bank card', () => {
-      expect(maskInput('6222021234567890', 'bank')).toBe('6222 **** **** 7890');
+      expect(maskBankCard('6222021234567890')).toBe('************7890');
     });
   });
 
   describe('Stock Code Auto-Correct', () => {
     it('should strip non-numeric', () => {
-      expect(autoCorrectStockCode('sh600000')).toBe('600000');
+      expect(sanitizeStockCode('sh600000')).toBe('600000');
     });
 
     it('should truncate to 6 digits', () => {
-      expect(autoCorrectStockCode('600000123')).toBe('600000');
+      expect(sanitizeStockCode('600000123')).toBe('600000');
     });
 
     it('should handle empty', () => {
-      expect(autoCorrectStockCode('')).toBe('');
+      expect(sanitizeStockCode('')).toBe('');
     });
   });
 
