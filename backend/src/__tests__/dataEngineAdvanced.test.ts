@@ -1,4 +1,75 @@
-import { describe, it, expect } from 'vitest';
+/**
+ * 数据引擎高级组合测试（影子测试迁移版）
+ *
+ * 迁移原则：生产存在同契约导出的，删除测试内联实现改为绑定生产符号；
+ * 生产无同契约的，保留内联，并在下方逐条写明候选与不符原因。
+ *
+ * ── 一、已绑定生产实现（12 例）───────────────────────────────────────
+ * 1) chunk —— 3 例（"应分块"/"空数组分块应返回空"/"分块大小为1应返回单元素数组"）
+ *    绑定：import { chunk } from '../services/batchOperations'
+ *    生产：backend/src/services/batchOperations.ts:121
+ *          export function chunk<T>(arr: T[], size: number): T[][]
+ *    判定：与内联实现逐行同语义（i += size 步进 + arr.slice），签名一致，故删除内联。
+ *
+ * 2) LRUCache —— 9 例（缓存策略引擎内全部 LRU 用例）
+ *    绑定：import { LRUCache } from '../services/cacheEngine'
+ *    生产：backend/src/services/cacheEngine.ts:36
+ *          export class LRUCache<T = any>
+ *    适配（按生产真实源码，非按描述照抄）：
+ *      - 构造入参：Partial<CacheConfig>，容量键为 maxSize（cacheEngine.ts:16-21,43-52）
+ *        旧：new LRUCache<string, number>(capacity)
+ *        新：new LRUCache<number>({ maxSize: capacity })
+ *      - 泛型：只有值泛型 T；key 在 get/set/has/delete/keys 上固定为 string（cacheEngine.ts:57,90,141,218）
+ *        旧：new LRUCache<string, number>(...) / cache.set(i, i)
+ *        新：new LRUCache<number>({ maxSize }) / cache.set(String(i), i)
+ *      - 条目数：无 size() 方法，改取 getStats().size（cacheEngine.ts:202-213）
+ *        旧：cache.size()  新：cache.getStats().size
+ *      - 生命周期：构造函数即 startCleanup() 启动 setInterval 定时清理（cacheEngine.ts:51,231-240），
+ *        必须 destroy()（cacheEngine.ts:225-229）收尾，否则 vitest 进程挂起/定时器泄漏；
+ *        本文件统一登记 + afterEach destroy，断言抛错也能清理。
+ *      - 断言口径：淘汰行为（get 刷新 LRU 序、set 超容量淘汰最旧、has 不刷新）、
+ *        容量上限、返回值、keys 顺序与内联实现一致，断言期望值零改动。
+ *
+ * ── 二、保留内联（36 例）与候选不符原因 ──────────────────────────────
+ * 【数据序列化与压缩 · 13 例】compactJSON/parseJSON、flattenObject/unflattenObject、
+ *   encodeRLE/decodeRLE、deltaEncode/deltaDecode、大数组 RLE 往返
+ *   - compactJSON/parseJSON：生产无同名通用包装（rg 仅命中测试自身）。候选 JSON.parse 直调，
+ *     无导出符号可绑定，保留。
+ *   - flattenObject/unflattenObject：候选 backend/src/services/factorEngine.ts:300
+ *     `function flatten(m: Map<string, FactorObservation[]>): FactorObservation[]`
+ *     ——模块私有、输入是 Map<string, 数组>、输出是平铺数组，与"嵌套对象→点号键对象"契约不符。
+ *     backend/src/utils/multiLevelCache.ts 无序列化工具；无 unflatten 生产实现。
+ *   - encodeRLE/decodeRLE：生产无 RLE 编解码。候选 backend/src/websocket/server.ts:17,325
+ *     用 zlib gzip/permessage-deflate，算法与输出类型（Buffer/base64）均不同契约。
+ *   - deltaEncode/deltaDecode：生产无差分编解码导出；最接近的 difference() 仅存在于测试。
+ * 【批量处理引擎 · 13 例】batch/parallelMap、groupBy、unique、intersection、difference、zip
+ *   - batch/parallelMap：候选 backend/src/services/batchOperations.ts:90 batchExecute(items, fn, concurrency)
+ *     ——异步 fn、返回 {item,result?,error?}[] 且保序重排，不是"同步 fn + 固定 batchSize + 分组二维数组"；
+ *     候选 BatchProcessor（batchOperations.ts:18）是定时/阈值触发队列，契约亦不符。
+ *   - groupBy：候选 backend/src/db/InMemoryDatabase.ts:141 groupBy(field: string): this
+ *     与 knex 链式 .groupBy('col') —— 查询构建器/DB 层，非内存数组按函数分组，符号不可复用。
+ *   - unique/intersection/difference/zip：生产仅在业务内部零散使用 new Set
+ *     （如 backend/src/services/tencentQuoteService.ts:188 uniq、backend/src/api/news.ts:54 交集用于 Jaccard），
+ *     无导出的同契约泛型工具，保留内联。
+ * 【缓存策略引擎 · 2 例】FIFOCache（"FIFO应淘汰最早的"/"FIFO覆盖不应增加大小"）
+ *   - 候选 backend/src/utils/multiLevelCache.ts:47 class LRUCache
+ *     ——模块私有（未 export）、且是 LRU 非 FIFO，容量语义为 maxEntries+maxSize 双约束；不可绑定。
+ *   - backend/src/services/apiCache.ts:23 APICache 为 HTTP 响应缓存（TTL/etag），淘汰策略与 FIFO 不同。
+ * 【日志与监控引擎 · 8 例】filterByLevel/countByLevel/searchLogs/errorRate/recentLogs/mergeLogs
+ *   - 候选 backend/src/services/logAnalyzer.ts:128 analyze(since?)：LogLevel 含 'fatal' 五级
+ *     （logAnalyzer.ts:8），统计与告警耦合、无按最小级别过滤/消息搜索的导出函数；errorRate 口径为
+ *     (error+fatal)/total（logAnalyzer.ts:149），与本文件仅 error/total 不同契约。
+ *   - 候选 backend/src/utils/logger.ts:45 shouldLog(minLevel)：内部私有、四级、无日志集合运算。
+ *   - backend/src/middleware/performanceMonitor.ts:230 errorRate 为百分比(×100)，与本文件 0-1 比率不符。
+ *
+ * ── 三、订正记录 ──────────────────────────────────────────────────
+ * 断言期望值：无订正（旧值与生产实现实际输出完全一致）。
+ * 仅适配调用形态：构造入参、key 类型(string)、size()→getStats().size、补 destroy() 清理。
+ * 用例 48 → 48（无删除、无跳过/聚焦/待办标记）；未引入随机数与当前时间等不确定来源。
+ */
+import { describe, it, expect, afterEach } from 'vitest';
+import { chunk } from '../services/batchOperations';
+import { LRUCache } from '../services/cacheEngine';
 
 // 数据序列化与压缩引擎
 describe('数据序列化与压缩', () => {
@@ -149,14 +220,6 @@ describe('批量处理引擎', () => {
     return items.map(fn);
   }
 
-  function chunk<T>(arr: T[], size: number): T[][] {
-    const result: T[][] = [];
-    for (let i = 0; i < arr.length; i += size) {
-      result.push(arr.slice(i, i + size));
-    }
-    return result;
-  }
-
   function groupBy<T>(arr: T[], fn: (item: T) => string): Record<string, T[]> {
     const result: Record<string, T[]> = {};
     for (const item of arr) {
@@ -262,33 +325,21 @@ describe('批量处理引擎', () => {
   });
 });
 
-// 缓存策略引擎
+// 缓存策略引擎 —— LRUCache 绑定生产实现（backend/src/services/cacheEngine.ts:36）
 describe('缓存策略引擎', () => {
-  class LRUCache<K, V> {
-    private capacity: number;
-    private map = new Map<K, V>();
-    constructor(capacity: number) { this.capacity = capacity; }
-    get(key: K): V | undefined {
-      if (!this.map.has(key)) return undefined;
-      const value = this.map.get(key)!;
-      this.map.delete(key);
-      this.map.set(key, value);
-      return value;
-    }
-    set(key: K, value: V): void {
-      if (this.map.has(key)) this.map.delete(key);
-      else if (this.map.size >= this.capacity) {
-        const first = this.map.keys().next().value!;
-        this.map.delete(first);
-      }
-      this.map.set(key, value);
-    }
-    has(key: K): boolean { return this.map.has(key); }
-    size(): number { return this.map.size; }
-    clear(): void { this.map.clear(); }
-    keys(): K[] { return [...this.map.keys()]; }
+  // 生产 LRUCache 构造即启动 setInterval 清理定时器，必须 destroy()；统一登记，断言失败也能收尾
+  const createdCaches: LRUCache<any>[] = [];
+  function createLRU<V>(maxSize: number): LRUCache<V> {
+    const cache = new LRUCache<V>({ maxSize });
+    createdCaches.push(cache);
+    return cache;
   }
 
+  afterEach(() => {
+    for (const cache of createdCaches.splice(0)) cache.destroy();
+  });
+
+  // FIFO 无生产同契约（见文件头），保留内联
   class FIFOCache<K, V> {
     private capacity: number;
     private map = new Map<K, V>();
@@ -305,7 +356,7 @@ describe('缓存策略引擎', () => {
   }
 
   it('LRU应淘汰最久未用', () => {
-    const cache = new LRUCache<string, number>(2);
+    const cache = createLRU<number>(2);
     cache.set('a', 1);
     cache.set('b', 2);
     cache.set('c', 3);
@@ -315,7 +366,7 @@ describe('缓存策略引擎', () => {
   });
 
   it('LRU get应刷新使用时间', () => {
-    const cache = new LRUCache<string, number>(2);
+    const cache = createLRU<number>(2);
     cache.set('a', 1);
     cache.set('b', 2);
     cache.get('a');
@@ -325,31 +376,31 @@ describe('缓存策略引擎', () => {
   });
 
   it('LRU应返回值', () => {
-    const cache = new LRUCache<string, number>(10);
+    const cache = createLRU<number>(10);
     cache.set('x', 42);
     expect(cache.get('x')).toBe(42);
   });
 
   it('LRU不存在应返回undefined', () => {
-    const cache = new LRUCache<string, number>(10);
+    const cache = createLRU<number>(10);
     expect(cache.get('y')).toBeUndefined();
   });
 
   it('LRU应限制容量', () => {
-    const cache = new LRUCache<number, number>(3);
-    for (let i = 0; i < 10; i++) cache.set(i, i);
-    expect(cache.size()).toBe(3);
+    const cache = createLRU<number>(3);
+    for (let i = 0; i < 10; i++) cache.set(String(i), i);
+    expect(cache.getStats().size).toBe(3);
   });
 
   it('LRU clear应清空', () => {
-    const cache = new LRUCache<string, number>(10);
+    const cache = createLRU<number>(10);
     cache.set('a', 1);
     cache.clear();
-    expect(cache.size()).toBe(0);
+    expect(cache.getStats().size).toBe(0);
   });
 
   it('LRU keys应返回所有key', () => {
-    const cache = new LRUCache<string, number>(10);
+    const cache = createLRU<number>(10);
     cache.set('a', 1);
     cache.set('b', 2);
     expect(cache.keys()).toEqual(['a', 'b']);
@@ -373,16 +424,16 @@ describe('缓存策略引擎', () => {
   });
 
   it('LRU大量操作应正确', () => {
-    const cache = new LRUCache<number, number>(100);
-    for (let i = 0; i < 1000; i++) cache.set(i, i);
-    expect(cache.size()).toBe(100);
+    const cache = createLRU<number>(100);
+    for (let i = 0; i < 1000; i++) cache.set(String(i), i);
+    expect(cache.getStats().size).toBe(100);
     for (let i = 900; i < 1000; i++) {
-      expect(cache.get(i)).toBe(i);
+      expect(cache.get(String(i))).toBe(i);
     }
   });
 
   it('容量为1的LRU应正常工作', () => {
-    const cache = new LRUCache<string, number>(1);
+    const cache = createLRU<number>(1);
     cache.set('a', 1);
     cache.set('b', 2);
     expect(cache.has('a')).toBe(false);
