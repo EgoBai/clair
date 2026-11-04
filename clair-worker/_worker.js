@@ -5834,6 +5834,34 @@ async function handleFundFlowGlobal() {
   });
 }
 
+// 新浪个股资金流（东财双主机都不可信/不可达时的兜底真实源）。
+// 返回结构对齐 latest：{ mainNet, mainNetPct, superNet, bigNet, midNet, smallNet }，单位元。
+// 新浪给 r0..r3 的 in/out 原始量，各档净额 = in - out（同源字段相减，不做口径倒算）；
+// 主力净额 = 超大单净额 + 大单净额。任一必需字段缺失就返回 null，不猜。
+async function fetchSinaFundFlow(symbol, attempts) {
+  const prefix = symbol.startsWith('6') ? 'sh' : (symbol.startsWith('4') || symbol.startsWith('8') ? 'bj' : 'sz');
+  const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/MoneyFlow.ssi_ssfx_flzjtj?daima=${prefix}${symbol}`;
+  try {
+    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/' } });
+    const t = (await resp.text()).trim();
+    if (!t.startsWith('{')) { attempts.push('sina:non-json'); return null; }
+    const d = JSON.parse(t);
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const nets = ['r0', 'r1', 'r2', 'r3'].map((k) => {
+      const inn = num(d[k + '_in']); const out = num(d[k + '_out']);
+      return inn === null || out === null ? null : inn - out;
+    });
+    if (nets.every((n) => n === null)) { attempts.push('sina:no-fields'); return null; }
+    const gross = ['r0', 'r1', 'r2', 'r3'].reduce((s, k) => s + (num(d[k + '_in']) || 0) + (num(d[k + '_out']) || 0), 0);
+    if (gross === 0) { attempts.push('sina:all-zero'); return null; }
+    return {
+      mainNet: (nets[0] === null || nets[1] === null) ? null : nets[0] + nets[1],
+      mainNetPct: null,
+      superNet: nets[0], bigNet: nets[1], midNet: nets[2], smallNet: nets[3],
+    };
+  } catch (e) { attempts.push('sina:' + String(e.message || 'e').slice(0, 24)); return null; }
+}
+
 async function handleFundFlow(symbol) {
   try {
     const pure = String(symbol || '').replace(/\.(SH|SZ|BJ)$/i, '');
@@ -5874,6 +5902,12 @@ async function handleFundFlow(symbol) {
     if (flowHost && flowHost.includes('push2delay')) {
       attempts.push('push2delay:untrusted-constant');
       latest = null; flowHost = null;
+    }
+    // 东财任一路都拿不到可信五档时的真实兜底：新浪个股资金流（与 K 线的 sina 源同域，CF 出口可达）。
+    // 新浪给的是分档「流入/流出」原始量，五档净额由同源字段相减得到（直接算术，不做口径倒算）。
+    if (!latest) {
+      const sina = await fetchSinaFundFlow(pure, attempts);
+      if (sina) { latest = sina; flowHost = 'sina'; }
     }
 
     // 申万31行业板块主力净额排行（单请求取全量后按 SW_BOARD_CODES 过滤）
@@ -5926,7 +5960,9 @@ async function handleFundFlow(symbol) {
       : [];
     // 个股资金流取不到 → unavailable（板块资金流仍可能在，但那是另一个事实）；
     // 取到但缺档 → partial；五档齐全才是 eastmoney 全量。
-    const flowDataSource = latest ? (currentMissing.length === 0 ? 'eastmoney' : 'partial') : 'unavailable';
+    // 提供方随实际选中的主机走：东财实时主机 → eastmoney；新浪兜底 → sina。
+    const flowProvider = flowHost === 'sina' ? 'sina' : 'eastmoney';
+    const flowDataSource = latest ? (currentMissing.length === 0 ? flowProvider : 'partial') : 'unavailable';
     return json({
       success: true,
       data: {
@@ -5941,7 +5977,7 @@ async function handleFundFlow(symbol) {
         dataSource: flowDataSource,
         name: stockName,
       },
-      source: latest ? 'eastmoney' : 'eastmoney-boards-only',
+      source: latest ? flowProvider : 'eastmoney-boards-only',
       attempts,
       note: latest
         ? (currentMissing.length ? `个股资金流缺 ${currentMissing.length} 档，缺失字段已置 null（不写 0）` : undefined)

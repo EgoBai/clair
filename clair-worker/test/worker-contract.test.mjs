@@ -974,12 +974,17 @@ async function callFundFlowSymbolWithStub({
   clistBody = PUSH2_SECTOR_FLOWS_FOR_SYMBOL,
   primaryFails = false,
   delayStockGetBody = null,
+  sinaBody = null,
 }) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
     const url = typeof input === 'string' ? input : input.url;
     // 按主机区分：实时主机可单独失效，延迟主机可单独给「常量假数据」夹具
     const isDelayHost = url.includes('push2delay.eastmoney.com');
+    if (url.includes('money.finance.sina.com.cn')) {
+      if (sinaBody === null) throw new Error('sina unreachable (stubbed)');
+      return new Response(sinaBody, { status: 200 });
+    }
     if (primaryFails && !isDelayHost) throw new Error('primary host unreachable (stubbed)');
     if (url.includes('/api/qt/stock/get')) {
       const body = isDelayHost && delayStockGetBody ? delayStockGetBody : stockGetBody;
@@ -1077,6 +1082,30 @@ await test('symbol：实时主机不可达、延迟主机只回常量 → 判 un
   assert.ok(Array.isArray(body.attempts) && body.attempts.includes('push2delay:untrusted-constant'),
     'attempts 应记录延迟主机不可信，实际 ' + JSON.stringify(body.attempts));
   assert.ok(body.data.sectorFlows.length >= 1, '板块资金流仍来自 clist，与个股五档是两件事实');
+});
+
+await test('symbol：东财不可信时用新浪兜底，五档由同源 in/out 相减，主力=超大+大', async () => {
+  const SINA = JSON.stringify({
+    r0_in: '2952439538.21', r0_out: '2931777361.34',
+    r1_in: '263555030.98', r1_out: '264707593.15',
+    r2_in: '17130321.00', r2_out: '16889799.32',
+    r3_in: '0.00', r3_out: '0.00', name: '贵州茅台',
+  });
+  const { body } = await callFundFlowSymbolWithStub({
+    stockGetBody: STOCK_GET_FULL, primaryFails: true, sinaBody: SINA,
+  });
+  const cur = body.data.current;
+  assert.ok(cur, '新浪兜底成功时 current 应存在');
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 0.01,
+    `期望约 ${expected}，实际 ${actual}`);
+  near(cur.superLargeNet, 20662176.87);   // r0_in - r0_out
+  near(cur.largeNet, -1152562.17);        // r1_in - r1_out
+  near(cur.mainNet, 19509614.70);         // 超大 + 大
+  near(cur.mediumNet, 240521.68);         // r2_in - r2_out
+  assert.equal(cur.smallNet, 0, '小单真实 0 保留 0');
+  assert.deepEqual(body.data.missing, []);
+  assert.equal(body.data.dataSource, 'sina', '提供方必须如实标 sina，不能冒名 eastmoney');
+  assert.equal(body.source, 'sina');
 });
 
 // ============================================================

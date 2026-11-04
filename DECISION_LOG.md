@@ -345,3 +345,10 @@
 - **前端**：`FundFlowPage` 的 `flowColor/fmtSigned` 原签名只接 `number`，null 会算成 `'-0'` 并染绿；现补 `isFlowNum` 守卫，缺失渲染「—」+ 中性灰。`dsTag` 新增 `partial` → 灰 Tag「部分缺失」，不沿用真实源的蓝色。个股五档卡片区加 `data-testid="stock-flow-current"`（市场 5 档与个股 5 档标题同名，测试必须限定容器）。
 - **验证**：worker 契约新增 3 例（齐全 / 缺档 + 真实 0 / `f62='-'`）→ 85 通过 2 失败（两条是既有北向真实网络口径失败）；`fundFlowPage.test.tsx` 15→17 例全绿；`npx tsc --noEmit` exit 0；`honesty-scan --strict` 与 `shadow-test-census --check` 均 exit 0。
 - **代价**：前端新增 1 个 testid 与 1 个 Tag 分支；Worker 响应多一个 `missing` 字段（消费端可不读）。个股资金流取不到时 Tag 从「eastmoney」变「不可得」——这是把事实说准，不是回退。
+
+### D53 · 延迟行情主机的「常量资金流」判不可信，宁可 unavailable 也不展示假净额 ✅ 2026-11-04 执行
+- **结论**：D52 把缺失归一为 null 之后，2026-11-04 线上实测发现更深一层问题：Worker 原先优先请求 `push2delay.eastmoney.com`，该主机对 600519 / 000001 / 600036 / 300750 / 601318 / 002594 **全部**返回 `f62=3、f78=0`（常量），而 `f84` 又是 1e9 量级，字段之间不自洽。采信它就会把「常量 3」渲染成「主力净流入 3 元」。
+- **做法**：① `FLOW_HOSTS` 改为实时主机 `push2.eastmoney.com` 优先，延迟主机只作兜底；② 若最终选中延迟主机，置 `latest=null / flowHost=null`，并在 `attempts` 记 `push2delay:untrusted-constant`；③ 个股五档随之 `current:null`、`dataSource:'unavailable'`，板块资金流（clist 源）照旧返回——两者是不同事实。
+- **验证**：worker 契约新增 1 例（实时主机抛错 + 延迟主机回常量 → current null / unavailable / 板块仍在）；`node --test` 86 通过 2 失败（两条既有北向真实网络口径失败）。部署后线上实测 `/api/fund-flow/600519` → `latest:null, current:null, dataSource:unavailable, attempts:['push2.eastmo:non-json','push2delay:untrusted-constant'], source:'eastmoney-boards-only'`。
+- **兜底（同一轮补齐）**：东财双主机都拿不到可信五档时，改走新浪 `MoneyFlow.ssi_ssfx_flzjtj`（与 K 线 sina 源同域，CF 出口可达）：`r0..r3` 的 `in/out` 相减得五档净额，`mainNet = r0_net + r1_net`，`mainNetPct = null`；响应 `dataSource`/`source` 如实标 `sina`，不冒名 `eastmoney`。新浪字段缺失或全为 0 时返回 null，不猜。
+- **代价**：个股资金流变成「东财实时 → 新浪 → unavailable」三级降级，来源必须看 `dataSource` 才知道是谁；两源档位口径可能略有差异（新浪给 in/out，东财给净额），跨源数值不可直接对比。东财 push2 若在 CF 出口恢复，会自动优先东财。

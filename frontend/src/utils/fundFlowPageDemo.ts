@@ -9,7 +9,7 @@
  * 数据源标识。`partial` = 来源可达但部分字段缺失（Worker 对东财缺档返回 null + missing[]），
  * 与「拿到全量」的 provider 名、与「完全不可得」的 `unavailable` 是三种不同事实。
  */
-export type FundFlowProviderName = 'tushare' | 'akshare' | 'alphavantage' | 'eastmoney' | 'tencent' | 'demo' | 'partial' | 'unavailable';
+export type FundFlowProviderName = 'tushare' | 'akshare' | 'alphavantage' | 'eastmoney' | 'tencent' | 'sina' | 'demo' | 'partial' | 'unavailable';
 
 /**
  * 个股五档净额（/api/fund-flow/:symbol 的 current）。
