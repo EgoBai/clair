@@ -1,8 +1,8 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 36 迁移后更新 10:50（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 37 迁移后更新 10:56（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
-> 基线：批次 36 后重扫（2026-11-04）
+> 基线：批次 37 后重扫（2026-11-04）
 
 ## 一、判定口径
 
@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **728（47.5%）** |
-| 真实导入 | 805 |
-| 影子测试代码行 | **191,069 行** |
-| 真实测试代码行 | 172,553 行 |
+| 影子测试 | **724（47.2%）** |
+| 真实导入 | 809 |
+| 影子测试代码行 | **189,362 行** |
+| 真实测试代码行 | 174,513 行 |
 
-按行数算，52.6% 的测试代码在断言副本而不是产品代码。
+按行数算，52.0% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 375/640 | 58.6% |
-| frontend/src/__tests__（扁平） | 353/868 | 40.7% |
+| backend/src/__tests__（扁平） | 373/640 | 58.3% |
+| frontend/src/__tests__（扁平） | 351/868 | 40.4% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -315,11 +315,22 @@
 - **验证**：我独立复验 backend 136 passed、frontend 82 passed；禁项 grep 0 命中；四文件 it/expect 只增未删；无探针残留。
 - **效果**：影子 732→728（47.5%），shadowLoc 192,907→191,069，realLoc 170,539→172,553，真实 801→805；backend 377→375、frontend 355→353；候选 9→5 个 2 符号重叠（≥3 清零）。
 
+## 六（续）、批次 37（2026-11-04 10:56）
+
+- **fundFlowDeep.test.ts**（420→430，33→35 例，断言 47→91）绑 `backend/src/models/FundFlow.ts:104/116/122/133` FLOW_THRESHOLDS/classifyFlowDirection/calculateFlowIntensity/formatFlowAmount、`frontend/src/utils/sectorFundFlow.ts:51/79` summarizeFundFlows/analyzeFlowTrend、`sectorFundFlowEngine.ts:101` analyzeFlowTrend（momentum/consistency）。
+- **optionsMacroEngine.test.ts**（424→512，48→51，断言 62→108）绑 `frontend/src/utils/optionsPricingEngine.ts:54/130/152/222/298` normalCDF/blackScholesPrice/calculateGreeks/priceOption/putCallParity、`advancedOptionsEngine.ts:164` putCallParity、`marketDepthEngine.ts:62` analyzeOrderBookDepth、`eventDrivenBacktestEngine.ts:49` runEventBacktest。
+- **prefetchCacheEngine.test.ts**（420→504，26→31，断言 38→77）绑 `frontend/src/utils/cacheEngine.ts:55/184/379/466/478/492` LRUCache/LFUCache/createCache/cacheToStorage/readFromStorage/cleanExpiredStorage、`debounceThrottle.ts:6/141` debounce/throttle。
+- **utilityFunctions.test.ts**（439→510，44→49，断言 67→90）绑 `exportEngine.ts:361/381` groupData/aggregateData、`debounceThrottle.ts:6/141`、`enhancedFormatters.ts:9/71` formatRelativeTime/formatDate。
+- **旧断言错在哪（生产正确）**：资金流三档 strong/weak 按绝对强度不分方向、零成交额→weak、无 score/mainForceRatio 字段；formatAmount(0)='+0.00'；期权不 clamp 时间价值（深实值 put 为负）、spreadBps 分母是 lastPrice（10.01→19.98001998）、回测空输入抛「没有交易数据」、expectancy 用比例制、normalCDF 在 ±8 外截断；LRU 靠 Map 插入序（非 lastAccess 时间戳）、ttl=0 表示永不过期、createCache('fifo') 实际返回 LRUCache、45 天相对时间退化为完整日期（'2025年12月1日'）、groupBy(keyFn)→groupData(字段名)、聚合键 `${key}_${type}` 且 count 排除 0。
+- **生产缺口（只记录未修）**：`sectorFundFlow.ts` topOutflow 在流出不足 5 个时混入正流入；engine 单元素 momentum 退化为该值；`priceOption` timeValue 不 clamp；`cacheEngine.ts:8/379` fifo 静默降级 LRU、`:356` TTLCache.has 不查过期、`exportEngine.ts:403/406` 空数据 min/max 为 ±Infinity、groupData 缺失字段静默「未分组」、两个同名 formatRelativeTime 并存（formatters.ts:266 vs enhancedFormatters.ts:9）、exportEngine 未进 utils/index.ts 桶导出。
+- **验证**：我独立复验 backend 86 passed、frontend 80 passed；禁项 grep 0 命中；四文件 it/expect 只增未删（35/91、51/108、31/77、49/90）；无探针残留。
+- **效果**：影子 728→724（47.2%），shadowLoc 191,069→189,362，realLoc 172,553→174,513，真实 805→809；backend 375→373、frontend 353→351；2 符号重叠候选 5→1（仅剩 dashboardWidgets，≥3 清零）。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 728 / total 1533 / shadowLoc 191,069（批次 36 后）。历史基线：批次 35 后 732/192,907、批次 34 后 734/194,082、批次 33 后 738/195,690、批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 724 / total 1533 / shadowLoc 189,362（批次 37 后）。历史基线：批次 36 后 728/191,069、批次 35 后 732/192,907、批次 34 后 734/194,082、批次 33 后 738/195,690、批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -328,12 +339,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：728 个影子测试中 5 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 33 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：724 个影子测试中 1 个检测到 2 个生产 export 符号重叠（dashboardWidgets，≥3 已清零）；另有 1 个符号重叠 247 个、零重叠 475 个（批次 37 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 36 已消化 utils/etfAnalytics/advancedChartUtils/tradingStrategyEngine；批次 35 已消化 technicalAnalysis/dashboardCustomization；批次 34 已消化 financialMathEngine/signalsAndRisk/financialDataEngine/technicalIndicatorsLib；批次 33 已消化 chartDataAndLayout/renderOptimization/formValidationEnhanced/quantitativeStrategies；批次 32 已消化 dataWarehouse/backtestEngineLogic/focusRingLogic/componentStateMgmt；批次 31 已消化 factorModels/quantitativeFactors/dataExportEngine/domInteractions；批次 30 已消化 chartDataProcessingDeep/themeStyleSystem/alertEngineV2/dataPipelineEngine；批次 28–29 已消化 optionsPricing/dataVizLogic/formInputValidationDeep/microstructure/backtestCombinations/technicalPatterns；批次 27 消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep。
-- 下一批候选（2 符号重叠 5 个全部）：`backend/src/__tests__/fundFlowDeep.test.ts`（421，sectorFundFlow/FundFlow）、`frontend/src/__tests__/prefetchCacheEngine.test.ts`（421，debounceThrottle）、`backend/src/__tests__/optionsMacroEngine.test.ts`（425，optionsPricingEngine/advancedOptionsEngine）、`frontend/src/__tests__/utilityFunctions.test.ts`（440，debounceThrottle）、`frontend/src/__tests__/dashboardWidgets.test.ts`（483，dashboardLayoutEngine）。
+- 批次 37 已消化 fundFlowDeep/optionsMacroEngine/prefetchCacheEngine/utilityFunctions；批次 36 已消化 utils/etfAnalytics/advancedChartUtils/tradingStrategyEngine；批次 35 已消化 technicalAnalysis/dashboardCustomization；批次 34 已消化 financialMathEngine/signalsAndRisk/financialDataEngine/technicalIndicatorsLib；批次 33 已消化 chartDataAndLayout/renderOptimization/formValidationEnhanced/quantitativeStrategies；批次 32 已消化 dataWarehouse/backtestEngineLogic/focusRingLogic/componentStateMgmt；批次 31 已消化 factorModels/quantitativeFactors/dataExportEngine/domInteractions；批次 30 已消化 chartDataProcessingDeep/themeStyleSystem/alertEngineV2/dataPipelineEngine；批次 28–29 已消化 optionsPricing/dataVizLogic/formInputValidationDeep/microstructure/backtestCombinations/technicalPatterns；批次 27 消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep。
+- 下一批候选：`frontend/src/__tests__/dashboardWidgets.test.ts`（483，dashboardLayoutEngine）为最后一个 2 符号重叠；其余从 1 符号重叠池（247 个）挑体量大且符号明确的：`userDeepDive.test.ts`（869）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
 - 体量大需逐段确认：`frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
 - 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR、formatters formatVolume/formatTurnover 无 null 守卫、`StockDetailPage.tsx:141-153` 自带格式化副本、validateStockCode 只校验 6 位数字。

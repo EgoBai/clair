@@ -1,11 +1,65 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+/**
+ * 影子测试迁移（批次 12）
+ *
+ * 旧文件在测试内手抄了 DataCache / PrefetchManager / debounce / throttle /
+ * deepClone / deepEqual 一整层实现，断言对象是副本而非产品；LRU 淘汰用
+ * lastAccess 时间戳 + 真实 sleep(5ms) 制造先后，TTL 用 sleep(60ms) 等待，
+ * 慢且依赖真实时钟；ttl=0 被 `ttl || defaultTTL` 吞掉；FIFO 是副本自造的
+ * 分支；debounce / throttle 副本没有任何用例（死代码）。现已 import 生产实现。
+ *
+ * 已绑定生产实现：
+ * - ../utils/cacheEngine.ts:55 LRUCache（LRU 缓存）
+ * - ../utils/cacheEngine.ts:184 LFUCache（LFU 缓存）
+ * - ../utils/cacheEngine.ts:379 createCache（缓存工厂）
+ * - ../utils/cacheEngine.ts:492 cleanExpiredStorage（localStorage 过期清理）
+ * - ../utils/debounceThrottle.ts:6 debounce
+ * - ../utils/debounceThrottle.ts:141 throttle
+ * 以上由 ../utils/index.ts:19（debounce/throttle）与 :22（cacheEngine）显式再导出；
+ * debounceThrottle-typed.ts 与 requestUtils-typed.ts 不是生产真源。
+ *
+ * 测试环境说明：本仓库 jsdom 环境下的全局 localStorage 是 Node 的占位对象
+ * （探针实测无 setItem/getItem/key/clear），故 cleanExpiredStorage 用例注入
+ * Map 实现的 MemoryStorage 桩，被测函数仍是 cacheEngine 的生产实现。
+ *
+ * 旧断言错在哪（旧副本与生产行为不一致）：
+ *
+ * | 旧断言 / 旧实现 | 生产输出 | 依据 |
+ * | --- | --- | --- |
+ * | LRU 用 lastAccess 时间戳，靠 sleep(5ms) 决定先后 | 生产用 Map 插入顺序：get 命中即 delete+set 移到尾部 | cacheEngine.ts:79-81 |
+ * | `ttl || defaultTTL`，ttl=0 会被替换成默认 TTL | ttl=0 表示永不过期 | cacheEngine.ts:16、:163-166 |
+ * | 过期判断用当前时间 > expiresAt（恰好到期即过期） | 用 now - createdAt > ttl（恰好到期仍有效，+1ms 才过期） | cacheEngine.ts:165 |
+ * | 独立 FIFO 策略分支，按 Map 首键淘汰 | createCache('fifo') 落入 default 返回 LRUCache，无独立 FIFO 类 | cacheEngine.ts:379-388 |
+ * | 内存缓存 DataCache.clearExpired() 返回清除数 | 生产无 Cache.clearExpired，改绑 localStorage 的 cleanExpiredStorage，返回被清理 key 数 | cacheEngine.ts:492-512 |
+ * | debounce 副本只有 cancel，无 leading/trailing/flush/pending；throttle 用 Date.now 差值且无 trailing | 生产 debounce 支持 leading/trailing/maxWait + cancel/flush/pending；throttle = debounce + maxWait | debounceThrottle.ts:6-139、:141-151 |
+ * | deepClone 夹具用无参 Date 构造（现取时间） | 固定时间戳夹具，断言 getTime() | 铁律 2（禁用无参构造） |
+ *
+ * 未迁移——生产无同契约实现（保留本地 helper）：
+ * - PrefetchManager：生产 ../utils/dataPrefetch.ts:39 DataPrefetchManager 的
+ *   enqueue(key, loader, priority=0) 返回 void 并异步自动加载，没有 URL 正则规则、
+ *   同步 dequeue、布尔入队结果与可观察队列，契约不同；useHoverPrefetch /
+ *   useViewportPrefetch / useIdlePrefetch（:179/:207/:240）是 React Hook。
+ * - deepClone / deepEqual：全仓无通用深拷贝/深比较导出，故保留本地 helper。
+ *
+ * 发现的生产缺口（只报告不修）：
+ * - createCache('fifo') 静默降级为 LRU，但 CacheStrategy 声明了 'fifo'
+ *   （cacheEngine.ts:8、:379-388），按 FIFO 配置的调用方实际拿到 LRU 语义。
+ * - TTLCache.has 直接 cache.has，不做过期检查（cacheEngine.ts:356）；仅靠
+ *   setTimeout 删除，定时器未触发时可能读到过期条目。本文件未锁定该行为。
+ * - LRU/LFU 的过期判断用 `>`，与旧副本 `>` 相同；但旧副本把 ttl=0 当成
+ *   「用默认 TTL」，两套口径同时存在时容易误判。
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  LFUCache,
+  LRUCache,
+  cacheToStorage,
+  cleanExpiredStorage,
+  createCache,
+  readFromStorage,
+} from '../utils/cacheEngine';
+import { debounce, throttle } from '../utils/debounceThrottle';
 
-// 前端数据预取和缓存引擎
-interface CacheConfig {
-  maxSize: number;
-  defaultTTL: number;
-  strategy: 'lru' | 'fifo' | 'lfu';
-}
+// ==================== 未迁移：生产无同契约实现，保留本地 helper ====================
 
 interface PrefetchRule {
   pattern: RegExp;
@@ -13,100 +67,6 @@ interface PrefetchRule {
   ttl: number;
   prefetchOnHover: boolean;
   prefetchOnVisible: boolean;
-}
-
-class DataCache {
-  private cache: Map<string, { data: any; expiresAt: number; accessCount: number; lastAccess: number }> = new Map();
-  private config: CacheConfig;
-
-  constructor(config: CacheConfig) {
-    this.config = config;
-  }
-
-  set(key: string, data: any, ttl?: number): void {
-    if (this.cache.size >= this.config.maxSize && !this.cache.has(key)) {
-      this.evict();
-    }
-    this.cache.set(key, {
-      data,
-      expiresAt: Date.now() + (ttl || this.config.defaultTTL),
-      accessCount: 0,
-      lastAccess: Date.now(),
-    });
-  }
-
-  get(key: string): any | undefined {
-    const entry = this.cache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      this.cache.delete(key);
-      return undefined;
-    }
-    entry.accessCount++;
-    entry.lastAccess = Date.now();
-    return entry.data;
-  }
-
-  has(key: string): boolean {
-    const entry = this.cache.get(key);
-    if (!entry) return false;
-    if (Date.now() > entry.expiresAt) {
-      this.cache.delete(key);
-      return false;
-    }
-    return true;
-  }
-
-  delete(key: string): boolean {
-    return this.cache.delete(key);
-  }
-
-  clear(): void {
-    this.cache.clear();
-  }
-
-  size(): number {
-    return this.cache.size;
-  }
-
-  clearExpired(): number {
-    const now = Date.now();
-    let count = 0;
-    for (const [key, entry] of this.cache) {
-      if (now > entry.expiresAt) {
-        this.cache.delete(key);
-        count++;
-      }
-    }
-    return count;
-  }
-
-  private evict(): void {
-    if (this.config.strategy === 'lru') {
-      let oldestKey: string | null = null;
-      let oldestTime = Infinity;
-      for (const [key, entry] of this.cache) {
-        if (oldestKey === null || entry.lastAccess < oldestTime) {
-          oldestTime = entry.lastAccess;
-          oldestKey = key;
-        }
-      }
-      if (oldestKey) this.cache.delete(oldestKey);
-    } else if (this.config.strategy === 'lfu') {
-      let leastUsedKey: string | null = null;
-      let leastCount = Infinity;
-      for (const [key, entry] of this.cache) {
-        if (entry.accessCount < leastCount) {
-          leastCount = entry.accessCount;
-          leastUsedKey = key;
-        }
-      }
-      if (leastUsedKey) this.cache.delete(leastUsedKey);
-    } else { // fifo
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) this.cache.delete(firstKey);
-    }
-  }
 }
 
 class PrefetchManager {
@@ -161,55 +121,62 @@ class PrefetchManager {
   }
 }
 
-function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): T & { cancel: () => void } {
-  let timer: ReturnType<typeof setTimeout> | null = null;
+// 本环境全局 localStorage 是 Node 占位对象（无 setItem/getItem/key/clear），
+// 用确定性 Map 版 Storage 桩注入，清理起始状态后断言生产 cleanExpiredStorage。
+class MemoryStorage {
+  private store = new Map<string, string>();
 
-  const debounced = function (this: any, ...args: any[]) {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      fn.apply(this, args);
-      timer = null;
-    }, delay);
-  } as T & { cancel: () => void };
+  get length(): number {
+    return this.store.size;
+  }
 
-  debounced.cancel = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-  };
+  clear(): void {
+    this.store.clear();
+  }
 
-  return debounced;
+  getItem(key: string): string | null {
+    return this.store.has(key) ? this.store.get(key)! : null;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.store.keys())[index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
 }
 
-function throttle<T extends (...args: any[]) => any>(fn: T, interval: number): T {
-  let lastTime = 0;
-  return function (this: any, ...args: any[]) {
-    const now = Date.now();
-    if (now - lastTime >= interval) {
-      lastTime = now;
-      fn.apply(this, args);
-    }
-  } as T;
+function clearLocalStorage(): void {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key !== null) localStorage.removeItem(key);
+  }
 }
 
 function deepClone<T>(obj: T): T {
   if (obj === null || typeof obj !== 'object') return obj;
-  if (obj instanceof Date) return new Date(obj.getTime()) as any;
-  if (obj instanceof Array) return obj.map(item => deepClone(item)) as any;
-  if (obj instanceof Map) return new Map(Array.from(obj.entries()).map(([k, v]) => [deepClone(k), deepClone(v)])) as any;
-  if (obj instanceof Set) return new Set(Array.from(obj).map(v => deepClone(v))) as any;
+  if (obj instanceof Date) return new Date(obj.getTime()) as T;
+  if (obj instanceof Array) return obj.map(item => deepClone(item)) as T;
+  if (obj instanceof Map) {
+    return new Map(Array.from(obj.entries()).map(([k, v]) => [deepClone(k), deepClone(v)])) as T;
+  }
+  if (obj instanceof Set) return new Set(Array.from(obj).map(v => deepClone(v))) as T;
 
-  const result: any = {};
+  const result: Record<string, unknown> = {};
   for (const key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      result[key] = deepClone((obj as any)[key]);
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      result[key] = deepClone((obj as Record<string, unknown>)[key]);
     }
   }
-  return result;
+  return result as T;
 }
 
-function deepEqual(a: any, b: any): boolean {
+function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (typeof a !== typeof b) return false;
@@ -217,90 +184,134 @@ function deepEqual(a: any, b: any): boolean {
   if (typeof a === 'object') {
     if (Array.isArray(a) !== Array.isArray(b)) return false;
     if (Array.isArray(a)) {
-      if (a.length !== b.length) return false;
-      return a.every((item, i) => deepEqual(item, b[i]));
+      if (a.length !== (b as unknown[]).length) return false;
+      return a.every((item, i) => deepEqual(item, (b as unknown[])[i]));
     }
-    const keysA = Object.keys(a);
-    const keysB = Object.keys(b);
+    const keysA = Object.keys(a as Record<string, unknown>);
+    const keysB = Object.keys(b as Record<string, unknown>);
     if (keysA.length !== keysB.length) return false;
-    return keysA.every(key => deepEqual(a[key], b[key]));
+    return keysA.every(key => deepEqual(
+      (a as Record<string, unknown>)[key],
+      (b as Record<string, unknown>)[key],
+    ));
   }
 
   return false;
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
 describe('数据预取和缓存引擎', () => {
-  describe('DataCache - LRU策略', () => {
-    let cache: DataCache;
+  describe('LRUCache - LRU 策略', () => {
+    let cache: LRUCache<number>;
 
     beforeEach(() => {
-      cache = new DataCache({ maxSize: 3, defaultTTL: 100, strategy: 'lru' });
+      cache = new LRUCache<number>({ maxSize: 3, defaultTTL: 100000 });
     });
 
     it('应该存储和获取数据', () => {
       cache.set('a', 1);
       expect(cache.get('a')).toBe(1);
+      expect(cache.has('a')).toBe(true);
+      expect(cache.getStats().hits).toBe(1);
     });
 
     it('不存在的key返回undefined', () => {
       expect(cache.get('x')).toBeUndefined();
+      expect(cache.has('x')).toBe(false);
+      expect(cache.getStats().misses).toBe(1);
     });
 
-    it('LRU淘汰最久未访问的', async () => {
+    it('LRU淘汰最久未访问的', () => {
       cache.set('a', 1);
-      await new Promise(r => setTimeout(r, 5));
       cache.set('b', 2);
-      await new Promise(r => setTimeout(r, 5));
       cache.set('c', 3);
-      await new Promise(r => setTimeout(r, 5));
-      cache.get('a'); // a变成最近访问
-      cache.set('d', 4); // b被淘汰（最早设置且未被get刷新）
+      cache.get('a'); // a 移到 Map 尾部
+      cache.set('d', 4); // 淘汰 Map 首键 b
       expect(cache.has('b')).toBe(false);
       expect(cache.has('a')).toBe(true);
+      expect(cache.has('c')).toBe(true);
+      expect(cache.keys()).toEqual(['c', 'a', 'd']);
+      expect(cache.getStats().evictions).toBe(1);
     });
 
-    it('过期数据应该返回undefined', async () => {
-      cache.set('a', 1, 50);
-      await new Promise(r => setTimeout(r, 60));
-      expect(cache.get('a')).toBeUndefined();
+    it('过期数据应该返回undefined（恰好到期仍有效）', () => {
+      vi.useFakeTimers();
+      const t0 = new Date('2026-01-05T09:30:00.000Z');
+      vi.setSystemTime(t0);
+      const ttlCache = new LRUCache<number>({ maxSize: 3, defaultTTL: 100000 });
+      ttlCache.set('a', 1, 50);
+
+      vi.setSystemTime(new Date(t0.getTime() + 50));
+      expect(ttlCache.get('a')).toBe(1); // 50 - 0 === ttl，生产用 > 判定未过期
+
+      vi.setSystemTime(new Date(t0.getTime() + 51));
+      expect(ttlCache.get('a')).toBeUndefined();
+      expect(ttlCache.has('a')).toBe(false);
+      expect(ttlCache.getStats().evictions).toBe(0); // 过期走 delete，不算 eviction
     });
 
-    it('应该清除过期条目', async () => {
-      cache.set('a', 1, 50);
-      cache.set('b', 2, 200);
-      await new Promise(r => setTimeout(r, 60));
-      expect(cache.clearExpired()).toBe(1);
+    it('ttl=0 表示永不过期', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-05T09:30:00.000Z'));
+      cache.set('forever', 7, 0);
+      vi.setSystemTime(new Date('2027-01-05T09:30:00.000Z'));
+      expect(cache.get('forever')).toBe(7);
+    });
+
+    it('应该清除过期的localStorage缓存', () => {
+      vi.useFakeTimers();
+      const t0 = new Date('2026-01-05T09:30:00.000Z');
+      vi.setSystemTime(t0);
+      vi.stubGlobal('localStorage', new MemoryStorage());
+      clearLocalStorage();
+
+      expect(cacheToStorage('a', 1, 50)).toBe(true);
+      expect(cacheToStorage('b', 2, 200)).toBe(true);
+
+      vi.setSystemTime(new Date(t0.getTime() + 60));
+      expect(cleanExpiredStorage()).toBe(1);
+      expect(localStorage.getItem('a')).toBeNull();
+      expect(localStorage.getItem('b')).not.toBeNull();
+      expect(readFromStorage('b')).toBe(2);
     });
   });
 
-  describe('DataCache - LFU策略', () => {
-    it('应该淘汰最少使用的', () => {
-      const cache = new DataCache({ maxSize: 3, defaultTTL: 10000, strategy: 'lfu' });
+  describe('LFUCache - LFU 策略', () => {
+    it('应该淘汰访问次数最少的', () => {
+      const cache = new LFUCache<number>({ maxSize: 3, defaultTTL: 100000 });
       cache.set('a', 1);
       cache.set('b', 2);
       cache.set('c', 3);
-      cache.get('a'); cache.get('a'); cache.get('a'); // a最常用
-      cache.get('b'); // b用了一次
-      // c没用过 → c被淘汰
+      cache.get('a');
+      cache.get('a');
+      cache.get('a');
+      cache.get('b');
       cache.set('d', 4);
       expect(cache.has('c')).toBe(false);
       expect(cache.has('a')).toBe(true);
+      expect(cache.get('b')).toBe(2);
+      expect(cache.getStats().evictions).toBe(1);
     });
   });
 
-  describe('DataCache - FIFO策略', () => {
-    it('应该淘汰最早加入的', () => {
-      const cache = new DataCache({ maxSize: 3, defaultTTL: 10000, strategy: 'fifo' });
+  describe('FIFO 策略（createCache 工厂）', () => {
+    it('fifo配置按插入顺序淘汰最早条目', () => {
+      const cache = createCache<number>('fifo', { maxSize: 3, defaultTTL: 100000 });
       cache.set('a', 1);
       cache.set('b', 2);
       cache.set('c', 3);
-      cache.set('d', 4); // a被淘汰
+      cache.set('d', 4); // 生产无独立 FIFO 类，'fifo' 实际由 LRUCache 处理
       expect(cache.has('a')).toBe(false);
       expect(cache.has('d')).toBe(true);
+      expect(cache.getStats().evictions).toBe(1);
     });
   });
 
-  describe('PrefetchManager', () => {
+  describe('PrefetchManager（未迁移：生产 DataPrefetchManager 契约不同）', () => {
     let pm: PrefetchManager;
 
     beforeEach(() => {
@@ -319,7 +330,7 @@ describe('数据预取和缓存引擎', () => {
       pm.enqueue('/api/market/stats');
       pm.enqueue('/api/stock/600000');
       const first = pm.dequeue();
-      expect(first).toBe('/api/stock/600000'); // 优先级10 > 5
+      expect(first).toBe('/api/stock/600000');
     });
 
     it('已预取的URL不应该重复入队', () => {
@@ -347,12 +358,13 @@ describe('数据预取和缓存引擎', () => {
     });
   });
 
-  describe('deepClone', () => {
+  describe('deepClone（未迁移：生产无通用导出）', () => {
     it('应该深拷贝对象', () => {
       const obj = { a: 1, b: { c: 2 } };
       const clone = deepClone(obj);
       clone.b.c = 3;
       expect(obj.b.c).toBe(2);
+      expect(clone.b.c).toBe(3);
     });
 
     it('应该深拷贝数组', () => {
@@ -360,10 +372,11 @@ describe('数据预取和缓存引擎', () => {
       const clone = deepClone(arr);
       clone[0][0] = 99;
       expect(arr[0][0]).toBe(1);
+      expect(clone[0][0]).toBe(99);
     });
 
     it('应该拷贝Date', () => {
-      const date = new Date();
+      const date = new Date('2026-01-05T09:30:00.000Z');
       const clone = deepClone(date);
       expect(clone.getTime()).toBe(date.getTime());
       expect(clone).not.toBe(date);
@@ -387,7 +400,7 @@ describe('数据预取和缓存引擎', () => {
     });
   });
 
-  describe('deepEqual', () => {
+  describe('deepEqual（未迁移：生产无通用导出）', () => {
     it('相同对象应该相等', () => {
       expect(deepEqual({ a: 1, b: { c: 2 } }, { a: 1, b: { c: 2 } })).toBe(true);
     });
@@ -415,6 +428,77 @@ describe('数据预取和缓存引擎', () => {
     it('基本类型应该用===', () => {
       expect(deepEqual(1, 1)).toBe(true);
       expect(deepEqual(1, '1')).toBe(false);
+    });
+  });
+
+  describe('debounce / throttle（绑定 debounceThrottle.ts）', () => {
+    it('debounce延迟后只执行最后一次调用', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-05T09:30:00.000Z'));
+      const spy = vi.fn();
+      const debounced = debounce(spy, 100);
+
+      debounced('a');
+      debounced('b');
+      expect(spy).not.toHaveBeenCalled();
+      expect(debounced.pending()).toBe(true);
+
+      vi.advanceTimersByTime(99);
+      expect(spy).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenLastCalledWith('b');
+      expect(debounced.pending()).toBe(false);
+    });
+
+    it('debounce flush会立即执行待处理调用', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-05T09:30:00.000Z'));
+      const spy = vi.fn();
+      const debounced = debounce(spy, 100);
+
+      debounced('x');
+      expect(debounced.pending()).toBe(true);
+      debounced.flush();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenLastCalledWith('x');
+      expect(debounced.pending()).toBe(false);
+
+      vi.advanceTimersByTime(1000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('debounce cancel会取消待处理调用', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-05T09:30:00.000Z'));
+      const spy = vi.fn();
+      const debounced = debounce(spy, 100);
+
+      debounced('x');
+      debounced.cancel();
+      expect(debounced.pending()).toBe(false);
+      vi.advanceTimersByTime(1000);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('throttle首次立即执行并在间隔内合并为尾随调用', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-05T09:30:00.000Z'));
+      const spy = vi.fn();
+      const throttled = throttle(spy, 100);
+
+      throttled(1);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenLastCalledWith(1);
+
+      vi.advanceTimersByTime(50);
+      throttled(2);
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(50);
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenLastCalledWith(2);
     });
   });
 });
