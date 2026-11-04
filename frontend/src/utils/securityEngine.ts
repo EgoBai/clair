@@ -9,7 +9,6 @@ export interface SanitizeOptions {
   allowedTags: string[];
   allowedAttributes: Record<string, string[]>;
   stripTags: boolean;
-  encodeEntities: boolean;
 }
 
 export interface ValidationResult {
@@ -82,6 +81,9 @@ export function decodeHTML(input: string): string {
 
 /**
  * 清理HTML（允许白名单标签）
+ *
+ * 注意：只做白名单过滤，不做 HTML 实体转义（encodeEntities 选项已移除，
+ * 历史上该选项从未生效）。需要实体转义请显式调用 encodeHTML。
  */
 export function sanitizeHTML(input: string, options?: Partial<SanitizeOptions>): string {
   const defaultOptions: SanitizeOptions = {
@@ -91,7 +93,6 @@ export function sanitizeHTML(input: string, options?: Partial<SanitizeOptions>):
       'span': ['class'],
     },
     stripTags: false,
-    encodeEntities: true,
   };
 
   const opts = { ...defaultOptions, ...options };

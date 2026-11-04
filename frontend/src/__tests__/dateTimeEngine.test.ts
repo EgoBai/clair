@@ -52,9 +52,9 @@ describe('Date & Time Processing Engine', () => {
     });
 
     it('无效输入返回占位符', () => {
-      expect(formatDate('not-a-date')).toBe('--');
-      expect(formatDate(null)).toBe('--');
-      expect(formatDate(undefined)).toBe('--');
+      expect(formatDate('not-a-date')).toBe('—');
+      expect(formatDate(null)).toBe('—');
+      expect(formatDate(undefined)).toBe('—');
     });
   });
 

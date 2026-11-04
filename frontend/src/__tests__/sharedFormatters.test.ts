@@ -24,6 +24,8 @@ import {
   getChangeText,
   getMarketColor,
 } from '../../../shared/formatters';
+import * as sharedFormatters from '../../../shared/formatters';
+import * as frontendFormatters from '../../src/utils/formatters';
 
 describe('共享格式化函数', () => {
   describe('formatNumber', () => {
@@ -58,13 +60,13 @@ describe('共享格式化函数', () => {
       expect(formatMarketCap(50000)).toContain('万');
     });
 
-    it('null/undefined应返回-', () => {
-      expect(formatMarketCap(null)).toBe('-');
-      expect(formatMarketCap(undefined)).toBe('-');
+    it('null/undefined应返回占位符 —', () => {
+      expect(formatMarketCap(null)).toBe('—');
+      expect(formatMarketCap(undefined)).toBe('—');
     });
 
-    it('0应返回0', () => {
-      expect(formatMarketCap(0)).toBe('0');
+    it('0应返回0.00', () => {
+      expect(formatMarketCap(0)).toBe('0.00');
     });
   });
 
@@ -81,8 +83,11 @@ describe('共享格式化函数', () => {
       expect(formatVolume(500)).toContain('手');
     });
 
-    it('null应返回-', () => {
-      expect(formatVolume(null)).toBe('-');
+    it('null/NaN/Infinity应返回占位符 —（F1）', () => {
+      expect(formatVolume(null)).toBe('—');
+      expect(formatVolume(undefined)).toBe('—');
+      expect(formatVolume(NaN)).toBe('—');
+      expect(formatVolume(Infinity)).toBe('—');
     });
   });
 
@@ -95,8 +100,8 @@ describe('共享格式化函数', () => {
       expect(formatTurnover(80000)).toContain('万');
     });
 
-    it('null应返回-', () => {
-      expect(formatTurnover(null)).toBe('-');
+    it('null应返回占位符 —', () => {
+      expect(formatTurnover(null)).toBe('—');
     });
   });
 
@@ -113,8 +118,11 @@ describe('共享格式化函数', () => {
       expect(formatChangePercent(0)).toBe('+0.00%');
     });
 
-    it('null应返回-', () => {
-      expect(formatChangePercent(null)).toBe('-');
+    it('null/NaN/±Infinity应返回占位符 —（F2）', () => {
+      expect(formatChangePercent(null)).toBe('—');
+      expect(formatChangePercent(NaN)).toBe('—');
+      expect(formatChangePercent(Infinity)).toBe('—');
+      expect(formatChangePercent(-Infinity)).toBe('—');
     });
   });
 
@@ -127,8 +135,8 @@ describe('共享格式化函数', () => {
       expect(formatChange(-2.3)).toBe('-2.30');
     });
 
-    it('null应返回-', () => {
-      expect(formatChange(null)).toBe('-');
+    it('null应返回占位符 —', () => {
+      expect(formatChange(null)).toBe('—');
     });
   });
 
@@ -137,8 +145,10 @@ describe('共享格式化函数', () => {
       expect(formatPrice(1688.5)).toBe('1688.50');
     });
 
-    it('null应返回-', () => {
-      expect(formatPrice(null)).toBe('-');
+    it('null/Infinity应返回占位符 —（F3 同类）', () => {
+      expect(formatPrice(null)).toBe('—');
+      expect(formatPrice(Infinity)).toBe('—');
+      expect(formatPrice(NaN)).toBe('—');
     });
   });
 
@@ -220,8 +230,8 @@ describe('共享格式化函数', () => {
       expect(formatDate('2024-01-01')).toBe('2024-01-01');
     });
 
-    it('无效日期应返回-', () => {
-      expect(formatDate('invalid')).toBe('-');
+    it('无效日期应返回占位符 —', () => {
+      expect(formatDate('invalid')).toBe('—');
     });
   });
 
@@ -233,8 +243,8 @@ describe('共享格式化函数', () => {
       expect(result).toContain('14:30');
     });
 
-    it('无效日期应返回-', () => {
-      expect(formatDateTime('invalid')).toBe('-');
+    it('无效日期应返回占位符 —', () => {
+      expect(formatDateTime('invalid')).toBe('—');
     });
   });
 
@@ -243,8 +253,10 @@ describe('共享格式化函数', () => {
       expect(formatLargeNumber(1234567)).toContain('1,234,567');
     });
 
-    it('NaN应返回-', () => {
-      expect(formatLargeNumber(NaN)).toBe('-');
+    it('NaN/±Infinity应返回占位符 —', () => {
+      expect(formatLargeNumber(NaN)).toBe('—');
+      expect(formatLargeNumber(Infinity)).toBe('—');
+      expect(formatLargeNumber(-Infinity)).toBe('—');
     });
   });
 
@@ -271,8 +283,8 @@ describe('共享格式化函数', () => {
       expect(getChangeText(-1.2)).toBe('-1.20');
     });
 
-    it('null返回-', () => {
-      expect(getChangeText(null)).toBe('-');
+    it('null返回占位符 —', () => {
+      expect(getChangeText(null)).toBe('—');
     });
   });
 
@@ -288,5 +300,71 @@ describe('共享格式化函数', () => {
     it('未知应为default', () => {
       expect(getMarketColor('XX')).toBe('default');
     });
+  });
+});
+
+describe('P2 F1–F5：空值口径与 shared↔frontend 一致性', () => {
+  it('F1 formatVolume(null) 返回 —（原来是 null手）', () => {
+    expect(sharedFormatters.formatVolume(null)).toBe('—');
+    expect(sharedFormatters.formatVolume(undefined)).toBe('—');
+    expect(sharedFormatters.formatVolume(NaN)).toBe('—');
+  });
+
+  it('F2 formatChangePercent(NaN) 返回 —（原来是 NaN%）', () => {
+    expect(sharedFormatters.formatChangePercent(NaN)).toBe('—');
+    expect(sharedFormatters.formatChangePercent(Infinity)).toBe('—');
+    expect(sharedFormatters.formatChangePercent(-Infinity)).toBe('—');
+  });
+
+  it('F3 formatRatio(Infinity) 返回 —（原来是 Infinity）', () => {
+    expect(sharedFormatters.formatRatio(Infinity)).toBe('—');
+    expect(sharedFormatters.formatRatio(-Infinity)).toBe('—');
+    expect(sharedFormatters.formatRatio(NaN)).toBe('—');
+  });
+
+  it('F4 负市值返回 —，且底层数据不被修改', () => {
+    const cap = -1.2e8;
+    expect(sharedFormatters.formatMarketCap(cap)).toBe('—');
+    expect(cap).toBe(-1.2e8);
+  });
+
+  it('正常数值的精度与单位不变', () => {
+    expect(sharedFormatters.formatMarketCap(2.5e12)).toBe('2.50万亿');
+    expect(sharedFormatters.formatMarketCap(5e8)).toBe('5.00亿');
+    expect(sharedFormatters.formatMarketCap(50000)).toBe('5.00万');
+    expect(sharedFormatters.formatMarketCap(5000)).toBe('5000.00');
+    expect(sharedFormatters.formatVolume(1.5e8)).toBe('1.50亿手');
+    expect(sharedFormatters.formatVolume(50000)).toBe('5.00万手');
+    expect(sharedFormatters.formatVolume(500)).toBe('500手');
+    expect(sharedFormatters.formatChangePercent(3.25)).toBe('+3.25%');
+    expect(sharedFormatters.formatChangePercent(-1.5)).toBe('-1.50%');
+    expect(sharedFormatters.formatRatio(12.3)).toBe('12.30');
+    expect(sharedFormatters.formatRatio(-1)).toBe('亏损');
+  });
+
+  const numericFns = [
+    'formatNumber', 'formatMarketCap', 'formatVolume', 'formatTurnover',
+    'formatChangePercent', 'formatChange', 'formatTurnoverRate',
+    'formatLargeNumber', 'formatRatio',
+  ] as const;
+  const inputs = [null, undefined, NaN, Infinity, -Infinity, -1.2e8, 0, 1, 500, 5000, 12345, 5e8, 2.5e12, -0.5];
+
+  for (const fn of numericFns) {
+    it(`F5 ${fn} 在 shared 与 frontend 对同一输入输出相等`, () => {
+      for (const value of inputs) {
+        expect((frontendFormatters as any)[fn](value)).toBe((sharedFormatters as any)[fn](value));
+      }
+    });
+  }
+
+  it('F5 有意保留差异：frontend.formatPercent 是小数→百分比，shared 视为已是百分数', () => {
+    expect(frontendFormatters.formatPercent(0.15)).toBe('15.00%');
+    expect(sharedFormatters.formatPercent(0.15)).toBe('0.15%');
+  });
+
+  it('F5 有意保留差异：frontend.formatDate 支持格式模板', () => {
+    const d = new Date(2024, 0, 15, 10, 30, 45);
+    expect(frontendFormatters.formatDate(d, 'yyyy/MM/dd HH:mm:ss')).toBe('2024/01/15 10:30:45');
+    expect(sharedFormatters.formatDate(d)).toBe('2024-01-15');
   });
 });

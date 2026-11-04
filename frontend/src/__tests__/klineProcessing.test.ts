@@ -266,9 +266,9 @@ describe('大数值格式化（千分位）', () => {
     expect(formatLargeNumber(-5e8)).toBe('-500,000,000');
   });
 
-  // 生产缺口：formatMarketCap 无 abs/sign 分支，负值落到 toFixed(2) 原值分支。
-  it('市值负值落入原值分支（生产缺口）', () => {
-    expect(formatMarketCap(-5e8)).toBe('-500000000.00');
+  // P2 F4：负市值不可能，统一返回占位符（不再落入 toFixed 原值分支）。
+  it('市值负值返回占位符（P2 F4）', () => {
+    expect(formatMarketCap(-5e8)).toBe('—');
   });
 });
 

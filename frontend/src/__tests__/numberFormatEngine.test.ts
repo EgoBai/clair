@@ -126,13 +126,13 @@ describe('Number Format & Parse Engine', () => {
     });
 
     it('Infinity', () => {
-      // 生产用 toLocaleString('zh-CN')，Infinity 渲染为 '∞'（旧副本返回 'Infinity'）
-      expect(formatNumber(Infinity)).toBe('∞');
-      expect(formatNumber(-Infinity)).toBe('-∞');
+      // P2 统一口径：±Infinity 不再是 toLocaleString 的 '∞'，一律返回 '—'
+      expect(formatNumber(Infinity)).toBe('—');
+      expect(formatNumber(-Infinity)).toBe('—');
     });
 
     it('NaN', () => {
-      expect(formatNumber(NaN)).toBe('NaN');
+      expect(formatNumber(NaN)).toBe('—');
     });
 
     it('自定义分隔符', () => {

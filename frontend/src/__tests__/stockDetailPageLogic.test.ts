@@ -88,10 +88,11 @@ describe('股票详情页逻辑', () => {
       expect(formatVolume(0)).toBe('0手');
     });
 
-    it('缺值按生产现状固化（生产缺口：无 null/undefined 守卫）', () => {
-      // 生产缺口：formatVolume 无缺值分支，undefined 被原样拼进字符串（批次 10 已报告）；
-      // 旧自抄版返回 '0'。生产补守卫后此断言应改为 '-'。
-      expect(formatVolume(undefined as unknown as number)).toBe('undefined手');
+    it('缺值已补守卫（P2 F1：null/undefined/NaN → —）', () => {
+      // P2 修复：formatVolume 补 isFinite 守卫，不再把 undefined 拼成 'undefined手'。
+      expect(formatVolume(undefined as unknown as number)).toBe('—');
+      expect(formatVolume(null as unknown as number)).toBe('—');
+      expect(formatVolume(NaN)).toBe('—');
     });
   });
 

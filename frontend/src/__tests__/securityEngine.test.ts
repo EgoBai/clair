@@ -89,6 +89,12 @@ describe('sanitizeHTML', () => {
     expect(result).toContain('<b>');
     expect(result).not.toContain('script');
   });
+
+  it('encodeEntities 死选项已移除：传入亦不影响输出（P3）', () => {
+    const input = '<b>a & b</b>';
+    // @ts-expect-error encodeEntities 已从 SanitizeOptions 移除（该选项历史上从未生效）
+    expect(sanitizeHTML(input, { encodeEntities: false })).toBe(sanitizeHTML(input));
+  });
 });
 
 describe('detectXSS', () => {

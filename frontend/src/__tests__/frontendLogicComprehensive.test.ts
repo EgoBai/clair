@@ -479,7 +479,7 @@ describe('Number Formatting', () => {
 
   it('0% 也带正号（旧断言 0.00%，生产 +0.00%）', () => {
     expect(formatChangePercent(0)).toBe('+0.00%');
-    expect(formatChangePercent(null)).toBe('-');
+    expect(formatChangePercent(null)).toBe('—');
   });
 
   it('应该格式化人民币', () => {

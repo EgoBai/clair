@@ -119,8 +119,8 @@ describe('组件渲染逻辑测试', () => {
       expect(formatChangePercent(-2.5)).toBe('-2.50%');
       // 生产口径：percent >= 0 即带 '+'，0 得 '+0.00%'
       expect(formatChangePercent(0)).toBe('+0.00%');
-      expect(formatChangePercent(null)).toBe('-');
-      expect(formatChangePercent(undefined)).toBe('-');
+      expect(formatChangePercent(null)).toBe('—');
+      expect(formatChangePercent(undefined)).toBe('—');
     });
   });
 
@@ -139,7 +139,7 @@ describe('组件渲染逻辑测试', () => {
     it('万级数值', () => expect(formatLargeNumber(50000)).toBe('50,000'));
     it('小于万', () => {
       expect(formatLargeNumber(9999)).toBe('9,999');
-      expect(formatLargeNumber(NaN)).toBe('-');
+      expect(formatLargeNumber(NaN)).toBe('—');
     });
   });
 

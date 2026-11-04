@@ -78,14 +78,16 @@ describe('Chinese Financial Data Formatting', () => {
       expect(formatChangePercent(0)).toBe('+0.00%');
     });
 
-    // 旧断言 '--' → 生产 null/undefined 返回 '-'。
-    it('should handle null (production: "-")', () => {
-      expect(formatChangePercent(null)).toBe('-');
+    // P2 统一口径：null/undefined → '—'
+    it('should handle null (production: "—")', () => {
+      expect(formatChangePercent(null)).toBe('—');
+      expect(formatChangePercent(undefined)).toBe('—');
     });
 
-    // 旧断言 '--' → 生产无 Number.isFinite 守卫，NaN.toFixed(2) 得 'NaN'。
-    it('should handle NaN (production: "NaN%")', () => {
-      expect(formatChangePercent(NaN)).toBe('NaN%');
+    // P2 统一口径：NaN/±Infinity → '—'（F2）
+    it('should handle NaN (production: "—")', () => {
+      expect(formatChangePercent(NaN)).toBe('—');
+      expect(formatChangePercent(Infinity)).toBe('—');
     });
   });
 
@@ -179,10 +181,11 @@ describe('Chinese Financial Data Formatting', () => {
       expect(formatTurnoverRate(3.456)).toBe('3.46%');
     });
 
-    // 生产 formatTurnoverRate 对 null/undefined 返回 '-'（旧内联无守卫，会抛 TypeError）。
-    it('should return - for null/undefined (production guard)', () => {
-      expect(formatTurnoverRate(null)).toBe('-');
-      expect(formatTurnoverRate(undefined)).toBe('-');
+    // P2 统一口径：null/undefined/NaN → '—'
+    it('should return — for null/undefined (production guard)', () => {
+      expect(formatTurnoverRate(null)).toBe('—');
+      expect(formatTurnoverRate(undefined)).toBe('—');
+      expect(formatTurnoverRate(NaN)).toBe('—');
     });
 
     it('should classify turnover levels', () => {

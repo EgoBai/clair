@@ -64,7 +64,7 @@ describe('格式化函数快照', () => {
     expect(formatChangePercent(3.56)).toMatchInlineSnapshot('"+3.56%"');
     expect(formatChangePercent(0)).toMatchInlineSnapshot('"+0.00%"');
     expect(formatChangePercent(-2.34)).toMatchInlineSnapshot('"-2.34%"');
-    expect(formatChangePercent(null)).toMatchInlineSnapshot('"-"');
+    expect(formatChangePercent(null)).toMatchInlineSnapshot('"—"');
   });
 
   it('formatMarketCap 各种量级', async () => {
@@ -72,7 +72,7 @@ describe('格式化函数快照', () => {
     expect(formatMarketCap(1500000000000)).toMatchInlineSnapshot('"1.50万亿"');
     expect(formatMarketCap(800000000)).toMatchInlineSnapshot('"8.00亿"');
     expect(formatMarketCap(50000)).toMatchInlineSnapshot('"5.00万"');
-    expect(formatMarketCap(undefined)).toMatchInlineSnapshot('"-"');
+    expect(formatMarketCap(undefined)).toMatchInlineSnapshot('"—"');
   });
 
   it('formatVolume 各种量级', async () => {

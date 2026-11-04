@@ -572,7 +572,7 @@ describe('价格格式化', () => {
   it('百分比零', () => {
     // 旧断言错在哪（生产正确）：旧 helper 只在 >0 时加 '+'，输出 '0.00%'；生产用 >=0，输出 '+0.00%'
     expect(formatChangePercent(0)).toBe('+0.00%');
-    expect(formatChangePercent(null)).toBe('-');
+    expect(formatChangePercent(null)).toBe('—');
   });
 
   it('百分比自定义小数位', () => {

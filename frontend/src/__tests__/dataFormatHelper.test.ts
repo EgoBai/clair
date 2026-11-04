@@ -97,7 +97,7 @@ describe('formatDate', () => {
   });
 
   it('handles null', () => {
-    expect(formatDate(null)).toBe('--');
+    expect(formatDate(null)).toBe('—');
   });
 });
 
@@ -174,7 +174,7 @@ describe('formatChange', () => {
   });
 
   it('handles null', () => {
-    expect(formatChange(null)).toBe('-');
+    expect(formatChange(null)).toBe('—');
   });
 });
 
@@ -192,7 +192,7 @@ describe('formatChangePercent', () => {
   });
 
   it('handles null', () => {
-    expect(formatChangePercent(null)).toBe('-');
+    expect(formatChangePercent(null)).toBe('—');
   });
 });
 
@@ -211,7 +211,7 @@ describe('formatMarketCap', () => {
   });
 
   it('handles null', () => {
-    expect(formatMarketCap(null)).toBe('--');
+    expect(formatMarketCap(null)).toBe('—');
   });
 });
 
@@ -228,7 +228,7 @@ describe('formatTurnoverRate', () => {
   });
 
   it('handles null', () => {
-    expect(formatTurnoverRate(null)).toBe('-');
+    expect(formatTurnoverRate(null)).toBe('—');
   });
 });
 

@@ -92,8 +92,9 @@ describe('Price Formatter Logic', () => {
     });
 
     it('should handle NaN', () => {
-      // 生产缺口：formatChangePercent 无 isFinite 守卫，NaN 原样透出；旧自抄版为 '--'。
-      expect(formatChangePercent(NaN)).toBe('NaN%');
+      // P2 F2：NaN/±Infinity 统一返回 '—'
+      expect(formatChangePercent(NaN)).toBe('—');
+      expect(formatChangePercent(Infinity)).toBe('—');
     });
   });
 
@@ -118,8 +119,8 @@ describe('Price Formatter Logic', () => {
     });
 
     it('should handle negative', () => {
-      // 生产缺口：formatMarketCap 无负值分支，负值按小数值直出；旧自抄版为 '--'。
-      expect(formatMarketCap(-100)).toBe('-100.00');
+      // P2 F4：市值不可能为负，统一返回 '—'
+      expect(formatMarketCap(-100)).toBe('—');
     });
   });
 
@@ -236,8 +237,9 @@ describe('Price Formatter Logic', () => {
     });
 
     it('should handle infinity', () => {
-      // 生产缺口：formatRatio 无 isFinite 守卫，Infinity 原样透出；旧自抄版为 '--'。
-      expect(formatRatio(Infinity)).toBe('Infinity');
+      // P2 F3：Infinity 统一返回 '—'
+      expect(formatRatio(Infinity)).toBe('—');
+      expect(formatRatio(-Infinity)).toBe('—');
     });
 
     it('should format zero', () => {

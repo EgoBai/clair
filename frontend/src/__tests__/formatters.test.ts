@@ -5,6 +5,8 @@ import {
   formatTurnover,
   formatPercent,
   formatMarketCap,
+  formatChangePercent,
+  formatRatio,
   formatDate,
   formatCurrency,
   formatDuration,
@@ -151,16 +153,16 @@ describe('formatters', () => {
       expect(formatMarketCap(5000)).toBe('5000.00');
     });
 
-    it('should return -- for null', () => {
-      expect(formatMarketCap(null)).toBe('--');
+    it('should return — for null', () => {
+      expect(formatMarketCap(null)).toBe('—');
     });
 
-    it('should return -- for undefined', () => {
-      expect(formatMarketCap(undefined)).toBe('--');
+    it('should return — for undefined', () => {
+      expect(formatMarketCap(undefined)).toBe('—');
     });
 
-    it('should return -- for NaN', () => {
-      expect(formatMarketCap(NaN)).toBe('--');
+    it('should return — for NaN', () => {
+      expect(formatMarketCap(NaN)).toBe('—');
     });
   });
 
@@ -232,16 +234,16 @@ describe('formatters', () => {
       expect(formatDate('2024-01-15')).toBe('2024-01-15');
     });
 
-    it('should return -- for null', () => {
-      expect(formatDate(null)).toBe('--');
+    it('should return — for null', () => {
+      expect(formatDate(null)).toBe('—');
     });
 
-    it('should return -- for undefined', () => {
-      expect(formatDate(undefined)).toBe('--');
+    it('should return — for undefined', () => {
+      expect(formatDate(undefined)).toBe('—');
     });
 
-    it('should return -- for invalid date string', () => {
-      expect(formatDate('invalid-date')).toBe('--');
+    it('should return — for invalid date string', () => {
+      expect(formatDate('invalid-date')).toBe('—');
     });
 
     it('should handle custom format', () => {
@@ -378,6 +380,45 @@ describe('formatters', () => {
 
     it('should format gigabytes', () => {
       expect(formatFileSize(2.5 * 1024 * 1024 * 1024)).toBe('2.50 GB');
+    });
+  });
+
+  describe('P2 F1–F4：空值/非法值/负值口径', () => {
+    it('F1 formatVolume(null/NaN) 返回 —', () => {
+      expect(formatVolume(null)).toBe('—');
+      expect(formatVolume(undefined)).toBe('—');
+      expect(formatVolume(NaN)).toBe('—');
+      expect(formatVolume(Infinity)).toBe('—');
+    });
+
+    it('F2 formatChangePercent(NaN/±Infinity) 返回 —', () => {
+      expect(formatChangePercent(NaN)).toBe('—');
+      expect(formatChangePercent(Infinity)).toBe('—');
+      expect(formatChangePercent(-Infinity)).toBe('—');
+    });
+
+    it('F3 formatRatio(Infinity/-Infinity/NaN) 返回 —，负值仍为亏损', () => {
+      expect(formatRatio(Infinity)).toBe('—');
+      expect(formatRatio(-Infinity)).toBe('—');
+      expect(formatRatio(NaN)).toBe('—');
+      expect(formatRatio(-3.2)).toBe('亏损');
+      expect(formatRatio(12.3)).toBe('12.30');
+    });
+
+    it('F4 负市值返回 —，正常市值精度不变', () => {
+      expect(formatMarketCap(-1.2e8)).toBe('—');
+      expect(formatMarketCap(2e12)).toBe('2.00万亿');
+      expect(formatMarketCap(1e10)).toBe('100.00亿');
+      expect(formatMarketCap(5000)).toBe('5000.00');
+    });
+
+    it('正常成交量/成交额/涨跌幅输出保持不变', () => {
+      expect(formatVolume(1.5e8)).toBe('1.50亿手');
+      expect(formatVolume(50000)).toBe('5.00万手');
+      expect(formatVolume(500)).toBe('500手');
+      expect(formatTurnover(3e8)).toBe('3.00亿');
+      expect(formatChangePercent(3.25)).toBe('+3.25%');
+      expect(formatChangePercent(-1.5)).toBe('-1.50%');
     });
   });
 });

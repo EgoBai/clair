@@ -201,7 +201,7 @@ describe('个人中心 - 个人信息展示（绑定 userStatsManager / formatte
     // 旧断言用 toLocaleDateString('zh-CN') 断言含 '2024'，锁定的是自抄的 long 格式；
     // 生产 formatDate 只有 yyyy-MM-dd，长日期格式不是生产契约。
     expect(formatDate('2024-01-15T12:00:00')).toBe('2024-01-15');
-    expect(formatDate(null)).toBe('--');
+    expect(formatDate(null)).toBe('—');
   });
 
   it('应计算账户年龄-天（生产无同契约导出，内联纯函数显式传 now）', () => {
