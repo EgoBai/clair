@@ -421,3 +421,11 @@
 - **代价**：确定性初始向量在极端病态矩阵上收敛略慢（实测量级无差异）；自举窗口从随机改为等距后，置信区间略窄于真随机抽样，属可接受近似，注释已写明。
 - **同轮附带发现（不动代码，只记录）**：从真实入口做 import 可达性，861 个文件中前端 `utils/` 393 个有 **352 个（89.6%）从 `main.tsx` 走不到**；`securityEngine`、`tokenManager`、`optionsPricingEngine` 等有成套测试但无生产调用方。详见 `handover/21-双实现对照.md`（DSH 工作区）。
 - **数字更正（18:20）**：初版写「426 个/372 个/87.3%」是脚本把前后端所有 `*/utils/*` 目录一起统计的错（`/tmp/reach.py` 的 `'/utils/' in f` 判据过宽，含 backend/src/utils）。改用 `scripts/guard/reachability.mjs` 后按前端 `frontend/src/utils` 统计为 393/352（89.6%）；同时新增测试分层：1,523 个测试中仅 240 个（15.8%）绑定到可达模块，588 个只绑定不可达模块，695 个不 import 项目源码。
+
+## D60 用户可达但零测试绑定清单（轮 19）
+
+- **发现**：从真实入口可达的 262 个模块中 94 个（35.9%）没有任何测试 import；页面多由 e2e 路由冒烟兜底，后端 API 路由与 Worker 无。
+- **做法**：`scripts/guard/reachability.mjs` 增 `--gaps / --gaps-json`，按行数输出缺口清单；不据此批量补测试，只挑「纯函数 + 用户可达 + 零绑定」的模块先补。
+- **首个样本**：`backend/src/__tests__/indexDataService.test.ts`（9 例）绑定 `indexDataService.ts:70 normalizeIndexSymbol` / `:100 getIndexName`；投毒 `:72` 去掉 `.SZ` 后缀支持 → redgreen poisoned=FAIL(1.0s)/restored=PASS(0.7s)。
+- **口径**：census total 1,523→1,524、影子仍 687、真实 836→837；可达绑定 240→241。
+- **代价**：`--gaps` 只做静态 import 计数，不区分断言密度；e2e 判定是字符串匹配，不是覆盖率。
