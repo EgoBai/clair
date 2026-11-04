@@ -1313,6 +1313,60 @@ await test('summary 与三表自洽：summary.balanceSheet.totalAssets 与 balan
 });
 
 // ============================================================
+// 三·五、财务因子序列 /api/financials/factor-series
+//
+// 【为什么单开一节】因子实验室（frontend/src/pages/FactorLabPage.tsx:6）依赖此端点
+// 构建 EP/BP/GROWTH/ROE；Worker 此前未挂载 → 线上前沿横幅恒为「财务因子未接入」。
+// 契约见 frontend/src/services/backtestDataService.ts:72/82 与 backend/src/api/financials.ts:139：
+//   data.periods[] = { date, ep, bp, roe, revenueGrowth, profitGrowth }
+// 锁定三件事：路由存在（200 不是 404）、报告期升序、因子全为有限数且不为 0 值周期。
+// ============================================================
+
+console.log('\n/api/financials/factor-series');
+
+await test('factor-series → 200（不再是 404）+ real 时四因子齐全、报告期升序', async () => {
+  const { status, body } = await callWorker(
+    'https://clair-api.pages.dev/api/financials/factor-series?symbol=600519&periods=4');
+  assert.equal(status, 200, `期望 200，实际 ${status}（404 会让因子实验室恒显示「财务因子未接入」）`);
+  assert.notEqual(body.error, 'Not found', '不得再返回路由未命中的 404 体');
+  assert.ok(['real', 'unavailable'].includes(body.dataSource),
+    `dataSource 应为 real/unavailable，实际 ${body.dataSource}`);
+  assert.equal(body.data.dataSource, body.dataSource, '顶层与 data 内 dataSource 必须一致');
+  assert.equal(body.data.symbol, '600519');
+  assert.ok(Array.isArray(body.data.periods), 'data.periods 必须是数组');
+  if (body.dataSource !== 'real') {
+    assert.equal(body.data.periods.length, 0, '不可用时 periods 必须为空（不塞 0 值周期）');
+    assert.ok(/[\u4e00-\u9fa5]/.test(body.message || ''), '不可用时必须给中文原因');
+    return;
+  }
+  const periods = body.data.periods;
+  assert.ok(periods.length > 0, 'real 态 periods 不应为空');
+  assert.ok(periods.length <= 4, `periods=4 时应最多 4 期，实际 ${periods.length}`);
+  for (const p of periods) {
+    assert.match(p.date, /^\d{4}-12-31$/, `报告期应为年报 YYYY-12-31，实际 ${p.date}`);
+    for (const k of ['ep', 'bp', 'roe', 'revenueGrowth', 'profitGrowth']) {
+      assert.equal(typeof p[k], 'number', `${k} 应为数字，实际 ${typeof p[k]}`);
+      assert.ok(Number.isFinite(p[k]), `${k} 不得为 NaN/Infinity，实际 ${p[k]}`);
+    }
+  }
+  for (let i = 1; i < periods.length; i++) {
+    assert.ok(periods[i - 1].date < periods[i].date,
+      `报告期应按升序（后端 reverse 后升序），实际 ${periods[i - 1].date} / ${periods[i].date}`);
+  }
+});
+
+await test('factor-series 上游无该标的 → 200 + unavailable + periods:[] + 中文原因', async () => {
+  const { status, body } = await callWorker(
+    'https://clair-api.pages.dev/api/financials/factor-series?symbol=999999');
+  assert.equal(status, 200, '标的取不到数据不是 404');
+  assert.equal(body.dataSource, 'unavailable');
+  assert.equal(body.success, false, '诚实不可用时 success 必须为 false');
+  assert.deepEqual(body.data.periods, [], '不可用时 periods 必须是空数组（不能塞 0 值周期）');
+  assert.ok(typeof body.message === 'string' && /[\u4e00-\u9fa5]/.test(body.message),
+    `必须给中文原因，实际 ${JSON.stringify(body.message)}`);
+});
+
+// ============================================================
 // 四、生产 Worker 缺失路由回归：/api/version、/api/industries、/api/ai/market-pulse、/api/ai/diagnose/:symbol
 // ============================================================
 

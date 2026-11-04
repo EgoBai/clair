@@ -7792,6 +7792,89 @@ async function getFinancialIndicators(symbol, periods) {
 }
 
 /**
+ * 在升序收盘价中定位报告期收盘价：返回日期 <= reportDate 的最后一个交易日收盘价。
+ * 找不到（报告期早于 K 线覆盖范围）返回 null，由调用方诚实跳过该期（与后端 factorSeriesService.ts:62 同构）。
+ */
+function closeAtOrBefore(dates, prices, reportDate) {
+  let best = null;
+  for (let i = 0; i < dates.length; i++) {
+    if (dates[i] <= reportDate) best = prices[i];
+    else break;
+  }
+  return best;
+}
+
+/**
+ * 因子序列专用收盘价：优先新浪 1023 根（≈4 年 → 覆盖 4 期年报），
+ * 腾讯单次约 640 根（≈2.5 年）只够 2 期，故不作为首选；新浪失败再走多源日 K 兜底。
+ * 用不复权价是有意的：EPS 是当期每股收益，配当期真实成交价才是当时的 EP/BP；
+ * 前复权价会把历史价格调低、EP 被高估。
+ */
+async function fetchFactorCloses(tencentKey, symbol, market) {
+  try {
+    const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${tencentKey}&scale=240&ma=no&datalen=1023`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn' },
+    });
+    const text = (await resp.text()).trim();
+    if (!text.startsWith('<')) {
+      const arr = JSON.parse(text);
+      if (Array.isArray(arr) && arr.length > 0) {
+        const quotes = arr
+          .map((d) => ({ tradeDate: d.day, closePrice: parseFloat(d.close) || 0 }))
+          .filter((q) => q.tradeDate && q.closePrice > 0);
+        if (quotes.length > 0) return quotes;
+      }
+    }
+  } catch {
+    // 落到底部多源日 K
+  }
+  const { quotes } = await fetchDailyKLine(tencentKey, symbol, market, 2000);
+  return quotes || [];
+}
+
+/**
+ * 财务因子序列：EP/B P/ROE/成长率。
+ * 真实源 = 东财主要财务指标（EPS/BPS/ROE/YSTZ/SJLTZ）+ 日 K 收盘价；
+ * 报告期无对应收盘价 → 跳过该期；全部跳过 → 抛 FinancialsUnavailable（绝不 0 值顶替）。
+ */
+async function fetchFinancialFactorSeries(symbol, periods) {
+  const indicators = await getFinancialIndicators(symbol, periods);
+  if (!indicators.length) throw new FinancialsUnavailable(`未获取到 ${symbol} 的年报财务指标`);
+
+  const { emCode } = finNormalizeSymbol(symbol);
+  const tencentKey = emCode.slice(0, 2).toLowerCase() + emCode.slice(2);
+  const code = tencentKey.slice(2);
+  const market = tencentKey.startsWith('sh') ? 'SH' : tencentKey.startsWith('bj') ? 'BJ' : 'SZ';
+  // 覆盖期数以真实收盘价为准：更早的报告期找不到当日价格就诚实跳过，不用旧价硬凑。
+  const quotes = await fetchFactorCloses(tencentKey, code, market);
+  if (!quotes || quotes.length === 0) {
+    throw new FinancialsUnavailable('K线源不可用：无法取到报告期收盘价');
+  }
+
+  const dates = quotes.map((q) => q.tradeDate);
+  const prices = quotes.map((q) => q.closePrice);
+  const out = [];
+  for (const ind of indicators) {
+    const close = closeAtOrBefore(dates, prices, ind.reportDate);
+    if (close === null || close <= 0) continue;
+    out.push({
+      date: ind.reportDate,
+      ep: finRound(ind.eps / close, 6),
+      bp: finRound(ind.bps / close, 6),
+      roe: finRound(ind.roe, 2),
+      revenueGrowth: finRound(ind.revenueGrowth, 2),
+      profitGrowth: finRound(ind.profitGrowth, 2),
+    });
+  }
+  out.reverse(); // 指标源倒序 → 输出升序
+  if (out.length === 0) {
+    throw new FinancialsUnavailable(`未获取到 ${symbol} 可用的财务因子序列（报告期无对应收盘价）`);
+  }
+  return out;
+}
+
+/**
  * 通用三表取数：指标源定年报期 → 逐期并发拉 emweb 报表 → 映射。
  * 单期失败只丢该期（诚实少给），不整表判死；全期失败才 unavailable。
  */
@@ -8033,6 +8116,48 @@ async function handleFinancialsSummary(url) {
       { symbol, period: '', balanceSheet: null, incomeStatement: null, cashFlow: null, indicators: null, updatedAt },
       `${message}；未回填任何数值`,
     );
+  }
+}
+
+/**
+ * 财务因子序列（EP/BP/ROE/成长率）——因子实验室消费，此前 Worker 未挂载 → 前端恒「财务因子未接入」。
+ * GET /api/financials/factor-series?symbol=600519&periods=8
+ * 契约对齐 backend/src/api/financials.ts:139（periods 默认 8、上限 12）。
+ * 成功：{ success:true, dataSource:'real', data:{ symbol, dataSource:'real', periods:[{date,ep,bp,roe,revenueGrowth,profitGrowth}], updatedAt } }
+ * 不可用：200 + { success:false, dataSource:'unavailable', data:{ periods:[], message } }，不发 0 值周期。
+ */
+async function handleFinancialFactorSeries(url) {
+  const symbol = (url.searchParams.get('symbol') || '').trim() || '600519';
+  const raw = parseInt(url.searchParams.get('periods') || '8', 10);
+  const periods = Math.min(Number.isFinite(raw) && raw > 0 ? raw : 8, 12);
+  const updatedAt = new Date().toISOString();
+  try {
+    const series = await fetchFinancialFactorSeries(symbol, periods);
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: { symbol, dataSource: 'real', periods: series, updatedAt },
+      timestamp: updatedAt,
+    });
+  } catch (e) {
+    const message =
+      e instanceof FinancialsUnavailable
+        ? e.message
+        : `财务因子源请求失败：${(e && e.message) || String(e)}`;
+    const note = `${message}；未回填任何因子值`;
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      message: note,
+      data: {
+        symbol,
+        dataSource: 'unavailable',
+        periods: [],
+        message: note,
+        updatedAt,
+      },
+      timestamp: updatedAt,
+    });
   }
 }
 
@@ -8418,6 +8543,10 @@ export default {
     }
     if (path === '/api/financials/cash-flow') {
       return handleFinancialStatement(url, 'cash-flow');
+    }
+    // 财务因子序列：因子实验室消费；此前未挂载 → 前端恒「财务因子未接入」
+    if (path === '/api/financials/factor-series') {
+      return handleFinancialFactorSeries(url);
     }
     if (path === '/api/news/research/reports') {
       return handleResearchReports(url);

@@ -478,3 +478,14 @@
 - **顺带核清的同类项（不是缺陷）**：`/api/stocks` 的 `data.dataSource` 已有（`handleAllStocks`）；`/api/hk-connect/summary` 内层已有；`/api/breadth/current` 由 `{...snap}` 带出内层；`/api/risk-center/portfolio` 走 `unavailable()` 且前端有 `?? (holdings.length ? 'real' : 'unavailable')` 兜底；`/api/hk-connect/ah` Worker 未注册（前端 catch 后如实置 unavailable）。`/api/stocks/:symbol/kline` 与 `/api/index/:symbol/kline` 仍无 dataSource 字段，但前端这两处不读它，记为待统一项（不在本次改，避免一次动三条响应契约）。
 - **代价**：响应体多一个字段（纯增量）；`handleMarketKline` 的契约注释与测试同步成本；若未来再新增 kline 族端点，仍须记得双写——本次只把断言固定在 `/api/market/kline`。
 
+
+
+## D66 Worker 补 /api/financials/factor-series：因子实验室的财务因子不再恒「未接入」（轮 22）
+
+- **背景**：线上 `/factor-lab` 的横截面 IC 已用真实行情（D65），但财务因子区始终显示「财务因子未接入」、EP/BP/ROE/GROWTH 四行走空态兜底。追到 `frontend/src/services/backtestDataService.ts:229` 的 `getFactorSeries` 调 `/financials/factor-series`，而 `clair-worker/worker.js` 只注册了 summary 与三表，该路径落入 404；`FactorLabPage.tsx:103` 的 `getBatchFactorSeries` 因此整批返回空，页面如实降级（不是静默失败）。契约真源是 `backend/src/api/financials.ts:139`：periods 默认 8、上限 12，成功 `{symbol,dataSource:'real',periods,updatedAt}`，不可用 200 + `{dataSource:'unavailable',periods:[],message}`。
+- **判断**：这是「生产唯一入口缺一条前端已在调用的路由」，与 D63/D64 同类，属于必须补的契约缺口；不选「前端改用三表自己算」——三表只有资产负债/利润/现金流科目，没有每股指标（EPS/BPS），自己算 EPS 会引入股本科目口径问题，等于在客户端造数。
+- **做法**：`fetchFinancialFactorSeries` 复用既有 `getFinancialIndicators`（东财年报 EPS/BPS/ROE/YSTZ/SJLTZ，倒序）与收盘价定位 `closeAtOrBefore`；EP=EPS/收盘价、BP=BPS/收盘价（6 位小数），ROE 与两个同比（2 位），口径逐项对齐 `backend/src/services/factorSeriesService.ts`；报告期找不到当日收盘价则跳过，全跳过抛 `FinancialsUnavailable`，路由返回 200 + periods:[] + 中文原因，绝不塞 0 值周期。收盘价优先新浪 1023 根（≈4 年 → 4 期年报），因为腾讯单次约 640 根（≈2.5 年）只够 2 期；用**不复权价**是刻意的：EPS 是当期每股收益，配当期成交价才是当时的 EP/BP，前复权价会把历史 EP 抬高。`periods` 上限 12，与后端一致。
+- **证据**：本地直接调用 Worker `fetch`（`/tmp/probe-factor-series.mjs`）→ 600519 返回 4 期真实序列：2022-12-31 EP 0.028911 / BP 0.091028 / ROE 30.26 / 营收同比 16.53 / 净利同比 19.55；2023 0.034467 / 0.099469 / 34.19 / 18.04 / 19.16；2024 0.045039 / 0.121762 / 36.02 / 15.66 / 15.38；2025 0.047677 / 0.141852 / 32.53 / -1.2 / -4.53（日期升序、无 NaN）；999999 → 200 + `success:false` + `dataSource:'unavailable'` + periods:[] +「东财财务指标源无 999999.BJ 的记录…；未回填任何因子值」。`worker-contract.test.mjs` 新增 2 例（路由 200/契约/升序/有限数、未知标的诚实空态），全套 **105 通过 0 失败**；`node --check` 双入口通过，`worker.js` 与 `_worker.js` SHA256 同为 `42138863…05bb`。
+- **口径**：只在既有测试文件内加用例，未新增测试文件 → census total 1,526、影子 687（45.0%）不变，`--check` exit 0；`honesty-scan --strict` exit 0。
+- **代价**：财务因子序列的覆盖期数受免费 K 线源长度限制（新浪 1023 根 ≈ 4 期年报），更早报告期诚实缺失；若未来要 8 期，需要接东财 push2his 长历史（本机不可达，Cloudflare 侧待验证）或付费源。另：不复权价与后端 `getKline` 的前复权口径不同，同一报告期的 EP/BP 可能与 Express 版略有差异（本次以「当期真实价」为准，已在函数注释写明）。
+
