@@ -117,6 +117,16 @@ describe('策略信号：无后端支撑时诚实标注，不留死链', () => {
       expect(code).not.toMatch(/score\s*\|\|\s*0/);
       expect(code).not.toMatch(/stopLoss\s*\|\|\s*0/);
     });
+
+    it('aiNarrative 是结构化对象，必须逐字段渲染（整对象渲染会炸整页）', () => {
+      const code = stripComments(readSrc('../pages/StockDetailPage.tsx'));
+      // 线上实测：{aiNarrative} 直接渲染 → "Objects are not valid as a React child"
+      // 允许字符串分支渲染，但必须先判定 object 再逐字段取，否则对象会炸整页
+      expect(code).toMatch(/typeof aiStrategy\.aiNarrative === 'object'/);
+      for (const field of ['overall', 'trend', 'signals', 'risk']) {
+        expect(code).toContain(`aiStrategy.aiNarrative.${field}`);
+      }
+    });
   });
 
   describe('未接入时的展示形态：说明文案，而非空白/ 0 值', () => {

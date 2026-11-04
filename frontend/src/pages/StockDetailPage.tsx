@@ -761,7 +761,32 @@ const StockDetailPage: React.FC = () => {
               {aiStrategy.summary ? (
                 <Paragraph style={{ margin: '10px 0 0', color: TEXT_PRIMARY }}>{aiStrategy.summary}</Paragraph>
               ) : null}
-              {aiStrategy.aiNarrative ? (
+              {/* aiNarrative 是结构化对象 {overall, trend, signals[], risk, timestamp}，
+                  直接 {object} 渲染会抛 "Objects are not valid as a React child" 并炸掉整页（线上实测） */}
+              {aiStrategy.aiNarrative && typeof aiStrategy.aiNarrative === 'object' ? (
+                <>
+                  {typeof aiStrategy.aiNarrative.overall === 'string' ? (
+                    <Paragraph style={{ margin: '6px 0 0', color: TEXT_SECONDARY, fontSize: 13 }}>
+                      {aiStrategy.aiNarrative.overall}
+                    </Paragraph>
+                  ) : null}
+                  {typeof aiStrategy.aiNarrative.trend === 'string' ? (
+                    <Paragraph style={{ margin: '4px 0 0', color: TEXT_SECONDARY, fontSize: 13 }}>
+                      {aiStrategy.aiNarrative.trend}
+                    </Paragraph>
+                  ) : null}
+                  {Array.isArray(aiStrategy.aiNarrative.signals) && aiStrategy.aiNarrative.signals.length > 0 ? (
+                    <Paragraph style={{ margin: '4px 0 0', color: TEXT_SECONDARY, fontSize: 13 }}>
+                      {aiStrategy.aiNarrative.signals.join('；')}
+                    </Paragraph>
+                  ) : null}
+                  {typeof aiStrategy.aiNarrative.risk === 'string' ? (
+                    <Paragraph style={{ margin: '4px 0 0', color: TEXT_SECONDARY, fontSize: 13 }}>
+                      {aiStrategy.aiNarrative.risk}
+                    </Paragraph>
+                  ) : null}
+                </>
+              ) : typeof aiStrategy.aiNarrative === 'string' ? (
                 <Paragraph style={{ margin: '6px 0 0', color: TEXT_SECONDARY, fontSize: 13 }}>{aiStrategy.aiNarrative}</Paragraph>
               ) : null}
             </>
