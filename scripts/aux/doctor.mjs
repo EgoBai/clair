@@ -35,22 +35,25 @@ function n_a(name, reason) {
 }
 function run(cmd, cmdArgs, opts = {}) {
   const r = spawnSync(cmd, cmdArgs, { cwd: ROOT, encoding: 'utf8', timeout: opts.timeout ?? 120000 });
-  return { ok: r.status === 0, code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
+  const raw = r.stdout || '';
+  // 注意：不要在此处 trim。git status --porcelain 的每行以状态位开头，首行 trim 会吞掉
+  // 第一个空格（" M path" → "M path"），使 slice(3) 偏移错位、路径首字符被吃掉。
+  return { ok: r.status === 0, code: r.status, raw, out: raw.trim(), err: (r.stderr || '').trim() };
 }
 
 // ---------- 1. 仓库状态 + 在途文件归属 ----------
 const AUX_OWNED = [/^AGENTS\.md$/, /^docs\/harness\/AUX-/, /^docs\/harness\/CO-AGENT-CONTRACT\.md$/, /^scripts\/aux\//, /^docs\/rsi\//, /^\.claude\/CLAUDE\.md$/];
 const MEMORY_ONLY = [/^\.workbuddy\/memory\//];
 
-const st = run('git', ['status', '--porcelain']);
+const st = run('git', ['status', '--porcelain', '-z']);
 if (!st.ok) {
   n_a('工作树', `git status 失败: ${st.err || st.code}`);
 } else {
-  const lines = st.out ? st.out.split('\n') : [];
+  // -z：以 NUL 分隔，规避含空格/中文路径被加引号的问题
+  const lines = st.raw.split('\0').filter((s) => s.length > 0);
   const buckets = { aux: [], lead: [], memory: [] };
   for (const raw of lines) {
-    if (!raw.trim()) continue;
-    // porcelain v1: XY<space>path（前两位是状态码），不可用固定 slice 偏移之外的假设
+    // porcelain v1: XY<space>path（前两位是状态码）
     const p = raw.slice(3).trim().replace(/^"(.*)"$/, '$1');
     if (MEMORY_ONLY.some((re) => re.test(p))) buckets.memory.push(p);
     else if (AUX_OWNED.some((re) => re.test(p))) buckets.aux.push(p);
