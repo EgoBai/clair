@@ -1,25 +1,46 @@
 import { describe, it, expect } from 'vitest';
+import { calculateCorrelation, calculateReturns, calculateStdDev } from '../utils/correlationMatrix';
+
+/**
+ * 影子测试绑定说明（macroEconomicAnalysis.test.ts）
+ *
+ * 已绑定生产：
+ * - correlation() -> frontend/src/utils/correlationMatrix.ts:78 calculateCorrelation。
+ *   生产用 n-1 协方差/标准差，旧内联用 n；因分子分母同乘 n/(n-1)，等长序列数值完全一致。
+ * - forexVolatility() 的收益与离散度 -> correlationMatrix.ts:46 calculateReturns + :59 calculateStdDev。
+ *   生产 calculateStdDev 为样本标准差（n-1），旧内联为总体标准差（n）；本组断言只验非负/恒零，结论不变，
+ *   但非恒定序列的数值会放大 sqrt(n/(n-1))，故未把该函数声明为「生产同契约导出」。
+ *
+ * 生产无同契约导出（保留内联，原因如下）：
+ * - gdpPhase/leadingIndicatorScore：macroEconomicEngine.calculateGrowthScore:39 返回 0-100 分，
+ *   analyzeMacroTrend:93 返回趋势对象；backend macroSentimentEngine.assessMacroSentiment:28 返回 -100..100
+ *   且输入为 MacroIndicator[]，均非本文件的 4 档/0-4 分契约。
+ * - pmiSignal/pmiTrend/sectorPMIImpact：macroLeadingEngine.analyzePMIDiffusion:243 接收指标数组并要求
+ *   breadth，阈值是 52/48 且 breadth 门槛，不是单值 50/52 分档。
+ * - policyImpact/liquidityScore/rateCyclePosition：macroEconomicEngine.generatePolicySignals:123 输出
+ *   monetary/fiscal 信号而非数值冲击；calculateLiquidityScore:65 基于指标环比算 0-100 分，非 r007/dr007 档位。
+ * - cpiAnalysis/ppiCpiSpread/inflationImpactOnSector：calculateInflationScore:51 仅给 0-100 分，
+ *   仓内无 CPI 四档、PPI-CPI 阶段、行业敏感度同契约导出。
+ * - rmbImpact：仓内无汇率变动 -> 方向/受益行业同契约导出。
+ * - economicCycle/sectorRotation：macroEconomicEngine.determineMacroRegime:83 是 growth/inflation 二分
+ *   四种 regime；sectorRotationV2Engine.detectEconomicCycle:54 输出 early/mid/late/recession 且
+ *   generateRotationSignals:89 输出英文行业，均非中文投资时钟四阶段。
+ * - creditGrowthAnalysis/leverageRatio/creditSpread：creditRiskEngine.analyzeCreditSpread:311 接收已算好的
+ *   spread，bondEquityEngine.analyzeCreditSpreads:136 接收债券数组；无 yoy 四档或 debt/GDP 同契约导出。
+ */
 
 // 宏观经济分析引擎
 describe('宏观经济分析引擎', () => {
   describe('GDP与股市关系', () => {
     interface GDPData { quarter: string; gdpGrowth: number; marketReturn: number; }
 
+    // 已绑定生产 calculateCorrelation：旧断言错在验证的是自抄 Pearson，生产口径漂移无法被发现。
+    // 生产真实口径：n-1 协方差/标准差、零方差返回 0、结果截断到 [-1,1]；等长序列与旧数值一致。
     function correlation(data: GDPData[]): number {
-      const n = data.length;
-      if (n < 2) return 0;
-      const x = data.map(d => d.gdpGrowth);
-      const y = data.map(d => d.marketReturn);
-      const meanX = x.reduce((a, b) => a + b, 0) / n;
-      const meanY = y.reduce((a, b) => a + b, 0) / n;
-      let num = 0, denX = 0, denY = 0;
-      for (let i = 0; i < n; i++) {
-        num += (x[i] - meanX) * (y[i] - meanY);
-        denX += (x[i] - meanX) ** 2;
-        denY += (y[i] - meanY) ** 2;
-      }
-      const den = Math.sqrt(denX * denY);
-      return den === 0 ? 0 : num / den;
+      return calculateCorrelation(
+        data.map(d => d.gdpGrowth),
+        data.map(d => d.marketReturn)
+      );
     }
 
     function gdpPhase(growth: number): 'expansion' | 'peak' | 'contraction' | 'trough' {
@@ -45,6 +66,7 @@ describe('宏观经济分析引擎', () => {
         { quarter: 'Q3', gdpGrowth: 6.2, marketReturn: 7 },
         { quarter: 'Q4', gdpGrowth: 5.0, marketReturn: 3 },
       ];
+      // 已绑定生产 calculateCorrelation；旧断言错在只验证自抄 Pearson，生产改口径时不会报警。
       expect(correlation(data)).toBeGreaterThan(0.5);
     });
 
@@ -55,6 +77,7 @@ describe('宏观经济分析引擎', () => {
         { quarter: 'Q3', gdpGrowth: 1, marketReturn: 5 },
         { quarter: 'Q4', gdpGrowth: 3, marketReturn: 12 },
       ];
+      // 已绑定生产 calculateCorrelation；n-1 比值与旧 Pearson 等价，生产真实口径不变。
       expect(correlation(data)).toBeGreaterThan(0.8);
     });
 
@@ -67,6 +90,7 @@ describe('宏观经济分析引擎', () => {
         { quarter: 'Q5', gdpGrowth: 4, marketReturn: -8 },
         { quarter: 'Q6', gdpGrowth: 7, marketReturn: 15 },
       ];
+      // 已绑定生产 calculateCorrelation；旧断言的自抄实现没有 [-1,1] 截断与零方差保护。
       expect(Math.abs(correlation(data))).toBeLessThan(0.8);
     });
 
@@ -106,10 +130,12 @@ describe('宏观经济分析引擎', () => {
     });
 
     it('空数据相关系数为0', () => {
+      // 已绑定生产 calculateCorrelation；生产对空数组返回 0，旧断言预期一致。
       expect(correlation([])).toBe(0);
     });
 
     it('单数据相关系数为0', () => {
+      // 已绑定生产 calculateCorrelation；生产 n<2 时协方差为 0，断言口径不变。
       expect(correlation([{ quarter: 'Q1', gdpGrowth: 5, marketReturn: 8 }])).toBe(0);
     });
 
@@ -120,6 +146,7 @@ describe('宏观经济分析引擎', () => {
         { quarter: 'Q3', gdpGrowth: 4, marketReturn: 6 },
         { quarter: 'Q4', gdpGrowth: 3, marketReturn: 4 },
       ];
+      // 已绑定生产 calculateCorrelation；旧断言无法发现生产截断逻辑，现由生产函数保证。
       const r = correlation(data);
       expect(r).toBeGreaterThanOrEqual(-1);
       expect(r).toBeLessThanOrEqual(1);
@@ -371,15 +398,13 @@ describe('宏观经济分析引擎', () => {
       return { direction: change <= 0 ? 'appreciate' : 'depreciate', impact: '影响有限' };
     }
 
+    // 生产无同契约单一导出：仓内没有 forexVolatility(history) 导出，函数壳保留；
+    // 实现改为组合生产 calculateReturns + calculateStdDev（correlationMatrix.ts:46/59）。
+    // 旧断言错在验证的是自抄的「总体标准差(n)」，生产真实口径是样本标准差(n-1)，非恒定序列数值不同；
+    // 本组断言只验非负/恒零，故断言无需订正，但不能把两者当同一数值口径。
     function forexVolatility(history: number[]): number {
       if (history.length < 2) return 0;
-      const returns = [];
-      for (let i = 1; i < history.length; i++) {
-        returns.push((history[i] - history[i - 1]) / history[i - 1]);
-      }
-      const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-      const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length;
-      return Math.sqrt(variance);
+      return calculateStdDev(calculateReturns(history));
     }
 
     it('人民币升值判断', () => {
@@ -408,19 +433,23 @@ describe('宏观经济分析引擎', () => {
     });
 
     it('汇率波动率非负', () => {
+      // 已改绑生产 calculateReturns+calculateStdDev；旧断言只验非负，样本/总体口径均满足。
       const vol = forexVolatility([7.0, 7.1, 6.9, 7.05, 7.15]);
       expect(vol).toBeGreaterThanOrEqual(0);
     });
 
     it('恒定汇率波动率为0', () => {
+      // 恒定序列收益全为 0，生产 calculateStdDev 返回 0；旧断言仍成立。
       expect(forexVolatility([7.0, 7.0, 7.0, 7.0])).toBe(0);
     });
 
     it('空数据波动率为0', () => {
+      // 生产 calculateReturns([])=[]、calculateStdDev(<2 个)=0，旧断言口径不变。
       expect(forexVolatility([])).toBe(0);
     });
 
     it('单数据波动率为0', () => {
+      // 单元素收益为空，生产 calculateStdDev 返回 0；旧断言成立。
       expect(forexVolatility([7.0])).toBe(0);
     });
   });

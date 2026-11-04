@@ -1,5 +1,24 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
+/**
+ * 报表生成器测试（影子测试核对结论：生产无同契约导出）
+ *
+ * 逐条核对任务指定的三个候选模块后确认均不是本测试 ReportGenerator 的真源：
+ * - frontend/src/utils/researchReportEngine.ts:88-286 只导出 ratingToNumber / trackRatingChanges /
+ *   analyzeConsensus / analyzeReportSentiment / findMostDivided（研报评级变化与一致预期），
+ *   没有 createReport / registerDataSource / generate / exportCSV 等报表构建契约。
+ * - frontend/src/utils/researchReportAnalysisEngine.ts:43-242 的 ResearchReportEngine 只有
+ *   calculateConsensus / evaluateAnalystAccuracy / calculateSentimentIndex / analyzeRatingChanges，
+ *   入参是 ResearchReport（stockCode/brokerName/rating/targetPrice），没有 ReportConfig / 分页 / 分组。
+ * - frontend/src/utils/financialReportEngine.ts:89-321 只做财报同比环比、杜邦分析、健康评分、预警，
+ *   与报表生成器无交集。
+ * 全仓检索也没有其他 ReportGenerator / createReport 生产定义，故保留内联实现作为测试替身；
+ * 同时用固定时钟 + 自增序号替代随机数与当前时间，保证每次运行结果确定。
+ */
+
+// 固定时钟：2024-01-02T09:30:00Z，供 generatedAt 与历史记录使用（不使用无参 new Date）。
+const FIXED_NOW = 1704187800000;
+
 // Report Generator Engine
 interface ReportColumn {
   id: string;
@@ -61,9 +80,12 @@ class ReportGenerator {
   private reports: Map<string, ReportConfig> = new Map();
   private dataSources: Map<string, Record<string, unknown>[]> = new Map();
   private history: { reportId: string; generatedAt: Date; format: string }[] = [];
+  // 确定性序号：替代「当前时钟 + 随机数」生成 id，保证同一用例每次运行 id 一致。
+  private sequence = 0;
 
   createReport(config: Omit<ReportConfig, 'id'>): ReportConfig {
-    const id = `rpt_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    // 旧内联实现用当前时钟与随机数拼接 id（非确定性，且触发测试禁用模式）；改为自增序号。
+    const id = `rpt_${++this.sequence}`;
     const report: ReportConfig = { ...config, id };
     this.reports.set(id, report);
     return report;
@@ -77,7 +99,6 @@ class ReportGenerator {
     const report = this.reports.get(reportId);
     if (!report) throw new Error('Report not found');
 
-    const start = Date.now();
     let data = this.dataSources.get(dataSource ?? 'default') ?? [];
 
     // Apply filters
@@ -103,8 +124,9 @@ class ReportGenerator {
       aggregations,
       groups,
       charts: report.charts.map(c => ({ type: c.type, data: [] })),
-      generatedAt: new Date(),
-      executionTime: Date.now() - start,
+      // 旧内联实现取当前时钟；改为固定时刻 + 固定耗时，执行结果可复现。
+      generatedAt: new Date(FIXED_NOW),
+      executionTime: 0,
     };
 
     this.history.push({ reportId, generatedAt: result.generatedAt, format: report.format });
@@ -192,7 +214,8 @@ class ReportGenerator {
   addColumn(reportId: string, column: Omit<ReportColumn, 'id'>): void {
     const report = this.reports.get(reportId);
     if (report) {
-      report.columns.push({ ...column, id: `col_${Date.now()}` });
+      // 旧内联实现用当前时钟生成列 id；改为自增序号。
+      report.columns.push({ ...column, id: `col_${++this.sequence}` });
     }
   }
 
@@ -210,7 +233,8 @@ class ReportGenerator {
   addFilter(reportId: string, filter: Omit<ReportFilter, 'id'>): void {
     const report = this.reports.get(reportId);
     if (report) {
-      report.filters.push({ ...filter, id: `flt_${Date.now()}` });
+      // 旧内联实现用当前时钟生成过滤器 id；改为自增序号。
+      report.filters.push({ ...filter, id: `flt_${++this.sequence}` });
     }
   }
 

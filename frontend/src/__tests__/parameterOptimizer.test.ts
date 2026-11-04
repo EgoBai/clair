@@ -1,4 +1,30 @@
 import { describe, it, expect } from 'vitest';
+import { generateWindows } from '../../../backend/src/services/walkForwardOptimizationEngine';
+
+/**
+ * 影子测试绑定说明（parameterOptimizer.test.ts）
+ *
+ * 生产无同契约导出：本文件的通用参数优化器（网格/随机/贝叶斯/遗传搜索、评分、最优参数选择、
+ * 过拟合检测、稳定性分析）在仓内没有同签名/同语义导出，故这些段保留内联实现。已核对候选：
+ * - backend/src/services/walkForwardOptimizationEngine.ts：仅 generateWindows:8、walkForwardScore:23、
+ *   efficiencyRatio:33，无 ParamRange/objective/evaluate 通用寻优契约；其中 generateWindows 与本文件
+ *   walkForward 的滑窗循环同契约，已绑定（见下）。
+ * - backend/src/services/turnoverOptimizationEngine.ts:20 optimizeTurnover：换手率专用，无参数网格。
+ * - backend/src/utils/queryOptimizer.ts：数据库查询缓存，顶层依赖 db/logger，与策略参数无关。
+ * - frontend/src/utils/performanceOptimizer.ts：React 性能 hooks，不是策略参数寻优。
+ * - frontend/src/utils/walkForwardEngine.ts:98 walkForwardBacktest：需要 optimizeFunc/backtestFunc，
+ *   返回 windows/overallMetrics/parameterStability，不返回 trainScore/testScore/ratio；参数稳定性函数未导出。
+ * - frontend/src/utils/meanReversionEngine.ts:583 optimizeMeanReversionParams：均值回归专用窗口/阈值网格，
+ *   非通用 ParamRange/objective 契约。
+ * - frontend/src/utils/portfolioOptimizer.ts：组合权重优化，非策略参数寻优。
+ *
+ * 已绑定生产：
+ * - walkForward() 的窗口边界 -> backend/src/services/walkForwardOptimizationEngine.ts:8 generateWindows。
+ *   旧内联循环 start + trainSize + testSize <= n，生产同条件；旧 testEnd 的 Math.min 在生产循环条件下恒等于
+ *   trainEnd + testSize。该模块顶层 0 import，不依赖 xlsx/file-saver，跨包 import 在 CI 可解析。
+ *
+ * 确定性：不保留运行时随机数。贝叶斯扰动/接受与 walkForward 测试数据均改用固定种子 LCG。
+ */
 
 // ==================== 参数优化引擎 ====================
 
@@ -81,8 +107,11 @@ class ParameterOptimizer {
   bayesianOptimize(
     config: OptimizationConfig,
     evaluate: (params: Record<string, number>) => { totalReturn: number; sharpeRatio: number; maxDrawdown: number; winRate: number; totalTrades: number },
-    initialParams?: Record<string, number>
+    initialParams?: Record<string, number>,
+    seed: number = 42
   ): OptimizationResult[] {
+    // 旧实现用非确定性随机数做退火接受与扰动，同一测试重复运行结果不同；改为固定种子 LCG。
+    const rng = this.createRNG(seed);
     const results: OptimizationResult[] = [];
     let current = initialParams || this.randomParams(config.paramRanges, 0);
     let currentMetrics = evaluate(current);
@@ -93,13 +122,13 @@ class ParameterOptimizer {
     const coolingRate = 0.95;
 
     for (let i = 1; i < config.maxIterations; i++) {
-      const neighbor = this.perturbParams(current, config.paramRanges, temperature);
+      const neighbor = this.perturbParams(current, config.paramRanges, temperature, rng);
       const neighborMetrics = evaluate(neighbor);
       const neighborScore = this.calculateScore(neighborMetrics, config);
       const delta = neighborScore - currentScore;
 
-      // 模拟退火接受准则
-      if (delta > 0 || Math.random() < Math.exp(delta / temperature)) {
+      // 模拟退火接受准则：用注入的确定性 rng 替代旧非确定性随机源，种子固定后轨迹可复现。
+      if (delta > 0 || rng() < Math.exp(delta / temperature)) {
         current = neighbor;
         currentMetrics = neighborMetrics;
         currentScore = neighborScore;
@@ -231,18 +260,31 @@ class ParameterOptimizer {
     const stepSize = Math.floor(data.returns.length * (1 - trainRatio));
     const results: { trainScore: number; testScore: number; ratio: number }[] = [];
 
-    for (let start = 0; start + windowSize + stepSize <= data.returns.length; start += stepSize) {
-      const trainEnd = start + windowSize;
-      const testEnd = Math.min(trainEnd + stepSize, data.returns.length);
+    // 窗口边界已绑定生产 generateWindows（backend/src/services/walkForwardOptimizationEngine.ts:8）：
+    // 旧内联循环条件 start + trainSize + testSize <= n 与生产 while 条件一致；
+    // 旧 testEnd 的 Math.min 在生产循环条件下恒等于 trainEnd + testSize。
+    const windows = generateWindows(data.returns.length, {
+      trainSize: windowSize,
+      testSize: stepSize,
+      stepSize,
+    });
+
+    for (const w of windows) {
+      const trainStart = w.trainStart;
+      const trainEnd = w.trainEnd;
+      const testStart = w.testStart;
+      const testEnd = w.testEnd;
 
       const trainResults = this.gridSearch(
         { ...config, maxIterations: Math.min(config.maxIterations, 50) },
-        (params) => evaluate(params, start, trainEnd)
+        (params) => evaluate(params, trainStart, trainEnd)
       );
 
+      // 保留原内联算法：测试集仍用 maxIterations:1 取网格首项，未复用训练最优参数。
+      // 这是原影子实现的缺陷，本次只绑定窗口生成，不改变寻优语义（报告未迁移段）。
       const testResults = this.gridSearch(
         { ...config, maxIterations: 1 },
-        (params) => evaluate(params, trainEnd, testEnd)
+        (params) => evaluate(params, testStart, testEnd)
       );
 
       const trainScore = trainResults[0]?.score || 0;
@@ -296,11 +338,12 @@ class ParameterOptimizer {
     return params;
   }
 
-  private perturbParams(params: Record<string, number>, ranges: ParamRange[], temperature: number): Record<string, number> {
+  private perturbParams(params: Record<string, number>, ranges: ParamRange[], temperature: number, rng: () => number): Record<string, number> {
+    // 旧实现用两次环境随机数选参数/扰动；改为同一 rng，保持算法形状但结果可复现。
     const newParams = { ...params };
-    const idx = Math.floor(Math.random() * ranges.length);
+    const idx = Math.floor(rng() * ranges.length);
     const range = ranges[idx];
-    const delta = (range.max - range.min) * temperature * (Math.random() - 0.5) * 0.5;
+    const delta = (range.max - range.min) * temperature * (rng() - 0.5) * 0.5;
     const newVal = Math.max(range.min, Math.min(range.max, params[range.name] + delta));
     newParams[range.name] = range.type === 'int' ? Math.round(newVal) : Math.round(newVal * 1000) / 1000;
     return newParams;
@@ -350,6 +393,15 @@ const paramRanges: ParamRange[] = [
   { name: 'fast', min: 3, max: 15, step: 1, type: 'int' },
   { name: 'slow', min: 15, max: 40, step: 5, type: 'int' },
 ];
+
+// 固定种子 LCG：替代 walkForward 用例里的运行时随机数，保证 200 个收益序列可复现。
+const createTestRNG = (seed: number): (() => number) => {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+};
 
 // ==================== 测试 ====================
 
@@ -428,6 +480,15 @@ describe('ParameterOptimizer 参数优化引擎', () => {
       const bestScore = Math.max(...results.map(r => r.score));
       expect(results[0].score).toBeCloseTo(bestScore, 0);
     });
+
+    it('固定种子应可复现', () => {
+      const opt = new ParameterOptimizer();
+      const r1 = opt.bayesianOptimize({ paramRanges, objective: 'totalReturn', maxIterations: 20 }, simpleEvaluator, undefined, 7);
+      const r2 = opt.bayesianOptimize({ paramRanges, objective: 'totalReturn', maxIterations: 20 }, simpleEvaluator, undefined, 7);
+      // 旧实现用非确定性随机数，同一输入两次结果不同；现断言固定种子下参数与分数逐项一致。
+      expect(r1.map(r => r.params)).toEqual(r2.map(r => r.params));
+      expect(r1.map(r => r.score)).toEqual(r2.map(r => r.score));
+    });
   });
 
   describe('遗传算法', () => {
@@ -500,13 +561,19 @@ describe('ParameterOptimizer 参数优化引擎', () => {
   describe('Walk-Forward', () => {
     it('应返回窗口分析结果', () => {
       const opt = new ParameterOptimizer();
-      const data = { returns: Array(200).fill(0).map(() => (Math.random() - 0.5) * 0.02), dates: Array(200).fill('').map((_, i) => `2024-01-${String(i + 1).padStart(2, '0')}`) };
+      const rng = createTestRNG(20240101);
+      const data = {
+        returns: Array.from({ length: 200 }, () => (rng() - 0.5) * 0.02),
+        dates: Array.from({ length: 200 }, (_, i) => `2024-01-${String(i + 1).padStart(2, '0')}`),
+      };
       const results = opt.walkForward(
         { paramRanges, objective: 'totalReturn', maxIterations: 20 },
         data, 0.7,
         (params, start, end) => simpleEvaluator(params)
       );
       expect(results.length).toBeGreaterThan(0);
+      // 200 个收益、trainRatio=0.7 -> 窗宽 140/步长 60，生产 generateWindows 只产出 1 个窗口。
+      expect(results.length).toBe(1);
       for (const r of results) {
         expect(typeof r.trainScore).toBe('number');
         expect(typeof r.testScore).toBe('number');
