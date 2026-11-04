@@ -10,8 +10,8 @@
 |---|---|---|---|
 | T-2604-02 shared/formatters/env 影子产物 | .gitignore:9-10（shared/*.js、shared/*.d.ts 禁令）+ frontend/src/__tests__/sharedFormatters.test.ts | d93b7d4fd + ac6876c2a | 规则类无 E3：git check-ignore -v 命中 .gitignore:9/10（exit 0）+ 测试 56/56 绿（2026-10-04，早于 redgreen） |
 | T-2604-03 allowlist 死豁免清偿 | scripts/guard/allowlist.json（13 条，均带 expiresAt）+ scripts/guard/honesty-baseline.md | b298ac2d5 | 规则类无 E3：honesty-scan --strict exit 0 + 台账同步校验（2026-10-04） |
-| T-2604-04 deriveIndustryFromName 最长命中优先 | shared/industryClassification.ts:329-353（按 kw 长度降序稳定排序）+ backend/src/__tests__/subIndustryPerformance.test.ts | 63bae0666 | E3 待补跑（2026-10-04 收口，工具 2026-11-04 才有）；现有：定向测试 6/6 绿 + 7/7 行为探针（平安银行→银行、比亚迪→汽车、招商银行→银行、宁德时代→电力设备、长城汽车→汽车、药明康德→医药生物、xyz→未分类） |
-| T-2610-03 FIX-ETF nav-history 符号格式 | backend/src/utils/symbolUtils.ts:30-32 toBareCode + backend/src/__tests__/etf.test.ts | 0c4cea97d | E3 已补跑（2026-11-04 06:49）：投毒 backend/src/utils/symbolUtils.ts:31 去掉前后缀剥离 → poisoned=FAIL(0.7s)；还原 → restored=PASS(0.6s) |
+| T-2604-04 deriveIndustryFromName 最长命中优先 | shared/industryClassification.ts:334（按 kw 长度降序稳定排序）+ backend/src/__tests__/subIndustryPerformance.test.ts（含 2026-11-04 补的「激光雷达 vs 激光」用例） | 63bae0666 | E3 已补跑（2026-11-04 11:14）：投毒 shared/industryClassification.ts:334 sort→(() => 0) → poisoned=FAIL(0.7s)；还原 → restored=PASS(0.6s)。工具 scripts/guard/redgreen.mjs |
+| T-2610-03 FIX-ETF nav-history 符号格式 | backend/src/utils/symbolUtils.ts:30-32 toBareCode + backend/src/__tests__/symbolNormalize.test.ts（裸码/带后缀/sh. 前缀三写法等价；etf.test.ts 只覆盖后缀，单独投毒不红） | 0c4cea97d | E3 已补跑（2026-11-04 11:13，redgreen.mjs）：投毒 symbolUtils.ts:31 去掉前缀剥离 → poisoned=FAIL(0.7s)；还原 → restored=PASS(0.7s) |
 
 ## 维护规则
 

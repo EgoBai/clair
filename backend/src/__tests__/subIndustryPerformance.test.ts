@@ -42,6 +42,16 @@ describe('classifyStock — 名称反推二级行业', () => {
     expect(deriveIndustryFromName('乱七八糟xyz')).toBe('未分类');
   });
 
+  it('长关键词优先于其子串：激光雷达按「激光雷达/智能驾驶/汽车」而非「激光/电子」', () => {
+    // 回归 T-2604-04：DERIVE_KEYWORD_ENTRIES 必须按 kw 长度降序排序。
+    // 「激光」是「激光雷达」的子串且分属不同二级/一级，若排序丢失，名称会错分到电子。
+    expect(deriveIndustryFromName('激光雷达')).toBe('汽车');
+    expect(deriveIndustryFromName('激光')).toBe('电子');
+    const r = classifyStock(undefined, '激光雷达');
+    expect(r.industry).toBe('汽车');
+    expect(r.subIndustry).toBe('智能驾驶');
+  });
+
   it('classifySubIndustry 无匹配时回退 subs[0]', () => {
     expect(classifySubIndustry('电子', '某电子公司')).toBe('半导体');
   });
