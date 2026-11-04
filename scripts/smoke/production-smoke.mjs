@@ -23,7 +23,10 @@
  *   --expect-commit <sha> 期望的 commit（可用环境变量 EXPECTED_COMMIT_SHA）。
  *                         支持 7 位短 sha 前缀匹配。给了才会做版本比对。
  *   --strict              任一 NOT_FOUND / ERROR / MALFORMED / UNREACHABLE / VERSION_MISMATCH
- *                         即 exit 1（默认只对 UNREACHABLE 与 VERSION_MISMATCH 退出非零）
+ *                         即 exit 1
+ *                         默认（非 strict）只阻断 ERROR / MALFORMED / UNREACHABLE / VERSION_MISMATCH；
+ *                         NOT_FOUND 仅打印不阻断（已知未部署端点仍在清单里，留待补齐）
+ *   --allow-unreachable   把 UNREACHABLE 降级为非阻断（上游偶发抖动场景，如腾讯行情超时）
  *   --timeout <ms>        单请求超时，默认 8000
  *   --json                stdout 只输出 JSON（CI 消费）；默认输出人读表格
  *   --allow-degraded      不把 DEGRADED 计入 strict 失败（默认已不计入，显式保留以示意图）
@@ -60,6 +63,7 @@ function parseArgs(argv) {
     timeout: 8000,
     json: false,
     allowDegraded: true,
+    allowUnreachable: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -69,6 +73,7 @@ function parseArgs(argv) {
     else if (a === '--strict') args.strict = true;
     else if (a === '--json') args.json = true;
     else if (a === '--allow-degraded') args.allowDegraded = true;
+    else if (a === '--allow-unreachable') args.allowUnreachable = true;
     else if (a === '--help' || a === '-h') args.help = true;
   }
   return args;
@@ -79,7 +84,7 @@ const args = parseArgs(process.argv.slice(2));
 if (args.help) {
   process.stdout.write(
     'production-smoke —— 部署后自动烟测\n\n' +
-    '  node scripts/smoke/production-smoke.mjs --base <url> [--strict] [--expect-commit <sha>] [--json]\n',
+    '  node scripts/smoke/production-smoke.mjs --base <url> [--strict] [--allow-unreachable] [--expect-commit <sha>] [--json]\n',
   );
   process.exit(0);
 }
@@ -351,13 +356,15 @@ async function main() {
   const degraded = all.filter((r) => r.verdict === 'DEGRADED');
 
   const versionBlocking = versionStatus === 'VERSION_MISMATCH';
+  const unreachable = all.some((r) => r.verdict === 'UNREACHABLE');
+  const contractBroken = all.some((r) => r.verdict === 'ERROR' || r.verdict === 'MALFORMED');
   const fail = args.strict ? blocking.length > 0 || versionBlocking
-    : all.some((r) => r.verdict === 'UNREACHABLE') || versionBlocking;
+    : contractBroken || versionBlocking || (unreachable && !args.allowUnreachable);
 
   const report = {
     base: BASE,
     checkedAt: new Date().toISOString(),
-    mode: { strict: args.strict, expectCommit: expected || null, timeoutMs: args.timeout },
+    mode: { strict: args.strict, allowUnreachable: args.allowUnreachable, expectCommit: expected || null, timeoutMs: args.timeout },
     version: {
       status: versionStatus,
       expectedCommit: expected || null,
@@ -411,7 +418,7 @@ async function main() {
     }
     if (!report.pass) {
       lines.push('');
-      lines.push(`  ✗ 未通过${args.strict ? '（STRICT：任一端点非 OK/DEGRADED 即失败）' : '（存在 UNREACHABLE 或版本不一致）'}`);
+      lines.push(`  ✗ 未通过${args.strict ? '（STRICT：任一端点非 OK/DEGRADED 即失败）' : '（存在 ERROR / MALFORMED / 未被 --allow-unreachable 放行的 UNREACHABLE / 版本不一致）'}`);
     } else {
       lines.push('');
       lines.push('  ✓ 通过');

@@ -29,3 +29,26 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: clair-worker
           command: pages deploy . --project-name=clair-api --branch=main
+
+      # 部署后立刻核对线上契约：dataSource 是否合法、关键字段是否还在、线上 commit 是否就是本次。
+      # 2026-11-04 实测过一次「部署成功但 /api/stocks 与 /api/sectors/momentum 缺 dataSource」，
+      # 当时没有任何自动检查会红，全靠人工跑 production-smoke。这里把人工动作固化进流水线。
+      # --allow-unreachable：上游行情偶发超时（腾讯/东财）不该判部署失败；ERROR/MALFORMED 仍然阻断。
+      # 重试 3 次是给 Pages 传播留时间，避免「刚部署还没生效」造成的假红。
+      - name: Verify production contract
+        working-directory: .
+        env:
+          EXPECT_COMMIT: ${{ github.sha }}
+        run: |
+          for attempt in 1 2 3; do
+            if node scripts/smoke/production-smoke.mjs \
+              --base https://clair-api.pages.dev \
+              --expect-commit "$EXPECT_COMMIT" \
+              --allow-unreachable; then
+              exit 0
+            fi
+            echo "第 ${attempt} 次线上契约校验未通过，20 秒后重试（部署传播延迟）"
+            sleep 20
+          done
+          echo "线上契约校验连续 3 次失败"
+          exit 1
