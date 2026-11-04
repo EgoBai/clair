@@ -5,11 +5,23 @@
  * 绝不回退伪数据（诚实数据红线，IP-20 收口）。
  */
 
-export type FundFlowProviderName = 'tushare' | 'akshare' | 'alphavantage' | 'eastmoney' | 'tencent' | 'demo' | 'unavailable';
+/**
+ * 数据源标识。`partial` = 来源可达但部分字段缺失（Worker 对东财缺档返回 null + missing[]），
+ * 与「拿到全量」的 provider 名、与「完全不可得」的 `unavailable` 是三种不同事实。
+ */
+export type FundFlowProviderName = 'tushare' | 'akshare' | 'alphavantage' | 'eastmoney' | 'tencent' | 'demo' | 'partial' | 'unavailable';
 
+/**
+ * 个股五档净额（/api/fund-flow/:symbol 的 current）。
+ *
+ * 真值域是 `number | null`：上游对停牌/新股/无成交的档位返回 `'-'` 或 null，
+ * Worker 统一归一为 null（真实的 0 仍是 0）。写成 `number` 会让消费端以为
+ * 「一定有值」而随手 `?? 0`，把缺失变回「净流入 0 元」。
+ */
 export interface FundFlowData {
   symbol: string; name: string;
-  mainNet: number; superLargeNet: number; largeNet: number; mediumNet: number; smallNet: number;
+  mainNet: number | null; superLargeNet: number | null; largeNet: number | null;
+  mediumNet: number | null; smallNet: number | null;
   tradeDate: string;
 }
 /**

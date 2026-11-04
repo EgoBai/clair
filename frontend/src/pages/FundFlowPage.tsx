@@ -85,7 +85,7 @@ function dsTag(ds?: FundFlowProviderName | 'unknown') {
   if (ds === 'unavailable') return <Tag color="default">不可得</Tag>;
   // 'partial'：来源可达但部分字段缺失（Worker 对东财缺档返回 null + missing[]）。
   // 不能沿用真实源的蓝色，否则「缺了几档」会被读成「数据完整」。
-  if ((ds as string) === 'partial') return <Tag color="default">部分缺失</Tag>;
+  if (ds === 'partial') return <Tag color="default">部分缺失</Tag>;
   const isDemo = ds === 'demo';
   return <Tag color={isDemo ? 'gold' : 'blue'}>{isDemo ? '演示数据' : ds}</Tag>;
 }
