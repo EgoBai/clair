@@ -88,10 +88,21 @@ function isApiRequest(raw: string): boolean {
   return /\/api\//.test(raw) || raw.startsWith('/api/');
 }
 
-/** 记录一个已确认未部署的端点 */
+/**
+ * 不进入「未挂载端点」Banner 的端点。
+ *
+ * 埋点（POST /api/analytics）是 best-effort 遥测：线上 Worker 没挂它不影响任何用户可见功能，
+ * 但它每次导航都会失败一次。若把它登记进 Banner，每个页面顶部都会多一条
+ * 「本页部分模块需要连接完整后端」——环境提示被降级成噪声，真正缺口的信号被稀释。
+ * 这类端点仍会被判别、调用方仍能读到状态，只是不进 Banner 登记表。
+ */
+export const NON_USER_FACING_ENDPOINTS: ReadonlySet<string> = new Set(['/api/analytics']);
+
+/** 记录一个已确认未部署的端点（非用户可见端点不登记，见 NON_USER_FACING_ENDPOINTS） */
 export function recordNotDeployed(endpoint: string, httpStatus: number, reason?: string): void {
   const key = normalizeApiPath(endpoint);
   if (!key) return;
+  if (NON_USER_FACING_ENDPOINTS.has(key)) return;
   const existing = notDeployed.get(key);
   if (existing) {
     existing.httpStatus = httpStatus;

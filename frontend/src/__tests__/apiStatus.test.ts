@@ -28,7 +28,7 @@ import {
   readDataSource,
   shortApiStatusText,
 } from '../utils/apiStatus';
-import { normalizeApiPath, statusFromFailure, recordNotDeployed, wasEndpointNotDeployed, clearNotDeployed } from '../services/apiGateway';
+import { normalizeApiPath, statusFromFailure, recordNotDeployed, wasEndpointNotDeployed, clearNotDeployed, snapshotNotDeployed } from '../services/apiGateway';
 
 /** Worker 真实未命中响应体（实测 https://clair-api.pages.dev/api/industries） */
 const WORKER_404_BODY = { success: false, error: 'Not found' };
@@ -175,6 +175,24 @@ describe('normalizeApiPath —— 登记与查询必须落到同一个 key', () 
     expect(normalizeApiPath('/api/etf/list')).toBe('/api/etf/list');
     expect(normalizeApiPath('https://clair-api.pages.dev/api/etf/list?page=1')).toBe('/api/etf/list');
     expect(normalizeApiPath('/api/block-trades/')).toBe('/api/block-trades');
+  });
+});
+
+describe('NON_USER_FACING_ENDPOINTS —— 埋点未挂载不该污染环境级 Banner', () => {
+  it('POST /api/analytics 404 不登记，页面不会出现「本页部分模块需要连接完整后端」', () => {
+    clearNotDeployed();
+    recordNotDeployed('/api/analytics', 404, 'Not found');
+    expect(wasEndpointNotDeployed('/api/analytics')).toBe(false);
+    expect(snapshotNotDeployed()).toEqual([]);
+  });
+
+  it('其余端点仍照常登记，规则没有被放宽', () => {
+    clearNotDeployed();
+    recordNotDeployed('/api/analytics', 404, 'Not found');
+    recordNotDeployed('/api/top-traders/overview', 404, 'Not found');
+    const snap = snapshotNotDeployed();
+    expect(snap.map((e) => e.endpoint)).toEqual(['/api/top-traders/overview']);
+    clearNotDeployed();
   });
 });
 

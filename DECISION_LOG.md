@@ -489,3 +489,13 @@
 - **口径**：只在既有测试文件内加用例，未新增测试文件 → census total 1,526、影子 687（45.0%）不变，`--check` exit 0；`honesty-scan --strict` exit 0。
 - **代价**：财务因子序列的覆盖期数受免费 K 线源长度限制（新浪 1023 根 ≈ 4 期年报），更早报告期诚实缺失；若未来要 8 期，需要接东财 push2his 长历史（本机不可达，Cloudflare 侧待验证）或付费源。另：不复权价与后端 `getKline` 的前复权口径不同，同一报告期的 EP/BP 可能与 Express 版略有差异（本次以「当期真实价」为准，已在函数注释写明）。
 
+
+## D67 埋点 404 不再污染全局「未挂载端点」Banner（轮 22）
+
+- **背景**：线上每一个页面顶部都出现「本页部分模块需要连接完整后端才能查看」，未挂载端点只列 `/api/analytics`。追到 `frontend/src/utils/analytics.ts:40/210-234`：单例在构造时注册 30 秒定时 flush，每次导航由 `main.tsx:219` 记 page_view，队列非空即 `fetch('/api/analytics', {method:'POST'})`；Worker 未注册该路由 → 404 `{"success":false,"error":"Not found"}` → `services/apiGateway.ts:183-195` 的 fetch 拦截器判为未部署并登记 → `components/Common/ApiStatusNotice.tsx:181` 的全局 Banner 渲染。埋点失败本身不影响任何功能，但把环境提示降级成噪声，稀释真实缺口（如 `/api/analytics` 与 `/api/risk-center/portfolio` 混在一起时用户无从分辨）。
+- **判断**：埋点是 best-effort 遥测，不属于「本页模块需要真实数据」的范畴；修法应落在**登记口径**而不是给 Worker 加一个只吞事件的假端点——后者会让 `/api/analytics` 看起来「已实现」，而事件实际写不进去，等于用 204 冒充能力。判别逻辑与调用方可读状态保持不变，只把这类端点挡在 Banner 登记表之外。
+- **做法**：`services/apiGateway.ts` 新增 `NON_USER_FACING_ENDPOINTS = new Set(['/api/analytics'])`，`recordNotDeployed` 归一化 key 后命中即 return（注释写明埋点是 best-effort、每次导航必失败一次、不进 Banner 的理由）。fetch 拦截器与 axios 拦截器共用该函数，两条链路同时生效。`wasEndpointNotDeployed` 对这类端点返回 false，语义为「不进入环境级提示」，不改 `classifyApiResponse`。
+- **证据**：`frontend/src/__tests__/apiStatus.test.ts` 新增 2 例——`recordNotDeployed('/api/analytics',404)` 后 `snapshotNotDeployed()` 为空且 `wasEndpointNotDeployed` 为 false；同批登记 `/api/top-traders/overview` 仍照常出现在快照里（规则未被放宽）。实测该文件 **29 passed**（原 27）；`npx tsc --noEmit` exit 0。
+- **口径**：只改前端判别口径与既有测试文件，无新增测试文件 → census total 1,526、影子 687（45.0%）不变。
+- **代价**：若未来某个埋点端点变成用户可见功能（例如把 analytics 数据做成「访问统计」页），必须从该集合移除，否则它的未部署状态不会提示；集合以精确路径匹配，带子路径的 `/api/analytics/summary` 不受影响（会照常登记）。
+
