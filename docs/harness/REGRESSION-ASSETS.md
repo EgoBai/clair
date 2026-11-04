@@ -18,6 +18,8 @@
 
 | D58 图表交互/布局五缺陷（十字光标越界、最近点无阈值、浮层溢出、浅拷贝、身份不校验） | frontend/src/utils/chartInteractionEngine.ts:204（越界早退）+ :448（浮层最终夹紧）+ findNearestPoint 的 maxDistance + frontend/src/utils/dashboardLayoutEngine.ts:57（空 id 错误）/ :270（config 深拷贝）+ frontend/src/__tests__/chartInteractionEngine.test.ts（乱序/阈值/越界/零尺寸）+ chartDataAndInteraction.test.ts（超大浮层夹紧）+ dashboardLayoutEngine.test.ts（深拷贝/身份） | f72b80671 | E3 已跑（2026-11-04 17:22，redgreen.mjs）：投毒 chartInteractionEngine.ts:448 把 Math.max(0, containerWidth - tooltipWidth) 改为 containerWidth → poisoned=FAIL(0.9s)、restored=PASS(0.9s)；投毒 :204 越界判定为 false → poisoned=FAIL(0.9s)、restored=PASS(0.9s) |
 
+| D59 相关性引擎随机性（PCA/自举每次不同） | frontend/src/utils/correlationEngine.ts:279（确定性初始向量）+ :227（等距取窗）+ frontend/src/__tests__/correlationEngine.test.ts（2 个确定性用例，固定 LCG 夹具） | 2c9b51f7f | E3 已跑（2026-11-04 18:02，redgreen.mjs）：投毒 :279 换回 Math.random 初始化 → poisoned=FAIL(1.1s)、restored=PASS(0.9s)；投毒 :227 换回随机取窗 → FAIL(0.9s)/PASS(0.9s) |
+
 ## 维护规则
 
 1. 新单从「复验通过」转「已收口」前，必须在本表加一行；无防复发物不得收口。

@@ -410,3 +410,13 @@
 - **调用面核实（同轮补记）**：`chartInteractionEngine.ts` 与 `dashboardLayoutEngine.ts` 在全仓非测试代码里 **0 处 import**，也不在 `frontend/src/utils/index.ts` 桶导出。故这五条属**库内缺陷**（测试语义与未来接入健壮性），本轮修复**不改变任何用户可见行为**；handover/09 的缺陷清单已就地标注状态与调用面，不再把它们算作用户可见缺口。
 - **代价**：findNearestPoint 由 O(log n) 变 O(n)（数据点千级，实测无感）；十字光标越界不再显示残留虚线，若有页面依赖「移出后仍显示」的观感需单独提；空 id 布局从此不能保存（当前生产无此数据，历史空名仅告警不阻塞）。
 
+
+## D59 前端相关性引擎随机性：PCA 与自举结果每次不同（2026-11-04 18:10）
+
+- **背景**：轮 16 做「双实现对照」时发现，页面实际在用的 `frontend/src/utils/correlationEngine.ts`（`RiskCenterPage.tsx:201` 调用）在两处使用 `Math.random`：`powerIteration` 初始化向量（原 `:276`）与 `correlationStabilityTest` 的取窗（原 `:225`）。
+- **实测影响**：同一输入连跑三次，第一主成分特征值为 `1.024812 / 1.038844 / 1.038238`，解释方差同步漂移；即使用户数据不变，风险中心的稳定性/特征值结果每次刷新都不同。当前页面只渲染矩阵与平均相关（这两个值本身确定），但引擎输出已不可复现。
+- **做法**：`powerIteration` 初始向量改为确定性序列 `1 + ((i+1)*(comp+1)) % 7 * 0.1` 后归一化；`correlationStabilityTest` 取窗改为等距 `b*(span-1)/(numBootstrap-1)`（`span = n - windowSize + 1`）。两者都保持原输出形状与统计含义，不改变调用契约。
+- **证据**：`frontend/src/__tests__/correlationEngine.test.ts` 新增 2 例（同一输入两次自举结果 `toEqual`；PCA 特征值/解释方差/主成分 `toEqual`），夹具用固定 LCG（seed 11/29/53/97）替代随机；实测 16 passed（原 14）；`npx tsc --noEmit` exit 0；E3 红→绿两次：投毒 `:279` 换回 `Math.random` → poisoned=FAIL(1.1s)、restored=PASS(0.9s)；投毒 `:227` 换回随机取窗 → FAIL(0.9s)/PASS(0.9s)。commit `2c9b51f7f`，推送远端 `34626fab2164`。
+- **为什么门禁没拦**：`scripts/guard/honesty-scan.mjs` 规则 A 把 `frontend/src/utils` 归为 YELLOW（仅警告），红域只覆盖 `backend/src/api|services|db`。是否把前端 utils 的随机数升为 RED 需改门禁口径、会暴露存量，另开单决定。
+- **代价**：确定性初始向量在极端病态矩阵上收敛略慢（实测量级无差异）；自举窗口从随机改为等距后，置信区间略窄于真随机抽样，属可接受近似，注释已写明。
+- **同轮附带发现（不动代码，只记录）**：`/tmp/reach.py` 从真实入口做 import 可达性，861 个文件中前端 `utils/` 426 个有 **372 个（87.3%）从 `main.tsx` 走不到**；`securityEngine`、`tokenManager`、`optionsPricingEngine` 等有成套测试但无生产调用方。详见 `handover/21-双实现对照.md`（DSH 工作区）。
