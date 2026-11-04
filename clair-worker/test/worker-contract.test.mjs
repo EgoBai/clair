@@ -999,7 +999,7 @@ async function callFundFlowSymbolWithStub({
   };
   try {
     const res = await worker.fetch(new Request('https://clair-api.pages.dev/api/fund-flow/600519'), envStub(), {});
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: await res.json(), cacheControl: res.headers.get('cache-control') };
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1024,7 +1024,8 @@ const STOCK_GET_PARTIAL = JSON.stringify({
 });
 
 await test('symbol：五档齐全 → 数值原样、missing 为空、dataSource:eastmoney', async () => {
-  const { status, body } = await callFundFlowSymbolWithStub({ stockGetBody: STOCK_GET_FULL });
+  const { status, body, cacheControl } = await callFundFlowSymbolWithStub({ stockGetBody: STOCK_GET_FULL });
+  assert.equal(cacheControl, 'no-store', '个股资金流是逐笔变化的真金白银数据，绝不能被 CDN/浏览器缓存（旧假值曾被缓存回放）');
   assert.equal(status, 200);
   assert.equal(body.success, true);
   const cur = body.data.current;
@@ -1496,6 +1497,21 @@ await test('/api/stocks：一只行情都拿不到时 dataSource=unavailable，l
       assert.equal(it.latestQuote, null, '拿不到行情必须置 null，绝不填 0 或回退代码');
     }
     assert.ok(typeof body.data.note === 'string' && /[\u4e00-\u9fa5]/.test(body.data.note), '必须给中文说明');
+  });
+});
+
+await test('/api/stocks/:symbol：详情同时返回 latestQuote 与 quote（backend 契约是 latestQuote，缺它详情页永远「暂无行情数据」）', async () => {
+  await withStubbedTencentQuotes(fakeQuoteLine, async () => {
+    const { status, body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/stocks/600519', undefined, {});
+    assert.equal(status, 200);
+    assert.ok(body.data.quote, 'quote 保留，兼容旧调用方');
+    assert.ok(body.data.latestQuote, 'latestQuote 必须存在（backend/src/api/stock.ts:65/96）');
+    assert.equal(body.data.latestQuote.closePrice, body.data.quote.closePrice);
+    assert.equal(body.data.latestQuote.changePercent, body.data.quote.changePercent);
+    for (const k of ['closePrice', 'changePercent', 'turnoverRate', 'peRatio', 'volume', 'turnover']) {
+      assert.ok(k in body.data.latestQuote, `latestQuote 缺契约字段 ${k}`);
+    }
   });
 });
 

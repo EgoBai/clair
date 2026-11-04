@@ -724,7 +724,7 @@ async function getAllQuotes() {
 
 // ==================== 路由处理 ====================
 
-function json(data, status = 200) {
+function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -732,7 +732,9 @@ function json(data, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
+      // 默认短缓存；需要「绝不能被缓存」的动态数据（如个股资金流）由调用方覆盖为 no-store。
       'Cache-Control': 'public, max-age=15',
+      ...extraHeaders,
     },
   });
 }
@@ -1450,6 +1452,17 @@ async function handleStockDetail(symbol) {
           marketCap: q.marketCap ?? null,
           circulatingMarketCap: q.circulatingMarketCap ?? null,
           amplitude: q.high > 0 && q.low > 0 ? ((q.high - q.low) / q.prevClose * 100) : 0,
+        },
+        // 与 backend/src/api/stock.ts:65/96 的契约对齐：详情页读的是 latestQuote。
+        // 历史上 Worker 只回 quote，导致线上个股详情页价格区永远显示「暂无行情数据」
+        // （2026-11-04 真浏览器实测）。两个字段同源同值，保留 quote 兼容旧调用方。
+        latestQuote: {
+          closePrice: q.price,
+          changePercent: q.changePercent,
+          turnoverRate: q.turnoverRate ?? null,
+          peRatio: q.peRatio ?? null,
+          volume: q.volume,
+          turnover: q.turnover,
         },
       },
       success: true,
@@ -6064,7 +6077,7 @@ async function handleFundFlow(symbol) {
       note: latest
         ? (currentMissing.length ? `个股资金流缺 ${currentMissing.length} 档，缺失字段已置 null（不写 0）` : undefined)
         : '个股资金流暂缺，仅返回板块资金流',
-    });
+    }, 200, { 'Cache-Control': 'no-store' });
   } catch (e) {
     return error(e.message);
   }
