@@ -1539,12 +1539,18 @@ async function handleStockDetail(symbol) {
           quote.changePercent = prevClose ? Number(((last.closePrice - prevClose) / prevClose * 100).toFixed(2)) : null;
           quote.amplitude = null;
           quoteSource = 'partial';
-          quoteNote = `该代码为北交所旧代码，2025 年迁移至 920 段后已停止更新；行情为最后成交日 ${last.tradeDate} 的日线收盘，非今日实时。`;
+          const isLegacyBj = stock.market === 'BJ' && /^(43|83|87)/.test(stock.symbol);
+          quoteNote = isLegacyBj
+            ? `该代码为北交所旧代码，2025 年迁移至 920 段后已停止更新；行情为最后成交日 ${last.tradeDate} 的日线收盘，非今日实时。`
+            : `当日无成交（停牌或尚未开盘），行情为最后成交日 ${last.tradeDate} 的日线收盘；当日开高低/成交量不可得，如实置空。`;
         }
       } catch (e) {
         // 日线也取不到：宁可标不可用，也不把停用快照当今日行情
         quoteSource = 'unavailable';
-        quoteNote = '北交所旧代码，已停止更新，且未能取到最后成交日行情。';
+        const isLegacyBj = stock.market === 'BJ' && /^(43|83|87)/.test(stock.symbol);
+        quoteNote = isLegacyBj
+          ? '北交所旧代码，已停止更新，且未能取到最后成交日行情。'
+          : '当日无成交，且未能取到最后成交日行情。';
         quote.openPrice = null;
         quote.highPrice = null;
         quote.lowPrice = null;
