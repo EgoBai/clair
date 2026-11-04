@@ -439,3 +439,12 @@
 - **新发现的缺陷（未改，留产品决定）**：模板字段白名单有两份且不一致——`middleware/validation.ts:246` 的 Joi 允许 32 个字段（含 rsi/macd/kdj/boll/ma 共 14 个技术指标），`api/screener.ts:305` 的 `ALLOWED_FIELDS` 只有 23 个（即 `/screener/fields` 公布的那份，含 debt_to_equity/float_shares/profit_growth/revenue_growth/total_shares）。带技术指标的模板请求能过 Joi、却被 handler 以「不支持的筛选字段」拒。今天 UI 只从 `/screener/fields` 取字段，用户碰不到；一旦开放技术指标建模板就会 400。修法需要产品决定：两份合成一份常量，或用同一份常量生成 Joi `valid()`。
 - **口径**：census total 1,525（新增 1 个真实导入测试）、影子仍 687、真实 838、realLoc 191,980；可达绑定 242（15.9%）、缺口 93/262（35.5%）；`shadow-baseline.json` 与 `SHADOW-TEST-CENSUS.md` 已同步，`--check` exit 0。
 - **代价**：契约测试用杀手桩数据库，不验证真实 SQL；模板 CRUD 的内存态与生产 Postgres 行为仍需端到端验证。
+
+## D62 北交所旧代码：停用快照不得当今日行情（轮 20）
+
+- **背景**：轮 19 记过「430047/833171 返回 Stock not found」，该问题已由兜底解析修掉；但修完后详情页换了一种错法——北交所在 2025 年把 `43x/83x/87x` 段整体迁移到 `920` 段，旧代码在腾讯只剩一条停用快照：`open/high/low/volume` 全 0、`close` 与 `prevClose` 相等、时间戳停在当日 09:00。Worker 原样透出，页面就把「0.00 涨跌 / 0 手成交 / 0.00% 换手」当成今日行情，且标「数据截至 <今天>」。
+- **实测证据（修复前）**：`GET /api/stocks/430047` → `tradeDate 2026-11-04`、`openPrice 0`、`volume 0`、`changePercent 0`，而同日 `/kline` 最后一根是 `2025-09-30` 收 `25.24`——同一次查询里两个日期互相矛盾；新代码 `920047` 同公司数据完全正常（`12.25`、成交量 `46703`）。
+- **做法**：`handleStockDetail` 增加停用快照判据（`price>0 && open===high===low===0 && volume===0 && |price-prevClose|<1e-9`）命中后下钻一次日线（复用 `fetchDailyKLine`），用最后两根还原 `tradeDate`/`closePrice`/`prevClose`/`change`/`changePercent`，把当日字段（`openPrice/highPrice/lowPrice/volume/turnover/turnoverRate/amplitude`）置 `null`，并在响应里加 `dataSource:'partial'` 与中文 `note`；日线也取不到时降级为 `unavailable`，仍不填 0。
+- **前端配合**：`frontend/src/pages/StockDetailPage.tsx` 新增 `fmtNum`（缺数→`—`），今开/最高/最低/现价/涨跌幅/振幅/换手率改走它；本页原有的 `formatVolume/formatTurnover/formatLargeNumber` 缺数返回 `-` 改为 `—`（与 D48 统一）。页面既有的「数据截至」陈旧标签据此自动提示。
+- **证据**：Worker 契约测试新增 3 例（旧代码 partial+null+交易日回退、新代码 real、600519 不受影响），`node clair-worker/test/worker-contract.test.mjs` → **103 通过 0 失败**；`node --check` 双入口通过、`_worker.js` 与 `worker.js` 逐字节相同（测试自校验）。上线后线上实测：`430047` → `dataSource partial`、`tradeDate 2025-09-30`、`close 25.24`、六档当日字段全 `null`；`920047`/`600519` 仍 `real`。真浏览器（Playwright，headless）打开 `https://egobai.github.io/clair/stocks/430047`：现价 `25.24`、今开/最高/最低/成交量/成交额/振幅/换手率全为 `—`、陈旧标签「已 281 个交易日未更新」、无 `NaN`、无崩溃；`600519` 同页全为真实数值（`1470.00/1480.60/1439.00/6.54万/95.36亿/-2.27%`）。
+- **代价**：停用判据只按「四价全 0 + 零成交」识别，正常停牌股（腾讯同样回四价 0）也会被判为 partial，其「今开/最高/最低」显示 `—` 而非 0——这是刻意取舍：停牌股当日确实没有开高低，显示 0 比显示 `—` 更容易被误读成「跌到 0」。旧代码与新代码之间**没有**自动映射（`833171` 对应的新代码并非 `920171`），仍需用户按新代码查询；要自动跳转需另建迁移对照表。
