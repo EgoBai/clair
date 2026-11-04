@@ -97,17 +97,10 @@ const FactorLabPage: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        // 两批互相独立（K 线 20 请求 + 财务因子 20 请求），并行拉取；并发 8 把首屏从 60–80s 压到 15–30s。
-        const [batch, factorSeries] = await Promise.all([
-          getBatchHistory(DEFAULT_FACTOR_UNIVERSE, 250, 8),
-          getBatchFactorSeries(DEFAULT_FACTOR_UNIVERSE, 8, 8),
-        ]);
-        const realCount = Object.values(batch).filter((s) => s.dataSource === 'real').length;
-        if (realCount < 10) {
-          if (!cancelled) setFailure(`真实 K 线只取到 ${realCount}/${DEFAULT_FACTOR_UNIVERSE.length} 只，样本不足 10 只，无法计算横截面因子；不用演示数据顶替。`);
-          return;
-        }
+      const buildFactors = (
+        batch: Awaited<ReturnType<typeof getBatchHistory>>,
+        factorSeries: Awaited<ReturnType<typeof getBatchFactorSeries>> | null,
+      ) => {
         const data: Record<string, FactorData[]> = {};
         const decay: Record<string, Map<number, FactorData[]>> = {};
         for (const key of Object.keys(REAL_FACTOR_KIND)) {
@@ -123,24 +116,49 @@ const FactorLabPage: React.FC = () => {
           decay[key] = m;
         }
         let financialCount = 0;
-        for (const key of Object.keys(FINANCIAL_FACTOR_KIND)) {
-          const opts = { kind: FINANCIAL_FACTOR_KIND[key], horizon: 21, step: 21 };
-          const rows = buildICFactorData(batch, opts, factorSeries);
-          if (rows.length < 20) continue; // 财务源样本不足则不接入该因子（诚实留空）
-          data[key] = rows;
-          financialCount += 1;
-          const m = new Map<number, FactorData[]>();
-          for (let lag = 1; lag <= 6; lag++) {
-            m.set(lag, buildICFactorData(batch, { ...opts, horizon: lag * 21 }, factorSeries));
+        if (factorSeries) {
+          for (const key of Object.keys(FINANCIAL_FACTOR_KIND)) {
+            const opts = { kind: FINANCIAL_FACTOR_KIND[key], horizon: 21, step: 21 };
+            const rows = buildICFactorData(batch, opts, factorSeries);
+            if (rows.length < 20) continue; // 财务源样本不足则不接入该因子（诚实留空）
+            data[key] = rows;
+            financialCount += 1;
+            const m = new Map<number, FactorData[]>();
+            for (let lag = 1; lag <= 6; lag++) {
+              m.set(lag, buildICFactorData(batch, { ...opts, horizon: lag * 21 }, factorSeries));
+            }
+            decay[key] = m;
           }
-          decay[key] = m;
         }
-        if (cancelled) return;
-        if (Object.keys(data).length === 0) {
-          setFailure('真实行情与财务序列已取到，但可用样本不足 20 期，无法计算因子；不用演示数据顶替。');
+        return { data, decay, financialCount };
+      };
+
+      try {
+        // 先出价格/成交量因子（20 只 K 线），财务因子随后补齐：首屏不再等两批都完成。
+        const batch = await getBatchHistory(DEFAULT_FACTOR_UNIVERSE, 250, 8);
+        const realCount = Object.values(batch).filter((s) => s.dataSource === 'real').length;
+        if (realCount < 10) {
+          if (!cancelled) setFailure(`真实 K 线只取到 ${realCount}/${DEFAULT_FACTOR_UNIVERSE.length} 只，样本不足 10 只，无法计算横截面因子；不用演示数据顶替。`);
           return;
         }
-        setReal({ data, decay, financialCount });
+        const priceFactors = buildFactors(batch, null);
+        if (cancelled) return;
+        if (Object.keys(priceFactors.data).length === 0) {
+          setFailure('真实行情已取到，但可用样本不足 20 期，无法计算因子；不用演示数据顶替。');
+          return;
+        }
+        setReal(priceFactors);
+        setLoading(false);
+
+        let factorSeries: Awaited<ReturnType<typeof getBatchFactorSeries>> | null = null;
+        try {
+          factorSeries = await getBatchFactorSeries(DEFAULT_FACTOR_UNIVERSE, 8, 8);
+        } catch (e) {
+          console.warn('[FactorLab] 财务因子序列不可用，保留价格因子', e);
+        }
+        if (cancelled || !factorSeries) return;
+        const full = buildFactors(batch, factorSeries);
+        if (!cancelled) setReal(full);
       } catch (e) {
         console.warn('[FactorLab] 真实数据不可用', e);
         if (!cancelled) setFailure(`真实数据拉取失败：${e instanceof Error ? e.message : String(e)}`);
@@ -325,7 +343,7 @@ const FactorLabPage: React.FC = () => {
             ? '多因子模型一期 · 动量/反转/波动率/量比基于真实 K 线；估值/成长/质量因子（EP/BP/GROWTH/ROE）基于真实财务因子序列'
             : '多因子模型一期 · 动量/反转/波动率/量比因子基于真实 K 线构建；估值/成长/质量因子源暂不可用，诚实留空')
           : loading
-            ? `多因子模型一期 · 正在拉取 ${DEFAULT_FACTOR_UNIVERSE.length} 只成分股真实 K 线与财务因子序列（并发 8），首次约 15–30 秒`
+            ? `多因子模型一期 · 正在拉取 ${DEFAULT_FACTOR_UNIVERSE.length} 只成分股真实 K 线（并发 8），先出价格与成交量因子，财务因子随后补齐；视行情源速度通常 20–60 秒`
             : '多因子模型一期 · 真实数据未就绪，原因见下方；不展示演示值或占位 0'}
       </Text>
 
