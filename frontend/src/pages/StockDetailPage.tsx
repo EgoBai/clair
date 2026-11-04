@@ -130,7 +130,12 @@ const StockDetailPage: React.FC = () => {
     [klineData],
   );
 
-  const formatLargeNumber = (num?: number) => {
+  /** 数值 → 文本；缺数一律「—」（诚实红线：不用 0 顶替空态）。 */
+  const fmtNum = (v?: number | null, digits = 2) =>
+    v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toFixed(digits);
+
+  const formatLargeNumber = (num?: number | null) => {
+    if (num === null || num === undefined || !Number.isFinite(Number(num))) return '—';
     if (!num && num !== 0) return '-';
     if (Math.abs(num) >= 1e12) return `${(num / 1e12).toFixed(2)}万亿`;
     if (Math.abs(num) >= 1e8) return `${(num / 1e8).toFixed(2)}亿`;
@@ -138,15 +143,15 @@ const StockDetailPage: React.FC = () => {
     return num.toFixed(2);
   };
 
-  const formatVolume = (vol?: number) => {
-    if (!vol && vol !== 0) return '-';
+  const formatVolume = (vol?: number | null) => {
+    if (vol === null || vol === undefined || !Number.isFinite(Number(vol))) return '—';
     if (vol >= 1e8) return `${(vol / 1e8).toFixed(2)}亿`;
     if (vol >= 1e4) return `${(vol / 1e4).toFixed(2)}万`;
     return `${vol}`;
   };
 
-  const formatTurnover = (val?: number) => {
-    if (!val && val !== 0) return '-';
+  const formatTurnover = (val?: number | null) => {
+    if (val === null || val === undefined || !Number.isFinite(Number(val))) return '—';
     if (val >= 1e8) return `${(val / 1e8).toFixed(2)}亿`;
     if (val >= 1e4) return `${(val / 1e4).toFixed(2)}万`;
     return val.toFixed(2);
@@ -454,20 +459,20 @@ const StockDetailPage: React.FC = () => {
             style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
           >
             <Row gutter={[0, 8]}>
-              <Col xs={12} sm={8} md={4}><StatItem label="现价" value={Number(latestQuote.closePrice).toFixed(2)} color={changeColor} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="今开" value={Number(latestQuote.openPrice).toFixed(2)} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="最高" value={Number(latestQuote.highPrice).toFixed(2)} color={COLOR_UP} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="最低" value={Number(latestQuote.lowPrice).toFixed(2)} color={COLOR_DOWN} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="现价" value={fmtNum(latestQuote.closePrice)} color={changeColor} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="今开" value={fmtNum(latestQuote.openPrice)} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="最高" value={fmtNum(latestQuote.highPrice)} color={COLOR_UP} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="最低" value={fmtNum(latestQuote.lowPrice)} color={COLOR_DOWN} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="成交量" value={formatVolume(latestQuote.volume)} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="成交额" value={formatTurnover(latestQuote.turnover)} /></Col>
             </Row>
             <Divider style={{ margin: '8px 0', borderColor: BORDER }} />
             <Row gutter={[0, 8]}>
-              <Col xs={12} sm={8} md={4}><StatItem label="涨跌幅" value={`${Number(latestQuote.changePercent) >= 0 ? '+' : ''}${Number(latestQuote.changePercent).toFixed(2)}%`} color={changeColor} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="振幅" value={`${Number(latestQuote.amplitude || 0).toFixed(2)}%`} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="涨跌幅" value={fmtNum(latestQuote.changePercent) === '—' ? '—' : `${Number(latestQuote.changePercent) >= 0 ? '+' : ''}${fmtNum(latestQuote.changePercent)}%`} color={changeColor} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="振幅" value={fmtNum(latestQuote.amplitude) === '—' ? '—' : `${fmtNum(latestQuote.amplitude)}%`} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PE(动)" value={latestQuote.peRatio?.toFixed(2) || '-'} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="PB" value={latestQuote.pbRatio?.toFixed(2) || '-'} /></Col>
-              <Col xs={12} sm={8} md={4}><StatItem label="换手率" value={`${Number(latestQuote.turnoverRate || 0).toFixed(2)}%`} /></Col>
+              <Col xs={12} sm={8} md={4}><StatItem label="换手率" value={fmtNum(latestQuote.turnoverRate) === '—' ? '—' : `${fmtNum(latestQuote.turnoverRate)}%`} /></Col>
               <Col xs={12} sm={8} md={4}><StatItem label="总市值" value={formatLargeNumber(latestQuote.marketCap)} /></Col>
             </Row>
           </Card>

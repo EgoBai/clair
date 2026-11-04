@@ -141,6 +141,51 @@ await test('搜索真源是内置真实清单：命中结果不含任何 Math.ra
 });
 
 // ============================================================
+// 一之三、/api/stocks/:symbol —— 北交所旧代码不得把停用快照当今日行情
+// ============================================================
+// 背景：北交所在 2025 年把 43x/83x/87x 段整体迁移到 920 段。旧代码在腾讯只剩一条
+// 「停用快照」：open/high/low/volume 全 0、close 与 prevClose 相等、时间戳停在当日 09:00。
+// 直接透出会让页面把「0.00 涨跌 / 0 手」当成今日行情（零值顶替空态）。
+// 正确做法：下钻日线还原最后成交日（实测 430047 → 2025-09-30），当日字段置 null，
+// dataSource 标 partial 并给出中文说明；正常标的（600519 / 920047）必须保持 real。
+
+console.log('\n/api/stocks/:symbol（北交所旧代码时效）');
+
+await test('旧代码 430047：dataSource=partial、交易日回退到最后成交日、当日字段为 null 而不是 0', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/430047');
+  assert.equal(status, 200);
+  assert.equal(body.success, true);
+  const d = body.data || {};
+  assert.equal(d.dataSource, 'partial', '停用代码必须标 partial，不能标 real');
+  assert.ok(typeof d.note === 'string' && d.note.includes('北交所旧代码'), 'note 应说明是北交所旧代码');
+  const q = d.quote || {};
+  assert.ok(typeof q.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(q.tradeDate), 'tradeDate 必须是具体交易日');
+  assert.ok(q.tradeDate < '2026-01-01', `旧代码的交易日不应是今天，实际 ${q.tradeDate}`);
+  assert.ok(Number.isFinite(q.closePrice) && q.closePrice > 0, '最后成交价必须是真实数字');
+  for (const k of ['openPrice', 'highPrice', 'lowPrice', 'volume', 'turnover', 'turnoverRate']) {
+    assert.equal(q[k], null, `${k} 必须是 null（不是 0，也不该沿用停用快照）`);
+  }
+});
+
+await test('同公司新代码 920047：dataSource=real、成交量>0、当日字段是数字', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/stocks/920047');
+  const d = body.data || {};
+  assert.equal(d.dataSource, 'real', '迁移后的 920 段代码应走真实行情');
+  assert.ok(d.quote.volume > 0, `920047 成交量应>0，实际 ${d.quote.volume}`);
+  assert.ok(Number.isFinite(d.quote.openPrice) && d.quote.openPrice > 0);
+});
+
+await test('正常标的 600519 不受影响：dataSource=real、六档行情齐全', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/stocks/600519');
+  const d = body.data || {};
+  assert.equal(d.dataSource, 'real');
+  assert.equal(d.note, null);
+  for (const k of ['openPrice', 'highPrice', 'lowPrice', 'volume', 'turnover']) {
+    assert.ok(Number.isFinite(d.quote[k]) && d.quote[k] > 0, `600519 的 ${k} 应为正数`);
+  }
+});
+
+// ============================================================
 // 二、POST /api/backtest/run 的区间披露
 // ============================================================
 

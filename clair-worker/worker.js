@@ -1507,6 +1507,56 @@ async function handleStockDetail(symbol) {
       amplitude: q.high > 0 && q.low > 0 && q.prevClose > 0 ? ((q.high - q.low) / q.prevClose * 100) : null,
     };
 
+    // 北交所旧代码（43x/83x/87x）在 2025 年迁移到 920 段后，腾讯只回一条「停用快照」：
+    // open/high/low/volume 全 0、close 与 prevClose 相等、快照时间为当日 09:00。
+    // 直接透出等于把「0 涨跌 / 0 手」当成今日行情（零值顶替空态）。这里下钻一次日线，
+    // 还原最后成交日，把当日字段置 null，并标 dataSource='partial' 说明非实时。
+    const looksLikeRetiredQuote =
+      Number.isFinite(q.price) && q.price > 0 &&
+      q.open === 0 && q.high === 0 && q.low === 0 && q.volume === 0 &&
+      Math.abs(q.price - q.prevClose) < 1e-9;
+    let quoteSource = 'real';
+    let quoteNote = null;
+    if (looksLikeRetiredQuote) {
+      const pre = stock.market === 'SH' ? 'sh' : stock.market === 'BJ' ? 'bj' : 'sz';
+      try {
+        const kl = await fetchDailyKLine(pre + stock.symbol, stock.symbol, stock.market, 3);
+        const bars = kl && Array.isArray(kl.quotes) ? kl.quotes.slice(-2) : [];
+        if (bars.length > 0) {
+          const last = bars[bars.length - 1];
+          const prev = bars.length > 1 ? bars[bars.length - 2] : null;
+          const prevClose = prev && prev.closePrice > 0 ? prev.closePrice : (last.openPrice > 0 ? last.openPrice : null);
+          quote.tradeDate = last.tradeDate;
+          quote.closePrice = last.closePrice;
+          quote.openPrice = null;
+          quote.highPrice = null;
+          quote.lowPrice = null;
+          quote.volume = null;
+          quote.turnover = null;
+          quote.turnoverRate = null;
+          quote.prevClose = prevClose;
+          quote.change = prevClose ? Number((last.closePrice - prevClose).toFixed(4)) : null;
+          quote.changePercent = prevClose ? Number(((last.closePrice - prevClose) / prevClose * 100).toFixed(2)) : null;
+          quote.amplitude = null;
+          quoteSource = 'partial';
+          quoteNote = `该代码为北交所旧代码，2025 年迁移至 920 段后已停止更新；行情为最后成交日 ${last.tradeDate} 的日线收盘，非今日实时。`;
+        }
+      } catch (e) {
+        // 日线也取不到：宁可标不可用，也不把停用快照当今日行情
+        quoteSource = 'unavailable';
+        quoteNote = '北交所旧代码，已停止更新，且未能取到最后成交日行情。';
+        quote.openPrice = null;
+        quote.highPrice = null;
+        quote.lowPrice = null;
+        quote.volume = null;
+        quote.turnover = null;
+        quote.turnoverRate = null;
+        quote.change = null;
+        quote.changePercent = null;
+        quote.amplitude = null;
+      }
+    }
+
     return json({
       data: {
         symbol: stock.symbol,
@@ -1516,6 +1566,8 @@ async function handleStockDetail(symbol) {
         quote,
         latestQuote: quote,
         marketCapUnit: 'yuan',
+        dataSource: quoteSource,
+        note: quoteNote,
       },
       success: true,
     });
