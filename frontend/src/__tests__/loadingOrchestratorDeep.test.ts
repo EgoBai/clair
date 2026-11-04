@@ -29,6 +29,9 @@
  *     :50      attempt >= maxRetries 时 break
  *     :53-55   calculateDelay + onRetry(attempt+1, error, delay) + sleep
  *     :59      最终 throw lastError
+ * - frontend/src/utils/loadingOrchestrator.ts:233-304  FeedbackManager / :308-309 默认单例
+ *     FeedbackManager 的行为已在 loadingOrchestrator.test.ts:102、errorRecovery.test.ts:409、
+ *     loadingAndErrorProper.test.ts:270 三处覆盖，本文件不重复造第四份；只做导出单例的绑定断言。
  *
  * 口径订正（旧内联 → 生产真源）：
  * | 旧内联 | 生产 |
@@ -53,6 +56,18 @@
  *    用例改为断言 reset() 后该 key 归 idle（对象仍在）。
  * 3) timeoutHandler 手动触发：生产是内部 1s 轮询，改用假定时器驱动，不再手调。
  *
+ * 第二轮补测（batch43 迁移后追加；全部对应生产真实可观测行为，未新增任何本地 mock）：
+ * 1) 空态初始化：tasks=[], phase='idle', progress=100, elapsed=0, isStale=false（:100-118）。
+ * 2) elapsed 从首个 start 的 startTime 起算；第二个任务 start 不重置起点（:64-67, :105）。
+ * 3) isStale 负例：仅 priority='critical' 且 status='loading' 才可能为 true（:108-109）；
+ *    普通任务超时、critical 已置 timeout 后均为 false。
+ * 4) 全部任务完成 => checkAllDone 停轮询（:155-161）；此后 start 的新任务不会重启轮询
+ *    （:64-67 仅在 startTime===0 时启动），新任务在 reset() 前永不超时。
+ * 5) phase 优先级 loading > error > timeout > success > idle（:111-115）；
+ *    error 与 timeout 并存取 error；timeout 不计入 progress（:102）。
+ * 6) 同 id 重复 register 覆盖为全新 idle 任务且不 notify（:45-53）。
+ * 7) FirstPaintTimer.getReport()/reset()（:210-216, :225-228）。
+ *
  * 本地保留业务规则：无。
  *
  * 发现的生产缺陷（只记录不修）：
@@ -67,10 +82,18 @@
  * 5) reset() 不删除任务（:131-141），reset 后 tasks.length 不变，与「clear」语义不符；
  *    register 对同一 id 重复注册会直接覆盖，旧状态丢失且不通知。
  * 6) notify() 每次状态变更都全量 getState()（:150-153），内部多次遍历 tasks 并各取一次当前时间戳，O(n) 重复计算。
+ * 7) checkAllDone 停轮询后，start 新任务不会重启轮询（:64-67 仅 startTime===0 才启动）：
+ *    长生命周期单例 defaultOrchestrator 一旦全量完成，后续新任务永不超时，必须手动 reset()。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { LoadingOrchestrator, FirstPaintTimer } from '../utils/loadingOrchestrator';
+import {
+  LoadingOrchestrator,
+  FirstPaintTimer,
+  FeedbackManager,
+  defaultOrchestrator,
+  defaultFeedback,
+} from '../utils/loadingOrchestrator';
 import { withRetry } from '../services/retryUtility';
 
 const T0 = 1_700_000_000_000;
@@ -81,7 +104,7 @@ describe('LoadingOrchestrator 基础状态管理', () => {
   let orchestrator: LoadingOrchestrator;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     vi.setSystemTime(T0);
     orchestrator = new LoadingOrchestrator();
   });
@@ -299,7 +322,7 @@ describe('LoadingOrchestrator 超时控制', () => {
   let orchestrator: LoadingOrchestrator;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     vi.setSystemTime(T0);
     orchestrator = new LoadingOrchestrator();
   });
@@ -372,7 +395,7 @@ describe('LoadingOrchestrator 批量操作', () => {
   let orchestrator: LoadingOrchestrator;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     vi.setSystemTime(T0);
     orchestrator = new LoadingOrchestrator();
   });
@@ -477,7 +500,7 @@ describe('LoadingOrchestrator 回调通知', () => {
   let orchestrator: LoadingOrchestrator;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     vi.setSystemTime(T0);
     orchestrator = new LoadingOrchestrator();
   });
@@ -592,7 +615,7 @@ describe('级联加载策略', () => {
   let orchestrator: LoadingOrchestrator;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     vi.setSystemTime(T0);
     orchestrator = new LoadingOrchestrator();
   });
@@ -679,5 +702,270 @@ describe('级联加载策略', () => {
     const critical = orchestrator.getCriticalTasks();
     expect(critical).toHaveLength(1);
     expect(critical[0].id).toBe('c1');
+  });
+});
+
+// ==================== 初始化与 elapsed（补测） ====================
+
+describe('LoadingOrchestrator 初始化与 elapsed', () => {
+  let orchestrator: LoadingOrchestrator;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(T0);
+    orchestrator = new LoadingOrchestrator();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('新建实例应为空态idle且progress为100', () => {
+    const state = orchestrator.getState();
+    expect(state.phase).toBe('idle');
+    expect(state.tasks).toEqual([]);
+    expect(state.progress).toBe(100);
+    expect(state.elapsed).toBe(0);
+    expect(state.isStale).toBe(false);
+  });
+
+  it('elapsed应从首个start起算且不被后续start重置', () => {
+    orchestrator.register('a', 'A');
+    orchestrator.register('b', 'B');
+
+    orchestrator.start('a');
+    vi.advanceTimersByTime(250);
+    expect(orchestrator.getState().elapsed).toBe(250);
+
+    orchestrator.start('b');
+    vi.advanceTimersByTime(750);
+    expect(orchestrator.getState().elapsed).toBe(1000);
+
+    orchestrator.complete('a');
+    orchestrator.complete('b');
+    vi.advanceTimersByTime(500);
+    expect(orchestrator.getState().elapsed).toBe(1500);
+  });
+
+  it('reset后elapsed归零且再次start重新计时', () => {
+    orchestrator.register('a', 'A', 'normal', 10000);
+    orchestrator.start('a');
+    vi.advanceTimersByTime(800);
+    expect(orchestrator.getState().elapsed).toBe(800);
+
+    orchestrator.reset();
+    expect(orchestrator.getState().elapsed).toBe(0);
+
+    orchestrator.start('a');
+    vi.advanceTimersByTime(300);
+    expect(orchestrator.getState().elapsed).toBe(300);
+  });
+});
+
+// ==================== isStale 负例与轮询边界（补测） ====================
+
+describe('LoadingOrchestrator isStale 与轮询边界', () => {
+  let orchestrator: LoadingOrchestrator;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(T0);
+    orchestrator = new LoadingOrchestrator();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('isStale仅对critical且loading的任务成立', () => {
+    orchestrator.register('normal', '普通', 'normal', 500);
+    orchestrator.register('critical', '关键', 'critical', 1500);
+    orchestrator.start('normal');
+    orchestrator.start('critical');
+
+    vi.advanceTimersByTime(1000);
+    let state = orchestrator.getState();
+    expect(state.tasks.find((t) => t.id === 'normal')?.status).toBe('timeout');
+    expect(state.tasks.find((t) => t.id === 'critical')?.status).toBe('loading');
+    expect(state.isStale).toBe(false);
+
+    vi.advanceTimersByTime(600);
+    state = orchestrator.getState();
+    expect(state.tasks.find((t) => t.id === 'critical')?.status).toBe('loading');
+    expect(state.isStale).toBe(true);
+
+    vi.advanceTimersByTime(400);
+    state = orchestrator.getState();
+    expect(state.tasks.find((t) => t.id === 'critical')?.status).toBe('timeout');
+    expect(state.isStale).toBe(false);
+  });
+
+  it('全部完成后轮询停止，新start的任务在reset前不会超时', () => {
+    orchestrator.register('done', '已完成', 'normal', 10000);
+    orchestrator.start('done');
+    orchestrator.complete('done');
+
+    orchestrator.register('late', '迟到任务', 'normal', 100);
+    orchestrator.start('late');
+    vi.advanceTimersByTime(5000);
+
+    let state = orchestrator.getState();
+    expect(state.tasks.find((t) => t.id === 'late')?.status).toBe('loading');
+    expect(state.phase).toBe('loading');
+    expect(state.isStale).toBe(false);
+
+    orchestrator.reset();
+    orchestrator.start('late');
+    vi.advanceTimersByTime(1000);
+
+    state = orchestrator.getState();
+    expect(state.tasks.find((t) => t.id === 'late')?.status).toBe('timeout');
+    expect(state.phase).toBe('timeout');
+  });
+});
+
+// ==================== phase 优先级与进度口径（补测） ====================
+
+describe('LoadingOrchestrator phase 优先级', () => {
+  let orchestrator: LoadingOrchestrator;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(T0);
+    orchestrator = new LoadingOrchestrator();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('error与timeout并存时phase取error且timeout不计入progress', () => {
+    orchestrator.register('t', '超时任务', 'normal', 100);
+    orchestrator.register('e', '失败任务', 'normal', 10000);
+    orchestrator.start('t');
+    orchestrator.start('e');
+    vi.advanceTimersByTime(1000);
+    orchestrator.fail('e', 'boom');
+
+    const state = orchestrator.getState();
+    expect(state.tasks.find((x) => x.id === 't')?.status).toBe('timeout');
+    expect(state.tasks.find((x) => x.id === 'e')?.status).toBe('error');
+    expect(state.phase).toBe('error');
+    expect(state.progress).toBe(50);
+  });
+
+  it('success与idle并存时phase仍为idle', () => {
+    orchestrator.register('a', 'A');
+    orchestrator.register('b', 'B');
+    orchestrator.start('a');
+    orchestrator.complete('a');
+
+    const state = orchestrator.getState();
+    expect(state.phase).toBe('idle');
+    expect(state.progress).toBe(50);
+  });
+});
+
+// ==================== 注册与订阅边界（补测） ====================
+
+describe('LoadingOrchestrator 注册与订阅边界', () => {
+  let orchestrator: LoadingOrchestrator;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['performance', 'Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(T0);
+    orchestrator = new LoadingOrchestrator();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('同id重复register覆盖为全新idle任务且不通知', () => {
+    const listener = vi.fn();
+    orchestrator.subscribe(listener);
+    orchestrator.register('k', '旧标签', 'low', 1000);
+    orchestrator.start('k');
+    listener.mockClear();
+
+    orchestrator.register('k', '新标签', 'critical', 200);
+
+    const state = orchestrator.getState();
+    expect(state.tasks).toHaveLength(1);
+    expect(state.tasks[0].label).toBe('新标签');
+    expect(state.tasks[0].priority).toBe('critical');
+    expect(state.tasks[0].timeout).toBe(200);
+    expect(state.tasks[0].status).toBe('idle');
+    expect(state.tasks[0].startTime).toBeUndefined();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('多订阅者互不影响且重复退订安全', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const unsubscribeFirst = orchestrator.subscribe(first);
+    orchestrator.subscribe(second);
+
+    orchestrator.register('k', 'K');
+    orchestrator.start('k');
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+
+    unsubscribeFirst();
+    expect(() => unsubscribeFirst()).not.toThrow();
+
+    orchestrator.complete('k');
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ==================== FirstPaintTimer 报告与重置（补测） ====================
+
+describe('FirstPaintTimer 报告与重置', () => {
+  let now = 0;
+
+  beforeEach(() => {
+    now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('getReport应返回各mark相对startMark的取整毫秒', () => {
+    now = 1000;
+    const timer = new FirstPaintTimer();
+    timer.start();
+    now = 1250.6;
+    timer.mark('api');
+    now = 1800.2;
+    timer.mark('render');
+
+    expect(timer.getReport()).toEqual({ start: 0, api: 251, render: 800 });
+  });
+
+  it('reset应清空marks且未start时getDuration退化为绝对时间', () => {
+    now = 1000;
+    const timer = new FirstPaintTimer();
+    timer.start();
+    now = 3000;
+    timer.reset();
+
+    expect(timer.getReport()).toEqual({});
+    expect(timer.getDuration('start', 'start')).toBe(0);
+    expect(timer.getDuration()).toBe(3000);
+  });
+});
+
+// ==================== 模块默认导出（补测） ====================
+
+describe('模块默认导出绑定', () => {
+  it('默认单例应为生产类实例且与新建实例独立', () => {
+    expect(defaultOrchestrator).toBeInstanceOf(LoadingOrchestrator);
+    expect(defaultFeedback).toBeInstanceOf(FeedbackManager);
+    expect(defaultOrchestrator).not.toBe(new LoadingOrchestrator());
+    expect(defaultFeedback).not.toBe(new FeedbackManager());
   });
 });
