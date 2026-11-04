@@ -1,8 +1,8 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 31 迁移后更新 07:48（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 32 迁移后更新 10:02（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
-> 基线：批次 31 后重扫（2026-11-04）
+> 基线：批次 32 后重扫（2026-11-04）
 
 ## 一、判定口径
 
@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **746（48.7%）** |
-| 真实导入 | 787 |
-| 影子测试代码行 | **198,516 行** |
-| 真实测试代码行 | 164,314 行 |
+| 影子测试 | **742（48.4%）** |
+| 真实导入 | 791 |
+| 影子测试代码行 | **197,140 行** |
+| 真实测试代码行 | 165,757 行 |
 
-按行数算，54.7% 的测试代码在断言副本而不是产品代码。
+按行数算，54.3% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 384/640 | 60.0% |
-| frontend/src/__tests__（扁平） | 362/868 | 41.7% |
+| backend/src/__tests__（扁平） | 382/640 | 59.7% |
+| frontend/src/__tests__（扁平） | 360/868 | 41.5% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -272,11 +272,19 @@
 - **同轮修 CI 红**：`frontend/src/__tests__/nullAdapt.test.tsx`「用后端真实 price 展示现价」在慢机把表头与数据行拆成两帧（run 41739285077 重试 x2 均失败），改为同一 `waitFor` 同时等「现价」与「1.234」，commit `873772d1b`；本地连跑 3 次 25/25。
 - **效果**：影子 750→746（48.7%），shadowLoc 199,684→198,516，realLoc 162,932→164,314；backend 384/640、frontend 362/868；候选分布 2 个 23、1 个 248、零重叠 475。
 
+## 六（续）、批次 32（2026-11-04 10:02）
+
+- **批次 32a**（2 文件，backend）：`dataWarehouse.test.ts`（345→303，32→33 例）绑 frontend/src/utils/bloombergExportEngine.ts:628 groupData、:645 aggregateData、dataFlowEngine.ts:137 slidingWindowAggregate、:209 zScoreNormalize、:220 minMaxNormalize、meanReversionEngine.ts:51 rollingStats、correlationMatrix.ts:78 calculateCorrelation、backend/src/utils/futureValueUtils.ts:27 percentileRank；`backtestEngineLogic.test.ts`（354→320，20→23）绑 backend/src/utils/backtestEngine.ts:308 runBacktest、frontend/src/utils/chartDataProcessing.ts:73/89 calculateSMA/calculateEMA、backend/src/models/Backtest.ts:164 calculateMaxDrawdown、shared/types.ts:136 KLineData。旧断言订正：Min-Max 常数数组 [0.5…]→生产 [0,0,0]、百分位 0–100→0..1、rollingStats 与输入等长且不足窗口为 NaN、相关用样本 n−1 并 clamp、聚合 count 只统计非 0 值且数值四舍五入 2 位；回测 <10 条直接 throw、initialCapital 0→1,000,000、commission/slippage 0→默认 0.0003/0.001、Trade 字段改 amount/commission/reason/signal、A 股 100 股整手与 T+1。
+- **批次 32b**（2 文件，frontend）：`focusRingLogic.test.ts`（330→418，27→28）绑 frontend/src/utils/a11yEngine.ts:386 getFocusableElements、:399 createFocusTrap；`componentStateMgmt.test.ts`（343→398，35→36）绑 bloombergExportEngine.ts:584 filterData、:607 sortData、components/Common/SearchHighlight.tsx:20、i18n/i18nManager.ts:176 formatRelativeTime。旧断言订正：焦点集合按 tabIndex 排序→DOM 文档序且 button tabindex=-1 仍返回、focus trap 返回 activate/deactivate/isActive（不再是 first/last/canTrap）、filterData 谓词表→FilterConfig[]、高亮返回字符串→React 组件（mark 数量断言）、30 秒「刚刚」→「30秒钟前」、2 天→「前天」、固定 fake timers。
+- **验证**：backend 56 passed（33+23）、frontend 64 passed（28+36）；无 Math.random / Date.now / 无参 new Date / .skip/.only；无探针残留。
+- **事故记录**：32a 子代理在写完两文件后进程异常失败、未回报结果（32b 正常回报并提示其探针文件）；我独立复验：文件头三节齐全、import 均真实、探针 `__probe_32a.test.ts` 已由该子代理删除、56 passed。教训：子代理失败不等于工作未完成，需以文件+测试复核为准；下次要求子代理先写文件再报告，报告中断时按半成品复核。
+- **效果**：影子 746→742（48.4%），shadowLoc 198,516→197,140，realLoc 164,314→165,757，真实 787→791；backend 382/640、frontend 360/868；候选分布 2 符号 23→19、单符号 248、零重叠 475。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 746 / total 1533 / shadowLoc 198,516（批次 31 后）。历史基线：批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 742 / total 1533 / shadowLoc 197,140（批次 32 后）。历史基线：批次 31 后 746/198,516、批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -285,12 +293,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：746 个影子测试中 23 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 31 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：742 个影子测试中 19 个检测到 2 个生产 export 符号重叠（≥3 已清零）；另有 1 个符号重叠 248 个、零重叠 475 个（批次 32 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 31 已消化 factorModels/quantitativeFactors/dataExportEngine/domInteractions；批次 30 已消化 chartDataProcessingDeep/themeStyleSystem/alertEngineV2/dataPipelineEngine；批次 28–29 已消化 optionsPricing/dataVizLogic/formInputValidationDeep/microstructure/backtestCombinations/technicalPatterns；批次 27 消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep。
-- 下一批候选（2 符号重叠 23 个里价值较高的）：`frontend/src/__tests__/focusRingLogic.test.ts`（331，a11yEngine 的 createFocusTrap/getFocusableElements）、`frontend/src/__tests__/componentStateMgmt.test.ts`（344，bloombergExportEngine/exportEngine 的 filterData/sortData）、`backend/src/__tests__/dataWarehouse.test.ts`（346，dataFlowEngine/meanReversionEngine/factorEngine）、`backend/src/__tests__/backtestEngineLogic.test.ts`（355，chartDataProcessing/featureEngineeringEngine 的 calculateEMA/calculateSMA）、`frontend/src/__tests__/chartDataAndLayout.test.ts`（355，highFrequencyEngine/executionAnalyticsEngine 的 calculateVWAP）、`frontend/src/__tests__/formValidationEnhanced.test.ts`（357）、`backend/src/__tests__/quantitativeStrategies.test.ts`（365）、`frontend/src/__tests__/renderOptimization.test.ts`（373，i18nManager/exportEngine 的 formatDate/formatNumber）。
+- 批次 32 已消化 dataWarehouse/backtestEngineLogic/focusRingLogic/componentStateMgmt；批次 31 已消化 factorModels/quantitativeFactors/dataExportEngine/domInteractions；批次 30 已消化 chartDataProcessingDeep/themeStyleSystem/alertEngineV2/dataPipelineEngine；批次 28–29 已消化 optionsPricing/dataVizLogic/formInputValidationDeep/microstructure/backtestCombinations/technicalPatterns；批次 27 消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep。
+- 下一批候选（2 符号重叠 19 个里价值较高的）：`frontend/src/__tests__/chartDataAndLayout.test.ts`（355，highFrequencyEngine/executionAnalyticsEngine/featureEngineeringEngine 的 calculateVWAP）、`frontend/src/__tests__/formValidationEnhanced.test.ts`（357，bloombergExportEngine/exportEngine/formatters 的 formatCurrency/formatPercent）、`backend/src/__tests__/quantitativeStrategies.test.ts`（365，futureValueUtils/zScoreEngine 的 calcMA/zScore）、`frontend/src/__tests__/renderOptimization.test.ts`（373，i18nManager/exportEngine 的 formatDate/formatNumber）、`backend/src/__tests__/financialMathEngine.test.ts`（379，portfolioRiskBudgetEngine 的 calculateVaR/calculateCVaR、technical 的 ATR/RSI）、`backend/src/__tests__/signalsAndRisk.test.ts`（405，chartDataProcessing 的 RSI/SMA、Backtest 的 maxDrawdown/Sharpe）、`backend/src/__tests__/financialDataEngine.test.ts`（408，dataTransformUtils/dataFormatEngine 的 formatAmount/formatVolume）、`frontend/src/__tests__/technicalIndicatorsLib.test.ts`（416，zScoreEngine/regimeDetectionEngine）。
 - 体量大需逐段确认：`frontend/src/__tests__/userDeepDive.test.ts`（869 行）、`advancedCandlestickPatterns.test.ts`（682）、`advancedPageLogic.test.ts`（658）。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
 - 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR、formatters formatVolume/formatTurnover 无 null 守卫、`StockDetailPage.tsx:141-153` 自带格式化副本、validateStockCode 只校验 6 位数字。
