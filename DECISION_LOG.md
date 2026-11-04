@@ -369,3 +369,13 @@
 - **证据**：契约新增 1 例（833171 → items 长度 1、market=BJ、industry=null、note 命中）；线上 `/api/stocks/search?q=833171` → 命中；`node --test` 93 通过 2 失败（仍是既有北向网络口径）。commit `3b88133c3`，推送远端 `915943634a44`。
 - **代价**：两条搜索路径现在都依赖腾讯行情可用性；腾讯不可达时静态清单仍可搜（降级为原行为），不会 500。
 
+## D56 发掘页整页崩溃：数据源角标的未知 kind 直接把页面炸掉（2026-11-04 16:40）
+
+- **背景**：线上 https://egobai.github.io/clair/ 的「发掘」页稳定显示「渲染出错」（4 次复现，body 仅 379 字符），不是偶发。本地以 `VITE_API_BASE=https://clair-api.pages.dev` 重建并静态托管后，Playwright 拿到真实异常：`TypeError: Cannot read properties of undefined (reading 'color') at DataSourceBadge`，随后 `[ErrorBoundary] 发掘 渲染出错`。
+- **根因**：`frontend/src/pages/DiscoverPage.tsx:415-418` 把后端 `meta.source` 原样塞进 `setMultidimSource({kind: res.meta.source})`，而 `frontend/src/components/discover/DataSourceIndicator.tsx` 的 `KIND_STYLE` 只有 stale/demo/unavailable/loading 四键。后端实际会给出三种键外值：`real`（/api/industries、/api/sectors/:sector/multidim）、`partial`、`v3-lite`（POST /api/sectors/multidim-v3/batch 的 meta.source）。`KIND_STYLE['real']` 为 undefined → 读 `cfg.color` 抛错 → ErrorBoundary 把整页换成错误页。
+- **判定**：这是**一个非空字段的未知取值把整页炸掉**，比「显示不准」严重一个量级；且触发条件是后端数据的正常取值，不是异常输入。任何后续新增 dataSource 枚举都会重演。
+- **做法**：一是 `SourceKind` 增 `'partial'`（琥珀 #f59e0b「部分数据」），与 Worker 的 partial 三态对齐；二是新增 `FALLBACK_STYLE`（红 #ef4444「数据不可用」），角标取 `KIND_STYLE[kind] ?? FALLBACK_STYLE`，未知值最差降级显示、绝不抛错；三是新增 `normalizeSourceKind()`：`'live'|'real'→'live'`，stale/unavailable/demo/loading/partial 透传，其余（如实现名 `v3-lite`）→ `null` 表示「无信任级别信号」；DiscoverPage 仅在归一结果非空且非 live 时才挂告警。
+- **为什么不把未知值标成「数据不可用」**：第一版曾 `unknown→'unavailable'`，结果横幅出现「多因子数据：数据不可用」——明明有数据却报不可用，是另一种撒谎。故改为 `null` 不显示。
+- **证据**：新增 `frontend/src/__tests__/dataSourceIndicator.test.tsx`（8 例：real→live、partial 透传、四态透传、v3-lite/未知/undefined/null/空串→null、live 不渲染、partial 显示「部分数据」、未归一的 real 与任意未知串只降级为「数据不可用」且不抛错）实测 8 passed；`npx tsc --noEmit` exit 0；本地静态托管复验 `CRASH=false / BODYLEN 2950 / 无告警横幅 / ERRS=[] / 无 NaN`；线上 Playwright 复验 `hasCrash=false`、`hasNaN=false`、横幅「数据源 tencent」+「未提供字段：newHighs、newLows」，截图 `handover/evidence-discover-live-2026-11-04.png`。commit `24f8f81e4`，推送远端 `bac7b23dd8f2`。
+- **代价**：`partial` 现在会被前端显式标注（此前静默）；未知来源不再报错而是不显示来源角标——如果将来真有新枚举，需要在 `KIND_STYLE` 里显式登记，而不是靠默认值蒙混。
+
