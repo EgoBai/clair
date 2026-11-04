@@ -3449,9 +3449,11 @@ async function handleStockStrategy(symbol) {
     if (!prices || prices.length < 30) {
       // Fallback: use available data with simulated K-line
       return json({
+        dataSource: 'unavailable',
         data: {
           symbol,
           currentPrice: q.price,
+          dataSource: 'unavailable',
           note: 'K线数据不足(需≥30日)，展示基础指标',
           basic: {
             changePercent: q.changePercent,
@@ -3465,7 +3467,8 @@ async function handleStockStrategy(symbol) {
     }
 
     const strategy = generateStrategy(q, prices);
-    return json({ data: strategy, success: true });
+    // 顶层与 data 内双写 dataSource（项目诚实契约）：前端据此区分「真实策略」与「取不到」
+    return json({ data: { ...strategy, dataSource: 'real' }, dataSource: 'real', success: true });
   } catch (e) {
     return error(e.message);
   }

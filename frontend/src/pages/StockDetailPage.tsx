@@ -9,6 +9,8 @@ import {
   Typography, Breadcrumb, Card, Row, Col, Space, Tag, Alert,
   Spin, Button, Segmented, Divider, Tooltip, Skeleton,
 } from 'antd';
+
+const { Paragraph } = Typography;
 import { LoadingState, EmptyKLine, EmptyState } from '../components/Common/StateComponents';
 import { StockOutlined, CompassOutlined,
   ReloadOutlined, StarOutlined, StarFilled, LineChartOutlined,
@@ -102,8 +104,12 @@ const StockDetailPage: React.FC = () => {
   });
   const [klineFullscreen, setKlineFullscreen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  // P0-DEADLINK：原 aiStrategy（来自未注册的 /api/stocks/:symbol/strategy）已删除，
-  // 该区块改为常驻「未接入」说明卡片，见页面下方 AI策略建议 卡片。
+  // 个股策略（/api/stocks/:symbol/strategy）：Worker 已注册并返回真实计算值
+  // （2026-11-04 实测 200：score/rating/position/stopLoss/takeProfit/indicators/summary）。
+  // 此前该端点在 Worker 未注册、页面只能常驻「未接入」；现在取到就展示，取不到如实说明。
+  const [aiStrategy, setAiStrategy] = useState<any>(null);
+  const [strategyLoading, setStrategyLoading] = useState(false);
+  const [strategyError, setStrategyError] = useState<string | null>(null);
   const [aiDiagnosis, setAiDiagnosis] = useState<any>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
@@ -229,6 +235,41 @@ const StockDetailPage: React.FC = () => {
 
   useEffect(() => { fetchStockData(); }, [fetchStockData]);
   useEffect(() => { fetchKlineData(); }, [fetchKlineData]);
+
+  // 个股策略信号（综合评分/仓位/止损止盈/技术指标）：真实接口，取不到如实降级
+  useEffect(() => {
+    let cancelled = false;
+    if (!symbol) return;
+    const run = async () => {
+      setStrategyLoading(true);
+      setStrategyError(null);
+      try {
+        const pureSymbol = symbol.replace(/\.(SH|SZ)$/, '');
+        const resp = await fetch(`/api/stocks/${pureSymbol}/strategy`);
+        if (resp.status === 404) {
+          // 404 有两种可能：端点未注册，或该代码无行情 —— 不猜是哪一种，也不展示任何评分
+          if (!cancelled) setStrategyError('该部署未返回个股策略数据（HTTP 404）：可能端点未注册或该代码无行情；本页不展示评分或信号数值');
+          return;
+        }
+        if (!resp.ok) throw new Error(`策略接口返回 HTTP ${resp.status}`);
+        const body = await readJson<any>(resp);
+        const data = body?.data ?? body;
+        if (!data) throw new Error('策略接口未返回数据');
+        if (data.dataSource === 'unavailable') {
+          if (!cancelled) setStrategyError(data.note || '策略暂不可得：K线样本不足，本次不返回评分');
+          return;
+        }
+        if (!cancelled) setAiStrategy(data);
+      } catch (e) {
+        const message = (e as Error)?.message || String(e);
+        if (!cancelled) setStrategyError(`策略请求失败：${message}；取不到 ≠ 该股没有策略信号`);
+      } finally {
+        if (!cancelled) setStrategyLoading(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [symbol]);
 
   // 资金流向（CapitalFlowPanel）：上游不可用时 data 为 null，面板整体隐藏
   const [fundFlow, setFundFlow] = useState<any>(null);
@@ -642,22 +683,91 @@ const StockDetailPage: React.FC = () => {
         </Card>
 
         {/* ===== AI策略建议 =====
-            P0-DEADLINK：原卡片数据来自 `/api/stocks/:symbol/strategy`，该端点后端从未注册
-            （routeAutoRegistry 无此路径，实测恒404），请求被 .catch(() => null) 吞掉，
-            aiStrategy 恒为 null，卡片永不渲染——用户以为「该股无策略信号」，
-            实际是「压根没有数据源」。按诚实红线：不造端点、不mock 数据，
-            改为常驻说明「未接入」，明确区分「无能力」与「无信号」。 */}
+            数据来自 Worker `/api/stocks/:symbol/strategy`（真实计算：均线排列/金叉死叉/MACD/
+            RSI/支撑压力 → 综合评分与仓位建议）。取不到时按 dataSource 如实说明，
+            不展示任何评分数字，也不用 0 顶替。 */}
         <Card
           size="small"
           title={<span style={{ fontWeight: 700, color: TEXT_PRIMARY, fontSize: 14 }}>🤖 AI策略建议</span>}
+          extra={aiStrategy ? <Tag color="green">真实计算</Tag> : null}
           style={{ marginBottom: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
         >
-          <Alert
-            type="info"
-            showIcon
-            message="AI 策略建议（综合评分 / 仓位建议 / 止损止盈 / RSI）尚未接入"
-            description="后端未提供个股策略信号接口，本页不展示任何评分或信号数值，以免把「功能未接入」误读为「该股无信号」。下方「多信号融合」与「技术分析」卡片的数据来自其他真实接口，不受此影响。"
-          />
+          {strategyLoading ? (
+            <Skeleton active paragraph={{ rows: 3 }} />
+          ) : strategyError ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="个股策略信号取不到"
+              description={strategyError}
+            />
+          ) : aiStrategy ? (
+            <>
+              <Row gutter={[12, 12]}>
+                <Col xs={12} md={6}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>综合评分</Text>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: TEXT_PRIMARY }}>
+                    {fmtNum(aiStrategy.score, 0)}<span style={{ fontSize: 12, color: TEXT_SECONDARY }}> / 100</span>
+                  </div>
+                  {aiStrategy.rating ? <Tag color={aiStrategy.score >= 60 ? 'red' : aiStrategy.score >= 40 ? 'orange' : 'green'}>评级 {aiStrategy.rating}</Tag> : null}
+                </Col>
+                <Col xs={12} md={6}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>仓位建议</Text>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: TEXT_PRIMARY }}>
+                    {aiStrategy.position || '—'}
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    建议仓位 {fmtNum(aiStrategy.positionPct, 0)}%
+                  </Text>
+                </Col>
+                <Col xs={12} md={6}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>止损 / 止盈</Text>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: COLOR_DOWN }}>
+                    {fmtNum(aiStrategy.stopLoss)}（{fmtNum(aiStrategy.stopLossPct)}%）
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: COLOR_UP }}>
+                    {fmtNum(aiStrategy.takeProfit)}
+                  </div>
+                </Col>
+                <Col xs={12} md={6}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>RSI(14) / MACD</Text>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: TEXT_PRIMARY }}>
+                    {fmtNum(aiStrategy.indicators?.rsi14)}
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    MACD {aiStrategy.indicators?.macd?.signal || '—'}
+                  </Text>
+                </Col>
+              </Row>
+              <Divider style={{ margin: '12px 0' }} />
+              <Row gutter={[12, 8]}>
+                <Col xs={24} md={12}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>均线排列</Text>
+                  <div style={{ fontSize: 13, color: TEXT_PRIMARY }}>
+                    {aiStrategy.indicators?.maAlignment || '—'}
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    交叉 {aiStrategy.indicators?.crossover || '—'}
+                  </Text>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>MA5 / MA10 / MA20 / MA60</Text>
+                  <div style={{ fontSize: 13, color: TEXT_PRIMARY }}>
+                    {[aiStrategy.indicators?.ma5, aiStrategy.indicators?.ma10, aiStrategy.indicators?.ma20, aiStrategy.indicators?.ma60]
+                      .map((v) => fmtNum(v)).join(' / ')}
+                  </div>
+                </Col>
+              </Row>
+              {aiStrategy.summary ? (
+                <Paragraph style={{ margin: '10px 0 0', color: TEXT_PRIMARY }}>{aiStrategy.summary}</Paragraph>
+              ) : null}
+              {aiStrategy.aiNarrative ? (
+                <Paragraph style={{ margin: '6px 0 0', color: TEXT_SECONDARY, fontSize: 13 }}>{aiStrategy.aiNarrative}</Paragraph>
+              ) : null}
+            </>
+          ) : (
+            <Text type="secondary">暂无策略数据</Text>
+          )}
         </Card>
 
         {/* ===== 多信号融合面板 ===== */}

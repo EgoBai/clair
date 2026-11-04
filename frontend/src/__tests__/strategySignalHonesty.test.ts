@@ -30,6 +30,15 @@
  * 等于向用户隐瞒「前端已接、后端未部署」这一事实）。
  * 本文件据此放宽正则到「未接入 | 暂不可用」两种等价诚实表述，并**新增 DOM 级断言**：
  * 光靠源码正则只能证明代码里写了这句，必须证明用户真的在页面上看到，且看到时没有 0 值占位。
+ *
+ * ── 2026-11-04 契约更新（D70）────────────────────────────────
+ * `/api/stocks/:symbol/strategy` 已由 Cloudflare Worker 实现（clair-worker/worker.js
+ * handleStockStrategy，真实计算均线排列/金叉死叉/MACD/RSI/支撑压力 → 评分与仓位），
+ * 线上实测 200 且 dataSource:'real'。因此**前端必须调用**它，原先「不得调用」的断言
+ * 反而与事实相反：继续标注「未接入」才是对用户隐瞒。
+ * 诚实性要求平移为：取不到（404 / dataSource:'unavailable' / 请求失败）时不得展示
+ * 0 值或编造评分，也不得把「取不到」渲染成「该股无信号」。
+ * 指数详情页（index-tech）部分的历史断言保持不变。
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -54,9 +63,9 @@ function stripComments(src: string): string {
 
 describe('策略信号：无后端支撑时诚实标注，不留死链', () => {
   describe('死链断言', () => {
+    // StockDetailPage 已改调真实端点（见下方「个股策略端点」describe），不在禁调清单内
     const targets = [
       '../pages/IndexDetailPage.tsx',
-      '../pages/StockDetailPage.tsx',
       '../pages/WatchlistPage.tsx',
       '../hooks/useWatchlistData.ts',
       '../utils/backtestDemo.ts',
@@ -71,13 +80,42 @@ describe('策略信号：无后端支撑时诚实标注，不留死链', () => {
       );
     });
 
-    it('后端确实没有实现该端点（证明前端必须标注而非调用）', () => {
+    it('Express 后端仍未实现该端点（真源是 Worker，不是 backend/src）', () => {
       const beRoot = join(here, '../../../backend/src');
       const out = execSync(
         `rg -n "stocks/.*strategy|/:symbol/strategy" ${JSON.stringify(beRoot)} || true`,
         { encoding: 'utf-8' },
       );
-      expect(out.trim(), '后端竟出现了 strategy 死链路径的实现，前端应改指而非标注').toBe('');
+      expect(out.trim(), 'backend/src 出现了该端点实现，需同步核对 Express 与 Worker 两套契约').toBe('');
+    });
+  });
+
+  describe('个股策略端点已由 Worker 注册（2026-11-04）', () => {
+    const readRepo = (rel: string) => readFileSync(join(here, '../../..', rel), 'utf-8');
+
+    it('Worker 注册了 /api/stocks/:symbol/strategy 路由并回传 dataSource', () => {
+      const worker = readRepo('clair-worker/worker.js');
+      // 形如 const strategyMatch = path.match(/^\/api\/stocks\/(\d+)\/strategy$/);
+      expect(worker).toContain('handleStockStrategy(strategyMatch[1])');
+      expect(worker).toContain('/strategy$/');
+      expect(worker).toMatch(/function handleStockStrategy/);
+      expect(worker).toMatch(/dataSource: 'real'/);
+    });
+
+    it('股票详情页调用该端点，不再写死「尚未接入」', () => {
+      const code = stripComments(readSrc('../pages/StockDetailPage.tsx'));
+      expect(code).toContain('/strategy');
+      expect(code).not.toMatch(/AI 策略建议（综合评分[^」]*尚未接入/);
+    });
+
+    it('取不到时如实说明，不渲染 0 值或编造评分', () => {
+      const code = stripComments(readSrc('../pages/StockDetailPage.tsx'));
+      expect(code).toMatch(/HTTP 404/);
+      expect(code).toMatch(/dataSource === 'unavailable'/);
+      expect(code).toMatch(/策略请求失败/);
+      expect(code).toMatch(/fmtNum\(aiStrategy\.score/);
+      expect(code).not.toMatch(/score\s*\|\|\s*0/);
+      expect(code).not.toMatch(/stopLoss\s*\|\|\s*0/);
     });
   });
 

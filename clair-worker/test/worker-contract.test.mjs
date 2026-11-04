@@ -1922,6 +1922,47 @@ await test('成分股榜诚实不可用：200 + dataSource=unavailable + 说明�
   assert.ok(typeof body.message === 'string' && body.message.length > 10, '必须说明为什么没有数据');
 });
 
+// ============================================================
+// 三·八、个股策略 /api/stocks/:symbol/strategy（2026-11-04）
+//
+// 【为什么需要】前端 StockDetailPage 曾在 P0-DEADLINK 时把「AI策略建议」卡片
+// 改成常驻「尚未接入」——因为当时 Worker 没注册该端点。端点补齐后若前端仍写死
+// 「未接入」，等于向用户隐瞒已可用的真实计算。本组用例锁定：端点真实返回
+// 评分/仓位/止损止盈/技术指标，且双写 dataSource:'real'，前端据此区分真假。
+// 未知代码必须 404，不能拿默认值编一只股票的评分。
+// ============================================================
+
+console.log('\n/api/stocks/:symbol/strategy');
+
+await test('600519 策略：200 + real + 评分/仓位/止损止盈/指标齐全', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/600519/strategy');
+  assert.equal(status, 200, `期望 200，实际 ${status}`);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'real', '顶层必须标 real');
+  assert.equal(body.data.dataSource, 'real', 'data 内也要标 real（前端读内层）');
+  assert.equal(body.data.symbol, '600519');
+  assert.ok(typeof body.data.score === 'number' && body.data.score >= 0 && body.data.score <= 100, `评分应在 0-100，实际 ${body.data?.score}`);
+  assert.ok(typeof body.data.rating === 'string' && body.data.rating.length > 0, '评级应非空');
+  assert.ok(typeof body.data.position === 'string' && body.data.position.length > 0, '仓位建议应非空');
+  assert.ok(Number.isFinite(body.data.positionPct), '建议仓位百分比应是有限数');
+  assert.ok(body.data.stopLoss > 0 && body.data.stopLoss < body.data.currentPrice, '止损应低于现价且为正');
+  assert.ok(body.data.takeProfit > body.data.currentPrice, '止盈应高于现价');
+  assert.ok(Number.isFinite(body.data.stopLossPct), '止损幅度应是有限数');
+  const ind = body.data.indicators || {};
+  for (const k of ['ma5', 'ma10', 'ma20', 'ma60']) {
+    assert.ok(Number.isFinite(ind[k]), `indicators.${k} 应是真实均线值，实际 ${ind[k]}`);
+  }
+  assert.ok(Number.isFinite(ind.rsi14), 'indicators.rsi14 应是真实 RSI');
+  assert.ok(ind.macd && typeof ind.macd.signal === 'string', 'indicators.macd.signal 应存在');
+  assert.ok(typeof body.data.summary === 'string' && body.data.summary.length > 10, 'summary 应有实质内容');
+});
+
+await test('未知代码不伪造评分：999999 走 404，而不是返回一份默认策略', async () => {
+  const { status } = await callWorker('https://clair-api.pages.dev/api/stocks/999999/strategy');
+  assert.equal(status, 404, '没有行情就不能给评分，必须 404');
+});
+
+
 console.log('\n部署入口一致性');
 
 await test('_worker.js 与 worker.js 逐字节相同（否则线上跑的仍是旧代码）', async () => {
