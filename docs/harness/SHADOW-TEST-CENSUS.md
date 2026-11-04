@@ -1,8 +1,8 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 40 迁移后更新 11:30（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 41 迁移后更新 11:46（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
-> 基线：批次 40 后重扫（2026-11-04）
+> 基线：批次 41 后重扫（2026-11-04）
 
 ## 一、判定口径
 
@@ -18,19 +18,19 @@
 | 指标 | 数值 |
 |------|------|
 | 测试文件总数 | 1,533 |
-| 影子测试 | **713（46.5%）** |
-| 真实导入 | 820 |
-| 影子测试代码行 | **182,897 行** |
-| 真实测试代码行 | 181,979 行 |
+| 影子测试 | **709（46.2%）** |
+| 真实导入 | 824 |
+| 影子测试代码行 | **180,874 行** |
+| 真实测试代码行 | 184,488 行 |
 
-按行数算，50.1% 的测试代码在断言副本而不是产品代码。
+按行数算，49.5% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 372/640 | 58.1% |
-| frontend/src/__tests__（扁平） | 341/868 | 39.3% |
+| backend/src/__tests__（扁平） | 370/640 | 57.8% |
+| frontend/src/__tests__（扁平） | 339/868 | 39.1% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -358,11 +358,21 @@
 - **验证**：我独立复验 frontend 267 passed（165+102）；禁项 grep 0 命中；生产源码零改动；断言 80→89、85→105、71→125、80→127 只增未减。
 - **效果**：影子 717→713（46.5%），shadowLoc 185,047→182,897，realLoc 179,345→181,979，真实 816→820；backend 372/640 不变、frontend 345→341/868。
 
+## 六（续）、批次 41（2026-11-04 11:46）
+
+- **portfolioRiskEngine.test.ts**（514→594，47→47 例，断言 60→90）绑 `riskManagementEngine.ts:64` calculatePortfolioRisk（10 例：市值/盈亏/历史模拟 VaR 金额 460/HHI/sectorExposure/空组合 beta=1）、`performanceAttributionEngine.ts:112` calculateRiskMetrics（8 例）、`backtestPerformanceAnalyzer.ts:171/185/248`、`regimeDetectionEngine.ts:53/296`、`tradingCalendarEngine.ts:138`、`dataQualityEngine.ts:57`。
+- **tradingCosts.test.ts**（504→707，64→64，断言 86→121）绑 `aStockTradeCostEngine.ts:82/133`、`tradingCalendarEngine.ts:122/138`、`backend/src/utils/exRights.ts:93`、`securityEngine.ts:177`、`convertibleBondEngine.ts:73/80`、`adjustFactorEngine.ts:26/46`。
+- **chartEngine.test.ts**（511→616，22→29，断言 46→88）绑 `chartDataProcessing.ts:20/73/89/111/145`、`indicatorCalc.ts:321`、`chartPatternEngine.ts:136/151`、`chartInteractionEngine.ts:86/390/617/633`；19 个 ChartEngine 实例规格（series/axis/annotation CRUD、0..1 缩放、主题）生产无聚合类导出，保留内联。
+- **marketDataUtils.test.ts**（490→588，51→56，断言 69→95）绑 `orderBookEngine.ts:34`、`marketDepthEngine.ts:326`、`orderBookDepthEngine.ts:39`、`orderFlowEngine.ts:57`、`backend/src/services/zScoreEngine.ts:6/18`（跨包；该文件顶层零 import，CI 安全）、`formatters.ts:24/60/99/148`。
+- **旧断言错在哪（生产正确）**：detectTrend 'sideways'→'neutral'；全正收益 Sortino 0→Infinity、Calmar maxDD=0→Infinity；VaR 历史模拟金额口径 460；涨跌停 35.83/29.31；A 股买入含经手费 0.49+证管费 0.02（10005.61）、最低佣金 5 元、万 0 券商成本 100011.07；红利税 180 天=10%、1 天=20%；除权零收盘无守卫得 -0.5；可转债平价 130（面值 100）；复权按事件累计而非任意连乘；spreadPct 是比率 0.001；formatChangePercent 恒 +0.00%、固定 2 位、高价转万阈值 1e4；detectOutliers 返回 {indices,values} 且单值全空；BOLL 返回 {upper,middle,lower}|null 数组。
+- **验证**：我独立复验 backend 111 passed（47+64）、frontend 85 passed（29+56）；禁项 0；无探针；生产源码零改动。
+- **效果**：影子 713→709（46.2%），shadowLoc 182,897→180,874，realLoc 181,979→184,488，真实 820→824；backend 372→370、frontend 341→339。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 713 / total 1533 / shadowLoc 182,897（批次 40 后）。历史基线：批次 39 后 717/185,047、批次 38 后 720/186,670、批次 37 后 724/189,362、批次 36 后 728/191,069、批次 35 后 732/192,907、批次 34 后 734/194,082、批次 33 后 738/195,690、批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 709 / total 1533 / shadowLoc 180,874（批次 41 后）。历史基线：批次 40 后 713/182,897、批次 38 后 720/186,670、批次 37 后 724/189,362、批次 36 后 728/191,069、批次 35 后 732/192,907、批次 34 后 734/194,082、批次 33 后 738/195,690、批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -371,12 +381,13 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：713 个影子测试中 2 符号重叠已清零；符号名不再命中，后续只能按语义匹配生产实现（批次 38 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：709 个影子测试中 2 符号重叠已清零；符号名不再命中，后续只能按语义匹配生产实现（批次 38 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
-- 批次 40 已消化 pageDataLogic/dashboardSystem/chartDataAndInteraction/cssAndVisualization（四个都是页面逻辑自抄件，按语义绑到 formatters/Stock/dashboardLayoutEngine/chartDataProcessing/chartPatternEngine/chartInteractionEngine/theme 一层）；批次 39 已消化 orderBookEngine/macroEconomicAnalysis/parameterOptimizer（reportGenerator 无生产契约，记未迁移）；批次 38 已消化 dashboardWidgets/advancedPageLogic/advancedCandlestickPatterns/userDeepDive（符号名零命中，按语义绑定）；批次 37 已消化 fundFlowDeep/optionsMacroEngine/prefetchCacheEngine/utilityFunctions；批次 36 已消化 utils/etfAnalytics/advancedChartUtils/tradingStrategyEngine；批次 35 已消化 technicalAnalysis/dashboardCustomization；批次 34 已消化 financialMathEngine/signalsAndRisk/financialDataEngine/technicalIndicatorsLib；批次 33 已消化 chartDataAndLayout/renderOptimization/formValidationEnhanced/quantitativeStrategies；批次 32 已消化 dataWarehouse/backtestEngineLogic/focusRingLogic/componentStateMgmt；批次 31 已消化 factorModels/quantitativeFactors/dataExportEngine/domInteractions；批次 30 已消化 chartDataProcessingDeep/themeStyleSystem/alertEngineV2/dataPipelineEngine；批次 28–29 已消化 optionsPricing/dataVizLogic/formInputValidationDeep/microstructure/backtestCombinations/technicalPatterns；批次 27 消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep。
-- 下一批候选：符号证据池为 0，只能按语义匹配。剩余体量前列（批次 40 后）：`serviceWorkerEnhanced.test.ts`（628 行，类在测试内定义，生产无同名模块，先判是纯规格还是漏迁移）、`stockLogicComprehensive.test.ts`（610，validateStockCode 契约不符）、`tradingEngineDeep.test.ts`（595，撮合/VWAP/保证金无实现）、`batchCalcsEngine.test.ts`（576，仅 KDJ 有实现）、`tradeSimulator.test.ts`（541）、`reportGenerator.test.ts`（541，已判无契约）。扁平目录剩余：backend 372、frontend 341。**建议转向**：剩余主体是历史规格，继续按文件迁移的边际收益已低于「审计后归档」；归档需用户批准（D37），故 713 之后应先等 handover/12 拍板，或改做规则 C / 生产缺陷。
+- 批次 41 已消化 portfolioRiskEngine/tradingCosts/chartEngine/marketDataUtils；批次 40 已消化 pageDataLogic/dashboardSystem/chartDataAndInteraction/cssAndVisualization（四个都是页面逻辑自抄件，按语义绑到 formatters/Stock/dashboardLayoutEngine/chartDataProcessing/chartPatternEngine/chartInteractionEngine/theme 一层）；批次 39 已消化 orderBookEngine/macroEconomicAnalysis/parameterOptimizer（reportGenerator 无生产契约，记未迁移）；批次 38 已消化 dashboardWidgets/advancedPageLogic/advancedCandlestickPatterns/userDeepDive（符号名零命中，按语义绑定）；批次 37 已消化 fundFlowDeep/optionsMacroEngine/prefetchCacheEngine/utilityFunctions；批次 36 已消化 utils/etfAnalytics/advancedChartUtils/tradingStrategyEngine；批次 35 已消化 technicalAnalysis/dashboardCustomization；批次 34 已消化 financialMathEngine/signalsAndRisk/financialDataEngine/technicalIndicatorsLib；批次 33 已消化 chartDataAndLayout/renderOptimization/formValidationEnhanced/quantitativeStrategies；批次 32 已消化 dataWarehouse/backtestEngineLogic/focusRingLogic/componentStateMgmt；批次 31 已消化 factorModels/quantitativeFactors/dataExportEngine/domInteractions；批次 30 已消化 chartDataProcessingDeep/themeStyleSystem/alertEngineV2/dataPipelineEngine；批次 28–29 已消化 optionsPricing/dataVizLogic/formInputValidationDeep/microstructure/backtestCombinations/technicalPatterns；批次 27 消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep。
+- 下一批候选（批次 41 后）：体量前四已知不可迁或近不可迁——`serviceWorkerEnhanced.test.ts`（628，类在测试内定义）、`stockLogicComprehensive.test.ts`（610，validateStockCode 契约不符）、`tradingEngineDeep.test.ts`（595，撮合/VWAP/保证金无实现）、`batchCalcsEngine.test.ts`（576，仅 KDJ 有实现）；可再试的是 `reportGenerator.test.ts`（541，已判无契约）、`tradeSimulator.test.ts`（541）、`dataManager.test.ts`（533）、`keyboardNavAdvanced.test.ts`（508）、`dataEngineAdvanced.test.ts`（496）、`websocketPool.test.ts`（496）、`apiGateway.test.ts`（492）。扁平目录剩余：backend 370、frontend 339。**建议转向**：剩余主体是历史规格，继续按文件迁移的边际收益已低于「审计后归档」；归档需用户批准（D37），故 713 之后应先等 handover/12 拍板，或改做规则 C / 生产缺陷。
+- 批次 41 记录一条 CI 风险：`marketDataUtils.test.ts` 跨包 import `backend/src/services/zScoreEngine`（该文件顶层零 import，安全）；今后跨包绑定时必须先查目标模块顶层是否有 db/logger/xlsx 类依赖，否则重演 run 41758036717 的解析失败。
 - 体量大需逐段确认（批次 40 探测线索）：pageDataLogic/dashboardSystem/chartDataAndInteraction/cssAndVisualization 多为页面逻辑自抄件；dataManager/tradeSimulator/serviceWorkerEnhanced 的类均定义在测试内，生产无同名模块，须按语义（dashboardLayoutEngine/dataTable/chartPatternEngine 一类）再判。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
 - 生产缺口待产品阶段评估（只报告未修）：`frontend/src/utils/optionsPricingEngine.ts` 到期希腊值全零、chartInteraction tooltip/crosshair、dashboardLayout clone 浅拷贝、`backend/src/indicators/technical.ts` 缺 OBV/CCI/WilliamsR、formatters formatVolume/formatTurnover 无 null 守卫、`StockDetailPage.tsx:141-153` 自带格式化副本、validateStockCode 只校验 6 位数字。
