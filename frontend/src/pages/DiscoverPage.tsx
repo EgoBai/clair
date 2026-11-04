@@ -17,7 +17,7 @@ import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 // (演示数据生成器已移除：诚实数据红线 —— 无真实源时如实置空，绝不注入伪造数据)
 import {
   DataSourceBanner, DataSourceBadge, DimLoadingPlaceholder,
-  resolveDataSource, failedDataSource, isUntrusted, LIVE_SOURCE,
+  resolveDataSource, failedDataSource, isUntrusted, LIVE_SOURCE, normalizeSourceKind,
   type DataSourceState,
 } from '../components/discover/DataSourceIndicator';
 import { loadMultidimAll } from '../components/discover/loadMultidimBatched';
@@ -414,8 +414,10 @@ const DiscoverPage: React.FC = () => {
             },
           }).then(res => {
             if (ac.signal.aborted || res.aborted) return;
-            if (res.meta?.source && res.meta.source !== 'live') {
-              setMultidimSource({ kind: res.meta.source, updatedAt: res.meta.updatedAt ?? null, error: res.meta.error });
+            const meta = res.meta;
+            const metaKind = normalizeSourceKind(meta?.source);
+            if (meta && metaKind && metaKind !== 'live') {
+              setMultidimSource({ kind: metaKind, updatedAt: meta.updatedAt ?? null, error: meta.error });
             } else if (res.failedBatches > 0) {
               setMultidimSource({
                 kind: 'unavailable', updatedAt: null,

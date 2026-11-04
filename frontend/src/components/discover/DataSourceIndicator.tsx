@@ -32,7 +32,7 @@ export interface ApiMeta {
  *   - 'demo'    后端无 meta 且响应为空 → 走了本地演示数据（退化判断）
  *   - 'loading' 尚未加载完成（用于占位，绝不能显示假数值）
  */
-export type SourceKind = 'live' | 'stale' | 'unavailable' | 'demo' | 'loading';
+export type SourceKind = 'live' | 'stale' | 'unavailable' | 'demo' | 'loading' | 'partial';
 
 export interface DataSourceState {
   kind: SourceKind;
@@ -47,6 +47,28 @@ export const LIVE_SOURCE: DataSourceState = { kind: 'live', updatedAt: null };
 /** 该状态是否代表「非真实数据」，需要显性提示 */
 export function isUntrusted(s: DataSourceState | undefined): boolean {
   return !!s && s.kind !== 'live' && s.kind !== 'loading';
+}
+
+/**
+ * 把后端原始 dataSource / meta.source 归一成前端 SourceKind。
+ *
+ * 后端各接口口径不一致：
+ *   - /api/industries、/api/sectors/:sector/multidim 返回 'real' / 'partial'（信任级别）
+ *   - /api/sectors/multidim-v3/batch 返回 'v3-lite'（计算实现名，不是信任级别）
+ * 历史上直接透传，KIND_STYLE 查不到键 → DataSourceBadge 读 undefined.color 抛错，
+ * 2026-11-04 线上把整个发掘页替换成「渲染出错」。
+ *
+ * 返回值约定：
+ *   - 已知信任级别 → 对应 SourceKind
+ *   - 未知字符串（如实现名 'v3-lite'）→ null，表示「无信任级别信号」，调用方保持原状态
+ *     绝不把未知来源标成「数据不可用」——那是另一种撒谎
+ */
+export function normalizeSourceKind(raw: string | null | undefined): SourceKind | null {
+  if (raw === 'live' || raw === 'real') return 'live';
+  if (raw === 'stale' || raw === 'unavailable' || raw === 'demo' || raw === 'loading' || raw === 'partial') {
+    return raw;
+  }
+  return null;
 }
 
 /**
@@ -103,12 +125,24 @@ const KIND_STYLE: Record<Exclude<SourceKind, 'live'>, { color: string; text: str
   demo: { color: '#f59e0b', text: '演示数据' },
   unavailable: { color: '#ef4444', text: '数据不可用' },
   loading: { color: '#64748b', text: '加载中' },
+  // 上游只返回了部分字段（如行业板块覆盖率不足）：数值真实但不完备，必须显性标注。
+  partial: { color: '#f59e0b', text: '部分数据' },
 };
+
+/**
+ * 未知 kind 的兜底样式。
+ *
+ * 2026-11-04 线上事故：DiscoverPage 直接把后端 meta.source（'real' / 'partial'）
+ * 塞进 DataSourceState.kind，KIND_STYLE['real'] 为 undefined，
+ * cfg.color 抛 TypeError → ErrorBoundary 把整个「发掘」页替换成「渲染出错」。
+ * 兜底后即便后端新增来源枚举，角标最差显示「数据不可用」，绝不再整页崩掉。
+ */
+const FALLBACK_STYLE = { color: '#ef4444', text: '数据不可用' };
 
 /** 单个卡片/表格上的「演示数据 / 缓存数据 / 数据不可用」角标 */
 export const DataSourceBadge: React.FC<{ state?: DataSourceState; compact?: boolean }> = ({ state, compact }) => {
   if (!state || state.kind === 'live') return null;
-  const cfg = KIND_STYLE[state.kind];
+  const cfg = KIND_STYLE[state.kind as Exclude<SourceKind, 'live'>] ?? FALLBACK_STYLE;
   const tip =
     state.kind === 'stale' ? `缓存数据，数据时间：${formatTs(state.updatedAt)}`
     : state.kind === 'demo' ? '当前展示的是本地演示数据，非真实行情，请勿据此决策'
