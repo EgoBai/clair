@@ -269,6 +269,10 @@ await test('K线：sz399006&days=10 → 200、dataSource=real、并行数组等�
   assert.equal(body.success, true);
   assert.equal(body.dataSource, 'real', '有真实K线时 dataSource 应为 real');
   const d = body.data;
+  // 前端 backtestDataService.ts:141/242 读 data.dataSource（非顶层）；
+  // Worker 曾只写顶层 → 真实 K 线被判 unavailable → 多因子实验室恒「数据未接入」。
+  assert.equal(d.dataSource, body.dataSource,
+    'data.dataSource 必须与顶层同值（前端读内层，缺了即判数据不可用）');
   assert.ok(Array.isArray(d.dates) && d.dates.length > 0, 'dates 应为非空数组');
   assert.ok(d.dates.length <= 10, `days=10 时 dates 不应超过 10 根，实际 ${d.dates.length}`);
   // 前端 IndexDetailPage.tsx:126-151 按并行数组取值，长度必须一致

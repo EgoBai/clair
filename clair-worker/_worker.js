@@ -2541,10 +2541,13 @@ async function handleIndexKLine(tencentSymbol) {
  * 线上 /api/market/kline 404，指数详情页 K 线图恒显「K线源不可达」。
  *
  * 契约对齐本地 Express GET /api/market/kline（backend/src/api/market.ts:62）：
- *   成功：{ success, dataSource:'real', data:{ symbol, dates[], opens[], highs[],
- *          lows[], prices[], volumes[], count, source } }
+ *   成功：{ success, dataSource:'real', data:{ dataSource:'real', symbol, dates[],
+ *          opens[], highs[], lows[], prices[], volumes[], count, source } }
  *   源不可达：HTTP 200 + { success:false, dataSource:'unavailable',
- *          data:{ 空数组..., message:'中文原因' } }（诚实空，绝不编造数值）
+ *          data:{ dataSource:'unavailable', 空数组..., message:'中文原因' } }
+ *   ★ dataSource 顶层与 data 内各写一份且同值——Express 的 sendHonest
+ *     （backend/src/api/market.ts:42-52）就是双写；前端 backtestDataService.ts:141/242
+ *     读的是 data.dataSource，Worker 少写内层会让真实 K 线被判 unavailable。
  *   参数非法：HTTP 400 + 显式 message
  *
  * 数据源：腾讯 fqkline（经 fetchDailyKLine 多源降级：腾讯→新浪→东财）。
@@ -2575,6 +2578,10 @@ async function handleMarketKline(url) {
         dataSource: 'unavailable',
         data: {
           symbol: tencentKey,
+          // 与顶层同值：Express 侧 sendHonest（backend/src/api/market.ts:42-52）顶层与 data 内
+          // 各写一份，前端 backtestDataService.ts:141 读的是 data.dataSource；Worker 只写顶层
+          // 会让真实 K 线被前端判为 unavailable（多因子实验室恒显示「数据未接入」）。
+          dataSource: 'unavailable',
           dates: [], opens: [], highs: [], lows: [], prices: [], volumes: [],
           message: 'K线数据暂不可用：上游K线源（腾讯/新浪/东财）全部不可达',
           attempts: attempts || [],
@@ -2588,6 +2595,8 @@ async function handleMarketKline(url) {
       dataSource: 'real',
       data: {
         symbol: tencentKey,
+        // 同失败分支：内层 dataSource 与顶层同值，保证两类消费者（读顶层/读内层）一致
+        dataSource: 'real',
         dates: take.map(q => q.tradeDate),
         opens: take.map(q => q.openPrice),
         highs: take.map(q => q.highPrice),

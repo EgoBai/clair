@@ -467,3 +467,13 @@
 - **顺带核清的两件事（不是缺陷）**：① 线上 `/financials/600519` 首轮探针只有 206 字符，延长等待到 9 秒后完整渲染 1,008 字符（recharts + antd 懒加载 chunk 冷启动慢），属探针等待不足，不是页面空白；② `/portfolio`、`/compare` 的 404 已由页面内「本页部分模块需要连接完整后端才能查看 / 当前线上部署的是轻量演示后端（Cloudflare Worker），以下接口在其中未挂载」诚实提示承载，不是静默失败。
 - **口径**：无新增测试文件（只加强既有断言），census total 与影子数不变（1,526 / 687）。
 - **代价**：指数页存在三处「必须带市场前缀」的调用约定（indices、kline、index-tech），未来新增指数端点仍需记得走 `toIndexSymbol`；若要根治，可让 Worker 的 /api/market/* 指数端点接受「域内裸码」，但那需要区分股票/指数两个路由族，属接口改版。
+
+## D65 dataSource 层位统一：Worker 的 /api/market/kline 内层补 dataSource（轮 21）
+
+- **背景**：线上 `/factor-lab` 明明已打出 18 条 200 的真实 K 线请求（`symbol` 均带 `sh/sz` 前缀），页面仍显示「多因子实验室数据未接入」横幅，演示表 IC 全为 `+0.000`。追到 `frontend/src/services/backtestDataService.ts:141/242`：`const payload = resp.data` 后判 `payload.dataSource !== 'real'` 即返回空序列——它读的是 `data` 内层；而 `apiService.get` 返回整个响应体（`frontend/src/services/api.ts:360-366`），`resp.data` 正是内层，Worker 的 `/api/market/kline` 只在顶层写了 `dataSource`（`clair-worker/worker.js` 成功/失败两分支均如此）→ 内层 `undefined` → `getHistorySeries` 恒返回空 → `realCount = 0 < 10` → `FactorLabPage.tsx:100-101` 直接 return。18 条 K 线 200 与横幅并存，就是这么来的。
+- **判断**：以本地 Express 的 `sendHonest`（`backend/src/api/market.ts:42-52`）为契约真源——它刻意把 `dataSource` 在**顶层与 data 内各写一份**且同值，注释写明「结构上就不可能漂移」，`:123` 的 kline 调用正走它。Worker 是生产唯一入口，缺内层即违约；**不改前端**去迁就 Worker，因为前端读内层是既有 Express 契约，改前端只会让两个后端继续各说各话（且 `useStockStore.ts:139`、`HKConnectPage.tsx:316/321`、`RiskCenterPage.tsx:183`、`MarketBreadthSection.tsx:141` 都读内层，逐处改风险更大）。
+- **做法**：`handleMarketKline` 成功分支 `data` 内补 `dataSource:'real'`、失败分支补 `dataSource:'unavailable'`，均与顶层同值；函数头契约注释同步改为「顶层与 data 内双写」，并注明依据 `sendHonest` 与前端读内层的行号。`worker-contract.test.mjs` 的 K 线用例新增断言 `d.dataSource === body.dataSource`，把「只有顶层」这种回归挡在部署前。
+- **证据**：本地直接调用 Worker `fetch`（`node --input-type=module`）→ `{"status":200,"top":"real","inner":"real","n":3,"source":"tencent"}`；`node clair-worker/test/worker-contract.test.mjs` → **103 通过 0 失败**（含新增内层断言）；`node --check` 双入口通过、`_worker.js` 与 `worker.js` SHA256 均为 `e978d8ee…397ce4`。
+- **顺带核清的同类项（不是缺陷）**：`/api/stocks` 的 `data.dataSource` 已有（`handleAllStocks`）；`/api/hk-connect/summary` 内层已有；`/api/breadth/current` 由 `{...snap}` 带出内层；`/api/risk-center/portfolio` 走 `unavailable()` 且前端有 `?? (holdings.length ? 'real' : 'unavailable')` 兜底；`/api/hk-connect/ah` Worker 未注册（前端 catch 后如实置 unavailable）。`/api/stocks/:symbol/kline` 与 `/api/index/:symbol/kline` 仍无 dataSource 字段，但前端这两处不读它，记为待统一项（不在本次改，避免一次动三条响应契约）。
+- **代价**：响应体多一个字段（纯增量）；`handleMarketKline` 的契约注释与测试同步成本；若未来再新增 kline 族端点，仍须记得双写——本次只把断言固定在 `/api/market/kline`。
+
