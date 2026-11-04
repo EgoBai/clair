@@ -333,3 +333,9 @@
 - **验证**：worker 契约新增 3 例（real / unavailable / momentum 自洽），82 通过 2 失败（两条为既有的真实网络口径失败，基线同样失败）；部署后 `production-smoke.mjs` → OK 10 · NOT_FOUND 2 · MALFORMED 0 · UNREACHABLE 0（fund-flow 一次 8s 超时为上游抖动，复跑通过）；`--expect-commit cc2818e8eab5` 版本一致性 MATCH。
 - **代价**：每次请求多算一次覆盖率（O(n)，可忽略）；`partial` 目前不触发前端告警，只是把事实暴露给烟测与后续 UI。
 
+### D51 · 烟测默认阻断契约破损，并把部署后线上校验挂进 deploy-worker ✅ 2026-11-04 执行
+- **结论**：`scripts/smoke/production-smoke.mjs` 的非 strict 模式原来只对 UNREACHABLE 与版本不一致退出非零，MALFORMED/NOT_FOUND 一律放行（本轮之前 /api/stocks 缺 dataSource 正是靠人工跑才发现）。现改为默认阻断 ERROR / MALFORMED / 版本不一致；新增 `--allow-unreachable`，仅放行上游行情超时。NOT_FOUND 继续只打印不阻断（/api/factors/overview、/api/screener/templates 属已知未部署且前端零引用）。
+- **落地**：`.github/workflows/deploy-worker.yml` 部署后新增 `Verify production contract` 步骤，跑 `--expect-commit ${{ github.sha }} --allow-unreachable`，失败重试 3 次（每次 20 秒，给 Pages 传播留时间），连续失败即让部署 job 红。
+- **验证**：本地 `--expect-commit cc2818e8eab5 --allow-unreachable` → OK 10 · NOT_FOUND 2 · MALFORMED 0 · UNREACHABLE 0，exit 0；workflow_dispatch run 41783021987（head 6cc70ff）→ deploy job success，日志 `Verify production contract` 段实测输出 12 端点表 + 版本一致性 MATCH + 「✓ 通过」。
+- **代价**：部署后多一次外部网络往返（约 10–20 秒）；上游抖动导致 UNREACHABLE 时靠 `--allow-unreachable` 放行，真实契约破损（缺字段 / dataSource 非法 / 5xx）仍然红。
+
