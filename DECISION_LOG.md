@@ -361,3 +361,11 @@
 - **做法**：新增 `marketFromCode()`（6=SH / 0,3=SZ / 4,8,92=BJ）、`tencentPrefix()`、`resolveStockFallback()`、`fetchQuoteFallback()`。所有 `stocks.find(...)` 改为 `|| await resolveStockFallback(symbol)`；前缀拼接统一走 `tencentPrefix`（原代码写成 `market === 'SH' ? 'sh' : 'sz'`，北交所会被拼成 `sz`）。`industry` 诚实返回 `null`（快照里没有它的分类，不用「综合」冒充）。搜索在纯数字关键词无静态命中时用同一链路兜底，并在响应 `data.note` 注明「不在内置快照清单，已按代码前缀 + 腾讯行情实时验证」。
 - **不做什么**：不批量补 5,541 只清单（快照来源未知、无法回溯日期）；不为未通过腾讯行情验证的代码造股票（`999999` 仍 404）；不猜行业。
 - **证据**：新增契约 5 例（833171 详情 market=BJ/industry=null、833171 日 K 走东财 source 非空、920002 可解析、999999 仍 404、搜索 833171 命中且带 note）；`node --test` 92 通过 2 失败（两条为既有北向真实网络口径）。线上复测见 PROGRESS。
+
+## D55 /api/stocks/search 同步兜底：同一份清单缺口，不能两条搜索路径两种结果（2026-11-04 15:10）
+
+- **背景**：D54 只改了 `/api/search`（全局搜索 / 添加自选股），`/api/stocks/search?q=833171`（useStockStore 用）仍返回 `{"data":{"items":[]},"success":true}`。同一只股票，一个入口搜得到、一个搜不到，且后者是「成功但空」——比 404 更容易被当成「确实没有这只股票」。
+- **做法**：`handleStockSearch` 在静态清单 0 命中且关键词为 6 位纯数字时，走同一 `resolveStockFallback`；命中返回单条（`industry:null`）并附 `data.note`，未命中保持空数组（不伪造）。
+- **证据**：契约新增 1 例（833171 → items 长度 1、market=BJ、industry=null、note 命中）；线上 `/api/stocks/search?q=833171` → 命中；`node --test` 93 通过 2 失败（仍是既有北向网络口径）。commit `3b88133c3`，推送远端 `915943634a44`。
+- **代价**：两条搜索路径现在都依赖腾讯行情可用性；腾讯不可达时静态清单仍可搜（降级为原行为），不会 500。
+
