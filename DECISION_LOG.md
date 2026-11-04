@@ -306,4 +306,23 @@
 - **结论**：D39 定的是先观察后阻断，但存量 35 处里 14 处是排序/计数/特征开关等良性写法，逐条写 allowlist（带 expiresAt/清理工单）成本高于收益、且容易把门禁掏空。改为棘轮：新建 `scripts/guard/rulec-baseline.json`（30 条 file+行文本，count 复现重复行），`--strict` 下**新增命中阻断**（exit 1，打印 ⛔ 新增 file:line），**基线失效也阻断**（存量被修掉却未收缩基线 → ⚠ 失效，提示 `--update-rulec-baseline`）。实测：注入 `backend/src/api/__rulec_probe.ts` 的 `?? 0` → exit 1；基线里塞一条不存在的键 → exit 1；还原 → exit 0。
 - **代价**：行文本变更（重排/改名）会同时产生「新增 + 失效」两条，必须同 commit 跑 `--update-rulec-baseline`；基线文件成为需 review 的账本，不能靠删测试或改行文本偷偷过关。剩余 16 处虚假响应改法仍待拍板（handover/12 第六项），不影响本棘轮先行落地。
 
+### D45 · 生产 API 归属定为 Worker：补 4 条路由，不恢复 Render ✅ 2026-11-04 执行
+- **结论**：用户 2026-11-04 13:24 拍板选 A。Worker 补 /api/ai/diagnose/:symbol、/api/ai/market-pulse、/api/industries?level=2 三条用户可见路由，并让 /api/version 从构建环境注入 commit（读不到仍返回 null，不伪造）。不恢复 Render 付费服务。
+- **理由**：线上前端 VITE_API_BASE 指向 https://clair-api.pages.dev；Express 后端没有自动部署路径（deploy-backend.yml 是手动占位骨架）；Worker 已自带 K 线与 DeepSeek 封装，补路由不需要 PG。
+- **代价**：Express-only 能力继续只在本地可用（完整 build/commit 自证、依赖 Node 的长任务、回填脚本）；E5 门禁的生产侧只能做成 Worker 可观测（KV 快照或实时源时间戳），不能直连 PG。
 
+### D46 · D 类死测试归档 13 个，不计入迁移数 ✅ 2026-11-04 执行
+- **结论**：按 handover/14 复核，把 13 个判定为 D（核心符号全仓 rg -w 命中 0）的测试 git mv 到 docs/_archive/dead-tests/2026-11/，保留文件与历史，不 rm；目录内 README 记录逐条证据与恢复命令。
+- **代价与边界**：影子 700→687、shadowLoc 177,485→173,372、总数 1,534→1,521（随后新增 1 个真实导入测试，批次 47 总数 1,522）；归档不计入迁移数（只有真实绑定才算）。R 类 7 个不归档，已在批次 42–44 改绑。基线随之下调，禁止用归档冲抵新增影子。
+
+### D47 · P1 三处计算口径修正 ✅ 2026-11-04 执行
+- **结论**：① 期权到期/零波动时 greeks 不再整组清零：delta 取实值固有值（call spot>strike?1:0、put spot<strike?-1:0），其余为零；② calcBondFloor 优先用债券自身 ytm 折现，缺失才回退 5% 并在注释与文档标明这是缺省；③ calculateMaxDrawdown 的 peak/trough 收敛到同一段回撤（peak 为 trough 之前的历史高点）。
+- **理由**：三处都会把「模型边界」伪装成「真实为零」，违反诚实红线；用户已批准 P1。
+
+### D48 · P2/P3 合并：格式口径统一 + 死选项清理 ✅ 2026-11-04 执行
+- **结论**：null/undefined/NaN/±Infinity 与负市值统一渲染为 '—'（U+2014，全仓非测试代码已有 90+ 处先例，'--' 仅 7 处）；shared 与 frontend 的 formatters 收敛为单一实现并用一致性测试锁定；sanitizeHTML 的 encodeEntities 死选项清理。
+- **边界**：只改空/非法/负值分支，正常数字的精度、单位、正负号不变；底层数据层不动。
+
+### D49 · 规则 C 16 处改为 null + partial + 前端空态 ✅ 2026-11-04 执行
+- **结论**：ai-analysis、ai-market-pulse、sector-analysis 中 16 处「可空列缺数写 0」改为输出 null；响应按缺失情况给 dataSource:'partial' 与 missing[]；前端对 null 只做最小空态 --，不做 0 顶替、不改其他文案。改完跑 honesty-scan --update-rulec-baseline 收缩基线，--strict 必须 exit 0。
+- **理由**：用户选方案①。schema.sql:36/41 的 change_percent/market_cap 是可空列，?? 0 会让用户看到「市值 0 / 涨跌 0.00%」这种虚假事实。
