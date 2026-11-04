@@ -419,4 +419,5 @@
 - **证据**：`frontend/src/__tests__/correlationEngine.test.ts` 新增 2 例（同一输入两次自举结果 `toEqual`；PCA 特征值/解释方差/主成分 `toEqual`），夹具用固定 LCG（seed 11/29/53/97）替代随机；实测 16 passed（原 14）；`npx tsc --noEmit` exit 0；E3 红→绿两次：投毒 `:279` 换回 `Math.random` → poisoned=FAIL(1.1s)、restored=PASS(0.9s)；投毒 `:227` 换回随机取窗 → FAIL(0.9s)/PASS(0.9s)。commit `2c9b51f7f`，推送远端 `34626fab2164`。
 - **为什么门禁没拦**：`scripts/guard/honesty-scan.mjs` 规则 A 把 `frontend/src/utils` 归为 YELLOW（仅警告），红域只覆盖 `backend/src/api|services|db`。是否把前端 utils 的随机数升为 RED 需改门禁口径、会暴露存量，另开单决定。
 - **代价**：确定性初始向量在极端病态矩阵上收敛略慢（实测量级无差异）；自举窗口从随机改为等距后，置信区间略窄于真随机抽样，属可接受近似，注释已写明。
-- **同轮附带发现（不动代码，只记录）**：`/tmp/reach.py` 从真实入口做 import 可达性，861 个文件中前端 `utils/` 426 个有 **372 个（87.3%）从 `main.tsx` 走不到**；`securityEngine`、`tokenManager`、`optionsPricingEngine` 等有成套测试但无生产调用方。详见 `handover/21-双实现对照.md`（DSH 工作区）。
+- **同轮附带发现（不动代码，只记录）**：从真实入口做 import 可达性，861 个文件中前端 `utils/` 393 个有 **352 个（89.6%）从 `main.tsx` 走不到**；`securityEngine`、`tokenManager`、`optionsPricingEngine` 等有成套测试但无生产调用方。详见 `handover/21-双实现对照.md`（DSH 工作区）。
+- **数字更正（18:20）**：初版写「426 个/372 个/87.3%」是脚本把前后端所有 `*/utils/*` 目录一起统计的错（`/tmp/reach.py` 的 `'/utils/' in f` 判据过宽，含 backend/src/utils）。改用 `scripts/guard/reachability.mjs` 后按前端 `frontend/src/utils` 统计为 393/352（89.6%）；同时新增测试分层：1,523 个测试中仅 240 个（15.8%）绑定到可达模块，588 个只绑定不可达模块，695 个不 import 项目源码。
