@@ -119,9 +119,14 @@ export async function batchExecute<T, R>(
  * Chunk array into batches
  */
 export function chunk<T>(arr: T[], size: number): T[][] {
+  // size<=0 或 NaN 时步进为 0/NaN，循环永不前进会挂死进程；直接拒绝而不是静默返回空
+  const step = Math.floor(size);
+  if (!Number.isFinite(step) || step < 1) {
+    throw new RangeError(`chunk 的 size 必须为正整数，收到 ${size}`);
+  }
   const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
+  for (let i = 0; i < arr.length; i += step) {
+    chunks.push(arr.slice(i, i + step));
   }
   return chunks;
 }

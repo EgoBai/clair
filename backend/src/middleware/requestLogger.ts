@@ -83,9 +83,11 @@ function sanitizeQuery(
   query: Record<string, unknown>,
   sensitiveKeys: string[],
 ): Record<string, unknown> {
+  // 与 sanitizeHeaders 对齐：大小写不敏感，否则 ?Token= / ?APIKEY= 会绕过脱敏进日志
+  const normalizedKeys = new Set(sensitiveKeys.map(k => k.toLowerCase()));
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(query)) {
-    if (sensitiveKeys.includes(key)) {
+    if (normalizedKeys.has(key.toLowerCase())) {
       sanitized[key] = maskSensitiveValue(String(value));
     } else {
       sanitized[key] = value;

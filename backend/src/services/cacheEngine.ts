@@ -39,6 +39,7 @@ export class LRUCache<T = any> {
   private stats = { hits: 0, misses: 0, evictions: 0, penetrations: 0 };
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private nullSet: Set<string> = new Set(); // 缓存穿透防护
+  private nullTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   constructor(config: Partial<CacheConfig> = {}) {
     this.config = {
@@ -91,13 +92,17 @@ export class LRUCache<T = any> {
     // 如果之前是穿透标记，移除
     this.nullSet.delete(key);
 
-    // 超出容量时淘汰最旧的
-    while (this.cache.size >= this.config.maxSize) {
+    // 覆盖已有 key 不增加条目数：先移除旧值，避免满容量时误淘汰无关条目
+    this.cache.delete(key);
+
+    // 超出容量时淘汰最旧的。空字符串是合法 key，不能用 falsy 判断，
+    // 否则 oldest='' 时既不删除也不退出，直接死循环
+    const limit = this.capacityLimit();
+    while (this.cache.size >= limit) {
       const oldest = this.cache.keys().next().value;
-      if (oldest) {
-        this.cache.delete(oldest);
-        this.stats.evictions++;
-      }
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
+      this.stats.evictions++;
     }
 
     const now = Date.now();
@@ -114,9 +119,17 @@ export class LRUCache<T = any> {
    * 设置穿透标记（key不存在，避免反复查询）
    */
   setNull(key: string, ttl?: number): void {
+    // 同一 key 重复标记时先撤掉旧定时器，避免多个定时器叠挂
+    this.clearNullTimer(key);
     this.nullSet.add(key);
     // 自动清理穿透标记
-    setTimeout(() => this.nullSet.delete(key), ttl ?? this.config.defaultTTL);
+    const timer = setTimeout(() => {
+      this.nullSet.delete(key);
+      this.nullTimers.delete(key);
+    }, ttl ?? this.config.defaultTTL);
+    // 纯标记定时器不应阻止进程退出
+    if (typeof timer.unref === 'function') timer.unref();
+    this.nullTimers.set(key, timer);
   }
 
   /**
@@ -124,6 +137,7 @@ export class LRUCache<T = any> {
    */
   delete(key: string): boolean {
     this.nullSet.delete(key);
+    this.clearNullTimer(key);
     return this.cache.delete(key);
   }
 
@@ -133,6 +147,7 @@ export class LRUCache<T = any> {
   clear(): void {
     this.cache.clear();
     this.nullSet.clear();
+    this.clearAllNullTimers();
   }
 
   /**
@@ -226,6 +241,29 @@ export class LRUCache<T = any> {
     this.stopCleanup();
     this.cache.clear();
     this.nullSet.clear();
+    this.clearAllNullTimers();
+  }
+
+  /**
+   * 有效容量上限：至少 1
+   * 配置为 0/负数/NaN 时退化为 1，否则淘汰循环的收敛条件永远成立会挂死
+   */
+  private capacityLimit(): number {
+    const configured = Math.floor(this.config.maxSize);
+    return Number.isFinite(configured) && configured >= 1 ? configured : 1;
+  }
+
+  private clearNullTimer(key: string): void {
+    const timer = this.nullTimers.get(key);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.nullTimers.delete(key);
+    }
+  }
+
+  private clearAllNullTimers(): void {
+    for (const timer of this.nullTimers.values()) clearTimeout(timer);
+    this.nullTimers.clear();
   }
 
   private startCleanup(): void {

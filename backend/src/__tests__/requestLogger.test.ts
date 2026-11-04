@@ -753,6 +753,26 @@ describe('requestLogger 中间件（生产：middleware/requestLogger.ts:99）',
     expect(context.headers['x-trace-id']).toBe('q-1');
   });
 
+  // middleware/requestLogger.ts:82 sanitizeQuery：旧实现用 includes 大小写敏感，
+  // ?Token= / ?APIKEY= 会原样进日志；现已与 sanitizeHeaders 对齐为小写比较
+  it('should mask sensitive query params case-insensitively', () => {
+    const req = createFakeRequest({
+      headers: { 'x-trace-id': 'q-2' },
+      path: '/api/search',
+      query: { Token: 'secret456', APIKEY: 'key12345', Symbol: '600519' },
+    });
+    const res = createFakeResponse();
+
+    httpRequestLogger()(req, res, vi.fn());
+    res.statusCode = 404;
+    res.emit('finish');
+
+    const context = parseLogContext(String(logSpy.mock.calls[0][0]));
+    expect(context.query.Token).toBe('se****56');
+    expect(context.query.APIKEY).toBe('ke****45');
+    expect(context.query.Symbol).toBe('600519');
+  });
+
   it('should log fast 2xx at debug level', () => {
     const req = createFakeRequest({ headers: { 'x-trace-id': 'fast-1' } });
     const res = createFakeResponse();
