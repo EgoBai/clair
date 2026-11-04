@@ -1601,6 +1601,17 @@ await test('快照超过 48 小时标 stale=true 并说明，不冒充新鲜', a
 
 console.log('\n北交所兜底');
 
+await test('/api/stocks/search?q=833171：静态清单无命中时兜底返回一条并标快照外来源', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/search?q=833171');
+  assert.equal(status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.data.items.length, 1, '应兜底返回一条，不是空数组');
+  assert.equal(body.data.items[0].symbol, '833171');
+  assert.equal(body.data.items[0].market, 'BJ');
+  assert.equal(body.data.items[0].industry, null);
+  assert.match(body.data.note || '', /不在内置快照清单/);
+});
+
 await test('个股详情：833171 兜底解析为 BJ（名称来自腾讯，industry 诚实为 null）', async () => {
   const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/833171');
   assert.equal(status, 200, `期望 200，实际 ${status}（修复前是 404 Stock not found）`);

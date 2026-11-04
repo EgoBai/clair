@@ -1466,6 +1466,22 @@ async function handleStockSearch(q) {
     .filter(s => s.symbol.includes(keyword) || s.name.includes(keyword))
     .slice(0, 20)
     .map(s => ({ symbol: s.symbol, name: s.name, market: s.market, industry: normalizeIndustry(s.industry) }));
+
+  // 纯代码且静态清单无命中（典型：北交所不在内置快照）→ 按前缀 + 腾讯行情验证兜底。
+  // 与 /api/search 同一口径：验证通过才返回，产业分类诚实为 null，并标注快照外来源。
+  if (results.length === 0 && /^\d{6}$/.test(keyword)) {
+    const fallback = await resolveStockFallback(keyword);
+    if (fallback) {
+      return json({
+        data: {
+          items: [{ symbol: fallback.symbol, name: fallback.name, market: fallback.market, industry: null }],
+          note: '该标的不在内置快照清单（5,541 只 / 2026-06-22）中，已按代码前缀 + 腾讯行情实时验证',
+        },
+        success: true,
+      });
+    }
+  }
+
   return json({ data: { items: results }, success: true });
 }
 
