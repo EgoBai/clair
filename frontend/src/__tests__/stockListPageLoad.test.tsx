@@ -8,7 +8,7 @@
  *
  * 本测试守三件事：
  *   1. mount 即请求 /api/stocks?pageSize=6000（初次加载路径存在）
- *   2. latestQuote 显式映射正确；接口没有的字段（change / marketCap）渲染「—」，**不是 0**
+ *   2. latestQuote 显式映射正确；接口没有的字段（change）与缺失的市值渲染「—」，**不是 0**
  *   3. 接口失败 / 返回 0 条时，统计与列表显示「—」并给出可解释提示，**不显示 0**
  */
 
@@ -23,6 +23,8 @@ import {
   mapStockApiItem,
   parseStocksResponse,
   formatVolumeLots,
+  formatMarketCapYi,
+  parseMarketCapToYi,
 } from '../store/useStockStore';
 
 /** 线上真实响应样本（实测 https://clair-api.pages.dev/api/stocks?pageSize=3） */
@@ -42,6 +44,8 @@ const REAL_PAYLOAD = {
           peRatio: 6.45,
           volume: 648865,
           turnover: 647740000,
+          marketCap: 2940.5,
+          circulatingMarketCap: 2940.5,
         },
       },
       {
@@ -134,10 +138,16 @@ describe('显式映射：/api/stocks items[] → Stock', () => {
     expect(s!.industry).toBe('银行');
   });
 
-  it('change 与 marketCap 恒为 null（接口不提供，禁止估算）', () => {
+  it('change 恒为 null（接口无昨收不可推导）；marketCap 有值则格式化', () => {
     const s = mapStockApiItem(REAL_PAYLOAD.data.items[0])!;
     expect(s.change).toBeNull();
+    expect(s.marketCap).toBe('2940.50亿');
+  });
+
+  it('marketCap 缺失 → null（未用 0 或股价×股本倒算）', () => {
+    const s = mapStockApiItem(REAL_PAYLOAD.data.items[1])!;
     expect(s.marketCap).toBeNull();
+    expect(s.price).toBe(5.29);
   });
 
   it('latestQuote 为 null 时所有行情字段为 null，而不是 0', () => {
@@ -152,6 +162,18 @@ describe('显式映射：/api/stocks items[] → Stock', () => {
   it('无 symbol 的行被丢弃（不编造代码）', () => {
     expect(mapStockApiItem({ name: '幽灵股票' })).toBeNull();
     expect(mapStockApiItem(null)).toBeNull();
+  });
+
+  it('市值格式化与反解析：亿/万亿两档，非法输入为 null', () => {
+    expect(formatMarketCapYi(2940.5)).toBe('2940.50亿');
+    expect(formatMarketCapYi(18105.8)).toBe('1.81万亿');
+    expect(formatMarketCapYi(0)).toBe('0.00亿');
+    expect(formatMarketCapYi(undefined)).toBeNull();
+    expect(formatMarketCapYi(-1)).toBeNull();
+    expect(parseMarketCapToYi('2940.50亿')).toBeCloseTo(2940.5, 6);
+    expect(parseMarketCapToYi('1.81万亿')).toBeCloseTo(18100, 6);
+    expect(parseMarketCapToYi('—')).toBeNull();
+    expect(parseMarketCapToYi(null)).toBeNull();
   });
 
   it('成交量缺失返回 null，合法 0 保留为「0手」', () => {
@@ -204,7 +226,7 @@ describe('StockListPage 初次加载', () => {
     expect(statCardText('下跌')).toBe('下跌0');
   });
 
-  it('总市值显示「—」而不是 0（接口无市值字段）', async () => {
+  it('只有部分标的带市值 → 全市场合计显示「—」而不是部分合计', async () => {
     mockFetchJson(REAL_PAYLOAD);
     render(
       <MemoryRouter>
@@ -217,6 +239,31 @@ describe('StockListPage 初次加载', () => {
     const capCard = statCardText('总市值(亿)');
     expect(capCard).toBe('总市值(亿)—');
     expect(capCard).not.toContain('0');
+  });
+
+  it('全部标的带市值 → 合计按 亿/万亿 解析后求和', async () => {
+    const payload = {
+      data: {
+        items: [
+          { symbol: '600000', name: '浦发银行', market: 'SH', latestQuote: { closePrice: 10.02, marketCap: 2940.5 } },
+          { symbol: '600519', name: '贵州茅台', market: 'SH', latestQuote: { closePrice: 1446.44, marketCap: 18105.8 } },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 2,
+      },
+      success: true,
+    };
+    mockFetchJson(payload);
+    render(
+      <MemoryRouter>
+        <StockListPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('贵州茅台')).toBeTruthy());
+    // 2940.5 + 18105.8 = 21046.3 亿元 → toFixed(0) = 21046（用原始数值求和，不受展示串舍入影响）
+    expect(statCardText('总市值(亿)')).toBe('总市值(亿)21046');
   });
 
   it('市值列与涨跌额列每行都是「—」，不是 0', async () => {
@@ -235,7 +282,7 @@ describe('StockListPage 初次加载', () => {
     expect(cells[3].textContent).toBe('+0.30%');
     expect(cells[4].textContent).toBe('—'); // 涨跌额：接口无昨收，不可推导
     expect(cells[5].textContent).toBe('64.89万手');
-    expect(cells[6].textContent).toBe('—'); // 市值：接口不提供
+    expect(cells[6].textContent).toBe('2940.50亿'); // 市值：接口 marketCap（亿元）
 
     // 无行情的那只：价格/涨跌幅也都是「—」
     const emptyCells = rowCells('600002');

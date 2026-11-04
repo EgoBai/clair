@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Table, Tag, Typography, Select, Empty, Statistic } from 'antd';
+import { Card, Row, Col, Table, Tag, Typography, Select, Empty, Statistic, Skeleton } from 'antd';
 import {
   Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
@@ -19,7 +19,7 @@ import {
   calculateFactorDecay, calculateFactorCorrelation, compositeFactors,
   type FactorData,
 } from '../utils/factorICEngine';
-import { FACTORS, factorLabData, factorDecayData } from '../utils/factorLabDemo';
+import { FACTORS } from '../utils/factorLabDemo';
 import {
   getBatchHistory, getBatchFactorSeries, buildICFactorData, DEFAULT_FACTOR_UNIVERSE,
   type PriceDerivedFactorKind, type FinancialFactorKind,
@@ -91,16 +91,23 @@ const FactorLabPage: React.FC = () => {
     decay: Record<string, Map<number, FactorData[]>>;
     financialCount: number; // 已接入的财务因子数量（EP/BP/GROWTH/ROE）
   } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const batch = await getBatchHistory(DEFAULT_FACTOR_UNIVERSE, 250, 4);
+        // 两批互相独立（K 线 20 请求 + 财务因子 20 请求），并行拉取；并发 8 把首屏从 60–80s 压到 15–30s。
+        const [batch, factorSeries] = await Promise.all([
+          getBatchHistory(DEFAULT_FACTOR_UNIVERSE, 250, 8),
+          getBatchFactorSeries(DEFAULT_FACTOR_UNIVERSE, 8, 8),
+        ]);
         const realCount = Object.values(batch).filter((s) => s.dataSource === 'real').length;
-        if (realCount < 10) return; // 真实数据不足 → 保持演示/空态诚实兜底
-        // 财务因子序列（EP/BP/GROWTH/ROE 真实源，源不可达时每标的高诚实降级为空）
-        const factorSeries = await getBatchFactorSeries(DEFAULT_FACTOR_UNIVERSE, 8, 4);
+        if (realCount < 10) {
+          if (!cancelled) setFailure(`真实 K 线只取到 ${realCount}/${DEFAULT_FACTOR_UNIVERSE.length} 只，样本不足 10 只，无法计算横截面因子；不用演示数据顶替。`);
+          return;
+        }
         const data: Record<string, FactorData[]> = {};
         const decay: Record<string, Map<number, FactorData[]>> = {};
         for (const key of Object.keys(REAL_FACTOR_KIND)) {
@@ -128,16 +135,24 @@ const FactorLabPage: React.FC = () => {
           }
           decay[key] = m;
         }
-        if (!cancelled && Object.keys(data).length > 0) setReal({ data, decay, financialCount });
+        if (cancelled) return;
+        if (Object.keys(data).length === 0) {
+          setFailure('真实行情与财务序列已取到，但可用样本不足 20 期，无法计算因子；不用演示数据顶替。');
+          return;
+        }
+        setReal({ data, decay, financialCount });
       } catch (e) {
-        console.warn('[FactorLab] 真实数据不可用，保持兜底', e);
+        console.warn('[FactorLab] 真实数据不可用', e);
+        if (!cancelled) setFailure(`真实数据拉取失败：${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  const labData = real?.data ?? factorLabData;
-  const decaySource = real?.decay ?? factorDecayData;
+  const labData = real?.data ?? {};
+  const decaySource = real?.decay ?? {};
 
   // ── 区块A 因子库总览：IC / RankIC / ICIR / 胜率 / 多空 / 单调性 / 有效性 ──
   const overview: OverviewRow[] = useMemo(() => {
@@ -298,8 +313,10 @@ const FactorLabPage: React.FC = () => {
               {real.financialCount > 0 ? `真实财务因子 ×${real.financialCount}` : '财务因子未接入'}
             </Tag>
           </>
+        ) : loading ? (
+          <Tag color="processing" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>正在计算</Tag>
         ) : (
-          <Tag color="default" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>数据未接入</Tag>
+          <Tag color="default" style={{ marginLeft: 12, transform: 'translateY(-2px)' }}>真实数据不可用</Tag>
         )}
       </Title>
       <Text style={{ color: THEME.textSec }}>
@@ -307,8 +324,24 @@ const FactorLabPage: React.FC = () => {
           ? (real.financialCount > 0
             ? '多因子模型一期 · 动量/反转/波动率/量比基于真实 K 线；估值/成长/质量因子（EP/BP/GROWTH/ROE）基于真实财务因子序列'
             : '多因子模型一期 · 动量/反转/波动率/量比因子基于真实 K 线构建；估值/成长/质量因子源暂不可用，诚实留空')
-          : '多因子模型一期 · 8 经典因子 IC / 分层 / 衰减 / 合成（因子数据由后端提供，当前尚未接入）'}
+          : loading
+            ? `多因子模型一期 · 正在拉取 ${DEFAULT_FACTOR_UNIVERSE.length} 只成分股真实 K 线与财务因子序列（并发 8），首次约 15–30 秒`
+            : '多因子模型一期 · 真实数据未就绪，原因见下方；不展示演示值或占位 0'}
       </Text>
+
+      {loading ? (
+        <Card size="small" style={{ background: THEME.cardBg, borderColor: THEME.border, marginTop: 16 }}>
+          <Skeleton active paragraph={{ rows: 8 }} />
+          <Text style={{ color: THEME.textSec, fontSize: 12 }}>
+            数据到齐前不渲染任何因子数值：表格与图表只在真实样本足够时出现，避免用 0 或演示数据冒充真实 IC。
+          </Text>
+        </Card>
+      ) : !real ? (
+        <Card size="small" style={{ background: THEME.cardBg, borderColor: THEME.border, marginTop: 16 }}>
+          <Empty description={failure || '真实数据不可用'} style={{ padding: '24px 0' }} />
+        </Card>
+      ) : (
+        <>
 
       {/* 区块A 因子库总览表 */}
       <Card title={<span style={{ color: THEME.text }}>因子库总览（按 |IC| 排序）</span>}
@@ -455,6 +488,8 @@ const FactorLabPage: React.FC = () => {
           </>
         ) : <Empty description="合成信号暂不可用" />}
       </Card>
+        </>
+      )}
     </div>
   );
 };

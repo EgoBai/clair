@@ -9,10 +9,10 @@ import { useShallow } from 'zustand/react/shallow';
 // null 的语义是「该字段没有真实数据」，渲染层必须显示「—」，禁止用 0 顶替
 // （0 会被读成「这只股票真的涨 0%/市值 0/零成交」）。
 // 具体到 GET /api/stocks（全市场列表 + 行情 join）这条契约：
-//   · 它返回 latestQuote{closePrice, changePercent, turnoverRate, peRatio, volume, turnover}
-//     且 latestQuote 整体可能为 null（上游未覆盖该标的）；
-//   · 它**不返回** change（涨跌额），也**不返回**昨收，故 change 无法推导 → 恒为 null；
-//   · 它**不返回** marketCap（总市值）→ 恒为 null。
+//   · 它返回 latestQuote{closePrice, changePercent, turnoverRate, peRatio, volume, turnover,
+//     marketCap, circulatingMarketCap}（市值为「亿元」数值），且 latestQuote 整体可能为 null
+//     （上游未覆盖该标的）；marketCap 本身也可能缺失（上游行情缺字段）；
+//   · 它**不返回** change（涨跌额），也**不返回**昨收，故 change 无法推导 → 恒为 null。
 export interface Stock {
   symbol: string;
   name: string;
@@ -20,7 +20,10 @@ export interface Stock {
   change: number | null;
   changePercent: number | null;
   volume: string | null;
+  /** 总市值展示串（如「1.81万亿」）；缺失为 null */
   marketCap: string | null;
+  /** 总市值原始数值（亿元），供统计精确求和（展示串会舍入，不能反解析求和） */
+  marketCapYi?: number | null;
   industry?: string;
   peRatio?: number | null;
   dividendYield?: number | null;
@@ -36,6 +39,10 @@ export interface StocksApiQuote {
   peRatio?: number | null;
   volume?: number | null;
   turnover?: number | null;
+  /** 总市值（亿元）；上游未给该字段时缺失 */
+  marketCap?: number | null;
+  /** 流通市值（亿元）；上游未给该字段时缺失 */
+  circulatingMarketCap?: number | null;
 }
 
 /** /api/stocks 的 items[] 元素 */
@@ -81,6 +88,32 @@ export function formatVolumeLots(v: unknown): string | null {
 }
 
 /**
+ * 总市值（亿元数值）→ 带单位字符串。
+ * 口径依据：/api/stocks 的 latestQuote.marketCap 取自腾讯行情 parts[45]（单位=亿元，已实测
+ * 600519=18105.8 亿元、与个股详情页 1.81 万亿一致）。缺失/非法 → null（渲染「—」）。
+ */
+export function formatMarketCapYi(v: unknown): string | null {
+  const n = numOrNull(v);
+  if (n === null || n < 0) return null;
+  if (n >= 1e4) return `${(n / 1e4).toFixed(2)}万亿`;
+  return `${n.toFixed(2)}亿`;
+}
+
+/**
+ * 带单位市值字符串 → 亿元数值（统计合计用）。
+ * 支持本项目会输出的两种单位：万亿 / 亿；无法解析返回 null（统计随即判为不完整）。
+ */
+export function parseMarketCapToYi(text: string | null): number | null {
+  if (typeof text !== 'string') return null;
+  const s = text.trim();
+  const m = s.match(/^([0-9]+(?:\.[0-9]+)?)(万亿|亿)$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n)) return null;
+  return m[2] === '万亿' ? n * 1e4 : n;
+}
+
+/**
  * 显式映射：/api/stocks 的 items[] → 前端扁平 Stock。
  * 该函数是**唯一**的字段映射入口，禁止在渲染层再猜测/推算字段。
  */
@@ -98,8 +131,9 @@ export function mapStockApiItem(item: StocksApiItem | null | undefined): Stock |
     change: null,
     changePercent: numOrNull(q?.changePercent),
     volume: formatVolumeLots(q?.volume),
-    // 诚实红线：接口不返回总市值 → 恒 null。算不出来就是算不出来，不填 0。
-    marketCap: null,
+    // 总市值：接口给了（亿元）才格式化；缺失 → null（渲染「—」），不填 0、不按股价×股本倒算。
+    marketCap: formatMarketCapYi(q?.marketCap),
+    marketCapYi: numOrNull(q?.marketCap),
     industry: typeof item?.industry === 'string' && item.industry.trim() ? item.industry.trim() : undefined,
     peRatio: numOrNull(q?.peRatio),
   };
@@ -559,11 +593,13 @@ export const useStockStats = (): StockStats => {
     }
 
     const withChangePercent = stocks.filter((s) => s.changePercent !== null);
-    const withMarketCap = stocks.filter((s) => {
-      if (s.marketCap === null) return false;
-      const v = parseFloat(s.marketCap.replace('亿', ''));
-      return Number.isFinite(v);
-    });
+    const marketCapYi = new Map<string, number>();
+    for (const s of stocks) {
+      // 优先用接口原始数值（亿元）求和；仅当只有展示串时才反解析（会损失精度）。
+      const v = s.marketCapYi ?? parseMarketCapToYi(s.marketCap);
+      if (v !== null) marketCapYi.set(s.symbol, v);
+    }
+    const withMarketCap = stocks.filter((s) => marketCapYi.has(s.symbol));
 
     const marketCapComplete = withMarketCap.length === stocks.length;
     const changePercentComplete = withChangePercent.length === stocks.length;
@@ -574,7 +610,7 @@ export const useStockStats = (): StockStats => {
       fallingStocks: withChangePercent.filter((s) => (s.changePercent as number) < 0).length,
       // 缺任何一只的市值，合计值就不是真值 → null（不展示「部分合计」冒充全市场总市值）
       totalMarketCap: marketCapComplete
-        ? withMarketCap.reduce((sum, s) => sum + parseFloat((s.marketCap as string).replace('亿', '')), 0)
+        ? withMarketCap.reduce((sum, s) => sum + (marketCapYi.get(s.symbol) as number), 0)
         : null,
       averageChange: changePercentComplete
         ? withChangePercent.reduce((sum, s) => sum + (s.changePercent as number), 0) / withChangePercent.length

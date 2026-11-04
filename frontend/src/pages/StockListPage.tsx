@@ -124,7 +124,7 @@ const StockListPage: React.FC = () => {
     {
       title: '市值', dataIndex: 'marketCap', key: 'marketCap', width: 90, align: 'right',
       render: (v: string | null) => (v === null
-        ? <Dash title="行情接口未提供总市值，未用 0 顶替" />
+        ? <Dash title="上游未返回该标的总市值（marketCap 缺失），未用 0 或估算值顶替" />
         : <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v}</span>),
     },
     {
@@ -189,8 +189,8 @@ const StockListPage: React.FC = () => {
             label: '总市值(亿)', value: stats.totalMarketCap === null ? null : stats.totalMarketCap.toFixed(0), icon: null,
             bg: '#faf5ff', border: '#e9d5ff', color: '#7c3aed',
             tip: stats.totalMarketCap === null
-              ? `行情接口未提供市值字段（${stats.missingMarketCapCount} 只缺失），无法算出真实总市值，故显示「—」，未用 0 顶替`
-              : '全部标的市值合计',
+              ? `有 ${stats.missingMarketCapCount} 只标的未取到总市值，全市场合计不是真值，故显示「—」，未用 0 或部分合计顶替`
+              : '全部标的市值合计（腾讯行情总市值字段）',
           },
         ].map((item, i) => (
           <Col xs={12} sm={6} key={i}>
@@ -212,7 +212,7 @@ const StockListPage: React.FC = () => {
       {/* 缺失字段的口径说明：把「为什么是 —」写在页面上，而不是让人猜 */}
       {stocksStatus === 'ready' && (
         <div style={{ marginBottom: 12, fontSize: 12, color: TEXT_SEC, lineHeight: 1.7 }}>
-          · 总市值显示「—」：<code>GET /api/stocks</code> 的 <code>latestQuote</code> 不含市值字段，无法算出真实总市值（不用 0 或估算顶替）。
+          · 总市值显示「—」：<code>GET /api/stocks</code> 的 <code>latestQuote.marketCap</code>（亿元）在该标的缺失，或全市场并非每只都有值；缺任何一只，合计就不是真值（不用 0 或部分合计顶替）。
           <br />
           · 涨跌额显示「—」同因：接口不含涨跌额，也不含昨收，无法推导。
         </div>
