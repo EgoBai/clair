@@ -969,13 +969,22 @@ await test('industry：limit 截断时 count=返回条数、total=上游可取�
 console.log('\n/api/fund-flow/:symbol 个股五档');
 
 /** 东财 stock/get 五档：f62 主力 / f184 占比 / f66 超大 / f72 大 / f78 中 / f84 小 */
-async function callFundFlowSymbolWithStub({ stockGetBody, clistBody = PUSH2_SECTOR_FLOWS_FOR_SYMBOL }) {
+async function callFundFlowSymbolWithStub({
+  stockGetBody,
+  clistBody = PUSH2_SECTOR_FLOWS_FOR_SYMBOL,
+  primaryFails = false,
+  delayStockGetBody = null,
+}) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
     const url = typeof input === 'string' ? input : input.url;
+    // 按主机区分：实时主机可单独失效，延迟主机可单独给「常量假数据」夹具
+    const isDelayHost = url.includes('push2delay.eastmoney.com');
+    if (primaryFails && !isDelayHost) throw new Error('primary host unreachable (stubbed)');
     if (url.includes('/api/qt/stock/get')) {
-      if (stockGetBody === null) throw new Error('stock/get unreachable (stubbed)');
-      return new Response(stockGetBody, { status: 200 });
+      const body = isDelayHost && delayStockGetBody ? delayStockGetBody : stockGetBody;
+      if (body === null) throw new Error('stock/get unreachable (stubbed)');
+      return new Response(body, { status: 200 });
     }
     if (url.includes('/api/qt/clist/get')) {
       return new Response(clistBody, { status: 200 });
@@ -1050,6 +1059,24 @@ await test("symbol：f62 为 '-'（个股资金流不可得）→ current:null +
   assert.ok(typeof body.note === 'string' && body.note.includes('板块'),
     `note 应说明只剩板块资金流，实际 ${JSON.stringify(body.note)}`);
   assert.ok(body.data.sectorFlows.length >= 1, '板块资金流仍应返回（另一件事实）');
+});
+
+await test('symbol：实时主机不可达、延迟主机只回常量 → 判 unavailable，绝不把常量 3 当净额', async () => {
+  // 2026-11-04 线上实测：push2delay 对 600519/000001/600036/300750/601318/002594
+  // 一律回 f62=3、f78=0（常量），不是真实净额。若采信会渲染「主力净流入 3 元」。
+  const DELAY_CONSTANT = JSON.stringify({
+    data: { f62: 3, f184: 1.82, f66: '-', f72: '-', f78: 0, f84: 19405918198 },
+  });
+  const { status, body } = await callFundFlowSymbolWithStub({
+    stockGetBody: STOCK_GET_FULL, primaryFails: true, delayStockGetBody: DELAY_CONSTANT,
+  });
+  assert.equal(status, 200);
+  assert.equal(body.data.current, null, '延迟主机的常量不能当个股五档');
+  assert.equal(body.data.dataSource, 'unavailable');
+  assert.equal(body.source, 'eastmoney-boards-only');
+  assert.ok(Array.isArray(body.attempts) && body.attempts.includes('push2delay:untrusted-constant'),
+    'attempts 应记录延迟主机不可信，实际 ' + JSON.stringify(body.attempts));
+  assert.ok(body.data.sectorFlows.length >= 1, '板块资金流仍来自 clist，与个股五档是两件事实');
 });
 
 // ============================================================

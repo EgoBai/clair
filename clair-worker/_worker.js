@@ -5841,10 +5841,14 @@ async function handleFundFlow(symbol) {
     const market = pure.startsWith('6') ? 1 : (pure.startsWith('4') || pure.startsWith('8') ? 2 : 0);
     const secid = `${market}.${pure}`;
     const attempts = [];
-    const FLOW_HOSTS = ['https://push2delay.eastmoney.com', 'https://push2.eastmoney.com'];
+    // 实时主机优先，延迟主机只作兜底：2026-11-04 实测延迟主机 push2delay 对任意个股
+    // 都回 f62=3、f78=0（常量），不是真实净额；用它当默认会把「假数」渲染成「主力净流入 3 元」。
+    // 兜底时在 flowHost 里如实标注主机，页面可据此提示数据滞后。
+    const FLOW_HOSTS = ['https://push2.eastmoney.com', 'https://push2delay.eastmoney.com'];
 
     // 个股实时主力/散户净额（单位：元）。字段：f62主力净 f184主力净占比 f66超大 f72大 f78中 f84小
     let latest = null;
+    let flowHost = null;
     for (const host of FLOW_HOSTS) {
       try {
         const u = `${host}/api/qt/stock/get?secid=${secid}&fields=f62,f184,f66,f72,f78,f84&ut=fa5fd1943c7b386f172d6893dbfba10b`;
@@ -5858,10 +5862,18 @@ async function handleFundFlow(symbol) {
             mainNet: dd.f62, mainNetPct: dd.f184 != null && dd.f184 !== '-' ? dd.f184 : null,
             superNet: dd.f66, bigNet: dd.f72, midNet: dd.f78, smallNet: dd.f84,
           };
+          flowHost = host;
           break;
         }
         attempts.push(`${host.slice(8, 20)}:empty`);
       } catch (e) { attempts.push(`${host.slice(8, 20)}:${String(e.message || 'e').slice(0, 24)}`); }
+    }
+    // 延迟主机不可信：2026-11-04 实测它对 600519/000001/600036/300750/601318/002594
+    // 全部返回 f62=3、f78=0（常量），f84 量级也与其他字段不自洽。宁可 unavailable，也不把
+    // 常量当「主力净流入 3 元」展示（诚实红线：没取到 ≠ 数据是 0/3）。
+    if (flowHost && flowHost.includes('push2delay')) {
+      attempts.push('push2delay:untrusted-constant');
+      latest = null; flowHost = null;
     }
 
     // 申万31行业板块主力净额排行（单请求取全量后按 SW_BOARD_CODES 过滤）
