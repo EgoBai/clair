@@ -212,8 +212,9 @@ export const NotDeployedBanner: React.FC = () => {
           </div>
           <div style={{ marginTop: 4, opacity: 0.9 }}>
             未挂载端点：
-            {entries.map((e) => (
+            {entries.map((e, i) => (
               <code key={e.endpoint} style={{ marginRight: 8, fontSize: 11.5 }}>
+                {i > 0 ? '、' : ''}
                 {e.endpoint}
               </code>
             ))}

@@ -1432,7 +1432,16 @@ async function handleStockDetail(symbol) {
     // 详情页同时消费 quote（旧字段）与 latestQuote（backend 契约）。两者必须是**同一份**
     // 完整行情对象：只给 latestQuote 六个契约字段时，页面「涨跌 / 今开 / 最高 / 最低」
     // 会因为字段缺失渲染成 NaN（2026-11-04 真浏览器实测：1446.44 后面紧跟 NaN）。
+    // 行情快照时间戳形如 20261030161455；页面需要在价格旁披露「数据截至 YYYY-MM-DD」。
+    // 缺失时如实 null（页面显示「未知日期」），绝不填今天冒充实时。
+    const qt = typeof q.quoteTime === 'string' ? q.quoteTime : '';
+    // 单只兜底（fetchQuoteFallback）不带 quoteTime，此时退到全量快照里最新的交易日；
+    // 两者都取不到 → null（页面显示「未知日期」），绝不用自然日冒充实时交易日。
+    const tradeDate = /^\d{8}/.test(qt)
+      ? `${qt.slice(0, 4)}-${qt.slice(4, 6)}-${qt.slice(6, 8)}`
+      : snapshotTradeDate(quotes);
     const quote = {
+      tradeDate,
       closePrice: q.price,
       openPrice: q.open,
       highPrice: q.high,
@@ -1445,10 +1454,12 @@ async function handleStockDetail(symbol) {
       turnoverRate: q.turnoverRate ?? null,
       peRatio: q.peRatio ?? null,
       pbRatio: q.pbRatio ?? null,
-      // 单位：亿元。缺失返回 null（前端显示 —），不再硬编码 0
-      marketCap: q.marketCap ?? null,
-      circulatingMarketCap: q.circulatingMarketCap ?? null,
-      amplitude: q.high > 0 && q.low > 0 ? ((q.high - q.low) / q.prevClose * 100) : 0,
+      // 对外单位统一为「元」：后端 /api/stocks/:symbol 契约按元输出并带 marketCapUnit:'yuan'
+      // （backend/src/api/stock.ts:101 起）。Worker 上游腾讯给的是「亿元」，
+      // 直接透出会被页面按元二次折算，1.81 万亿显示成「1.81 万」（2026-11-04 真浏览器实测）。
+      marketCap: Number.isFinite(q.marketCap) ? q.marketCap * 1e8 : null,
+      circulatingMarketCap: Number.isFinite(q.circulatingMarketCap) ? q.circulatingMarketCap * 1e8 : null,
+      amplitude: q.high > 0 && q.low > 0 && q.prevClose > 0 ? ((q.high - q.low) / q.prevClose * 100) : null,
     };
 
     return json({
@@ -1459,6 +1470,7 @@ async function handleStockDetail(symbol) {
         industry: stock.industry,
         quote,
         latestQuote: quote,
+        marketCapUnit: 'yuan',
       },
       success: true,
     });
@@ -5969,7 +5981,15 @@ async function handleFundFlow(symbol) {
     // 个股实时主力/散户净额（单位：元）。字段：f62主力净 f184主力净占比 f66超大 f72大 f78中 f84小
     let latest = null;
     let flowHost = null;
+    // 顺序：新浪优先，东财单只兜底。
+    // 2026-11-04 实测 push2 单只 stock/get 在 CF 出口会返回降级常量
+    // （f62=3 / f78=0 / f84=1250081601，且缺 f66/f72）：同一标的连续 5 次请求里
+    // 有 1 次命中该常量、其余为 non-json。常量一旦渲染就是「主力净流入 3 元」，
+    // 而新浪分档（in/out 相减）四次请求全部返回真实净额，故把新浪放在主路径。
+    const sinaFirst = await fetchSinaFundFlow(pure, attempts);
+    if (sinaFirst) { latest = sinaFirst; flowHost = 'sina'; }
     for (const host of STOCK_FLOW_HOSTS) {
+      if (latest) break;
       try {
         const u = `${host}/api/qt/stock/get?secid=${secid}&fields=f62,f184,f66,f72,f78,f84&ut=fa5fd1943c7b386f172d6893dbfba10b`;
         const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/' }, signal: AbortSignal.timeout(5000) });
@@ -5977,6 +5997,12 @@ async function handleFundFlow(symbol) {
         if (!t.startsWith('{')) { attempts.push(`${host.slice(8, 20)}:non-json`); continue; }
         const d = JSON.parse(t);
         const dd = d && d.data;
+        // 降级常量签名：主/中/小单固定 3 / 0 / 1250081601，且超大/大单缺失。
+        // 命中即视为上游降级占位（不是行情），跳过并记入 attempts。
+        if (dd && dd.f62 === 3 && dd.f78 === 0 && dd.f84 === 1250081601 && (dd.f66 == null || dd.f72 == null)) {
+          attempts.push(`${host.slice(8, 20)}:untrusted-constant`);
+          continue;
+        }
         if (dd && dd.f62 != null && dd.f62 !== '-') {
           latest = {
             mainNet: dd.f62, mainNetPct: dd.f184 != null && dd.f184 !== '-' ? dd.f184 : null,
@@ -5995,10 +6021,7 @@ async function handleFundFlow(symbol) {
     }
     // 东财任一路都拿不到可信五档时的真实兜底：新浪个股资金流（与 K 线的 sina 源同域，CF 出口可达）。
     // 新浪给的是分档「流入/流出」原始量，五档净额由同源字段相减得到（直接算术，不做口径倒算）。
-    if (!latest) {
-      const sina = await fetchSinaFundFlow(pure, attempts);
-      if (sina) { latest = sina; flowHost = 'sina'; }
-    }
+    // 新浪已在主路径尝试过；此处不再重复请求（失败时 attempts 已记录 sina:<原因>）。
 
     // 申万31行业板块主力净额排行（单请求取全量后按 SW_BOARD_CODES 过滤）
     let sectorFlows = [];

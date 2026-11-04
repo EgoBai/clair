@@ -1083,6 +1083,19 @@ await test('symbol：实时主机与新浪都不可用 → 判 unavailable，不
   assert.ok(body.data.sectorFlows.length >= 1, '板块资金流仍来自 clist，与个股五档是两件事实');
 });
 
+await test('symbol：东财返回降级常量（f62=3/f78=0/f84=1250081601）→ 判不可信，绝不渲染「主力净流入 3 元」', async () => {
+  // 2026-11-04 线上实测：push2 单只 stock/get 偶发返回这组常量（且缺 f66/f72），
+  // 同一标的 5 次请求里 1 次命中。新浪同时取不到时必须 unavailable，
+  // 不能把常量当真实净额（旧线上页面就是这样显示「+3」的）。
+  const CONST = JSON.stringify({ data: { f62: 3, f184: 0.0001, f78: 0, f84: 1250081601 } });
+  const { status, body } = await callFundFlowSymbolWithStub({ stockGetBody: CONST });
+  assert.equal(status, 200);
+  assert.equal(body.data.current, null, '常量签名必须被拒，current 应为 null');
+  assert.equal(body.data.dataSource, 'unavailable');
+  assert.ok(body.attempts.some((a) => a.includes('untrusted-constant')),
+    'attempts 应记录常量被拒，实际 ' + JSON.stringify(body.attempts));
+});
+
 await test('symbol：东财不可信时用新浪兜底，五档由同源 in/out 相减，主力=超大+大', async () => {
   const SINA = JSON.stringify({
     r0_in: '2952439538.21', r0_out: '2931777361.34',
@@ -1511,7 +1524,7 @@ await test('/api/stocks/:symbol：详情同时返回 latestQuote 与 quote（bac
     assert.equal(body.data.latestQuote.changePercent, body.data.quote.changePercent);
     // 详情页实际渲染的每个字段都必须在：缺 change/openPrice/highPrice/lowPrice
     // 时页面会显示 NaN（2026-11-04 线上实测过）。
-    for (const k of ['closePrice', 'change', 'changePercent', 'openPrice', 'highPrice', 'lowPrice',
+    for (const k of ['tradeDate', 'closePrice', 'change', 'changePercent', 'openPrice', 'highPrice', 'lowPrice',
       'prevClose', 'volume', 'turnover', 'turnoverRate', 'peRatio']) {
       assert.ok(k in body.data.latestQuote, `latestQuote 缺契约字段 ${k}`);
     }
