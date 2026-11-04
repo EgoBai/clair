@@ -7949,6 +7949,76 @@ export default {
       });
     }
 
+    // /api/health/data-freshness —— E5 数据及时性「生产可观测」（两层，互不冒充）
+    // 背景：本地门禁 scripts/guard/data-freshness.ts 依赖 PG（Worker 无驱动、无连接串），
+    //   直接搬上来没有执行环境。故拆两层，各自只说自己能证明的事：
+    //   第 1 层 realtime：Worker 实时源此刻能看到的最新交易日（行情快照时间戳的日期部分）；
+    //     拿不到就是 null；lagTradingDays 在 Worker 侧**不计算**（没有权威交易日历单一真源，
+    //     复制一份必然漂移），返回 null 并注明「需本地门禁计算」，绝不用 0 冒充。
+    //   第 2 层 kv-snapshot：本地跑 data-freshness --publish 后写入 KV meta:freshness 的
+    //     数据库新鲜度快照（maxTradeDate / expectedTradeDate / lagTradingDays / calendar / rows）；
+    //     快照超过 48 小时未更新则 stale:true —— 过期必须说出来，不能说「新鲜」。
+    //   无快照 → dataSource:'unavailable' + 中文原因，HTTP 仍 200（不 404、不 500、不 0）。
+    if (path === '/api/health/data-freshness') {
+      const observedAt = Date.now();
+      // ── 第 1 层：实时源最新交易日 ──
+      let latestTradeDate = null;
+      let realtimeNote = null;
+      try {
+        const indexQuotes = await fetchTencentQuotes(INDEX_SYMBOLS.map((i) => i.tencent));
+        latestTradeDate = snapshotTradeDate(indexQuotes);
+        if (!latestTradeDate) realtimeNote = '实时源返回了行情但快照时间戳不可解析，最新交易日保持 null（不猜）';
+      } catch (e) {
+        realtimeNote = '实时源不可达或解析失败，最新交易日保持 null（不猜）：' + (e && e.message ? e.message : String(e));
+      }
+      // ── 第 2 层：数据库新鲜度快照（KV，本地发布）──
+      let snapshot = null;
+      let snapshotNote = null;
+      if (env && env.STOCK_DATA) {
+        try {
+          const rec = await env.STOCK_DATA.get('meta:freshness', 'json');
+          if (rec && typeof rec === 'object') {
+            const checkedAt = typeof rec.checkedAt === 'string' ? Date.parse(rec.checkedAt) : NaN;
+            const ageHours = Number.isFinite(checkedAt) ? Math.round(((observedAt - checkedAt) / 3600000) * 10) / 10 : null;
+            snapshot = {
+              maxTradeDate: rec.maxTradeDate ?? null,
+              expectedTradeDate: rec.expectedTradeDate ?? null,
+              lagTradingDays: typeof rec.lagTradingDays === 'number' ? rec.lagTradingDays : null,
+              maxLag: typeof rec.maxLag === 'number' ? rec.maxLag : null,
+              calendarPrecision: rec.calendarPrecision ?? null,
+              rowCount: typeof rec.rows === 'number' ? rec.rows : null,
+              verdict: rec.verdict ?? null,
+              checkedAt: rec.checkedAt ?? null,
+              ageHours,
+              stale: ageHours === null ? null : ageHours > 48,
+            };
+            if (snapshot.stale) snapshotNote = '快照已超过 48 小时未更新，可能落后于当前库状态（stale:true），不要当作当前新鲜度';
+          } else {
+            snapshotNote = 'KV 中尚无数据库新鲜度快照（meta:freshness），需本地运行 data-freshness --publish 后发布';
+          }
+        } catch (e) {
+          snapshotNote = '读取 KV 快照失败：' + (e && e.message ? e.message : String(e));
+        }
+      } else {
+        snapshotNote = '本实例未绑定 KV（STOCK_DATA），无法读取数据库新鲜度快照';
+      }
+      const dataSource = snapshot ? 'kv-snapshot' : 'unavailable';
+      return json({
+        success: true,
+        service: 'clair-worker',
+        evaluator: 'E5',
+        dataSource,
+        observedAt,
+        realtime: { latestTradeDate, lagTradingDays: null, note: realtimeNote },
+        database: snapshot,
+        databaseNote: snapshotNote,
+        note:
+          '两层可观测：realtime 只证明 Worker 此刻能看到的最新交易日；' +
+          'database 来自本地 data-freshness 门禁发布到 KV 的快照，lagTradingDays 由本地按官方交易日历计算，' +
+          'Worker 不复刻日历、不用 0 冒充未知。',
+      });
+    }
+
     // Market indices
     if (path === '/api/market/indices') {
       return handleMarketIndices();

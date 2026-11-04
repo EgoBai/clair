@@ -1287,6 +1287,62 @@ await test('/api/ai/diagnose/600519（有 key，桩行情/K线/LLM）：结构�
 // 四、双入口字节一致性（Cloudflare Pages advanced mode 的硬约束）
 // ============================================================
 
+// ── E5 数据及时性生产可观测（两层：realtime / kv-snapshot）──
+// 背景：本地门禁 data-freshness.ts 依赖 PG，Worker 无驱动；故拆两层，
+// 每层只说自己能证明的事。未知一律 null，绝不用 0 冒充。
+console.log('\nE5 数据及时性端点（/api/health/data-freshness）');
+
+await test('无 KV 快照时诚实降级：dataSource=unavailable，lagTradingDays 为 null（不是 0）', async () => {
+  await withStubbedMarketFetch(async () => {
+    const { status, body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/health/data-freshness', undefined, {});
+    assert.equal(status, 200, '缺快照也必须 200，不能 404/500');
+    assert.equal(body.success, true);
+    assert.equal(body.evaluator, 'E5');
+    assert.equal(body.dataSource, 'unavailable');
+    assert.equal(body.database, null, '无快照时 database 必须为 null，不能编造');
+    assert.equal(body.realtime.lagTradingDays, null, 'Worker 不复刻日历，lag 必须为 null 而非 0');
+    assert.equal(body.realtime.latestTradeDate, '2026-11-04', '实时层应取行情快照时间戳的日期');
+    assert.ok(typeof body.databaseNote === 'string' && body.databaseNote.length > 0, '必须说明为什么没有');
+  });
+});
+
+await test('有 KV 快照时透出真实值，且 48 小时内判定 stale=false', async () => {
+  const rec = {
+    maxTradeDate: '2026-11-04', expectedTradeDate: '2026-11-03', lagTradingDays: 0,
+    maxLag: 1, calendarPrecision: 'official', rows: 545013, verdict: 'PASS',
+    checkedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+  };
+  const kvStub = { STOCK_DATA: { get: async (key) => (key === 'meta:freshness' ? rec : null) } };
+  await withStubbedMarketFetch(async () => {
+    const { status, body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/health/data-freshness', undefined, kvStub);
+    assert.equal(status, 200);
+    assert.equal(body.dataSource, 'kv-snapshot');
+    assert.equal(body.database.maxTradeDate, '2026-11-04');
+    assert.equal(body.database.lagTradingDays, 0);
+    assert.equal(body.database.rowCount, 545013);
+    assert.equal(body.database.stale, false);
+    assert.equal(body.databaseNote, null, '新鲜时不该有任何降级说明');
+  });
+});
+
+await test('快照超过 48 小时标 stale=true 并说明，不冒充新鲜', async () => {
+  const rec = {
+    maxTradeDate: '2026-10-30', expectedTradeDate: '2026-11-03', lagTradingDays: 2,
+    maxLag: 1, calendarPrecision: 'official', rows: 540000, verdict: 'FAIL',
+    checkedAt: new Date(Date.now() - 49 * 3600 * 1000).toISOString(),
+  };
+  const kvStub = { STOCK_DATA: { get: async () => rec } };
+  await withStubbedMarketFetch(async () => {
+    const { body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/health/data-freshness', undefined, kvStub);
+    assert.equal(body.database.stale, true);
+    assert.ok(body.databaseNote.includes('48'), '必须说明过期原因');
+    assert.equal(body.database.lagTradingDays, 2, '过期也要如实透出快照里的落后天数');
+  });
+});
+
 console.log('\n部署入口一致性');
 
 await test('_worker.js 与 worker.js 逐字节相同（否则线上跑的仍是旧代码）', async () => {

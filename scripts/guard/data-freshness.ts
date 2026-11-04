@@ -22,16 +22,21 @@
  * ## 用法
  *   cd backend && ./node_modules/.bin/tsx ../scripts/guard/data-freshness.ts
  *   cd backend && ./node_modules/.bin/tsx ../scripts/guard/data-freshness.ts --json --ticket T-2611-01
- *   # 自证不是恒绿：模拟落后 2 个交易日，必须 FAIL（exit 1）
- *   cd backend && ./node_modules/.bin/tsx ../scripts/guard/data-freshness.ts --simulate-lag 2
+ *   # 自证不是恒绿：把观测值往前挪 N 个交易日，N 必须大于 maxLag + 当前 (expected - observed) 差
+ *   # 例：库最新=11-04、expected=11-03、maxLag=1 时，N=3 → lag=2 > 1 → FAIL（exit 1）
+ *   cd backend && ./node_modules/.bin/tsx ../scripts/guard/data-freshness.ts --simulate-lag 3
+ *   # 发布生产可观测快照（Worker /api/health/data-freshness 第 2 层读它）
+ *   cd backend && ./node_modules/.bin/tsx ../scripts/guard/data-freshness.ts --publish /tmp/e5.json
  *
  * ## 状态口径（禁止混同）
  *   本地态：本脚本可跑，**不进 CI、不阻断**。
- *   生产态：Render 服务/库已暂停（2026-11-03），无生产实例可打，E5 生产态=BLOCKED。
- *   因此只能声明「本地链路及时性校验」通过，不得声明「E5 已上线」。
+ *   生产态：两层可观测，互不冒充 ——
+ *     第 1 层 realtime 由 Worker 直接回答（此刻实时源能看到的最新交易日）；
+ *     第 2 层 database 读 KV meta:freshness，内容由本脚本 --publish 产出后发布。
+ *   --publish 只写本地文件，不代替发布动作；--simulate-lag 的结果**拒绝发布**（模拟值不得进生产）。
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -55,6 +60,7 @@ const opt = (n: string): string | undefined => {
 const flag = (n: string) => argv.includes(`--${n}`);
 
 const JSON_OUT = flag('json');
+const PUBLISH = opt('publish') ?? (flag('publish') ? '/tmp/e5-freshness-snapshot.json' : undefined);
 const TICKET = opt('ticket');
 const MAX_LAG = Number(opt('max-lag') ?? '1');
 const SIMULATE_LAG = Number(opt('simulate-lag') ?? '0');
@@ -169,6 +175,31 @@ if (JSON_OUT) {
   console.log(
     `E5 INFO rows=${rowCount} now=${base.nowInMarketTz} simulated=${simulated} precision=${precision}`,
   );
+}
+
+// ── 生产可观测快照（第 2 层）──
+// 字段名与 clair-worker /api/health/data-freshness 的 database 段一一对应。
+// 只在真实（非模拟）运行时产出；模拟值进生产等于用假数据冒充新鲜度。
+if (PUBLISH) {
+  if (simulated) {
+    console.error('E5 ERROR 模拟运行（--simulate-lag）的结果不得发布；请去掉该参数后重跑 --publish');
+    process.exit(2);
+  }
+  const snapshot = {
+    maxTradeDate: observedRaw,
+    expectedTradeDate: expected,
+    lagTradingDays,
+    maxLag: MAX_LAG,
+    calendarPrecision: precision,
+    rows: rowCount,
+    verdict,
+    checkedAt: now.toISOString(),
+    source: 'scripts/guard/data-freshness.ts',
+    marketTz: MARKET_TZ,
+  };
+  const target = resolve(PUBLISH);
+  writeFileSync(target, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
+  console.error('E5 PUBLISH 快照已写入 ' + target + '（还需发布到 KV meta:freshness 才对生产可见）');
 }
 
 process.exit(verdict === 'FAIL' ? 1 : 0);
