@@ -5898,15 +5898,23 @@ async function handleFundFlow(symbol) {
       const hit = stocks.find(s => s.symbol === pure);
       if (hit) stockName = hit.name || '';
     } catch (_) { /* 名字缺失不阻塞 */ }
+    // 五档可能部分缺失（东财对停牌/新股/无成交常给 '-'）：缺失一律 null，绝不写 0。
+    // 写 0 会让页面渲染「主力净流入 0 元」，把「没取到」说成「今天资金完全平衡」——诚实红线。
     const current = latest ? {
       symbol: pure, name: stockName,
-      mainNet: latest.mainNet ?? 0,
-      superLargeNet: latest.superNet ?? 0,
-      largeNet: latest.bigNet ?? 0,
-      mediumNet: latest.midNet ?? 0,
-      smallNet: latest.smallNet ?? 0,
+      mainNet: numOrNull(latest.mainNet),
+      superLargeNet: numOrNull(latest.superNet),
+      largeNet: numOrNull(latest.bigNet),
+      mediumNet: numOrNull(latest.midNet),
+      smallNet: numOrNull(latest.smallNet),
       tradeDate: beijingToday(),
     } : null;
+    const currentMissing = current
+      ? ['mainNet', 'superLargeNet', 'largeNet', 'mediumNet', 'smallNet'].filter((k) => current[k] === null)
+      : [];
+    // 个股资金流取不到 → unavailable（板块资金流仍可能在，但那是另一个事实）；
+    // 取到但缺档 → partial；五档齐全才是 eastmoney 全量。
+    const flowDataSource = latest ? (currentMissing.length === 0 ? 'eastmoney' : 'partial') : 'unavailable';
     return json({
       success: true,
       data: {
@@ -5916,13 +5924,16 @@ async function handleFundFlow(symbol) {
         date: beijingToday(),
         // ── FundFlowPage 消费字段（与 backend /fund-flow/:symbol 同契约）──
         current,
+        missing: currentMissing,
         history: [],
-        dataSource: latest ? 'eastmoney' : 'eastmoney',
+        dataSource: flowDataSource,
         name: stockName,
       },
       source: latest ? 'eastmoney' : 'eastmoney-boards-only',
       attempts,
-      note: latest ? undefined : '个股资金流暂缺，仅返回板块资金流',
+      note: latest
+        ? (currentMissing.length ? `个股资金流缺 ${currentMissing.length} 档，缺失字段已置 null（不写 0）` : undefined)
+        : '个股资金流暂缺，仅返回板块资金流',
     });
   } catch (e) {
     return error(e.message);

@@ -42,9 +42,15 @@ const { Title, Text } = Typography;
  */
 const API_BASE = API_ORIGIN;
 
-/** 涨/流入=红，跌/流出=绿（中国习惯） */
-const flowColor = (v: number): string => (v >= 0 ? THEME.up : THEME.down);
-const fmtSigned = (v: number): string => `${v >= 0 ? '+' : '-'}${formatLargeNumber(Math.abs(v))}`;
+/**
+ * 涨/流入=红，跌/流出=绿（中国习惯）。
+ * 缺失（null/undefined/NaN/Infinity）走中性灰：Worker 对东财不给的档位返回 null，
+ * 若这里沿用 `v >= 0` 会渲染成「-0」并染绿，等于把「没取到」说成「净流出 0」。
+ */
+const isFlowNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const flowColor = (v: number | null | undefined): string => (isFlowNum(v) ? (v >= 0 ? THEME.up : THEME.down) : THEME.textSec);
+const fmtSigned = (v: number | null | undefined): string =>
+  (isFlowNum(v) ? `${v >= 0 ? '+' : '-'}${formatLargeNumber(Math.abs(v))}` : '—');
 const QUICK_SYMBOLS = ['600519.SH', '000001.SZ', '300750.SZ', '601318.SH'];
 
 /**
@@ -77,6 +83,9 @@ function dsTag(ds?: FundFlowProviderName | 'unknown') {
   // 'unavailable' 是「数据源没有给值」，不是某个 provider 的名字——不能沿用真实源的蓝色，
   // 否则「数据不可得」会被读成「已有真实数据来源」。
   if (ds === 'unavailable') return <Tag color="default">不可得</Tag>;
+  // 'partial'：来源可达但部分字段缺失（Worker 对东财缺档返回 null + missing[]）。
+  // 不能沿用真实源的蓝色，否则「缺了几档」会被读成「数据完整」。
+  if ((ds as string) === 'partial') return <Tag color="default">部分缺失</Tag>;
   const isDemo = ds === 'demo';
   return <Tag color={isDemo ? 'gold' : 'blue'}>{isDemo ? '演示数据' : ds}</Tag>;
 }
@@ -421,7 +430,7 @@ const FundFlowPage: React.FC = () => {
           <LoadingStateDetail />
         ) : stockCurrent ? (
           <>
-            <Row gutter={[16, 16]} style={{ marginBottom: 8 }}>
+            <Row data-testid="stock-flow-current" gutter={[16, 16]} style={{ marginBottom: 8 }}>
               {[
                 { l: '名称/代码', v: `${stockCurrent.name || stockCurrent.symbol}`, c: THEME.text },
                 { l: '主力净额', v: fmtSigned(stockCurrent.mainNet), c: flowColor(stockCurrent.mainNet) },

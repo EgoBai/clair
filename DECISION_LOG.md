@@ -339,3 +339,9 @@
 - **验证**：本地 `--expect-commit cc2818e8eab5 --allow-unreachable` → OK 10 · NOT_FOUND 2 · MALFORMED 0 · UNREACHABLE 0，exit 0；workflow_dispatch run 41783021987（head 6cc70ff）→ deploy job success，日志 `Verify production contract` 段实测输出 12 端点表 + 版本一致性 MATCH + 「✓ 通过」。
 - **代价**：部署后多一次外部网络往返（约 10–20 秒）；上游抖动导致 UNREACHABLE 时靠 `--allow-unreachable` 放行，真实契约破损（缺字段 / dataSource 非法 / 5xx）仍然红。
 
+
+### D52 · 个股资金流五档缺失置 null 并标 partial，前端缺失渲染「—」 ✅ 2026-11-04 执行
+- **结论**：Worker `GET /api/fund-flow/:symbol` 的 `current` 五档原来 `latest.mainNet ?? 0`——东财对停牌/新股/无成交的档位返回字符串 `'-'`（`??` 不生效，前端拿到字符串），真为 null 时被写成 0，页面渲染「主力净流入 0 元」，把「没取到」读成「今天资金完全平衡」。现在统一 `numOrNull`（`'-'`/`''`/NaN → null，真实 0 保留 0），新增 `missing[]` 列出缺档；`dataSource` 从恒 `'eastmoney'` 改为三态：五档齐全 `eastmoney` / 缺档 `partial` / `current:null` 时 `unavailable`。
+- **前端**：`FundFlowPage` 的 `flowColor/fmtSigned` 原签名只接 `number`，null 会算成 `'-0'` 并染绿；现补 `isFlowNum` 守卫，缺失渲染「—」+ 中性灰。`dsTag` 新增 `partial` → 灰 Tag「部分缺失」，不沿用真实源的蓝色。个股五档卡片区加 `data-testid="stock-flow-current"`（市场 5 档与个股 5 档标题同名，测试必须限定容器）。
+- **验证**：worker 契约新增 3 例（齐全 / 缺档 + 真实 0 / `f62='-'`）→ 85 通过 2 失败（两条是既有北向真实网络口径失败）；`fundFlowPage.test.tsx` 15→17 例全绿；`npx tsc --noEmit` exit 0；`honesty-scan --strict` 与 `shadow-test-census --check` 均 exit 0。
+- **代价**：前端新增 1 个 testid 与 1 个 Tag 分支；Worker 响应多一个 `missing` 字段（消费端可不读）。个股资金流取不到时 Tag 从「eastmoney」变「不可得」——这是把事实说准，不是回退。

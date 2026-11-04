@@ -421,6 +421,63 @@ describe('行业资金流：主力净额缺失渲染「—」、真实 0 仍渲�
   });
 });
 
+// ── 场景：个股五档部分缺失（Worker 返回 null + missing[] + dataSource:partial）──
+//
+// Worker 侧旧实现 `mainNet: latest.mainNet ?? 0`：东财对停牌/新股/无成交的档位给 '-'
+// （`??` 不生效 → 前端拿到字符串），真为 null 时写成 0 → 页面渲染「主力净流入 0 元」。
+// 现在 Worker 统一 number|null + missing[]；本用例钉住前端也不许再把 null 变回 0。
+
+const STOCK_PARTIAL = {
+  current: {
+    symbol: '600519.SH', name: '贵州茅台',
+    mainNet: 123_456_789, superLargeNet: null, largeNet: 23_456_789,
+    mediumNet: null, smallNet: 0, tradeDate: '2026-10-30',
+  },
+  missing: ['superLargeNet', 'mediumNet'],
+  history: [],
+  dataSource: 'partial',
+};
+
+describe('个股五档部分缺失：null 档渲染「—」，真实 0 仍是 +0', () => {
+  beforeEach(() => {
+    routeFetch({
+      ...baseRoutes({ body: MARKET_REAL }),
+      '/api/fund-flow/': { body: STOCK_PARTIAL },
+    });
+  });
+
+  /** 个股卡片区（市场 5 档与个股 5 档标题同名：必须限定容器，否则命中市场块） */
+  const stockStatText = (label: string): string => {
+    const box = document.querySelector('[data-testid="stock-flow-current"]');
+    expect(box, '未找到个股五档卡片区').toBeTruthy();
+    const hit = Array.from(box!.querySelectorAll('.ant-statistic')).find(
+      (el) => el.querySelector('.ant-statistic-title')?.textContent?.trim() === label,
+    );
+    expect(hit, `个股卡片区未找到「${label}」`).toBeTruthy();
+    return hit!.textContent ?? '';
+  };
+
+  it('缺失档位显示「—」而不是「+0」，且不染成流入红/流出绿', async () => {
+    renderPage();
+    await waitFor(() => expect(stockStatText('超大单')).toContain('—'));
+
+    expect(stockStatText('主力净额'), '真实主力净额照常渲染').toContain('+123,456,789');
+    const superLarge = stockStatText('超大单');
+    expect(superLarge).toContain('—');
+    // 关键：不得出现「+0」——那是「超大单净流入 0 元」的假事实
+    expect(superLarge).not.toContain('+0');
+    expect(stockStatText('中单')).toContain('—');
+    expect(stockStatText('小单'), '真实 0 必须保留为 +0，不得判成缺失').toContain('+0');
+    expect(stockStatText('小单')).not.toContain('—');
+  });
+
+  it('数据源 Tag 标「部分缺失」，不冒充完整的 eastmoney', async () => {
+    renderPage();
+    await waitFor(() => expect(stockStatText('超大单')).toContain('—'));
+    expect(screen.getAllByText('部分缺失').length).toBeGreaterThan(0);
+  });
+});
+
 describe('行业资金流空态：说清「为什么没有」，不留无声空列表', () => {
   beforeEach(() => {
     routeFetch({

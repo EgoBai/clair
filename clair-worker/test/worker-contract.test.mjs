@@ -952,6 +952,107 @@ await test('industry：limit 截断时 count=返回条数、total=上游可取�
 });
 
 // ============================================================
+// 三·六、/api/fund-flow/:symbol 个股五档净额（缺失 null ≠ 0 元）
+//
+// 【缺陷背景】修复前 handleFundFlow 的 current 映射：
+//     mainNet: latest.mainNet ?? 0, superLargeNet: latest.superNet ?? 0, ...
+//   · 东财对停牌/新股/无成交的档位返回 '-'（字符串）→ `?? 0` 不生效 → 前端直接拿到 '-'
+//   · 真为 null/undefined 时被写成 0 → 页面渲染「主力净流入 0 元」，把「没取到」
+//     读成「今天资金完全平衡」——本项目点名的「零值顶替空态」红线
+//   · dataSource 恒 'eastmoney'（自己 ? 自己），个股五档全无时仍宣称 eastmoney
+//
+// 【修好后的契约】
+//   · 五档统一 number|null（'-'、''、NaN → null），真实 0 仍是 0
+//   · 缺失档位列进 missing[]；dataSource：全齐 'eastmoney' / 缺档 'partial' / 无 current 'unavailable'
+// ============================================================
+
+console.log('\n/api/fund-flow/:symbol 个股五档');
+
+/** 东财 stock/get 五档：f62 主力 / f184 占比 / f66 超大 / f72 大 / f78 中 / f84 小 */
+async function callFundFlowSymbolWithStub({ stockGetBody, clistBody = PUSH2_SECTOR_FLOWS_FOR_SYMBOL }) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('/api/qt/stock/get')) {
+      if (stockGetBody === null) throw new Error('stock/get unreachable (stubbed)');
+      return new Response(stockGetBody, { status: 200 });
+    }
+    if (url.includes('/api/qt/clist/get')) {
+      return new Response(clistBody, { status: 200 });
+    }
+    // 股票清单等旁路请求：如实抛错，handler 内 try/catch 会降级（名字缺失不阻塞）
+    throw new Error(`stubbed test 不应请求该 URL: ${url}`);
+  };
+  try {
+    const res = await worker.fetch(new Request('https://clair-api.pages.dev/api/fund-flow/600519'), envStub(), {});
+    return { status: res.status, body: await res.json() };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+const PUSH2_SECTOR_FLOWS_FOR_SYMBOL = JSON.stringify({
+  data: {
+    diff: [
+      { f12: 'BK1283', f14: '银行', f62: 300000000 },
+      { f12: 'BK1201', f14: '电子', f62: -120000000 },
+    ],
+  },
+});
+
+const STOCK_GET_FULL = JSON.stringify({
+  data: { f62: 123456789, f184: 1.23, f66: 45678901, f72: 23456789, f78: -1234567, f84: 8901234 },
+});
+
+const STOCK_GET_PARTIAL = JSON.stringify({
+  // f66 / f78 上游未给（'-' / null）；f84 是真实 0（必须保留 0，不得判成 null）
+  data: { f62: 1111, f184: '-', f66: '-', f72: 2222, f78: null, f84: 0 },
+});
+
+await test('symbol：五档齐全 → 数值原样、missing 为空、dataSource:eastmoney', async () => {
+  const { status, body } = await callFundFlowSymbolWithStub({ stockGetBody: STOCK_GET_FULL });
+  assert.equal(status, 200);
+  assert.equal(body.success, true);
+  const cur = body.data.current;
+  assert.ok(cur && typeof cur === 'object', 'current 应存在');
+  assert.equal(cur.mainNet, 123456789);
+  assert.equal(cur.superLargeNet, 45678901);
+  assert.equal(cur.largeNet, 23456789);
+  assert.equal(cur.mediumNet, -1234567);
+  assert.equal(cur.smallNet, 8901234);
+  assert.deepEqual(body.data.missing, [], '五档齐全时 missing 必须为空');
+  assert.equal(body.data.dataSource, 'eastmoney');
+});
+
+await test("symbol：上游给 '-' 或 null → 该档 null（不是 0、不是字符串），缺失列入 missing[]", async () => {
+  const { body } = await callFundFlowSymbolWithStub({ stockGetBody: STOCK_GET_PARTIAL });
+  const cur = body.data.current;
+  assert.equal(cur.mainNet, 1111);
+  assert.equal(cur.superLargeNet, null, "f66='-' 必须归一为 null，" + `实际 ${JSON.stringify(cur.superLargeNet)}`);
+  assert.equal(cur.mediumNet, null, 'f78=null 必须保持 null');
+  assert.equal(cur.largeNet, 2222);
+  assert.equal(cur.smallNet, 0, '真实 0 必须保留为 0（判成 null 是同一个错误的反面）');
+  assert.deepEqual(body.data.missing, ['superLargeNet', 'mediumNet'],
+    `missing 必须只列出真正缺失的档位，实际 ${JSON.stringify(body.data.missing)}`);
+  assert.equal(body.data.dataSource, 'partial', '缺档时必须标 partial，不能宣称 eastmoney 全量');
+  assert.ok(typeof body.note === 'string' && body.note.includes('2 档'),
+    `note 应说明缺几档，实际 ${JSON.stringify(body.note)}`);
+});
+
+await test("symbol：f62 为 '-'（个股资金流不可得）→ current:null + dataSource:unavailable，不伪造 0 元", async () => {
+  const { status, body } = await callFundFlowSymbolWithStub({
+    stockGetBody: JSON.stringify({ data: { f62: '-', f66: '-', f72: '-' } }),
+  });
+  assert.equal(status, 200);
+  assert.equal(body.data.current, null, '个股五档全不可得时 current 必须 null（不是全 0 对象）');
+  assert.equal(body.data.dataSource, 'unavailable', '不能再宣称 eastmoney');
+  assert.equal(body.source, 'eastmoney-boards-only');
+  assert.ok(typeof body.note === 'string' && body.note.includes('板块'),
+    `note 应说明只剩板块资金流，实际 ${JSON.stringify(body.note)}`);
+  assert.ok(body.data.sectorFlows.length >= 1, '板块资金流仍应返回（另一件事实）');
+});
+
+// ============================================================
 // 三·四、财务三表三条路由（此前从未挂载 → 线上 404）
 //
 // 【为什么单开一节】线上 https://egobai.github.io/clair/financials/600519.SH 实测：
