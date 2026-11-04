@@ -1,8 +1,8 @@
 # 影子测试普查（M2 第 0 步）
 
-> 生成时间：2026-11-04 03:5x，批次 45 后更新 13:25（Asia/Shanghai）
+> 生成时间：2026-11-04 03:5x，批次 46 后更新 13:40（Asia/Shanghai）
 > 工具：`node scripts/guard/shadow-test-census.mjs [--json]`（只读，不改任何文件）
-> 基线：批次 45 后重扫（2026-11-04）
+> 基线：批次 46 后重扫（2026-11-04；13 个 D 类归档已移出扫描范围）
 
 ## 一、判定口径
 
@@ -17,20 +17,20 @@
 
 | 指标 | 数值 |
 |------|------|
-| 测试文件总数 | 1,534 |
-| 影子测试 | **700（45.6%）** |
+| 测试文件总数 | 1,521 |
+| 影子测试 | **687（45.2%）** |
 | 真实导入 | 834 |
-| 影子测试代码行 | **177,485 行** |
+| 影子测试代码行 | **173,372 行** |
 | 真实测试代码行 | 190,229 行 |
 
-按行数算，48.3% 的测试代码在断言副本而不是产品代码。
+按行数算，47.7% 的测试代码在断言副本而不是产品代码。
 
 ## 三、目录分布
 
 | 目录 | 影子/总数 | 影子占比 |
 |------|-----------|----------|
-| backend/src/__tests__（扁平） | 365/641 | 57.0% |
-| frontend/src/__tests__（扁平） | 335/868 | 38.6% |
+| backend/src/__tests__（扁平） | 362/638 | 56.7% |
+| frontend/src/__tests__（扁平） | 325/858 | 37.9% |
 | backend/src/__tests__/models | 0/7 | 0% |
 | backend/src/__tests__/services | 0/3 | 0% |
 | frontend/src/__tests__/components | 0/9 | 0% |
@@ -413,11 +413,22 @@
 - **红→绿证据**：旧代码快照（git show HEAD）探针 chunk([1,2,3],0) → V8 abort EXIT=134；LRUCache maxSize=1 先 set('') 再 set('a') → SIGALRM EXIT=142（挂死）。修复后同一探针：THREW RangeError / keys ["a","b"] evictions 1，EXIT=0；7 个受影响文件 238 passed。
 - **效果**：影子仍 700，但因新增 1 个真实导入测试文件，总数 1,533→1,534、占比 45.7%→45.6%，realLoc 190,072→190,229；backend 365/641。--check exit 0、honesty-scan --strict exit 0。
 
+## 六（续）、批次 46（2026-11-04 13:40，D 类归档执行）
+
+本批不是迁移，是用户拍板后执行「审计后归档」：把复核判定为 D（死链）的 13 个测试文件移出 src，保留文件本身与 git 历史。
+
+- **批准来源**：用户在 2026-11-04 13:24 拍板第二项「按建议归档 13 个 D，删除和归档确定无用的」、第七项「M2 收口选 2（归档）」。
+- **归档清单 13 个 / 4,113 行**：backend 3 个（healthCheck、taskSchedulerEngine、rollbackManagerLogic）、frontend 10 个（contextMenuLogic、marketOverviewLogic、onboardingLogic、microFeedbackLogic、codeAuditDeep、virtualScrollDataLogic、emptyStatesLogic、virtualListLogic、stockTableLogic、accessibilityEngine）。
+- **证据**：handover/14 复核（第一批 20 个里 D 成立 13、改判 R 7）；每个文件的核心符号在 backend/src + frontend/src + shared 做 rg -w 命中为 0；20/20 零项目源码 import、零交叉引用、未被 vitest/tsconfig/package.json 点名。R 类 7 个已在批次 42–44 全部改绑完毕，本批不涉及。
+- **处置**：git mv 到 docs/_archive/dead-tests/2026-11/{backend,frontend}/，不 rm；目录 README 记录理由、逐文件依据与恢复命令。归档不计入迁移数（只有真实绑定才算）。
+- **效果**：测试总数 1,534→1,521、影子 700→687（45.6%→45.2%）、shadowLoc 177,485→173,372，真实仍 834；realLoc 190,229 不变；backend 365→362/638、frontend 335→325/858。
+- **复验**：census --check exit 0、honesty-scan --strict exit 0；归档文件已不在两包 vitest include 与 tsconfig include 内（出 src 即自动脱离）。
+
 ## 七、CI 守卫（已上线）
 
 - `scripts/guard/shadow-test-census.mjs --check` 读取 `scripts/guard/shadow-baseline.json`，影子数高于基线即 exit 1；降低时需手动下调基线（避免数字回弹）。
 - `.github/workflows/ci.yml` 的 `shadow-test-guard` job 在 honesty-guard 之后阻断执行，node 20。
-- 基线：shadow 700 / total 1534 / shadowLoc 177,485（批次 45 后）。历史基线：批次 44 后 700/1533、批次 43 后 701/177,981、批次 42 后 705/179,581、批次 41 后 709/180,874、批次 40 后 713/182,897、批次 38 后 720/186,670、批次 37 后 724/189,362、批次 36 后 728/191,069、批次 35 后 732/192,907、批次 34 后 734/194,082、批次 33 后 738/195,690、批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
+- 基线：shadow 687 / total 1521 / shadowLoc 173,372（批次 46 后）。历史基线：批次 44 后 700/1533、批次 43 后 701/177,981、批次 42 后 705/179,581、批次 41 后 709/180,874、批次 40 后 713/182,897、批次 38 后 720/186,670、批次 37 后 724/189,362、批次 36 后 728/191,069、批次 35 后 732/192,907、批次 34 后 734/194,082、批次 33 后 738/195,690、批次 17–18 后 794、批次 14 后 835、批次 11 后 841、批次 10 后 843、批次 7 后 849、批次 6 后 851——批次 6–14 为旧口径（漏判动态 import），不可与新数字直接比较。
 
 ## 八、迁移候选扫描（工具）
 
@@ -426,12 +437,12 @@
 1. **符号证据**：影子测试里自抄的函数/常量名，是否在某个生产源码文件里被 `export`；
 2. **命名证据**：测试文件名与生产源码路径的规范化字符串是否互相包含。
 
-输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：700 个影子测试中 2 符号重叠已清零；符号名不再命中，后续只能按语义匹配生产实现（批次 38 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
+输出按「重叠符号数」降序，仅作线索——接口是否兼容仍须人工读生产实现。当前结果：687 个影子测试中 2 符号重叠已清零；符号名不再命中，后续只能按语义匹配生产实现（批次 38 后重扫）。`--all` 输出全量行，`distribution` 给出分数字段，供收口策略分层。
 
 ## 九、下一步
 
 - 批次 43 已消化 loadingOrchestratorDeep/uiPolishLogic/batchOperationsLogic/requestLogger（前两个是 D 类复核 R 类最后的两个 frontend 文件）；批次 42 已消化 circuitBreakerMarket/tokenManagerDeep/dataTableEngine/commandPalette（D 类复核判定的 R 类改绑，不需批准）；批次 41 已消化 portfolioRiskEngine/tradingCosts/chartEngine/marketDataUtils；批次 40 已消化 pageDataLogic/dashboardSystem/chartDataAndInteraction/cssAndVisualization（四个都是页面逻辑自抄件，按语义绑到 formatters/Stock/dashboardLayoutEngine/chartDataProcessing/chartPatternEngine/chartInteractionEngine/theme 一层）；批次 39 已消化 orderBookEngine/macroEconomicAnalysis/parameterOptimizer（reportGenerator 无生产契约，记未迁移）；批次 38 已消化 dashboardWidgets/advancedPageLogic/advancedCandlestickPatterns/userDeepDive（符号名零命中，按语义绑定）；批次 37 已消化 fundFlowDeep/optionsMacroEngine/prefetchCacheEngine/utilityFunctions；批次 36 已消化 utils/etfAnalytics/advancedChartUtils/tradingStrategyEngine；批次 35 已消化 technicalAnalysis/dashboardCustomization；批次 34 已消化 financialMathEngine/signalsAndRisk/financialDataEngine/technicalIndicatorsLib；批次 33 已消化 chartDataAndLayout/renderOptimization/formValidationEnhanced/quantitativeStrategies；批次 32 已消化 dataWarehouse/backtestEngineLogic/focusRingLogic/componentStateMgmt；批次 31 已消化 factorModels/quantitativeFactors/dataExportEngine/domInteractions；批次 30 已消化 chartDataProcessingDeep/themeStyleSystem/alertEngineV2/dataPipelineEngine；批次 28–29 已消化 optionsPricing/dataVizLogic/formInputValidationDeep/microstructure/backtestCombinations/technicalPatterns；批次 27 消化 tableInteractionEngine/componentRendering/statisticalArbitrage/riskManagement；批次 26 消化 dateTimeEngine/formProcessing/chartDataUtils/kLineChart；批次 24–25 消化 advancedChartEngine/optionStrategyEngine/optionChainEngine/movingAverageSystem/index/performanceUtilsDeep。
-- 下一批候选（批次 44 后）：已完成只读语义复核（handover/15，9 文件/273 例），仅 dataEngineAdvanced 可部分绑定且已在本批消化；剩余 8 个（tradeSimulator/dataManager/keyboardNavAdvanced/websocketPool/apiGateway/realtimeProcessing/dataSourceManager/stockModelOperations）生产确无同契约，25 个核心符号 rg 全 0 → 按文件迁移已到语义天花板，再往下只能靠「审计后归档」或改做生产缺陷。体量前四已知不可迁——`serviceWorkerEnhanced.test.ts`（628，类在测试内定义）、`stockLogicComprehensive.test.ts`（610，validateStockCode 契约不符）、`tradingEngineDeep.test.ts`（595，撮合/VWAP/保证金无实现）、`batchCalcsEngine.test.ts`（576，仅 KDJ 有实现）；可再试的是 `tradeSimulator.test.ts`（541）、`dataManager.test.ts`（533）、`keyboardNavAdvanced.test.ts`（508）、`dataEngineAdvanced.test.ts`（496）、`websocketPool.test.ts`（496）、`apiGateway.test.ts`（492）、`realtimeProcessing.test.ts`（490）、`dataSourceManager.test.ts`（480）、`stockModelOperations.test.ts`（480）。扁平目录剩余：backend 366、frontend 335。**建议转向**：剩余主体是历史规格，继续按文件迁移的边际收益已低于「审计后归档」；归档需用户批准（D37），故 701 之后应先等 handover/12 拍板，或改做规则 C / 生产缺陷。另需注意：`services/batchOperations.ts:121` chunk 对 size<=0 无保护会死循环、`results.sort` 用 indexOf O(n²)，两处已是新增测试锁定口径之外的真实缺陷。
+- 下一批候选（批次 44 后）：已完成只读语义复核（handover/15，9 文件/273 例），仅 dataEngineAdvanced 可部分绑定且已在本批消化；剩余 8 个（tradeSimulator/dataManager/keyboardNavAdvanced/websocketPool/apiGateway/realtimeProcessing/dataSourceManager/stockModelOperations）生产确无同契约，25 个核心符号 rg 全 0 → 按文件迁移已到语义天花板，再往下只能靠「审计后归档」或改做生产缺陷。体量前四已知不可迁——`serviceWorkerEnhanced.test.ts`（628，类在测试内定义）、`stockLogicComprehensive.test.ts`（610，validateStockCode 契约不符）、`tradingEngineDeep.test.ts`（595，撮合/VWAP/保证金无实现）、`batchCalcsEngine.test.ts`（576，仅 KDJ 有实现）；可再试的是 `tradeSimulator.test.ts`（541）、`dataManager.test.ts`（533）、`keyboardNavAdvanced.test.ts`（508）、`dataEngineAdvanced.test.ts`（496）、`websocketPool.test.ts`（496）、`apiGateway.test.ts`（492）、`realtimeProcessing.test.ts`（490）、`dataSourceManager.test.ts`（480）、`stockModelOperations.test.ts`（480）。扁平目录剩余：backend 362、frontend 325。**已转向**：用户已批准 D 类归档（批次 46 执行 13 个），剩余影子为 S/R 类历史规格，后续以「改绑 R 类 + 归档 D 类」为主，深水区（tradeSimulator/dataManager 等 8 个）按 handover/15 结论不再逐文件迁移。另需注意：`services/batchOperations.ts:121` chunk 对 size<=0 无保护会死循环、`results.sort` 用 indexOf O(n²)，两处已是新增测试锁定口径之外的真实缺陷。
 - 批次 41 记录一条 CI 风险：`marketDataUtils.test.ts` 跨包 import `backend/src/services/zScoreEngine`（该文件顶层零 import，安全）；今后跨包绑定时必须先查目标模块顶层是否有 db/logger/xlsx 类依赖，否则重演 run 41758036717 的解析失败。
 - 体量大需逐段确认（批次 40 探测线索）：pageDataLogic/dashboardSystem/chartDataAndInteraction/cssAndVisualization 多为页面逻辑自抄件；dataManager/tradeSimulator/serviceWorkerEnhanced 的类均定义在测试内，生产无同名模块，须按语义（dashboardLayoutEngine/dataTable/chartPatternEngine 一类）再判。
 - 零重叠 475：旧口径 508 的分类已完成（DSH 侧 `handover/11-零重叠归档候选.md`）：D 死链 119 个/26,258 行（删除审批队列）、R 活模块但 API 自造 105 个/25,267 行（唯一需重写，优先 backend/api → backend/middleware → frontend/utils）、S 纯规格 270 个/71,378 行（归档主体）、X 扫描假阳性 14 个（已由 D38 扫描器修复；比例需按 475 校准）。删除须用户批准，且不得计入迁移数字（D37）。
