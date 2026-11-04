@@ -457,3 +457,13 @@
 - **证据**：新增 `frontend/src/__tests__/symbolCode.test.ts`（9 例：三种限定写法归一、股票/指数域差异、沪市 B 股、未知输入不猜、幂等）；`IndexDetailPage.test.tsx` 增 2 例断言 `000001` 请求 `symbol=sh000001`、`sz399006` 不被重复加前缀；`factorSeries.test.ts`／`backtestRealData.test.ts` 的 mock 改为按裸码比对并新增「请求必须带前缀」「对外 symbol 不变」断言。四个文件实测 50 passed；`npx tsc --noEmit` 与 `npx eslint`（生产三文件）均 exit 0。
 - **口径**：新增 1 个真实导入测试 → census total 1,525→1,526、影子仍 687（45.0%）、真实 839、realLoc 192,110；可达绑定 242→243、前端可达 136→137、前端 utils 393→394、可达但零绑定 93/262→93/263（35.4%）。`shadow-baseline.json` 与 `SHADOW-TEST-CENSUS.md` 已同步，`--check` exit 0；`honesty-scan --strict` exit 0。
 - **代价**：前缀规则是硬编码的市场段推断，未来新增板块（如北交所再扩段）需同步两处（前端 `symbolCode.ts` 与后端 `symbolUtils.ts`）；纯 6 位且不在已知段的代码仍会 400，这是刻意保留的失败面。
+
+## D64 指数技术分析同样吃裸码：补第三个调用点（轮 20，D63 收口）
+
+- **背景**：真浏览器巡检（Playwright，headless Chrome）打开线上 `/index/000001` 时，除 K 线 400 外还有一条 `400 /api/market/index-tech/000001`，且页面技术分析区恒为「数据源暂不可用」。根因与 D63 同源：`clair-worker/worker.js:2683 handleIndexTech` 第一行就用 `toTencentKey` 校验，只认 `sh000001 / sz399006` 形式，裸 6 位直接 400。
+- **判断**：不放宽 Worker 猜市场（同 D63），把指数页的技术分析请求也换成已归一的前缀码——与同文件 K 线共用同一个 `klineSymbol`，保证两个端点看到的是同一个标的，不可能出现「K 线是 sh000001、技术分析是 000001」的错配。
+- **做法**：`frontend/src/pages/IndexDetailPage.tsx:236` 由 `encodeURIComponent(symbol)` 改为 `encodeURIComponent(klineSymbol)`；注释写明 Worker 拒绝裸码的原因。`clair-worker/worker.js` 不改（契约保持「调用方负责限定市场」）。
+- **证据**：`IndexDetailPage.test.tsx` 原有「裸代码补前缀」用例加强为同时断言 `/api/market/kline?symbol=sh000001` 与 `/api/market/index-tech/sh000001` 出现、且 `symbol=000001` 与 `/index-tech/000001` 不出现；实测该文件 13 passed；`npx tsc --noEmit` exit 0；`npx eslint` 生产文件 exit 0。
+- **顺带核清的两件事（不是缺陷）**：① 线上 `/financials/600519` 首轮探针只有 206 字符，延长等待到 9 秒后完整渲染 1,008 字符（recharts + antd 懒加载 chunk 冷启动慢），属探针等待不足，不是页面空白；② `/portfolio`、`/compare` 的 404 已由页面内「本页部分模块需要连接完整后端才能查看 / 当前线上部署的是轻量演示后端（Cloudflare Worker），以下接口在其中未挂载」诚实提示承载，不是静默失败。
+- **口径**：无新增测试文件（只加强既有断言），census total 与影子数不变（1,526 / 687）。
+- **代价**：指数页存在三处「必须带市场前缀」的调用约定（indices、kline、index-tech），未来新增指数端点仍需记得走 `toIndexSymbol`；若要根治，可让 Worker 的 /api/market/* 指数端点接受「域内裸码」，但那需要区分股票/指数两个路由族，属接口改版。

@@ -231,9 +231,10 @@ const IndexDetailPage: React.FC = () => {
 
       // ---- 4) 技术分析：/api/market/index-tech/:symbol，三态兼容（real / unavailable / 404）----
       // 不可用时不显示任何数值（绝不用 0 冒充），只在本页 Alert 里如实说明。
+      // Worker 同样拒绝裸码（toTencentKey 只认 sh/sz/bj 前缀），这里与 K 线一致补前缀。
       let techData: TechDetail | null = null;
       try {
-        const res = await fetch(`/api/market/index-tech/${encodeURIComponent(symbol)}`, opts);
+        const res = await fetch(`/api/market/index-tech/${encodeURIComponent(klineSymbol)}`, opts);
         const body = await res.json().catch(() => null);
         if (res.ok && body?.dataSource === 'real' && body?.data && typeof body.data === 'object') {
           techData = body.data as TechDetail;

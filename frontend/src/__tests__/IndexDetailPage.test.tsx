@@ -355,13 +355,15 @@ describe('K 线请求符号前缀', () => {
     '/api/market/kline': { status: 404, body: NOT_FOUND_BODY },
   };
 
-  it('裸指数代码 000001 → 请求 symbol=sh000001（而不是裸码或 sz）', async () => {
+  it('裸指数代码 000001 → K 线与 index-tech 都请求 sh000001（而不是裸码或 sz）', async () => {
     const fn = routeFetch(routes);
     renderPage('000001');
     await waitFor(() => {
       const urls = fn.mock.calls.map((c) => String(c[0]));
       expect(urls.some((u) => u.includes('/api/market/kline?symbol=sh000001'))).toBe(true);
+      expect(urls.some((u) => u.includes('/api/market/index-tech/sh000001'))).toBe(true);
       expect(urls.some((u) => u.includes('symbol=000001'))).toBe(false);
+      expect(urls.some((u) => u.includes('/api/market/index-tech/000001'))).toBe(false);
     });
   });
 
