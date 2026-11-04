@@ -142,6 +142,8 @@ const testFiles = [
 ];
 
 const buckets = { reachable: [], unreachableOnly: [], noProjectImport: [] };
+/** testFile -> 它绑定的项目模块（用于「可达但零测试」缺口清单） */
+const testTargets = new Map();
 for (const testFile of testFiles) {
   let src = '';
   try {
@@ -157,6 +159,7 @@ for (const testFile of testFiles) {
     if (r && !/__tests__/.test(r) && !/\.test\./.test(r)) targets.add(r);
   }
   const imports = [...targets];
+  testTargets.set(testFile, imports);
   if (imports.length === 0) buckets.noProjectImport.push(testFile);
   else if (imports.some((p) => reachTags(p).length > 0)) buckets.reachable.push(testFile);
   else buckets.unreachableOnly.push(testFile);
@@ -169,6 +172,21 @@ function pkgOf(file) {
 
 const utilsFrontend = [...projectFiles].filter((p) => p.includes(path.sep + 'frontend/src/utils' + path.sep));
 const utilsUnreachable = utilsFrontend.filter((p) => reached.frontend.has(p) === false && reached.backend.has(p) === false);
+
+// 可达模块 × 测试绑定：找出「用户走得到、但没有任何测试绑定」的模块，按行数排序
+const bindCount = new Map();
+for (const [, imports] of testTargets) {
+  for (const p of imports) bindCount.set(p, (bindCount.get(p) || 0) + 1);
+}
+const reachableAll = new Set([...reached.frontend, ...reached.backend, ...reached.worker]);
+const gaps = [...reachableAll]
+  .filter((p) => !bindCount.get(p))
+  .map((p) => {
+    let loc = 0;
+    try { loc = fs.readFileSync(p, 'utf8').split('\n').length; } catch { /* 读不到按 0 */ }
+    return { file: path.relative(ROOT, p), loc, tags: reachTags(p) };
+  })
+  .sort((a, b) => b.loc - a.loc);
 
 const summary = {
   generatedAt: new Date().toISOString(),
@@ -206,12 +224,29 @@ const summary = {
       },
     },
   },
+  coverageGaps: {
+    reachable: reachableAll.size,
+    unbound: gaps.length,
+    ratio: reachableAll.size ? Number((gaps.length / reachableAll.size).toFixed(4)) : null,
+    top: gaps.slice(0, 30),
+  },
   samples: {
     unreachableOnly: buckets.unreachableOnly.slice(0, 15).map((f) => path.relative(ROOT, f)),
   },
 };
 
-if (asJson) {
+if (args.has('--gaps') || args.has('--gaps-json')) {
+  const g = summary.coverageGaps;
+  if (args.has('--gaps-json')) {
+    console.log(JSON.stringify(g, null, 2));
+  } else {
+    console.log(`可达但零测试绑定：${g.unbound}/${g.reachable}（${(g.ratio * 100).toFixed(1)}%）`);
+    console.log('');
+    console.log('| 文件 | 行数 | 可达于 |');
+    console.log('|---|---|---|');
+    for (const x of g.top) console.log(`| ${x.file} | ${x.loc} | ${x.tags.join(',') || '-'} |`);
+  }
+} else if (asJson) {
   console.log(JSON.stringify(summary, null, 2));
 } else if (checkOnly) {
   const t = summary.tests;
