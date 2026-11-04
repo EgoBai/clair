@@ -509,3 +509,13 @@
 - **口径**：只改 Worker 与其契约测试，census 不变（1,526 / 687）。Express 侧未改。
 - **代价**：个股 K 线默认根数由 2000 降为 250（与 Express 一致，页面只画图不需要 2000）；前端若未来想拉更长历史必须显式传 `limit`（上限 1000）。周键公式与 Express 同为「近似 ISO 周」，跨年首周可能与严格 ISO 8601 差一周，本次以「两端一致」优先。
 
+
+## D69 Worker 补 /api/ai/multi-signal：个股详情页多信号面板接真实技术面信号（轮 22）
+
+- **背景**：个股详情页的「多信号融合」卡片长期为空，页首横幅显示「未挂载端点：/api/ai/multi-signal/600519」。前端 `frontend/src/components/AI/MultiSignalPanel.tsx:72` 请求该端点，404 时显示「多信号接口未在当前部署上线」；`services/apiGateway.ts` 又把 404 登记为未挂载端点，于是每个个股页都挂一条横幅。Express 版实现是 `backend/src/api/multi-signal.ts` + `services/multiSignalEngine.ts`（449 行），其中技术面信号依赖 PG（`getStockWithLatestQuote` 与历史高低）、HMM 状态依赖 `engineOrchestrator` 全量行情、板块信号依赖 `stocks.industry`、外部情绪依赖 Digital Oracle 微服务——这些在 Worker 部署都不存在。
+- **判断**：不整段移植（那是把 PG 依赖带进没有库的运行时），而是用 Worker 已经能拿到的真实数据重算「可解释、可核对」的那部分信号：日线（腾讯 260 根）+ 全市场宽度（`loadBreadthSnapshot`，与 `/api/breadth/current` 同源）。**不伪造** HMM/板块/外部情绪，叙事里逐条说明未接入。
+- **做法**：`worker.js` 新增 `handleMultiSignal(symbol)`（9 条信号上限）：日涨跌幅（末两根收盘）、成交量（相对前 20 根均量的量比）、振幅（振幅/昨收）、价格位置（近 250 日高低区间百分位）、均线趋势（MA5/MA20/MA60 排列）、RSI(14)（worker 既有 `calcRSI`，简单平均口径，detail 注明）、MACD（worker 既有 `calcMACD`）、布林带位置（20 日 ±2σ）、市场宽度（`loadBreadthSnapshot`）。summary 用与 Express 相同的「置信度加权 + 1.3 倍阈值」判定 `overall`；`narrative` 为模板中文（不调 LLM）。路由 `/api/ai/multi-signal/:symbol` 支持带 `sh/sz/bj` 前缀与裸 6 位。
+- **诚实口径**：`signals.length === 0` → `dataSource:'unavailable'` + `signals:[]` + 全零 summary + 中文说明；未知代码（`999999`）**不因为市场宽度而拿 1 条信号**——市场宽度只在本标的已有个股信号时才追加，否则会把查不到的标的显示成「偏多」（本次实测踩到过，已修）。非法代码返回 `success:false` + 中文原因。
+- **证据**：本地 `worker.fetch` 实测 600519 → 200、real、9 条信号（日涨跌幅 bearish / 成交量 bearish / 振幅 neutral / 价格位置 neutral / 均线趋势 bullish / RSI bearish / MACD bullish / 布林 neutral / 市场宽度 bullish），summary `{bullish:3,bearish:3,neutral:3,overall:'neutral',confidence:0.67}`；999999 → 200、unavailable、signals `[]`、summary 全零；`abc` → `success:false` +「股票代码格式不合法」。契约测试新增 2 例（信号名白名单/方向/周期/置信度区间、summary 计数一致、narrative 含「未接入」；未知代码 unavailable 且 signals 为空），全套 **109 通过 0 失败**；`node --check` 通过，`_worker.js` SHA256 `d9d36416…f71a`。
+- **代价**：RSSI/MACD 用 worker 既有简化口径，与 Express 的 Wilder/EMA9 口径不完全一致（已在信号 `source`/`detail` 里写明）；HMM 市场状态、板块表现、外部情绪三类信号在 Worker 上仍有缺口（属于后续「Worker 无库」的系统性限制，不在本轮伪造补齐）。
+

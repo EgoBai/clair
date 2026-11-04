@@ -352,6 +352,41 @@ await test('个股K线：weekly/monthly 聚合 → 周月线根数少于日线�
   }
 });
 
+console.log('\n/api/ai/multi-signal/:symbol（个股多信号面板）');
+
+await test('多信号：600519 → 200 real、信号非空、summary 计数与信号条数一致、narrative 声明未接入源', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/ai/multi-signal/600519');
+  assert.equal(status, 200, `期望 200，实际 ${status}`);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'real');
+  const d = body.data;
+  assert.equal(d.dataSource, 'real', 'data.dataSource 必须与顶层同值');
+  assert.ok(Array.isArray(d.signals) && d.signals.length > 0, 'signals 应为非空数组');
+  // 只允许真实计算出来的信号名（不出现 HMM/板块/外部情绪这类 Worker 未接入的源）
+  const allowed = new Set(['日涨跌幅', '成交量', '振幅', '价格位置', '均线趋势', 'RSI(14)', 'MACD', '布林带位置', '市场宽度']);
+  for (const s of d.signals) {
+    assert.ok(allowed.has(s.name), `未预期信号 ${s.name}`);
+    assert.ok(['bullish', 'bearish', 'neutral'].includes(s.direction), `${s.name} direction 非法`);
+    assert.ok(['short', 'medium', 'long'].includes(s.timeframe), `${s.name} timeframe 非法`);
+    assert.ok(typeof s.confidence === 'number' && s.confidence > 0 && s.confidence <= 1);
+    assert.ok(typeof s.source === 'string' && s.source.length > 0);
+  }
+  const { bullish, bearish, neutral } = d.summary;
+  assert.equal(bullish + bearish + neutral, d.signals.length, 'summary 计数应等于信号条数');
+  assert.ok(['bullish', 'bearish', 'neutral'].includes(d.summary.overall));
+  assert.ok(typeof d.summary.confidence === 'number' && d.summary.confidence >= 0 && d.summary.confidence <= 1);
+  assert.ok(typeof d.narrative === 'string' && d.narrative.includes('未接入'), 'narrative 应声明未接入的信号源');
+});
+
+await test('多信号：未知代码 → 200 unavailable 且 signals 为空（不用市场宽度凑一条信号）', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/ai/multi-signal/999999');
+  assert.equal(status, 200);
+  assert.equal(body.dataSource, 'unavailable');
+  assert.deepEqual(body.data.signals, []);
+  assert.deepEqual(body.data.summary, { bullish: 0, bearish: 0, neutral: 0, overall: 'neutral', confidence: 0 });
+  assert.ok(typeof body.data.narrative === 'string' && body.data.narrative.includes('暂不可得'));
+});
+
 console.log('\n/api/market/top-gainers | top-losers');
 
 for (const kind of ['gainers', 'losers']) {

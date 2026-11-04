@@ -2500,6 +2500,280 @@ async function handleStockKLine(symbol, url) {
   }
 }
 
+// ==================== 多信号融合 API ====================
+
+/**
+ * 多信号融合 — 个股技术面 + 市场宽度的真实信号汇总
+ *
+ * 与 Express 版 backend/src/services/multiSignalEngine.ts 的差异（逐条如实）：
+ *   · 保留：日涨跌幅/成交量/振幅/价格位置/市场宽度 + 均线排列/RSI/MACD/BOLL 技术信号
+ *   · 不提供：HMM 市场状态（engineOrchestrator 依赖 PG 全量行情训练）、板块表现
+ *     （需 stocks.industry 与同行业逐只行情，Worker 无库）、外部情绪（Digital Oracle 微服务）
+ *   · 因此 narrative 里明说这三类未接入，不假装「信号齐全」
+ * 数据不足时返回 dataSource:'unavailable' 且 signals:[]，绝不用 0 条信号拼一个
+ * 全 neutral 的 summary 冒充结果。
+ */
+function msClampDirection(v) {
+  return v > 0 ? 'bullish' : v < 0 ? 'bearish' : 'neutral';
+}
+
+/** 计算 N 日收盘均线与斜率（末值 vs 上一值） */
+function msSMA(values, period) {
+  if (values.length < period) return null;
+  const slice = values.slice(-period);
+  return slice.reduce((s, v) => s + v, 0) / period;
+}
+
+/** 布林带（20, 2σ），返回末值位置百分位 */
+function msBollPosition(closes) {
+  const period = 20;
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  const mid = slice.reduce((s, v) => s + v, 0) / period;
+  const variance = slice.reduce((s, v) => s + (v - mid) ** 2, 0) / period;
+  const std = Math.sqrt(variance);
+  if (!(std > 0)) return null;
+  const last = closes[closes.length - 1];
+  return { mid, upper: mid + 2 * std, lower: mid - 2 * std, position: (last - mid) / (2 * std) };
+}
+
+async function handleMultiSignal(rawSymbol) {
+  const symbol = String(rawSymbol || '').replace(/^(sh|sz|bj)\.?/i, '');
+  if (!/^\d{6}$/.test(symbol)) {
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      error: 'Invalid symbol',
+      message: '股票代码格式不合法（应为 6 位数字），未查询任何信号',
+    });
+  }
+
+  try {
+    const stocks = await getStockList();
+    const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
+    const market = stock ? stock.market : (/^[689]/.test(symbol) ? 'SH' : 'SZ');
+    const tencentSymbol = `${tencentPrefix(market)}${symbol}`;
+
+    const { quotes: raw } = await fetchDailyKLine(tencentSymbol, symbol, market, 260);
+    const signals = [];
+
+    if (raw && raw.length >= 2) {
+      const bars = raw.map(r => ({
+        date: r.tradeDate,
+        open: r.openPrice, close: r.closePrice, high: r.highPrice, low: r.lowPrice,
+        volume: r.volume || 0,
+      }));
+      const closes = bars.map(b => b.close).filter(v => Number.isFinite(v) && v > 0);
+      const last = bars[bars.length - 1];
+      const prev = bars[bars.length - 2];
+      const changePercent = prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : null;
+      const volumeList = bars.map(b => b.volume).filter(v => v >= 0);
+      // 成交量信号：与「往前 20 根（不含当日）」的均量比较，量比才是可解释的口径
+      const baseVolumes = volumeList.slice(-21, -1);
+      const avgVolume = baseVolumes.length > 0 ? baseVolumes.reduce((s, v) => s + v, 0) / baseVolumes.length : 0;
+      const volumeRatio = avgVolume > 0 ? last.volume / avgVolume : null;
+      const amplitude = prev.close > 0 ? ((last.high - last.low) / prev.close) * 100 : null;
+
+      if (changePercent !== null) {
+        signals.push({
+          name: '日涨跌幅',
+          source: '腾讯行情（日线末两根）',
+          value: `${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
+          direction: changePercent > 2 ? 'bullish' : changePercent < -2 ? 'bearish' : 'neutral',
+          confidence: 0.8,
+          timeframe: 'short',
+          detail: `收盘 ${last.close.toFixed(2)}，成交日 ${last.date}`,
+        });
+      }
+
+      if (volumeRatio !== null) {
+        signals.push({
+          name: '成交量',
+          source: '腾讯行情（20 日均量对比）',
+          value: `${(last.volume / 10000).toFixed(0)}万手 / 均量 ${(avgVolume / 10000).toFixed(0)}万手`,
+          direction: volumeRatio > 1.5 && changePercent > 0 ? 'bullish'
+            : volumeRatio > 1.5 && changePercent < 0 ? 'bearish' : 'neutral',
+          confidence: 0.7,
+          timeframe: 'short',
+          detail: `量比 ${volumeRatio.toFixed(2)}（>1.5 为显著放量）`,
+        });
+      }
+
+      if (amplitude !== null) {
+        signals.push({
+          name: '振幅',
+          source: '腾讯行情（日线）',
+          value: `${amplitude.toFixed(2)}%`,
+          direction: amplitude > 5 ? 'bearish' : 'neutral',
+          confidence: 0.6,
+          timeframe: 'short',
+          detail: amplitude > 5 ? '高振幅，波动较大' : amplitude < 2 ? '低振幅，走势平稳' : '正常波动',
+        });
+      }
+
+      // 价格位置：近 250 个交易日高低区间中的位置（有历史才有意义）
+      const window = bars.slice(-250);
+      const high250 = Math.max(...window.map(b => b.high));
+      const low250 = Math.min(...window.map(b => b.low));
+      if (high250 > low250 && last.close > 0) {
+        const position = (last.close - low250) / (high250 - low250);
+        signals.push({
+          name: '价格位置',
+          source: `历史统计（近 ${window.length} 个交易日）`,
+          value: `${(position * 100).toFixed(0)}%`,
+          direction: position > 0.8 ? 'bearish' : position < 0.2 ? 'bullish' : 'neutral',
+          confidence: 0.65,
+          timeframe: 'medium',
+          detail: `当前 ${last.close.toFixed(2)}，区间 ${low250.toFixed(2)}-${high250.toFixed(2)}`,
+        });
+      }
+
+      // 均线排列（5/20/60）
+      const ma5 = msSMA(closes, 5);
+      const ma20 = msSMA(closes, 20);
+      const ma60 = msSMA(closes, 60);
+      if (ma5 !== null && ma20 !== null) {
+        const aligned = ma60 !== null ? (ma5 > ma20 && ma20 > ma60) : ma5 > ma20;
+        const bearish = ma60 !== null ? (ma5 < ma20 && ma20 < ma60) : ma5 < ma20;
+        signals.push({
+          name: '均线趋势',
+          source: '日线收盘均线',
+          value: `MA5 ${ma5.toFixed(2)} / MA20 ${ma20.toFixed(2)}${ma60 !== null ? ` / MA60 ${ma60.toFixed(2)}` : ''}`,
+          direction: aligned ? 'bullish' : bearish ? 'bearish' : 'neutral',
+          confidence: 0.7,
+          timeframe: 'medium',
+          detail: aligned ? '多头排列（短期均线在上）' : bearish ? '空头排列（短期均线在下）' : '均线交织，方向不明',
+        });
+      }
+
+      // RSI(14)：沿用 worker 内既有 calcRSI（简单平均口径，与 Express 的 Wilder 平滑不同，
+      // 因此 detail 里标注口径，不做「和本地完全一致」的暗示）
+      const rsi = calcRSI(closes, 14);
+      if (rsi !== null) {
+        signals.push({
+          name: 'RSI(14)',
+          source: '日线收盘价（简单平均口径）',
+          value: rsi.toFixed(2),
+          direction: rsi >= 70 ? 'bearish' : rsi <= 30 ? 'bullish' : 'neutral',
+          confidence: 0.6,
+          timeframe: 'short',
+          detail: rsi >= 70 ? '超买区间' : rsi <= 30 ? '超卖区间' : '中性区间',
+        });
+      }
+
+      // MACD（worker 内既有 calcMACD）
+      const macd = calcMACD(closes);
+      if (macd && macd.signal !== 'insufficient_data') {
+        const dir = macd.signal === 'bullish' || macd.signal === 'recovering' ? 'bullish'
+          : macd.signal === 'bearish' || macd.signal === 'weakening' ? 'bearish' : 'neutral';
+        signals.push({
+          name: 'MACD',
+          source: '日线收盘价（EMA12/EMA26）',
+          value: `DIF ${macd.dif} / MACD ${macd.macd}`,
+          direction: dir,
+          confidence: 0.65,
+          timeframe: 'medium',
+          detail: `信号 ${macd.signal}`,
+        });
+      }
+
+      // 布林带位置
+      const boll = msBollPosition(closes);
+      if (boll) {
+        const pos = boll.position;
+        signals.push({
+          name: '布林带位置',
+          source: '日线收盘价（20, 2σ）',
+          value: `${(pos * 100).toFixed(0)}%`,
+          direction: pos > 1 ? 'bearish' : pos < -1 ? 'bullish' : 'neutral',
+          confidence: 0.6,
+          timeframe: 'short',
+          detail: `上轨 ${boll.upper.toFixed(2)} / 中轨 ${boll.mid.toFixed(2)} / 下轨 ${boll.lower.toFixed(2)}`,
+        });
+      }
+    }
+
+    // 市场宽度：与 /api/breadth/current 同一份聚合，不自己另算一套。
+    // 只有在本标的已取到至少一条个股信号时才追加——否则「未知代码」也会因为市场宽度
+    // 而拿到 1 条信号，把一个查不到的标的显示成「偏多」。
+    try {
+      const snap = signals.length > 0 ? await loadBreadthSnapshot() : null;
+      if (snap && snap.totalStocks > 0) {
+        const ratio = snap.advancing / (snap.declining || 1);
+        signals.push({
+          name: '市场宽度',
+          source: '全市场逐标的行情聚合（与 /api/breadth/current 同源）',
+          value: `涨${snap.advancing}/跌${snap.declining}`,
+          direction: ratio > 1.5 ? 'bullish' : ratio < 0.67 ? 'bearish' : 'neutral',
+          confidence: 0.7,
+          timeframe: 'short',
+          detail: `涨跌比 ${ratio.toFixed(2)}，涨停${snap.limitUp}家 跌停${snap.limitDown}家，样本${snap.totalStocks}只`,
+        });
+      }
+    } catch (e) {
+      // 宽度源不可用就不输出该信号，不回落阈值近似冒充
+    }
+
+    if (signals.length === 0) {
+      return json({
+        success: true,
+        dataSource: 'unavailable',
+        data: {
+          symbol,
+          signals: [],
+          summary: { bullish: 0, bearish: 0, neutral: 0, overall: 'neutral', confidence: 0 },
+          narrative: `${symbol} 的多信号暂不可得：未取到该标的的有效日线行情，本次不返回任何信号数值（不以 0 条信号拼一个全中性结论）。`,
+          dataSource: 'unavailable',
+          source: null,
+          timestamp: new Date().toISOString(),
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    let bullish = 0, bearish = 0, neutral = 0, bullishScore = 0, bearishScore = 0, totalConfidence = 0;
+    for (const s of signals) {
+      if (s.direction === 'bullish') { bullish += 1; bullishScore += s.confidence; }
+      else if (s.direction === 'bearish') { bearish += 1; bearishScore += s.confidence; }
+      else neutral += 1;
+      totalConfidence += s.confidence;
+    }
+    // 与 Express summarizeSignals 同一判定阈值（1.3 倍权重）
+    const overall = bullishScore > bearishScore * 1.3 ? 'bullish'
+      : bearishScore > bullishScore * 1.3 ? 'bearish' : 'neutral';
+    const confidence = signals.length > 0 ? totalConfidence / signals.length : 0;
+
+    const overallLabel = overall === 'bullish' ? '偏多' : overall === 'bearish' ? '偏空' : '中性';
+    const narrative = `${symbol} 共 ${signals.length} 条真实信号：看多 ${bullish} 条、看空 ${bearish} 条、中性 ${neutral} 条，` +
+      `加权方向 ${overallLabel}（平均置信度 ${(confidence * 100).toFixed(0)}%）。` +
+      `信号仅来自日线行情与全市场宽度；HMM 市场状态、板块表现、外部情绪三类源在当前 Worker 部署未接入，故本结论不含它们。`;
+
+    const data = {
+      symbol,
+      signals,
+      summary: { bullish, bearish, neutral, overall, confidence: Math.round(confidence * 100) / 100 },
+      narrative,
+      dataSource: 'real',
+      source: '腾讯行情 + 全市场宽度',
+      timestamp: new Date().toISOString(),
+    };
+
+    return json({
+      success: true,
+      dataSource: 'real',
+      data,
+      timestamp: data.timestamp,
+    });
+  } catch (e) {
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      error: e.message,
+      message: `多信号计算失败：${e.message}`,
+    });
+  }
+}
+
 // ==================== 指数详情 API ====================
 
 /**
@@ -8742,6 +9016,12 @@ export default {
     // AI 行情诊脉（DiscoverPage「AI 行情诊脉」卡片；前端已在调用，此前 404）
     if (path === '/api/ai/market-pulse') {
       return handleAiMarketPulse(env);
+    }
+
+    // 多信号融合（个股详情页 MultiSignalPanel；此前 404 → 卡片空 + 全局未挂载端点横幅）
+    const multiSignalMatch = path.match(/^\/api\/ai\/multi-signal\/([^/]+)$/);
+    if (multiSignalMatch) {
+      return handleMultiSignal(decodeURIComponent(multiSignalMatch[1]));
     }
 
     // Phase 3: Stock strategy: /api/stocks/:symbol/strategy
