@@ -326,3 +326,10 @@
 ### D49 · 规则 C 16 处改为 null + partial + 前端空态 ✅ 2026-11-04 执行
 - **结论**：ai-analysis、ai-market-pulse、sector-analysis 中 16 处「可空列缺数写 0」改为输出 null；响应按缺失情况给 dataSource:'partial' 与 missing[]；前端对 null 只做最小空态 --，不做 0 顶替、不改其他文案。改完跑 honesty-scan --update-rulec-baseline 收缩基线，--strict 必须 exit 0。
 - **理由**：用户选方案①。schema.sql:36/41 的 change_percent/market_cap 是可空列，?? 0 会让用户看到「市值 0 / 涨跌 0.00%」这种虚假事实。
+
+### D50 · 供数端点 dataSource 三态化，烟测接受 static 但不混同 real ✅ 2026-11-04 执行
+- **结论**：Worker 的 `GET /api/stocks` 与 `GET /api/sectors/momentum` 补 `dataSource`（顶层与 `data` 内同源）：全部有真实行情 → `real`；部分有 → `partial`；一条都没有 → `unavailable`（`latestQuote` 保持 null，不填 0、不回落纯代码）。同时透出 `quotes_available`、`coverage_ratio`、`note`。`/api/sectors/momentum` 沿用 `/api/industries` 的 60% 覆盖率门槛（level=2 实测 0.202 → `partial`，level=1 全量归类 → `real`）。
+- **烟测口径**：`dataSource='static'`（`/api/strategy-templates` 的静态选股条件目录）此前被判 MALFORMED。新增 `STATIC_SOURCES`：判 OK，但 reason 必须写明「静态配置，非行情数据」，不与 `real` 混同。
+- **验证**：worker 契约新增 3 例（real / unavailable / momentum 自洽），82 通过 2 失败（两条为既有的真实网络口径失败，基线同样失败）；部署后 `production-smoke.mjs` → OK 10 · NOT_FOUND 2 · MALFORMED 0 · UNREACHABLE 0（fund-flow 一次 8s 超时为上游抖动，复跑通过）；`--expect-commit cc2818e8eab5` 版本一致性 MATCH。
+- **代价**：每次请求多算一次覆盖率（O(n)，可忽略）；`partial` 目前不触发前端告警，只是把事实暴露给烟测与后续 UI。
+
