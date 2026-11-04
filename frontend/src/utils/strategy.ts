@@ -137,14 +137,22 @@ export function calcTrend(kline: KLine[], mas: MA): { trend: 'up' | 'down' | 'si
   if (n < 20) return { trend: 'sideways', strength: 0 };
 
   // 计算 MA20 斜率（最近10个周期）
+  // 预热期 MA 可能是 NaN/null：直接参与算术会得到 NaN，最终渲染成「强度 NaN%」。
+  // 取不到有效 MA 时如实返回横盘 + 0 强度，不让 NaN 泄漏到界面。
   const start20 = mas.ma20[n - 11] || mas.ma20[n - 10];
   const end20 = mas.ma20[n - 1];
+  const currentPrice = kline[kline.length - 1].close;
+  const currentMA20 = mas.ma20[n - 1];
+  if (![start20, end20, currentMA20, currentPrice].every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    return { trend: 'sideways', strength: 0 };
+  }
   const slope = ((end20 - start20) / start20) * 100;
 
   // 价格相对于 MA20 的位置
-  const currentPrice = kline[kline.length - 1].close;
-  const currentMA20 = mas.ma20[n - 1];
   const deviation = ((currentPrice - currentMA20) / currentMA20) * 100;
+  if (!Number.isFinite(slope) || !Number.isFinite(deviation)) {
+    return { trend: 'sideways', strength: 0 };
+  }
 
   if (slope > 0.3 && deviation > -1) return { trend: 'up', strength: Math.min(100, Math.abs(slope) * 30 + Math.abs(deviation) * 20) };
   if (slope < -0.3 && deviation < 1) return { trend: 'down', strength: Math.min(100, Math.abs(slope) * 30 + Math.abs(deviation) * 20) };

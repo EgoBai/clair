@@ -70,6 +70,12 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
 
       try {
         const res = await fetch(`/api/ai/multi-signal/${symbol}`);
+        // 404 = 该部署（Cloudflare Worker）未注册此路由，属「功能未接入」，不是网络失败。
+        // 如实说明，不显示红色「加载失败」让用户以为数据出错，也不伪造任何信号数值。
+        if (res.status === 404) {
+          setError('多信号接口未在当前部署上线（Worker 未注册 /api/ai/multi-signal），本卡片不展示信号数值');
+          return;
+        }
         if (!res.ok) throw new Error('Failed to fetch signals');
 
         const result = await res.json();
@@ -99,9 +105,12 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
   }
 
   if (error) {
+    const notDeployed = error.includes('未在当前部署上线');
     return (
       <Card style={{ marginBottom: 12, borderRadius: 8 }}>
-        <Text type="danger">信号加载失败: {error}</Text>
+        {notDeployed
+          ? <Text type="secondary">{error}</Text>
+          : <Text type="danger">信号加载失败: {error}</Text>}
       </Card>
     );
   }

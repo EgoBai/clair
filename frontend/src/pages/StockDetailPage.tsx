@@ -172,8 +172,11 @@ const StockDetailPage: React.FC = () => {
           market: d.market || '',
           industry: d.industry || '',
         });
-        if (d.latestQuote && d.latestQuote.closePrice > 0) {
-          setLatestQuote(d.latestQuote);
+        // 契约以 backend/src/api/stock.ts 为准（latestQuote）；线上 Worker 历史上只回 quote。
+        // 两者都是真实行情，取到哪个用哪个 —— 不再因为字段名不一致把详情页渲染成「暂无行情数据」。
+        const lq = d.latestQuote ?? d.quote;
+        if (lq && Number(lq.closePrice) > 0) {
+          setLatestQuote(lq);
         }
       } else {
         setStockError(`行情接口未返回该股数据${data?.message ? `：${data.message}` : ''}`);
@@ -471,7 +474,12 @@ const StockDetailPage: React.FC = () => {
         )}
 
         {/* ===== 资金流向（CapitalFlowPanel，上游不可用时整体隐藏）===== */}
-        {fundFlow && fundFlow.latest && (
+        {/* 三档净额必须都是真实数字才渲染：任一为 null 说明上游缺档，
+            整卡隐藏，绝不把缺失当 0（诚实红线）。 */}
+        {fundFlow && fundFlow.latest &&
+          Number.isFinite(fundFlow.latest.mainNet) &&
+          Number.isFinite(fundFlow.latest.midNet) &&
+          Number.isFinite(fundFlow.latest.smallNet) && (
           <Card
             size="small"
             title={<span style={{ fontWeight: 700, color: TEXT_PRIMARY, fontSize: 14 }}>资金流向 <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 400 }}>当日主力/散户净额（东财口径）</span></span>}
@@ -482,8 +490,8 @@ const StockDetailPage: React.FC = () => {
                 timestamp: Date.now(),
                 mainInflow: Math.max(fundFlow.latest.mainNet, 0),
                 mainOutflow: Math.max(-fundFlow.latest.mainNet, 0),
-                retailInflow: Math.max((fundFlow.latest.midNet || 0) + (fundFlow.latest.smallNet || 0), 0),
-                retailOutflow: Math.max(-((fundFlow.latest.midNet || 0) + (fundFlow.latest.smallNet || 0)), 0),
+                retailInflow: Math.max(fundFlow.latest.midNet + fundFlow.latest.smallNet, 0),
+                retailOutflow: Math.max(-(fundFlow.latest.midNet + fundFlow.latest.smallNet), 0),
                 netMainFlow: fundFlow.latest.mainNet,
               }]}
               sectorFlows={fundFlow.sectorFlows || []}
@@ -801,7 +809,7 @@ const StockDetailPage: React.FC = () => {
                       {trendLabels[strategy.trend]}
                     </div>
                     <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 2 }}>
-                      强度 {strategy.trendStrength.toFixed(0)}%
+                      强度 {Number.isFinite(strategy.trendStrength) ? `${strategy.trendStrength.toFixed(0)}%` : '—'}
                     </div>
                   </div>
                 </Col>
