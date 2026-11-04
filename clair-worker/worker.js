@@ -5842,7 +5842,7 @@ async function fetchSinaFundFlow(symbol, attempts) {
   const prefix = symbol.startsWith('6') ? 'sh' : (symbol.startsWith('4') || symbol.startsWith('8') ? 'bj' : 'sz');
   const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/MoneyFlow.ssi_ssfx_flzjtj?daima=${prefix}${symbol}`;
   try {
-    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/' } });
+    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/' }, signal: AbortSignal.timeout(5000) });
     const t = (await resp.text()).trim();
     if (!t.startsWith('{')) { attempts.push('sina:non-json'); return null; }
     const d = JSON.parse(t);
@@ -5869,18 +5869,20 @@ async function handleFundFlow(symbol) {
     const market = pure.startsWith('6') ? 1 : (pure.startsWith('4') || pure.startsWith('8') ? 2 : 0);
     const secid = `${market}.${pure}`;
     const attempts = [];
-    // 实时主机优先，延迟主机只作兜底：2026-11-04 实测延迟主机 push2delay 对任意个股
-    // 都回 f62=3、f78=0（常量），不是真实净额；用它当默认会把「假数」渲染成「主力净流入 3 元」。
-    // 兜底时在 flowHost 里如实标注主机，页面可据此提示数据滞后。
+    // 个股五档只问实时主机：2026-11-04 实测延迟主机 push2delay 对任意个股都回
+    // f62=3、f78=0（常量），不是真实净额。宁可 unavailable，也不把常量渲染成
+    // 「主力净流入 3 元」（诚实红线）。板块资金流（clist）仍可用延迟主机，见下方 FLOW_HOSTS。
+    const STOCK_FLOW_HOSTS = ['https://push2.eastmoney.com'];
+    // 板块资金流仍允许延迟主机兜底（其 clist 数据实测正常，且不是逐股常量）。
     const FLOW_HOSTS = ['https://push2.eastmoney.com', 'https://push2delay.eastmoney.com'];
 
     // 个股实时主力/散户净额（单位：元）。字段：f62主力净 f184主力净占比 f66超大 f72大 f78中 f84小
     let latest = null;
     let flowHost = null;
-    for (const host of FLOW_HOSTS) {
+    for (const host of STOCK_FLOW_HOSTS) {
       try {
         const u = `${host}/api/qt/stock/get?secid=${secid}&fields=f62,f184,f66,f72,f78,f84&ut=fa5fd1943c7b386f172d6893dbfba10b`;
-        const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/' } });
+        const resp = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/' }, signal: AbortSignal.timeout(5000) });
         const t = (await resp.text()).trim();
         if (!t.startsWith('{')) { attempts.push(`${host.slice(8, 20)}:non-json`); continue; }
         const d = JSON.parse(t);
@@ -5896,9 +5898,7 @@ async function handleFundFlow(symbol) {
         attempts.push(`${host.slice(8, 20)}:empty`);
       } catch (e) { attempts.push(`${host.slice(8, 20)}:${String(e.message || 'e').slice(0, 24)}`); }
     }
-    // 延迟主机不可信：2026-11-04 实测它对 600519/000001/600036/300750/601318/002594
-    // 全部返回 f62=3、f78=0（常量），f84 量级也与其他字段不自洽。宁可 unavailable，也不把
-    // 常量当「主力净流入 3 元」展示（诚实红线：没取到 ≠ 数据是 0/3）。
+    // 防御：即使将来把延迟主机加回列表，也不能采信它的常量（f62=3、f78=0）。
     if (flowHost && flowHost.includes('push2delay')) {
       attempts.push('push2delay:untrusted-constant');
       latest = null; flowHost = null;

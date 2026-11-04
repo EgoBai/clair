@@ -1066,21 +1066,19 @@ await test("symbol：f62 为 '-'（个股资金流不可得）→ current:null +
   assert.ok(body.data.sectorFlows.length >= 1, '板块资金流仍应返回（另一件事实）');
 });
 
-await test('symbol：实时主机不可达、延迟主机只回常量 → 判 unavailable，绝不把常量 3 当净额', async () => {
-  // 2026-11-04 线上实测：push2delay 对 600519/000001/600036/300750/601318/002594
-  // 一律回 f62=3、f78=0（常量），不是真实净额。若采信会渲染「主力净流入 3 元」。
-  const DELAY_CONSTANT = JSON.stringify({
-    data: { f62: 3, f184: 1.82, f66: '-', f72: '-', f78: 0, f84: 19405918198 },
-  });
+await test('symbol：实时主机与新浪都不可用 → 判 unavailable，不把任何常量当净额', async () => {
+  // 2026-11-04 线上实测：延迟主机 push2delay 对任意个股恒回 f62=3、f78=0（常量）。
+  // 现在个股五档只问实时主机（延迟主机仅服务板块 clist），实时主机失败就转新浪；
+  // 两者都拿不到时宁可 unavailable，也不展示 0 或常量。
   const { status, body } = await callFundFlowSymbolWithStub({
-    stockGetBody: STOCK_GET_FULL, primaryFails: true, delayStockGetBody: DELAY_CONSTANT,
+    stockGetBody: STOCK_GET_FULL, primaryFails: true,   // 实时主机抛错；sinaBody 缺省 = 新浪也不可达
   });
   assert.equal(status, 200);
-  assert.equal(body.data.current, null, '延迟主机的常量不能当个股五档');
+  assert.equal(body.data.current, null, '拿不到真实五档时 current 必须 null');
   assert.equal(body.data.dataSource, 'unavailable');
   assert.equal(body.source, 'eastmoney-boards-only');
-  assert.ok(Array.isArray(body.attempts) && body.attempts.includes('push2delay:untrusted-constant'),
-    'attempts 应记录延迟主机不可信，实际 ' + JSON.stringify(body.attempts));
+  assert.ok(Array.isArray(body.attempts) && body.attempts.some((a) => a.startsWith('sina:')),
+    'attempts 应记录新浪兜底也失败，实际 ' + JSON.stringify(body.attempts));
   assert.ok(body.data.sectorFlows.length >= 1, '板块资金流仍来自 clist，与个股五档是两件事实');
 });
 

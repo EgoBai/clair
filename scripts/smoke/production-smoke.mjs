@@ -131,6 +131,11 @@ const UNAVAILABLE_SOURCES = new Set(['unavailable', 'degraded', 'refused', 'fabr
  * 避免和 real 混为一谈（策略模板目录 = 配置存在，不是真实行情/回测结果）。
  */
 const STATIC_SOURCES = new Set(['static']);
+/**
+ * dataSource 的「部分可得」取值：来源可达但部分字段缺失（D52 个股资金流缺档、D53 三态）。
+ * 这是如实披露的状态，不该阻断部署；但也不能读成全量 real —— reason 必须写明缺档。
+ */
+const PARTIAL_SOURCES = new Set(['partial']);
 /** dataSource 的合法「有数据」取值。命中即 OK（前提是其余关键字段齐备）。 */
 const REAL_SOURCES = new Set([
   'eastmoney', 'tencent', 'sina', 'em', 'tx', 'akshare', 'tushare',
@@ -248,6 +253,11 @@ async function probe(endpoint) {
         // 所以判 OK 但把"非行情"写进 reason，防止被读成"实时数据已就绪"。
         verdict = 'OK';
         reason = `HTTP ${res.status}，dataSource='${dataSource}'（静态配置，非行情数据）`;
+      } else if (dataSource && PARTIAL_SOURCES.has(dataSource)) {
+        // 部分可得：字段真实性没问题，但「全量」这件事不成立，必须写进 reason，
+        // 否则日后再看报告会把它当成 real 已就绪。
+        verdict = 'OK';
+        reason = `HTTP ${res.status}，dataSource='${dataSource}'（部分字段缺失，非全量）`;
       } else if (dataSource && !REAL_SOURCES.has(dataSource)) {
         verdict = 'MALFORMED';
         reason = `HTTP ${res.status} 但 dataSource 取值非法: '${dataSource}'`;
