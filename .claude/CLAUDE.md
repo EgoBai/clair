@@ -1,6 +1,14 @@
 # Clair (澄观) — Agent 操作手册
 
-> 本文件是所有 Agent（MiMoCode/Hermes/子Agent）的**唯一入口上下文**。
+> ⚠️ **2026-11-04 状态声明（勿跳过）**
+> - 本文件已**不再是唯一入口**。跨 harness 通用入口是仓库根 `AGENTS.md`；开工必读清单见其 §二。
+> - 下方「当前状态 (Phase 14)」与「Agent 分工（Hermes 主导）」两节**已过期**：测试数、部署形态、主导角色均已变。
+>   现行事实以 `docs/harness/TICKET-LEDGER.md`（工单状态）、`DECISION_LOG.md`（决策）、
+>   `docs/harness/CO-AGENT-CONTRACT.md`（双 harness 权责）为准。
+> - 「质量门禁」一节仍有效，但 `tsc --noEmit` / 全量 vitest 在本机会 OOM 出假错，
+>   实际做法见 `AGENTS.md` §四。
+
+> 本文件是所有 Agent（MiMoCode/Hermes/子Agent）的**历史入口上下文**。
 > 每次新 session 启动时必须读取。
 
 ## 产品定位
