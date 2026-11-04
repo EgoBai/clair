@@ -2415,32 +2415,85 @@ async function fetchDailyKLine(tencentSymbol, symbol, market, limit) {
   return { quotes: [], source: null, attempts };
 }
 
+/** ISO 周键（与 backend/src/api/stock.ts 的 weekly 聚合逐字一致，避免两端给出不同的周） */
+function isoWeekKey(dateStr) {
+  const d = new Date(dateStr);
+  const jan1 = new Date(d.getFullYear(), 0, 1);
+  const weekNum = Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7);
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
 /**
- * 个股日K线 —— 走多源降级，绝不再因单一上游 WAF 而整条 500
+ * 个股 K 线 —— 多源降级 + 响应契约对齐本地 Express（backend/src/api/stock.ts:268）。
+ *
+ * 契约（两条都必须是这两条，否则线上个股详情页会静默画 0）：
+ *   1. 字段名是 open/close/high/low（Express 的 select 别名），**不是** openPrice/closePrice；
+ *   2. 支持 period=daily|weekly|monthly 与 limit（默认 250、上限 1000），
+ *      weekly/monthly 由日线聚合而来，聚合口径与 Express 同（开=首、收=尾、高低=极值、量额=求和）。
+ * 历史事故：本函数曾直接返回内部 fetchDailyKLine 的 {openPrice,...} 与全量日线，
+ * 而 StockDetailPage.tsx:209-217 读 q.open/q.close → 线上 K 线恒为 0、周/月切换无效；
+ * Express 在本机跑却是对的，属「本地好、线上坏」的典型契约漂移。
  */
-async function handleStockKLine(symbol) {
+async function handleStockKLine(symbol, url) {
   try {
+    const q = url.searchParams;
+    const period = q.get('period') || 'daily';
+    const parsedLimit = parseInt(q.get('limit') || '250', 10);
+    const limit = Math.min(Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 250, 1000);
+
     const stocks = await getStockList();
     const stock = stocks.find(s => s.symbol === symbol) || await resolveStockFallback(symbol);
     if (!stock) return error('Stock not found', 404);
 
     const tencentSymbol = `${tencentPrefix(stock.market)}${symbol}`;
-    const { quotes, source, attempts } = await fetchDailyKLine(tencentSymbol, symbol, stock.market, 2000);
+    const { quotes: rawQuotes, source, attempts } = await fetchDailyKLine(tencentSymbol, symbol, stock.market, 2000);
 
-    if (!quotes || quotes.length === 0) {
+    if (!rawQuotes || rawQuotes.length === 0) {
       return json({
+        success: true,
+        dataSource: 'unavailable',
         data: {
-          quotes: [], symbol, count: 0, source: null,
+          quotes: [], symbol, period, count: 0, source: null,
+          dataSource: 'unavailable',
           note: 'K线数据暂不可用：上游数据源全部不可用',
           attempts: attempts || [],
         },
-        success: true,
       });
     }
 
+    // 与 Express 同序：先截「最近 limit 根日线」，再聚合，保证周/月线与本地一致
+    let bars = rawQuotes.slice(-limit).map(r => ({
+      tradeDate: r.tradeDate,
+      open: r.openPrice,
+      close: r.closePrice,
+      high: r.highPrice,
+      low: r.lowPrice,
+      volume: r.volume,
+      turnover: r.turnover || 0,
+    }));
+
+    if (period === 'weekly' || period === 'monthly') {
+      const grouped = new Map();
+      bars.forEach(bar => {
+        const key = period === 'weekly' ? isoWeekKey(bar.tradeDate) : bar.tradeDate.slice(0, 7);
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(bar);
+      });
+      bars = Array.from(grouped.values()).map(group => ({
+        tradeDate: group[group.length - 1].tradeDate,
+        open: group[0].open,
+        close: group[group.length - 1].close,
+        high: Math.max(...group.map(b => b.high)),
+        low: Math.min(...group.map(b => b.low)),
+        volume: group.reduce((s, b) => s + b.volume, 0),
+        turnover: group.reduce((s, b) => s + b.turnover, 0),
+      }));
+    }
+
     return json({
-      data: { quotes, symbol, count: quotes.length, source },
       success: true,
+      dataSource: 'real',
+      data: { quotes: bars, symbol, period, count: bars.length, source, dataSource: 'real' },
     });
   } catch (e) {
     return error(e.message);
@@ -8700,7 +8753,7 @@ export default {
     // K-line data: /api/stocks/:symbol/kline
     const klineMatch = path.match(/^\/api\/stocks\/(\d+)\/kline$/);
     if (klineMatch) {
-      return handleStockKLine(klineMatch[1]);
+      return handleStockKLine(klineMatch[1], url);
     }
 
     // Index detail: /api/index/:symbol

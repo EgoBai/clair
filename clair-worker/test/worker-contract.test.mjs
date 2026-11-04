@@ -306,6 +306,52 @@ await test('K线：纯 6 位代码（无市场信息）→ 拒绝猜测，显式
   assert.ok(/symbol/i.test(body.error || ''), 'error 应说明 symbol 问题');
 });
 
+console.log('\n/api/stocks/:symbol/kline（个股详情页契约）');
+
+await test('个股K线：默认日线 → 250 根、字段名 open/close/high/low、dataSource 内外同值', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks/600519/kline');
+  assert.equal(status, 200, `期望 200，实际 ${status}`);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'real', '有真实K线时顶层 dataSource 应为 real');
+  const d = body.data;
+  assert.equal(d.dataSource, body.dataSource, 'data.dataSource 必须与顶层同值');
+  assert.equal(d.period, 'daily');
+  assert.ok(Array.isArray(d.quotes) && d.quotes.length > 0, 'quotes 应为非空数组');
+  assert.ok(d.quotes.length <= 250, `默认 limit 应为 250，实际 ${d.quotes.length}`);
+  assert.equal(d.count, d.quotes.length, 'count 应等于 quotes 长度');
+  const bar = d.quotes[d.quotes.length - 1];
+  // StockDetailPage.tsx:209-217 读 q.open/q.close/q.high/q.low；
+  // Worker 曾返回 openPrice/closePrice → 线上 K 线被 `|| 0` 抹成 0（本地 Express 正常）。
+  for (const key of ['open', 'close', 'high', 'low', 'volume', 'turnover']) {
+    assert.ok(typeof bar[key] === 'number' && Number.isFinite(bar[key]), `第 bar.${key} 应为有限数`);
+  }
+  assert.equal(bar.openPrice, undefined, '不应再返回 openPrice（契约只有 open）');
+  assert.ok(bar.close > 0, 'close 应为正数（不返回 0 冒充）');
+  assert.ok(bar.high >= bar.close && bar.close >= bar.low, 'close 应落在 [low, high] 内');
+  assert.match(bar.tradeDate, /^\d{4}-\d{2}-\d{2}$/, 'tradeDate 应为 YYYY-MM-DD');
+  // 升序（图表与指标计算都依赖）
+  for (let i = 1; i < d.quotes.length; i++) {
+    assert.ok(d.quotes[i].tradeDate >= d.quotes[i - 1].tradeDate, '日线应按日期升序');
+  }
+});
+
+await test('个股K线：weekly/monthly 聚合 → 周月线根数少于日线、开=首/收=尾/高低为极值', async () => {
+  const daily = (await callWorker('https://clair-api.pages.dev/api/stocks/600519/kline?limit=250')).body.data.quotes;
+  for (const period of ['weekly', 'monthly']) {
+    const { status, body } = await callWorker(`https://clair-api.pages.dev/api/stocks/600519/kline?period=${period}&limit=250`);
+    assert.equal(status, 200);
+    const d = body.data;
+    assert.equal(d.period, period);
+    assert.ok(d.quotes.length > 0, `${period} 应有数据`);
+    assert.ok(d.quotes.length < daily.length, `${period} 根数应少于日线（${d.quotes.length} < ${daily.length}）`);
+    const last = d.quotes[d.quotes.length - 1];
+    const lastDaily = daily[daily.length - 1];
+    assert.ok(last.high >= last.open && last.high >= last.close && last.low <= last.open && last.low <= last.close,
+      `${period} 高低应为区间极值`);
+    assert.equal(last.close, lastDaily.close, `${period} 最后一根收盘应等于同日日线收盘`);
+  }
+});
+
 console.log('\n/api/market/top-gainers | top-losers');
 
 for (const kind of ['gainers', 'losers']) {

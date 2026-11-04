@@ -499,3 +499,13 @@
 - **口径**：只改前端判别口径与既有测试文件，无新增测试文件 → census total 1,526、影子 687（45.0%）不变。
 - **代价**：若未来某个埋点端点变成用户可见功能（例如把 analytics 数据做成「访问统计」页），必须从该集合移除，否则它的未部署状态不会提示；集合以精确路径匹配，带子路径的 `/api/analytics/summary` 不受影响（会照常登记）。
 
+
+## D68 Worker 个股 K 线契约对齐 Express：字段名 open/close、period 聚合、limit 默认 250（轮 22）
+
+- **背景**：线上个股详情页的 K 线是一整条 0，周/月切换无效；本地 Express 正常。追到 `frontend/src/pages/StockDetailPage.tsx:203` 请求 `/api/stocks/:symbol/kline?period=...`，:208-217 逐根读 `q.open/q.close/q.high/q.low` 并 `|| 0`；而 `clair-worker/worker.js` 的 `handleStockKLine` 直接返回 `fetchDailyKLine` 的内部结构 `{openPrice,closePrice,highPrice,lowPrice}`（worker.js:2312 契约），字段名不匹配 → 全部落到 0；同时它忽略 `period`/`limit`、恒返 2000 根日线。Express 契约真源是 `backend/src/api/stock.ts:268-353`：返回 `{tradeDate,open,close,high,low,volume,turnover}`，`limit` 默认 250/上限 1000，weekly/monthly 由日线聚合（开=首、收=尾、高低=极值、量额求和）。
+- **判断**：仍按 D63–D65 的方向修 Worker 而不是改前端——前端读 `open` 是 Express 既有契约，且页面在本地是好的；若改前端去认 `openPrice`，等于让两个后端继续各说各话，且 `StockDetailPage` 的技术指标（`computeIndicatorSeries`）也依赖同一批字段名。
+- **做法**：`handleStockKLine(symbol, url)` 接收 query，先解析 `period`（默认 daily）与 `limit`（默认 250、上限 1000，非法值回落默认）；取 2000 根日线后**先截最近 limit 根再聚合**（与 Express 的顺序一致，否则周/月线根数会不同）；输出统一映射成 `{tradeDate,open,close,high,low,volume,turnover}`，不再暴露 `*Price` 别名；weekly 用与 Express 逐字相同的周键公式（`isoWeekKey`），monthly 用 `YYYY-MM`；成功分支顶层与 `data` 内双写 `dataSource:'real'`，空数据分支 `dataSource:'unavailable'` + `quotes:[]` + `attempts`（沿用 `sendHonest` 的双写口径）。路由调用改为传 `url`。
+- **证据**：本地 `worker.fetch` 实测——`?limit=3` → 200、top/inner real、3 根、末根 `{tradeDate:'2026-11-04',open:1470,close:1446.44,high:1480.6,low:1439,volume:65434}`；默认 → 250 根；`?period=weekly&limit=60` → 14 根周线（首 2026-08-07）；`?period=monthly&limit=250` → 14 根月线（首 2025-10-31）；日线升序。`worker-contract.test.mjs` 新增「三·六」2 例（字段名/无双写别名/内外 dataSource/升序/默认 250；weekly+monthly 根数少于日线且末根收盘与日线一致），全套 **107 通过 0 失败**；`node --check` 双入口通过，`_worker.js` 与 `worker.js` SHA256 同为 `6cfae0cb…61d1`。
+- **口径**：只改 Worker 与其契约测试，census 不变（1,526 / 687）。Express 侧未改。
+- **代价**：个股 K 线默认根数由 2000 降为 250（与 Express 一致，页面只画图不需要 2000）；前端若未来想拉更长历史必须显式传 `limit`（上限 1000）。周键公式与 Express 同为「近似 ISO 周」，跨年首周可能与严格 ISO 8601 差一周，本次以「两端一致」优先。
+
