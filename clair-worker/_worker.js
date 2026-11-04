@@ -1303,6 +1303,10 @@ async function handleAllStocks(url) {
           peRatio: q.peRatio,
           volume: q.volume,
           turnover: q.turnover,
+          // 总市值/流通市值：腾讯 parts[45]/[44]，单位「亿元」。缺失时省略键，
+          // 前端据此显示 '—'，绝不用 0 或按股价×股本倒算。
+          marketCap: Number.isFinite(q.marketCap) ? q.marketCap : undefined,
+          circulatingMarketCap: Number.isFinite(q.circulatingMarketCap) ? q.circulatingMarketCap : undefined,
         } : null,
       };
     });
@@ -8207,10 +8211,12 @@ async function fetchFinancialFactorSeries(symbol, periods) {
 /**
  * 通用三表取数：指标源定年报期 → 逐期并发拉 emweb 报表 → 映射。
  * 单期失败只丢该期（诚实少给），不整表判死；全期失败才 unavailable。
+ *
+ * indicatorRows：调用方已拿到指标行时传入（估值端点要同时取三表，避免重复请求指标源）。
  */
-async function fetchFinancialSeries(symbol, endpoint, periods, mapper) {
+async function fetchFinancialSeries(symbol, endpoint, periods, mapper, indicatorRows = null) {
   const { emCode } = finNormalizeSymbol(symbol);
-  const indicators = await getFinancialIndicators(symbol, periods);
+  const indicators = indicatorRows || await getFinancialIndicators(symbol, periods);
   const dates = indicators
     .map((i) => i.reportDate)
     .filter((d) => /^\d{4}-12-31$/.test(d))
@@ -8489,6 +8495,238 @@ async function handleFinancialFactorSeries(url) {
       timestamp: updatedAt,
     });
   }
+}
+
+/**
+ * 估值分位：当前值在历史序列中的百分位（0–100，越大越贵）。
+ * 序列含非有限值/空时返回 null（诚实空态，不用 0 冒充「最低估」）。
+ */
+function valuationPercentile(series, current) {
+  if (!Array.isArray(series) || series.length === 0) return null;
+  if (!Number.isFinite(current)) return null;
+  let le = 0;
+  for (const v of series) {
+    if (Number.isFinite(v) && v <= current) le += 1;
+  }
+  return Math.round((le / series.length) * 1000) / 10;
+}
+
+/**
+ * 年报生效日：报告期次年 4 月 30 日（A 股年报法定披露截止日近似）。
+ * 用它做 point-in-time 分位，避免用「今天的 EPS」去解释三年前的价格（那等价于价格分位）。
+ */
+function annualEffectiveDate(reportDate) {
+  const m = /^(\d{4})-\d{2}-\d{2}$/.exec(String(reportDate || ''));
+  if (!m) return null;
+  return `${Number(m[1]) + 1}-04-30`;
+}
+
+/**
+ * point-in-time 估值比率序列：每个收盘日使用「当日已生效的最近一期年报」EPS 或 BPS。
+ * 早期没有已生效年报的交易日直接跳过（不拿未来报表回填，也不补 0）。
+ */
+function pointInTimeRatioSeries(closes, rows, pick) {
+  const points = [];
+  for (const r of rows) {
+    const value = pick(r);
+    const from = annualEffectiveDate(r.reportDate);
+    if (from && Number.isFinite(value) && value > 0) points.push({ from, value });
+  }
+  points.sort((a, b) => (a.from < b.from ? -1 : 1));
+  if (points.length === 0) return [];
+  const series = [];
+  for (const c of closes) {
+    if (!c.tradeDate || !Number.isFinite(c.closePrice) || c.closePrice <= 0) continue;
+    let value = null;
+    for (const p of points) {
+      if (String(c.tradeDate).slice(0, 10) >= p.from) value = p.value;
+      else break;
+    }
+    if (value) series.push(c.closePrice / value);
+  }
+  return series;
+}
+
+/** 最新一期的有效值（按报告期取最大，不依赖上游返回顺序）。 */
+function latestReportValue(rows, pick) {
+  let best = null;
+  for (const r of rows) {
+    const value = pick(r);
+    if (!r || !Number.isFinite(value) || value <= 0) continue;
+    if (!best || String(r.reportDate) > String(best.reportDate)) {
+      best = { reportDate: r.reportDate, value };
+    }
+  }
+  return best ? best.value : null;
+}
+
+/**
+ * 个股估值快照：GET /api/valuation/:symbol
+ *
+ * 数据全部来自真实源：腾讯实时行情（价格/PE/PB/总市值）+ 东财年报指标（EPS/BPS/ROE/成长）
+ * + 东财 F10 现金流量表与资产负债表（自由现金流/有息负债）+ 新浪近 1023 根不复权收盘价。
+ *
+ * 历史分位口径（页面必须原样披露，避免被读成「TTM PE 的历史分位」）：
+ * 取最近 6 期年报 EPS/BPS，按「报告期次年 4 月 30 日生效」做 point-in-time 回溯近 3 年（750 个交易日），
+ * 每个收盘日只用当日已披露的最近一期年报，得到随时间变化的 PE/PB 序列再取分位。
+ * 它比「用最新 EPS 除全部历史价格」真实（后者等价于价格分位，PE 与 PB 会完全相同），
+ * 但仍以年报而非 TTM 为分母，故披露为「年报口径近似分位」。
+ *
+ * DCF 只返回输入（fcf/shares/netDebt/增长率假设），由前端 dcfValuation 引擎计算，
+ * 避免同一模型在 Worker 与前端出现两份实现。自由现金流为负/三表不可用（银行保险）→ dcfInput:null。
+ */
+async function handleValuation(symbol) {
+  const updatedAt = new Date().toISOString();
+  let stock = null;
+  try {
+    const stocks = await getStockList();
+    stock = stocks.find((s) => s.symbol === symbol) || null;
+  } catch {
+    stock = null;
+  }
+  if (!stock) {
+    try {
+      stock = await resolveStockFallback(symbol);
+    } catch {
+      stock = null;
+    }
+  }
+  if (!stock) return error('Stock not found', 404);
+
+  const quote = await fetchQuoteFallback(symbol, stock.market);
+  if (!quote || !(Number.isFinite(quote.price) && quote.price > 0)) {
+    return unavailable(
+      { symbol, quote: null, pe: null, pb: null, marketCap: null },
+      `行情源未返回 ${symbol} 的有效价格，无法计算估值；不以 0 或估算值顶替`,
+    );
+  }
+
+  const price = quote.price;
+  const marketCapYuan = Number.isFinite(quote.marketCap) ? Math.round(quote.marketCap * 1e8) : null;
+  const { emCode } = finNormalizeSymbol(symbol);
+  const tencentKey = emCode.slice(0, 2).toLowerCase() + emCode.slice(2);
+  const code = tencentKey.slice(2);
+  const market = tencentKey.startsWith('sh') ? 'SH' : tencentKey.startsWith('bj') ? 'BJ' : 'SZ';
+
+  let indicatorRows = [];
+  try {
+    indicatorRows = await getFinancialIndicators(symbol, 6);
+  } catch {
+    indicatorRows = []; // 银行/保险或上游缺失 → 估值降级为行情口径，如实披露
+  }
+  const indicators = indicatorRows[0] || null;
+
+  const [cfRes, bsRes, closesRes] = await Promise.allSettled([
+    indicators
+      ? fetchFinancialSeries(symbol, 'xjllbAjaxNew', 1, mapFinCashFlow, [indicators])
+      : Promise.reject(new Error('no indicators')),
+    indicators
+      ? fetchFinancialSeries(symbol, 'zcfzbAjaxNew', 1, mapFinBalanceSheet, [indicators])
+      : Promise.reject(new Error('no indicators')),
+    fetchFactorCloses(tencentKey, code, market),
+  ]);
+
+  const cashFlow = cfRes.status === 'fulfilled' ? (cfRes.value[0] || null) : null;
+  const balance = bsRes.status === 'fulfilled' ? (bsRes.value[0] || null) : null;
+  const closes = closesRes.status === 'fulfilled' && Array.isArray(closesRes.value) ? closesRes.value : [];
+
+  const eps = indicators && Number.isFinite(indicators.eps) && indicators.eps > 0 ? indicators.eps : null;
+  const bps = indicators && Number.isFinite(indicators.bps) && indicators.bps > 0 ? indicators.bps : null;
+  const growth = indicators && Number.isFinite(indicators.profitGrowth) ? indicators.profitGrowth : null;
+
+  // PE/PB 优先用行情源口径（腾讯按最新报告期 TTM/动态口径给值），缺失时才由价格/EPS 推导并注明。
+  const peFromQuote = Number.isFinite(quote.peRatio) && quote.peRatio > 0 ? quote.peRatio : null;
+  const pbFromQuote = Number.isFinite(quote.pbRatio) && quote.pbRatio > 0 ? quote.pbRatio : null;
+  const pe = peFromQuote ?? (eps ? Math.round((price / eps) * 100) / 100 : null);
+  const pb = pbFromQuote ?? (bps ? Math.round((price / bps) * 100) / 100 : null);
+  const peg = pe && growth && growth > 0 ? Math.round((pe / growth) * 100) / 100 : null;
+
+  const windowCloses = closes.slice(-750);
+  const annualRows = indicatorRows.filter((r) => r && /^\d{4}-12-31$/.test(String(r.reportDate || '')));
+  const peSeries = pointInTimeRatioSeries(windowCloses, annualRows, (r) => r.eps);
+  const pbSeries = pointInTimeRatioSeries(windowCloses, annualRows, (r) => r.bps);
+  const currentEps = latestReportValue(annualRows, (r) => r.eps) ?? eps;
+  const currentBps = latestReportValue(annualRows, (r) => r.bps) ?? bps;
+  const pePercentile =
+    currentEps && peSeries.length >= 60 ? valuationPercentile(peSeries, price / currentEps) : null;
+  const pbPercentile =
+    currentBps && pbSeries.length >= 60 ? valuationPercentile(pbSeries, price / currentBps) : null;
+
+  const fcf = cashFlow && Number.isFinite(cashFlow.freeCashFlow) ? cashFlow.freeCashFlow : null;
+  const shares = marketCapYuan && price > 0 ? Math.round(marketCapYuan / price) : null;
+  const borrowings = balance
+    ? (Number.isFinite(balance.shortTermBorrowing) ? balance.shortTermBorrowing : 0) +
+      (Number.isFinite(balance.longTermBorrowing) ? balance.longTermBorrowing : 0)
+    : null;
+  const cash = balance && Number.isFinite(balance.cash) ? balance.cash : null;
+  const netDebt = borrowings !== null && cash !== null ? borrowings - cash : null;
+
+  let dcfInput = null;
+  let dcfNote = null;
+  if (fcf === null) {
+    dcfNote = '现金流量表不可用（银行/保险等特殊报表主体或不披露自由现金流），DCF 不计算，不用 0 或假设值顶替。';
+  } else if (fcf <= 0) {
+    dcfNote = `最新年报自由现金流为 ${fcf.toFixed(0)} 元（≤0），DCF 模型不适用，故不输出目标价。`;
+  } else if (shares === null || netDebt === null) {
+    dcfNote = '缺少总市值（无法折算股本）或有息负债数据，DCF 不计算。';
+  } else {
+    const gPct = Math.max(-5, Math.min(15, growth ?? 0));
+    dcfInput = {
+      freeCashFlow: fcf,
+      growthRate: Math.round(gPct * 100) / 10000,
+      growthBasis: `净利同比 ${growth ?? 0}% 夹取于 [-5%, 15%]（${gPct}%）`,
+      terminalGrowthRate: 0.025,
+      discountRate: 0.10,
+      projectionYears: 5,
+      shares,
+      netDebt,
+    };
+  }
+
+  const notes = [];
+  notes.push(
+    '历史分位为年报口径近似值：取最近 6 期年报 EPS/BPS，按报告期次年 4 月 30 日生效，逐日只用当日已披露的最近年报计算 PE/PB（非 TTM 口径）。'
+  );
+  if (!indicators) notes.push('年报财务指标不可用（可能为银行/保险等特殊报表主体），PE/PB 仅采用行情源口径，分位与 PEG 不计算。');
+  if (!peFromQuote && pe) notes.push('行情源未给 PE，采用 收盘价 ÷ 最新年报 EPS 推导。');
+  if (!pbFromQuote && pb) notes.push('行情源未给 PB，采用 收盘价 ÷ 最新年报 BPS 推导。');
+  if (growth !== null && growth <= 0) notes.push(`最新年报净利同比 ${growth}%（≤0），PEG 不适用，故为 null。`);
+
+  const dataSource = indicators ? 'real' : 'partial';
+  return json({
+    success: true,
+    dataSource,
+    data: {
+      symbol,
+      name: stock.name || null,
+      industry: stock.industry || null,
+      asOf: /^\d{8}/.test(String(quote.quoteTime || ''))
+        ? `${String(quote.quoteTime).slice(0, 4)}-${String(quote.quoteTime).slice(4, 6)}-${String(quote.quoteTime).slice(6, 8)}`
+        : null,
+      price,
+      marketCap: marketCapYuan,
+      marketCapUnit: 'yuan',
+      pe,
+      pb,
+      peg,
+      pePercentile3y: pePercentile,
+      pbPercentile3y: pbPercentile,
+      pePercentileSampleCount: peSeries.length,
+      pbPercentileSampleCount: pbSeries.length,
+      eps,
+      bps,
+      roe: indicators ? indicators.roe : null,
+      profitGrowth: growth,
+      revenueGrowth: indicators ? indicators.revenueGrowth : null,
+      reportDate: indicators ? indicators.reportDate : null,
+      dcfInput,
+      dcfNote,
+      notes,
+      dataSource,
+      updatedAt,
+    },
+    timestamp: updatedAt,
+  });
 }
 
 const RESEARCH_NOTE =
@@ -8877,6 +9115,11 @@ export default {
     // 财务因子序列：因子实验室消费；此前未挂载 → 前端恒「财务因子未接入」
     if (path === '/api/financials/factor-series') {
       return handleFinancialFactorSeries(url);
+    }
+    // 个股估值快照：估值分析面板消费（PE/PB/PEG/历史分位/DCF 输入）
+    const valuationMatch = path.match(/^\/api\/valuation\/(\d{6})$/);
+    if (valuationMatch) {
+      return handleValuation(valuationMatch[1]);
     }
     if (path === '/api/news/research/reports') {
       return handleResearchReports(url);

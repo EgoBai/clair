@@ -1963,6 +1963,51 @@ await test('未知代码不伪造评分：999999 走 404，而不是返回一份
 });
 
 
+// ============================================================
+// 三·九、估值端点与列表总市值（L1/L2 数据缺口）
+// ============================================================
+
+console.log('\n/api/valuation/:symbol 与 /api/stocks 总市值');
+
+await test('估值端点已注册：600519 → 200 + real，PE/PB/EPS/BPS/DCF 输入齐全', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/valuation/600519');
+  assert.equal(status, 200, '期望 200，实际 ' + status);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'real', '有年报指标时应为 real');
+  const d = body.data || {};
+  assert.equal(d.symbol, '600519');
+  assert.ok(Number.isFinite(d.price) && d.price > 0, '价格应为真实有限值');
+  assert.ok(Number.isFinite(d.marketCap) && d.marketCap > 0, '总市值应以元为单位的有限正数');
+  assert.equal(d.marketCapUnit, 'yuan');
+  assert.ok(Number.isFinite(d.pe) && d.pe > 0, 'PE 应为有限正数');
+  assert.ok(Number.isFinite(d.pb) && d.pb > 0, 'PB 应为有限正数');
+  assert.ok(Number.isFinite(d.eps) && d.eps > 0, 'EPS 应来自最新年报');
+  assert.ok(Number.isFinite(d.bps) && d.bps > 0, 'BPS 应来自最新年报');
+  for (const k of ['pePercentile3y', 'pbPercentile3y']) {
+    assert.ok(d[k] === null || (Number.isFinite(d[k]) && d[k] >= 0 && d[k] <= 100), k + ' 必须在 0-100 或 null，实际 ' + d[k]);
+  }
+  assert.ok(Number.isFinite(d.pePercentileSampleCount), 'PE 分位样本数应真实返回');
+  assert.ok(Number.isFinite(d.pbPercentileSampleCount), 'PB 分位样本数应真实返回');
+  assert.ok(d.dcfInput && Number.isFinite(d.dcfInput.freeCashFlow) && Number.isFinite(d.dcfInput.shares), '自由现金流>0 时应返回 DCF 输入');
+  assert.ok(Array.isArray(d.notes) && d.notes.length > 0, '必须披露分位口径');
+});
+
+await test('未知代码不伪造估值：999999 → 404，而不是一份 0 值快照', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/valuation/999999');
+  assert.equal(status, 404, '没有该标的就必须 404，实际 ' + status);
+  assert.equal(body.success, false);
+  assert.ok(!body.data, '不得返回 data 占位');
+});
+
+await test('列表最新行情带总市值：/api/stocks?pageSize=3 的 latestQuote.marketCap 为有限正数（亿元）', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/stocks?pageSize=3');
+  assert.equal(status, 200);
+  const items = body.data && body.data.items;
+  assert.ok(Array.isArray(items) && items.length > 0, '应返回股票列表');
+  const first = items[0].latestQuote || {};
+  assert.ok(Number.isFinite(first.marketCap) && first.marketCap > 0, 'latestQuote.marketCap 应为有限正数（亿元），实际 ' + first.marketCap);
+});
+
 console.log('\n部署入口一致性');
 
 await test('_worker.js 与 worker.js 逐字节相同（否则线上跑的仍是旧代码）', async () => {
