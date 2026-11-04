@@ -88,7 +88,21 @@ if (head.ok && head.out) {
   }
 }
 
-// ---------- 3. 基线文件（防「用删测试冲抵数量」） ----------
+// ---------- 3. 本地领先远端多少（决定「线上是否落后」，用本地 ref，不联网） ----------
+// 注意：origin/main 是上次 fetch/push 的快照，未 fetch 时可能偏旧——这里只作提示，不作断言。
+const ahead = run('git', ['rev-list', '--count', 'origin/main..main']);
+if (!ahead.ok) {
+  n_a('未推送提交', `无法读取 origin/main（可能未设远端）：${ahead.err.split('\n')[0] || ahead.code}`);
+} else {
+  const n = Number(ahead.out);
+  record(
+    '未推送提交',
+    n > 0 ? 'warn' : 'ok',
+    n > 0 ? `${n} 个未推 → 线上（Pages/Worker）落后这 ${n} 个提交，用户看不到` : '已与 origin/main 同步'
+  );
+}
+
+// ---------- 4. 基线文件（防「用删测试冲抵数量」） ----------
 function readJson(rel) {
   try {
     return JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
@@ -104,7 +118,40 @@ const rulec = readJson('scripts/guard/rulec-baseline.json');
 if (rulec.__error) n_a('规则 C 基线', rulec.__error);
 else record('规则 C 基线', 'info', `${rulec.total} 条（棘轮：存量放行、新增阻断）`);
 
-// ---------- 4. 深度检查 ----------
+// ---------- 4. 本地服务存活（廉价 curl，3s 超时；回环必须 --noproxy） ----------
+function probe(url) {
+  const r = spawnSync('curl', ['-s', '--noproxy', '*', '-m', '3', '-w', '\\n%{http_code}', url], {
+    encoding: 'utf8',
+    timeout: 6000,
+  });
+  const raw = r.stdout || '';
+  const idx = raw.lastIndexOf('\n');
+  const code = idx >= 0 ? raw.slice(idx + 1).trim() : '000';
+  const body = idx >= 0 ? raw.slice(0, idx) : raw;
+  return { code, body };
+}
+
+const be = probe('http://127.0.0.1:3001/api/version');
+const fe = probe('http://127.0.0.1:5173/');
+record(
+  '本地后端 :3001',
+  be.code === '200' ? 'info' : 'info',
+  be.code === '200'
+    ? `/api/version 200${(() => {
+        try {
+          const j = JSON.parse(be.body);
+          const v = j.appVersion || j.version;
+          const c = j.commit || j.gitCommit;
+          return `（appVersion=${v ?? 'n/a'}${c ? ` commit=${String(c).slice(0, 10)}` : ''}）`;
+        } catch {
+          return '（响应非 JSON，可疑：可能是静态托管把 /api/* 兜成 index.html）';
+        }
+      })()}`
+    : `无响应（${be.code}）→ 任何「本地实测」结论须说明用的是哪个临时实例`
+);
+record('本地前端 :5173', fe.code === '200' ? 'info' : 'info', fe.code === '200' ? '200' : `无响应（${fe.code}）`);
+
+// ---------- 5. 深度检查 ----------
 if (DEEP) {
   const honesty = run('node', ['scripts/guard/honesty-scan.mjs', '--strict'], { timeout: 300000 });
   // 约定：exit 0 = 通过；非 0 可能是「有新增红线」或「脚本自身失败」，必须区分，不可一概判绿/红
