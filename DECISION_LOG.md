@@ -302,3 +302,8 @@
 - **结论**：批次 32 的 `backend/src/__tests__/dataWarehouse.test.ts` 跨包 import `frontend/src/utils/bloombergExportEngine.ts`（groupData/aggregateData），该模块顶层 `import * as XLSX from 'xlsx'`、`import { saveAs } from 'file-saver'`。CI 只安装 backend 依赖，Vite 报 `Failed to load url xlsx`，导致整个 backend 套件 1 failed / 649 passed（run 41758036717）；本地因 frontend/node_modules 存在而常绿。修法：`backend/vitest.config.ts` 把 `xlsx`/`file-saver` alias 到 `backend/vitest.stubs/*.ts`，替身**只满足解析、任何调用立即抛错**，避免测试静默产出假工作簿；`__probe_stub.test.ts` 实测两条 alias 均抛「前端浏览器依赖」，删探针后 dataWarehouse 33 passed。
 - **代价**：backend 测试环境不再真实加载这两个包；若将来后端确实要用 xlsx 导出，必须显式覆盖 alias。跨包 import 仍会引入前端模块的其它浏览器依赖，出现新缺包时按同一方式补替身，不得用 `server.deps.inline` 或安装前端包糊过去。
 
+### D44 · 规则 C 由「观察项」转「棘轮阻断」 ✅ 2026-11-04 执行
+- **结论**：D39 定的是先观察后阻断，但存量 35 处里 14 处是排序/计数/特征开关等良性写法，逐条写 allowlist（带 expiresAt/清理工单）成本高于收益、且容易把门禁掏空。改为棘轮：新建 `scripts/guard/rulec-baseline.json`（30 条 file+行文本，count 复现重复行），`--strict` 下**新增命中阻断**（exit 1，打印 ⛔ 新增 file:line），**基线失效也阻断**（存量被修掉却未收缩基线 → ⚠ 失效，提示 `--update-rulec-baseline`）。实测：注入 `backend/src/api/__rulec_probe.ts` 的 `?? 0` → exit 1；基线里塞一条不存在的键 → exit 1；还原 → exit 0。
+- **代价**：行文本变更（重排/改名）会同时产生「新增 + 失效」两条，必须同 commit 跑 `--update-rulec-baseline`；基线文件成为需 review 的账本，不能靠删测试或改行文本偷偷过关。剩余 16 处虚假响应改法仍待拍板（handover/12 第六项），不影响本棘轮先行落地。
+
+

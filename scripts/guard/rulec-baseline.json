@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "generatedAt": "2026-11-04",
+  "note": "规则 C 棘轮基线（存量放行，新增阻断）。修完存量后用 node scripts/guard/honesty-scan.mjs --update-rulec-baseline 收缩。删除测试或改行文本都需同步更新本文件。",
+  "total": 35,
+  "entries": [
+    {
+      "file": "backend/src/api/ai-analysis.ts",
+      "text": "bucket.volumes.push(numOrNull(r.volume) ?? 0);",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/ai-analysis.ts",
+      "text": "changePercent: q.changePercent ?? 0,",
+      "count": 2
+    },
+    {
+      "file": "backend/src/api/ai-analysis.ts",
+      "text": "marketCap: q.marketCap ?? 0,",
+      "count": 2
+    },
+    {
+      "file": "backend/src/api/ai-market-pulse.ts",
+      "text": "avgChangePercent: Number(t.avg_change_percent ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/ai-market-pulse.ts",
+      "text": "changePercent: Number(r.change_percent ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/ai-market-pulse.ts",
+      "text": "limitUpCount: Number(t.limit_up_count ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/ai-market-pulse.ts",
+      "text": "turnover: Number(t.total_turnover ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/ai-market-pulse.ts",
+      "text": "turnoverRate: Number(r.turnover_rate ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/backtest-routes.ts",
+      "text": "?? 0,",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/backtest-routes.ts",
+      "text": "(req.body as { initialCapital?: unknown }).initialCapital ?? 0,",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/etf.ts",
+      "text": "const av = (a[sortKey] as number) ?? 0;",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/etf.ts",
+      "text": "const bv = (b[sortKey] as number) ?? 0;",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/industryChain.ts",
+      "text": "if ((filter.excludeKeywords?.length ?? 0) > 0) {",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/industryChain.ts",
+      "text": "if ((filter.nameKeywords?.length ?? 0) > 0) {",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/northBound.ts",
+      "text": "out.sort((a, b) => (b.holdMarketCap ?? -1) - (a.holdMarketCap ?? -1));",
+      "count": 2
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": ".filter((r) => (peBuckets.get(r) ?? 0) > 0)",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "const cap = (r: any) => num(r.latestQuote?.marketCap) ?? 0;",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "const stockCount = val?.stockCount ?? members.length ?? 0;",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "const totalCap = sector.totalMarketCap ?? 0;",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "limitUpCount: Number(row.limit_up_count ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "lossOrNoPeCount: Number(r.loss_or_no_pe_count ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "lossOrNoPeCount: val?.lossOrNoPeCount ?? 0,",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "peBuckets.set(key, (peBuckets.get(key) ?? 0) + 1);",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "stockCount: Number(r.stock_count ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "validPeCount: Number(r.valid_pe_count ?? 0),",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sector-analysis.ts",
+      "text": "validPeCount: val?.validPeCount ?? 0,",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sectors.ts",
+      "text": ": ((a.avg_change_percent as number) ?? 0) - ((b.avg_change_percent as number) ?? 0)",
+      "count": 2
+    },
+    {
+      "file": "backend/src/api/sectors.ts",
+      "text": "? ((b.avg_change_percent as number) ?? 0) - ((a.avg_change_percent as number) ?? 0)",
+      "count": 2
+    },
+    {
+      "file": "backend/src/api/sectors.ts",
+      "text": "const aVal = (a[sortBy] as number) ?? 0;",
+      "count": 1
+    },
+    {
+      "file": "backend/src/api/sectors.ts",
+      "text": "const bVal = (b[sortBy] as number) ?? 0;",
+      "count": 1
+    }
+  ]
+}

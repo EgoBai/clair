@@ -8,6 +8,7 @@
  * 运行：node scripts/guard/honesty-scan.mjs                    （默认：NON-BLOCKING，exit 0；**只写 stdout**）
  *       node scripts/guard/honesty-scan.mjs --strict           （未豁免 RED / 过期豁免 / 台账不同步 → exit 1）
  *       node scripts/guard/honesty-scan.mjs --update-baseline  （额外把报告覆盖写入受控基线文件）
+ *       node scripts/guard/honesty-scan.mjs --update-rulec-baseline （重写规则 C 棘轮基线 rulec-baseline.json）
  * 产出：默认**不写任何文件**；仅显式 `--update-baseline` 时写
  *       scripts/guard/honesty-baseline.md（幂等覆盖，不追加）。
  *       —— R0′-11a：写入改为 opt-in，杜绝「每次运行都弄脏工作树」与并发互相覆盖。
@@ -28,10 +29,13 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const OUT_FILE = path.join(REPO_ROOT, 'scripts', 'guard', 'honesty-baseline.md');
 const ALLOWLIST_FILE = path.join(REPO_ROOT, 'scripts', 'guard', 'allowlist.json');
+// 规则 C 棘轮基线：存量（含良性）记账，新增即阻断；修完后用 --update-rulec-baseline 收缩。
+const RULEC_BASELINE_FILE = path.join(REPO_ROOT, 'scripts', 'guard', 'rulec-baseline.json');
 
 const STRICT = process.argv.includes('--strict');
 // R0′-11a：基线写入改为显式 opt-in。默认只写 stdout，不触碰受版本控制的基线文件。
 const UPDATE_BASELINE = process.argv.includes('--update-baseline');
+const UPDATE_RULEC = process.argv.includes('--update-rulec-baseline');
 
 const SCAN_ROOTS = ['backend/src', 'frontend/src']; // 规则 A 扫描根（相对仓库根）
 const SRC_EXT = new Set(['.ts', '.tsx']);           // 只扫 TS/TSX
@@ -325,6 +329,85 @@ function scanRuleC() {
     }
   }
   return hits;
+}
+
+// ---------------------------------------------------------------------------
+// 5c. 规则 C 棘轮基线（2026-11-04，S3 收口）
+// ---------------------------------------------------------------------------
+// 为什么不是 allowlist：35 处存量里 14 处是排序/计数/特征开关等良性写法，
+// 逐条加 allowlist 需要写 expiresAt 与清理工单，成本高于收益且容易把门禁掏空。
+// 改为「棘轮」：现有命中按 file+行文本记账放行；出现**新的**命中即阻断；
+// 存量被修掉后基线条目变成 stale，也必须同步收缩（防基线偷偷长大）。
+// 计数语义：同一文件内同一行文本可能重复（如两行 sort 比较器），按出现次数记账。
+function rulecKey(h) {
+  return `${h.file}\u0000${h.text}`;
+}
+
+function loadRulecBaseline() {
+  if (!fs.existsSync(RULEC_BASELINE_FILE)) {
+    return { entries: [], exists: false, counts: new Map() };
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(RULEC_BASELINE_FILE, 'utf8'));
+    const entries = Array.isArray(raw.entries) ? raw.entries : [];
+    const counts = new Map();
+    for (const e of entries) {
+      const k = `${e.file}\u0000${e.text}`;
+      counts.set(k, (counts.get(k) || 0) + (Number(e.count) > 0 ? Number(e.count) : 1));
+    }
+    return { entries, exists: true, raw, counts };
+  } catch (err) {
+    return { entries: [], exists: true, counts: new Map(), error: String(err && err.message ? err.message : err) };
+  }
+}
+
+function splitRulecByBaseline(hits, baseline) {
+  const remaining = new Map(baseline.counts);
+  const baselined = [];
+  const fresh = [];
+  for (const h of hits) {
+    const k = rulecKey(h);
+    const n = remaining.get(k) || 0;
+    if (n > 0) {
+      remaining.set(k, n - 1);
+      baselined.push(h);
+    } else {
+      fresh.push(h);
+    }
+  }
+  const stale = [];
+  for (const [k, n] of remaining) {
+    if (n > 0) {
+      const [file, text] = k.split('\u0000');
+      stale.push({ file, text, count: n });
+    }
+  }
+  return { baselined, fresh, stale };
+}
+
+function writeRulecBaseline(hits) {
+  const counts = new Map();
+  for (const h of hits) {
+    const k = rulecKey(h);
+    counts.set(k, (counts.get(k) || 0) + 1);
+    counts.get(k);
+  }
+  const entries = [...counts.entries()]
+    .map(([k, count]) => {
+      const [file, text] = k.split('\u0000');
+      return { file, text, count };
+    })
+    .sort((a, b) => (a.file === b.file ? a.text.localeCompare(b.text) : a.file.localeCompare(b.file)));
+  const payload = {
+    version: 1,
+    generatedAt: new Date().toISOString().slice(0, 10),
+    note: '规则 C 棘轮基线（存量放行，新增阻断）。修完存量后用 node scripts/guard/honesty-scan.mjs --update-rulec-baseline 收缩。删除测试或改行文本都需同步更新本文件。',
+    total: hits.length,
+    entries,
+  };
+  fs.mkdirSync(path.dirname(RULEC_BASELINE_FILE), { recursive: true });
+  fs.writeFileSync(RULEC_BASELINE_FILE, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+  return entries.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -652,7 +735,7 @@ function renderReport({ ruleA, ruleB, ruleC, allowlist, exemptions }) {
 
   L.push('## 规则 C 明细（backend/src/api/** 数值兜底）');
   L.push('');
-  L.push('> 判据：代码位置出现 `?? 0` / `?? -1`（注释、字符串示例不算）。**当前为观察项，不阻断**（存量 35 处待分类：排序比较器/计数器良性，响应字段默认值待修）；分类完成后再转阻断。');
+  L.push('> 判据：代码位置出现 `?? 0` / `?? -1`（注释、字符串示例不算）。**棘轮门禁**：存量按 file+行文本记入 `scripts/guard/rulec-baseline.json` 放行，**新增命中 --strict 即阻断**；修掉存量后必须 `--update-rulec-baseline` 收缩，否则「基线失效」也阻断。');
   L.push('');
   L.push('| 路径:行 | 行内容（截断 120 字符） |');
   L.push('|---|---|');
@@ -664,7 +747,7 @@ function renderReport({ ruleA, ruleB, ruleC, allowlist, exemptions }) {
   L.push('');
   L.push('---');
   L.push('');
-  L.push('**门禁模式**：脚本默认非阻断（exit 0）；传 `--strict` 时，存在未豁免 RED 或过期豁免则 exit 1。');
+  L.push('**门禁模式**：脚本默认非阻断（exit 0）；传 `--strict` 时，存在未豁免 RED、过期豁免、规则 C 新增或规则 C 基线失效则 exit 1。');
   L.push('');
   return L.join('\n');
 }
@@ -677,6 +760,13 @@ function main() {
   const ruleA = scanRuleA();
   const ruleB = scanRuleB();
   const ruleC = scanRuleC();
+  const rulecBaseline = loadRulecBaseline();
+  let rulecSplit = splitRulecByBaseline(ruleC, rulecBaseline);
+  let rulecEntryCount = rulecBaseline.entries.length;
+  if (UPDATE_RULEC) {
+    rulecEntryCount = writeRulecBaseline(ruleC);
+    rulecSplit = { baselined: ruleC, fresh: [], stale: [] };
+  }
   const allowlist = loadAllowlist();
   const exemptions = annotateExemptions(ruleA.hits, allowlist, now);
 
@@ -701,7 +791,7 @@ function main() {
   // R0′-11b：仅 --strict 下做窄口径台账同步校验（源 allowlist vs 已提交基线）
   const sync = STRICT ? checkBaselineSync(allowlist) : { ok: true, diffs: [] };
 
-  const fail = unexempted.length > 0 || !sync.ok;
+  const fail = unexempted.length > 0 || !sync.ok || rulecSplit.fresh.length > 0 || rulecSplit.stale.length > 0;
 
   const modeTags = [STRICT ? '--strict' : 'NON-BLOCKING'];
   if (UPDATE_BASELINE) modeTags.push('--update-baseline');
@@ -715,7 +805,7 @@ function main() {
   out.push(`豁免域 (仅计数)        : ${hits.exempt.length} 行 / ${ruleA.exemptByFile.size} 文件`);
   out.push(`注释/字符串提及(非违规): ${hits.comment.length}`);
   out.push(`规则B CONTRACT-MISSING : ${contractMissing.length} 文件`);
-  out.push(`规则C 数值兜底(?? 0/-1) : ${ruleC.length} 处（观察项，暂不阻断；存量待分类）`);
+  out.push(`规则C 数值兜底(?? 0/-1) : ${ruleC.length} 处（基线内 ${rulecSplit.baselined.length} / 新增 ${rulecSplit.fresh.length} / 基线失效 ${rulecSplit.stale.length}；基线条目 ${rulecEntryCount}）`);
   out.push(`allowlist 条目         : ${allowlist.entries.length}（未命中 ${allowlist.entries.filter((e) => !exemptions.usedIds.has(e.id)).length}）`);
   out.push(`基线文件               : ${wroteBaseline ? `已写入 ${relOut}` : `未写（默认只读；需 --update-baseline 才写 ${relOut}）`}`);
 
@@ -748,12 +838,14 @@ function main() {
     }
   }
 
-  // 规则 C 明细（数值兜底，观察项）
-  if (ruleC.length) {
+  // 规则 C 明细（棘轮：存量放行、新增阻断、失效需收缩）
+  if (ruleC.length || rulecSplit.stale.length) {
     out.push('');
-    out.push(`观察：规则 C 数值兜底（${ruleC.length} 处）—— 供数路径的 `?? 0` / `?? -1` 会把取不到伪装成 0；`);
-    out.push('      当前仅报告不阻断（存量需先分类：排序比较器/计数器属良性，响应字段默认值属待修）。');
-    for (const h of ruleC) out.push(`  ${h.file}:${h.line}  ${h.text}`);
+    out.push(`规则 C 明细：存量 ${rulecSplit.baselined.length} 处（基线放行）/ 新增 ${rulecSplit.fresh.length} 处 / 基线失效 ${rulecSplit.stale.length} 处；`);
+    out.push('      棘轮语义：新增命中 --strict 阻断；修掉存量后必须 --update-rulec-baseline 收缩基线，否则按「基线失效」阻断。');
+    for (const h of rulecSplit.baselined) out.push(`  基线内 ${h.file}:${h.line}  ${h.text}`);
+    for (const h of rulecSplit.fresh) out.push(`  ⛔ 新增  ${h.file}:${h.line}  ${h.text}`);
+    for (const s of rulecSplit.stale) out.push(`  ⚠ 失效  ${s.file}  x${s.count}  ${s.text}`);
   }
 
   // R0′-11b：台账同步校验结果（仅 --strict 会真正校验）
@@ -771,7 +863,9 @@ function main() {
     const reasons = [];
     if (unexempted.length) reasons.push('未豁免/过期 RED');
     if (!sync.ok) reasons.push('台账不同步');
-    out.push(reasons.length ? `[STRICT] 阻断项：${reasons.join(' + ')} → exit 1` : `[STRICT] 无未豁免 RED、无过期豁免、台账同步 → exit 0（规则 C 为观察项）`);
+    if (rulecSplit.fresh.length) reasons.push('规则 C 新增数值兜底');
+    if (rulecSplit.stale.length) reasons.push('规则 C 基线失效（存量已修需收缩基线）');
+    out.push(reasons.length ? `[STRICT] 阻断项：${reasons.join(' + ')} → exit 1` : '[STRICT] 无未豁免 RED、无过期豁免、台账同步、规则 C 无新增 → exit 0');
   } else {
     out.push('[NON-BLOCKING] exit 0');
   }
