@@ -121,6 +121,11 @@ const ENDPOINTS = [
 
 /** dataSource 的「诚实不可得」取值。命中即 DEGRADED。 */
 const UNAVAILABLE_SOURCES = new Set(['unavailable', 'degraded', 'refused', 'fabricated-refused']);
+/**
+ * dataSource 的「静态配置」取值。命中即 OK，但 reason 里必须写明它不供行情，
+ * 避免和 real 混为一谈（策略模板目录 = 配置存在，不是真实行情/回测结果）。
+ */
+const STATIC_SOURCES = new Set(['static']);
 /** dataSource 的合法「有数据」取值。命中即 OK（前提是其余关键字段齐备）。 */
 const REAL_SOURCES = new Set([
   'eastmoney', 'tencent', 'sina', 'em', 'tx', 'akshare', 'tushare',
@@ -233,6 +238,11 @@ async function probe(endpoint) {
       } else if (dataSource && UNAVAILABLE_SOURCES.has(dataSource)) {
         verdict = 'DEGRADED';
         reason = `HTTP ${res.status}，dataSource='${dataSource}'（服务可达，数据诚实不可得）`;
+      } else if (dataSource && STATIC_SOURCES.has(dataSource)) {
+        // 静态配置源：semantics 正确（配置存在这一事实），不是行情也不是回测结果，
+        // 所以判 OK 但把"非行情"写进 reason，防止被读成"实时数据已就绪"。
+        verdict = 'OK';
+        reason = `HTTP ${res.status}，dataSource='${dataSource}'（静态配置，非行情数据）`;
       } else if (dataSource && !REAL_SOURCES.has(dataSource)) {
         verdict = 'MALFORMED';
         reason = `HTTP ${res.status} 但 dataSource 取值非法: '${dataSource}'`;

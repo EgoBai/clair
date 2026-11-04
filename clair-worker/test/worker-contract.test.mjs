@@ -1284,6 +1284,96 @@ await test('/api/ai/diagnose/600519（有 key，桩行情/K线/LLM）：结构�
 });
 
 // ============================================================
+// 五、供数端点诚实契约：/api/stocks 与 /api/sectors/momentum 的 dataSource
+// ============================================================
+// 背景（生产烟测 2026-11-04）：两端点 200 但完全没有 dataSource，
+// 前端/烟测都无法区分「真实行情」与「行情全缺」，属诚实契约缺口。
+
+console.log('\n供数端点 dataSource（/api/stocks、/api/sectors/momentum）');
+
+/** 只桩腾讯行情接口（其余 fetch 走原实现），用于控制"有几只票拿到真实行情" */
+async function withStubbedTencentQuotes(lineFactory, fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async function (input, init) {
+    const u = String(input);
+    if (u.startsWith('https://qt.gtimg.cn/q=')) {
+      const syms = u.slice('https://qt.gtimg.cn/q='.length).split(',').filter(Boolean);
+      const text = syms.map(lineFactory).filter((x) => x !== null && x !== undefined).join('\n');
+      return new Response(Buffer.from(text, 'latin1'), { status: 200 });
+    }
+    return original(input, init);
+  };
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+await test('/api/stocks：本页全部取到行情时 dataSource=real，且顶层与 data 内同源', async () => {
+  await withStubbedTencentQuotes(fakeQuoteLine, async () => {
+    const { status, body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/stocks?page=1&pageSize=3', undefined, {});
+    assert.equal(status, 200);
+    assert.equal(body.success, true);
+    assert.equal(body.dataSource, 'real', '三只票都有真实报价时必须如实标 real');
+    assert.equal(body.data.dataSource, body.dataSource, '顶层与 data 内 dataSource 必须同源');
+    assert.equal(body.data.quotes_available, 3);
+    assert.equal(body.data.coverage_ratio, 1);
+    assert.equal(body.data.items.length, 3);
+    for (const it of body.data.items) {
+      assert.ok(it.latestQuote, '有行情时 latestQuote 不能为 null');
+      assert.equal(it.latestQuote.closePrice, 100);
+    }
+  });
+});
+
+await test('/api/stocks：一只行情都拿不到时 dataSource=unavailable，latestQuote 全 null（不伪造价格）', async () => {
+  await withStubbedTencentQuotes(() => null, async () => {
+    const { status, body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/stocks?page=1&pageSize=3', undefined, {});
+    assert.equal(status, 200, '上游无行情仍须 200，让前端走空态而不是报错');
+    assert.equal(body.dataSource, 'unavailable');
+    assert.equal(body.data.dataSource, 'unavailable');
+    assert.equal(body.data.quotes_available, 0);
+    assert.equal(body.data.coverage_ratio, 0);
+    for (const it of body.data.items) {
+      assert.equal(it.latestQuote, null, '拿不到行情必须置 null，绝不填 0 或回退代码');
+    }
+    assert.ok(typeof body.data.note === 'string' && /[\u4e00-\u9fa5]/.test(body.data.note), '必须给中文说明');
+  });
+});
+
+await test('/api/sectors/momentum：dataSource 与覆盖率自洽（partial 必须 coverage<0.6，unavailable 必须空榜单）', async () => {
+  await withStubbedTencentQuotes(fakeQuoteLine, async () => {
+    const { status, body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/sectors/momentum', undefined, {});
+    assert.equal(status, 200);
+    assert.equal(body.success, true);
+    assert.ok(['real', 'partial', 'unavailable'].includes(body.dataSource), 'dataSource 必须是三种诚实取值之一');
+    assert.equal(body.data.dataSource, body.dataSource, '顶层与 data 内 dataSource 必须同源');
+    const sectors = body.data.sectors;
+    assert.ok(Array.isArray(sectors));
+    if (body.dataSource === 'unavailable') {
+      assert.equal(sectors.length, 0, '不可用时不得塞伪造成交/涨幅');
+      assert.ok(typeof body.data.note === 'string' && /[\u4e00-\u9fa5]/.test(body.data.note));
+    } else if (body.dataSource === 'partial') {
+      assert.ok(body.data.coverage_ratio < 0.6, 'partial 必须对应 coverage_ratio<0.6');
+      assert.ok(sectors.length > 0);
+      assert.ok(typeof body.data.note === 'string' && body.data.note.includes('60%'), 'partial 必须说明覆盖不足');
+    } else {
+      assert.ok(body.data.coverage_ratio >= 0.6, 'real 必须对应 coverage_ratio>=0.6');
+      assert.ok(sectors.length > 0);
+    }
+    for (const s of sectors.slice(0, 5)) {
+      assert.ok(typeof s.industry === 'string' && s.industry.length > 0);
+      assert.ok(typeof s.score === 'number' && s.score >= 0 && s.score <= 100);
+      assert.ok(typeof s.stock_count === 'number' && s.stock_count >= 3);
+    }
+  });
+});
+
+// ============================================================
 // 四、双入口字节一致性（Cloudflare Pages advanced mode 的硬约束）
 // ============================================================
 

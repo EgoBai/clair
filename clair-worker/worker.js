@@ -767,6 +767,18 @@ async function handleSectorMomentum(url) {
     // 前端可据此判断：coverage_ratio 过低时展示「二级分类数据积累中」空态，
     // 而不是呈现一份覆盖率仅两成的残缺榜单（诚实数据 > 好看数据）。
     const classified = Object.values(sectorMap).reduce((n, d) => n + d.stocks.length, 0);
+    const coverageRatio = Math.round((classified / Math.max(stocks.length, 1)) * 1000) / 1000;
+    // 与 /api/industries 同一口径：数值真实但覆盖率不足 60% 时只标 partial，
+    // 不把两成覆盖率的榜单说成全市场真实；一个板块都聚合不出时标 unavailable。
+    const dataSource = sectors.length > 0
+      ? (coverageRatio < 0.6 ? 'partial' : 'real')
+      : 'unavailable';
+    const note = dataSource === 'partial'
+      ? '由 Worker 内置 A 股清单 + 腾讯实时行情现场聚合；覆盖率低于 60%，只覆盖部分股票，'
+        + '不是全市场完整榜单（coverage_ratio 为真实归集比例）。'
+      : (dataSource === 'real'
+        ? '由 Worker 内置 A 股清单 + 腾讯实时行情现场聚合；仅统计有真实报价且可归类的股票。'
+        : '没有可聚合的板块行情（无报价或全部无法归类），不返回伪造成交与涨幅。');
     const data = {
       sectors,
       type: level === 2 ? 'industry_l2' : 'industry',
@@ -775,9 +787,11 @@ async function handleSectorMomentum(url) {
       stocks_with_quotes: quotes.length,
       classified_stocks: classified,
       unclassified_stocks: Math.max(0, stocks.length - classified),
-      coverage_ratio: Math.round((classified / Math.max(stocks.length, 1)) * 1000) / 1000,
+      coverage_ratio: coverageRatio,
+      dataSource,
+      note,
     };
-    return json({ data, success: true });
+    return json({ success: true, dataSource, data, timestamp: new Date().toISOString() });
   } catch (e) {
     return error(e.message);
   }
@@ -1195,7 +1209,37 @@ async function handleAllStocks(url) {
       };
     });
 
-    return json({ data: { items, total, page, pageSize }, success: true });
+    // 诚实数据：latestQuote 为 null 表示"该股这一页没拿到真实行情"，
+    // 不能因为 items 里有代码就自称 real。按有行情条数占比给 dataSource，
+    // 并显式披露 quotes_available / coverage_ratio，前端与烟测据此判定。
+    const quotesAvailable = items.reduce((n, it) => n + (it.latestQuote ? 1 : 0), 0);
+    const coverageRatio = items.length
+      ? Math.round((quotesAvailable / items.length) * 1000) / 1000
+      : 0;
+    const dataSource = items.length === 0
+      ? 'unavailable'
+      : (quotesAvailable === 0 ? 'unavailable' : (quotesAvailable < items.length ? 'partial' : 'real'));
+    const note = dataSource === 'real'
+      ? '本页全部股票均取到腾讯实时行情（latestQuote 非空）。'
+      : (dataSource === 'partial'
+        ? '本页部分股票未取到实时行情，对应 latestQuote 为 null（不回落代码/不填 0）；quotes_available 为真实有值条数。'
+        : '本页未取到任何实时行情，latestQuote 全为 null；不返回伪造价格。');
+
+    return json({
+      success: true,
+      dataSource,
+      data: {
+        items,
+        total,
+        page,
+        pageSize,
+        dataSource,
+        quotes_available: quotesAvailable,
+        coverage_ratio: coverageRatio,
+        note,
+      },
+      timestamp: new Date().toISOString(),
+    });
   } catch (e) {
     return error(e.message);
   }
