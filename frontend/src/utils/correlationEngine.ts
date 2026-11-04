@@ -221,8 +221,10 @@ export function correlationStabilityTest(
   }
 
   const bootstrapCorrs: number[] = [];
+  // 确定性洗牌式取窗：同一输入必须给出同一稳定性结论（禁 Math.random）
+  const span = n - windowSize + 1;
   for (let b = 0; b < numBootstrap; b++) {
-    const start = Math.floor(Math.random() * (n - windowSize));
+    const start = numBootstrap <= 1 ? 0 : Math.floor((b * (span - 1)) / (numBootstrap - 1));
     const a = seriesA.slice(start, start + windowSize);
     const bSeries = seriesB.slice(start, start + windowSize);
     bootstrapCorrs.push(pearsonCorrelation(a, bSeries));
@@ -273,7 +275,10 @@ function powerIteration(
   const workingMatrix = matrix.map(row => [...row]);
 
   for (let comp = 0; comp < numComponents; comp++) {
-    let v = Array.from({ length: n }, () => Math.random());
+    // 确定性初始向量：PCA 结果不得随刷新变化（禁 Math.random）
+    let v = Array.from({ length: n }, (_, i) => 1 + (((i + 1) * (comp + 1)) % 7) * 0.1);
+    const initNorm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+    v = v.map(x => x / initNorm);
 
     for (let iter = 0; iter < 100; iter++) {
       const Av = workingMatrix.map(row =>

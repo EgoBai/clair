@@ -165,5 +165,47 @@ describe('相关性分析引擎', () => {
       const result = correlationStabilityTest([1, 2], [1, 2], 60);
       expect(result.isStable).toBe(false);
     });
+
+    it('同一输入两次调用应给出完全相同的稳定性结论（确定性，禁随机取窗）', () => {
+      const fixed = (seed: number, n: number) => {
+        const out: number[] = [];
+        let x = seed;
+        for (let i = 0; i < n; i++) {
+          x = (x * 1103515245 + 12345) % 2147483648;
+          out.push((x / 2147483648 - 0.5) * 0.02);
+        }
+        return out;
+      };
+      const a = fixed(11, 200);
+      const b = fixed(29, 200).map((v, i) => v * 0.5 + a[i] * 0.5);
+      const first = correlationStabilityTest(a, b, 60, 40);
+      const second = correlationStabilityTest(a, b, 60, 40);
+      expect(second).toEqual(first);
+    });
+  });
+
+  describe('PCA 确定性', () => {
+    it('同一相关系数矩阵两次调用应给出相同的特征值与解释方差（禁 Math.random 初始化）', () => {
+      const fixed = (seed: number, n: number) => {
+        const out: number[] = [];
+        let x = seed;
+        for (let i = 0; i < n; i++) {
+          x = (x * 1103515245 + 12345) % 2147483648;
+          out.push((x / 2147483648 - 0.5) * 0.02);
+        }
+        return out;
+      };
+      const returns = new Map([
+        ['A', fixed(11, 80)],
+        ['B', fixed(29, 80)],
+        ['C', fixed(53, 80)],
+        ['D', fixed(97, 80)],
+      ]);
+      const first = calculateCorrelationMatrix(returns);
+      const second = calculateCorrelationMatrix(returns);
+      expect(second.eigenvalues).toEqual(first.eigenvalues);
+      expect(second.explainedVariance).toEqual(first.explainedVariance);
+      expect(second.principalComponents).toEqual(first.principalComponents);
+    });
   });
 });
