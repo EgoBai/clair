@@ -395,3 +395,17 @@
 - **代价**：成分股榜会长期显示「暂不可用」，直到接入指数成分股数据；这是如实空缺，不是待办遗漏。指数页的「成交额」单位从「—」变成亿/万亿分档，若上游某日只给 volume 不给 turnover，该格仍为「—」。
 
 
+
+## D58 图表交互三缺陷与布局两缺陷：越界、阈值、溢出、深拷贝、身份校验（2026-11-04 17:22）
+
+- **背景**：handover/09 的 C3/C4/C5 与 L1/L2 五条缺陷，此前只在测试里固化、未改生产。用户 16:51 决策「按缺陷直接修」，故本轮动生产源码。
+- **做法（五条，均不改对外交互契约）**：
+  1. C3 calculateCrosshair：绘图区外坐标与零/负画布尺寸早退 visible:false、dataPoint:null；边界（0 与右/下沿）仍可交互。
+  2. C4 findNearestPoint(data, targetX, maxDistance?)：改按 abs(x-targetX) 线性取最小（原实现依赖 x 有序的二分，乱序数据取错点），等距取先出现点；maxDistance 仅在传入且有限时生效，超阈值返回 null。findNearestIndex 保留未动。
+  3. C5 calculateTooltipPosition：末尾按 containerWidth/Height 减 tooltipWidth/Height 最终夹紧；浮层比容器还大时贴左上角 (0,0)，不再溢出。
+  4. L1 cloneLayout：新增 cloneConfig()（structuredClone 优先、退化 JSON 往返），widget 的 config 深拷贝，副本改配置不再污染原布局。
+  5. L2 validateLayout：空 layout.id 记错误 Layout id is required（结构必需）；空 layout.name 记警告 Layout name is empty（升为错误会让历史空名存档无法保存，先警告）。
+- **判定依据**：旧测试把缺陷写成期望（tooltip 断言 {x:10,y:10}、dashboardCustomization 有「should not validate layout identity (production gap)」），本次同步改写为修复后语义，并新增 7 个回归用例覆盖乱序/阈值/越界/零尺寸/深拷贝/空身份。
+- **证据**：受影响 14 个测试文件 632 passed；npx tsc --noEmit exit 0；E3 红→绿两次：投毒 chartInteractionEngine.ts:448（Math.max(0, containerWidth - tooltipWidth) 改为 containerWidth）→ poisoned=FAIL(0.9s)、restored=PASS(0.9s)；投毒 :204（越界判定改 false）→ poisoned=FAIL(0.9s)、restored=PASS(0.9s)。commit f72b80671。
+- **代价**：findNearestPoint 由 O(log n) 变 O(n)（数据点千级，实测无感）；十字光标越界不再显示残留虚线，若有页面依赖「移出后仍显示」的观感需单独提；空 id 布局从此不能保存（当前生产无此数据，历史空名仅告警不阻塞）。
+

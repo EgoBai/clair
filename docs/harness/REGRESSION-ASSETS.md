@@ -16,6 +16,8 @@
 | T-2610-03 FIX-ETF nav-history 符号格式 | backend/src/utils/symbolUtils.ts:30-32 toBareCode + backend/src/__tests__/symbolNormalize.test.ts（裸码/带后缀/sh. 前缀三写法等价；etf.test.ts 只覆盖后缀，单独投毒不红） | 0c4cea97d | E3 已补跑（2026-11-04 11:13，redgreen.mjs）：投毒 symbolUtils.ts:31 去掉前缀剥离 → poisoned=FAIL(0.7s)；还原 → restored=PASS(0.7s) |
 | T-2611-02 指数详情开高低/成交额全空 + 裸代码匹配失败 | frontend/src/pages/IndexDetailPage.tsx:124（bare 前缀归一兜底）+ 同文件 numOrNull/formatBigSafe 空态「—」+ clair-worker/worker.js handleMarketIndices 字段映射（缺值写 null 不写 0）+ frontend/src/__tests__/IndexDetailPage.test.tsx（8→11 例） | 462d36715 | E3 已跑（2026-11-04 17:14，redgreen.mjs）：投毒 IndexDetailPage.tsx:124 的裸码兜底为 list.find(() => false) → poisoned=FAIL(3.4s)；还原 → restored=PASS(1.9s)。线上 curl /api/market/indices → dataSource=real、openPrice 3605.39 / highPrice 3686.17 / lowPrice 3590.8 / turnover 953265160000 |
 
+| D58 图表交互/布局五缺陷（十字光标越界、最近点无阈值、浮层溢出、浅拷贝、身份不校验） | frontend/src/utils/chartInteractionEngine.ts:204（越界早退）+ :448（浮层最终夹紧）+ findNearestPoint 的 maxDistance + frontend/src/utils/dashboardLayoutEngine.ts:57（空 id 错误）/ :270（config 深拷贝）+ frontend/src/__tests__/chartInteractionEngine.test.ts（乱序/阈值/越界/零尺寸）+ chartDataAndInteraction.test.ts（超大浮层夹紧）+ dashboardLayoutEngine.test.ts（深拷贝/身份） | f72b80671 | E3 已跑（2026-11-04 17:22，redgreen.mjs）：投毒 chartInteractionEngine.ts:448 把 Math.max(0, containerWidth - tooltipWidth) 改为 containerWidth → poisoned=FAIL(0.9s)、restored=PASS(0.9s)；投毒 :204 越界判定为 false → poisoned=FAIL(0.9s)、restored=PASS(0.9s) |
+
 ## 维护规则
 
 1. 新单从「复验通过」转「已收口」前，必须在本表加一行；无防复发物不得收口。
