@@ -39,8 +39,9 @@ const _ACCENT = THEME.accent;
 
 interface IndexDetail {
   symbol: string; name: string; displaySymbol: string;
-  closePrice: number; changePercent: number; volume: number; turnover: number;
-  highPrice: number; lowPrice: number; openPrice: number;
+  /** 上游没给就是 null —— 渲染层统一走 fmtNum / formatBigSafe 显示「—」，绝不 Number(null)=0 */
+  closePrice: number | null; changePercent: number | null; volume: number | null; turnover: number | null;
+  highPrice: number | null; lowPrice: number | null; openPrice: number | null;
   /** 涨跌榜 —— 优先成分股榜（index-top-movers），回退全市场榜（top-gainers|top-losers），口径见 moversMeta */
   topGainers: Constituent[]; topLosers: Constituent[];
 }
@@ -116,19 +117,29 @@ const IndexDetailPage: React.FC = () => {
         const res = await fetch('/api/market/indices', opts);
         const body = await res.json();
         const list: any[] = body?.data?.indices || [];
-        const hit = list.find(i => i.symbol === symbol);
+        // 路由参数可能是裸代码（/index/000001），后端返回带市场前缀（sh000001）：
+        // 先精确匹配，再按「去前缀」归一兜底，避免手输 URL 直接落到「指数数据不可用」。
+        const bare = (s: unknown) => String(s || '').toLowerCase().replace(/^(sh|sz|bj)/, '');
+        const hit = list.find(i => i && i.symbol === symbol)
+          || list.find(i => i && bare(i.symbol) === bare(symbol));
+        /** 上游缺值 → null；绝不让 Number(null)=0 变成「0.00」 */
+        const numOrNull = (v: unknown): number | null => {
+          if (v === null || v === undefined || v === '') return null;
+          const n = Number(v);
+          return Number.isFinite(n) ? n : null;
+        };
         if (hit) {
           detailData = {
             symbol: hit.symbol,
             name: hit.name,
             displaySymbol: hit.symbol,
-            closePrice: Number(hit.closePrice),
-            changePercent: Number(hit.changePercent),
-            volume: Number(hit.volume),
-            turnover: Number(hit.turnover),
-            highPrice: Number(hit.highPrice),
-            lowPrice: Number(hit.lowPrice),
-            openPrice: Number(hit.openPrice),
+            closePrice: numOrNull(hit.closePrice),
+            changePercent: numOrNull(hit.changePercent),
+            volume: numOrNull(hit.volume),
+            turnover: numOrNull(hit.turnover),
+            highPrice: numOrNull(hit.highPrice),
+            lowPrice: numOrNull(hit.lowPrice),
+            openPrice: numOrNull(hit.openPrice),
             topGainers: [],
             topLosers: [],
           };
@@ -250,8 +261,9 @@ const IndexDetailPage: React.FC = () => {
 
   // Worker 数据里 openPrice/highPrice 等字段可能整体缺失（实测 sz399006），
   // 旧实现 Number(undefined)=NaN 直接渲染「开盘 NaN」；这里统一 null 容错为「—」。
-  const closeNum = Number.isFinite(Number(detail.closePrice)) ? Number(detail.closePrice) : null;
-  const pctNum = Number.isFinite(Number(detail.changePercent)) ? Number(detail.changePercent) : null;
+  // null 必须先判空：Number(null) === 0 且 isFinite(0) === true，会让「没有数据」显示成 0.00
+  const closeNum = detail.closePrice != null && Number.isFinite(Number(detail.closePrice)) ? Number(detail.closePrice) : null;
+  const pctNum = detail.changePercent != null && Number.isFinite(Number(detail.changePercent)) ? Number(detail.changePercent) : null;
   const up = pctNum != null && pctNum >= 0;
   const changeColor = pctNum == null ? TEXT_SEC : up ? COLOR_UP : COLOR_DOWN;
 
@@ -274,6 +286,7 @@ const IndexDetailPage: React.FC = () => {
 
   const formatBig = (n: number) => n >= 1e12 ? (n / 1e12).toFixed(2) + '万亿' : n >= 1e8 ? (n / 1e8).toFixed(1) + '亿' : n >= 1e4 ? (n / 1e4).toFixed(1) + '万' : String(n);
   const formatBigSafe = (v: unknown) => {
+    if (v == null || v === '') return '—';
     const n = Number(v);
     return Number.isFinite(n) ? formatBig(n) : '—';
   };

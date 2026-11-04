@@ -271,3 +271,72 @@ describe('榜单条目 null 容错：change_percent / close_price 缺失显示�
     expect(text).toContain('—');
   });
 });
+
+// ── 场景五：新契约 —— indices 补齐 OHLC/成交额 + 裸代码路由归一 ──
+
+/** 补齐后的真实形状（Worker 2026-11-04 起返回）：tencent parts[5]/[33]/[34]/[37] 映射而来 */
+const INDEX_ROW_FULL = {
+  symbol: 'sh000001', name: '上证指数', available: true,
+  closePrice: 3686.17, changePercent: 2.16, changeAmount: 78.07,
+  openPrice: 3605.39, highPrice: 3686.17, lowPrice: 3590.8,
+  volume: 599394361, turnover: 953265160000, tradeDate: '2026-11-04',
+  category: 'index',
+};
+
+describe('indices 补齐 OHLC/成交额：头部不再整排「—」', () => {
+  beforeEach(() => {
+    routeFetch({
+      '/api/market/indices': { body: { success: true, dataSource: 'real', data: { indices: [INDEX_ROW_FULL] } } },
+      '/api/market/index-tech/': { status: 404, body: NOT_FOUND_BODY },
+      '/api/market/index-top-movers/': { status: 200, body: { success: true, dataSource: 'unavailable', data: null, message: '成分股清单未接入' } },
+      '/api/market/top-gainers': { body: FULL_MARKET_GAINERS },
+      '/api/market/top-losers': { body: FULL_MARKET_LOSERS },
+      '/api/market/kline': { status: 404, body: NOT_FOUND_BODY },
+    });
+  });
+
+  it('开盘/最高/最低/成交额渲染真实值（3605.39 / 3686.17 / 3590.80 / 成交额分档）', async () => {
+    renderPage('sh000001');
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('3686.17');
+    });
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('3605.39');
+    expect(text).toContain('3590.80');
+    // 成交额 953,265,160,000 元 → formatBig 走「万亿/亿」分档，不能是「—」
+    expect(text).toContain('亿');
+    expect(text).not.toMatch(/NaN/);
+  });
+
+  it('裸代码路由 /index/000001 也能命中 sh000001（不落到「指数数据不可用」）', async () => {
+    renderPage('000001');
+    await waitFor(() => {
+      // 名称同时出现在面包屑与标题两处
+      expect(screen.getAllByText('上证指数').length).toBeGreaterThan(0);
+    });
+    expect(document.body.textContent).not.toContain('指数数据不可用');
+    expect(document.body.textContent).toContain('3686.17');
+  });
+
+  it('indices 行缺值（closePrice=null）时显示「—」，绝不显示 0.00', async () => {
+    routeFetch({
+      '/api/market/indices': {
+        body: { success: true, dataSource: 'partial', data: { indices: [{ ...INDEX_ROW_FULL, closePrice: null, changePercent: null, openPrice: null }], missing: [] } },
+      },
+      '/api/market/index-tech/': { status: 404, body: NOT_FOUND_BODY },
+      '/api/market/index-top-movers/': { status: 200, body: { success: true, dataSource: 'unavailable', data: null, message: '未接入' } },
+      '/api/market/top-gainers': { body: FULL_MARKET_GAINERS },
+      '/api/market/top-losers': { body: FULL_MARKET_LOSERS },
+      '/api/market/kline': { status: 404, body: NOT_FOUND_BODY },
+    });
+    renderPage('sh000001');
+    await waitFor(() => {
+      expect(screen.getAllByText('上证指数').length).toBeGreaterThan(0);
+    });
+    const text = document.body.textContent ?? '';
+    // 价格与涨跌幅双双缺值 → 代码后紧跟两个「—」，而不是 0.00 / 0.00%
+    expect(text).toContain('sh000001——');
+    expect(text).toContain('开盘 —');
+    expect(text).not.toMatch(/NaN/);
+  });
+});

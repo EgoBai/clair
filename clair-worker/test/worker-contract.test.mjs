@@ -1688,6 +1688,56 @@ await test('搜索兜底：q=833171 命中北交所标的，并注明不在内�
   assert.ok(typeof body.data.note === 'string' && body.data.note.includes('快照'), '应注明不在内置快照清单内');
 });
 
+// ============================================================
+// 指数详情：/api/market/indices 与 /api/market/index-top-movers/:symbol
+// ============================================================
+
+console.log('\n/api/market/indices');
+
+await test('指数快照带完整 OHLC 与成交额（不再让页面「开盘/最高/最低/成交额」恒为 —）', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/market/indices');
+  assert.equal(status, 200);
+  const list = body?.data?.indices;
+  assert.ok(Array.isArray(list) && list.length > 0, 'indices 应为非空数组');
+  const hit = list.find((i) => i.symbol === 'sh000001');
+  assert.ok(hit, '应含上证指数 sh000001');
+  for (const k of ['openPrice', 'highPrice', 'lowPrice', 'closePrice', 'changePercent', 'volume', 'turnover', 'tradeDate']) {
+    assert.ok(k in hit, `缺字段 ${k}`);
+  }
+  assert.equal(body.dataSource, 'real', `应有 dataSource，实际 ${body.dataSource}`);
+  if (body.dataSource === 'real') {
+    assert.ok(Number.isFinite(hit.closePrice) && hit.closePrice > 0, `closePrice 应为正数，实际 ${hit.closePrice}`);
+    assert.ok(Number.isFinite(hit.openPrice) && hit.openPrice > 0, `openPrice 应为正数，实际 ${hit.openPrice}`);
+    assert.ok(Number.isFinite(hit.turnover) && hit.turnover > 0, `turnover 应为正数（元），实际 ${hit.turnover}`);
+    assert.match(String(hit.tradeDate), /^\d{4}-\d{2}-\d{2}$/, `tradeDate 形状应为 YYYY-MM-DD，实际 ${hit.tradeDate}`);
+  }
+});
+
+await test('指数缺值返回 null 而不是 0（禁零值顶替空态）', async () => {
+  const { body } = await callWorker('https://clair-api.pages.dev/api/market/indices');
+  const list = body?.data?.indices || [];
+  for (const i of list) {
+    const unavailable = i.available === false;
+    if (unavailable) {
+      assert.equal(i.closePrice, null, `${i.symbol} 不可用时 closePrice 必须是 null`);
+      assert.equal(i.turnover, null, `${i.symbol} 不可用时 turnover 必须是 null`);
+      assert.ok((body.data.missing || []).includes(i.symbol), '不可用标的应出现在 data.missing 里');
+    }
+    assert.notEqual(i.closePrice, 0, `${i.symbol} 的 closePrice 不得为 0（0 与「没有数据」必须可区分）`);
+  }
+});
+
+console.log('\n/api/market/index-top-movers/:symbol');
+
+await test('成分股榜诚实不可用：200 + dataSource=unavailable + 说明，而不是 404', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/market/index-top-movers/sh000001');
+  assert.equal(status, 200, `期望 200（404 会触发前端「未挂载端点」红条），实际 ${status}`);
+  assert.equal(body.success, true);
+  assert.equal(body.dataSource, 'unavailable');
+  assert.equal(body.data, null, '没有成分股映射就不给数据，绝不用全市场榜冒名');
+  assert.ok(typeof body.message === 'string' && body.message.length > 10, '必须说明为什么没有数据');
+});
+
 console.log('\n部署入口一致性');
 
 await test('_worker.js 与 worker.js 逐字节相同（否则线上跑的仍是旧代码）', async () => {

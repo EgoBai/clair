@@ -754,27 +754,72 @@ async function handleMarketIndices() {
     const qBuffer = await qResp.arrayBuffer();
     const qText = new TextDecoder('gbk').decode(qBuffer);
 
+    const num = (v) => {
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const missing = [];
+
     const indices = INDEX_SYMBOLS.map(idx => {
       const qMatch = qText.match(new RegExp(`v_${idx.tencent}="([^"]+)"`));
-      if (!qMatch) return {
-        symbol: idx.symbol, name: idx.name,
-        closePrice: 0, changePercent: 0, volume: 0, category: 'index',
-      };
+      if (!qMatch) {
+        // 上游没给这条指数：返回 null 并计入 missing，绝不写 0 让前端显示「0.00」（诚实红线）。
+        missing.push(idx.symbol);
+        return {
+          symbol: idx.symbol, name: idx.name, available: false,
+          closePrice: null, changePercent: null, changeAmount: null,
+          openPrice: null, highPrice: null, lowPrice: null,
+          volume: null, turnover: null, tradeDate: null, category: 'index',
+        };
+      }
       const parts = qMatch[1].split('~');
+      // parts[30]=yyyyMMddHHmmss，parts[37]=成交额（万元）→ 元
+      const stamp = String(parts[30] || '');
+      const tradeDate = /^\d{8}/.test(stamp)
+        ? `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}`
+        : null;
+      const turnoverWan = num(parts[37]);
       return {
         symbol: idx.symbol,
         name: idx.name,
-        closePrice: parseFloat(parts[3]) || 0,
-        changePercent: parseFloat(parts[32]) || 0,
-        volume: parseInt(parts[6]) || 0,
+        available: true,
+        closePrice: num(parts[3]),
+        changePercent: num(parts[32]),
+        changeAmount: num(parts[31]),
+        openPrice: num(parts[5]),
+        highPrice: num(parts[33]),
+        lowPrice: num(parts[34]),
+        volume: num(parts[6]),
+        turnover: turnoverWan == null ? null : turnoverWan * 10000,
+        tradeDate,
         category: 'index',
       };
     });
 
-    return json({ data: { indices }, success: true });
+    // 全部拿不到 → unavailable；部分拿到 → partial；全拿到 → real。前端与烟测按此三态判断。
+    const dataSource = missing.length === 0 ? 'real' : missing.length === indices.length ? 'unavailable' : 'partial';
+    return json({
+      data: { indices, missing, dataSource },
+      dataSource,
+      success: true,
+    });
   } catch (e) {
     return error(e.message);
   }
+}
+
+// 指数成分股涨跌榜：**故意不实现**（本地快照没有「指数 → 成分股」映射）。
+// 返回 200 + dataSource:'unavailable'，而不是 404：404 会被前端的「未挂载端点」横幅点名，
+// 让一个本来正常的指数页顶一条红条；而 200 + unavailable 会让页面走它自己的回退逻辑——
+// 展示全市场榜，并在卡片底部如实注明「成分股行情暂不可用」。两者都诚实，后者不误导。
+async function handleIndexTopMovers(symbol) {
+  return json({
+    success: true,
+    dataSource: 'unavailable',
+    data: null,
+    message: `指数 ${symbol} 的成分股清单未接入：本地行情快照不含「指数 → 成分股」映射，` +
+      '因此不返回任何成分股榜，也不用全市场数据冒名顶替。',
+  });
 }
 
 // ?level=2 → 申万二级行业景气度；默认 level=1 一期行业。
@@ -8238,6 +8283,13 @@ export default {
     // Market indices
     if (path === '/api/market/indices') {
       return handleMarketIndices();
+    }
+
+    // 指数成分股涨跌榜：诚实 unavailable（200），避免 404 触发「未挂载端点」横幅
+    if (path.startsWith('/api/market/index-top-movers/')) {
+      const sym = decodeURIComponent(path.slice('/api/market/index-top-movers/'.length));
+      if (!sym) return error('缺少指数代码', 400);
+      return handleIndexTopMovers(sym);
     }
 
     // Market summary (DiscoverPage 依赖，缺路由会导致右侧统计全 0)
