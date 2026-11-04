@@ -429,3 +429,13 @@
 - **首个样本**：`backend/src/__tests__/indexDataService.test.ts`（9 例）绑定 `indexDataService.ts:70 normalizeIndexSymbol` / `:100 getIndexName`；投毒 `:72` 去掉 `.SZ` 后缀支持 → redgreen poisoned=FAIL(1.0s)/restored=PASS(0.7s)。
 - **口径**：census total 1,523→1,524、影子仍 687、真实 836→837；可达绑定 240→241。
 - **代价**：`--gaps` 只做静态 import 计数，不区分断言密度；e2e 判定是字符串匹配，不是覆盖率。
+
+## D61 选股器静态目录补契约测试，并更正「页面无 e2e」的误判（轮 20）
+
+- **背景**：轮 19 的可达性缺口清单里，`backend/src/api/screener.ts`（975 行）排后端第一，且有 4 个前端页面在调静态目录端点；同时我上一轮写「SectorDetailPage/FinancialsPage 没有 e2e」。
+- **误判更正**：`frontend/e2e/route-render-smoke.spec.ts` 实际覆盖 28 条路由，参数化路由用的是反引号模板（`/sectors/${SAMPLE.SECTOR}`），我上一轮的判据只搜 `"'/sectors/'"` 所以漏判。**11 个可达页面全部有 e2e 路由冒烟**，缺口集中在后端 API 与前端组件。`handover/22` 与本节同步更正（94→93）。
+- **做法**：新增 `backend/src/__tests__/screenerContract.test.ts`（8 例），真实挂 `app.use('/api', router)` + killer 桩数据库，锁住四件事：`/screener/templates` 顶层与 data 内 `dataSource` 均为 `unavailable` 且 message 明说「静态策略模板目录…不含任何行情数据」；`/screener/fields` 九项 operator 顺序与 23 个字段；自定义模板 201→列表加一→DELETE 200→列表回落；未知字段、缺 name、删预设三种 4xx 且不落库。
+- **证据**：实测 8 passed；E3 红→绿：投毒 `api/screener.ts:711` 把 `'unavailable'` 改成 `'real'` → poisoned=FAIL(0.8s)、restored=PASS(0.7s)。commit `f67eac9e7`。
+- **新发现的缺陷（未改，留产品决定）**：模板字段白名单有两份且不一致——`middleware/validation.ts:246` 的 Joi 允许 32 个字段（含 rsi/macd/kdj/boll/ma 共 14 个技术指标），`api/screener.ts:305` 的 `ALLOWED_FIELDS` 只有 23 个（即 `/screener/fields` 公布的那份，含 debt_to_equity/float_shares/profit_growth/revenue_growth/total_shares）。带技术指标的模板请求能过 Joi、却被 handler 以「不支持的筛选字段」拒。今天 UI 只从 `/screener/fields` 取字段，用户碰不到；一旦开放技术指标建模板就会 400。修法需要产品决定：两份合成一份常量，或用同一份常量生成 Joi `valid()`。
+- **口径**：census total 1,525（新增 1 个真实导入测试）、影子仍 687、真实 838、realLoc 191,980；可达绑定 242（15.9%）、缺口 93/262（35.5%）；`shadow-baseline.json` 与 `SHADOW-TEST-CENSUS.md` 已同步，`--check` exit 0。
+- **代价**：契约测试用杀手桩数据库，不验证真实 SQL；模板 CRUD 的内存态与生产 Postgres 行为仍需端到端验证。
