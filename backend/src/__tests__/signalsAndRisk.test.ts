@@ -1,4 +1,60 @@
+/**
+ * 影子测试迁移（批次 34a，signalsAndRisk）
+ *
+ * 旧文件只 import vitest，信号与风险两组 helper 全部内联自抄。
+ * 本轮把指标 RSI/SMA、VaR、最大回撤、夏普、止损价、仓位与 Position 类型改为 import 产品仓真实实现；
+ * 组合信号 / 组合价值 / 暴露 / 集中度为生产缺口，保留本地 helper 并注明。
+ * 被 import 的 4 个模块均不依赖外部包（0 个 import），跨包 import 先例见
+ * backend/src/__tests__/movingAverageSystem.test.ts:38。
+ *
+ * 已绑定生产实现：
+ * - calculateSMA → frontend/src/utils/chartDataProcessing.ts:73（(number|null)[]，period-1 个 null 预热）
+ * - calculateRSI → frontend/src/utils/chartDataProcessing.ts:111（null 预热、Wilder）
+ *   （两者供下方本地 generateCombinedSignal 组合调用，不重复算法。）
+ * - calculateVaR → backend/src/services/stressTestEngine.ts:32 stressVaR(returns, confidence)
+ * - calculateMaxDrawdown → backend/src/models/Backtest.ts:164（峰值回撤分数 0..1）
+ * - calculateSharpeRatio → backend/src/models/Backtest.ts:152（样本方差 n−1、年化、默认 rf=0.03）
+ * - checkStopLoss（布尔）→ frontend/src/utils/riskManagementEngine.ts:127 calculateStopLoss（返回止损价）
+ * - calculatePositionSize → frontend/src/utils/riskManagementEngine.ts:153
+ * - Position 类型 → frontend/src/utils/riskManagementEngine.ts:6（比旧本地接口多 sector 字段）
+ *
+ * 旧断言错在哪（旧值 → 生产值）：
+ * - VaR 符号：旧副本返回百分位收益 -0.05，生产 stressVaR 返回 -sorted[idx]（正数=损失，
+ *   stressTestEngine.ts:36）。「应返回负值」→ 生产 0.05（>0，浮点 toBeCloseTo）；
+ *   「全正收益VaR接近最小」旧 0.01 → 生产 -0.01。
+ * - VaR 分位索引不变：idx = floor((1-confidence) × n)，空数组返回 0。
+ * - 仓位数量级：旧副本 floor(riskAmount/riskPerShare/100)×100（100 股整手）→ 生产不取整，
+ *   且按 maxPositionPct 封顶（riskManagementEngine.ts:195-196）。旧「应返回100股整数倍」在
+ *   1000 股时数值恰好成立，改为断言 1000；新增 2000/0.7 → 2857（非整百）用例证明无整手取整。
+ * - 止损：旧布尔 (entry-current)/entry >= pct → 生产返回止损价；等价断言改为
+ *   「生产止损价 = entry×(1-value)」+「现价 <= 止损价」，触发器比较留在测试内。
+ * - 夏普：旧默认 rf=0、非年化 → 生产默认 rf=0.03 且 ×√252 年化；本组只断言符号/零波动，仍成立。
+ * - 其余断言（最大回撤、组合价值、暴露、集中度、信号结构）与旧副本一致，未改。
+ *
+ * 未迁移（生产无对应导出 / 契约不同，保留本地 helper）：
+ * - generateCombinedSignal：生产 backend/src/services/multiSignalEngine.ts 只有异步 getMultiSignals(symbol)
+ *   与 Signal{name,source,value,direction,confidence,timeframe,detail}（形状不同），
+ *   无纯数组组合信号导出；本地 helper 改为调用生产 calculateSMA/calculateRSI。
+ * - calculatePortfolioValue：生产 riskManagementEngine.ts:64 calculatePortfolioRisk().totalValue
+ *   只算市值、不含现金（:70-72），且入参需要 marketReturns/portfolioReturns。
+ * - calculateExposure：全仓无导出（市值/总值）。
+ * - calculateConcentration：生产只有 HHI 合约（backend/src/services/portfolioStressEngine.ts:18
+ *   concentrationRisk(weights)、riskManagementEngine.ts:329 未导出的 calculateConcentrationRisk），
+ *   与「最大权重」契约不同。
+ * - interface Signal：本地信号形状（type/strength/indicators/timestamp），生产 Signal 字段不同，保留本地类型。
+ * - interface RiskMetrics：未被任何用例引用，且与生产 PortfolioRisk（riskManagementEngine.ts:14）
+ *   字段不同，删除。
+ */
+
 import { describe, it, expect } from 'vitest';
+import { calculateSMA, calculateRSI } from '../../../frontend/src/utils/chartDataProcessing';
+import { stressVaR } from '../services/stressTestEngine';
+import { calculateMaxDrawdown, calculateSharpeRatio } from '../models/Backtest';
+import {
+  calculateStopLoss,
+  calculatePositionSize,
+} from '../../../frontend/src/utils/riskManagementEngine';
+import type { Position } from '../../../frontend/src/utils/riskManagementEngine';
 
 // ===== 指标组合信号引擎 =====
 describe('Indicator Combination Signal Engine', () => {
@@ -9,36 +65,8 @@ describe('Indicator Combination Signal Engine', () => {
     timestamp: number;
   }
 
-  const calculateRSI = (closes: number[], period: number = 14): (number | null)[] => {
-    if (closes.length < period + 1) return Array(closes.length).fill(null);
-    const result: (number | null)[] = [];
-    for (let i = 0; i < period; i++) result.push(null);
-    let gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-      const diff = closes[i] - closes[i - 1];
-      if (diff > 0) gains += diff; else losses -= diff;
-    }
-    let avgGain = gains / period, avgLoss = losses / period;
-    result.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
-    for (let i = period + 1; i < closes.length; i++) {
-      const diff = closes[i] - closes[i - 1];
-      avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
-      avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
-      result.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
-    }
-    return result;
-  };
-
-  const calculateSMA = (data: number[], period: number): (number | null)[] => {
-    if (data.length < period) return Array(data.length).fill(null);
-    const result: (number | null)[] = [];
-    for (let i = 0; i < period - 1; i++) result.push(null);
-    for (let i = period - 1; i < data.length; i++) {
-      result.push(data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0) / period);
-    }
-    return result;
-  };
-
+  // 未迁移：生产只有异步 getMultiSignals(symbol) 与不同形状的 Signal，无纯数组组合信号导出；
+  // 本地 helper 仅组合生产 calculateRSI/calculateSMA 与打分规则，不重复指标算法。
   const generateCombinedSignal = (
     closes: number[],
     volume: number[],
@@ -167,32 +195,19 @@ describe('Indicator Combination Signal Engine', () => {
 
 // ===== 风险管理引擎 =====
 describe('Risk Management Engine', () => {
-  interface Position {
-    symbol: string;
-    quantity: number;
-    avgCost: number;
-    currentPrice: number;
-  }
-
-  interface RiskMetrics {
-    portfolioValue: number;
-    totalExposure: number;
-    maxDrawdown: number;
-    sharpeRatio: number;
-    var95: number;
-    concentrationRisk: number;
-  }
-
+  // 未迁移：生产 calculatePortfolioRisk().totalValue 只算市值、不含现金，且需收益序列入参。
   const calculatePortfolioValue = (positions: Position[], cash: number): number => {
     return cash + positions.reduce((sum, p) => sum + p.quantity * p.currentPrice, 0);
   };
 
+  // 未迁移：全仓无「市值/总值」导出。
   const calculateExposure = (positions: Position[], totalValue: number): number => {
     if (totalValue === 0) return 0;
     const invested = positions.reduce((sum, p) => sum + p.quantity * p.currentPrice, 0);
     return invested / totalValue;
   };
 
+  // 未迁移：生产 concentrationRisk 为 HHI 平方和，非「最大权重」。
   const calculateConcentration = (positions: Position[]): number => {
     if (positions.length === 0) return 0;
     const totalValue = positions.reduce((sum, p) => sum + p.quantity * p.currentPrice, 0);
@@ -201,47 +216,10 @@ describe('Risk Management Engine', () => {
     return Math.max(...weights);
   };
 
-  const calculateVaR = (returns: number[], confidence: number = 0.95): number => {
-    if (returns.length === 0) return 0;
-    const sorted = [...returns].sort((a, b) => a - b);
-    const index = Math.floor((1 - confidence) * sorted.length);
-    return sorted[index];
-  };
-
-  const calculateMaxDrawdown = (equity: number[]): number => {
-    if (equity.length === 0) return 0;
-    let maxDD = 0, peak = equity[0];
-    for (const val of equity) {
-      if (val > peak) peak = val;
-      const dd = (peak - val) / peak;
-      if (dd > maxDD) maxDD = dd;
-    }
-    return maxDD;
-  };
-
-  const calculateSharpeRatio = (returns: number[], riskFreeRate: number = 0): number => {
-    if (returns.length < 2) return 0;
-    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const std = Math.sqrt(returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1));
-    if (std === 0) return 0;
-    return (mean - riskFreeRate) / std;
-  };
-
-  const checkStopLoss = (entryPrice: number, currentPrice: number, stopPercent: number): boolean => {
-    return (entryPrice - currentPrice) / entryPrice >= stopPercent;
-  };
-
-  const calculatePositionSize = (capital: number, riskPerTrade: number, entryPrice: number, stopPrice: number): number => {
-    const riskAmount = capital * riskPerTrade;
-    const riskPerShare = Math.abs(entryPrice - stopPrice);
-    if (riskPerShare === 0) return 0;
-    return Math.floor(riskAmount / riskPerShare / 100) * 100; // 100股整数倍
-  };
-
   const samplePositions: Position[] = [
-    { symbol: '600519', quantity: 100, avgCost: 1800, currentPrice: 1850 },
-    { symbol: '000858', quantity: 500, avgCost: 150, currentPrice: 145 },
-    { symbol: '601318', quantity: 200, avgCost: 50, currentPrice: 52 },
+    { symbol: '600519', quantity: 100, avgCost: 1800, currentPrice: 1850, sector: '白酒' },
+    { symbol: '000858', quantity: 500, avgCost: 150, currentPrice: 145, sector: '白酒' },
+    { symbol: '601318', quantity: 200, avgCost: 50, currentPrice: 52, sector: '保险' },
   ];
 
   describe('组合价值', () => {
@@ -255,7 +233,7 @@ describe('Risk Management Engine', () => {
     });
 
     it('亏损持仓应减少价值', () => {
-      const pos: Position[] = [{ symbol: 'x', quantity: 100, avgCost: 100, currentPrice: 80 }];
+      const pos: Position[] = [{ symbol: 'x', quantity: 100, avgCost: 100, currentPrice: 80, sector: '测试' }];
       const val = calculatePortfolioValue(pos, 0);
       expect(val).toBe(8000);
     });
@@ -270,7 +248,7 @@ describe('Risk Management Engine', () => {
     });
 
     it('全仓应为1', () => {
-      const pos: Position[] = [{ symbol: 'x', quantity: 100, avgCost: 100, currentPrice: 100 }];
+      const pos: Position[] = [{ symbol: 'x', quantity: 100, avgCost: 100, currentPrice: 100, sector: '测试' }];
       expect(calculateExposure(pos, 10000)).toBeCloseTo(1, 5);
     });
 
@@ -288,14 +266,14 @@ describe('Risk Management Engine', () => {
 
     it('等权分配应等于1/n', () => {
       const pos: Position[] = [
-        { symbol: 'a', quantity: 100, avgCost: 100, currentPrice: 100 },
-        { symbol: 'b', quantity: 100, avgCost: 100, currentPrice: 100 },
+        { symbol: 'a', quantity: 100, avgCost: 100, currentPrice: 100, sector: '测试' },
+        { symbol: 'b', quantity: 100, avgCost: 100, currentPrice: 100, sector: '测试' },
       ];
       expect(calculateConcentration(pos)).toBeCloseTo(0.5, 5);
     });
 
     it('单一持仓集中度为1', () => {
-      const pos: Position[] = [{ symbol: 'x', quantity: 100, avgCost: 100, currentPrice: 100 }];
+      const pos: Position[] = [{ symbol: 'x', quantity: 100, avgCost: 100, currentPrice: 100, sector: '测试' }];
       expect(calculateConcentration(pos)).toBe(1);
     });
 
@@ -305,19 +283,22 @@ describe('Risk Management Engine', () => {
   });
 
   describe('VaR', () => {
-    it('应返回负值', () => {
+    it('应返回正损失值（生产符号约定）', () => {
       const returns = [-0.05, -0.03, -0.01, 0.01, 0.02, 0.03, 0.05, -0.02, 0.01, -0.04];
-      const var95 = calculateVaR(returns, 0.95);
-      expect(var95).toBeLessThan(0);
+      // stressVaR 返回 -sorted[idx]：idx=0 → -(-0.05) = 0.05（stressTestEngine.ts:36）。
+      const var95 = stressVaR(returns, 0.95);
+      expect(var95).toBeGreaterThan(0);
+      expect(var95).toBeCloseTo(0.05, 5);
     });
 
     it('空数据返回0', () => {
-      expect(calculateVaR([])).toBe(0);
+      expect(stressVaR([], 0.95)).toBe(0);
     });
 
-    it('全正收益VaR接近最小', () => {
+    it('全正收益VaR为负（生产符号约定）', () => {
       const returns = [0.01, 0.02, 0.03, 0.04, 0.05];
-      expect(calculateVaR(returns)).toBeCloseTo(0.01, 2);
+      // idx=floor(0.05×5)=0 → -0.01；旧内联返回 0.01。
+      expect(stressVaR(returns, 0.95)).toBeCloseTo(-0.01, 5);
     });
   });
 
@@ -338,7 +319,7 @@ describe('Risk Management Engine', () => {
       expect(calculateMaxDrawdown([100])).toBe(0);
     });
 
-    it('全程下跌回撤为1', () => {
+    it('全程下跌回撤0.8', () => {
       expect(calculateMaxDrawdown([100, 80, 60, 40, 20])).toBeCloseTo(0.8, 1);
     });
   });
@@ -363,42 +344,70 @@ describe('Risk Management Engine', () => {
 
   describe('止损检查', () => {
     it('触发止损', () => {
-      expect(checkStopLoss(100, 95, 0.05)).toBe(true);
+      // fixed 分支只读 entryPrice 与 value（riskManagementEngine.ts:135-136），其余入参传场景值。
+      const stop = calculateStopLoss(100, 95, 100, 0, { type: 'fixed', value: 0.05 });
+      expect(stop).toBeCloseTo(95);
+      expect(95).toBeLessThanOrEqual(stop);
     });
 
     it('未触发止损', () => {
-      expect(checkStopLoss(100, 96, 0.05)).toBe(false);
+      const stop = calculateStopLoss(100, 96, 100, 0, { type: 'fixed', value: 0.05 });
+      expect(96).toBeGreaterThan(stop);
     });
 
     it('精确止损点', () => {
-      expect(checkStopLoss(100, 95, 0.05)).toBe(true);
+      const stop = calculateStopLoss(100, 95, 100, 0, { type: 'fixed', value: 0.05 });
+      expect(95).toBeCloseTo(stop);
+      expect(95 <= stop).toBe(true);
     });
 
     it('上涨不应止损', () => {
-      expect(checkStopLoss(100, 105, 0.05)).toBe(false);
+      const stop = calculateStopLoss(100, 105, 100, 0, { type: 'fixed', value: 0.05 });
+      expect(105).toBeGreaterThan(stop);
+    });
+
+    it('移动止损按最高价回撤', () => {
+      // trailing: max(highSinceEntry×(1-value), entry×0.5) = max(110×0.9, 50) = 99。
+      const stop = calculateStopLoss(100, 110, 110, 0, { type: 'trailing', value: 0.1 });
+      expect(stop).toBeCloseTo(99);
     });
   });
 
   describe('仓位计算', () => {
-    it('应返回100股整数倍', () => {
-      const size = calculatePositionSize(100000, 0.02, 50, 48);
-      expect(size % 100).toBe(0);
+    // maxPositionPct=1（100% 上限）用于隔离 risk_parity 本体；生产同时按该值封顶（:195-196）。
+    const config = {
+      method: 'risk_parity' as const,
+      maxPositionPct: 1,
+      riskPerTrade: 0.02,
+      maxCorrelatedExposure: 0.3,
+    };
+
+    it('按风险定额计算股数（不取整手）', () => {
+      // floor(100000×0.02 / |50-48|) = 1000；上限 floor(100000/50) = 2000 不触发。
+      expect(calculatePositionSize(100000, 50, 48, config)).toBe(1000);
     });
 
     it('止损价等于入场价返回0', () => {
-      expect(calculatePositionSize(100000, 0.02, 50, 50)).toBe(0);
+      expect(calculatePositionSize(100000, 50, 50, config)).toBe(0);
     });
 
     it('大资金应买更多', () => {
-      const small = calculatePositionSize(50000, 0.02, 50, 48);
-      const large = calculatePositionSize(200000, 0.02, 50, 48);
+      const small = calculatePositionSize(50000, 50, 48, config);
+      const large = calculatePositionSize(200000, 50, 48, config);
       expect(large).toBeGreaterThan(small);
     });
 
     it('严格止损应买更多', () => {
-      const loose = calculatePositionSize(100000, 0.02, 50, 45);
-      const tight = calculatePositionSize(100000, 0.02, 50, 49);
+      const loose = calculatePositionSize(100000, 50, 45, config);
+      const tight = calculatePositionSize(100000, 50, 49, config);
       expect(tight).toBeGreaterThan(loose);
+    });
+
+    it('不按100股整手取整', () => {
+      // floor(100000×0.02 / |10-9.3|) = 2857，非 100 的整数倍；旧副本会向下取整到 2800。
+      const size = calculatePositionSize(100000, 10, 9.3, config);
+      expect(size).toBe(2857);
+      expect(size % 100).not.toBe(0);
     });
   });
 });

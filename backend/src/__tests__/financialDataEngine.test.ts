@@ -1,9 +1,72 @@
+/**
+ * 影子测试迁移（批次 34b）
+ *
+ * 旧文件只 import vitest，自抄 normalizeStockData / resampleKLine / calcVWAP / detectCandlePattern /
+ * formatAmount / formatVolume / 行业指数 / 技术信号 / 收益计算九组实现，断言对象是副本。
+ * 本批把 resampleKLine、formatAmount、formatVolume 三组改为 import 产品仓真实实现；
+ * 其余符号生产仓无同契约导出，保留本地 helper 并在「未迁移」节逐条注明。
+ *
+ * 已绑定生产实现（唯一真源）：
+ * - K线重采样 → backend/src/services/chartDataEngine.ts:8-23 aggregateKlines(data, factor)
+ *   （按 factor 分块：date/open 取首、high/low 取极值、close 取末、volume 求和；factor<=1 直接返回原数组引用，:9）。
+ * - 金额格式化 → frontend/src/utils/dataTransformUtils.ts:45-50 formatAmount(amount)
+ *   （万亿/亿/万三档 + toFixed(2)；无 Math.abs、无 decimals 参数、无 null 守卫）。
+ * - 成交量格式化 → frontend/src/utils/dataTransformUtils.ts:52-56 formatVolume(volume)
+ *   （亿手/万手/手三档；与 backend/src/services/dataFormatEngine.ts:24-28 完全同口径）。
+ *
+ * formatAmount / formatVolume 选型理由（三处口径对比）：
+ * 1. frontend/src/utils/dataTransformUtils.ts:45-56：formatAmount 与旧副本逐字符同口径（无 Math.abs），
+ *    formatVolume 单位为「手」，两个格式化符号可绑定同一模块，不引入额外语义差异。
+ * 2. backend/src/services/dataFormatEngine.ts:6-11 formatNumber 用 Math.abs(n) 判档且多 decimals 参数，
+ *    负数口径与旧副本不同（负数按绝对值缩档）；其 :24-28 formatVolume 与 dataTransformUtils 完全同口径。
+ * 3. frontend/src/utils/bloombergExportEngine.ts:184-191 formatVolume(value: unknown) 为亿/万/无单位、
+ *    null/undefined/NaN→'-'，与断言语义不符，不选。
+ * 跨包 import 先例：backend/src/__tests__/movingAverageSystem.test.ts:33 已 import
+ * frontend/src/utils/chartDataProcessing（见该文件「已绑定生产实现」节）。
+ * 成交量单位：三处生产实现均无「股」口径，旧断言的「亿股/万股/股」是自抄实现自造单位。
+ *
+ * 旧断言订正（旧值 → 生产值 + 依据）：
+ * 1. 成交量亿档单位：'3.00亿股' → '3.00亿手'（frontend/src/utils/dataTransformUtils.ts:53）。
+ * 2. 成交量万档单位：'5.00万股' → '5.00万手'（frontend/src/utils/dataTransformUtils.ts:54）。
+ * 3. 成交量个位档单位：'500股' → '500手'（frontend/src/utils/dataTransformUtils.ts:55，volume + '手' 不做 toFixed）。
+ * 4. formatAmount 四条断言与生产一致，未改（dataTransformUtils.ts:45-50）；新增分档边界用例绑定 1e4 阈值。
+ * 5. resampleKLine 两条断言与 aggregateKlines 一致，未改；新增 factor<=1 返回原数组引用的契约断言
+ *    （chartDataEngine.ts:9）。
+ *
+ * 未迁移（生产无同契约导出，保留本地 helper）：
+ * - normalizeStockData：rg normalizeStockData|normalizeQuote|normalizeStock 0 命中；生产只有
+ *   backend/src/utils/symbolUtils.ts:7 normalizeSymbol（仅规整证券代码，不处理价格/量/换手/PE/PB）。
+ * - calcVWAP（K线→标量）：frontend/src/utils/featureEngineeringEngine.ts:172-190 calculateVWAP 返回累计序列、
+ *   零成交量回退 close[i]；frontend/src/utils/indicatorCalc.ts:188 为模块私有（未导出）；
+ *   frontend/src/utils/marketMicrostructureEngine.ts:104 与 backend/src/services/orderBookAnalyzer.ts:163
+ *   为逐笔/订单簿口径。无「K线→标量、总成交量 0→0」导出。
+ * - detectCandlePattern：无同名导出；frontend/src/utils/technicalPatternEngine.ts:74 仅在类方法内部内联
+ *   engulfing 判断，无 doji/hammer/shooting_star 通用导出。
+ * - calcSectorIndex / calcEqualWeightIndex：rg 0 命中；backend/src/services/sectorService.ts 与
+ *   sectorMomentumService.ts 只做行情排序与聚合摘要，无加权/等权指数计算导出。
+ * - detectGoldenCross：frontend/src/utils/trendFollowingEngine.ts:114 detectCrossovers 入参 MAValues[]、
+ *   按固定 5/10/20/60/120 五对均线返回 TrendSignal[]；frontend/src/components/Charts/KLineChart.tsx:149
+ *   为组件内联。无 (number[], number[]) → number[] 导出。
+ * - detectDivergence：backend/src/services/momentumDivergenceEngine.ts:164 detectDivergences 为 pivot 多点检测、
+ *   返回 MomentumSignal[]；无「3 点趋势比较 → bullish|bearish|null」导出。
+ * - detectSupportResistance：frontend/src/utils/strategy.ts:68 calcSupportResistance 入参 KLine[] 且合并相近极值；
+ *   frontend/src/utils/technicalPatternEngine.ts:137 为类方法、返回 SupportResistance[]；
+ *   无 number[] → {support, resistance} 导出。
+ * - calcCompoundReturn / calcAnnualizedReturn / calcMaxDrawdownSeries：rg 0 命中导出；annualized 仅内联于
+ *   backend/src/services/rotationEngine.ts:311 与 frontend/src/utils/eventDrivenBacktestEngine.ts:77；
+ *   maxDrawdown 仅 backend/src/services/riskBudgetEngine.ts:147 类方法（入参为收益率序列，
+ *   返回 peakIndex/troughIndex，不返回 peak/trough 值），契约不同。
+ */
+
 import { describe, it, expect } from 'vitest';
+import { aggregateKlines, type OHLCV } from '../services/chartDataEngine';
+import { formatAmount, formatVolume } from '../../../frontend/src/utils/dataTransformUtils';
 
 // 金融数据转换引擎测试
 describe('Financial Data Transformation Engine', () => {
   // 数据标准化
   describe('Data Normalization', () => {
+    // 未迁移：生产无 normalizeStockData/normalizeQuote 导出（见文件头「未迁移」节）。
     const normalizeStockData = (raw: any) => ({
       symbol: String(raw.symbol || '').trim(),
       name: String(raw.name || '').trim(),
@@ -66,31 +129,10 @@ describe('Financial Data Transformation Engine', () => {
 
   // K线数据处理
   describe('K-Line Data Processing', () => {
-    interface KLine {
-      date: string;
-      open: number;
-      high: number;
-      low: number;
-      close: number;
-      volume: number;
-    }
+    // 已绑定生产类型：生产 OHLCV 与旧本地 KLine 结构一致（chartDataEngine.ts:6）。
+    type KLine = OHLCV;
 
-    const resampleKLine = (data: KLine[], period: number): KLine[] => {
-      const result: KLine[] = [];
-      for (let i = 0; i < data.length; i += period) {
-        const chunk = data.slice(i, i + period);
-        result.push({
-          date: chunk[0].date,
-          open: chunk[0].open,
-          high: Math.max(...chunk.map(k => k.high)),
-          low: Math.min(...chunk.map(k => k.low)),
-          close: chunk[chunk.length - 1].close,
-          volume: chunk.reduce((s, k) => s + k.volume, 0),
-        });
-      }
-      return result;
-    };
-
+    // 未迁移：生产无「K线→标量 VWAP、总成交量 0→0」导出（见文件头「未迁移」节）。
     const calcVWAP = (data: KLine[]): number => {
       let totalTPV = 0;
       let totalVol = 0;
@@ -102,6 +144,7 @@ describe('Financial Data Transformation Engine', () => {
       return totalVol === 0 ? 0 : totalTPV / totalVol;
     };
 
+    // 未迁移：生产无 K 线形态通用导出（见文件头「未迁移」节）。
     const detectCandlePattern = (prev: KLine, curr: KLine): string => {
       const body = Math.abs(curr.close - curr.open);
       const range = curr.high - curr.low;
@@ -128,10 +171,10 @@ describe('Financial Data Transformation Engine', () => {
 
     it('resample should reduce data points', () => {
       const data: KLine[] = Array.from({ length: 10 }, (_, i) => ({
-        date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+        date: '2024-01-' + String(i + 1).padStart(2, '0'),
         open: 100 + i, high: 105 + i, low: 95 + i, close: 102 + i, volume: 1000 + i * 100,
       }));
-      const resampled = resampleKLine(data, 3);
+      const resampled = aggregateKlines(data, 3);
       expect(resampled.length).toBe(4);
     });
 
@@ -140,12 +183,21 @@ describe('Financial Data Transformation Engine', () => {
         { date: '2024-01-01', open: 100, high: 110, low: 90, close: 105, volume: 1000 },
         { date: '2024-01-02', open: 105, high: 115, low: 95, close: 110, volume: 2000 },
       ];
-      const resampled = resampleKLine(data, 2);
+      const resampled = aggregateKlines(data, 2);
       expect(resampled[0].open).toBe(100);
       expect(resampled[0].high).toBe(115);
       expect(resampled[0].low).toBe(90);
       expect(resampled[0].close).toBe(110);
       expect(resampled[0].volume).toBe(3000);
+    });
+
+    it('重采样系数<=1应返回原数组引用', () => {
+      const data: KLine[] = [
+        { date: '2024-01-01', open: 100, high: 110, low: 90, close: 105, volume: 1000 },
+        { date: '2024-01-02', open: 105, high: 115, low: 95, close: 110, volume: 2000 },
+      ];
+      // 生产契约：factor <= 1 时不做分块重建，直接返回入参引用（chartDataEngine.ts:9）。
+      expect(aggregateKlines(data, 1)).toBe(data);
     });
 
     it('VWAP should be within high-low range', () => {
@@ -184,21 +236,8 @@ describe('Financial Data Transformation Engine', () => {
     });
   });
 
-  // 金额格式化
+  // 金额格式化（已绑定生产实现，见文件头「已绑定生产实现」）
   describe('Amount Formatting', () => {
-    const formatAmount = (amount: number): string => {
-      if (amount >= 1e12) return (amount / 1e12).toFixed(2) + '万亿';
-      if (amount >= 1e8) return (amount / 1e8).toFixed(2) + '亿';
-      if (amount >= 1e4) return (amount / 1e4).toFixed(2) + '万';
-      return amount.toFixed(2);
-    };
-
-    const formatVolume = (vol: number): string => {
-      if (vol >= 1e8) return (vol / 1e8).toFixed(2) + '亿股';
-      if (vol >= 1e4) return (vol / 1e4).toFixed(2) + '万股';
-      return vol + '股';
-    };
-
     it('万亿 format', () => {
       expect(formatAmount(2.5e12)).toBe('2.50万亿');
     });
@@ -215,21 +254,28 @@ describe('Financial Data Transformation Engine', () => {
       expect(formatAmount(500)).toBe('500.00');
     });
 
-    it('亿股 format', () => {
-      expect(formatVolume(3e8)).toBe('3.00亿股');
+    it('金额分档边界', () => {
+      // 生产以 1e4 为「万」档阈值（dataTransformUtils.ts:47-48）。
+      expect(formatAmount(9999)).toBe('9999.00');
+      expect(formatAmount(10000)).toBe('1.00万');
     });
 
-    it('万股 format', () => {
-      expect(formatVolume(50000)).toBe('5.00万股');
+    it('亿手 format', () => {
+      expect(formatVolume(3e8)).toBe('3.00亿手');
+    });
+
+    it('万手 format', () => {
+      expect(formatVolume(50000)).toBe('5.00万手');
     });
 
     it('small volume', () => {
-      expect(formatVolume(500)).toBe('500股');
+      expect(formatVolume(500)).toBe('500手');
     });
   });
 
   // 行业指数计算
   describe('Sector Index Calculation', () => {
+    // 未迁移：生产无加权/等权行业指数计算导出（见文件头「未迁移」节）。
     const calcSectorIndex = (stocks: Array<{ weight: number; changePercent: number }>): number => {
       if (stocks.length === 0) return 0;
       const totalWeight = stocks.reduce((s, st) => s + st.weight, 0);
@@ -275,6 +321,7 @@ describe('Financial Data Transformation Engine', () => {
 
   // 技术信号检测
   describe('Technical Signal Detection', () => {
+    // 未迁移：生产无 (number[], number[]) → number[] 交叉导出（见文件头「未迁移」节）。
     const detectGoldenCross = (short: number[], long: number[]): number[] => {
       const signals: number[] = [];
       for (let i = 1; i < Math.min(short.length, long.length); i++) {
@@ -283,6 +330,7 @@ describe('Financial Data Transformation Engine', () => {
       return signals;
     };
 
+    // 未迁移：生产 detectDivergences 为 pivot 多点检测、返回信号数组（见文件头「未迁移」节）。
     const detectDivergence = (prices: number[], indicator: number[]): 'bullish' | 'bearish' | null => {
       if (prices.length < 3 || indicator.length < 3) return null;
       const pTrend = prices[prices.length - 1] - prices[prices.length - 3];
@@ -292,6 +340,7 @@ describe('Financial Data Transformation Engine', () => {
       return null;
     };
 
+    // 未迁移：生产无 number[] → {support, resistance} 导出（见文件头「未迁移」节）。
     const detectSupportResistance = (prices: number[], lookback: number = 20): { support: number; resistance: number } => {
       const recent = prices.slice(-lookback);
       return {
@@ -346,6 +395,7 @@ describe('Financial Data Transformation Engine', () => {
 
   // 收益计算
   describe('Return Calculations', () => {
+    // 未迁移：生产无 compound/annualized/maxDrawdownSeries 同契约导出（见文件头「未迁移」节）。
     const calcCompoundReturn = (returns: number[]): number => {
       return returns.reduce((acc, r) => acc * (1 + r), 1) - 1;
     };
