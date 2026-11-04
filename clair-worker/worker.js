@@ -813,6 +813,175 @@ function buildSectorScores(sectorMap, level) {
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
 
+// ==================== 申万行业列表（/api/industries） ====================
+
+// 市值（单位：亿元）→ 与 backend/src/api/industries.ts formatCap 对齐的中文字符串。
+function formatCapYi(yi) {
+  if (!Number.isFinite(yi) || yi <= 0) return null;
+  if (yi >= 10000) return (yi / 10000).toFixed(2) + '万亿';
+  return yi.toFixed(2) + '亿';
+}
+
+// 带符号两位小数；四舍五入到 0 的负数收敛为 +0.00，避免出现「-0.00%」这种假下跌符号。
+function fixed2Signed(v) {
+  const n = Math.abs(v) < 0.005 ? 0 : v;
+  return (n >= 0 ? '+' : '') + n.toFixed(2);
+}
+
+function fixed2Plain(v) {
+  const n = Math.abs(v) < 0.005 ? 0 : v;
+  return n.toFixed(2);
+}
+
+// 把有真实行情的股票按申万一级/二级聚合。
+// 诚实口径：无行情、无法归类的股票一律不计入；缺失字段为 null，绝不拿 0 顶替。
+function aggregateIndustries(quotes, stocks, level) {
+  const quoteBySymbol = new Map();
+  for (const q of quotes || []) {
+    if (q && q.symbol && q.price > 0) quoteBySymbol.set(q.symbol, q);
+  }
+  const buckets = {};
+  let quotedStocks = 0;
+  let classified = 0;
+  for (const stock of stocks) {
+    const q = quoteBySymbol.get(stock.symbol);
+    if (!q) continue;
+    quotedStocks++;
+    const name = level === 2
+      ? sectorKeyOf(stock.industry, stock.name)
+      : normalizeIndustry(stock.industry);
+    if (!name) continue;
+    classified++;
+    let b = buckets[name];
+    if (!b) {
+      b = buckets[name] = {
+        name: name, count: 0,
+        totalChange: 0, changeCount: 0,
+        totalTurnover: 0, turnoverCount: 0,
+        totalCap: 0, capCount: 0,
+        limitUpCount: 0,
+      };
+    }
+    b.count++;
+    if (Number.isFinite(q.changePercent)) { b.totalChange += q.changePercent; b.changeCount++; }
+    if (Number.isFinite(q.turnoverRate)) { b.totalTurnover += q.turnoverRate; b.turnoverCount++; }
+    if (Number.isFinite(q.marketCap) && q.marketCap > 0) { b.totalCap += q.marketCap; b.capCount++; }
+    if (q.limitUpPrice > 0 && q.price >= q.limitUpPrice - 0.005) b.limitUpCount++;
+  }
+
+  const rows = Object.values(buckets).map(function (b) {
+    const avgChange = b.changeCount > 0 ? b.totalChange / b.changeCount : null;
+    const avgTurnover = b.turnoverCount > 0 ? b.totalTurnover / b.turnoverCount : null;
+    return {
+      parent: level === 2 ? (SUB_TO_L1[b.name] || null) : null,
+      name: b.name,
+      stock_count: b.count,
+      avg_change: avgChange === null ? null : fixed2Signed(avgChange),
+      avg_turnover: avgTurnover === null ? null : fixed2Plain(avgTurnover),
+      total_cap: b.capCount > 0 ? formatCapYi(b.totalCap) : null,
+      limit_up_count: b.limitUpCount,
+    };
+  }).sort(function (a, b) {
+    return Number(b.avg_change === null ? -9999 : b.avg_change) - Number(a.avg_change === null ? -9999 : a.avg_change);
+  });
+
+  return {
+    rows: rows,
+    quotedStocks: quotedStocks,
+    classified: classified,
+    unclassified: Math.max(0, quotedStocks - classified),
+  };
+}
+
+// GET /api/industries?level=2 —— 前端 DiscoverPage 二级行业卡片消费。
+// level=1 与 Express 版一致，返回静态申万分类树；level=2 用真实行情现场聚合。
+async function handleIndustries(url) {
+  const level = url && url.searchParams.get('level') === '2' ? 2 : 1;
+  try {
+    if (level === 1) {
+      const primaryCount = Object.keys(SW2021_L1_L2).length;
+      const subCount = Object.values(SW2021_L1_L2).reduce(function (n, arr) {
+        return n + (Array.isArray(arr) ? arr.length : 0);
+      }, 0);
+      return json({
+        success: true,
+        dataSource: 'real',
+        data: {
+          standard: '申万2021',
+          primaryCount: primaryCount,
+          subCount: subCount,
+          tree: SW2021_L1_L2,
+          dataSource: 'real',
+          meta: { source: 'live', updatedAt: null },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const cache = await getAllQuotes();
+    const stocks = await getStockList();
+    const agg = aggregateIndustries(cache.quotes, stocks, 2);
+    const hasData = agg.rows.length > 0;
+    const coverageRatio = Math.round((agg.classified / Math.max(stocks.length, 1)) * 1000) / 1000;
+    // 覆盖率低于 60% 时只标 partial：数值真实，但只覆盖部分股票，不能自称完整全市场。
+    const dataSource = hasData ? (coverageRatio < 0.6 ? 'partial' : 'real') : 'unavailable';
+    const meta = hasData
+      ? {
+          source: 'live',
+          updatedAt: new Date().toISOString(),
+          total_stocks: stocks.length,
+          stocks_with_quotes: agg.quotedStocks,
+          classified_stocks: agg.classified,
+          unclassified_stocks: agg.unclassified,
+          coverage_ratio: coverageRatio,
+          note: '由 Worker 内置 A 股清单 + 腾讯实时行情现场聚合；只统计有真实报价的股票，无法归入申万二级的股票计入 unclassified，不臆造归属；换手率/市值缺失的行业对应字段为 null。',
+        }
+      : {
+          source: 'unavailable',
+          updatedAt: null,
+          total_stocks: stocks.length,
+          stocks_with_quotes: agg.quotedStocks,
+          classified_stocks: 0,
+          unclassified_stocks: null,
+          coverage_ratio: coverageRatio,
+          error: agg.quotedStocks > 0
+            ? '已取到行情，但没有股票能归入申万二级行业（当前名称/行业匹配命中率为 0），本次不返回任何行业涨跌幅（不以 0 顶替）'
+            : '全市场行情暂不可得（腾讯行情源不可达或覆盖率不足），本次不返回任何二级行业涨跌幅（不以 0 顶替）',
+        };
+
+    const data = {
+      standard: '申万2021 二级(自研分类引擎 v3)',
+      level: 2,
+      count: agg.rows.length,
+      industries: agg.rows,
+      dataSource: dataSource,
+      meta: meta,
+    };
+    const body = {
+      success: true,
+      dataSource: dataSource,
+      data: data,
+      timestamp: new Date().toISOString(),
+    };
+    if (!hasData) {
+      body.message = meta.error;
+      data.message = meta.error;
+    }
+    return json(body);
+  } catch (e) {
+    return unavailable(
+      {
+        standard: '申万2021 二级(自研分类引擎 v3)',
+        level: 2,
+        count: 0,
+        industries: [],
+        meta: { source: 'unavailable', updatedAt: null },
+      },
+      '二级行业聚合失败：' + ((e && e.message) || '未知错误') + '。本次不返回任何行业数值（不以 0 顶替）',
+    );
+  }
+}
+
 // ==================== 概念板块 ====================
 
 async function handleConceptMomentum() {
@@ -1593,6 +1762,243 @@ async function handleMarketSummary() {
 async function handleMarketInsightLlm() {
   return handleMarketInsight();
 }
+
+// ==================== /api/ai/market-pulse（AI 行情诊脉） ====================
+// 契约对齐 backend/src/api/ai-market-pulse.ts：
+//   - 温度 = 上涨占比*60 + 主线景气度*0.4；任一入参不可得 → score:null / label:'未知'
+//     （0 分对应「弱势」，用 0 顶替会凭空给出「市场极弱」的结论）。
+//   - breadth 复用 loadBreadthSnapshot（与 /api/market/summary 同一份聚合）。
+//   - LLM 只负责把结构化信号转述成观点；不可用时降级为规则结论，绝不 500 / 绝不伪造。
+function computePulseTemperature(risingRatio, topThemeScore) {
+  if (risingRatio === null || topThemeScore === null) return { score: null, label: '未知' };
+  const score = Math.round(risingRatio * 60 + Math.min(topThemeScore, 100) * 0.4);
+  let label = '中性';
+  if (score >= 75) label = '强势';
+  else if (score >= 60) label = '偏暖';
+  else if (score >= 45) label = '中性';
+  else if (score >= 30) label = '偏冷';
+  else label = '弱势';
+  return { score: Math.max(0, Math.min(100, score)), label: label };
+}
+
+function buildPulseRisks(risingRatio, sectors) {
+  const risks = [];
+  if (risingRatio !== null) {
+    if (risingRatio < 0.4) {
+      risks.push({ level: 'high', label: '普跌/恐慌', detail: '上涨个股占比仅 ' + (risingRatio * 100).toFixed(1) + '%，市场情绪偏弱' });
+    } else if (risingRatio < 0.5) {
+      risks.push({ level: 'medium', label: '分化加剧', detail: '上涨占比 ' + (risingRatio * 100).toFixed(1) + '%，涨跌接近均衡' });
+    }
+  }
+  const weakest = sectors.length ? sectors[sectors.length - 1] : null;
+  if (weakest && Number(weakest.avg_change_percent) <= -2) {
+    risks.push({ level: 'medium', label: '弱势板块拖累', detail: weakest.industry + ' 平均跌幅 ' + Number(weakest.avg_change_percent).toFixed(2) + '%' });
+  }
+  if (risks.length === 0) {
+    if (risingRatio === null && sectors.length === 0) {
+      risks.push({ level: 'low', label: '数据暂不可用', detail: '市场广度与板块数据均不可得，未生成风险判定' });
+    } else {
+      risks.push({ level: 'low', label: '结构平稳', detail: '当前未见显著系统性风险信号' });
+    }
+  }
+  return risks;
+}
+
+function buildPulseThemes(sectors, stocks, quoteMap) {
+  return sectors.slice(0, 3).map(function (sec) {
+    const members = stocks
+      .filter(function (s) { return normalizeIndustry(s.industry) === sec.industry && !!quoteMap[s.symbol]; })
+      .map(function (s) {
+        const q = quoteMap[s.symbol];
+        return { symbol: s.symbol, name: s.name, changePercent: numOrNull(q.changePercent) };
+      })
+      .filter(function (x) { return x.changePercent !== null; })
+      .sort(function (a, b) { return b.changePercent - a.changePercent; })
+      .slice(0, 3);
+    return {
+      industry: sec.industry,
+      score: sec.score,
+      avgChangePercent: numOrNull(sec.avg_change_percent),
+      limitUpCount: numOrNull(sec.limit_up_count),
+      turnover: numOrNull(sec.total_turnover),
+      leaderSymbols: members,
+    };
+  });
+}
+
+function buildPulseNarrative(temperature, themes, risks, hasSectorData) {
+  const themeLine = themes.length
+    ? themes.map(function (t) {
+        return t.avgChangePercent === null
+          ? t.industry + '(涨跌不可用)'
+          : t.industry + '(' + (t.avgChangePercent >= 0 ? '+' : '') + t.avgChangePercent.toFixed(2) + '%)';
+      }).join('、')
+    : (hasSectorData ? '暂无清晰主线' : '板块数据不可用');
+  const riskLine = risks.length ? risks.map(function (r) { return r.label; }).join('、') : '未见显著风险信号';
+  const scoreText = temperature.score === null ? '' : '(' + temperature.score + '/100)';
+  return '当前市场温度「' + temperature.label + '」' + scoreText + '。资金主线集中在：' + themeLine +
+    '。需关注的风险：' + riskLine + '。（规则引擎结论 · LLM 观点生成暂不可用）';
+}
+
+async function handleAiMarketPulse(env) {
+  try {
+    const cache = await getAllQuotes();
+    const stocks = await getStockList();
+    const snap = await loadBreadthSnapshot();
+    const sectors = await getSectorData();
+
+    const hasBreadth = !!snap;
+    const hasSectorData = sectors.length > 0;
+    const rising = hasBreadth ? numOrNull(snap.advancing) : null;
+    const falling = hasBreadth ? numOrNull(snap.declining) : null;
+    const breadthDenominator = (rising !== null && falling !== null) ? rising + falling : 0;
+    // 0/0 是「不可计算」，不是「上涨占比 0%」。
+    const risingRatio = (hasBreadth && breadthDenominator > 0) ? rising / breadthDenominator : null;
+    const limitUp = hasBreadth ? numOrNull(snap.limitUp) : null;
+
+    const themes = buildPulseThemes(sectors, stocks, cache.quoteMap);
+    const topThemeScore = themes.length ? numOrNull(themes[0].score) : null;
+    const temperature = computePulseTemperature(risingRatio, topThemeScore);
+    const risks = buildPulseRisks(risingRatio, sectors);
+
+    const stockBySymbol = new Map(stocks.map(function (s) { return [s.symbol, s]; }));
+    const candidateSymbols = [];
+    const seen = new Set();
+    for (const t of themes) {
+      for (const l of t.leaderSymbols) {
+        if (seen.has(l.symbol)) continue;
+        seen.add(l.symbol);
+        candidateSymbols.push(l.symbol);
+      }
+    }
+    const candidates = candidateSymbols.slice(0, 8).map(function (sym) {
+      const s = stockBySymbol.get(sym);
+      const q = cache.quoteMap[sym];
+      if (!s || !q) return null;
+      // 候选是「主线领涨股」，不把 ST/退市风险股放进候选（避免被读成推荐风险标的）。
+      if (/ST|退/.test(s.name)) return null;
+      return {
+        symbol: sym,
+        name: s.name,
+        industry: normalizeIndustry(s.industry),
+        changePercent: numOrNull(q.changePercent),
+        turnoverRate: numOrNull(q.turnoverRate),
+        peRatio: numOrNull(q.peRatio),
+      };
+    }).filter(Boolean);
+
+    // 广度与板块都不可得：返回完整形状 + 显式 null（不返回 404、不用 0 冒充）。
+    if (!hasBreadth && !hasSectorData) {
+      return unavailable({
+        temperature: { score: null, label: '未知' },
+        breadth: null,
+        limitUp: null,
+        themes: [],
+        risks: [{ level: 'low', label: '数据暂不可用', detail: '市场广度与板块数据均不可得，未生成风险判定' }],
+        candidates: [],
+        narrative: '市场信号暂不可用，请稍后重试。',
+        llmUsed: false,
+        availability: { breadth: false, sectors: false },
+        asOf: null,
+        generatedAt: new Date().toISOString(),
+      }, '行情诊脉暂不可得：全市场行情快照与板块聚合均未取到，本次不返回任何温度/家数/主线数值（不以 0 顶替）');
+    }
+
+    let narrative = buildPulseNarrative(temperature, themes, risks, hasSectorData);
+    let llmUsed = false;
+    let llmNote = null;
+    // 与 backend 一致：广度不可得时不调用 LLM（避免把「0/0」喂给模型编出市场结论）。
+    if (hasBreadth && risingRatio !== null) {
+      try {
+        const themeSummary = themes.length
+          ? themes.map(function (t) {
+              return t.industry + ' 景气度' + t.score +
+                '，平均涨跌' + (t.avgChangePercent === null ? '不可用' : t.avgChangePercent.toFixed(2) + '%') +
+                '，涨停' + (t.limitUpCount === null ? '不可用' : t.limitUpCount + '只');
+            }).join('；')
+          : '板块数据不可用';
+        const userPrompt =
+          '基于以下实时市场信号，用 3-4 句中文给出今日 A 股「诊脉」观点，先结论后依据，专业克制，结尾必须带风险提示。不要荐股、不预测点位。\n\n' +
+          '市场温度：' + temperature.label + (temperature.score === null ? '' : '(' + temperature.score + '/100)') + '\n' +
+          '上涨/下跌家数：' + rising + '/' + falling + '（占比 ' + (risingRatio === null ? '不可用' : (risingRatio * 100).toFixed(1) + '%') + '）\n' +
+          '涨停：' + (limitUp === null ? '不可用' : limitUp + ' 只') + '\n' +
+          '主线行业：' + themeSummary + '\n' +
+          '风险信号：' + risks.map(function (r) { return r.label + '：' + r.detail; }).join('；');
+        const content = await callDeepSeek(
+          env,
+          '你是 A 股行情诊脉助手。只能引用用户提供的真实信号，不得编造数据、不得荐股、不得预测点位；输出纯文本中文观点，结尾带风险提示。',
+          userPrompt,
+          { temperature: 0.5, maxTokens: 400 },
+        );
+        if (content && content.trim()) {
+          narrative = content.trim();
+          llmUsed = true;
+        }
+      } catch (e) {
+        console.error('[ai/market-pulse] LLM 观点生成不可用，降级为规则结论:', (e && e.message) || e);
+        llmNote = 'LLM 观点生成暂不可用，本结论由规则引擎基于真实行情给出。';
+      }
+    }
+
+    const missing = [];
+    if (rising === null) missing.push('breadth.rising');
+    if (falling === null) missing.push('breadth.falling');
+    if (risingRatio === null) missing.push('breadth.risingRatio');
+    if (limitUp === null) missing.push('limitUp');
+    themes.forEach(function (t, i) {
+      if (t.avgChangePercent === null) missing.push('themes[' + i + '].avgChangePercent');
+      if (t.limitUpCount === null) missing.push('themes[' + i + '].limitUpCount');
+      if (t.turnover === null) missing.push('themes[' + i + '].turnover');
+    });
+    candidates.forEach(function (c, i) {
+      if (c.changePercent === null) missing.push('candidates[' + i + '].changePercent');
+      if (c.turnoverRate === null) missing.push('candidates[' + i + '].turnoverRate');
+    });
+    const dataSource = missing.length === 0 ? 'real' : 'partial';
+
+    return json({
+      success: true,
+      dataSource: dataSource,
+      data: {
+        temperature: temperature,
+        breadth: risingRatio === null ? null : {
+          rising: rising,
+          falling: falling,
+          risingRatio: Number((risingRatio * 100).toFixed(1)),
+        },
+        limitUp: limitUp,
+        missing: missing,
+        themes: themes,
+        risks: risks,
+        candidates: candidates,
+        narrative: narrative,
+        llmUsed: llmUsed,
+        llmNote: llmNote,
+        availability: { breadth: hasBreadth && risingRatio !== null, sectors: hasSectorData },
+        asOf: snap && snap.tradeDate ? snap.tradeDate : null,
+        generatedAt: new Date().toISOString(),
+        dataSource: dataSource,
+        note: '温度为上涨占比与主线景气度的规则合成值；主线行业为 Worker 内置清单按申万一级聚合；候选标的为主线行业领涨股（非推荐）。',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    return unavailable({
+      temperature: { score: null, label: '未知' },
+      breadth: null,
+      limitUp: null,
+      themes: [],
+      risks: [{ level: 'low', label: '数据暂不可用', detail: '市场信号计算失败' }],
+      candidates: [],
+      narrative: '市场信号暂不可用，请稍后重试。',
+      llmUsed: false,
+      availability: { breadth: false, sectors: false },
+      asOf: null,
+      generatedAt: new Date().toISOString(),
+    }, '行情诊脉计算失败：' + ((e && e.message) || '未知错误') + '；本次不返回任何温度/家数/主线数值（不以 0 顶替）');
+  }
+}
+
 
 // Extract sector data for reuse
 async function getSectorData() {
@@ -4075,6 +4481,469 @@ ${stockSummary}
       timestamp: Date.now(),
     }, 200);
   }
+}
+
+// ==================== AI 个股诊断（/api/ai/diagnose/:symbol） ====================
+// 结构契约对齐 frontend/src/pages/StockDetailPage.tsx:713-780：
+//   data.totalScore 必须是数值、rating 字符串、dimensions[{name,score}]、strengths/risks/suggestions 字符串数组；
+//   同时 data.diagnosis 提供纯文本（frontend/src/services/aiClient.ts diagnosis 字段）。
+// 数字来源：腾讯实时行情（单票）+ fetchDailyKLine 多源日K；DeepSeek 只基于这些真实指标写结论。
+
+function meanOf(arr) {
+  if (!arr || arr.length === 0) return null;
+  let sum = 0;
+  for (const v of arr) sum += v;
+  return sum / arr.length;
+}
+
+// 经典 14 日 RSI（简单平均涨跌幅，非 Wilder 平滑）；全平盘返回 50（真实计算结果，不是缺失）。
+function computeRsi14(closes) {
+  if (!Array.isArray(closes) || closes.length < 15) return null;
+  let gain = 0;
+  let loss = 0;
+  for (let i = closes.length - 14; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gain += diff;
+    else loss -= diff;
+  }
+  if (gain + loss === 0) return 50;
+  if (loss === 0) return 100;
+  const rs = gain / loss;
+  return Math.round((100 - 100 / (1 + rs)) * 10) / 10;
+}
+
+// 20 日收益标准差年化（252 交易日）；样本不足返回 null，绝不用 0 冒充「无波动」。
+function computeVolatility20(closes) {
+  if (!Array.isArray(closes) || closes.length < 21) return null;
+  const rets = [];
+  for (let i = closes.length - 20; i < closes.length; i++) {
+    const prev = closes[i - 1];
+    if (prev > 0) rets.push((closes[i] - prev) / prev);
+  }
+  if (rets.length < 5) return null;
+  const mean = rets.reduce(function (s, v) { return s + v; }, 0) / rets.length;
+  const variance = rets.reduce(function (s, v) { return s + (v - mean) * (v - mean); }, 0) / rets.length;
+  return Math.round(Math.sqrt(variance) * Math.sqrt(252) * 100 * 100) / 100;
+}
+
+function computeMaxDrawdown(closes, period) {
+  if (!Array.isArray(closes) || closes.length === 0) return null;
+  const arr = closes.slice(-(period || 60));
+  let peak = arr[0];
+  let maxDd = 0;
+  for (const c of arr) {
+    if (c > peak) peak = c;
+    if (peak > 0) maxDd = Math.max(maxDd, ((peak - c) / peak) * 100);
+  }
+  return Math.round(maxDd * 100) / 100;
+}
+
+function pctChangeOver(closes, days) {
+  if (!Array.isArray(closes) || closes.length <= days) return null;
+  const base = closes[closes.length - 1 - days];
+  if (!(base > 0)) return null;
+  return Math.round(((closes[closes.length - 1] - base) / base) * 10000) / 100;
+}
+
+function ratingOfScore(score) {
+  if (score === null) return '数据不足';
+  if (score >= 80) return '优秀';
+  if (score >= 70) return '良好';
+  if (score >= 60) return '中性偏强';
+  if (score >= 50) return '中性';
+  if (score >= 40) return '偏弱';
+  return '谨慎';
+}
+
+function asScore0to100(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function normalizeSymbolInput(raw) {
+  const s = String(raw || '').trim().toUpperCase();
+  const m = s.match(/^(\d{6})(?:\.(SH|SZ|BJ))?$/);
+  if (!m) return null;
+  return { symbol: m[1], market: m[2] || null };
+}
+
+// 规则引擎诊断：四个维度全部由真实行情/日K推导；缺数据 → 维度 score:null（不拿 0 顶替）。
+function buildRuleDiagnosis(stock, quote, klineQuotes, klineSource) {
+  const closes = (klineQuotes || [])
+    .map(function (k) { return Number(k.closePrice); })
+    .filter(function (v) { return Number.isFinite(v) && v > 0; });
+  const quotePrice = quote ? numOrNull(quote.price) : null;
+  const price = (quotePrice !== null && quotePrice > 0) ? quotePrice : (closes.length ? closes[closes.length - 1] : null);
+  const changePercent = quote ? numOrNull(quote.changePercent) : null;
+  const pe = quote ? numOrNull(quote.peRatio) : null;
+  const pb = quote ? numOrNull(quote.pbRatio) : null;
+  const turnoverRate = quote ? numOrNull(quote.turnoverRate) : null;
+  const ma20 = closes.length >= 20 ? meanOf(closes.slice(-20)) : null;
+  const ma20Deviation = (ma20 !== null && ma20 > 0 && price !== null)
+    ? Math.round(((price - ma20) / ma20) * 10000) / 100
+    : null;
+  const rsi14 = computeRsi14(closes);
+  const return20 = pctChangeOver(closes, 20);
+  const volatility20 = computeVolatility20(closes);
+  const maxDrawdown60 = computeMaxDrawdown(closes, 60);
+
+  const dimensions = [];
+
+  // 1) 估值：PE 分档，PB 只做微调；两者皆缺 → null
+  let valuation = null;
+  if (pe !== null && pe > 0) {
+    valuation = pe <= 15 ? 78 : pe <= 25 ? 68 : pe <= 40 ? 55 : pe <= 60 ? 45 : 34;
+    if (pb !== null && pb > 0) valuation += pb <= 2 ? 3 : -3;
+    valuation = Math.round(clampScore(valuation, 5, 95));
+  } else if (pb !== null && pb > 0) {
+    valuation = pb <= 1.5 ? 70 : pb <= 3 ? 55 : 40;
+  }
+  dimensions.push({
+    key: 'valuation',
+    name: '估值',
+    score: valuation,
+    note: (pe === null && pb === null)
+      ? 'PE/PB 均不可得，未评分'
+      : 'PE ' + (pe === null ? '不可得' : pe.toFixed(1)) + ' / PB ' + (pb === null ? '不可得' : pb.toFixed(2)),
+  });
+
+  // 2) 技术面：20 日均线偏离 + RSI 修正
+  let technical = null;
+  if (closes.length >= 20 && ma20Deviation !== null) {
+    let s = 50 + clampScore(ma20Deviation * 2, -25, 25);
+    if (rsi14 !== null) s += (50 - rsi14) * 0.25;
+    technical = Math.round(clampScore(s, 5, 95));
+  }
+  dimensions.push({
+    key: 'technical',
+    name: '技术面',
+    score: technical,
+    note: closes.length >= 20
+      ? '价格相对20日均线 ' + (ma20Deviation >= 0 ? '+' : '') + ma20Deviation + '%，RSI14 ' + (rsi14 === null ? '不可得' : rsi14)
+      : '日K线不足20根，未评分',
+  });
+
+  // 3) 动量：当日涨跌幅 + 换手率
+  let momentum = null;
+  if (changePercent !== null) {
+    let s = 50 + clampScore(changePercent * 4, -25, 25);
+    if (turnoverRate !== null) s += clampScore((turnoverRate - 2) * 2, -8, 8);
+    momentum = Math.round(clampScore(s, 5, 95));
+  }
+  dimensions.push({
+    key: 'momentum',
+    name: '动量',
+    score: momentum,
+    note: changePercent === null
+      ? '实时涨跌幅不可得，未评分'
+      : '今日涨跌 ' + (changePercent >= 0 ? '+' : '') + changePercent.toFixed(2) + '%，换手 ' + (turnoverRate === null ? '不可得' : turnoverRate.toFixed(2) + '%'),
+  });
+
+  // 4) 风险控制：年化波动率 + 60 日最大回撤（分数越高 = 风险越低）
+  let risk = null;
+  if (volatility20 !== null) {
+    let s = 100 - volatility20 * 0.9;
+    if (maxDrawdown60 !== null) s -= maxDrawdown60 * 0.5;
+    risk = Math.round(clampScore(s, 5, 95));
+  }
+  dimensions.push({
+    key: 'risk',
+    name: '风险控制',
+    score: risk,
+    note: volatility20 === null
+      ? '日K线不足21根，未评分波动率'
+      : '20日年化波动 ' + volatility20.toFixed(1) + '%，60日最大回撤 ' + (maxDrawdown60 === null ? '不可得' : maxDrawdown60.toFixed(2) + '%'),
+  });
+
+  const weights = { valuation: 0.3, technical: 0.3, momentum: 0.2, risk: 0.2 };
+  let sum = 0;
+  let weightSum = 0;
+  for (const d of dimensions) {
+    if (d.score !== null) {
+      sum += d.score * weights[d.key];
+      weightSum += weights[d.key];
+    }
+  }
+  const totalScore = weightSum > 0 ? Math.round(sum / weightSum) : null;
+  const rating = ratingOfScore(totalScore);
+
+  const strengths = [];
+  if (valuation !== null && valuation >= 70) {
+    strengths.push('估值处于相对合理区间（PE ' + (pe === null ? '不可得' : pe.toFixed(1)) + '，PB ' + (pb === null ? '不可得' : pb.toFixed(2)) + '）');
+  }
+  if (technical !== null && technical >= 65 && ma20Deviation !== null) {
+    strengths.push('价格位于20日均线上方（偏离 ' + (ma20Deviation >= 0 ? '+' : '') + ma20Deviation + '%），技术形态偏强');
+  }
+  if (momentum !== null && momentum >= 65 && changePercent !== null) {
+    strengths.push('今日涨跌 ' + (changePercent >= 0 ? '+' : '') + changePercent.toFixed(2) + '%，短线动量居前');
+  }
+  if (risk !== null && risk >= 70 && volatility20 !== null) {
+    strengths.push('近20日年化波动 ' + volatility20.toFixed(1) + '%，波动相对可控');
+  }
+
+  const risks = [];
+  if (quote === null) risks.push('实时行情缺失：价格取最近收盘，动量维度未参与评分');
+  if (closes.length < 20) risks.push('日K线不足20根：技术面与风险维度未参与评分');
+  if (pe === null && pb === null) risks.push('PE/PB 均不可得：估值维度未参与评分');
+  if (volatility20 !== null && volatility20 >= 45) risks.push('近20日年化波动 ' + volatility20.toFixed(1) + '%，波动风险偏高');
+  if (maxDrawdown60 !== null && maxDrawdown60 >= 15) risks.push('近60日最大回撤 ' + maxDrawdown60.toFixed(2) + '%');
+  if (changePercent !== null && changePercent <= -3) risks.push('今日下跌 ' + changePercent.toFixed(2) + '%');
+  if (risks.length === 0) risks.push('未发现可由现有真实数据支撑的显著风险项（不代表无风险）');
+
+  const suggestions = [];
+  if (totalScore === null) {
+    suggestions.push('实时行情与历史K线均不足，暂无法给出综合评分；请稍后重试。');
+  } else if (totalScore >= 70) {
+    suggestions.push('综合评分较高：可结合自身风险承受能力持续跟踪，注意分批与仓位管理。');
+  } else if (totalScore >= 50) {
+    suggestions.push('综合评分中性：建议等待更明确的量价信号后再做判断。');
+  } else {
+    suggestions.push('综合评分偏弱：建议控制仓位并重点跟踪风险信号。');
+  }
+  if (pe === null && pb === null) suggestions.push('补充 PE/PB 等估值数据后再评估估值维度。');
+  suggestions.push('以上为辅助诊断，不构成投资建议。');
+
+  const parts = [];
+  parts.push(stock.name + '（' + stock.symbol + '）' + (totalScore === null ? '综合评分不可用' : '综合评分 ' + totalScore + '/100，评级「' + rating + '」') + '。');
+  if (price !== null) {
+    parts.push('最新价 ' + price.toFixed(2) + ' 元' + (changePercent === null ? '' : '（' + (changePercent >= 0 ? '+' : '') + changePercent.toFixed(2) + '%）') + '。');
+  }
+  if (ma20Deviation !== null) {
+    parts.push('价格相对20日均线 ' + (ma20Deviation >= 0 ? '+' : '') + ma20Deviation + '%，RSI14 ' + (rsi14 === null ? '不可得' : rsi14) + '。');
+  }
+  parts.push('分项：' + dimensions.map(function (d) { return d.name + ' ' + (d.score === null ? '不可得' : d.score); }).join('，') + '。');
+  parts.push('以上为辅助诊断，不构成投资建议。');
+
+  return {
+    totalScore: totalScore,
+    rating: rating,
+    dimensions: dimensions,
+    strengths: strengths,
+    risks: risks,
+    suggestions: suggestions,
+    diagnosis: parts.join(''),
+    metrics: {
+      price: price,
+      changePercent: changePercent,
+      peRatio: pe,
+      pbRatio: pb,
+      turnoverRate: turnoverRate,
+      ma20: ma20 === null ? null : Math.round(ma20 * 100) / 100,
+      ma20Deviation: ma20Deviation,
+      rsi14: rsi14,
+      return20: return20,
+      volatility20: volatility20,
+      maxDrawdown60: maxDrawdown60,
+      klineBars: closes.length,
+    },
+    refs: {
+      quoteSource: quote ? 'tencent' : null,
+      klineSource: klineSource || null,
+      klineBars: closes.length,
+    },
+  };
+}
+
+async function handleAiDiagnose(rawSymbol, env) {
+  const norm = normalizeSymbolInput(rawSymbol);
+  if (!norm) {
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'VALIDATION_ERROR',
+      error: '股票代码格式无效',
+      message: '股票代码需为 6 位数字（可带 .SH/.SZ/.BJ 后缀）；未查询任何数据，诊断未生成。',
+      timestamp: Date.now(),
+    }, 200);
+  }
+
+  const stocks = await getStockList();
+  const stock = stocks.find(function (s) { return s.symbol === norm.symbol; });
+  if (!stock) {
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'SYMBOL_NOT_FOUND',
+      error: '股票不在 Worker 内置 A 股清单中',
+      message: '未在 Worker 内置 A 股清单中找到该代码，未生成任何诊断（不返回演示数据）。',
+      timestamp: Date.now(),
+    }, 200);
+  }
+  if (norm.market && stock.market && norm.market !== stock.market) {
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'MARKET_MISMATCH',
+      error: '代码与市场后缀不一致',
+      message: '该代码与请求中的市场后缀不一致，未生成诊断。',
+      timestamp: Date.now(),
+    }, 200);
+  }
+
+  // 缺 LLM 凭据：按 ai/filter 既有约定返回可识别错误（200 + UPSTREAM_UNAVAILABLE + 面向用户中文文案），
+  // 不拉行情、不伪造评分；error 只放内部诊断，message 才是前端展示文案。
+  if (!env || !env.DEEPSEEK_API_KEY) {
+    console.error('[ai/diagnose] DEEPSEEK_API_KEY 未配置，AI 诊断不可用');
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'UPSTREAM_UNAVAILABLE',
+      error: 'DEEPSEEK_API_KEY 未配置',
+      message: 'AI 个股诊断服务未接入，暂时无法生成诊断。请稍后再试。',
+      timestamp: Date.now(),
+    }, 200);
+  }
+
+  const tencentSymbol = stockTencentKey(stock);
+  let quote = null;
+  let kline = { quotes: [], source: null };
+  if (tencentSymbol) {
+    const results = await Promise.all([
+      fetchTencentQuotes([tencentSymbol]).catch(function (e) {
+        console.error('[ai/diagnose] 行情源失败:', (e && e.message) || e);
+        return [];
+      }),
+      fetchDailyKLine(tencentSymbol, stock.symbol, stock.market, 60).catch(function (e) {
+        console.error('[ai/diagnose] K线源失败:', (e && e.message) || e);
+        return { quotes: [], source: null };
+      }),
+    ]);
+    const quoteList = results[0];
+    const klineRes = results[1];
+    if (Array.isArray(quoteList) && quoteList.length) {
+      quote = quoteList.find(function (q) { return q && q.price > 0; }) || quoteList[0];
+    }
+    if (klineRes && Array.isArray(klineRes.quotes)) kline = klineRes;
+  }
+
+  const rule = buildRuleDiagnosis(stock, quote, kline.quotes, kline.source);
+  if (!quote && rule.metrics.klineBars === 0) {
+    return unavailable({
+      symbol: stock.symbol,
+      name: stock.name,
+      totalScore: null,
+      rating: '数据不足',
+      dimensions: rule.dimensions,
+      strengths: [],
+      risks: ['实时行情与历史日K均不可得：未生成任何评分或建议'],
+      suggestions: ['数据源暂不可用，请稍后重试；本端点不会用演示数据或 0 分代替真实诊断。'],
+      diagnosis: '个股诊断暂不可用：未取到任何真实行情或历史K线，本次不生成评分与建议（不伪造）。',
+    }, '个股诊断暂不可得：腾讯实时行情与多源日K均未取到，本次不返回评分/建议（不以 0 或演示数据顶替）');
+  }
+
+  const dataSource = quote ? 'real' : 'partial';
+  let llmUsed = false;
+  let llmNote = null;
+  let merged = {
+    totalScore: rule.totalScore,
+    rating: rule.rating,
+    dimensions: rule.dimensions.map(function (d) { return { name: d.name, score: d.score, note: d.note }; }),
+    strengths: rule.strengths,
+    risks: rule.risks,
+    suggestions: rule.suggestions,
+    diagnosis: rule.diagnosis,
+  };
+
+  try {
+    const payload = {
+      symbol: stock.symbol,
+      name: stock.name,
+      industry: normalizeIndustry(stock.industry),
+      price: rule.metrics.price,
+      changePercent: rule.metrics.changePercent,
+      peRatio: rule.metrics.peRatio,
+      pbRatio: rule.metrics.pbRatio,
+      turnoverRate: rule.metrics.turnoverRate,
+      ma20Deviation: rule.metrics.ma20Deviation,
+      rsi14: rule.metrics.rsi14,
+      return20: rule.metrics.return20,
+      volatility20: rule.metrics.volatility20,
+      maxDrawdown60: rule.metrics.maxDrawdown60,
+      klineBars: rule.metrics.klineBars,
+      ruleScore: rule.totalScore,
+      ruleRating: rule.rating,
+    };
+    const sys = '你是A股个股诊断助手。只能引用输入 JSON 中给出的真实指标，缺失项（null）必须写「不可得」，不得编造财务数据、消息面或目标价；分数为 0-100 整数；只输出 JSON，不要代码围栏或解释。';
+    const usr = '股票真实指标（JSON）：\n' + JSON.stringify(payload) + '\n\n请输出严格 JSON：'
+      + '{"totalScore":0-100整数,"rating":"优秀/良好/中性偏强/中性/偏弱/谨慎",'
+      + '"dimensions":[{"name":"估值","score":0-100或null,"comment":"一句话"},{"name":"技术面","score":...},{"name":"动量","score":...},{"name":"风险控制","score":...}],'
+      + '"strengths":["..."],"risks":["..."],"suggestions":["..."],'
+      + '"diagnosis":"120-200字中文诊断，先结论后依据，结尾带风险提示"}';
+    const content = await callDeepSeek(env, sys, usr, { temperature: 0.3, maxTokens: 700 });
+    const parsed = extractJsonObject(content);
+    if (!parsed) {
+      llmNote = 'LLM 返回内容无法解析，已降级为规则引擎诊断（数值仍来自真实行情，未编造）。';
+    } else {
+      const llmScore = asScore0to100(parsed.totalScore);
+      const llmDims = Array.isArray(parsed.dimensions)
+        ? parsed.dimensions.map(function (d) {
+            const nm = d && typeof d.name === 'string' ? d.name.trim().slice(0, 20) : '';
+            const sc = asScore0to100(d ? d.score : null);
+            if (!nm || sc === null) return null;
+            return { name: nm, score: sc, note: (d && typeof d.comment === 'string') ? d.comment.trim().slice(0, 120) : null };
+          }).filter(Boolean).slice(0, 6)
+        : [];
+      const strList = function (v, max) {
+        if (!Array.isArray(v)) return [];
+        return v.filter(function (x) { return typeof x === 'string' && x.trim(); })
+          .map(function (x) { return x.trim().slice(0, 160); })
+          .slice(0, max);
+      };
+      const llmValid = llmScore !== null || llmDims.length > 0;
+      if (!llmValid) {
+        llmNote = 'LLM 返回内容缺少有效评分，已降级为规则引擎诊断（数值仍来自真实行情，未编造）。';
+      } else {
+        const llmStrengths = strList(parsed.strengths, 6);
+        const llmRisks = strList(parsed.risks, 6);
+        const llmSuggestions = strList(parsed.suggestions, 6);
+        const llmDiagnosis = typeof parsed.diagnosis === 'string' ? parsed.diagnosis.trim() : '';
+        merged = {
+          totalScore: llmScore !== null ? llmScore : rule.totalScore,
+          rating: (typeof parsed.rating === 'string' && parsed.rating.trim()) ? parsed.rating.trim().slice(0, 20) : rule.rating,
+          dimensions: llmDims.length ? llmDims : merged.dimensions,
+          strengths: llmStrengths.length ? llmStrengths : rule.strengths,
+          risks: llmRisks.length ? llmRisks : rule.risks,
+          suggestions: llmSuggestions.length ? llmSuggestions : rule.suggestions,
+          diagnosis: llmDiagnosis.length >= 10 ? llmDiagnosis.slice(0, 600) : rule.diagnosis,
+        };
+        llmUsed = true;
+      }
+    }
+  } catch (e) {
+    console.error('[ai/diagnose] LLM 调用失败，降级为规则诊断:', (e && e.message) || e);
+    llmNote = 'LLM 诊断生成暂不可用，已降级为规则引擎诊断（数值仍来自真实行情）。';
+  }
+
+  const asOf = (quote && quote.quoteTime) || (kline.quotes.length ? kline.quotes[kline.quotes.length - 1].tradeDate : null);
+  return json({
+    success: true,
+    dataSource: dataSource,
+    data: {
+      symbol: stock.symbol,
+      name: stock.name,
+      industry: normalizeIndustry(stock.industry),
+      price: rule.metrics.price,
+      changePercent: rule.metrics.changePercent,
+      asOf: asOf,
+      totalScore: merged.totalScore,
+      rating: merged.rating,
+      dimensions: merged.dimensions,
+      strengths: merged.strengths,
+      risks: merged.risks,
+      suggestions: merged.suggestions,
+      diagnosis: merged.diagnosis,
+      metrics: rule.metrics,
+      refs: rule.refs,
+      llmUsed: llmUsed,
+      model: llmUsed ? 'deepseek-chat' : null,
+      llmNote: llmNote,
+      dataSource: dataSource,
+      note: '诊断基于腾讯实时行情 + 多源日K线' + (llmUsed ? ' + DeepSeek' : '（规则引擎）') + '；数值缺失处为 null，绝不以 0 冒充。不构成投资建议。',
+    },
+    timestamp: new Date().toISOString(),
+  });
 }
 
 // ==================== 多维矩阵 v3-lite：板块指数历史 + 实时快照 ====================
@@ -7049,17 +7918,33 @@ export default {
     // /api/version —— 前端 AppLayout + buildInfo 在**每个页面**都会调它，
     // 缺这条路由会让全站每条页面顶部挂「未挂载端点：/api/version」横幅，
     // 把真正需要用户注意的降级信息淹没掉。
-    // 诚实契约：Worker 构建未注入 git commit / 版本号，一律返回 null 并说明，
-    // 绝不伪造 sha 或冒用后端版本号（项目红线：不得用假数据冒充真实）。
+    // commit 来源（按优先级）：Cloudflare Pages 运行时注入的 CF_PAGES_COMMIT_SHA；
+    // 其次 WORKER_COMMIT_SHA / GITHUB_SHA / WORKERS_CI_COMMIT_SHA（CI 显式注入时）。
+    // 只接受 7-40 位十六进制 sha；读不到就是 null + commitKnown:false（绝不伪造）。
     if (path === '/api/version') {
+      const commitKeys = ['CF_PAGES_COMMIT_SHA', 'WORKER_COMMIT_SHA', 'GITHUB_SHA', 'WORKERS_CI_COMMIT_SHA'];
+      let commit = null;
+      let commitSource = null;
+      for (const key of commitKeys) {
+        const raw = env && env[key];
+        if (typeof raw === 'string' && /^[0-9a-f]{7,40}$/i.test(raw.trim())) {
+          commit = raw.trim();
+          commitSource = key;
+          break;
+        }
+      }
+      const appVersion = (env && typeof env.APP_VERSION === 'string' && env.APP_VERSION.trim()) ? env.APP_VERSION.trim() : null;
       return json({
         success: true,
         service: 'clair-worker',
-        appVersion: null,
-        commit: null,
+        appVersion: appVersion,
+        commit: commit,
         buildTime: null,
-        commitKnown: false,
-        note: 'Cloudflare Worker 构建未注入版本与 commit 信息，故均为 null（不伪造）；完整构建信息由本地 Express 后端的 /api/version 提供',
+        commitKnown: !!commit,
+        commitSource: commitSource,
+        note: commit
+          ? 'commit 来自运行环境变量 ' + commitSource + '；Worker 无独立版本号与构建时间，appVersion/buildTime 保持 null（不伪造）。'
+          : '未在运行环境读到 CF_PAGES_COMMIT_SHA / WORKER_COMMIT_SHA / GITHUB_SHA / WORKERS_CI_COMMIT_SHA（或值不是 7-40 位十六进制 sha），commit 保持 null（不伪造）；注入上述任一环境变量后本端点即返回真实 commit。',
         timestamp: Date.now(),
       });
     }
@@ -7164,6 +8049,11 @@ export default {
       return handleSectorMomentum(url);
     }
 
+    // 申万二级行业列表（DiscoverPage「二级行业」卡片；此前未注册 → 线上 404）
+    if (path === '/api/industries') {
+      return handleIndustries(url);
+    }
+
     // ── 多维矩阵 v3-lite（板块指数历史 + 实时快照，历史缺失的维度如实 null）──
     if (path === '/api/sectors/multidim-v3/batch' && request.method === 'POST') {
       return handleMultidimV3Batch(request);
@@ -7262,6 +8152,11 @@ export default {
       return handleMarketInsightLlm();
     }
 
+    // AI 行情诊脉（DiscoverPage「AI 行情诊脉」卡片；前端已在调用，此前 404）
+    if (path === '/api/ai/market-pulse') {
+      return handleAiMarketPulse(env);
+    }
+
     // Phase 3: Stock strategy: /api/stocks/:symbol/strategy
     const strategyMatch = path.match(/^\/api\/stocks\/(\d+)\/strategy$/);
     if (strategyMatch) {
@@ -7332,6 +8227,11 @@ export default {
     }
 
     // ── AI 路由 (真 LLM, 调 DeepSeek)：显式下传 env 以读取 env.DEEPSEEK_API_KEY ──
+    // 个股 AI 诊断（StockDetailPage 自动诊断 + aiClient.diagnoseStock；此前 404）
+    const diagnoseMatch = path.match(/^\/api\/ai\/diagnose\/([^/]+)$/);
+    if (diagnoseMatch) {
+      return handleAiDiagnose(decodeURIComponent(diagnoseMatch[1]), env);
+    }
     if (path === '/api/ai/gems' && request.method === 'POST') {
       return handleAiGems(request, env);
     }

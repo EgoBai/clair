@@ -1095,6 +1095,195 @@ await test('summary 与三表自洽：summary.balanceSheet.totalAssets 与 balan
 });
 
 // ============================================================
+// 四、生产 Worker 缺失路由回归：/api/version、/api/industries、/api/ai/market-pulse、/api/ai/diagnose/:symbol
+// ============================================================
+
+console.log('\n补齐路由（version / industries / market-pulse / diagnose）');
+
+async function callWorkerWithEnv(url, init, env) {
+  const res = await worker.fetch(new Request(url, init), { ...envStub(), ...(env || {}) }, {});
+  const text = await res.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error('响应不是合法 JSON: ' + text.slice(0, 200));
+  }
+  return { status: res.status, body };
+}
+
+// 确定性腾讯行情桩：每只票价格 100 / 昨收 99 / 涨幅 +1.01% / PE 20 / PB 2.00。
+function fakeQuoteLine(sym) {
+  const digits = sym.slice(2);
+  const p = new Array(50).fill('0');
+  p[0] = '1';
+  p[1] = '测试' + digits;
+  p[2] = digits;
+  p[3] = '100.00';
+  p[4] = '99.00';
+  p[5] = '99.50';
+  p[6] = '123456';
+  p[30] = '20261104150000';
+  p[32] = '1.01';
+  p[33] = '101.00';
+  p[34] = '98.00';
+  p[37] = '12345.6';
+  p[38] = '2.50';
+  p[39] = '20.00';
+  p[44] = '300';
+  p[45] = '500';
+  p[46] = '2.00';
+  p[47] = '108.90';
+  p[48] = '89.10';
+  return 'v_' + sym + '="' + p.join('~') + '";';
+}
+
+// 只替换本次用例内的 globalThis.fetch（结束后 finally 还原），与文件内既有伪时钟/行情桩同一做法。
+async function withStubbedMarketFetch(fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async function (input, init) {
+    const u = String(input);
+    if (u.startsWith('https://qt.gtimg.cn/q=')) {
+      const syms = u.slice('https://qt.gtimg.cn/q='.length).split(',');
+      const text = syms.map(fakeQuoteLine).join('\n');
+      return new Response(Buffer.from(text, 'latin1'), { status: 200 });
+    }
+    if (u.startsWith('https://web.ifzq.gtimg.cn/')) {
+      const m = u.match(/param=([a-z]{2}\d{6})/);
+      const key = m ? m[1] : 'sh600519';
+      const rows = [];
+      for (let i = 0; i < 60; i++) {
+        const c = 90 + i * 0.2;
+        rows.push([
+          '2026-07-' + String((i % 28) + 1).padStart(2, '0'),
+          (c - 0.1).toFixed(2), c.toFixed(2), (c + 0.2).toFixed(2), (c - 0.2).toFixed(2), '1000',
+        ]);
+      }
+      const payload = { code: 0, data: {} };
+      payload.data[key] = { day: rows };
+      return new Response(JSON.stringify(payload), { status: 200 });
+    }
+    if (u.startsWith('https://api.deepseek.com/')) {
+      const content = JSON.stringify({
+        totalScore: 66,
+        rating: '中性偏强',
+        dimensions: [{ name: '估值', score: 64 }, { name: '技术面', score: 68 }],
+        strengths: ['估值处于合理区间'],
+        risks: ['注意短期波动'],
+        suggestions: ['控制仓位'],
+        diagnosis: '该股当前综合评分中性偏强，估值与技术面均无极端信号；请注意短期波动风险。以上不构成投资建议。',
+      });
+      return new Response(JSON.stringify({ choices: [{ message: { content: content } }] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return original(input, init);
+  };
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+await test('/api/version：未注入 commit 时诚实返回 null + commitKnown=false', async () => {
+  const { status, body } = await callWorkerWithEnv('https://clair-api.pages.dev/api/version', undefined, {});
+  assert.equal(status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.commit, null);
+  assert.equal(body.commitKnown, false);
+  assert.equal(body.commitSource, null);
+  assert.ok(typeof body.note === 'string' && /[\u4e00-\u9fa5]/.test(body.note), '读不到 commit 时必须给中文说明');
+});
+
+await test('/api/version：env.CF_PAGES_COMMIT_SHA 注入后返回真实 commit', async () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const { status, body } = await callWorkerWithEnv('https://clair-api.pages.dev/api/version', undefined, { CF_PAGES_COMMIT_SHA: sha });
+  assert.equal(status, 200);
+  assert.equal(body.commit, sha);
+  assert.equal(body.commitKnown, true);
+  assert.equal(body.commitSource, 'CF_PAGES_COMMIT_SHA');
+});
+
+await test('/api/industries?level=2：200 且不 404；无数据时 unavailable + 空数组 + 中文原因', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/industries?level=2');
+  assert.equal(status, 200, '缺路由会是 404；本端点必须 200');
+  assert.equal(body.success, true);
+  const rows = body.data && body.data.industries;
+  assert.ok(Array.isArray(rows), 'data.industries 必须是数组');
+  assert.equal(body.data.dataSource, body.dataSource, '顶层与 data 内 dataSource 必须同源');
+  if (body.dataSource === 'unavailable') {
+    assert.equal(rows.length, 0, '不可用时必须是空数组，不能塞 0 值行业');
+    assert.equal(body.data.count, 0);
+    assert.ok(typeof body.message === 'string' && /[\u4e00-\u9fa5]/.test(body.message), '必须给中文不可用原因');
+  } else {
+    assert.ok(rows.length > 0);
+    assert.equal(body.data.count, rows.length);
+    for (const r of rows.slice(0, 10)) {
+      assert.ok(typeof r.name === 'string' && r.name.length > 0, 'name 缺失');
+      assert.ok(typeof r.stock_count === 'number' && r.stock_count > 0, 'stock_count 必须为正数');
+      assert.ok(r.avg_change === null || /^[+-]\d+\.\d{2}$/.test(r.avg_change), 'avg_change 必须是带符号两位小数字符串');
+      assert.notEqual(r.avg_change, '-0.00', '不得出现 -0.00 假下跌符号');
+      assert.ok(r.total_cap === null || typeof r.total_cap === 'string', 'total_cap 缺失时必须是 null');
+    }
+  }
+});
+
+await test('/api/ai/market-pulse：200 且不 404；降级态 temperature.score/breadth/limitUp 显式为 null', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/ai/market-pulse');
+  assert.equal(status, 200, '缺路由会是 404；本端点必须 200');
+  const d = body.data || {};
+  if (body.dataSource === 'unavailable') {
+    assert.equal(body.success, false);
+    assert.equal(d.temperature.score, null, '不可用时温度分必须是 null，不能用 0 冒充');
+    assert.equal(d.temperature.label, '未知');
+    assert.equal(d.breadth, null);
+    assert.equal(d.limitUp, null);
+    assert.deepEqual(d.themes, []);
+  } else {
+    assert.equal(body.success, true);
+    assert.ok(d.temperature && (d.temperature.score === null || typeof d.temperature.score === 'number'));
+    assert.ok(Array.isArray(d.themes), 'themes 必须是数组');
+    assert.ok(Array.isArray(d.risks) && d.risks.length > 0, 'risks 必须至少给出可用性判断');
+    assert.ok(typeof d.narrative === 'string' && d.narrative.length > 0, 'narrative 不能为空');
+    if (d.temperature.score === null) {
+      assert.equal(d.temperature.label, '未知', 'score=null 时 label 必须为「未知」');
+    }
+  }
+});
+
+await test('/api/ai/diagnose/600519（无 key）：200 + UPSTREAM_UNAVAILABLE + 中文 message，不 404 不伪造', async () => {
+  const { status, body } = await callWorkerWithEnv('https://clair-api.pages.dev/api/ai/diagnose/600519', undefined, {});
+  assert.equal(status, 200, '缺路由/缺 key 都不能 404');
+  assert.equal(body.success, false);
+  assert.equal(body.dataSource, 'unavailable');
+  assert.equal(body.code, 'UPSTREAM_UNAVAILABLE');
+  assert.ok(typeof body.message === 'string' && /[\u4e00-\u9fa5]/.test(body.message), '必须给面向用户的中文文案');
+  assert.ok(!/DEEPSEEK_API_KEY/.test(body.message), 'message 不得直接暴露运维配置指令');
+});
+
+await test('/api/ai/diagnose/600519（有 key，桩行情/K线/LLM）：结构化评分 + diagnosis 文本', async () => {
+  await withStubbedMarketFetch(async () => {
+    const { status, body } = await callWorkerWithEnv(
+      'https://clair-api.pages.dev/api/ai/diagnose/600519',
+      undefined,
+      { DEEPSEEK_API_KEY: 'test-key' },
+    );
+    assert.equal(status, 200);
+    assert.equal(body.success, true);
+    assert.equal(body.dataSource, 'real');
+    const d = body.data;
+    assert.ok(typeof d.totalScore === 'number' && d.totalScore >= 0 && d.totalScore <= 100, 'totalScore 必须是 0-100 数值');
+    assert.ok(typeof d.rating === 'string' && d.rating.length > 0);
+    assert.ok(Array.isArray(d.dimensions) && d.dimensions.length > 0, 'dimensions 不能为空');
+    assert.ok(Array.isArray(d.strengths) && Array.isArray(d.risks) && Array.isArray(d.suggestions));
+    assert.ok(typeof d.diagnosis === 'string' && d.diagnosis.length > 10, 'aiClient 读 data.diagnosis 文本');
+    assert.equal(d.llmUsed, true);
+    assert.equal(d.dataSource, body.dataSource);
+  });
+});
+
+// ============================================================
 // 四、双入口字节一致性（Cloudflare Pages advanced mode 的硬约束）
 // ============================================================
 
