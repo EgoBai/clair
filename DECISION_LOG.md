@@ -407,5 +407,6 @@
   5. L2 validateLayout：空 layout.id 记错误 Layout id is required（结构必需）；空 layout.name 记警告 Layout name is empty（升为错误会让历史空名存档无法保存，先警告）。
 - **判定依据**：旧测试把缺陷写成期望（tooltip 断言 {x:10,y:10}、dashboardCustomization 有「should not validate layout identity (production gap)」），本次同步改写为修复后语义，并新增 7 个回归用例覆盖乱序/阈值/越界/零尺寸/深拷贝/空身份。
 - **证据**：受影响 14 个测试文件 632 passed；npx tsc --noEmit exit 0；E3 红→绿两次：投毒 chartInteractionEngine.ts:448（Math.max(0, containerWidth - tooltipWidth) 改为 containerWidth）→ poisoned=FAIL(0.9s)、restored=PASS(0.9s)；投毒 :204（越界判定改 false）→ poisoned=FAIL(0.9s)、restored=PASS(0.9s)。commit f72b80671。
+- **调用面核实（同轮补记）**：`chartInteractionEngine.ts` 与 `dashboardLayoutEngine.ts` 在全仓非测试代码里 **0 处 import**，也不在 `frontend/src/utils/index.ts` 桶导出。故这五条属**库内缺陷**（测试语义与未来接入健壮性），本轮修复**不改变任何用户可见行为**；handover/09 的缺陷清单已就地标注状态与调用面，不再把它们算作用户可见缺口。
 - **代价**：findNearestPoint 由 O(log n) 变 O(n)（数据点千级，实测无感）；十字光标越界不再显示残留虚线，若有页面依赖「移出后仍显示」的观感需单独提；空 id 布局从此不能保存（当前生产无此数据，历史空名仅告警不阻塞）。
 
