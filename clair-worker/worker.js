@@ -1429,41 +1429,36 @@ async function handleStockDetail(symbol) {
     const q = quotes.find(qu => qu.symbol === symbol) || await fetchQuoteFallback(symbol, stock.market);
     if (!q) return error('Quote not available', 404);
 
+    // 详情页同时消费 quote（旧字段）与 latestQuote（backend 契约）。两者必须是**同一份**
+    // 完整行情对象：只给 latestQuote 六个契约字段时，页面「涨跌 / 今开 / 最高 / 最低」
+    // 会因为字段缺失渲染成 NaN（2026-11-04 真浏览器实测：1446.44 后面紧跟 NaN）。
+    const quote = {
+      closePrice: q.price,
+      openPrice: q.open,
+      highPrice: q.high,
+      lowPrice: q.low,
+      prevClose: q.prevClose,
+      change: q.price - q.prevClose,
+      changePercent: q.changePercent,
+      volume: q.volume,
+      turnover: q.turnover,
+      turnoverRate: q.turnoverRate ?? null,
+      peRatio: q.peRatio ?? null,
+      pbRatio: q.pbRatio ?? null,
+      // 单位：亿元。缺失返回 null（前端显示 —），不再硬编码 0
+      marketCap: q.marketCap ?? null,
+      circulatingMarketCap: q.circulatingMarketCap ?? null,
+      amplitude: q.high > 0 && q.low > 0 ? ((q.high - q.low) / q.prevClose * 100) : 0,
+    };
+
     return json({
       data: {
         symbol: stock.symbol,
         name: stock.name,
         market: stock.market,
         industry: stock.industry,
-        quote: {
-          closePrice: q.price,
-          openPrice: q.open,
-          highPrice: q.high,
-          lowPrice: q.low,
-          prevClose: q.prevClose,
-          change: q.price - q.prevClose,
-          changePercent: q.changePercent,
-          volume: q.volume,
-          turnover: q.turnover,
-          turnoverRate: q.turnoverRate,
-          peRatio: q.peRatio ?? null,
-          pbRatio: q.pbRatio ?? null,
-          // 单位：亿元。缺失返回 null（前端显示 —），不再硬编码 0
-          marketCap: q.marketCap ?? null,
-          circulatingMarketCap: q.circulatingMarketCap ?? null,
-          amplitude: q.high > 0 && q.low > 0 ? ((q.high - q.low) / q.prevClose * 100) : 0,
-        },
-        // 与 backend/src/api/stock.ts:65/96 的契约对齐：详情页读的是 latestQuote。
-        // 历史上 Worker 只回 quote，导致线上个股详情页价格区永远显示「暂无行情数据」
-        // （2026-11-04 真浏览器实测）。两个字段同源同值，保留 quote 兼容旧调用方。
-        latestQuote: {
-          closePrice: q.price,
-          changePercent: q.changePercent,
-          turnoverRate: q.turnoverRate ?? null,
-          peRatio: q.peRatio ?? null,
-          volume: q.volume,
-          turnover: q.turnover,
-        },
+        quote,
+        latestQuote: quote,
       },
       success: true,
     });

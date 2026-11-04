@@ -1509,9 +1509,13 @@ await test('/api/stocks/:symbol：详情同时返回 latestQuote 与 quote（bac
     assert.ok(body.data.latestQuote, 'latestQuote 必须存在（backend/src/api/stock.ts:65/96）');
     assert.equal(body.data.latestQuote.closePrice, body.data.quote.closePrice);
     assert.equal(body.data.latestQuote.changePercent, body.data.quote.changePercent);
-    for (const k of ['closePrice', 'changePercent', 'turnoverRate', 'peRatio', 'volume', 'turnover']) {
+    // 详情页实际渲染的每个字段都必须在：缺 change/openPrice/highPrice/lowPrice
+    // 时页面会显示 NaN（2026-11-04 线上实测过）。
+    for (const k of ['closePrice', 'change', 'changePercent', 'openPrice', 'highPrice', 'lowPrice',
+      'prevClose', 'volume', 'turnover', 'turnoverRate', 'peRatio']) {
       assert.ok(k in body.data.latestQuote, `latestQuote 缺契约字段 ${k}`);
     }
+    assert.deepEqual(body.data.latestQuote, body.data.quote, '两个字段必须同源同值');
   });
 });
 
