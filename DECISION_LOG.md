@@ -379,3 +379,19 @@
 - **证据**：新增 `frontend/src/__tests__/dataSourceIndicator.test.tsx`（8 例：real→live、partial 透传、四态透传、v3-lite/未知/undefined/null/空串→null、live 不渲染、partial 显示「部分数据」、未归一的 real 与任意未知串只降级为「数据不可用」且不抛错）实测 8 passed；`npx tsc --noEmit` exit 0；本地静态托管复验 `CRASH=false / BODYLEN 2950 / 无告警横幅 / ERRS=[] / 无 NaN`；线上 Playwright 复验 `hasCrash=false`、`hasNaN=false`、横幅「数据源 tencent」+「未提供字段：newHighs、newLows」，截图 `handover/evidence-discover-live-2026-11-04.png`。commit `24f8f81e4`，推送远端 `bac7b23dd8f2`。
 - **代价**：`partial` 现在会被前端显式标注（此前静默）；未知来源不再报错而是不显示来源角标——如果将来真有新枚举，需要在 `KIND_STYLE` 里显式登记，而不是靠默认值蒙混。
 
+## D57 指数详情三处缺口：字段没给、端点没注册、裸代码匹配不上（2026-11-04 17:20）
+
+- **背景**：本轮用 Playwright 逐页巡检 13 个线上页面（发掘/筛选/自选/股票列表/股票详情/解禁日历/北向资金/ETF/资金流向/宏观/龙虎榜/指数详情/市场总览）。12 页诚实性合格，唯一真缺口是**指数详情**：页面渲染出「上证指数 3686.17 +2.16%」与 MA5/MA10/MA20/MA60、RSI14、综合评分，但「开盘 —、最高 —、最低 —、成交额 —」整排为空，顶部还有红条「未挂载端点：/api/market/index-top-movers/sh000001」。
+- **根因（三条独立缺陷叠在一页）**：
+  1. Worker `handleMarketIndices` 只返回 `symbol/name/closePrice/changePercent/volume/category`，不含 `open/high/low/turnover/tradeDate`——上游腾讯行情 `parts[5]/[33]/[34]/[37]/[30]` 本来就有，是映射时没取。
+  2. `/api/market/index-top-movers/:symbol` **从未注册**，路由落到 404，前端据此打出「未挂载端点」红条（这条红条是对的，它准确报了缺口，不是误报）。
+  3. 前端用 `i.symbol === symbol` 精确匹配，而路由参数可能是裸代码 `000001`、后端返回 `sh000001`，于是匹配失败走「指数数据不可用」分支。
+- **判定**：第 1、3 条会让用户看到空数据与错误提示，属用户可见缺陷；第 2 条**不补实现**——本地行情快照没有「指数 → 成分股」映射，硬造一张榜就是拿全市场数据冒名顶替，违反诚实红线。正确做法是让接口如实说「未接入」。
+- **做法**：
+  - Worker `handleMarketIndices` 每行补 `available/changeAmount/openPrice/highPrice/lowPrice/turnover/tradeDate`（成交额按上游万元 ×10000 转元）；上游缺该指数时**写 null 不写 0**，并 push 进 `missing`；响应加 `dataSource` 三态（全齐 `real` / 全缺 `unavailable` / 部分 `partial`）。
+  - 新增 `handleIndexTopMovers`：恒返回 `200 + dataSource:'unavailable' + data:null + 中文 message`，让前端走自己的「全市场榜 + 成分股行情暂不可用」回退，而不是 404 触发红条。
+  - 前端 `IndexDetailPage`：七个数值字段改 `number | null`，新增 `numOrNull()`（null/undefined/''/非有限 → null），`formatBigSafe` 与 close/pct 前置判空走「—」；新增 `bare()` 剥 `sh|sz|bj` 前缀做兜底匹配。
+- **证据**：`frontend/src/__tests__/IndexDetailPage.test.tsx` 8→11 例（OHLC 真实值、裸代码命中、缺值显示「—」且不出现 0.00），实测 11 passed；`npx tsc --noEmit` exit 0；`clair-worker/test/worker-contract.test.mjs` 增 3 例，`node --test` 99 通过 1 失败（失败为既有北向单位口径，与本次无关）；E3 红→绿：投毒 `IndexDetailPage.tsx:124` 的裸码兜底 → poisoned=FAIL(3.4s)、还原 → restored=PASS(1.9s)；线上 `/api/market/indices` → `dataSource:"real"`、9 个指数、`missing:[]`，上证 `openPrice 3605.39 / highPrice 3686.17 / lowPrice 3590.8 / turnover 953265160000 / tradeDate 2026-11-04`；`/api/market/index-top-movers/sh000001` → HTTP 200 + `dataSource:"unavailable"` + 中文说明。commit `462d36715`，推送远端 `6005892af524`。
+- **代价**：成分股榜会长期显示「暂不可用」，直到接入指数成分股数据；这是如实空缺，不是待办遗漏。指数页的「成交额」单位从「—」变成亿/万亿分档，若上游某日只给 volume 不给 turnover，该格仍为「—」。
+
+
