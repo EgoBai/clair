@@ -1,6 +1,6 @@
 # 澄观 Clair 设计系统基线 v1
 
-状态：已批准 v1（2026-11-05），P0a/P0b 待实施。编制时间：2026-11-05。适用仓库：a-stock-website。
+状态：已批准 v1（2026-11-05）；P0 三项代码已实施（2026-11-05，commit 0bb898ef4），P0a 的亮色验收随三页试点完成。编制时间：2026-11-05。适用仓库：a-stock-website。
 
 本文只定义基线、页面责任与验收口径，不改变现有导航与用户可见交互。文中标注“待批准”的条目，须确认后才能进入实现。
 
@@ -389,3 +389,18 @@ H1–H4 是诚实红线，不进入“以后再说”；H5–H7 与研究工作�
 | IA 与页面审计 | `/Users/ego_bai/Documents/deepseek-harness/default-workspace/handover/audit-ia-pages-2026-11-05.md` | 31 页路由、dataSource 诚实度、H1–H7 |
 
 两份报告均为只读审计，产品仓 `frontend/src` 在审计期间无改动。
+
+## 附录 C、P0 实施记录（2026-11-05）
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| P0a 12 个未定义变量 | 已完成 | `frontend/src/styles/design-system.css` 兼容别名块；`cssAndVisualization.test.ts` 断言 12 个 token 均已定义且无 `var(--text)` |
+| P0a 状态组件颜色 | 已完成 | `StateComponents.tsx` 全部改用真 token，`#faad14/#f5222d/#1890ff` 已清零 |
+| P0b H1 产业链失败 | 已完成 | 失败显示错误态与重试，不再回退 AI 算力链；失败注入截图 `handover/p0-industry-error.png` |
+| P0b H2 组合失败 | 已完成 | 失败显示原因与重试，不再吞异常或伪装「未接入」；截图 `handover/p0-portfolio-error.png` |
+| P0b H3 财务四表失败 | 已完成 | `Promise.allSettled` 逐表记录失败、`dataSource` 置 unavailable/partial，缺失项显示「—」；截图 `handover/p0-financials-error.png` |
+| P0b H4 0 值兜底 | 已完成 | 行情/指数 K 线/情绪均值改「—」或剔除无效行，新增 3 个失败态测试文件与 14 个断言 |
+| P0a 三页亮/暗均正确 | 未完成 | 亮色下仍有历史硬编码深色样式（D1/D5），本轮只补 token；随三页试点逐页收口 |
+| P0a 三页旧涨跌字面量 | 部分完成 | `MarketSentiment` 涨跌/涨跌停色已换 token；Discover/StockDetail 的绿红多为「景气/优势/风险」语义，需逐处判定，不做机械替换 |
+
+验证：`npx tsc --noEmit` exit 0；6 个测试文件 138 passed；本地 Vite 生产构建成功；Playwright 注入 H1/H2/H3 失败响应均显示可读错误态。

@@ -158,20 +158,20 @@ const MarketSentiment = React.memo(function MarketSentiment({
       <Row gutter={[8, 8]}>
         <Col span={12}>
           <div style={{ background: 'rgba(239,68,68,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>涨停</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>涨停</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-up)' }}>{limitUp}</div>
           </div>
         </Col>
         <Col span={12}>
           <div style={{ background: 'rgba(34,197,94,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>跌停</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>跌停</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-down)' }}>{limitDown}</div>
           </div>
         </Col>
         <Col span={12}>
           <div style={{ background: 'rgba(102,126,234,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>成交额</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#1890ff' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>成交额</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent-solid)' }}>
               {(totalTurnover / 1e12).toFixed(2)}万亿
             </div>
           </div>
