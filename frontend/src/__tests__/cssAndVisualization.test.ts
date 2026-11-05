@@ -15,6 +15,8 @@
  *    — 唯一视口模型；其 minZoom=0.5，与下方 0.1 的 UI 规格缩放不同口径。
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   parseColor as parseA11yColor,
   relativeLuminance,
@@ -712,5 +714,43 @@ describe('视口缩放与平移（生产口径）', () => {
     expect(reset.zoom).toBe(1);
     expect(reset.xMax).toBe(200);
     expect(reset.yMin).toBe(10);
+  });
+});
+
+// ===== 设计系统 token 完整性（P0a）=====
+// 设计系统审计发现 12 个变量「已使用但未定义」，浏览器会回退到初始值或空字符串，
+// 暗色/浅色下都可能出现透明底、默认黑字。这里直接读 CSS 源文件锁定定义，防止再次漂移。
+const designSystemCss = readFileSync(
+  resolve(process.cwd(), 'src/styles/design-system.css'),
+  'utf8',
+);
+
+describe('设计系统 token 完整性（P0a）', () => {
+  const requiredTokens = [
+    '--accent',
+    '--bg-card',
+    '--bg-page',
+    '--bg-surface',
+    '--border',
+    '--color-bg-secondary',
+    '--color-error',
+    '--color-error-bg',
+    '--color-highlight',
+    '--text-disabled',
+    '--text-muted',
+    '--theme-primary',
+  ];
+
+  it.each(requiredTokens)('%s 已在 :root 定义', (token) => {
+    expect(designSystemCss).toMatch(new RegExp(`${token}\\s*:`));
+  });
+
+  it('不再引用未定义的 --text', () => {
+    expect(designSystemCss).not.toMatch(/var\(--text\)/);
+  });
+
+  it('浅色主题覆盖错误底色，避免沿用暗色高不透明度', () => {
+    const lightBlock = designSystemCss.slice(designSystemCss.indexOf('[data-theme="light"]'));
+    expect(lightBlock).toContain('--color-error-bg: rgba(244, 63, 94, 0.08)');
   });
 });

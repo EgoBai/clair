@@ -245,11 +245,18 @@ describe('IndustryMapPage 渲染防御', () => {
     expect(document.body.textContent).not.toContain('渲染失败');
   });
 
-  it('详情接口返回无法识别的形态：给出空态而不是整页崩溃', async () => {
+  it('详情接口返回无法识别的形态：给出错误态与重试，不用空态或硬编码链条冒充', async () => {
     installFetchMock({ success: true, data: {} });
     renderPage();
 
-    await waitFor(() => expect(screen.getByText('暂无产业链数据')).toBeTruthy());
+    await waitFor(() => {
+      expect(screen.queryByText('暂无产业链数据')).toBeNull();
+      expect(screen.getByText('产业链详情加载失败：接口返回数据不完整')).toBeTruthy();
+    });
+    // 失败后不得回退到硬编码链条，也不得停留在空态文案
+    expect(screen.queryByText('暂无产业链数据')).toBeNull();
+    expect(screen.queryByText('光芯片')).toBeNull();
+    expect(screen.getByRole('button', { name: /重试/ })).toBeTruthy();
     expect(document.body.textContent).not.toContain('渲染失败');
   });
 

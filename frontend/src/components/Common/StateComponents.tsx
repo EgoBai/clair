@@ -22,16 +22,22 @@ interface LoadingStateProps {
   fullPage?: boolean;
 }
 
-export const LoadingState: React.FC<LoadingStateProps> = ({ fullPage }) => {
+export const LoadingState: React.FC<LoadingStateProps> = ({ fullPage, tip }) => {
+  const label = tip ? (
+    <div role="status" style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', marginBottom: 8 }}>
+      {tip}
+    </div>
+  ) : null;
   if (fullPage) {
     return (
       <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
+        {label}
         <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
         <Skeleton active paragraph={{ rows: 6 }} />
       </div>
     );
   }
-  return <Skeleton active paragraph={{ rows: 3 }} />;
+  return <div>{label}<Skeleton active paragraph={{ rows: 3 }} /></div>;
 };
 
 interface BaseEmptyStateProps {
@@ -67,11 +73,11 @@ export const EmptyState = React.memo(function EmptyState({
       color: 'var(--text-secondary)',
     }}>
       {icon && (
-        <div style={{ fontSize: 48, color: 'var(--text-muted, #64748b)', marginBottom: 16 }}>
+        <div style={{ fontSize: 48, color: 'var(--text-muted)', marginBottom: 16 }}>
           {icon}
         </div>
       )}
-      <Title level={5} style={{ color: 'var(--text)', marginBottom: 8 }}>
+      <Title level={5} style={{ color: 'var(--text-primary)', marginBottom: 8 }}>
         {title}
       </Title>
       {description && (
@@ -121,11 +127,11 @@ interface PageTitleProps {
 
 export const PageTitle: React.FC<PageTitleProps> = ({ icon, title, subtitle }) => (
   <div style={{ marginBottom: 20 }}>
-    <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+    <h2 style={{ margin: 0, fontSize: 'var(--text-2xl)', fontWeight: 'var(--weight-bold)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
       {icon && <span>{icon}</span>}
       {title}
     </h2>
-    {subtitle && <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>{subtitle}</p>}
+    {subtitle && <p style={{ margin: '4px 0 0', fontSize: 'var(--text-base)', color: 'var(--text-secondary)' }}>{subtitle}</p>}
   </div>
 );
 
@@ -306,7 +312,7 @@ export const ErrorStateDetail = React.memo(function ErrorStateDetail({
 }) {
   return (
     <EmptyState
-      icon={<WarningOutlined style={{ color: '#faad14' }} />}
+      icon={<WarningOutlined style={{ color: 'var(--color-warning)' }} />}
       title={title}
       description={description}
       action={onRetry ? {
@@ -324,7 +330,7 @@ export const DisconnectedState = React.memo(function DisconnectedState({
 }) {
   return (
     <EmptyState
-      icon={<DisconnectOutlined style={{ color: 'var(--color-error, #f5222d)' }} />}
+      icon={<DisconnectOutlined style={{ color: 'var(--color-error)' }} />}
       title="网络连接已断开"
       description="请检查网络连接，确保设备已接入互联网"
       action={onReconnect ? {
@@ -345,7 +351,7 @@ export function LoadingStateDetail({
 }) {
   return (
     <EmptyState
-      icon={<SyncOutlined spin style={{ color: 'var(--color-primary, #1890ff)' }} />}
+      icon={<SyncOutlined spin style={{ color: 'var(--accent-solid)' }} />}
       title={title}
       description={description}
     />

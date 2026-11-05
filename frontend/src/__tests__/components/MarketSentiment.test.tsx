@@ -154,4 +154,21 @@ describe('MarketSentiment', () => {
     );
     expect(screen.getByText('市场情绪')).toBeDefined();
   });
+
+  it('平均涨跌缺失时显示「—」并说明未计入情绪分，不用 0.00 冒充', () => {
+    render(
+      <MarketSentiment
+        riseCount={1000}
+        fallCount={800}
+        flatCount={0}
+        limitUp={5}
+        limitDown={5}
+        totalTurnover={500000000000}
+      />
+    );
+    expect(screen.getByText('平均涨跌')).toBeDefined();
+    expect(screen.getByText('—')).toBeDefined();
+    expect(screen.getByText('缺失，情绪分未计入该项')).toBeDefined();
+    expect(document.body.textContent).not.toContain('0.00%');
+  });
 });

@@ -72,7 +72,16 @@ interface TechDetail {
 
 interface KLineQuote {
   tradeDate: string; openPrice: number; closePrice: number;
-  highPrice: number; lowPrice: number; volume: number;
+  highPrice: number; lowPrice: number;
+  /** 成交量（手）；上游缺字段时为 null，不用 0 冒充 */
+  volume: number | null;
+}
+
+/** 仅接受有限数值；null/undefined/空串/NaN 一律返回 null（注意 Number(null)===0） */
+function finiteNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 const IndexDetailPage: React.FC = () => {
@@ -208,14 +217,34 @@ const IndexDetailPage: React.FC = () => {
         const body = await res.json();
         const d = body?.data;
         if (body?.dataSource === 'real' && Array.isArray(d?.dates) && d.dates.length > 0) {
-          setKline(d.dates.map((date: string, i: number) => ({
-            tradeDate: date,
-            openPrice: Number(d.opens?.[i] ?? 0),
-            closePrice: Number(d.prices?.[i] ?? 0),
-            highPrice: Number(d.highs?.[i] ?? 0),
-            lowPrice: Number(d.lows?.[i] ?? 0),
-            volume: Number(d.volumes?.[i] ?? 0),
-          })));
+          const rows: KLineQuote[] = [];
+          let dropped = 0;
+          d.dates.forEach((date: string, i: number) => {
+            const openPrice = finiteNumberOrNull(d.opens?.[i]);
+            const closePrice = finiteNumberOrNull(d.prices?.[i]);
+            const highPrice = finiteNumberOrNull(d.highs?.[i]);
+            const lowPrice = finiteNumberOrNull(d.lows?.[i]);
+            if (openPrice == null || closePrice == null || highPrice == null || lowPrice == null) {
+              dropped += 1;
+              return;
+            }
+            rows.push({
+              tradeDate: date,
+              openPrice,
+              closePrice,
+              highPrice,
+              lowPrice,
+              volume: finiteNumberOrNull(d.volumes?.[i]),
+            });
+          });
+          if (rows.length > 0) setKline(rows);
+          else setKline([]);
+          if (dropped > 0) {
+            missing.push(`K线图：${dropped} 根 K 线缺少价格字段，已剔除（未用 0 补齐）`);
+          }
+          if (rows.length === 0) {
+            missing.push('K线图：后端返回的日期序列中没有可用价格，本页不展示 K 线');
+          }
         } else {
           // 后端 dataSource='unavailable' 时会把上游错误原文（如 "fetch failed"）塞进 message，
           // 直接抛给用户不友好；这里保留其作为归因线索，但用中文说明白「是什么坏了」。

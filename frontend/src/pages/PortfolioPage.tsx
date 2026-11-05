@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Card, Row, Col, Table, Tag, Button, Statistic, Space, Typography,
   Modal, Form, Input, InputNumber, Select, Popconfirm, Tooltip,
-  Alert, Divider,
+  Divider,
 } from 'antd';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
@@ -19,7 +19,7 @@ import {
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
 import { formatNumber, formatChangePercent, formatTurnover } from '../utils/formatters';
-import { LoadingStateDetail, EmptyState } from '../components/Common/StateComponents';
+import { LoadingStateDetail, EmptyState, ErrorState } from '../components/Common/StateComponents';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -85,28 +85,34 @@ function PortfolioPage() {
   // 加载投资组合
   const loadPortfolio = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       // 先获取列表
       const listRes = await apiService.getPortfolios();
-      if (listRes.success) {
-        const listData = listRes.data as { portfolios: Portfolio[] };
-        if (listData.portfolios && listData.portfolios.length > 0) {
-          const firstId = listData.portfolios[0].id;
-          const detailRes = await apiService.getPortfolio(firstId);
-          if (detailRes.success) {
-            setPortfolio(detailRes.data as Portfolio);
-            return;
-          }
-        }
-        // 真实接口返回空组合 → 如实置空，不使用演示数据
+      if (!listRes.success) {
+        setPortfolio(null);
+        setError('投资组合加载失败：后端返回 success=false');
+        return;
+      }
+      const listData = listRes.data as { portfolios?: Portfolio[] };
+      const list = Array.isArray(listData?.portfolios) ? listData.portfolios : [];
+      if (list.length === 0) {
+        // 真实接口返回空组合 → 如实置空；这是「没有组合」，不是接口失败
         setPortfolio(null);
         return;
       }
+      const detailRes = await apiService.getPortfolio(list[0].id);
+      if (!detailRes.success || !detailRes.data) {
+        setPortfolio(null);
+        setError('投资组合加载失败：组合详情接口未返回数据');
+        return;
+      }
+      setPortfolio(detailRes.data as Portfolio);
     } catch (err: unknown) {
-      // 后端接口未接入 → 如实置空，不使用演示数据
-      setError(null);
+      // 接口失败要区分于「空组合」：失败显示错误态与原因，不伪装成未接入/无数据
       setPortfolio(null);
-      return;
+      const reason = err instanceof Error && err.message ? err.message : '后端接口不可用';
+      setError(`投资组合加载失败：${reason}`);
     } finally {
       setLoading(false);
     }
@@ -267,13 +273,16 @@ function PortfolioPage() {
         投资组合
       </Title>
 
-      {error && (
-        <Alert type="error" message={error} style={{ marginBottom: 16 }} closable />
-      )}
-
-      {!portfolio ? (
+      {error ? (
         <Card>
-          <EmptyState title="暂无投资组合" description="持仓后端接口尚未接入，暂无数据可展示。" />
+          <ErrorState message={error} onRetry={loadPortfolio} />
+        </Card>
+      ) : !portfolio ? (
+        <Card>
+          <EmptyState
+            title="暂无投资组合"
+            description="后端返回的投资组合列表为空。创建组合后可在此查看持仓与收益。"
+          />
         </Card>
       ) : (
         <>

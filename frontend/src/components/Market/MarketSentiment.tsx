@@ -20,7 +20,8 @@ interface SentimentProps {
   limitUp: number;
   limitDown: number;
   totalTurnover: number;
-  avgChangePercent: number;
+  /** 平均涨跌幅（%）。缺失时不要用 0 冒充，情绪分不计入该项 */
+  avgChangePercent?: number;
   avgTurnoverRate?: number;
 }
 
@@ -35,18 +36,19 @@ function calcSentimentScore(props: SentimentProps): number {
   // 涨停/跌停分数 (-20 ~ 20)
   const limitScore = ((limitUp - limitDown) / Math.max(total, 1)) * 200;
 
-  // 平均涨跌幅分数 (-30 ~ 30)
-  const changeScore = Math.max(-30, Math.min(30, avgChangePercent * 6));
+  // 平均涨跌幅分数 (-30 ~ 30)；缺失时该项按 0 处理，但界面必须显性说明未计入
+  const hasAvgChange = typeof avgChangePercent === 'number' && Number.isFinite(avgChangePercent);
+  const changeScore = hasAvgChange ? Math.max(-30, Math.min(30, avgChangePercent * 6)) : 0;
 
   // 综合分 (-100 ~ 100)
   return Math.round(Math.max(-100, Math.min(100, ratioScore + limitScore + changeScore)));
 }
 
 function getSentimentInfo(score: number): { label: string; color: string; icon: React.ReactNode } {
-  if (score >= 60) return { label: '极度乐观', color: '#f5222d', icon: <SmileOutlined /> };
+  if (score >= 60) return { label: '极度乐观', color: 'var(--color-up)', icon: <SmileOutlined /> };
   if (score >= 30) return { label: '偏乐观', color: '#fa8c16', icon: <SmileOutlined /> };
   if (score >= 10) return { label: '温和乐观', color: '#faad14', icon: <MehOutlined /> };
-  if (score >= -10) return { label: '中性', color: '#52c41a', icon: <MehOutlined /> };
+  if (score >= -10) return { label: '中性', color: 'var(--color-down)', icon: <MehOutlined /> };
   if (score >= -30) return { label: '温和悲观', color: '#1890ff', icon: <MehOutlined /> };
   if (score >= -60) return { label: '偏悲观', color: '#722ed1', icon: <FrownOutlined /> };
   return { label: '极度悲观', color: '#2f54eb', icon: <FrownOutlined /> };
@@ -110,7 +112,7 @@ const MarketSentiment = React.memo(function MarketSentiment({
           <Tooltip title={`上涨: ${riseCount} 只 (${risePercent.toFixed(1)}%)`}>
             <div style={{
               width: `${risePercent}%`,
-              background: '#f5222d',
+              background: 'var(--color-up)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -129,7 +131,7 @@ const MarketSentiment = React.memo(function MarketSentiment({
           <Tooltip title={`下跌: ${fallCount} 只 (${fallPercent.toFixed(1)}%)`}>
             <div style={{
               width: `${fallPercent}%`,
-              background: '#52c41a',
+              background: 'var(--color-down)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -157,13 +159,13 @@ const MarketSentiment = React.memo(function MarketSentiment({
         <Col span={12}>
           <div style={{ background: 'rgba(239,68,68,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
             <div style={{ fontSize: 12, color: '#94a3b8' }}>涨停</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#f5222d' }}>{limitUp}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-up)' }}>{limitUp}</div>
           </div>
         </Col>
         <Col span={12}>
           <div style={{ background: 'rgba(34,197,94,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
             <div style={{ fontSize: 12, color: '#94a3b8' }}>跌停</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>{limitDown}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-down)' }}>{limitDown}</div>
           </div>
         </Col>
         <Col span={12}>
@@ -176,13 +178,22 @@ const MarketSentiment = React.memo(function MarketSentiment({
         </Col>
         <Col span={12}>
           <div style={{ background: 'rgba(245,158,11,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>平均涨跌</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>平均涨跌</div>
             <div style={{
               fontSize: 16, fontWeight: 600,
-              color: avgChangePercent > 0 ? '#f5222d' : avgChangePercent < 0 ? '#52c41a' : '#666',
+              color: typeof avgChangePercent === 'number' && Number.isFinite(avgChangePercent)
+                ? (avgChangePercent > 0 ? 'var(--color-up)' : avgChangePercent < 0 ? 'var(--color-down)' : 'var(--text-tertiary)')
+                : 'var(--text-tertiary)',
             }}>
-              {avgChangePercent > 0 ? '+' : ''}{avgChangePercent.toFixed(2)}%
+              {typeof avgChangePercent === 'number' && Number.isFinite(avgChangePercent)
+                ? `${avgChangePercent > 0 ? '+' : ''}${avgChangePercent.toFixed(2)}%`
+                : '—'}
             </div>
+            {!(typeof avgChangePercent === 'number' && Number.isFinite(avgChangePercent)) && (
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2, lineHeight: 1.4 }}>
+                缺失，情绪分未计入该项
+              </div>
+            )}
           </div>
         </Col>
       </Row>

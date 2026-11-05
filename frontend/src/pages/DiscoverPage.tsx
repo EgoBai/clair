@@ -1317,7 +1317,7 @@ const DiscoverPage: React.FC = () => {
                 limitUp={marketSummary.limitUpCount}
                 limitDown={marketSummary.limitDownCount}
                 totalTurnover={marketSummary.totalTurnover}
-                avgChangePercent={marketSummary.avgChangePercent ?? 0}
+                avgChangePercent={marketSummary.avgChangePercent}
               />
             ) : (
               <div style={{ fontSize: 12, color: TEXT_SEC, padding: '20px 0', textAlign: 'center' }}>

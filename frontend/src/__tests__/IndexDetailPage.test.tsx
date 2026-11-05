@@ -377,3 +377,43 @@ describe('K 线请求符号前缀', () => {
     });
   });
 });
+
+// ── 场景八：K 线缺价格字段必须剔除，不能补 0 ──
+
+describe('K 线价格字段缺失：剔除并如实说明，不用 0 冒充', () => {
+  beforeEach(() => {
+    routeFetch({
+      '/api/market/indices': { body: { success: true, dataSource: 'real', data: { indices: [INDEX_ROW_FULL] } } },
+      '/api/market/index-tech/': { status: 404, body: NOT_FOUND_BODY },
+      '/api/market/index-top-movers/': { status: 404, body: NOT_FOUND_BODY },
+      '/api/market/top-gainers': { body: FULL_MARKET_GAINERS },
+      '/api/market/top-losers': { body: FULL_MARKET_LOSERS },
+      '/api/market/kline': {
+        body: {
+          success: true,
+          dataSource: 'real',
+          data: {
+            dates: ['2026-11-03', '2026-11-04'],
+            opens: [null, 1],
+            prices: [10, null],
+            highs: [11, 11],
+            lows: [9, 9],
+            volumes: [null, 100],
+          },
+        },
+      },
+    });
+  });
+
+  it('两根 K 线各缺一个价格字段 → 全部剔除，两条说明都出现，页面不出现 0 价', async () => {
+    renderPage('sh000001');
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        'K线图：2 根 K 线缺少价格字段，已剔除（未用 0 补齐）'
+      );
+    });
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('K线图：后端返回的日期序列中没有可用价格，本页不展示 K 线');
+    expect(text).not.toMatch(/NaN/);
+  });
+});

@@ -29,7 +29,7 @@ import {
   Divider,
   Alert,
 } from 'antd';
-import { EmptyState } from '../components/Common/StateComponents';
+import { EmptyState, ErrorState } from '../components/Common/StateComponents';
 import { readSseFrame } from '../utils/aiResponse';
 import { CHAT_FALLBACK_MESSAGE } from '../services/aiClient';
 import {
@@ -70,7 +70,6 @@ import {
   LAYER_NAMES,
   POSITION_COLORS,
   POSITION_NAMES,
-  AI_COMPUTING_CHAIN,
   HOT_CHAINS,
   ChainNodeData,
   IndustryChainSummary,
@@ -308,6 +307,8 @@ const IndustryMapPage: React.FC = () => {
   const [chains, setChains] = useState<IndustryChainSummary[]>(HOT_CHAINS);
   const [initialLoading, setInitialLoading] = useState(true);    // 首次加载
   const [chainLoading, setChainLoading] = useState(false);       // 切换链加载（不遮挡整体）
+  // 详情失败原因：失败时不再用硬编码链条冒充，改由错误态 + 重试承接
+  const [chainError, setChainError] = useState<string | null>(null);
   const [hotSectors, setHotSectors] = useState<any[]>([]);
   const [question, setQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
@@ -371,6 +372,7 @@ const IndustryMapPage: React.FC = () => {
   // 获取产业链详情
   const fetchChainDetail = useCallback(async (chainId: string) => {
     setChainLoading(true);
+    // 不在请求开始时清空 chainError：否则列表刷新（chains 变化）会先闪一帧空态
     try {
       const response = await fetch(`${API_BASE}/api/industry-chains/${chainId}`);
       const data = await response.json();
@@ -385,19 +387,26 @@ const IndustryMapPage: React.FC = () => {
       const chain = payload?.chain ?? (payload && Array.isArray(payload.layers) ? payload : null);
       if (data?.success && chain) {
         setSelectedChain(chain);
+        setChainError(null);
+      } else {
+        setSelectedChain(null);
+        setChainError('产业链详情加载失败：接口返回数据不完整');
       }
     } catch (error) {
       console.error('获取产业链详情失败:', error);
-      setSelectedChain(AI_COMPUTING_CHAIN);
+      setSelectedChain(null);
+      setChainError('产业链详情加载失败：接口未响应或返回异常');
     } finally {
       setChainLoading(false);
+      // 与 chainError/selectedChain 同一次批处理内结束首屏加载，避免先闪一帧空态再变错误态
+      setInitialLoading(false);
     }
   }, []);
   
   // 初始加载 + industry 参数变化时拉取
   useEffect(() => {
     const chainId = industryParam ? matchChainId(industryParam) : 'ai-computing';
-    fetchChainDetail(chainId).finally(() => setInitialLoading(false));
+    void fetchChainDetail(chainId);
   }, [industryParam, chains]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // React Flow 状态
@@ -681,10 +690,17 @@ ${marketContext}
           AI 产业地图
         </Title>
         <Card style={{ background: 'var(--card-bg)' }}>
-          <EmptyState
-            title="暂无产业链数据"
-            description="产业链详情接口暂不可用，请稍后重试"
-          />
+          {chainError ? (
+            <ErrorState
+              message={chainError}
+              onRetry={() => fetchChainDetail(industryParam ? matchChainId(industryParam) : 'ai-computing')}
+            />
+          ) : (
+            <EmptyState
+              title="暂无产业链数据"
+              description="后端返回的产业链列表为空，暂无可展示的产业链。"
+            />
+          )}
         </Card>
       </div>
     );

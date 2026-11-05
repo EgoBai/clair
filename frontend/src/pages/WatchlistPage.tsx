@@ -67,9 +67,10 @@ interface WatchlistStock {
 interface StockQuote {
   symbol: string;
   name: string;
-  price: number;
-  changePercent: number;
-  change: number;
+  /** 缺失时为 undefined，禁止用 0 冒充（0 是合法价格/涨跌幅） */
+  price?: number;
+  changePercent?: number;
+  change?: number;
   volume?: number;
   turnoverRate?: number;
   industry?: string;
@@ -102,6 +103,12 @@ function getDefaultGroups(): WatchlistGroup[] {
 }
 
 /* ─── Helper: format market cap ─── */
+function finiteNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function formatMarketCap(value: number | undefined | null): string {
   if (value == null || value === 0) return '—';
   const abs = Math.abs(value);
@@ -124,21 +131,28 @@ function generateRuleBasedSummary(
 
   // 总体表现
   const qValues = Object.values(quotes);
-  const avgChange = qValues.length > 0
-    ? qValues.reduce((s, q) => s + Number(q.changePercent || 0), 0) / qValues.length
-    : 0;
+  const changeValues = qValues
+    .map(q => q.changePercent)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const avgChange = changeValues.length > 0
+    ? changeValues.reduce((s, v) => s + v, 0) / changeValues.length
+    : null;
 
-  const upCount = qValues.filter(q => Number(q.changePercent) > 0).length;
-  const downCount = qValues.filter(q => Number(q.changePercent) < 0).length;
-  const flatCount = qValues.filter(q => Number(q.changePercent) === 0).length;
+  const upCount = changeValues.filter(v => v > 0).length;
+  const downCount = changeValues.filter(v => v < 0).length;
+  const flatCount = changeValues.filter(v => v === 0).length;
 
   parts.push(`**📈 今日追踪概览**`);
-  parts.push(`- 追踪 **${symbols.length}** 只股票，今日平均涨跌 **${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}%**`);
+  const coverage = changeValues.length < symbols.length
+    ? `（${changeValues.length}/${symbols.length} 只有涨跌幅数据）`
+    : '';
+  parts.push(`- 追踪 **${symbols.length}** 只股票${coverage}，今日平均涨跌 **${avgChange == null ? '数据不完整' : `${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}%`}**`);
   parts.push(`- 上涨 **${upCount}** 只，下跌 **${downCount}** 只${flatCount > 0 ? `，持平 ${flatCount} 只` : ''}`);
 
-  // 涨跌分析
-  if (qValues.length > 0) {
-    const sorted = [...qValues].sort((a, b) => Number(b.changePercent) - Number(a.changePercent));
+  // 涨跌分析（只对有涨跌幅样本的标的排序，缺失值不冒充 0）
+  const withChange = qValues.filter(q => typeof q.changePercent === 'number' && Number.isFinite(q.changePercent));
+  if (withChange.length > 0) {
+    const sorted = [...withChange].sort((a, b) => (b.changePercent as number) - (a.changePercent as number));
     // 重点关注极端表现
     const topGainers = sorted.filter(q => Number(q.changePercent) > 3);
     const topLosers = sorted.filter(q => Number(q.changePercent) < -3);
@@ -198,7 +212,9 @@ function generateRuleBasedSummary(
 
   // 建议
   parts.push(`\n**💡 操作建议**：`);
-  if (avgChange > 2) {
+  if (avgChange == null) {
+    parts.push(`- 涨跌数据不完整，暂不给出组合方向建议`);
+  } else if (avgChange > 2) {
     parts.push(`- 组合整体强势，可适当关注获利了结时机`);
   } else if (avgChange < -2) {
     parts.push(`- 组合偏弱，注意控制仓位风险，等待市场企稳信号`);
@@ -240,15 +256,17 @@ function generateRuleBasedRecommendations(
   const withPE = qValues.filter(q => q.peRatio != null && q.peRatio > 0);
   if (withPE.length > 0) {
     const avgPE = withPE.reduce((s, q) => s + (q.peRatio as number), 0) / withPE.length;
-    const avgPB = qValues.filter(q => q.pbRatio != null).reduce((s, q) => s + (q.pbRatio as number), 0) /
-      qValues.filter(q => q.pbRatio != null).length || 0;
+    const pbValues = qValues
+      .map(q => q.pbRatio)
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+    const avgPB = pbValues.length > 0 ? pbValues.reduce((s, v) => s + v, 0) / pbValues.length : null;
 
     let style = '';
     if (avgPE > 40) style = '成长型偏好，偏向高估值成长股';
     else if (avgPE > 20) style = '均衡型偏好，兼顾价值与成长';
     else style = '价值型偏好，偏向低估值蓝筹';
 
-    parts.push(`- 估值风格：${style}（平均 PE ${avgPE.toFixed(1)}，PB ${avgPB.toFixed(2)}）`);
+    parts.push(`- 估值风格：${style}（平均 PE ${avgPE.toFixed(1)}，PB ${avgPB == null ? '—' : avgPB.toFixed(2)}）`);
   }
 
   // 市值偏好
@@ -295,7 +313,7 @@ function generateRuleBasedRecommendations(
   }
 
   // 动量延续
-  const strongStocks = qValues.filter(q => Number(q.changePercent) > 2);
+  const strongStocks = qValues.filter(q => typeof q.changePercent === 'number' && Number.isFinite(q.changePercent) && q.changePercent > 2);
   if (strongStocks.length > 0) {
     const sample = strongStocks.slice(0, 2).map(q => q.name).join('、');
     parts.push(`4. **动量延续**：${sample} 表现强势，关注同板块的跟涨机会`);
@@ -534,11 +552,14 @@ const WatchlistPage: React.FC = () => {
   /* ─── Stats ─── */
   const stats = useMemo(() => {
     const qValues = Object.values(quotes);
-    const avgChange = qValues.length > 0
-      ? qValues.reduce((s, q) => s + Number(q.changePercent || 0), 0) / qValues.length
-      : 0;
+    const changeValues = qValues
+      .map(q => q.changePercent)
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+    const avgChange = changeValues.length > 0
+      ? changeValues.reduce((s, v) => s + v, 0) / changeValues.length
+      : null;
     const alertCount = alerts.reduce((s, a) => s + (a.alerts?.length || 0), 0);
-    return { total: symbols.length, avgChange, alertCount };
+    return { total: symbols.length, avgChange, changeSample: changeValues.length, alertCount };
   }, [quotes, alerts, symbols.length]);
 
   /* ─── Persist groups ─── */
@@ -564,15 +585,15 @@ const WatchlistPage: React.FC = () => {
           map[s.symbol] = {
             symbol: s.symbol,
             name: s.name,
-            price: q.closePrice ?? q.close_price ?? q.price ?? 0,
-            changePercent: q.changePercent ?? q.change_percent ?? 0,
-            change: q.change ?? q.change_amount ?? 0,
-            volume: q.volume,
-            turnoverRate: q.turnoverRate ?? q.turnover_rate,
+            price: finiteNumberOrNull(q.closePrice ?? q.close_price ?? q.price) ?? undefined,
+            changePercent: finiteNumberOrNull(q.changePercent ?? q.change_percent) ?? undefined,
+            change: finiteNumberOrNull(q.change ?? q.change_amount) ?? undefined,
+            volume: finiteNumberOrNull(q.volume) ?? undefined,
+            turnoverRate: finiteNumberOrNull(q.turnoverRate ?? q.turnover_rate) ?? undefined,
             industry: q.industry || s.industry,
-            peRatio: q.peRatio ?? q.pe_ratio ?? undefined,
-            pbRatio: q.pbRatio ?? q.pb_ratio ?? undefined,
-            marketCap: q.marketCap ?? q.market_cap ?? undefined,
+            peRatio: finiteNumberOrNull(q.peRatio ?? q.pe_ratio) ?? undefined,
+            pbRatio: finiteNumberOrNull(q.pbRatio ?? q.pb_ratio) ?? undefined,
+            marketCap: finiteNumberOrNull(q.marketCap ?? q.market_cap) ?? undefined,
           };
         }
       }
@@ -632,9 +653,9 @@ const WatchlistPage: React.FC = () => {
         return {
           symbol: sym,
           name: q?.name || '',
-          price: q?.price || 0,
-          changePercent: q?.changePercent || 0,
-          turnoverRate: q?.turnoverRate || 0,
+          price: q?.price ?? null,
+          changePercent: q?.changePercent ?? null,
+          turnoverRate: q?.turnoverRate ?? null,
           peRatio: q?.peRatio,
           pbRatio: q?.pbRatio,
           marketCap: q?.marketCap,
@@ -685,8 +706,8 @@ const WatchlistPage: React.FC = () => {
         const q = quotes[sym];
         const namePart = q?.name ?? '';
         const industryPart = q?.industry ?? '';
-        const pePart = q?.peRatio ?? 'N/A';
-        const pbPart = q?.pbRatio ?? 'N/A';
+        const pePart = q?.peRatio ?? '—';
+        const pbPart = q?.pbRatio ?? '—';
         return `${sym}(${namePart}, ${industryPart}, PE:${pePart}, PB:${pbPart})`;
       }).join('、');
 
@@ -897,15 +918,17 @@ const handleManualRefresh = () => {
       align: 'right' as const,
       render: (_: unknown, r: WatchlistStock) => {
         const q = quotes[r.symbol];
-        if (!q) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
+        if (!q || q.price == null) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
+        const pct = q.changePercent;
+        const hasPct = typeof pct === 'number' && Number.isFinite(pct);
         return (
           <span style={{
             fontFamily: 'monospace',
             fontWeight: 600,
-            color: Number(q.changePercent) >= 0 ? COLOR_UP : COLOR_DOWN,
+            color: hasPct ? (pct >= 0 ? COLOR_UP : COLOR_DOWN) : TEXT_SEC,
             fontSize: 13,
           }}>
-            ¥{Number(q.price).toFixed(2)}
+            ¥{q.price.toFixed(2)}
           </span>
         );
       },
@@ -916,8 +939,11 @@ const handleManualRefresh = () => {
       align: 'right' as const,
       render: (_: unknown, r: WatchlistStock) => {
         const q = quotes[r.symbol];
-        if (!q) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
-        const color = Number(q.changePercent) >= 0 ? COLOR_UP : COLOR_DOWN;
+        const pct = q?.changePercent;
+        if (q == null || typeof pct !== 'number' || !Number.isFinite(pct)) {
+          return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
+        }
+        const color = pct >= 0 ? COLOR_UP : COLOR_DOWN;
         return (
           <span style={{
             fontFamily: 'monospace',
@@ -928,8 +954,8 @@ const handleManualRefresh = () => {
             alignItems: 'center',
             gap: 3,
           }}>
-            {Number(q.changePercent) > 0 ? <ArrowUpOutlined style={{ fontSize: 10 }} /> : Number(q.changePercent) < 0 ? <ArrowDownOutlined style={{ fontSize: 10 }} /> : <MinusOutlined style={{ fontSize: 10 }} />}
-            {Number(q.changePercent) >= 0 ? '+' : ''}{Number(q.changePercent).toFixed(2)}%
+            {pct > 0 ? <ArrowUpOutlined style={{ fontSize: 10 }} /> : pct < 0 ? <ArrowDownOutlined style={{ fontSize: 10 }} /> : <MinusOutlined style={{ fontSize: 10 }} />}
+            {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
           </span>
         );
       },
@@ -987,7 +1013,7 @@ const handleManualRefresh = () => {
       align: 'right' as const,
       render: (_: unknown, r: WatchlistStock) => {
         const q = quotes[r.symbol];
-        if (!q?.turnoverRate) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
+        if (q?.turnoverRate == null) return <Text type="secondary" style={{ fontSize: 12, color: TEXT_SEC }}>—</Text>;
         return (
           <span style={{ fontFamily: 'monospace', fontSize: 12, color: TEXT_SEC }}>
             {Number(q.turnoverRate).toFixed(2)}%
@@ -1194,20 +1220,22 @@ const handleManualRefresh = () => {
               styles={{ body: { padding: '16px 20px' } }}
             >
               <Statistic
-                title={<span style={{ color: TEXT_SEC, fontSize: 13 }}>今日平均涨跌</span>}
-                value={Math.abs(stats.avgChange)}
-                precision={2}
-                suffix="%"
+                title={<span style={{ color: TEXT_SEC, fontSize: 13 }}>
+                  今日平均涨跌{stats.avgChange != null && stats.changeSample < stats.total ? `（${stats.changeSample}/${stats.total} 只有数据）` : ''}
+                </span>}
+                value={stats.avgChange == null ? '—' : Math.abs(stats.avgChange)}
+                precision={stats.avgChange == null ? undefined : 2}
+                suffix={stats.avgChange == null ? undefined : '%'}
                 valueStyle={{
-                  color: stats.avgChange >= 0 ? COLOR_UP : COLOR_DOWN,
+                  color: stats.avgChange == null ? TEXT_SEC : stats.avgChange >= 0 ? COLOR_UP : COLOR_DOWN,
                   fontSize: 28,
                   fontWeight: 700,
                 }}
-                prefix={stats.avgChange >= 0
-                  ? <ArrowUpOutlined style={{ color: COLOR_UP, fontSize: 16 }} />
-                  : stats.avgChange < 0
-                    ? <ArrowDownOutlined style={{ color: COLOR_DOWN, fontSize: 16 }} />
-                    : <MinusOutlined style={{ color: TEXT_SEC, fontSize: 16 }} />
+                prefix={stats.avgChange == null
+                  ? undefined
+                  : stats.avgChange >= 0
+                    ? <ArrowUpOutlined style={{ color: COLOR_UP, fontSize: 16 }} />
+                    : <ArrowDownOutlined style={{ color: COLOR_DOWN, fontSize: 16 }} />
                 }
               />
             </Card>

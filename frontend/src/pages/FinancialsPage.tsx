@@ -8,9 +8,11 @@ import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import { apiService } from '../services/api';
 import { useParams } from 'react-router-dom';
-import { Breadcrumb, Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Progress, Descriptions, List, Divider } from 'antd';
+import { Breadcrumb, Card, Tabs, Table, Row, Col, Statistic, Tag, Spin, Alert, Progress, Descriptions, List, Divider, Button } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined, RobotOutlined, CompassOutlined, StockOutlined } from '@ant-design/icons';
 import { computeFinancialInsight, type FinancialInsight } from '../utils/financialInsightDemo';
+import { ErrorState } from '../components/Common/StateComponents';
+import { DataSourceBadge } from '../components/discover/DataSourceIndicator';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -93,7 +95,7 @@ const COLORS = ['#1890ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1', '#13c2c2'
 
 /** 金额格式化。**入参单位：元**（后端三表金额均为元），输出带中文量级后缀 */
 function formatMoney(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   const abs = Math.abs(value);
   if (abs >= 1e12) return `${(value / 1e12).toFixed(2)}万亿`;
   if (abs >= 1e8) return `${(value / 1e8).toFixed(2)}亿`;
@@ -121,6 +123,9 @@ export default function FinancialsPage() {
   const [incomeHistory, setIncomeHistory] = useState<IncomeStatement[]>([]);
   const [cashFlowHistory, setCashFlowHistory] = useState<CashFlow[]>([]);
   const [activeTab, setActiveTab] = useState('summary');
+  // 部分失败原因：区分「后端返回空财报」与「请求失败」，缺失表名如实列出，不补 0
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [failedTables, setFailedTables] = useState<string[]>([]);
 
   useEffect(() => {
     loadData();
@@ -128,46 +133,80 @@ export default function FinancialsPage() {
 
   const loadData = async () => {
     setLoading(true);
+    setLoadError(null);
+    setFailedTables([]);
     let summaryData: FinancialSummary | null = null;
     let bs: BalanceSheet[] = [];
     let is: IncomeStatement[] = [];
     let cf: CashFlow[] = [];
+    const failed: string[] = [];
     try {
-      const [summaryRes, bsRes, isRes, cfRes] = await Promise.all([
+      // 逐表记账：单表失败不应让另外三表一起消失，也不能把失败说成「没有财报」
+      const results = await Promise.allSettled([
         apiService.get<FinancialSummary>('/financials/summary', { symbol: targetSymbol }),
         apiService.get<{ periods: BalanceSheet[] }>('/financials/balance-sheet', { symbol: targetSymbol, periods: 4 }),
         apiService.get<{ periods: IncomeStatement[] }>('/financials/income-statement', { symbol: targetSymbol, periods: 4 }),
         apiService.get<{ periods: CashFlow[] }>('/financials/cash-flow', { symbol: targetSymbol, periods: 4 }),
       ]);
+      const [summaryRes, bsRes, isRes, cfRes] = results;
 
-      if (summaryRes.success) summaryData = summaryRes.data;
-      // 接口可能返回空对象（降级态）：periods 缺失时收敛为 []，避免渲染期 .map 崩页
-      if (bsRes.success) bs = Array.isArray(bsRes.data?.periods) ? bsRes.data.periods : [];
-      if (isRes.success) is = Array.isArray(isRes.data?.periods) ? isRes.data.periods : [];
-      if (cfRes.success) cf = Array.isArray(cfRes.data?.periods) ? cfRes.data.periods : [];
+      if (summaryRes.status === 'fulfilled' && summaryRes.value.success && summaryRes.value.data) {
+        summaryData = summaryRes.value.data;
+      } else {
+        failed.push('财务摘要');
+      }
+      if (bsRes.status === 'fulfilled' && bsRes.value.success) {
+        bs = Array.isArray(bsRes.value.data?.periods) ? bsRes.value.data.periods : [];
+      } else {
+        failed.push('资产负债表');
+      }
+      if (isRes.status === 'fulfilled' && isRes.value.success) {
+        is = Array.isArray(isRes.value.data?.periods) ? isRes.value.data.periods : [];
+      } else {
+        failed.push('利润表');
+      }
+      if (cfRes.status === 'fulfilled' && cfRes.value.success) {
+        cf = Array.isArray(cfRes.value.data?.periods) ? cfRes.value.data.periods : [];
+      } else {
+        failed.push('现金流量表');
+      }
     } catch (error) {
       logger.error('加载财务数据失败:', error);
+      failed.push('财务数据');
     } finally {
-      // 诚实数据红线：任一报表缺失即如实置空，绝不回填演示数据
+      // 诚实数据红线：缺失的表如实置空，绝不回填演示数据或补 0
       setSummary(summaryData);
       setBalanceHistory(bs);
       setIncomeHistory(is);
       setCashFlowHistory(cf);
+      setFailedTables(failed);
+      setLoadError(failed.length ? `以下数据加载失败：${failed.join('、')}` : null);
       setLoading(false);
     }
   };
 
   if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" tip="加载财务数据..." /></div>;
-  if (!summary) return <Alert message="无法加载财务数据" type="error" showIcon />;
+  if (!summary) {
+    return (
+      <div style={{ padding: 16 }}>
+        <DataSourceBadge state={{ kind: 'unavailable', updatedAt: null, error: loadError ?? '无法加载财务数据' }} />
+        <ErrorState message={loadError ?? '无法加载财务数据'} onRetry={loadData} />
+      </div>
+    );
+  }
   // summary 为「空对象/字段不全」（接口降级）时不硬算洞察与结构图，如实提示，绝不填 0 冒充
   if (!summary.balanceSheet || !summary.incomeStatement || !summary.cashFlow || !summary.indicators) {
     return (
-      <Alert
-        type="warning"
-        showIcon
-        message="接口未取到完整财务三表数据"
-        description="后端返回的财务摘要缺少资产负债表 / 利润表 / 现金流量表 / 指标之一，页面已如实置空，不做任何估算填充。"
-      />
+      <div style={{ padding: 16 }}>
+        <DataSourceBadge state={{ kind: 'partial', updatedAt: null, error: loadError ?? undefined }} />
+        <Alert
+          type="warning"
+          showIcon
+          message="接口未取到完整财务三表数据"
+          description={`${loadError ? loadError + '。' : ''}后端返回的财务摘要缺少资产负债表 / 利润表 / 现金流量表 / 指标之一，页面已如实置空，不做任何估算填充。`}
+          action={<Button size="small" onClick={loadData}>重试</Button>}
+        />
+      </div>
     );
   }
 
@@ -229,7 +268,7 @@ export default function FinancialsPage() {
       dataIndex: bs.period,
       key: bs.period,
       align: 'right' as const,
-      render: (v: number) => v !== null ? formatMoney(v) : '-',
+      render: (v: number) => formatMoney(v),
     })),
   ];
 
@@ -253,7 +292,7 @@ export default function FinancialsPage() {
       dataIndex: is.period,
       key: is.period,
       align: 'right' as const,
-      render: (v: number) => v !== null ? formatMoney(v) : '-',
+      render: (v: number) => formatMoney(v),
     })),
   ];
 
@@ -480,8 +519,21 @@ export default function FinancialsPage() {
       />
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>📊 财务报表 - {targetSymbol}</h2>
-        <Tag color="blue">最近更新: {new Date().toLocaleDateString('zh-CN')}</Tag>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DataSourceBadge state={{ kind: failedTables.length ? 'partial' : 'live', updatedAt: null, error: loadError ?? undefined }} />
+          <Tag color="blue">最近更新: {new Date().toLocaleDateString('zh-CN')}</Tag>
+        </span>
       </Row>
+      {loadError && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="部分财务数据不可用"
+          description={`${loadError}。页面仅显示已成功获取的数据，缺失项不补 0。`}
+          action={<Button size="small" onClick={loadData}>重试</Button>}
+        />
+      )}
       <AiInsightPanel insight={insight} />
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
     </div>

@@ -68,6 +68,22 @@
   --transition-fast: 120ms ease;
   --transition-normal: 200ms ease;
   --transition-slow: 300ms ease;
+
+  /* 兼容别名 — 历史页面使用的语义变量（P0a 补齐，避免未定义变量回退到浏览器默认值）
+     这些变量映射到上方主题变量；主题变量在 [data-theme] 中定义，自定义属性在计算时解析，
+     因此别名可在 :root 统一声明。禁止在新代码继续扩散这些别名，新代码优先用 --bg-* / --text-*。 */
+  --accent: var(--accent-solid, #3b82f6);
+  --bg-card: var(--bg-secondary, #161b26);
+  --bg-page: var(--bg-base, #080b14);
+  --bg-surface: var(--bg-primary, #0d1117);
+  --border: var(--border-default, rgba(255, 255, 255, 0.1));
+  --color-bg-secondary: var(--bg-secondary, #161b26);
+  --color-error: #f43f5e;
+  --color-error-bg: rgba(244, 63, 94, 0.12);
+  --color-highlight: #60a5fa;
+  --text-disabled: var(--text-tertiary, #5a6478);
+  --text-muted: var(--text-tertiary, #5a6478);
+  --theme-primary: #3b82f6;
 }
 
 /* ==================== 深色主题 — 高级感 ==================== */
@@ -151,6 +167,8 @@
   --glass-bg: rgba(255, 255, 255, 0.7);
   --glass-border: rgba(0, 0, 0, 0.06);
   --glow-accent: 0 0 20px rgba(59, 130, 246, 0.1);
+  /* 错误底色：浅色主题降低不透明度，避免大面积泛红 */
+  --color-error-bg: rgba(244, 63, 94, 0.08);
 }
 
 /* ==================== 全局基础 ==================== */
