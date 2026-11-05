@@ -31,8 +31,19 @@ const STOCK_LIST_CACHE_TTL = 3600_000; // 1 小时
 
 async function getStockList() {
   // Use FULL_STOCK_LIST directly (5541 stocks with industries)
-  // KV fallback disabled until cache invalidation is fixed
-  return getFallbackStocks();
+  // KV fallback disabled until cache invalidation is fixed.
+  //
+  // 必须模块级缓存：getFallbackStocks() 会对 5,541 只股票逐条跑 reclassify 正则 +
+  // generateConcepts 标签生成。此前每次请求都重建一遍，任何调用 getStockList() 的
+  // 端点（/api/stocks、/api/market/realtime、/api/breadth/current 等）都可能触发
+  // Cloudflare「Error 1102: Worker exceeded resource limits」——2026-11-06 实测
+  // 同一端点连续请求约 1/3 返回 503，首页因此间歇性「部分数据不可用」。
+  // 清单是 2026-06-22 的静态快照，1 小时内复用同一份对象是安全且必要的。
+  const now = Date.now();
+  if (stockListCache && (now - stockListCacheTime) < STOCK_LIST_CACHE_TTL) return stockListCache;
+  stockListCache = getFallbackStocks();
+  stockListCacheTime = now;
+  return stockListCache;
 }
 
 /**
