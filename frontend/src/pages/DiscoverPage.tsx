@@ -6,10 +6,14 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Table, Tag, Empty, Typography, Badge, Progress, Tooltip, message, Button, Result } from 'antd';
 import { LoadingState } from '../components/Common/StateComponents';
-import { CompassOutlined, RightOutlined, StarOutlined, FilterOutlined, ApartmentOutlined } from '@ant-design/icons';
+import {
+  CompassOutlined, RightOutlined, StarOutlined, FilterOutlined, ApartmentOutlined,
+  CalendarOutlined, FileSearchOutlined, FileTextOutlined, UnorderedListOutlined,
+} from '@ant-design/icons';
+import { ROUTE_PATHS } from '../routes/paths';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -34,6 +38,41 @@ const WARN = 'var(--color-warning)';
 const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
 const ACCENT = THEME.accent;
+
+/**
+ * 首页研究入口（P1）：从行情看板第一屏直接进入研究工作流。
+ * 只做导航，不展示计数/推荐，不新增数据请求——入口不能伪装成结论。
+ */
+const RESEARCH_ENTRIES = [
+  {
+    id: 'companies',
+    title: '研究公司',
+    description: '从全市场列表进入个股：财务、估值、同业与研报一页看完',
+    path: ROUTE_PATHS.STOCKS,
+    icon: UnorderedListOutlined,
+  },
+  {
+    id: 'reports',
+    title: '读研报',
+    description: '用 AI 摘要筛选研报，先看分歧，再形成自己的判断',
+    path: ROUTE_PATHS.REPORT_CENTER,
+    icon: FileSearchOutlined,
+  },
+  {
+    id: 'events',
+    title: '看事件',
+    description: '解禁、财报与市场日程，提前知道影响价格的节点',
+    path: ROUTE_PATHS.EVENT_CALENDAR,
+    icon: CalendarOutlined,
+  },
+  {
+    id: 'notes',
+    title: '继续笔记',
+    description: '回到已有研究记录，补上结论、复盘与下一步跟踪',
+    path: ROUTE_PATHS.KNOWLEDGE,
+    icon: FileTextOutlined,
+  },
+] as const;
 
 interface IndexData { name: string; symbol: string; closePrice: number; changePercent: number; volume: number; category?: string; }
 interface SectorScore { industry: string;
@@ -1104,16 +1143,47 @@ const DiscoverPage: React.FC = () => {
     <div style={{ background: BG, minHeight: '100vh', color: TEXT }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 40px' }}>
         {/* Header */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
             <CompassOutlined style={{ fontSize: 22, color: ACCENT }} />
-            <Title level={3} style={{ color: TEXT, margin: 0, fontWeight: 800 }}>发掘·板块景气度</Title>
+            <Title level={3} style={{ color: TEXT, margin: 0, fontWeight: 800 }}>今日研究简报</Title>
             {hasUntrustedData && <DataSourceBadge state={sectorSource.kind !== 'live' ? sectorSource : multidimSource} />}
           </div>
           <div style={{ fontSize: 12, color: TEXT_SEC }}>
-            大盘概览 → 板块景气度评估 → 个股深挖 · 当前{sectorType === 'industry' ? '行业' : '概念'}分类
+            先看市场，再研究公司 · 市场概览 → 板块线索 → 公司研究 · 当前{sectorType === 'industry' ? '行业' : '概念'}分类
           </div>
         </div>
+
+        {/* 研究入口：首屏第一动作，只做导航，不展示无数据支撑的计数 */}
+        <section className="research-entry" aria-labelledby="research-entry-title">
+          <div className="research-entry-head">
+            <div>
+              <div className="research-entry-title" id="research-entry-title">今天研究什么</div>
+              <div className="research-entry-sub">从市场线索进入公司研究；入口只负责缩短路径，结论仍由你判断。</div>
+            </div>
+            <div className="research-entry-loop">研究闭环：发现线索 → 建立档案 → 写下结论</div>
+          </div>
+          <div className="research-entry-grid">
+            {RESEARCH_ENTRIES.map((entry) => {
+              const EntryIcon = entry.icon;
+              return (
+                <Link
+                  key={entry.id}
+                  to={entry.path}
+                  className="research-entry-card"
+                  aria-label={`${entry.title}：${entry.description}`}
+                >
+                  <EntryIcon className="research-entry-icon" aria-hidden="true" />
+                  <span className="research-entry-body">
+                    <span className="research-entry-card-title">{entry.title}</span>
+                    <span className="research-entry-card-desc">{entry.description}</span>
+                  </span>
+                  <RightOutlined className="research-entry-arrow" aria-hidden="true" />
+                </Link>
+              );
+            })}
+          </div>
+        </section>
 
         {/* 数据可信度警示 Banner：任何非 live 数据都必须显性告知，禁止静默降级 */}
         <DataSourceBanner entries={sourceEntries} onRetry={handleRetry} retrying={retrying} />
@@ -1607,6 +1677,108 @@ const DiscoverPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        <style>{`
+          .research-entry {
+            margin-bottom: 20px;
+            padding: 18px 20px;
+            border-radius: 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+          }
+          .research-entry-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+          }
+          .research-entry-title {
+            margin-bottom: 4px;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 700;
+          }
+          .research-entry-sub {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.6;
+          }
+          .research-entry-loop {
+            color: var(--text-tertiary);
+            font-size: 11px;
+            line-height: 1.6;
+            white-space: nowrap;
+          }
+          .research-entry-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+          }
+          .research-entry-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            min-width: 0;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-primary);
+            color: inherit;
+            text-align: left;
+            text-decoration: none;
+            box-sizing: border-box;
+            cursor: pointer;
+            transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+          }
+          .research-entry-card:hover {
+            border-color: var(--accent-solid);
+            background: var(--accent-light);
+            transform: translateY(-1px);
+          }
+          .research-entry-card:focus-visible {
+            outline: 2px solid var(--accent-solid);
+            outline-offset: 2px;
+          }
+          .research-entry-icon {
+            flex-shrink: 0;
+            margin-top: 2px;
+            color: var(--accent-solid);
+            font-size: 18px;
+          }
+          .research-entry-body {
+            display: flex;
+            flex: 1;
+            min-width: 0;
+            flex-direction: column;
+            gap: 3px;
+          }
+          .research-entry-card-title {
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 600;
+          }
+          .research-entry-card-desc {
+            color: var(--text-secondary);
+            font-size: 11px;
+            line-height: 1.55;
+          }
+          .research-entry-arrow {
+            flex-shrink: 0;
+            margin-top: 3px;
+            color: var(--text-tertiary);
+            font-size: 11px;
+          }
+          @media (max-width: 1100px) {
+            .research-entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          }
+          @media (max-width: 640px) {
+            .research-entry { padding: 14px; }
+            .research-entry-loop { white-space: normal; }
+            .research-entry-grid { grid-template-columns: minmax(0, 1fr); }
+          }
+        `}</style>
       </div>
     </div>
   );

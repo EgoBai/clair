@@ -47,7 +47,7 @@ type SuggestedQuestion = { icon: string; text: string; prompt: string };
 // ===== 页面上下文映射 =====
 const PAGE_CONTEXT_MAP: Record<string, Omit<PageContext, 'symbol' | 'stockName'>> = {
   '/': {
-    page: 'discover', pageName: '市场洞察',
+    page: 'discover', pageName: '今日简报',
     systemHint: '用户正在浏览市场概览页面。你可以提供：市场情绪分析、板块轮动解读、资金流向研判、今日热点解读。',
   },
   '/screener': {

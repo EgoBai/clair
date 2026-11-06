@@ -1,6 +1,6 @@
 # 澄观 Clair 设计系统基线 v1
 
-状态：已批准 v1（2026-11-05）；P0 三项代码已实施（2026-11-05，commit 0bb898ef4）；三页试点完成（2026-11-06，commit 8b7ce0567 + 测试合并 a5b8c6b5e，远端 72e904e63535），P0a 的亮色与 768 响应式验收在试点三页内通过，全站其余页面仍按 P2 逐批收敛。编制时间：2026-11-05。适用仓库：a-stock-website。
+状态：已批准 v1（2026-11-05）；P0 三项代码已实施（2026-11-05，commit 0bb898ef4）；三页试点完成（2026-11-06，commit 8b7ce0567 + 测试合并 a5b8c6b5e，远端 72e904e63535），P0a 的亮色与 768 响应式验收在试点三页内通过，全站其余页面仍按 P2 逐批收敛；P1 导航收敛与首页研究入口已实施（2026-11-06，见附录 D）。编制时间：2026-11-05。适用仓库：a-stock-website。
 
 本文只定义基线、页面责任与验收口径，不改变现有导航与用户可见交互。文中标注“待批准”的条目，须确认后才能进入实现。
 
@@ -215,16 +215,17 @@ P0 缺口：代码里已使用但从未定义的变量有 12 个：`--accent`、
 
 ## 六、信息架构与页面清单
 
-### 6.1 当前导航
+### 6.1 当前导航（P1 已收敛，2026-11-06）
 
-| 分组 | 项数 | 条目 | 问题 |
+| 分组 | 项数 | 条目 | 说明 |
 | --- | --- | --- | --- |
-| 市场总览 | 3 | 市场洞察、产业地图、潜力雷达 | 尚可，但缺“事件/日历”入口 |
-| 个股研究 | 7 | 投资笔记、策略选股、股票列表、同业对比、研报 AI 摘要、龙虎榜、解禁日历 | 偏多；研究动作与数据查询混在一起 |
-| 宏观资金 | 10 | 宏观资金全景、宏观仪表盘、资金流向、大宗交易、北向资金、融资融券、ETF 中心、事件日历、港股通、组合风控 | 明显过载；组合风控放错组 |
-| 组合与风控 | 2 | 自选组合、投资组合 | 与上一组的“组合风控”割裂 |
-| 量化实验 | 3 | 回测、策略模板、多因子实验室 | 合理 |
-| 成长旅程 | 1 | 成长中心 | 与投研主线关系弱 |
+| 今日 | 7 | 今日简报、事件日历、龙虎榜、宏观资金全景、资金流向、北向资金、大宗交易 | 首屏是“今天看什么”；资金面作为今日上下文，不单独成组 |
+| 公司 | 5 | 股票列表、策略选股、同业对比、研报 AI 摘要、解禁日历 | 从“找公司”到“读公司”的动作合在一组 |
+| 产业 | 2 | 产业地图、潜力雷达 | 产业链定位与候选发现 |
+| 我的研究 | 5 | 投资笔记、自选组合、投资组合、组合风控、成长中心 | 个人研究资产与组合归位；组合风控从“宏观资金”移入 |
+| 工具 | 7 | 回测、策略模板、多因子实验室、宏观仪表盘、融资融券、港股通、ETF 中心 | 低频验证与多资产工具，作为二级抽屉；ETF 不塞进“公司” |
+
+收敛前为 6 组 26 项（市场总览 3、个股研究 7、宏观资金 10、组合与风控 2、量化实验 3、成长旅程 1）。P1 只调整归属与命名，不删页面、不改路由，26 项全部可达；移动端 4 个主 Tab（home/screener/watchlist/industry-map）保持不变，首个 Tab 文案随首页改为“今日简报”。
 
 ### 6.2 路由与页面清单
 
@@ -232,7 +233,7 @@ P0 缺口：代码里已使用但从未定义的变量有 12 个：`--accent`、
 
 | 页面 | 路由 | 用户任务 | 主要数据依赖 | 现状 |
 | --- | --- | --- | --- | --- |
-| 市场洞察（首页） | `/` | 今天市场发生了什么、该看什么 | `/api/market/summary`、`/api/market/indices`、`/api/breadth/current`、`/api/sectors/momentum|concept`、`/api/news?limit=6`、`/api/ai/market-insight`、`/api/ai/market-pulse`、`/api/industries?level=2` | 真实，AI 区块部分依赖上游；首屏信息密度高 |
+| 今日研究简报（首页） | `/` | 今天市场发生了什么、该看什么 | `/api/market/summary`、`/api/market/indices`、`/api/breadth/current`、`/api/sectors/momentum|concept`、`/api/news?limit=6`、`/api/ai/market-insight`、`/api/ai/market-pulse`、`/api/industries?level=2` | 真实，AI 区块部分依赖上游；首屏信息密度高 |
 | 宏观资金全景 | `/macro-hub` | 跨市场资金一张图 | `/api/macro/overview`、`/api/fund-flow/market`、`/api/north-bound/overview`、`/api/margin/overview`、`/api/risk-center/portfolio`、`/api/etf/list`、`/api/event-calendar/events` | 真实聚合，单块失败影响整页 |
 | 宏观仪表盘 | `/macro` | 宏观周期与流动性 | `/api/macro/overview` | 真实 |
 | 产业地图 | `/industry-map` | 产业链定位与公司归属 | `/api/industry-chains`、`/api/industry-chains/:id`、`/api/sectors/momentum`、`/api/ai/chat` | 真实图数据，AI 解读为可选 |
@@ -256,7 +257,7 @@ P0 缺口：代码里已使用但从未定义的变量有 12 个：`--accent`、
 | 大宗交易 | `/block-trades` | 大额成交与折价 | `/api/block-trades` | 真实，负净值守卫有缺口（已记录） |
 | 自选组合 | `/watchlist` | 跟踪持仓与自选 | 本地 watchlist、`/api/stocks/batch/quotes`、`/api/tech/batch`、`/api/ai/watchlist-summary` | 真实 + 本地；复盘页嵌在 tab |
 | 投资组合 | `/portfolio` | 记账与盈亏 | `/portfolios` 系列 | 真实，CRUD 可用 |
-| 组合风控 | `/risk-center` | 组合风险与压力 | `/api/risk-center/portfolio`，本地风险引擎 | 真实；当前导航归在“宏观资金” |
+| 组合风控 | `/risk-center` | 组合风险与压力 | `/api/risk-center/portfolio`，本地风险引擎 | 真实；P1 起归在“我的研究” |
 | 回测 | `/backtest` | 验证策略 | `/api/backtest/run` | 真实，结果口径需固定 |
 | 策略模板 | `/strategies` | 选策略并执行 | `/api/strategy-templates`、`/api/ai/strategy-recommend` | 模板接口曾返回 `static`，需标来源 |
 | 多因子实验室 | `/factor-lab` | 因子有效性 | `/api/stocks/:symbol/kline`、`/api/financials/factor-series`，本地因子引擎 | 真实；首次 60–80 秒，已分阶段 |
@@ -369,7 +370,7 @@ H1–H4 是诚实红线，不进入“以后再说”；H5–H7 与研究工作�
 
 一、是否接受本基线作为 v1，并按三页试点推进。
 
-二、是否批准导航归位（组合风控、事件日历）与后续拆分“宏观资金”。这属于用户可见交互契约变更。
+二、导航归位（组合风控、事件日历）已批准并于 P1 实施（2026-11-06，见附录 D）；“宏观资金”是否再拆分为“宏观”与“资金与多资产”两组仍待定，不阻塞当前。
 
 三、是否接受“UI 涨跌色 / 图表涨跌色”双语义，而不是全站统一成一套红绿。
 
@@ -406,3 +407,15 @@ H1–H4 是诚实红线，不进入“以后再说”；H5–H7 与研究工作�
 | P0a 三页旧涨跌字面量 | 已完成（涨跌语义范围） | `MarketSentiment`、`StockListPage`、`CapitalFlowPanel`、`MultiSignalPanel`、`MarketBreadthSection` 的涨跌/资金流/评分色已换令牌；DiscoverPage 的 ECharts canvas 热力色、固定深底 tooltip 与市场温度仪表盘保留独立 hex，原因是不解析 CSS 变量的 canvas 与「健康度」语义，不属涨跌色，已在源码注释与 `cssAndVisualization.test.ts` 的三页试点段 说明 |
 
 验证：`npx tsc --noEmit` exit 0；6 个测试文件 138 passed；本地 Vite 生产构建成功；Playwright 注入 H1/H2/H3 失败响应均显示可读错误态。
+
+## 附录 D、P1 导航收敛与首页研究入口（2026-11-06）
+
+| 项 | 实施 | 证据 |
+| --- | --- | --- |
+| 一级分组 6→5 | `frontend/src/config/navGroups.ts` 重写为今日/公司/产业/我的研究/工具；组合风控移入“我的研究”，事件日历移入“今日”，大宗交易与资金流向同组 | `navGroups.test.ts` 硬断言 5 个 id 与 5 个 label 的顺序；`blockTradesActivation.test.ts` 断言大宗交易归属“今日” |
+| 页面不删不改路由 | 26 项全部保留，移动端 4 个主 Tab id 不变 | `pageIndex.test.ts` 21 passed；`TabBar.test.tsx` 16 passed |
+| 首页研究入口 | `DiscoverPage.tsx` 在 Header 与数据 Banner 之间新增“今天研究什么”：研究公司/读研报/看事件/继续笔记，四个真实 `Link`，不请求接口、不显示计数 | `cssAndVisualization.test.ts` 断言四个 `ROUTE_PATHS`；Playwright 实测 href 与跳转 |
+| 首页命名 | 标题“发掘·板块景气度”→“今日研究简报”，副标题说明“先看市场，再研究公司” | 导航高亮、FloatingChat 页面上下文、产业地图面包屑同步为“今日简报” |
+| 响应式 | 入口网格 4 列；≤1100px 2 列；≤640px 1 列 | Playwright 1440/768/375 三档 docW=winW，无横向溢出 |
+
+未做：观点卡、个股页研报/公告 tab、研报与个股互链、AI 证据边界改版，按 `design/research-first-reframe.md` 留到 P1 后续批次。

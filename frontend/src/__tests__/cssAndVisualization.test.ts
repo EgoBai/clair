@@ -846,6 +846,21 @@ it('多信号面板与首页维度角标：颜色全部走令牌', () => {
   expect(discover).not.toContain('getDimBorder');
 });
 
+it('首页研究入口：四个入口指向真实路由，入口只做导航', () => {
+  const discover = readPilotFile('pages/DiscoverPage.tsx');
+  expect(discover).toContain('今天研究什么');
+  expect(discover).toContain('研究闭环：发现线索 → 建立档案 → 写下结论');
+  for (const route of [
+    'ROUTE_PATHS.STOCKS',
+    'ROUTE_PATHS.REPORT_CENTER',
+    'ROUTE_PATHS.EVENT_CALENDAR',
+    'ROUTE_PATHS.KNOWLEDGE',
+  ]) {
+    expect(discover).toContain(`path: ${route}`);
+  }
+  expect(discover).toContain('const RESEARCH_ENTRIES');
+});
+
 it('情绪标签与估值分位标签：实心底/浅灰底不再造成低对比', () => {
   const sentiment = readPilotFile('components/Market/MarketSentiment.tsx');
   expect(sentiment).not.toContain("color: '#1890ff'");

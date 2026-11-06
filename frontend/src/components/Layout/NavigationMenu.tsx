@@ -211,7 +211,7 @@ export const NavigationMenu: React.FC = () => {
           {/*
             固定/取消固定 icon-rail。仅 769–1024px 断点可见（CSS 控制）。
             用 role="switch" + aria-checked 表达二元开关语义 —— 同时也避免与
-            6 个分组折叠 button 混在同一 role 里造成查询歧义。
+            5 个分组折叠 button 混在同一 role 里造成查询歧义。
           */}
           <button
             type="button"
@@ -690,7 +690,7 @@ export const NavigationMenu: React.FC = () => {
           }
 
           /* 收起态：分组标题退化为 1px 分隔线 + 12px 呼吸位，
-             避免 24 个图标糊成一条；按钮本体保留在 tab 序列里 */
+             避免 26 个图标糊成一条；按钮本体保留在 tab 序列里 */
           .nav-group + .nav-group {
             margin-top: var(--nav-group-gap);
             border-top: var(--nav-group-sep);

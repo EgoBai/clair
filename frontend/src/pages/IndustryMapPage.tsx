@@ -729,7 +729,7 @@ ${marketContext}
               自选追踪
             </Button>
             <Button size="small" icon={<RiseOutlined />} onClick={() => navigate('/')}>
-              市场洞察
+              今日简报
             </Button>
           </Space>
         </div>

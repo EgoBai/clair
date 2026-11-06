@@ -1,11 +1,14 @@
 /**
- * 导航分组配置 — 按投研工作流分组的侧栏两级结构树。
+ * 导航分组配置 — 按研究工作流分组的侧栏两级结构树。
  *
- * 数据来源：design/navigation-ia-proposal.md §2.1（推荐案 A）。
+ * 数据来源：design/research-first-reframe.md「研究工作台」五入口 IA。
  * - 路径全部引用 `src/routes/paths.ts` 的 ROUTE_PATHS 常量，不硬编码字符串。
  * - icon 使用 `@ant-design/icons` 的实名组件（React.ComponentType），不存字符串。
+ * - 本文件为纯配置、无副作用，供 NavigationMenu / TabBar / pageIndex 消费。
  *
- * 本文件为纯配置、无副作用，供 NavigationMenu 等导航壳层消费。
+ * P1 收敛原则：只调整入口层级，不删除任何页面；26 个既有页面全部保留可达。
+ * 「今日」保留市场与资金面入口（7 项），「工具」收纳量化与多资产工具（7 项），
+ * 其余三组按研究动作划分，避免把行情页和 ETF 塞进「公司」研究入口。
  */
 
 import type { ComponentType } from 'react';
@@ -60,77 +63,69 @@ export interface NavGroup {
 }
 
 /**
- * 6 组按投研工作流分组（探索 → 求证 → 决策/持有 → 进阶 → 成长）。
- * 顺序与 §2.1 完全一致；详情级路由（:symbol）不进静态树。
+ * 5 组研究工作台入口：今日 → 公司 → 产业 → 我的研究 → 工具。
+ * 顺序即使用顺序：先看今日市场，再进公司/产业，最后沉淀到个人研究。
+ * 详情级路由（:symbol）不进静态树。
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
-    id: 'market-overview',
-    label: '市场总览',
+    id: 'today',
+    label: '今日',
     items: [
-      { id: 'home', label: '市场洞察', path: ROUTE_PATHS.HOME, icon: DashboardOutlined },
+      { id: 'home', label: '今日简报', path: ROUTE_PATHS.HOME, icon: DashboardOutlined },
+      { id: 'event-calendar', label: '事件日历', path: ROUTE_PATHS.EVENT_CALENDAR, icon: CalendarOutlined },
+      { id: 'top-traders', label: '龙虎榜', path: ROUTE_PATHS.TOP_TRADERS, icon: TrophyOutlined },
+      { id: 'macro-hub', label: '宏观资金全景', path: ROUTE_PATHS.MACRO_HUB, icon: DashboardOutlined },
+      { id: 'fund-flow', label: '资金流向', path: ROUTE_PATHS.FUND_FLOW, icon: FundOutlined },
+      { id: 'north-bound', label: '北向资金', path: ROUTE_PATHS.NORTH_BOUND, icon: ArrowLeftOutlined },
+      // 大宗交易 = 场外协议转让的成交/折溢价，属资金面口径，与「资金流向/北向资金」同组
+      { id: 'block-trades', label: '大宗交易', path: ROUTE_PATHS.BLOCK_TRADES, icon: SwapOutlined },
+    ],
+  },
+  {
+    id: 'companies',
+    label: '公司',
+    items: [
+      { id: 'stocks', label: '股票列表', path: ROUTE_PATHS.STOCKS, icon: UnorderedListOutlined },
+      { id: 'screener', label: '策略选股', path: ROUTE_PATHS.SCREENER, icon: FilterOutlined },
+      { id: 'compare', label: '同业对比', path: ROUTE_PATHS.COMPARE, icon: DiffOutlined },
+      { id: 'report-center', label: '研报AI摘要', path: ROUTE_PATHS.REPORT_CENTER, icon: FileSearchOutlined },
+      { id: 'lockup-calendar', label: '解禁日历', path: ROUTE_PATHS.LOCKUP_CALENDAR, icon: AlertOutlined },
+    ],
+  },
+  {
+    id: 'industry',
+    label: '产业',
+    items: [
       { id: 'industry-map', label: '产业地图', path: ROUTE_PATHS.INDUSTRY_MAP, icon: NodeIndexOutlined },
       { id: 'radar', label: '潜力雷达', path: ROUTE_PATHS.RADAR, icon: RadarChartOutlined },
     ],
   },
   {
-    id: 'stock-research',
-    label: '个股研究',
+    id: 'my-research',
+    label: '我的研究',
     items: [
-      // 投资笔记是「研究结论的沉淀」，将其置于本组首位并打上 featured 高亮徽标，
-      // 避免入口被折叠分组淹没。原位于第 4 组「组合与风控」末位（约 1050px 处）需滚动才可见；
-      // 先移入本组第 2 位，本轮再置顶强调。分组数量与其余顺序均不变，属最小侵入调整。
+      // 投资笔记是「研究结论的沉淀」，置顶并打 featured 徽标，避免被折叠分组淹没。
       { id: 'knowledge', label: '投资笔记', path: ROUTE_PATHS.KNOWLEDGE, icon: FileTextOutlined, featured: true },
-      { id: 'screener', label: '策略选股', path: ROUTE_PATHS.SCREENER, icon: FilterOutlined },
-      { id: 'stocks', label: '股票列表', path: ROUTE_PATHS.STOCKS, icon: UnorderedListOutlined },
-      { id: 'compare', label: '同业对比', path: ROUTE_PATHS.COMPARE, icon: DiffOutlined },
-      { id: 'report-center', label: '研报AI摘要', path: ROUTE_PATHS.REPORT_CENTER, icon: FileSearchOutlined },
-      { id: 'top-traders', label: '龙虎榜', path: ROUTE_PATHS.TOP_TRADERS, icon: TrophyOutlined },
-      { id: 'lockup-calendar', label: '解禁日历', path: ROUTE_PATHS.LOCKUP_CALENDAR, icon: AlertOutlined },
-    ],
-  },
-  {
-    id: 'macro-capital',
-    label: '宏观资金',
-    // #1 聚合（做减法）：原散落在「市场总览 / 资金面 / 组合与风控」3 个分组里的
-    // 宏观与资金面辅助模块统一收束到本组，并以「宏观资金全景」作为一键聚合入口，
-    // 降低侧栏认知负担、避免与核心循环争抢注意力；各详情页仍可达，便于下钻。
-    items: [
-      { id: 'macro-hub', label: '宏观资金全景', path: ROUTE_PATHS.MACRO_HUB, icon: DashboardOutlined },
-      { id: 'macro', label: '宏观仪表盘', path: ROUTE_PATHS.MACRO, icon: GlobalOutlined },
-      { id: 'fund-flow', label: '资金流向', path: ROUTE_PATHS.FUND_FLOW, icon: FundOutlined },
-      // 大宗交易 = 场外协议转让的成交/折溢价，属资金面口径，故与「资金流向/北向资金」同组
-      { id: 'block-trades', label: '大宗交易', path: ROUTE_PATHS.BLOCK_TRADES, icon: SwapOutlined },
-      { id: 'north-bound', label: '北向资金', path: ROUTE_PATHS.NORTH_BOUND, icon: ArrowLeftOutlined },
-      { id: 'margin-trading', label: '融资融券', path: ROUTE_PATHS.MARGIN_TRADING, icon: BankOutlined },
-      { id: 'etf', label: 'ETF中心', path: ROUTE_PATHS.ETF, icon: PieChartOutlined },
-      { id: 'event-calendar', label: '事件日历', path: ROUTE_PATHS.EVENT_CALENDAR, icon: CalendarOutlined },
-      { id: 'hk-connect', label: '港股通', path: ROUTE_PATHS.HK_CONNECT, icon: LinkOutlined },
-      { id: 'risk-center', label: '组合风控', path: ROUTE_PATHS.RISK_CENTER, icon: SafetyCertificateOutlined },
-    ],
-  },
-  {
-    id: 'portfolio-risk',
-    label: '组合与风控',
-    items: [
       { id: 'watchlist', label: '自选组合', path: ROUTE_PATHS.WATCHLIST, icon: StarOutlined },
       { id: 'portfolio', label: '投资组合', path: ROUTE_PATHS.PORTFOLIO, icon: WalletOutlined },
+      // 组合风控归属「我的研究」：它回答的是「我的持仓风险」，不是宏观资金。
+      { id: 'risk-center', label: '组合风控', path: ROUTE_PATHS.RISK_CENTER, icon: SafetyCertificateOutlined },
+      { id: 'journey', label: '成长中心', path: ROUTE_PATHS.JOURNEY, icon: RocketOutlined },
     ],
   },
   {
-    id: 'quant',
-    label: '量化实验',
+    id: 'tools',
+    label: '工具',
     items: [
       { id: 'backtest', label: '回测', path: ROUTE_PATHS.BACKTEST, icon: HistoryOutlined },
       { id: 'strategies', label: '策略模板', path: ROUTE_PATHS.STRATEGIES, icon: ProfileOutlined },
       { id: 'factor-lab', label: '多因子实验室', path: ROUTE_PATHS.FACTOR_LAB, icon: ThunderboltOutlined },
-    ],
-  },
-  {
-    id: 'growth',
-    label: '成长旅程',
-    items: [
-      { id: 'journey', label: '成长中心', path: ROUTE_PATHS.JOURNEY, icon: RocketOutlined },
+      { id: 'macro', label: '宏观仪表盘', path: ROUTE_PATHS.MACRO, icon: GlobalOutlined },
+      { id: 'margin-trading', label: '融资融券', path: ROUTE_PATHS.MARGIN_TRADING, icon: BankOutlined },
+      { id: 'hk-connect', label: '港股通', path: ROUTE_PATHS.HK_CONNECT, icon: LinkOutlined },
+      // ETF 是标的筛选/溢折价工具，不是「公司」研究，归工具组。
+      { id: 'etf', label: 'ETF中心', path: ROUTE_PATHS.ETF, icon: PieChartOutlined },
     ],
   },
 ];

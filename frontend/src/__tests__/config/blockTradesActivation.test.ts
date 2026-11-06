@@ -46,11 +46,11 @@ describe('P0-ACTIVATE：大宗交易页接线', () => {
     expect(item!.path).toBe(ROUTE_PATHS.BLOCK_TRADES);
   });
 
-  it('导航项应挂在资金面语义相邻的分组（宏观资金），而非随手乱放', () => {
+  it('导航项应挂在资金面语义相邻的分组（今日），而非随手乱放', () => {
     const item = ALL_ITEMS.find((i) => i.id === 'block-trades');
     // 大宗交易 = 场外协议转让的成交/折溢价，与「资金流向/北向资金」同组
-    expect(item!.groupId).toBe('macro-capital');
-    const group = NAV_GROUPS.find((g) => g.id === 'macro-capital')!;
+    expect(item!.groupId).toBe('today');
+    const group = NAV_GROUPS.find((g) => g.id === 'today')!;
     expect(group.items.map((i) => i.id)).toContain('fund-flow');
   });
 

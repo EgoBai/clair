@@ -14,8 +14,8 @@ import { ROUTE_PATHS } from '../../routes/paths';
  * 断言原则：
  * - 不对「未来可能增长的集合」做全量计数硬断言（如 items 总数 === 24）；
  *   改用「每一项都满足某属性」或下限断言。
- * - 唯一例外是分组数 === 6：这是 D15 导航 IA 方案（design/navigation-ia-proposal.md §2.1）
- *   明确定义的产品契约（6 组投研工作流），属于有意锁定，改动需同步改产品方案。
+ * - 唯一例外是分组数 === 5：这是 P1 研究工作台 IA（design/research-first-reframe.md）
+ *   明确定义的产品契约（今日/公司/产业/我的研究/工具），属于有意锁定，改动需同步改产品方案。
  * - 失败信息必须能定位到具体 item（统一收集 offenders 后断言为空数组）。
  */
 
@@ -53,9 +53,22 @@ describe('navGroups 配置', () => {
   });
 
   describe('分组结构完整性', () => {
-    // 产品契约：D15 导航 IA 固定 6 组投研工作流，非「可自由增长的集合」，故此处硬断言。
-    it('应恰好包含 6 个分组（D15 导航 IA 产品契约，有意锁定）', () => {
-      expect(NAV_GROUPS.map((g) => g.id)).toHaveLength(6);
+    // 产品契约：P1 研究工作台固定 5 组入口，非「可自由增长的集合」，故此处硬断言。
+    it('应恰好包含 5 个分组且顺序固定（P1 研究工作台 IA 产品契约）', () => {
+      expect(NAV_GROUPS.map((g) => g.id)).toEqual([
+        'today',
+        'companies',
+        'industry',
+        'my-research',
+        'tools',
+      ]);
+      expect(NAV_GROUPS.map((g) => g.label)).toEqual([
+        '今日',
+        '公司',
+        '产业',
+        '我的研究',
+        '工具',
+      ]);
     });
 
     it('分组 id 应全局唯一', () => {
