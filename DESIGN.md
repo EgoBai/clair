@@ -403,6 +403,6 @@ H1–H4 是诚实红线，不进入“以后再说”；H5–H7 与研究工作�
 | 三页对比度审计 | 已完成（真实项清零） | WCAG 4.5/3.0 脚本实测：亮色首页 28→5、个股 11→6、列表 3→3；暗色首页 7→3、个股 2→4、列表 2→1。剩余条目均为脚本对渐变背景、侧栏「澄观」渐变标题与 16px 主题图标的误报（图标按 3:1 已过），无真实正文/数值不达 AA |
 | 768 平板横向溢出 | 已完成 | 根因是 `.app-content/.content-wrapper` 为 flex 子项但缺 `min-width:0`，另有 MultiSignalPanel 来源 Tag `nowrap`；修后个股 1164→768、列表 906→768，两页六档 docW=winW |
 | P0a 三页亮/暗均正确 | 已完成（试点三页） | 2026-11-06 commit 8b7ce0567；首页/个股/列表 × 亮/暗 × 1440/768 共 12 组合 Playwright 实测：NaN 0、undefined 0、console error 0、pageerror 0、失败请求 0、docW=winW 无横向溢出；证据 `handover/evidence-pilot-final-report.json` 与 `handover/evidence-pilot-*.png` |
-| P0a 三页旧涨跌字面量 | 已完成（涨跌语义范围） | `MarketSentiment`、`StockListPage`、`CapitalFlowPanel`、`MultiSignalPanel`、`MarketBreadthSection` 的涨跌/资金流/评分色已换令牌；DiscoverPage 的 ECharts canvas 热力色、固定深底 tooltip 与市场温度仪表盘保留独立 hex，原因是不解析 CSS 变量的 canvas 与「健康度」语义，不属涨跌色，已在源码注释与 `pilotPagesTheme.test.ts` 说明 |
+| P0a 三页旧涨跌字面量 | 已完成（涨跌语义范围） | `MarketSentiment`、`StockListPage`、`CapitalFlowPanel`、`MultiSignalPanel`、`MarketBreadthSection` 的涨跌/资金流/评分色已换令牌；DiscoverPage 的 ECharts canvas 热力色、固定深底 tooltip 与市场温度仪表盘保留独立 hex，原因是不解析 CSS 变量的 canvas 与「健康度」语义，不属涨跌色，已在源码注释与 `cssAndVisualization.test.ts` 的三页试点段 说明 |
 
 验证：`npx tsc --noEmit` exit 0；6 个测试文件 138 passed；本地 Vite 生产构建成功；Playwright 注入 H1/H2/H3 失败响应均显示可读错误态。
