@@ -92,7 +92,7 @@ describe('观点卡列表', () => {
     renderList();
     expect(screen.getAllByText('研究档案').length).toBe(1);
     expect(screen.getByRole('link', { name: '白酒批价跟踪' }).getAttribute('href')).toBe('/knowledge?note=n1');
-    expect(screen.getByRole('button', { name: 'Q3 点评' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Q3 点评' }).getAttribute('href')).toBe('/report-center/r1');
 
     const input = screen.getByPlaceholderText('搜索标的、逻辑、风险或证伪条件');
     fireEvent.change(input, { target: { value: '国信证券' } });

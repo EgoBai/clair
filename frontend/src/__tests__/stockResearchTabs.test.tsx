@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -92,7 +93,7 @@ describe('个股研究 tab 面板', () => {
       dataSource: 'real',
       data: {
         items: [{
-          id: 'R1',
+          id: 'AP202611041831416424',
           title: '贵州茅台三季报点评',
           orgName: '国信证券',
           publishDate: '2026-11-04',
@@ -108,8 +109,10 @@ describe('个股研究 tab 面板', () => {
       },
     })));
 
-    render(<StockResearchReportsPanel symbol="600519.SH" />);
+    render(<MemoryRouter><StockResearchReportsPanel symbol="600519.SH" /></MemoryRouter>);
     expect(await screen.findByText('贵州茅台三季报点评')).toBeTruthy();
+    const detailLink = screen.getByRole('link', { name: '贵州茅台三季报点评' });
+    expect(detailLink.getAttribute('href')).toBe('/report-center/AP202611041831416424');
     expect(document.body.textContent).toContain('国信证券');
     expect(document.body.textContent).toContain('增持');
     expect(document.body.textContent).toContain('预测今年 EPS：64.62');

@@ -74,13 +74,13 @@ describe('观点卡研究档案', () => {
     expect(screen.getByText('还没有关联笔记或研报。把研究过程沉淀到这里，复盘时不用重新找。')).toBeTruthy();
   });
 
-  it('沉淀研报：读取真实接口、保存来源与链接、外链用新窗口打开', async () => {
+  it('沉淀研报：读取真实接口、保存来源与链接、站内打开正文', async () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
     vi.spyOn(apiService, 'get').mockResolvedValue({
       success: true,
       data: {
         items: [{
-          id: 'report_archive_1',
+          id: 'AP202611041831416424',
           title: '2026Q3点评：营收利润均超预期',
           orgName: '国信证券',
           publishDate: '2026-11-04',
@@ -102,14 +102,15 @@ describe('观点卡研究档案', () => {
       expect(research).toHaveLength(1);
       expect(research[0]).toMatchObject({
         kind: 'report',
-        id: 'report_archive_1',
+        id: 'AP202611041831416424',
         title: '2026Q3点评：营收利润均超预期',
         meta: '国信证券 · 2026-11-04',
         url: 'https://example.com/report/1',
       });
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '2026Q3点评：营收利润均超预期' }));
-    expect(open).toHaveBeenCalledWith('https://example.com/report/1', '_blank', 'noopener,noreferrer');
+    const detailLink = await screen.findByRole('link', { name: '2026Q3点评：营收利润均超预期' });
+    expect(detailLink.getAttribute('href')).toBe('/report-center/AP202611041831416424');
+    expect(open).not.toHaveBeenCalled();
   });
 });

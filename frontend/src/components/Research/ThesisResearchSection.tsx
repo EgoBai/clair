@@ -78,6 +78,10 @@ export const ThesisResearchLinks: React.FC<{
                 <Link to={`/knowledge?note=${encodeURIComponent(item.id)}`} style={{ fontSize: 13 }}>
                   {item.title}
                 </Link>
+              ) : item.id ? (
+                <Link to={`/report-center/${encodeURIComponent(item.id)}`} style={{ fontSize: 13 }}>
+                  {item.title}
+                </Link>
               ) : item.url ? (
                 <button
                   type="button"

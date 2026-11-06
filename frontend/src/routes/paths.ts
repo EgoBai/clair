@@ -34,6 +34,7 @@ export const ROUTE_PATHS = {
   RISK_CENTER: '/risk-center',
   // Sprint 3 AI深化
   REPORT_CENTER: '/report-center',
+  REPORT_DETAIL: '/report-center/:reportId',
   // Sprint 4 资金面与回测
   NORTH_BOUND: '/north-bound',
   FACTOR_LAB: '/factor-lab',

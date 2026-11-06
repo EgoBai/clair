@@ -43,6 +43,7 @@ const RiskCenterPage = lazy(() => import('../pages/RiskCenterPage'));
 
 // Sprint 3 AI深化
 const ReportCenterPage = lazy(() => import('../pages/ReportCenterPage'));
+const ReportDetailPage = lazy(() => import('../pages/ReportDetailPage'));
 
 // Sprint 4 资金面与回测
 const NorthBoundPage = lazy(() => import('../pages/NorthBoundPage'));
@@ -100,6 +101,7 @@ export const AppRoutes = () => {
 
         {/* Sprint 3 AI深化 */}
         <Route path="report-center" element={<SafePage component={ReportCenterPage} name="研报AI摘要中心" />} />
+        <Route path="report-center/:reportId" element={<SafePage component={ReportDetailPage} name="研报正文详情" />} />
 
         {/* Sprint 4 资金面与回测 */}
         <Route path="north-bound" element={<SafePage component={NorthBoundPage} name="北向资金" />} />

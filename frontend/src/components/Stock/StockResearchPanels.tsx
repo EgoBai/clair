@@ -9,6 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Alert, Button, Card, Col, Row, Table, Tag } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { EmptyState, ErrorState, LoadingState } from '../Common/StateComponents';
@@ -423,12 +424,18 @@ export const StockResearchReportsPanel: React.FC<{ symbol: string }> = ({ symbol
           const title = String(r.title ?? '');
           const url = String(r.url ?? '');
           const validUrl = /^https?:\/\//.test(url);
+          const reportId = String(r.id ?? '');
+          const canOpenDetail = /^[A-Za-z0-9]{6,64}$/.test(reportId);
           return (
             <Card key={String(r.id ?? i)} size="small" styles={{ body: { padding: '12px 14px' } }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                    {validUrl ? <ExternalTitleLink url={url}>{title || '—'}</ExternalTitleLink> : (title || '—')}
+                    {canOpenDetail ? (
+                      <Link to={`/report-center/${encodeURIComponent(reportId)}`} style={{ color: 'var(--text-primary)' }}>
+                        {title || '—'}
+                      </Link>
+                    ) : validUrl ? <ExternalTitleLink url={url}>{title || '—'}</ExternalTitleLink> : (title || '—')}
                   </div>
                   <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
                     <span>{fmtText(r.orgName)}</span>

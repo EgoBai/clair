@@ -581,6 +581,11 @@ function ReportCenterPage() {
                 </div>
                 <div style={{ background: '#1a1a1a', border: '1px solid #303030', borderRadius: 6, padding: '8px 12px' }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>最新研报论点（{sentimentAgg.latest.broker} · {sentimentAgg.latest.date}）</Text>
+                  {sentimentAgg.latest.id ? (
+                    <Link to={`/report-center/${encodeURIComponent(sentimentAgg.latest.id)}`} style={{ marginLeft: 8, fontSize: 12 }}>
+                      查看正文
+                    </Link>
+                  ) : null}
                   <div style={{ marginTop: 4 }}><Text>{sentimentAgg.latest.summary}</Text></div>
                 </div>
               </Space>
