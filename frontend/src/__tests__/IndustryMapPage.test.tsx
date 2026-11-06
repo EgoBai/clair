@@ -227,12 +227,12 @@ describe('IndustryMapPage 渲染防御', () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText('AI 产业地图')).toBeTruthy());
+    // 等详情响应真正落到 DOM（光芯片也可能来自链条列表，不能作为就绪信号）
+    await waitFor(() => expect(screen.getAllByText('算力基础设施').length).toBeGreaterThan(0));
     // 真实环节名称与描述必须出现在 DOM 里
-    await waitFor(() => expect(screen.getAllByText('光芯片').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('光芯片').length).toBeGreaterThan(0);
     expect(screen.getAllByText('数据中心').length).toBeGreaterThan(0);
     expect(screen.getAllByText('AI应用').length).toBeGreaterThan(0);
-    // 环节描述来自真实响应
-    expect(screen.getAllByText('算力基础设施').length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toContain('渲染失败');
   });
 
