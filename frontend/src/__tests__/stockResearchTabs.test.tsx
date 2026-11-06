@@ -49,7 +49,7 @@ describe('个股研究 tab 面板', () => {
             balanceSheet: { totalEquity: 123456789 },
             incomeStatement: { totalRevenue: 300000000, netProfit: 120000000, eps: 12.34 },
             cashFlow: { netOperatingCashFlow: 90000000, freeCashFlow: 45000000 },
-            indicators: { grossMargin: 41.2, netMargin: 40, roe: 32.53, debtToAssetRatio: null },
+            indicators: { grossMargin: 41.2, netMargin: 40, roe: 32.53, debtToAssetRatio: null, eps: 12.34, bps: 195.3554 },
           },
         } as never;
       }
@@ -69,6 +69,10 @@ describe('个股研究 tab 面板', () => {
     // 资产负债率为 null → 「—」，不能落成 0.00%
     expect(document.body.textContent).toContain('资产负债率—');
     expect(screen.getAllByText('资产负债表').length).toBeGreaterThan(0);
+    // 每股指标是「元/股」，不能按金额量级换算成亿（195.36 元不是 195.36 亿）
+    expect(document.body.textContent).toContain('每股净资产195.36');
+    expect(document.body.textContent).not.toContain('195.36亿');
+    expect(document.body.textContent).toContain('每股收益12.34');
   });
 
   it('财务：四请求全失败时列出失败表名并提供重试，不渲染 0 值表', async () => {

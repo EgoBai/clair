@@ -161,6 +161,14 @@
     padding: 12px 16px !important;
   }
 
+  /* 个股详情 6 个研究 tab：窄屏必须一屏放得下，不能被裁掉「研报/公告/新闻」 */
+  .stock-detail-tabs .ant-tabs-tab {
+    padding: 12px 6px !important;
+  }
+  .stock-detail-tabs .ant-tabs-tab + .ant-tabs-tab {
+    margin-left: 6px !important;
+  }
+
   /* Segmented 控件触摸目标 */
   .ant-segmented-item {
     min-height: 36px !important;

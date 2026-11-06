@@ -523,6 +523,7 @@ const StockDetailPage: React.FC = () => {
         </Card>
 
         <Tabs
+          className="stock-detail-tabs"
           activeKey={activeTab}
           onChange={handleTabChange}
           destroyInactiveTabPane

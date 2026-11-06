@@ -113,6 +113,13 @@ function fmtPct(v: unknown): string {
   return `${n.toFixed(2)}%`;
 }
 
+/** 每股指标：元/股，保留两位小数；不能用金额量级（195.36 元不是 195.36 亿）。 */
+function fmtPerShare(v: unknown): string {
+  const n = Number(v);
+  if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return '—';
+  return n.toFixed(2);
+}
+
 function fmtText(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
   return String(v);
@@ -181,7 +188,6 @@ const EMPTY_FINANCIAL: FinancialState = {
 };
 
 function FinancialMetrics({ summary }: { summary: JsonObject }) {
-  const bs = toObject(summary.balanceSheet);
   const is = toObject(summary.incomeStatement);
   const cf = toObject(summary.cashFlow);
   const ind = toObject(summary.indicators);
@@ -194,8 +200,8 @@ function FinancialMetrics({ summary }: { summary: JsonObject }) {
     { label: '资产负债率', value: fmtPct(ind.debtToAssetRatio) },
     { label: '经营现金流', value: fmtMoney(cf.netOperatingCashFlow) },
     { label: '自由现金流', value: fmtMoney(cf.freeCashFlow) },
-    { label: '每股收益', value: fmtMoney(is.eps) },
-    { label: '每股净资产', value: fmtMoney(bs.totalEquity) },
+    { label: '每股收益', value: fmtPerShare(ind.eps ?? is.eps) },
+    { label: '每股净资产', value: fmtPerShare(ind.bps) },
   ];
   return (
     <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
@@ -230,8 +236,7 @@ function statementColumns(kind: 'balance' | 'income' | 'cash') {
       { title: '营业成本', dataIndex: 'operatingCost', key: 'operatingCost', render: fmtMoney },
       { title: '净利润', dataIndex: 'netProfit', key: 'netProfit', render: fmtMoney },
       { title: '归母净利润', dataIndex: 'parentNetProfit', key: 'parentNetProfit', render: fmtMoney },
-      { title: 'EPS', dataIndex: 'eps', key: 'eps', render: fmtMoney },
-      { title: '毛利率', dataIndex: 'grossMargin', key: 'grossMargin', render: fmtPct },
+      { title: 'EPS', dataIndex: 'eps', key: 'eps', render: fmtPerShare },
     ];
   }
   return [
@@ -346,17 +351,17 @@ export const StockFinancialsPanel: React.FC<{ symbol: string }> = ({ symbol }) =
       )}
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} xl={12}>
+        <Col xs={24}>
           <Card size="small" title="资产负债表" styles={{ body: { padding: 0 } }}>
             {state.balance.length ? <FinancialTable kind="balance" rows={state.balance} /> : <EmptyState title="资产负债表无数据" description="接口未返回任何报告期。" />}
           </Card>
         </Col>
-        <Col xs={24} xl={12}>
+        <Col xs={24}>
           <Card size="small" title="利润表" styles={{ body: { padding: 0 } }}>
             {state.income.length ? <FinancialTable kind="income" rows={state.income} /> : <EmptyState title="利润表无数据" description="接口未返回任何报告期。" />}
           </Card>
         </Col>
-        <Col xs={24} xl={12}>
+        <Col xs={24}>
           <Card size="small" title="现金流量表" styles={{ body: { padding: 0 } }}>
             {state.cash.length ? <FinancialTable kind="cash" rows={state.cash} /> : <EmptyState title="现金流量表无数据" description="接口未返回任何报告期。" />}
           </Card>

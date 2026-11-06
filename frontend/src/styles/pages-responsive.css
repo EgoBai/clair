@@ -421,7 +421,8 @@
     position: sticky;
     top: 0;
     z-index: 10;
-    background: #0f172a;
+    /* 不能写死暗色：亮色主题下会变成黑条，遮住 6 个研究 tab 的背景 */
+    background: var(--bg-secondary);
   }
 
   .stock-detail-page .ant-segmented {

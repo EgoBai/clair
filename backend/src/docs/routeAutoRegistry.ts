@@ -212,7 +212,9 @@ const pathMetadata: Record<string, { tag: string; summary: string; description?:
   // 新闻
   'GET /api/news/research/reports': { tag: '新闻', summary: '获取研报列表' },
   'GET /api/news/stats/overview': { tag: '新闻', summary: '获取新闻统计概览' },
-  'GET /api/news/stock/:symbol': { tag: '新闻', summary: '获取个股新闻' },
+  'GET /api/news/stock/:symbol': { tag: '新闻', summary: '获取个股公告（兼容旧路径）' },
+  'GET /api/news/announcements/:symbol': { tag: '新闻', summary: '获取个股公告' },
+  'GET /api/news/stock-news/:symbol': { tag: '新闻', summary: '获取个股新闻' },
 
   // 社交
   'GET /api/social/comments/:id/replies': { tag: '社交', summary: '获取评论回复' },
