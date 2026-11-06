@@ -7,6 +7,7 @@ import {
   BulbOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { EmptyState } from '../Common/StateComponents';
+import { ThesisResearchLinks } from './ThesisResearchSection';
 import {
   useThesisStore,
   THESIS_STANCE_LABEL,
@@ -44,7 +45,8 @@ const ThesisListView: React.FC = () => {
     return cards.filter((card) => {
       if (stance !== 'all' && card.stance !== stance) return false;
       if (!keyword) return true;
-      return [card.symbol, card.name, card.thesis, card.catalysts, card.risks, card.invalidation]
+      const archive = (card.research ?? []).flatMap((item) => [item.title, item.meta]);
+      return [card.symbol, card.name, card.thesis, card.catalysts, card.risks, card.invalidation, ...archive]
         .some((field) => field.toLowerCase().includes(keyword));
     });
   }, [cards, query, stance]);
@@ -105,6 +107,7 @@ const ThesisListView: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filtered.map((card) => {
             const latestRevision = card.revisions[card.revisions.length - 1];
+            const research = card.research ?? [];
             return (
               <Card
                 key={card.id}
@@ -171,6 +174,15 @@ const ThesisListView: React.FC = () => {
                       : <Text key={item.label} type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
                   ))}
                 </div>
+                {research.length > 0 && (
+                  <div style={{ marginTop: 10, borderTop: '1px solid var(--border-subtle)', paddingTop: 10 }}>
+                    <div style={{ marginBottom: 6 }}>
+                      <Text strong style={{ fontSize: 12 }}>研究档案</Text>
+                      <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>{research.length} 条</Text>
+                    </div>
+                    <ThesisResearchLinks links={research} />
+                  </div>
+                )}
               </Card>
             );
           })}

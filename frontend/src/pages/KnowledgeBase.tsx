@@ -45,6 +45,7 @@ import {
 import { renderMarkdown } from '../utils/markdown';
 import { polishNote } from '../utils/notePolish';
 import { useGamificationStore } from '../store/useGamificationStore';
+import { useThesisStore } from '../store/useThesisStore';
 import ThesisListView from '../components/Research/ThesisListView';
 import { THEME } from '../styles/theme-constants';
 
@@ -248,10 +249,15 @@ const KnowledgeBase: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get('tab') === 'theses' ? 'theses' : 'notes';
+  const noteParam = searchParams.get('note');
   const switchView = useCallback((next: string) => {
     const params = new URLSearchParams(searchParams);
-    if (next === 'theses') params.set('tab', 'theses');
-    else params.delete('tab');
+    if (next === 'theses') {
+      params.set('tab', 'theses');
+      params.delete('note');
+    } else {
+      params.delete('tab');
+    }
     setSearchParams(params, { replace: true });
   }, [searchParams, setSearchParams]);
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
@@ -294,6 +300,22 @@ const KnowledgeBase: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  // 从观点卡的研究档案点进来时，清掉筛选并展开对应笔记。
+  useEffect(() => {
+    if (!noteParam) return;
+    setActiveCategory(null);
+    setSearchQuery('');
+    setExpandedId(noteParam);
+  }, [noteParam]);
+
+  useEffect(() => {
+    if (!noteParam || !entries.some((entry) => entry.id === noteParam)) return;
+    const target = document.getElementById(`note-${noteParam}`);
+    if (target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'center' });
+    }
+  }, [entries, noteParam]);
+
   const counts = useMemo(() => getCategoryCounts(), [entries]);
 
   // ============================================================
@@ -314,6 +336,8 @@ const KnowledgeBase: React.FC = () => {
       okButtonProps: { danger: true },
       onOk: () => {
         deleteEntry(id);
+        // 来源笔记删掉后，观点卡里的研究档案不能留下死链。
+        useThesisStore.getState().removeResearchSource('note', id);
         if (expandedId === id) setExpandedId(null);
         loadData();
       },
@@ -546,15 +570,16 @@ const KnowledgeBase: React.FC = () => {
         ) : (
           <div>
             {entries.map(entry => (
-              <NoteCard
-                key={entry.id}
-                entry={entry}
-                expanded={expandedId === entry.id}
-                onToggle={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
-                onDelete={() => handleDelete(entry.id)}
-                onPolish={() => handlePolish(entry)}
-                polishing={polishingId === entry.id}
-              />
+              <div key={entry.id} id={`note-${entry.id}`}>
+                <NoteCard
+                  entry={entry}
+                  expanded={expandedId === entry.id}
+                  onToggle={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+                  onDelete={() => handleDelete(entry.id)}
+                  onPolish={() => handlePolish(entry)}
+                  polishing={polishingId === entry.id}
+                />
+              </div>
             ))}
             {/* 列表底部提示 */}
             <div style={{

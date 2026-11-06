@@ -73,6 +73,75 @@ describe('观点卡 store', () => {
     expect(useThesisStore.getState().cards[0].updatedAt).toBe(firstUpdatedAt);
   });
 
+  it('关联研究档案：拒绝重复、不制造复盘、移除后不留残条', () => {
+    act(() => {
+      useThesisStore.getState().upsert(baseInput());
+    });
+    const before = useThesisStore.getState().cards[0];
+    let first = false;
+    let duplicate = true;
+    act(() => {
+      first = useThesisStore.getState().linkResearch('600519', {
+        kind: 'note', id: 'note_1', title: '  白酒批价跟踪  ', meta: ' 学习笔记 · 600519 ',
+      });
+      duplicate = useThesisStore.getState().linkResearch('600519', {
+        kind: 'note', id: 'note_1', title: '重复标题', meta: '重复',
+      });
+    });
+    expect(first).toBe(true);
+    expect(duplicate).toBe(false);
+    const card = useThesisStore.getState().cards[0];
+    expect(card.research).toHaveLength(1);
+    expect(card.research[0].title).toBe('白酒批价跟踪');
+    expect(card.research[0].meta).toBe('学习笔记 · 600519');
+    expect(card.revisions).toHaveLength(before.revisions.length);
+    expect(card.updatedAt).toBe(before.updatedAt);
+
+    act(() => {
+      useThesisStore.getState().unlinkResearch('600519', 'note', 'note_1');
+    });
+    expect(useThesisStore.getState().cards[0].research).toEqual([]);
+  });
+
+  it('删除来源笔记时跨观点卡清理研究档案，不留死链', () => {
+    act(() => {
+      useThesisStore.getState().upsert(baseInput());
+      useThesisStore.getState().upsert(baseInput({ symbol: '000002', name: '万科A' }));
+      useThesisStore.getState().linkResearch('600519', { kind: 'note', id: 'n1', title: '白酒批价', meta: '学习笔记' });
+      useThesisStore.getState().linkResearch('000002', { kind: 'note', id: 'n1', title: '白酒批价', meta: '学习笔记' });
+      useThesisStore.getState().linkResearch('000002', { kind: 'report', id: 'r1', title: '研报', meta: '国信证券' });
+    });
+    act(() => {
+      useThesisStore.getState().removeResearchSource('note', 'n1');
+    });
+    const maotai = useThesisStore.getState().findBySymbol('600519');
+    const wanke = useThesisStore.getState().findBySymbol('000002');
+    expect(maotai?.research).toEqual([]);
+    expect(wanke?.research).toHaveLength(1);
+    expect(wanke?.research[0].kind).toBe('report');
+  });
+
+  it('旧版本地缓存迁移：补齐 research 数组，不丢原观点', async () => {
+    const legacy = {
+      state: {
+        cards: [{
+          ...baseInput(),
+          id: 'thesis_legacy_1',
+          revisions: [{ at: '2026-11-01T00:00:00.000Z', note: '创建观点卡' }],
+          createdAt: '2026-11-01T00:00:00.000Z',
+          updatedAt: '2026-11-01T00:00:00.000Z',
+        }],
+      },
+      version: 1,
+    };
+    localStorage.setItem('clair-thesis-cards-v1', JSON.stringify(legacy));
+    await useThesisStore.persist.rehydrate();
+    const card = useThesisStore.getState().cards[0];
+    expect(card.id).toBe('thesis_legacy_1');
+    expect(card.thesis).toBe('高端酒需求稳定，直营占比提升带动利润率。');
+    expect(card.research).toEqual([]);
+  });
+
   it('按代码查找与删除', () => {
     act(() => {
       useThesisStore.getState().upsert(baseInput());

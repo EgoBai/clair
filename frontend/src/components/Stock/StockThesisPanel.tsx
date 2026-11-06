@@ -4,6 +4,7 @@ import {
   Button, Card, Form, Input, InputNumber, Modal, Radio, Space, Tag, Typography, message,
 } from 'antd';
 import { BulbOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons';
+import ThesisResearchSection from '../Research/ThesisResearchSection';
 import {
   useThesisStore,
   THESIS_STANCE_LABEL,
@@ -178,6 +179,8 @@ const StockThesisPanel: React.FC<StockThesisPanelProps> = ({ symbol, name }) => 
             </Space>
             <Link to="/knowledge?tab=theses" style={{ fontSize: 12 }}>查看全部</Link>
           </div>
+
+          <ThesisResearchSection card={{ ...card, research: card.research ?? [] }} />
         </div>
       )}
 

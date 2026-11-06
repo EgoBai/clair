@@ -29,6 +29,20 @@ export interface ThesisValuation {
   sell: number | null;
 }
 
+/** 研究档案：把一条笔记或一篇研报的快照挂到观点卡上。 */
+export type ThesisResearchKind = 'note' | 'report';
+
+export interface ThesisResearchLink {
+  kind: ThesisResearchKind;
+  id: string;
+  title: string;
+  meta: string;
+  url?: string;
+  addedAt: string;
+}
+
+export type ThesisResearchInput = Omit<ThesisResearchLink, 'addedAt'>;
+
 export interface ThesisCard {
   id: string;
   symbol: string;
@@ -41,6 +55,7 @@ export interface ThesisCard {
   valuation: ThesisValuation;
   confidence: ThesisConfidence;
   evidence: ThesisEvidence[];
+  research: ThesisResearchLink[];
   revisions: ThesisRevision[];
   createdAt: string;
   updatedAt: string;
@@ -90,6 +105,9 @@ interface ThesisState {
   upsert: (input: ThesisInput) => { card: ThesisCard; created: boolean };
   remove: (id: string) => void;
   findBySymbol: (symbol: string) => ThesisCard | undefined;
+  linkResearch: (symbol: string, link: ThesisResearchInput) => boolean;
+  unlinkResearch: (symbol: string, kind: ThesisResearchKind, id: string) => void;
+  removeResearchSource: (kind: ThesisResearchKind, id: string) => void;
 }
 
 export const useThesisStore = create<ThesisState>()(
@@ -118,6 +136,7 @@ export const useThesisStore = create<ThesisState>()(
           const card: ThesisCard = {
             ...base,
             id: nextId(),
+            research: [],
             createdAt: now,
             revisions: [{ at: now, note: '创建观点卡' }],
           };
@@ -139,10 +158,46 @@ export const useThesisStore = create<ThesisState>()(
         return { card, created: false };
       },
       remove: (id) => set((state) => ({ cards: state.cards.filter((card) => card.id !== id) })),
+      linkResearch: (symbol, link) => {
+        const card = get().cards.find((item) => item.symbol === symbol);
+        if (!card) return false;
+        const current = card.research ?? [];
+        if (current.some((item) => item.kind === link.kind && item.id === link.id)) return false;
+        const entry: ThesisResearchLink = {
+          ...link,
+          title: link.title.trim() || '未命名',
+          meta: link.meta.trim(),
+          addedAt: new Date().toISOString(),
+        };
+        // 关联档案不改写观点内容，也不伪造一条「复盘」；档案自身记录 addedAt。
+        set((state) => ({
+          cards: state.cards.map((item) => (item.id === card.id
+            ? { ...item, research: [...current, entry] }
+            : item)),
+        }));
+        return true;
+      },
+      unlinkResearch: (symbol, kind, id) => set((state) => ({
+        cards: state.cards.map((card) => (card.symbol === symbol
+          ? { ...card, research: (card.research ?? []).filter((item) => !(item.kind === kind && item.id === id)) }
+          : card)),
+      })),
+      removeResearchSource: (kind, id) => set((state) => ({
+        cards: state.cards.map((card) => ({
+          ...card,
+          research: (card.research ?? []).filter((item) => !(item.kind === kind && item.id === id)),
+        })),
+      })),
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
+      migrate: (persisted) => {
+        const state = persisted as { cards?: Array<ThesisCard & { research?: ThesisResearchLink[] }> };
+        return {
+          cards: (state.cards ?? []).map((card) => ({ ...card, research: card.research ?? [] })),
+        };
+      },
       partialize: (state) => ({ cards: state.cards }),
     },
   ),
