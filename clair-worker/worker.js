@@ -8857,6 +8857,125 @@ async function handleResearchReports(url) {
   }
 }
 
+const RESEARCH_DETAIL_UNAVAILABLE_NOTE =
+  '研报正文真实源（东方财富研报正文页 data.eastmoney.com/report/zw_stock.jshtml）当前不可用；' +
+  '本次不返回任何正文，绝不用标题、摘要或快讯拼凑一篇“研报”。';
+
+/**
+ * 解析东方财富研报正文页里的 `var zwinfo={...}`。
+ *
+ * 页面参数必须是小写 `infocode`；大写 `infoCode` 会得到 404 页。
+ * 正文 notice_content 是纯文本（全角空格 + 换行分段），直接分段即可，
+ * 不需要清洗 HTML，也不把 PDF 当正文解析。
+ */
+function parseResearchReportDetailHtml(html, infoCode) {
+  const marker = html.indexOf('var zwinfo=');
+  if (marker < 0) return null;
+  const start = html.indexOf('{', marker);
+  const end = html.indexOf('};', start);
+  if (start < 0 || end < 0 || end <= start) return null;
+  let info;
+  try {
+    info = JSON.parse(html.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!info || typeof info !== 'object') return null;
+
+  const paragraphs = String(info.notice_content || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\u3000/g, ' ').replace(/\s+$/g, '').trim())
+    .filter(Boolean);
+  if (!paragraphs.length) return null;
+
+  const security = Array.isArray(info.security) && info.security.length ? info.security[0] : null;
+  const relation = security && Array.isArray(security.publish_relation) && security.publish_relation.length
+    ? security.publish_relation[0]
+    : null;
+  const authors = String(info.researcher || '')
+    .split(/[,，;；]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return {
+    id: String(info.info_code || infoCode),
+    title: String(info.notice_title || '').trim(),
+    stockCode: String((security && security.stock) || ''),
+    stockName: String((security && security.short_name) || info.short_name || '').trim(),
+    orgName: String(info.source_sample_name || '').trim(),
+    authors,
+    publishDate: String(info.notice_date || info.eitime || '').slice(0, 10),
+    industryName: String((relation && relation.publishName) || '').trim(),
+    paragraphs,
+    paragraphCount: paragraphs.length,
+    pages: numOrNull(info.attach_pages),
+    pdfUrl: String(info.attach_url || '').trim(),
+    sourceUrl: 'https://data.eastmoney.com/report/zw_stock.jshtml?infocode=' + encodeURIComponent(infoCode),
+  };
+}
+
+/**
+ * 单篇研报正文（真实源）。
+ * 未知 infoCode / 上游 404 / 页面里没有正文时返回 404，不返回空正文冒充成功；
+ * 网络或上游 5xx 时返回 dataSource:'unavailable'。
+ */
+async function handleResearchReportDetail(infoCode) {
+  const code = String(infoCode || '').trim();
+  if (!/^[A-Za-z0-9]{6,64}$/.test(code)) {
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      code: 'REPORT_NOT_FOUND',
+      error: '研报编号格式不合法；本接口不编造正文。',
+    }, 404);
+  }
+
+  const sourceUrl = 'https://data.eastmoney.com/report/zw_stock.jshtml?infocode=' + encodeURIComponent(code);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const resp = await fetch(sourceUrl, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com/report/' },
+    });
+    if (resp.status === 404) {
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        code: 'REPORT_NOT_FOUND',
+        error: '未找到该研报：东方财富未返回此编号的正文页。本接口不会编造标题或正文。',
+      }, 404);
+    }
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const html = await resp.text();
+    const detail = parseResearchReportDetailHtml(html, code);
+    if (!detail) {
+      return json({
+        success: false,
+        dataSource: 'unavailable',
+        code: 'REPORT_CONTENT_UNAVAILABLE',
+        error: '该研报页面没有可解析的正文；本接口不会用摘要或标题冒充正文。',
+      }, 404);
+    }
+    return json({
+      success: true,
+      dataSource: 'real',
+      source: 'eastmoney',
+      data: { ...detail, fetchedAt: new Date().toISOString() },
+      timestamp: new Date().toISOString(),
+    }, 200, { 'Cache-Control': 'public, max-age=300' });
+  } catch (e) {
+    const reason = String((e && e.message) || '未知错误').slice(0, 120);
+    return unavailable(
+      { id: code, title: '', paragraphs: [], paragraphCount: 0, pdfUrl: '', sourceUrl },
+      RESEARCH_DETAIL_UNAVAILABLE_NOTE + ' 原因：' + reason + '。',
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const ANNOUNCEMENT_UNAVAILABLE_NOTE =
   '公告真实源（东方财富公告库 np-anotice-stock.eastmoney.com）当前不可用；' +
   '本次返回空列表并明确标注 dataSource=unavailable，绝不编造公告标题、日期或链接。';
@@ -9322,6 +9441,11 @@ export default {
     }
     if (path === '/api/news/research/reports') {
       return handleResearchReports(url);
+    }
+    // 单篇研报正文：前端 /report-center/:id 消费；未知编号 404，上游不可用诚实 unavailable
+    const reportDetailMatch = path.match(/^\/api\/news\/research\/reports\/([A-Za-z0-9]+)$/);
+    if (reportDetailMatch) {
+      return handleResearchReportDetail(reportDetailMatch[1]);
     }
     // 个股公告：此前 Worker 无此端点，前端个股「公告」tab 只能显示未接入
     const announcementsMatch = path.match(/^\/api\/news\/announcements\/(\d{6})$/);

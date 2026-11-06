@@ -850,6 +850,28 @@ await test('/api/news/stock-news/600519：200 + real 时个股新闻字段完整
   await assertResearchItems('/api/news/stock-news/600519?limit=5', '个股新闻');
 });
 
+// 单篇研报正文：真实源 zwinfo.notice_content → paragraphs；未知编号必须 404，
+// 上游不可用必须 unavailable + paragraphs:[]，不允许用标题/摘要拼正文。
+await test('/api/news/research/reports/AP202611041831416424：200 + real 正文分段', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/news/research/reports/AP202611041831416424');
+  assert.equal(status, 200);
+  assert.equal(body.dataSource, 'real');
+  assert.equal(body.success, true);
+  assert.equal(body.data.stockCode, '600519');
+  assert.ok(body.data.paragraphs.length > 0, '正文段落不能为空');
+  assert.equal(body.data.paragraphCount, body.data.paragraphs.length);
+  assert.ok(/^https?:\/\//.test(body.data.pdfUrl), 'PDF 必须是真实链接');
+  assert.ok(body.data.sourceUrl.includes('infocode=AP202611041831416424'), '来源链接必须是小写 infocode');
+});
+
+await test('/api/news/research/reports/AP000000000000000000：未知编号 404 不编造', async () => {
+  const { status, body } = await callWorker('https://clair-api.pages.dev/api/news/research/reports/AP000000000000000000');
+  assert.equal(status, 404);
+  assert.equal(body.success, false);
+  assert.equal(body.code, 'REPORT_NOT_FOUND');
+  assert.equal(body.data, undefined);
+});
+
 // ============================================================
 // 三·四、/api/fund-flow/market 的累计口径（缺失 null ≠ 真实 0）
 //
