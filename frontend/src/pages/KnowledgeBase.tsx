@@ -9,9 +9,9 @@
  *   - 手动写笔记保存 → toast 提示，建议回 FloatingChat 继续对话
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Card, Tag, Input, Typography, Space, Button, Modal, Select, Tooltip, Row, Col, message,
+  Card, Tag, Input, Typography, Space, Button, Modal, Select, Tooltip, Row, Col, Segmented, message,
 } from 'antd';
 import { EmptyState } from '../components/Common/StateComponents';
 import {
@@ -45,6 +45,7 @@ import {
 import { renderMarkdown } from '../utils/markdown';
 import { polishNote } from '../utils/notePolish';
 import { useGamificationStore } from '../store/useGamificationStore';
+import ThesisListView from '../components/Research/ThesisListView';
 import { THEME } from '../styles/theme-constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -245,6 +246,14 @@ const NoteCard: React.FC<NoteCardProps> = ({ entry, expanded, onToggle, onDelete
 
 const KnowledgeBase: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('tab') === 'theses' ? 'theses' : 'notes';
+  const switchView = useCallback((next: string) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'theses') params.set('tab', 'theses');
+    else params.delete('tab');
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
   const [activeCategory, setActiveCategory] = useState<KnowledgeCategory | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -406,7 +415,7 @@ const KnowledgeBase: React.FC = () => {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           marginBottom: 24, flexWrap: 'wrap', gap: 12,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <Button
               icon={<ArrowLeftOutlined />}
               onClick={() => navigate('/')}
@@ -414,19 +423,31 @@ const KnowledgeBase: React.FC = () => {
               style={{ color: TEXT_SEC }}
             />
             <BookOutlined style={{ fontSize: 22, color: ACCENT }} />
-            <Title level={3} style={{ margin: 0, color: TEXT }}>投资笔记</Title>
+            <Title level={3} style={{ margin: 0, color: TEXT }}>{view === 'theses' ? '观点卡' : '投资笔记'}</Title>
+            <Segmented
+              value={view}
+              onChange={switchView}
+              options={[
+                { label: '投资笔记', value: 'notes' },
+                { label: '观点卡', value: 'theses' },
+              ]}
+            />
           </div>
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={openModal}
+            onClick={() => (view === 'theses' ? navigate('/stocks') : openModal())}
             size="large"
             style={{ borderRadius: 10, fontWeight: 600, padding: '0 24px' }}
           >
-            写笔记
+            {view === 'theses' ? '去个股写观点' : '写笔记'}
           </Button>
         </div>
 
+        {view === 'theses' ? (
+          <ThesisListView />
+        ) : (
+          <>
         {/* ============================================================ */}
         {/* 统计卡片: 总笔记数 / 本周新增 / 最常关注                           */}
         {/* ============================================================ */}
@@ -544,6 +565,8 @@ const KnowledgeBase: React.FC = () => {
               随时点击 <Tag color="blue" style={{ borderRadius: 4, fontSize: 11 }}>📝 保存到投资笔记</Tag> 来积累你的投资知识
             </div>
           </div>
+        )}
+          </>
         )}
 
         {/* ============================================================ */}

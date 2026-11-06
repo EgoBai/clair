@@ -13,6 +13,7 @@
  * 相关列守显示为「—」，不编造数字。
  */
 import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Table, Tag, Statistic, Typography, Alert, Select, Space, Tooltip, Empty,
   Spin,
@@ -133,24 +134,48 @@ function ReportCenterPage() {
   const [dataSource, setDataSource] = useState<DataSource>('idle');
   const [loading, setLoading] = useState(true);
 
+  // ── 选中股票参数（?symbol= 预选；列表可能不含该股，需单独拉一次）──
+  const [searchParams] = useSearchParams();
+  const symbolParam = searchParams.get('symbol') ?? '';
+  const [selectedTicker, setSelectedTicker] = useState<string>('');
+
+  // 换股票时清掉上一次的用户选择，否则 URL 已换、页面仍停在旧股
+  useEffect(() => {
+    setSelectedTicker('');
+  }, [symbolParam]);
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
     Promise.all([
       fetch('/api/news/research/reports?limit=50').then((r) => r.json()).catch(() => null),
       fetch('/api/news?pageSize=50').then((r) => r.json()).catch(() => null),
-    ]).then(([repJson, newsJson]) => {
+      symbolParam
+        ? fetch(`/api/news/research/reports?symbol=${encodeURIComponent(symbolParam)}&limit=50`)
+          .then((r) => r.json()).catch(() => null)
+        : Promise.resolve(null),
+    ]).then(([repJson, newsJson, symbolJson]) => {
       if (!alive) return;
       const repData = repJson?.data;
       const newsData = newsJson?.data;
+      const symbolData = symbolJson?.data;
       // 后端可能返回含 null 的数组项（降级态），先剔空再映射，避免渲染/映射期崩页
       const repItems: BackendReport[] = (Array.isArray(repData?.items) ? repData.items : []).filter(Boolean);
+      const symbolItems: BackendReport[] = (Array.isArray(symbolData?.items) ? symbolData.items : []).filter(Boolean);
       const newsItems: BackendNewsItem[] = (Array.isArray(newsData?.items) ? newsData.items : []).filter(Boolean);
+      // 该股专用研报优先，按 id 去重，避免与全市场 50 条重叠计数
+      const seenIds = new Set<string>();
+      const mergedItems = [...symbolItems, ...repItems].filter((item) => {
+        const key = item.id || `${item.stockCode}-${item.publishDate}-${item.title}`;
+        if (seenIds.has(key)) return false;
+        seenIds.add(key);
+        return true;
+      });
 
-      const mappedReports = repItems.map(mapReport);
+      const mappedReports = mergedItems.map(mapReport);
       const mappedNews = newsItems.map(mapNews);
       const nameMap: Record<string, string> = {};
-      repItems.forEach((r) => { if (r.stockCode) nameMap[r.stockCode] = r.stockName; });
+      mergedItems.forEach((r) => { if (r.stockCode) nameMap[r.stockCode] = r.stockName; });
 
       setReports(mappedReports);
       setNews(mappedNews);
@@ -166,7 +191,7 @@ function ReportCenterPage() {
       setLoading(false);
     });
     return () => { alive = false; };
-  }, []);
+  }, [symbolParam]);
 
   // ── 按股票聚合研报 ──
   const reportsByTicker = useMemo(() => {
@@ -225,9 +250,11 @@ function ReportCenterPage() {
     [consensusList],
   );
 
-  // ── 选中股票（默认第一只）──
-  const [selectedTicker, setSelectedTicker] = useState<string>('');
-  const activeTicker = selectedTicker || consensusList[0]?.ticker || '';
+  // ── 选中股票（用户选择 → ?symbol= 预选 → 默认第一只）──
+  const activeTicker = selectedTicker
+    || symbolParam
+    || consensusList[0]?.ticker
+    || '';
   const selectedReports = reportsByTicker.get(activeTicker) ?? [];
   const selectedConsensus = consensusList.find((c) => c.ticker === activeTicker);
 
@@ -307,10 +334,10 @@ function ReportCenterPage() {
     {
       title: '股票', dataIndex: 'ticker', key: 'ticker', fixed: 'left', width: 130,
       render: (_: unknown, r) => (
-        <span>
+        <Link to={`/stocks/${r.ticker}`}>
           <Text strong>{stockNameMap[r.ticker] ?? r.ticker}</Text>
           <br /><Text type="secondary" style={{ fontSize: 12 }}>{r.ticker}</Text>
-        </span>
+        </Link>
       ),
     },
     {
@@ -354,7 +381,7 @@ function ReportCenterPage() {
     { title: '日期', dataIndex: 'date', key: 'date', width: 110 },
     {
       title: '股票', dataIndex: 'ticker', key: 'ticker', width: 130,
-      render: (_: unknown, r) => <span><Text strong>{stockNameMap[r.ticker] ?? r.ticker}</Text><br /><Text type="secondary" style={{ fontSize: 12 }}>{r.ticker}</Text></span>,
+      render: (_: unknown, r) => <Link to={`/stocks/${r.ticker}`}><Text strong>{stockNameMap[r.ticker] ?? r.ticker}</Text><br /><Text type="secondary" style={{ fontSize: 12 }}>{r.ticker}</Text></Link>,
     },
     { title: '机构', dataIndex: 'broker', key: 'broker', width: 110 },
     {
@@ -456,7 +483,9 @@ function ReportCenterPage() {
             {topUpside ? (
               <Tooltip title={`一致目标价 ${topUpside.avgTargetPrice.toFixed(2)}`}>
                 <div>
-                  <Text strong style={{ fontSize: 16 }}>{stockNameMap[topUpside.ticker]}</Text>
+                  <Link to={`/stocks/${topUpside.ticker}`}>
+                    <Text strong style={{ fontSize: 16 }}>{stockNameMap[topUpside.ticker]}</Text>
+                  </Link>
                   <Text style={{ color: '#ef4444', marginLeft: 8, fontWeight: 600 }}>{sign(topUpside.avgUpside)}</Text>
                 </div>
               </Tooltip>
@@ -508,14 +537,17 @@ function ReportCenterPage() {
       <Card
         title={<><RadarChartOutlined style={{ marginRight: 6, color: ACCENT }} />AI 研报摘要</>}
         style={{ marginBottom: 16 }}
-        extra={
-          <Select
-            value={activeTicker}
-            onChange={setSelectedTicker}
-            style={{ width: 180 }}
-            options={consensusList.map((c) => ({ value: c.ticker, label: `${stockNameMap[c.ticker] ?? c.ticker} ${c.ticker}` }))}
-          />
-        }
+        extra={(
+          <Space>
+            <Select
+              value={activeTicker}
+              onChange={setSelectedTicker}
+              style={{ width: 180 }}
+              options={consensusList.map((c) => ({ value: c.ticker, label: `${stockNameMap[c.ticker] ?? c.ticker} ${c.ticker}` }))}
+            />
+            {activeTicker && <Link to={`/stocks/${activeTicker}`}>查看个股</Link>}
+          </Space>
+        )}
       >
         {sentimentAgg && selectedConsensus ? (
           <Row gutter={16}>

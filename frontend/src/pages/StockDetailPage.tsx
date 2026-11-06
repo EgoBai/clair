@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Typography, Breadcrumb, Card, Row, Col, Space, Tag, Alert,
   Spin, Button, Segmented, Divider, Tooltip, Skeleton, Tabs,
@@ -27,6 +27,7 @@ import { getNthTradingDay, countTradingDays } from '../utils/tradingCalendarEngi
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 import ValuationPanel from '../components/valuation/ValuationPanel';
 import CapitalFlowPanel from '../components/Market/CapitalFlowPanel';
+import StockThesisPanel from '../components/Stock/StockThesisPanel';
 import {
   StockFinancialsPanel,
   StockResearchReportsPanel,
@@ -560,6 +561,11 @@ const StockDetailPage: React.FC = () => {
           </Card>
         )}
 
+        {/* ===== 我的观点（本地观点卡，一只股票一张）===== */}
+        {symbol && (
+          <StockThesisPanel symbol={symbol} name={stockInfo?.name ?? symbol} />
+        )}
+
         {/* ===== 资金流向（CapitalFlowPanel，上游不可用时整体隐藏）===== */}
         {/* 三档净额必须都是真实数字才渲染：任一为 null 说明上游缺档，
             整卡隐藏，绝不把缺失当 0（诚实红线）。 */}
@@ -1076,7 +1082,14 @@ const StockDetailPage: React.FC = () => {
             {
               key: 'reports',
               label: '研报',
-              children: symbol ? <StockResearchReportsPanel symbol={symbol} /> : null,
+              children: symbol ? (
+                <div>
+                  <div style={{ marginBottom: 12 }}>
+                    <Link to={`/report-center?symbol=${symbol}`}>在研报中心查看该股全部研报</Link>
+                  </div>
+                  <StockResearchReportsPanel symbol={symbol} />
+                </div>
+              ) : null,
             },
             {
               key: 'announcements',
