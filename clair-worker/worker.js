@@ -8740,13 +8740,179 @@ async function handleValuation(symbol) {
   });
 }
 
-const RESEARCH_NOTE =
-  '研报中心真实源为东方财富研报库（reportapi.eastmoney.com），本 Worker 版未接入该源；' +
-  '/api/news（快讯）走的是另一条真实源，与本端点无关。本次返回空研报列表而非编造研报标题/评级/目标价。';
+const RESEARCH_UNAVAILABLE_NOTE =
+  '研报真实源（东方财富研报库 reportapi.eastmoney.com）当前不可用；' +
+  '本次返回空列表并明确标注 dataSource=unavailable，绝不用全市场快讯冒充研报，也不编造标题/评级/目标价。';
+
+/**
+ * 东方财富研报列表（真实源）。
+ * 文档：https://reportapi.eastmoney.com/report/list
+ * symbol 为空时返回全市场最新研报；有 symbol 时按 code 过滤。
+ */
+async function fetchResearchReportsFromEastmoney(symbol, limit) {
+  const endTime = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const beginTime = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+  const params = new URLSearchParams({
+    industryCode: '*',
+    pageSize: String(Math.min(Math.max(limit, 1), 50)),
+    industry: '*',
+    rating: '*',
+    ratingChange: '*',
+    beginTime,
+    endTime,
+    pageNo: '1',
+    fields: '',
+    qType: '0',
+    orgCode: '',
+    rptCode: '',
+  });
+  const digits = symbol ? finNormalizeSymbol(symbol).digits : '';
+  if (digits) params.set('code', digits);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const resp = await fetch('https://reportapi.eastmoney.com/report/list?' + params.toString(), {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com/report/' },
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = (await resp.text()).trim();
+    if (!text || text.startsWith('<')) throw new Error('上游返回非 JSON（可能被拦截）');
+    const j = JSON.parse(text);
+    const rows = Array.isArray(j?.data) ? j.data : [];
+    // 上游 200 + 空数组 = 该标的确实没有研报；按 real 空列表返回，
+    // 不能伪造成「源不可用」，也不能编造一条研报补位。
+    return rows.map((r) => {
+      const infoCode = String(r.infoCode || '');
+      return {
+        id: infoCode,
+        title: String(r.title || ''),
+        stockName: String(r.stockName || ''),
+        stockCode: String(r.stockCode || digits || ''),
+        orgName: String(r.orgSName || r.orgName || ''),
+        publishDate: String(r.publishDate || '').slice(0, 10),
+        rating: String(r.emRatingName || ''),
+        predictThisYearEps: numOrNull(r.predictThisYearEps),
+        predictThisYearPe: numOrNull(r.predictThisYearPe),
+        predictNextYearEps: numOrNull(r.predictNextYearEps),
+        predictNextYearPe: numOrNull(r.predictNextYearPe),
+        industryName: String(r.indvInduName || ''),
+        url: infoCode ? 'https://data.eastmoney.com/report/zw_stock.jshtml?infoCode=' + encodeURIComponent(infoCode) : '',
+        source: 'eastmoney',
+      };
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function handleResearchReports(url) {
   const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 1), 100);
-  return unavailable({ items: [], count: 0, limit }, RESEARCH_NOTE);
+  const rawSymbol = url.searchParams.get('symbol');
+  const digits = rawSymbol ? finNormalizeSymbol(rawSymbol).digits : '';
+  try {
+    const items = await fetchResearchReportsFromEastmoney(digits, limit);
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: {
+        items,
+        count: items.length,
+        limit,
+        symbol: digits || null,
+        source: 'eastmoney',
+        dataSource: 'real',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    const reason = String((e && e.message) || '未知错误').slice(0, 120);
+    return unavailable(
+      { items: [], count: 0, limit, symbol: digits || null, source: null },
+      RESEARCH_UNAVAILABLE_NOTE + ' 原因：' + reason + '。',
+    );
+  }
+}
+
+const ANNOUNCEMENT_UNAVAILABLE_NOTE =
+  '公告真实源（东方财富公告库 np-anotice-stock.eastmoney.com）当前不可用；' +
+  '本次返回空列表并明确标注 dataSource=unavailable，绝不编造公告标题、日期或链接。';
+
+/**
+ * 东方财富个股公告（真实源）。
+ * 与 backend/src/services/newsDataService.ts 的 fetchStockAnnouncements 同源同字段。
+ */
+async function fetchAnnouncementsFromEastmoney(symbol, limit) {
+  const digits = finNormalizeSymbol(symbol).digits;
+  const pageSize = Math.min(Math.max(limit, 1), 50);
+  const endpoint =
+    'https://np-anotice-stock.eastmoney.com/api/security/ann' +
+    '?sr=-1&page_size=' + pageSize + '&page_index=1&ann_type=A&client_source=web&stock_list=' + encodeURIComponent(digits);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const resp = await fetch(endpoint, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com' },
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = (await resp.text()).trim();
+    if (!text || text.startsWith('<')) throw new Error('上游返回非 JSON（可能被拦截）');
+    const j = JSON.parse(text);
+    const list = Array.isArray(j?.data?.list) ? j.data.list : [];
+    // 同上：200 + 空列表是「没有公告」，不是源不可用。
+    return list.map((item) => {
+      const artCode = String(item.art_code || '');
+      const codes = Array.isArray(item.codes) ? item.codes : [];
+      const stockCode = String(codes[0]?.stock_code || digits);
+      const shortName = String(codes[0]?.short_name || '');
+      const title = String(item.title || item.title_ch || '');
+      const rawTime = String(item.display_time || item.notice_date || '');
+      const publishTime = rawTime.replace(/:(\d{3})$/, '.$1');
+      const columns = Array.isArray(item.columns) ? item.columns : [];
+      return {
+        id: artCode,
+        title,
+        summary: String(item.title_ch || title).slice(0, 200),
+        source: shortName ? shortName + '公告' : '东方财富公告',
+        url: artCode ? 'https://data.eastmoney.com/notices/detail/' + stockCode + '/' + artCode + '.html' : '',
+        publishTime,
+        category: 'company',
+        tags: columns.map((c) => String(c.column_name || '')).filter(Boolean),
+        relatedSymbols: stockCode ? [stockCode] : [],
+      };
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function handleAnnouncements(symbol, url) {
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '20', 10) || 20, 1), 50);
+  const digits = finNormalizeSymbol(symbol).digits;
+  try {
+    const items = await fetchAnnouncementsFromEastmoney(digits, limit);
+    return json({
+      success: true,
+      dataSource: 'real',
+      data: {
+        items,
+        count: items.length,
+        symbol: digits,
+        limit,
+        source: 'eastmoney',
+        dataSource: 'real',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    const reason = String((e && e.message) || '未知错误').slice(0, 120);
+    return unavailable(
+      { items: [], count: 0, symbol: digits, limit, source: null },
+      ANNOUNCEMENT_UNAVAILABLE_NOTE + ' 原因：' + reason + '。',
+    );
+  }
 }
 
 const RISK_CENTER_NOTE =
@@ -9135,6 +9301,11 @@ export default {
     if (path === '/api/news/research/reports') {
       return handleResearchReports(url);
     }
+    // 个股公告：此前 Worker 无此端点，前端个股「公告」tab 只能显示未接入
+    const announcementsMatch = path.match(/^\/api\/news\/announcements\/(\d{6})$/);
+    if (announcementsMatch) {
+      return handleAnnouncements(announcementsMatch[1], url);
+    }
     if (path === '/api/risk-center/portfolio') {
       return handleRiskCenterPortfolio();
     }
@@ -9322,7 +9493,14 @@ export default {
       return handleNews(url);
     }
 
-    // Stock news: /api/news/:symbol
+    // Stock news: /api/news/stock/:symbol 与 /api/news/stock-news/:symbol
+    // 均映射到真实个股新闻（东财资讯搜索 + 快讯兜底）；公告是 /api/news/announcements/:symbol。
+    const stockNewsAliasMatch = path.match(/^\/api\/news\/(?:stock|stock-news)\/(\d{6})$/);
+    if (stockNewsAliasMatch) {
+      return handleStockNews(stockNewsAliasMatch[1]);
+    }
+
+    // Stock news（旧路径）: /api/news/:symbol
     const stockNewsMatch = path.match(/^\/api\/news\/(\d+)$/);
     if (stockNewsMatch) {
       return handleStockNews(stockNewsMatch[1]);

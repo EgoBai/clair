@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('../services/newsDataService', () => ({
   getNews: vi.fn(),
+  getStockNews: vi.fn(),
   getResearchReports: vi.fn(),
   NewsUnavailableError: class NewsUnavailableError extends Error {
     constructor(msg = '新闻/研报真实源暂不可用') {
@@ -22,7 +23,7 @@ vi.mock('../services/newsDataService', () => ({
   },
 }));
 
-import { getNews, getResearchReports, NewsUnavailableError } from '../services/newsDataService';
+import { getNews, getStockNews, getResearchReports, NewsUnavailableError } from '../services/newsDataService';
 import request from 'supertest';
 import express from 'express';
 import newsRouter from '../api/news';
@@ -151,6 +152,57 @@ describe('News API (honest-data)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.dataSource).toBe('unavailable');
       expect(res.body.data.items).toEqual([]);
+    });
+  });
+
+  describe('GET /api/news/announcements/:symbol (公告别名)', () => {
+    it('与 /news/stock/:symbol 同一真实源、同一契约', async () => {
+      (getNews as any).mockResolvedValue([realNewsItem]);
+      const app = buildApp();
+      const res = await request(app).get('/api/news/announcements/600519?limit=5');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].title).toContain('贵州茅台');
+      expect(res.body.data.dataSource).toBe('real');
+      expect(getNews).toHaveBeenCalledWith('600519', undefined, 5);
+    });
+
+    it('源失败时诚实空', async () => {
+      (getNews as any).mockRejectedValue(new NewsUnavailableError('公告源不可用'));
+      const app = buildApp();
+      const res = await request(app).get('/api/news/announcements/600519');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('unavailable');
+      expect(res.body.data.items).toEqual([]);
+    });
+  });
+
+  describe('GET /api/news/stock-news/:symbol (个股新闻，与公告分开)', () => {
+    it('真实源可用时返回资讯搜索新闻，不复用公告', async () => {
+      (getStockNews as any).mockResolvedValue([realFastNews]);
+      const app = buildApp();
+      const res = await request(app).get('/api/news/stock-news/600519?limit=5');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].title).toContain('美国银行');
+      expect(res.body.data.dataSource).toBe('real');
+      expect(getStockNews).toHaveBeenCalledWith('600519', 5);
+      // 新闻路径绝不能回落到公告函数
+      expect(getNews).not.toHaveBeenCalled();
+    });
+
+    it('资讯源失败时诚实空，不拿公告冒充新闻', async () => {
+      (getStockNews as any).mockRejectedValue(new NewsUnavailableError('资讯搜索不可用'));
+      const app = buildApp();
+      const res = await request(app).get('/api/news/stock-news/600519');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('unavailable');
+      expect(res.body.data.items).toEqual([]);
+      expect(getNews).not.toHaveBeenCalled();
     });
   });
 

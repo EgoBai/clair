@@ -13,6 +13,7 @@ import { validateQuery, validateParams, schemas } from '../middleware/validation
 import { asyncHandler, sendSuccess, sendNotFound, sendPaginated } from '../utils/apiResponse';
 import {
   getNews,
+  getStockNews,
   getResearchReports,
   NewsUnavailableError,
   type NewsItem,
@@ -173,7 +174,7 @@ router.get('/news', validateQuery(schemas.newsQuery), asyncHandler(async (req: R
 
 // ==================== 获取个股相关新闻 ====================
 
-router.get('/news/stock/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
+const stockAnnouncementsHandler = asyncHandler(async (req: Request, res: Response) => {
   const symbol = req.params.symbol;
   const limit = parseInt(req.query.limit as string) || 10;
 
@@ -188,6 +189,29 @@ router.get('/news/stock/:symbol', validateParams(schemas.stockSymbol), asyncHand
         dataSource: 'unavailable' as const,
         message: e.message,
       });
+      return;
+    }
+    throw e;
+  }
+});
+
+// 个股公告：getNews(symbol) 的真实源就是东财公告库。
+// Worker 同步注册了 /api/news/announcements/:symbol（见 clair-worker/worker.js handleAnnouncements），
+// 两个部署同一契约，前端不必按运行环境分叉。
+router.get('/news/stock/:symbol', validateParams(schemas.stockSymbol), stockAnnouncementsHandler);
+router.get('/news/announcements/:symbol', validateParams(schemas.stockSymbol), stockAnnouncementsHandler);
+
+// 个股新闻：与公告严格分开。新闻走东财资讯搜索，公告走公告库；
+// 取不到就 dataSource:'unavailable'，绝不把公告伪装成新闻。
+router.get('/news/stock-news/:symbol', validateParams(schemas.stockSymbol), asyncHandler(async (req: Request, res: Response) => {
+  const symbol = req.params.symbol;
+  const limit = parseInt(req.query.limit as string) || 20;
+  try {
+    const items = await getStockNews(symbol, limit);
+    sendSuccess(res, { items, symbol, dataSource: 'real' as const });
+  } catch (e) {
+    if (e instanceof NewsUnavailableError) {
+      sendSuccess(res, { items: [], symbol, dataSource: 'unavailable' as const, message: e.message });
       return;
     }
     throw e;

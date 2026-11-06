@@ -68,6 +68,19 @@ async function fetchJson(url: string, headers?: Record<string, string>): Promise
   }
 }
 
+/** 带超时的文本抓取（东财搜索接口返回 JSONP，不是 JSON） */
+async function fetchText(url: string, headers?: Record<string, string>): Promise<string> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, { signal: ctrl.signal, headers });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** 将多种符号格式归一化为东财所需的 digits（600519）和 secucode（600519.SH） */
 function normalizeSymbol(symbol: string): { digits: string; secucode: string } | null {
   const trimmed = (symbol || '').trim().toUpperCase();
@@ -175,6 +188,74 @@ async function fetchStockAnnouncements(digits: string, limit: number): Promise<N
       viewCount: 0,
     };
   });
+}
+
+// ==================== 个股新闻（东财资讯搜索） ====================
+
+/**
+ * 个股新闻：东方财富资讯搜索（与 Worker fetchStockNewsBySearch 同源同口径）。
+ *
+ * 为什么不复用 getNews(symbol)：getNews 的个股分支真实源是「公告库」，
+ * 与公告 tab 完全重复。新闻 tab 必须走资讯搜索，取不到就诚实空。
+ */
+export async function getStockNews(symbol: string, limit: number = 20): Promise<NewsItem[]> {
+  const norm = normalizeSymbol(symbol);
+  if (!norm) throw new NewsUnavailableError(`无效的股票代码: ${symbol}`);
+  const pageSize = Math.max(1, Math.min(limit, 20));
+  const param = {
+    uid: '',
+    keyword: norm.digits,
+    type: ['cmsArticleWebOld'],
+    client: 'web',
+    clientType: 'web',
+    clientVersion: 'curr',
+    param: {
+      cmsArticleWebOld: {
+        searchScope: 'default',
+        sort: 'default',
+        pageIndex: 1,
+        pageSize,
+        preTag: '<em>',
+        postTag: '</em>',
+      },
+    },
+  };
+  const url = `https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery&param=${encodeURIComponent(JSON.stringify(param))}`;
+  const text = (await fetchText(url, {
+    'User-Agent': 'Mozilla/5.0',
+    Referer: 'https://so.eastmoney.com',
+  })).trim();
+  if (text.startsWith('<')) throw new NewsUnavailableError('东财资讯搜索被拦截（返回 HTML）');
+  const matched = text.match(/jQuery\(([\s\S]*)\)\s*$/);
+  const data = JSON.parse(matched ? matched[1] : text);
+  const list: any[] = data?.result?.cmsArticleWebOld ?? [];
+  if (!Array.isArray(list) || list.length === 0) {
+    throw new NewsUnavailableError('东财资讯搜索未返回该标的的新闻');
+  }
+  const strip = (s: unknown) => String(s || '').replace(/<\/?em>/g, '').replace(/\s+/g, ' ').trim();
+  const items = list.slice(0, pageSize).map((it) => {
+    const title = strip(it.title);
+    const content = strip(it.content);
+    const { sentiment, sentimentScore } = sentimentHeuristic(title, content);
+    const rawTime = String(it.date || '');
+    const parsed = rawTime ? new Date(rawTime.replace(' ', 'T')) : null;
+    return {
+      id: String(it.code || ''),
+      title,
+      summary: content.length > 120 ? content.slice(0, 120) + '…' : content,
+      source: String(it.mediaName || '东方财富'),
+      url: String(it.url || ''),
+      publishTime: parsed && Number.isFinite(parsed.getTime()) ? parsed.toISOString() : rawTime,
+      category: 'company' as NewsCategory,
+      sentiment,
+      sentimentScore,
+      relatedSymbols: [norm.digits],
+      tags: [],
+      viewCount: 0,
+    };
+  }).filter((i) => i.title);
+  if (items.length === 0) throw new NewsUnavailableError('东财资讯搜索结果为空');
+  return items;
 }
 
 // ==================== 主入口：获取新闻列表 ====================

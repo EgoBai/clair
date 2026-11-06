@@ -478,7 +478,7 @@ const MULTI_MODULE_ROUTES = [
   { path: '/api/margin/overview', allow: ['unavailable'] },
   { path: '/api/event-calendar/events', allow: ['unavailable'] },
   { path: '/api/financials/summary', allow: ['real', 'unavailable'] },
-  { path: '/api/news/research/reports', allow: ['unavailable'] },
+  { path: '/api/news/research/reports', allow: ['real', 'unavailable'] },
   { path: '/api/risk-center/portfolio', allow: ['unavailable'] },
   { path: '/api/strategy-templates', allow: ['static'] },
   { path: '/api/backtest/presets', allow: ['static'] },
@@ -784,13 +784,14 @@ await test('静态配置：strategy-templates 15 条与 presets 5 条，且绝�
   }
 });
 
-await test('P2 诚实空态：4 条无真实源端点全部 200 + unavailable + 中文原因（不是 404、不是 0 值假数据）', async () => {
+await test('P2 诚实空态：3 条无真实源端点全部 200 + unavailable + 中文原因（不是 404、不是 0 值假数据）', async () => {
   // 注：/api/financials/summary 已于 2026-11-01 接入东财 emweb F10 真实源，
   // 不再是「无真实源」，已移出本清单（其契约见「三·四」小节）。
+  // 注：/api/news/research/reports 已于 2026-11-06 接入东财研报真实源，
+  // 同样移出本清单（其契约见「三·五」小节）。
   const paths = [
     '/api/margin/overview',
     '/api/event-calendar/events',
-    '/api/news/research/reports?limit=10',
     '/api/risk-center/portfolio',
   ];
   for (const p of paths) {
@@ -804,6 +805,48 @@ await test('P2 诚实空态：4 条无真实源端点全部 200 + unavailable + 
     if ('overview' in body.data) assert.equal(body.data.overview, null, 'margin overview 必须 null 而不是 0 值对象');
     if ('metrics' in body.data) assert.equal(body.data.metrics, null, 'risk-center 指标必须 null');
   }
+});
+
+// ============================================================
+// 三·五、个股研究：研报 / 公告 / 个股新闻真实源
+//
+// 2026-11-06 接入。三条都必须 200 + dataSource，不得 404；real 时字段
+// 必须完整（标题/链接/日期），unavailable 时必须给中文原因，且 items 为空。
+// 研报与公告是两套真实源；新闻不得用公告冒充。
+// ============================================================
+
+console.log('\n个股研究：研报 / 公告 / 个股新闻');
+
+async function assertResearchItems(path, label) {
+  const { status, body } = await callWorker('https://clair-api.pages.dev' + path);
+  assert.equal(status, 200, label + ' 必须 200（404 会被判成端点未挂载）');
+  assert.ok(['real', 'unavailable'].includes(body.dataSource),
+    label + ' dataSource 应为 real/unavailable，实际 ' + body.dataSource);
+  if (body.dataSource === 'unavailable') {
+    assert.equal(body.success, false, label + ' unavailable 时 success 必须 false');
+    assert.ok(typeof body.message === 'string' && body.message.length > 10, label + ' 必须给中文原因');
+    assert.deepEqual(body.data.items, [], label + ' 不可用时 items 必须为空数组');
+    return;
+  }
+  assert.equal(body.success, true, label + ' real 时 success 必须 true');
+  assert.ok(Array.isArray(body.data.items) && body.data.items.length > 0, label + ' real 时 items 不能为空');
+  for (const item of body.data.items.slice(0, 5)) {
+    assert.ok(typeof item.title === 'string' && item.title.length > 0, label + ' item.title 必填');
+    assert.ok(typeof item.url === 'string' && /^https?:\/\//.test(item.url), label + ' item.url 必须是真实 http 链接');
+    assert.ok(!item.url.includes('#'), label + ' item.url 不得是 # 占位');
+  }
+}
+
+await test('/api/news/research/reports?symbol=600519：200 + real 时研报字段完整', async () => {
+  await assertResearchItems('/api/news/research/reports?symbol=600519&limit=5', '研报');
+});
+
+await test('/api/news/announcements/600519：200 + real 时公告字段完整', async () => {
+  await assertResearchItems('/api/news/announcements/600519?limit=5', '公告');
+});
+
+await test('/api/news/stock-news/600519：200 + real 时个股新闻字段完整（与公告分开）', async () => {
+  await assertResearchItems('/api/news/stock-news/600519?limit=5', '个股新闻');
 });
 
 // ============================================================
