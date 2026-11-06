@@ -15,6 +15,7 @@ import {
   getNews,
   getStockNews,
   getResearchReports,
+  getResearchReportDetail,
   NewsUnavailableError,
   type NewsItem,
   type NewsCategory,
@@ -241,6 +242,35 @@ router.get('/news/research/reports', asyncHandler(async (req: Request, res: Resp
       sendSuccess(res, {
         items: [],
         dataSource: 'unavailable' as const,
+        message: e.message,
+      });
+      return;
+    }
+    throw e;
+  }
+}));
+
+// ==================== 获取单篇研报正文 ====================
+// 真实源：东方财富研报正文页（zwinfo.notice_content）；未知编号 404，
+// 上游不可用返回 dataSource:'unavailable'，绝不用标题/摘要拼正文。
+
+router.get('/news/research/reports/:infoCode', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const detail = await getResearchReportDetail(req.params.infoCode);
+    if (!detail) {
+      res.status(404).json({
+        success: false,
+        code: 'REPORT_NOT_FOUND',
+        error: '未找到该研报：东方财富未返回此编号的正文页。本接口不会编造标题或正文。',
+      });
+      return;
+    }
+    sendSuccess(res, { ...detail, dataSource: 'real' as const });
+  } catch (e) {
+    if (e instanceof NewsUnavailableError) {
+      sendSuccess(res, {
+        dataSource: 'unavailable' as const,
+        paragraphs: [],
         message: e.message,
       });
       return;

@@ -51,6 +51,24 @@ export interface ResearchReport {
   url: string;
 }
 
+/** 单篇研报正文（真实源：东方财富研报正文页 zwinfo.notice_content）。 */
+export interface ResearchReportDetail {
+  id: string;
+  title: string;
+  stockCode: string;
+  stockName: string;
+  orgName: string;
+  authors: string[];
+  publishDate: string;
+  industryName: string;
+  paragraphs: string[];
+  paragraphCount: number;
+  pages: number | null;
+  pdfUrl: string;
+  sourceUrl: string;
+  fetchedAt: string;
+}
+
 const FETCH_TIMEOUT_MS = 8000;
 const NEWS_CACHE_TTL_MS = 60_000; // 60s
 const REPORT_CACHE_TTL_MS = 120_000; // 2min
@@ -389,6 +407,95 @@ export async function getResearchReports(
   } catch (e) {
     if (e instanceof NewsUnavailableError) throw e;
     throw new NewsUnavailableError(e instanceof Error ? e.message : '研报源不可用');
+  }
+}
+
+/**
+ * 解析东方财富研报正文页里的 `var zwinfo={...}`。
+ * 页面参数必须是小写 `infocode`；大写 `infoCode` 会得到 404 页。
+ */
+function parseResearchReportDetailHtml(html: string, infoCode: string): ResearchReportDetail | null {
+  const marker = html.indexOf('var zwinfo=');
+  if (marker < 0) return null;
+  const start = html.indexOf('{', marker);
+  const end = html.indexOf('};', start);
+  if (start < 0 || end < 0 || end <= start) return null;
+  let info: any;
+  try {
+    info = JSON.parse(html.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!info || typeof info !== 'object') return null;
+
+  const paragraphs = String(info.notice_content || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\u3000/g, ' ').replace(/\s+$/g, '').trim())
+    .filter(Boolean);
+  if (!paragraphs.length) return null;
+
+  const security = Array.isArray(info.security) && info.security.length ? info.security[0] : null;
+  const relation = security && Array.isArray(security.publish_relation) && security.publish_relation.length
+    ? security.publish_relation[0]
+    : null;
+  const authors = String(info.researcher || '')
+    .split(/[,，;；]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const pagesRaw = info.attach_pages;
+  const pages = pagesRaw !== null && pagesRaw !== undefined && String(pagesRaw).trim() !== ''
+    ? Number(pagesRaw)
+    : null;
+
+  return {
+    id: String(info.info_code || infoCode),
+    title: String(info.notice_title || '').trim(),
+    stockCode: String((security && security.stock) || ''),
+    stockName: String((security && security.short_name) || info.short_name || '').trim(),
+    orgName: String(info.source_sample_name || '').trim(),
+    authors,
+    publishDate: String(info.notice_date || info.eitime || '').slice(0, 10),
+    industryName: String((relation && relation.publishName) || '').trim(),
+    paragraphs,
+    paragraphCount: paragraphs.length,
+    pages: Number.isFinite(pages) ? pages : null,
+    pdfUrl: String(info.attach_url || '').trim(),
+    sourceUrl: 'https://data.eastmoney.com/report/zw_stock.jshtml?infocode=' + encodeURIComponent(infoCode),
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+async function fetchReportDetailHtml(url: string): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://data.eastmoney.com/report/' },
+    });
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 单篇研报正文（真实源）。
+ * 未知编号 / 页面无正文 → null（路由层 404）；网络或上游 5xx → NewsUnavailableError。
+ */
+export async function getResearchReportDetail(infoCode: string): Promise<ResearchReportDetail | null> {
+  const code = String(infoCode || '').trim();
+  if (!/^[A-Za-z0-9]{6,64}$/.test(code)) return null;
+  const url = 'https://data.eastmoney.com/report/zw_stock.jshtml?infocode=' + encodeURIComponent(code);
+  try {
+    const html = await fetchReportDetailHtml(url);
+    if (!html) return null;
+    return parseResearchReportDetailHtml(html, code);
+  } catch (e) {
+    throw new NewsUnavailableError(e instanceof Error ? e.message : '研报正文源不可用');
   }
 }
 

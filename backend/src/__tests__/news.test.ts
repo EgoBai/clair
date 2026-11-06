@@ -15,6 +15,7 @@ vi.mock('../services/newsDataService', () => ({
   getNews: vi.fn(),
   getStockNews: vi.fn(),
   getResearchReports: vi.fn(),
+  getResearchReportDetail: vi.fn(),
   NewsUnavailableError: class NewsUnavailableError extends Error {
     constructor(msg = '新闻/研报真实源暂不可用') {
       super(msg);
@@ -23,7 +24,7 @@ vi.mock('../services/newsDataService', () => ({
   },
 }));
 
-import { getNews, getStockNews, getResearchReports, NewsUnavailableError } from '../services/newsDataService';
+import { getNews, getStockNews, getResearchReports, getResearchReportDetail, NewsUnavailableError } from '../services/newsDataService';
 import request from 'supertest';
 import express from 'express';
 import newsRouter from '../api/news';
@@ -227,6 +228,60 @@ describe('News API (honest-data)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.dataSource).toBe('unavailable');
       expect(res.body.data.items).toEqual([]);
+    });
+  });
+
+  describe('GET /api/news/research/reports/:infoCode (研报正文)', () => {
+    const detail = {
+      id: 'AP202611041831416424',
+      title: '2026Q3收入同比增长3%',
+      stockCode: '600519',
+      stockName: '贵州茅台',
+      orgName: '国信证券',
+      authors: ['张向伟', '王新雨'],
+      publishDate: '2026-11-04',
+      industryName: '白酒Ⅱ',
+      paragraphs: ['第一段正文', '第二段正文'],
+      paragraphCount: 2,
+      pages: 6,
+      pdfUrl: 'https://pdf.dfcfw.com/pdf/H3_AP202611041831416424_1.pdf',
+      sourceUrl: 'https://data.eastmoney.com/report/zw_stock.jshtml?infocode=AP202611041831416424',
+      fetchedAt: '2026-11-07T00:00:00.000Z',
+    };
+
+    it('真实源可用时返回正文分段、PDF 与来源链接', async () => {
+      (getResearchReportDetail as any).mockResolvedValue(detail);
+      const app = buildApp();
+      const res = await request(app).get('/api/news/research/reports/AP202611041831416424');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('real');
+      expect(res.body.data.paragraphs).toEqual(['第一段正文', '第二段正文']);
+      expect(res.body.data.pdfUrl).toContain('pdf.dfcfw.com');
+      expect(res.body.data.sourceUrl).toContain('infocode=AP202611041831416424');
+      expect(getResearchReportDetail).toHaveBeenCalledWith('AP202611041831416424');
+    });
+
+    it('未知编号返回 404，不编造标题或正文', async () => {
+      (getResearchReportDetail as any).mockResolvedValue(null);
+      const app = buildApp();
+      const res = await request(app).get('/api/news/research/reports/AP000000000000000000');
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+      expect(res.body.code).toBe('REPORT_NOT_FOUND');
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it('上游不可用时诚实空正文，不给假段落', async () => {
+      (getResearchReportDetail as any).mockRejectedValue(new NewsUnavailableError('研报正文源不可用'));
+      const app = buildApp();
+      const res = await request(app).get('/api/news/research/reports/AP202611041831416424');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.dataSource).toBe('unavailable');
+      expect(res.body.data.paragraphs).toEqual([]);
+      expect(res.body.data.message).toBe('研报正文源不可用');
     });
   });
 
