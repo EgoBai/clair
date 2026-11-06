@@ -4,10 +4,10 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Typography, Breadcrumb, Card, Row, Col, Space, Tag, Alert,
-  Spin, Button, Segmented, Divider, Tooltip, Skeleton,
+  Spin, Button, Segmented, Divider, Tooltip, Skeleton, Tabs,
 } from 'antd';
 
 const { Paragraph } = Typography;
@@ -27,9 +27,21 @@ import { getNthTradingDay, countTradingDays } from '../utils/tradingCalendarEngi
 import MultiSignalPanel from '../components/AI/MultiSignalPanel';
 import ValuationPanel from '../components/valuation/ValuationPanel';
 import CapitalFlowPanel from '../components/Market/CapitalFlowPanel';
+import {
+  StockFinancialsPanel,
+  StockResearchReportsPanel,
+  StockAnnouncementsPanel,
+  StockNewsPanel,
+} from '../components/Stock/StockResearchPanels';
 import { useGamificationStore } from '../store/useGamificationStore';
 
 const { Title, Text } = Typography;
+
+/** 个股详情 tab：概览保留原有全部区块，其余为研究与披露数据。 */
+const STOCK_TAB_KEYS = ['overview', 'financials', 'valuation', 'reports', 'announcements', 'news'] as const;
+type StockTabKey = (typeof STOCK_TAB_KEYS)[number];
+const isStockTabKey = (value: string | null): value is StockTabKey =>
+  !!value && (STOCK_TAB_KEYS as readonly string[]).includes(value);
 
 // 游戏化埋点：查看个股详情（每个不同标的仅记一次，防 StrictMode 重复计数）
 const VIEWED_STOCKS = new Set<string>();
@@ -90,6 +102,16 @@ interface QuoteData {
 const StockDetailPage: React.FC = () => {
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: StockTabKey = isStockTabKey(tabParam) ? tabParam : 'overview';
+  const handleTabChange = useCallback((key: string) => {
+    const next = new URLSearchParams(searchParams);
+    // overview 是默认页：不带参数能让链接更短，也避免 ?tab=overview 与裸链接并存
+    if (key === 'overview') next.delete('tab');
+    else next.set('tab', key);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   const watchlist = useWatchlist();
   const { toggleWatchlist } = useStockActions();
 
@@ -500,6 +522,16 @@ const StockDetailPage: React.FC = () => {
           </Row>
         </Card>
 
+        <Tabs
+          activeKey={activeTab}
+          onChange={handleTabChange}
+          destroyInactiveTabPane
+          items={[
+            {
+              key: 'overview',
+              label: '概览',
+              children: (
+                <>
         {/* ===== 关键指标 ===== */}
         {latestQuote && (
           <Card
@@ -552,9 +584,6 @@ const StockDetailPage: React.FC = () => {
             />
           </Card>
         )}
-
-        {/* ===== 估值分析 (S2-1) ===== */}
-        {symbol && <ValuationPanel symbol={symbol} />}
 
         {/* ===== K线图 ===== */}
         <Card
@@ -1030,6 +1059,36 @@ const StockDetailPage: React.FC = () => {
             </Row>
           </Card>
         )}
+                </>
+              ),
+            },
+            {
+              key: 'financials',
+              label: '财务',
+              children: symbol ? <StockFinancialsPanel symbol={symbol} /> : null,
+            },
+            {
+              key: 'valuation',
+              label: '估值',
+              children: symbol ? <ValuationPanel symbol={symbol} /> : null,
+            },
+            {
+              key: 'reports',
+              label: '研报',
+              children: symbol ? <StockResearchReportsPanel symbol={symbol} /> : null,
+            },
+            {
+              key: 'announcements',
+              label: '公告',
+              children: symbol ? <StockAnnouncementsPanel symbol={symbol} /> : null,
+            },
+            {
+              key: 'news',
+              label: '新闻',
+              children: symbol ? <StockNewsPanel symbol={symbol} /> : null,
+            },
+          ]}
+        />
       </Spin>
     </div>
   );
