@@ -84,8 +84,8 @@ export function formatValuationMarketCap(yuan: number | null | undefined): strin
 /** 分位高=相对历史更贵。只做区间描述，不据此给买卖建议。 */
 function percentileLabel(p: number | null): { text: string; color: string } | null {
   if (p === null || !Number.isFinite(p)) return null;
-  if (p >= 80) return { text: '历史偏高', color: '#cf2a2a' };
-  if (p <= 20) return { text: '历史偏低', color: '#1db468' };
+  if (p >= 80) return { text: '历史偏高', color: 'var(--color-up)' };
+  if (p <= 20) return { text: '历史偏低', color: 'var(--color-down)' };
   return { text: '历史中位', color: TEXT_SECONDARY };
 }
 
@@ -207,7 +207,7 @@ const ValuationPanel: React.FC<{ symbol: string }> = ({ symbol }) => {
               value={fmt(data.pePercentile3y, 1, '%')}
               hint={`逐日使用当日已披露的最近年报 EPS（报告期次年 4 月底生效），近 3 年收盘价的年报口径近似分位，样本 ${data.pePercentileSampleCount ?? MISSING} 个交易日`}
             />
-            {peTag && <Tag style={{ fontSize: 10, color: peTag.color, borderColor: peTag.color }}>{peTag.text}</Tag>}
+            {peTag && <Tag style={{ fontSize: 10, color: peTag.color, background: 'transparent', borderColor: peTag.color }}>{peTag.text}</Tag>}
           </Col>
           <Col xs={12} sm={6}>
             <StatCell
@@ -215,7 +215,7 @@ const ValuationPanel: React.FC<{ symbol: string }> = ({ symbol }) => {
               value={fmt(data.pbPercentile3y, 1, '%')}
               hint={`逐日使用当日已披露的最近年报 BPS（报告期次年 4 月底生效），近 3 年收盘价的年报口径近似分位，样本 ${data.pbPercentileSampleCount ?? MISSING} 个交易日`}
             />
-            {pbTag && <Tag style={{ fontSize: 10, color: pbTag.color, borderColor: pbTag.color }}>{pbTag.text}</Tag>}
+            {pbTag && <Tag style={{ fontSize: 10, color: pbTag.color, background: 'transparent', borderColor: pbTag.color }}>{pbTag.text}</Tag>}
           </Col>
           <Col xs={12} sm={6}><StatCell label="EPS / BPS（最新年报）" value={`${fmt(data.eps)} / ${fmt(data.bps)}`} hint={data.reportDate ? `报告期 ${data.reportDate}` : '年报指标缺失'} /></Col>
           <Col xs={12} sm={6}><StatCell label="ROE / 净利同比" value={`${fmt(data.roe, 1, '%')} / ${fmt(data.profitGrowth, 1, '%')}`} /></Col>

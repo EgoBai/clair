@@ -48,6 +48,11 @@ function buildClairTheme(): ThemeConfig {
   const up = cssVar('--color-up', '#EF4444');
   const down = cssVar('--color-down', '#22C55E');
   const warning = cssVar('--color-warning', '#F59E0B');
+  const warningBg = cssVar('--color-warning-bg', 'rgba(180, 83, 9, 0.08)');
+  const errorBg = cssVar('--color-error-bg', 'rgba(244, 63, 94, 0.12)');
+  const downBg = cssVar('--color-down-bg', 'rgba(34, 197, 94, 0.12)');
+  const accentLight = cssVar('--accent-light', 'rgba(59, 130, 246, 0.12)');
+  const textOnAccent = cssVar('--text-on-accent', '#ffffff');
 
   return {
     algorithm: antdTheme.defaultAlgorithm,
@@ -57,6 +62,18 @@ function buildClairTheme(): ThemeConfig {
       colorSuccess: down,
       colorError: up,
       colorWarning: warning,
+      // antd defaultAlgorithm 按浅色推导 preset 背景；暗色下必须显式映射，否则 Alert/Tag
+      // 会出现浅底浅字（实测 AI 诊断 Alert 对比度 1.15:1）。
+      colorWarningBg: warningBg,
+      colorWarningBorder: warning,
+      colorErrorBg: errorBg,
+      colorErrorBorder: up,
+      colorSuccessBg: downBg,
+      colorSuccessBorder: down,
+      colorInfoBg: accentLight,
+      colorInfoBorder: primary,
+      // 主色实心按钮上的文字：暗色 #3b82f6 配白字仅 3.68:1，改读主题的 on-accent
+      colorTextLightSolid: textOnAccent,
       borderRadius: cssVarPx('--radius-md', 10),
       fontFamily: cssVar('--font-body', FALLBACK_FONT),
 

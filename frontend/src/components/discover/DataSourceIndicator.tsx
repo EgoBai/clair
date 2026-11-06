@@ -120,13 +120,15 @@ function formatTs(ts: string | null): string {
   return d.toLocaleString('zh-CN', { hour12: false });
 }
 
-const KIND_STYLE: Record<Exclude<SourceKind, 'live'>, { color: string; text: string }> = {
-  stale: { color: '#f59e0b', text: '缓存数据' },
-  demo: { color: '#f59e0b', text: '演示数据' },
-  unavailable: { color: '#ef4444', text: '数据不可用' },
-  loading: { color: '#64748b', text: '加载中' },
+interface KindStyle { color: string; bg: string; border: string; text: string }
+
+const KIND_STYLE: Record<Exclude<SourceKind, 'live'>, KindStyle> = {
+  stale: { color: 'var(--color-warning)', bg: 'var(--color-warning-bg)', border: 'var(--color-warning)', text: '缓存数据' },
+  demo: { color: 'var(--color-warning)', bg: 'var(--color-warning-bg)', border: 'var(--color-warning)', text: '演示数据' },
+  unavailable: { color: 'var(--color-error)', bg: 'var(--color-error-bg)', border: 'var(--color-error)', text: '数据不可用' },
+  loading: { color: 'var(--text-tertiary)', bg: 'var(--bg-tertiary)', border: 'var(--border-default)', text: '加载中' },
   // 上游只返回了部分字段（如行业板块覆盖率不足）：数值真实但不完备，必须显性标注。
-  partial: { color: '#f59e0b', text: '部分数据' },
+  partial: { color: 'var(--color-warning)', bg: 'var(--color-warning-bg)', border: 'var(--color-warning)', text: '部分数据' },
 };
 
 /**
@@ -137,7 +139,7 @@ const KIND_STYLE: Record<Exclude<SourceKind, 'live'>, { color: string; text: str
  * cfg.color 抛 TypeError → ErrorBoundary 把整个「发掘」页替换成「渲染出错」。
  * 兜底后即便后端新增来源枚举，角标最差显示「数据不可用」，绝不再整页崩掉。
  */
-const FALLBACK_STYLE = { color: '#ef4444', text: '数据不可用' };
+const FALLBACK_STYLE: KindStyle = { color: 'var(--color-error)', bg: 'var(--color-error-bg)', border: 'var(--color-error)', text: '数据不可用' };
 
 /** 单个卡片/表格上的「演示数据 / 缓存数据 / 数据不可用」角标 */
 export const DataSourceBadge: React.FC<{ state?: DataSourceState; compact?: boolean }> = ({ state, compact }) => {
@@ -155,9 +157,9 @@ export const DataSourceBadge: React.FC<{ state?: DataSourceState; compact?: bool
           display: 'inline-flex', alignItems: 'center', gap: 3,
           fontSize: compact ? 9 : 10, fontWeight: 700, lineHeight: '16px',
           padding: compact ? '0 4px' : '0 6px', borderRadius: 4, cursor: 'help',
-          background: cfg.color + '1f',
+          background: cfg.bg,
           color: cfg.color,
-          border: `1px solid ${cfg.color}59`,
+          border: `1px solid ${cfg.border}`,
           whiteSpace: 'nowrap',
         }}
       >
@@ -189,7 +191,8 @@ export const DataSourceBanner: React.FC<{
 
   const hasUnavailable = bad.some(e => e.state.kind === 'unavailable');
   const hasDemo = bad.some(e => e.state.kind === 'demo');
-  const accent = hasUnavailable ? '#ef4444' : '#f59e0b';
+  const accent = hasUnavailable ? 'var(--color-error)' : 'var(--color-warning)';
+  const accentBg = hasUnavailable ? 'var(--color-error-bg)' : 'var(--color-warning-bg)';
 
   const title = hasUnavailable
     ? '部分数据不可用 — 页面内容不完整'
@@ -201,10 +204,10 @@ export const DataSourceBanner: React.FC<{
     <Alert
       banner={false}
       showIcon={false}
-      // 暗色系警示：半透明底 + 彩色描边，严禁 antd 默认白底
+      // 警示色走设计令牌，明暗主题各自取背景/描边；不用 antd 默认白底
       style={{
-        background: accent + '1a',
-        border: `1px solid ${accent}66`,
+        background: accentBg,
+        border: `1px solid ${accent}`,
         borderRadius: 10,
         marginBottom: 16,
         padding: '10px 14px',
@@ -221,7 +224,7 @@ export const DataSourceBanner: React.FC<{
             style={{
               marginLeft: 'auto',
               background: 'transparent',
-              borderColor: accent + '99',
+              borderColor: accent,
               color: accent,
               borderRadius: 6,
               fontSize: 12,
@@ -253,7 +256,7 @@ export const DimLoadingPlaceholder: React.FC<{ width?: number }> = ({ width = 46
   <span
     style={{
       display: 'inline-block', width, height: 16, borderRadius: 3,
-      background: 'linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%)',
+      background: 'linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%)',
       backgroundSize: '200% 100%', animation: 'skeleton-shimmer 1.5s infinite',
     }}
   />

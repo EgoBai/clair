@@ -45,6 +45,14 @@ const TEXT_PRIMARY = THEME.text;
 const TEXT_SECONDARY = THEME.textSec;
 const BORDER = THEME.border;
 
+/** AI 评分色阶：只走设计令牌，避免暗/亮主题各自一套 hex */
+type ScoreTone = { fg: string; bg: string; border: string };
+const scoreTone = (score: number): ScoreTone => {
+  if (score >= 70) return { fg: 'var(--color-down)', bg: 'var(--color-down-bg)', border: 'var(--color-down)' };
+  if (score >= 50) return { fg: 'var(--color-warning)', bg: 'var(--color-warning-bg)', border: 'var(--color-warning)' };
+  return { fg: 'var(--color-up)', bg: 'var(--color-up-bg)', border: 'var(--color-up)' };
+};
+
 interface StockInfo {
   symbol: string;
   name: string;
@@ -379,7 +387,7 @@ const StockDetailPage: React.FC = () => {
           styles={{ body: { padding: '16px 24px' } }}
         >
           <Row align="middle" gutter={24}>
-            <Col xs={24} md={7}>
+            <Col xs={24} lg={6}>
               <Space direction="vertical" size={2}>
                 <Space align="center" size={8}>
                   <Title level={4} style={{ margin: 0, color: TEXT_PRIMARY }}>
@@ -393,7 +401,7 @@ const StockDetailPage: React.FC = () => {
                   )}
                   <Tooltip title={isInWatchlist ? '取消自选' : '加入自选'}>
                     <Button type="text" size="small"
-                      icon={isInWatchlist ? <StarFilled style={{ color: '#f59e0b' }} /> : <StarOutlined />}
+                      icon={isInWatchlist ? <StarFilled style={{ color: 'var(--color-warning)' }} /> : <StarOutlined />}
                       onClick={() => symbol && toggleWatchlist(symbol)} />
                   </Tooltip>
                 </Space>
@@ -404,7 +412,7 @@ const StockDetailPage: React.FC = () => {
                       type="link"
                       size="small"
                       icon={<CompassOutlined />}
-                      style={{ fontSize: 12, padding: 0, color: '#1890ff' }}
+                      style={{ fontSize: 12, padding: 0, color: 'var(--accent-solid)' }}
                       onClick={() => {
                         const industryParam = encodeURIComponent(stockInfo.industry ?? '');
                         navigate(`/industry-map?industry=${industryParam}`);
@@ -417,7 +425,7 @@ const StockDetailPage: React.FC = () => {
               </Space>
             </Col>
 
-            <Col xs={24} md={11}>
+            <Col xs={24} lg={9}>
               {latestQuote ? (
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 38, fontWeight: 800, color: changeColor, lineHeight: 1, fontFamily: '\'DIN Alternate\', monospace' }}>
@@ -481,13 +489,13 @@ const StockDetailPage: React.FC = () => {
               })()}
             </Col>
 
-            <Col xs={24} md={6} style={{ textAlign: 'right' }}>
-              <Space>
-                <Button icon={<ReloadOutlined />} onClick={() => { fetchStockData(); fetchKlineData(); }}>刷新</Button>
-                <Button type="primary" icon={<FundProjectionScreenOutlined />} onClick={() => navigate(`/backtest?symbol=${displaySymbol}`)} style={{ background: '#2563eb', borderColor: '#2563eb' }}>📊 回测</Button>
-                <Button icon={<LineChartOutlined />} onClick={() => navigate(`/financials/${displaySymbol}`)}>📈 财务三表</Button>
-                <Button icon={<LineChartOutlined />} onClick={() => navigate('/stocks')}>返回列表</Button>
-              </Space>
+            <Col xs={24} lg={9} style={{ textAlign: 'right' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => { fetchStockData(); fetchKlineData(); }}>刷新</Button>
+                <Button size="small" type="primary" icon={<FundProjectionScreenOutlined />} onClick={() => navigate(`/backtest?symbol=${displaySymbol}`)}>回测</Button>
+                <Button size="small" icon={<LineChartOutlined />} onClick={() => navigate(`/financials/${displaySymbol}`)}>财务三表</Button>
+                <Button size="small" icon={<LineChartOutlined />} onClick={() => navigate('/stocks')}>返回列表</Button>
+              </div>
             </Col>
           </Row>
         </Card>
@@ -595,8 +603,8 @@ const StockDetailPage: React.FC = () => {
                       fontSize: 11,
                       padding: '0 8px',
                       ...(subIndicator === ind && {
-                        background: ind === 'volume' ? '#3b82f6' : ind === 'macd' ? '#f59e0b' : ind === 'kdj' ? '#8b5cf6' : '#ec4899',
-                        borderColor: ind === 'volume' ? '#3b82f6' : ind === 'macd' ? '#f59e0b' : ind === 'kdj' ? '#8b5cf6' : '#ec4899',
+                        background: 'var(--accent-solid)',
+                        borderColor: 'var(--accent-solid)',
                       }),
                     }}>
                     {ind === 'volume' ? '成交量' : ind.toUpperCase()}
@@ -658,7 +666,7 @@ const StockDetailPage: React.FC = () => {
                 <style>{`
                   .kline-fullscreen {
                     position: fixed; inset: 0; z-index: 9999;
-                    background: #0f172a; padding: 16px;
+                    background: var(--bg-base); padding: 16px;
                     display: flex; flex-direction: column;
                     margin: 0; border-radius: 0;
                   }
@@ -864,12 +872,12 @@ const StockDetailPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
                 <div style={{
                   width: 64, height: 64, borderRadius: 32,
-                  background: aiDiagnosis.totalScore >= 70 ? '#22c55e20' : aiDiagnosis.totalScore >= 50 ? '#f59e0b20' : '#ef444420',
-                  border: `2px solid ${aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444'}`,
+                  background: scoreTone(aiDiagnosis.totalScore).bg,
+                  border: `2px solid ${scoreTone(aiDiagnosis.totalScore).border}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   flexDirection: 'column',
                 }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: aiDiagnosis.totalScore >= 70 ? '#22c55e' : aiDiagnosis.totalScore >= 50 ? '#f59e0b' : '#ef4444', fontFamily: 'monospace' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: scoreTone(aiDiagnosis.totalScore).fg, fontFamily: 'monospace' }}>
                     {aiDiagnosis.totalScore}
                   </div>
                   <div style={{ fontSize: 9, color: TEXT_SECONDARY }}>分</div>
@@ -883,9 +891,9 @@ const StockDetailPage: React.FC = () => {
               {/* 维度分数 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8, marginBottom: 16 }}>
                 {aiDiagnosis.dimensions?.map((d: any, i: number) => (
-                  <div key={i} style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 8, padding: '10px 12px' }}>
+                  <div key={i} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>{d.name}</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: d.score >= 70 ? '#22c55e' : d.score >= 50 ? '#f59e0b' : '#ef4444', fontFamily: 'monospace' }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: scoreTone(d.score).fg, fontFamily: 'monospace' }}>
                       {d.score}
                     </div>
                   </div>
@@ -895,7 +903,7 @@ const StockDetailPage: React.FC = () => {
               {/* 优势 */}
               {aiDiagnosis.strengths?.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#22c55e', marginBottom: 6 }}>✅ 优势</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-down)', marginBottom: 6 }}>✅ 优势</div>
                   {aiDiagnosis.strengths.map((s: string, i: number) => (
                     <div key={i} style={{ fontSize: 12, color: TEXT_PRIMARY, padding: '3px 0', paddingLeft: 12 }}>• {s}</div>
                   ))}
@@ -905,7 +913,7 @@ const StockDetailPage: React.FC = () => {
               {/* 风险 */}
               {aiDiagnosis.risks?.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#ef4444', marginBottom: 6 }}>⚠️ 风险</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-up)', marginBottom: 6 }}>⚠️ 风险</div>
                   {aiDiagnosis.risks.map((r: string, i: number) => (
                     <div key={i} style={{ fontSize: 12, color: TEXT_PRIMARY, padding: '3px 0', paddingLeft: 12 }}>• {r}</div>
                   ))}
@@ -915,7 +923,7 @@ const StockDetailPage: React.FC = () => {
               {/* 建议 */}
               {aiDiagnosis.suggestions?.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#3b82f6', marginBottom: 6 }}>💡 建议</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-solid)', marginBottom: 6 }}>💡 建议</div>
                   {aiDiagnosis.suggestions.map((s: string, i: number) => (
                     <div key={i} style={{ fontSize: 12, color: TEXT_PRIMARY, padding: '3px 0', paddingLeft: 12 }}>• {s}</div>
                   ))}
@@ -933,7 +941,7 @@ const StockDetailPage: React.FC = () => {
         {/* ===== 策略分析 (客户端) ===== */}
         {klineData.length >= 20 && (() => {
           const strategy = analyze(klineData);
-          const trendColors = { up: COLOR_UP, down: COLOR_DOWN, sideways: '#f59e0b' };
+          const trendColors = { up: COLOR_UP, down: COLOR_DOWN, sideways: 'var(--color-warning)' };
           const trendLabels = { up: '上升趋势', down: '下降趋势', sideways: '横盘整理' };
           return (
             <Card

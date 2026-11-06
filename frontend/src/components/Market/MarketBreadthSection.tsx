@@ -47,9 +47,9 @@ const BORDER = 'var(--border-default)';
 const TEXT = 'var(--text-primary)';
 const TEXT_SEC = 'var(--text-secondary)';
 /** 涨红跌绿（A 股口径） */
-const COLOR_UP = '#ef4444';
-const COLOR_DOWN = '#22c55e';
-const WARN = '#f59e0b';
+const COLOR_UP = 'var(--color-up)';
+const COLOR_DOWN = 'var(--color-down)';
+const WARN = 'var(--color-warning)';
 
 // 后端可能缺字段（data.advancing 等为 undefined/null），如实显示「—」，绝不回落 0 冒充真实
 const fmtInt = (n: number | null | undefined): string =>
@@ -183,7 +183,7 @@ export const MarketBreadthSection: React.FC = () => {
             <Tooltip title={`上涨 ${data.advancing} 家（${upPct.toFixed(1)}%）`}>
               <div style={{
                 width: `${upPct}%`, background: COLOR_UP, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', color: '#fff', fontSize: 11,
+                justifyContent: 'center', color: 'var(--text-inverse)', fontSize: 11,
               }}>
                 {upPct > 10 && `涨 ${data.advancing}`}
               </div>
@@ -199,7 +199,7 @@ export const MarketBreadthSection: React.FC = () => {
             <Tooltip title={`下跌 ${data.declining} 家（${downPct.toFixed(1)}%）`}>
               <div style={{
                 width: `${downPct}%`, background: COLOR_DOWN, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', color: '#fff', fontSize: 11,
+                justifyContent: 'center', color: 'var(--text-inverse)', fontSize: 11,
               }}>
                 {downPct > 10 && `跌 ${data.declining}`}
               </div>

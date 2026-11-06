@@ -24,12 +24,13 @@ import { loadMultidimAll } from '../components/discover/loadMultidimBatched';
 import MarketSentiment from '../components/Market/MarketSentiment';
 import MarketBreadthSection from '../components/Market/MarketBreadthSection';
 const EChartsWrapper = React.lazy(() => import('../components/Charts/EChartsWrapper'));
-import { THEME, GOLD } from '../styles/theme-constants';
+import { THEME } from '../styles/theme-constants';
 const BG = THEME.bg;
 const CARD_BG = THEME.cardBg;
 const BORDER = THEME.border;
 const TEXT = THEME.text;
 const TEXT_SEC = THEME.textSec;
+const WARN = 'var(--color-warning)';
 const COLOR_UP = THEME.up;
 const COLOR_DOWN = THEME.down;
 const ACCENT = THEME.accent;
@@ -291,8 +292,18 @@ const getDimColor = (score: number, polarity: DimPolarity = 'positive'): string 
   const scale = polarity === 'negative' ? [...HEAT_COLORS].reverse() : HEAT_COLORS;
   return scale[t];
 };
-const getDimBg = (score: number, polarity: DimPolarity = 'positive'): string => getDimColor(score, polarity) + '18';
-const getDimBorder = (score: number, polarity: DimPolarity = 'positive'): string => getDimColor(score, polarity) + '40';
+// ECharts canvas 只吃 hex，HTML 角标必须走主题令牌；同一套分档，不能拼接透明度。
+const DIM_TONES = [
+  { color: 'var(--color-error)', bg: 'var(--color-error-bg)', border: 'var(--color-error)' },
+  { color: 'var(--color-warning)', bg: 'var(--color-warning-bg)', border: 'var(--color-warning)' },
+  { color: 'var(--color-down)', bg: 'var(--color-down-bg)', border: 'var(--color-down)' },
+  { color: 'var(--accent-solid)', bg: 'var(--accent-light)', border: 'var(--accent-border)' },
+] as const;
+const getDimTone = (score: number, polarity: DimPolarity = 'positive') => {
+  const t = score <= 5 ? 0 : score <= 10 ? 1 : score <= 15 ? 2 : 3;
+  const scale = polarity === 'negative' ? [...DIM_TONES].reverse() : DIM_TONES;
+  return scale[t];
+};
 
 const DiscoverPage: React.FC = () => {
   const navigate = useNavigate();
@@ -532,7 +543,7 @@ const DiscoverPage: React.FC = () => {
 
   const formatBig = (n: number) => n >= 1e8 ? (n / 1e8).toFixed(1) + '亿' : n >= 1e4 ? (n / 1e4).toFixed(1) + '万' : String(n);
 
-  const scoreColor = (s: number) => s >= 70 ? '#22c55e' : s >= 45 ? '#f59e0b' : s >= 25 ? '#f97316' : '#6b7280';
+  const scoreColor = (s: number) => s >= 70 ? 'var(--color-down)' : s >= 45 ? 'var(--color-warning)' : s >= 25 ? 'var(--color-warning)' : 'var(--text-tertiary)';
   const scoreLabel = (s: number) => s >= 70 ? '高景气' : s >= 45 ? '较活跃' : s >= 25 ? '一般' : '冷门';
 
   // 板块涨跌口径（原「板块宽度」卡已升级为 MarketSentiment 个股情绪卡）
@@ -782,7 +793,7 @@ const DiscoverPage: React.FC = () => {
             维度 × 板块 · 14 个多因子维度(0-20) · 行尾标注 景气/拥挤 汇总分(0-100) · 行序与左侧列表完全一致
           </div>
           <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>
-            <span style={{ color: '#22c55e' }}>景气/机会类</span>：红(低)→蓝(高) ·
+            <span style={{ color: 'var(--color-down)' }}>景气/机会类</span>：红(低)→蓝(高) ·
             <span style={{ color: '#ef4444' }}> 风险类(拥挤/散户/波动等)</span>：蓝(低)→红(高=风险)
           </div>
         </div>
@@ -849,9 +860,10 @@ const DiscoverPage: React.FC = () => {
               if (!dim) return null;
               const label = DIM_SHORT[k] || k;
               const polarity = DIM_BY_KEY[k].polarity;
+              const tone = getDimTone(dim.score, polarity);
               return (
                 <Tag key={k} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px',
-                  background: getDimBg(dim.score, polarity), color: getDimColor(dim.score, polarity), border: `1px solid ${getDimBorder(dim.score, polarity)}` }}>
+                  background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
                   {label}{dim.score}
                 </Tag>
               );
@@ -859,8 +871,8 @@ const DiscoverPage: React.FC = () => {
                 </div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: '#22c55e' }}>景{getBoomScore(item) ?? '—'}</div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: '#f59e0b' }}>拥{getCrowdingScore(item) ?? '—'}</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--color-down)' }}>景{getBoomScore(item) ?? '—'}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: WARN }}>拥{getCrowdingScore(item) ?? '—'}</div>
               </div>
             </div>
           ))}
@@ -896,7 +908,7 @@ const DiscoverPage: React.FC = () => {
             {(s.limit_up_count ?? 0) > 0 && <Tag color="red" style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>🔥{s.limit_up_count}涨停</Tag>}
             <Button
               type="link" size="small" icon={<ApartmentOutlined />}
-              style={{ fontSize: 10, padding: 0, color: '#1890ff' }}
+              style={{ fontSize: 10, padding: 0, color: 'var(--accent-solid)' }}
               onClick={(e) => { e.stopPropagation(); navigate(`/industry-map?industry=${encodeURIComponent(s.industry)}`); }}
             >产业链</Button>
           </div>
@@ -942,12 +954,13 @@ const DiscoverPage: React.FC = () => {
                 const formula = DIM_FORMULAS[key] || '';
                 const score = dim.score;
                 const polarity = DIM_BY_KEY[key].polarity;
+                const tone = getDimTone(score, polarity);
                 return (
                   <Tooltip key={key} title={<div style={{ whiteSpace: 'pre-line' }}>{`${label}: ${dim.label}\n分数: ${score}/20${formula ? '\n公式: '+formula : ''}`}</div>}>
                     <span style={{
                       fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 600,
-                      background: getDimBg(score, polarity), color: getDimColor(score, polarity),
-                      border: `1px solid ${getDimBorder(score, polarity)}`, cursor: 'help',
+                      background: tone.bg, color: tone.color,
+                      border: `1px solid ${tone.border}`, cursor: 'help',
                     }}>
                       {label.slice(0, 2)}{score}/20
                     </span>
@@ -959,8 +972,8 @@ const DiscoverPage: React.FC = () => {
               <Tooltip title={`景气度: ${getBoomScore(md) ?? '—'}/100 (扩散+回补+动量仓位+搜索+传播)`}>
                 <span style={{
                   fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 700,
-                  background: '#22c55e18', color: '#22c55e',
-                  border: '1px solid #22c55e40',
+                  background: 'var(--color-down-bg)', color: 'var(--color-down)',
+                  border: '1px solid var(--color-down)',
                 }}>
                   📈{getBoomScore(md) ?? '—'}
                 </span>
@@ -968,8 +981,8 @@ const DiscoverPage: React.FC = () => {
               <Tooltip title={`拥挤度: ${getCrowdingScore(md) ?? '—'}/100 (拥挤度+集中度+Z值+杠杆+恐慌+基金流向)`}>
                 <span style={{
                   fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 700,
-                  background: '#f59e0b18', color: '#f59e0b',
-                  border: '1px solid #f59e0b40',
+                  background: 'var(--color-warning-bg)', color: WARN,
+                  border: '1px solid var(--color-warning)',
                 }}>
                   🔥{getCrowdingScore(md) ?? '—'}
                 </span>
@@ -1149,7 +1162,7 @@ const DiscoverPage: React.FC = () => {
                       <div style={{ fontSize: 10, color: TEXT_SEC }}>上涨占比</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: '#22c55e' }}>{realLimitUp}</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--color-up)' }}>{realLimitUp}</div>
                       <div style={{ fontSize: 10, color: TEXT_SEC }}>涨停</div>
                     </div>
                   </div>
@@ -1187,7 +1200,7 @@ const DiscoverPage: React.FC = () => {
                   <MarketTemperatureGauge temperature={pulse.temperature} />
                   <div style={{ fontSize: 12, color: TEXT_SEC, lineHeight: 1.8 }}>
                     <div>上涨 <b style={{ color: COLOR_UP }}>{pulse.breadth?.rising ?? '—'}</b> / 下跌 <b style={{ color: COLOR_DOWN }}>{pulse.breadth?.falling ?? '—'}</b>（占比 {pulse.breadth?.risingRatio ?? '—'}%）</div>
-                    <div>涨停 <b style={{ color: '#f59e0b' }}>{pulse.limitUp ?? '—'}</b> 只</div>
+                    <div>涨停 <b style={{ color: WARN }}>{pulse.limitUp ?? '—'}</b> 只</div>
                   </div>
                 </div>
                 <div style={{ fontSize: 12, color: TEXT_SEC, marginBottom: 6 }}>资金主线行业</div>
@@ -1538,7 +1551,7 @@ const DiscoverPage: React.FC = () => {
                       <Tooltip title="上涨广度（权重25%）：上涨个股数 ÷ 总个股数 ×100">
                         <span>上涨广度 {selectedSector.breadthScore}分</span>
                       </Tooltip>
-                      <Progress percent={selectedSector.breadthScore} showInfo={false} size="small" strokeColor={GOLD} style={{ width: 60 }} />
+                      <Progress percent={selectedSector.breadthScore} showInfo={false} size="small" strokeColor={WARN} style={{ width: 60 }} />
                     </div>
                   </div>
                   <div className="sector-detail-actions">
@@ -1557,7 +1570,7 @@ const DiscoverPage: React.FC = () => {
                 locale={{ emptyText: <Empty description="暂无数据" /> }}
                 columns={[
                   { title: '#', width: 45, render: (_: any, __: any, i: number) => (
-                    <span style={{ color: i < 3 ? GOLD : TEXT_SEC, fontWeight: 700 }}>{i + 1}</span>
+                    <span style={{ color: i < 3 ? WARN : TEXT_SEC, fontWeight: 700 }}>{i + 1}</span>
                   )},
                   { title: '代码', dataIndex: 'symbol', width: 95, render: (v: string) => (
                     <a onClick={() => navigate(`/stocks/${v}`)} style={{ color: ACCENT, fontWeight: 600, fontFamily: 'monospace', cursor: 'pointer' }}>{v.replace(/\.(SH|SZ)$/, '')}</a>
@@ -1571,7 +1584,7 @@ const DiscoverPage: React.FC = () => {
                   { title: '换手率', dataIndex: 'turnoverRate', align: 'right' as const, width: 75, render: (v?: number) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v?.toFixed(2) ?? '-'}%</span> },
                   { title: 'PE', dataIndex: 'peRatio', align: 'right' as const, width: 65, render: (v?: number) => <span style={{ color: TEXT_SEC, fontSize: 12 }}>{v?.toFixed(1) ?? '-'}</span> },
                   { title: '', width: 40, render: (_: any, r: StockData) => (
-                    <StarOutlined style={{ color: GOLD, cursor: 'pointer', fontSize: 15, background: 'rgba(245,158,11,0.12)', borderRadius: 4, padding: '2px 3px' }}
+                    <StarOutlined style={{ color: WARN, cursor: 'pointer', fontSize: 15, background: 'var(--color-warning-bg)', borderRadius: 4, padding: '2px 3px' }}
                       onClick={e => {
                         e.stopPropagation();
                         try {

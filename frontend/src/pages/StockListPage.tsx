@@ -86,7 +86,7 @@ const StockListPage: React.FC = () => {
   const columns: ColumnsType<Stock> = [
     {
       title: '代码', dataIndex: 'symbol', key: 'symbol', width: 100, sorter: true,
-      render: (v: string) => <Link to={`/stocks/${v}`} style={{ color: '#2563eb', fontWeight: 600, fontFamily: 'monospace' }}>{v}</Link>,
+      render: (v: string) => <Link to={`/stocks/${v}`} style={{ color: 'var(--accent-solid)', fontWeight: 600, fontFamily: 'monospace' }}>{v}</Link>,
     },
     {
       title: '名称', dataIndex: 'name', key: 'name', width: 110, sorter: true,
@@ -100,13 +100,21 @@ const StockListPage: React.FC = () => {
     },
     {
       title: '涨跌幅', dataIndex: 'changePercent', key: 'changePercent', width: 105, sorter: true, align: 'right',
-      render: (v: number | null) => (v === null
-        ? <Dash title="上游未返回该标的行情" />
-        : (
-          <Tag color={v >= 0 ? 'red' : 'green'} style={{ fontWeight: 700, minWidth: 72, textAlign: 'center', fontFamily: 'monospace', fontSize: 13, borderRadius: 4 }}>
-            {v >= 0 ? '+' : ''}{v.toFixed(2)}%
+      render: (v: number | null) => {
+        if (v === null) return <Dash title="上游未返回该标的行情" />;
+        // 不用 AntD preset（暗色主题下 preset 会统一变深蓝胶囊）；显式映射设计令牌，
+        // 并让 0 走中性色，不再把「平盘」画成上涨红。
+        const tone = v > 0
+          ? { color: 'var(--color-up)', background: 'var(--color-up-bg)', borderColor: 'var(--color-up)' }
+          : v < 0
+            ? { color: 'var(--color-down)', background: 'var(--color-down-bg)', borderColor: 'var(--color-down)' }
+            : { color: 'var(--text-secondary)', background: 'var(--bg-tertiary)', borderColor: 'var(--border-default)' };
+        return (
+          <Tag style={{ ...tone, fontWeight: 700, minWidth: 72, textAlign: 'center', fontFamily: 'monospace', fontSize: 13, borderRadius: 4 }}>
+            {v > 0 ? '+' : ''}{v.toFixed(2)}%
           </Tag>
-        )),
+        );
+      },
     },
     {
       title: '涨跌额', dataIndex: 'change', key: 'change', width: 90, align: 'right',
@@ -132,7 +140,7 @@ const StockListPage: React.FC = () => {
       render: (_: unknown, record: Stock) => (
         <Tooltip title={watchlist.includes(record.symbol) ? '取消自选' : '加入自选'}>
           <Button type="text" size="small"
-            icon={watchlist.includes(record.symbol) ? <StarFilled style={{ color: '#f59e0b' }} /> : <StarOutlined style={{ color: '#d4d4d8' }} />}
+            icon={watchlist.includes(record.symbol) ? <StarFilled style={{ color: 'var(--color-warning)' }} /> : <StarOutlined style={{ color: 'var(--text-tertiary)' }} />}
             onClick={(e) => { e.stopPropagation(); toggleWatchlist(record.symbol); }} />
         </Tooltip>
       ),
@@ -182,19 +190,19 @@ const StockListPage: React.FC = () => {
       {/* Stats Cards — 任何一个值算不出来就显示「—」，绝不显示 0 */}
       <Row gutter={12} style={{ marginBottom: 16 }}>
         {[
-          { label: '总股票数', value: stats.totalStocks, icon: <StockOutlined />, bg: '#eff6ff', border: '#bfdbfe', color: '#2563eb', tip: '已加载的股票条数' },
-          { label: '上涨', value: stats.risingStocks, icon: <RiseOutlined />, bg: '#fef2f2', border: '#fecaca', color: COLOR_UP, tip: '涨跌幅 > 0 的只数' },
-          { label: '下跌', value: stats.fallingStocks, icon: <FallOutlined />, bg: '#f0fdf4', border: '#bbf7d0', color: COLOR_DOWN, tip: '涨跌幅 < 0 的只数' },
+          { label: '总股票数', value: stats.totalStocks, icon: <StockOutlined />, color: 'var(--accent-solid)', tip: '已加载的股票条数' },
+          { label: '上涨', value: stats.risingStocks, icon: <RiseOutlined />, color: 'var(--color-up)', tip: '涨跌幅 > 0 的只数' },
+          { label: '下跌', value: stats.fallingStocks, icon: <FallOutlined />, color: 'var(--color-down)', tip: '涨跌幅 < 0 的只数' },
           {
             label: '总市值(亿)', value: stats.totalMarketCap === null ? null : stats.totalMarketCap.toFixed(0), icon: null,
-            bg: '#faf5ff', border: '#e9d5ff', color: '#7c3aed',
+            color: 'var(--text-tertiary)',
             tip: stats.totalMarketCap === null
               ? `有 ${stats.missingMarketCapCount} 只标的未取到总市值，全市场合计不是真值，故显示「—」，未用 0 或部分合计顶替`
               : '全部标的市值合计（腾讯行情总市值字段）',
           },
         ].map((item, i) => (
           <Col xs={12} sm={6} key={i}>
-            <div style={{ background: item.bg, border: `1px solid ${item.border}`, borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderLeft: `3px solid ${item.color}`, borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
               {item.icon && <span style={{ fontSize: 20, color: item.color }}>{item.icon}</span>}
               <div>
                 <div style={{ fontSize: 11, color: TEXT_SEC, marginBottom: 2 }}>{item.label}</div>
@@ -251,10 +259,6 @@ const StockListPage: React.FC = () => {
         />
       </Card>
 
-      <style>{`
-        .ant-table-thead > tr > th { background: #fafafa !important; color: ${TEXT_SEC} !important; font-weight: 600 !important; font-size: 12px !important; text-transform: uppercase; letter-spacing: 0.5px; }
-        .stock-row:hover { background: #f0f5ff !important; }
-      `}</style>
     </div>
   );
 };

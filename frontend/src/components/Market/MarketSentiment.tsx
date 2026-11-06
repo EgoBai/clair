@@ -45,13 +45,14 @@ function calcSentimentScore(props: SentimentProps): number {
 }
 
 function getSentimentInfo(score: number): { label: string; color: string; icon: React.ReactNode } {
+  // 情绪档位只用主题令牌：旧 #fa8c16/#faad14/#1890ff/#722ed1/#2f54eb 在亮/暗下总有一侧不达 AA
   if (score >= 60) return { label: '极度乐观', color: 'var(--color-up)', icon: <SmileOutlined /> };
-  if (score >= 30) return { label: '偏乐观', color: '#fa8c16', icon: <SmileOutlined /> };
-  if (score >= 10) return { label: '温和乐观', color: '#faad14', icon: <MehOutlined /> };
-  if (score >= -10) return { label: '中性', color: 'var(--color-down)', icon: <MehOutlined /> };
-  if (score >= -30) return { label: '温和悲观', color: '#1890ff', icon: <MehOutlined /> };
-  if (score >= -60) return { label: '偏悲观', color: '#722ed1', icon: <FrownOutlined /> };
-  return { label: '极度悲观', color: '#2f54eb', icon: <FrownOutlined /> };
+  if (score >= 30) return { label: '偏乐观', color: 'var(--color-warning)', icon: <SmileOutlined /> };
+  if (score >= 10) return { label: '温和乐观', color: 'var(--color-warning)', icon: <MehOutlined /> };
+  if (score >= -10) return { label: '中性', color: 'var(--text-secondary)', icon: <MehOutlined /> };
+  if (score >= -30) return { label: '温和悲观', color: 'var(--accent-solid)', icon: <MehOutlined /> };
+  if (score >= -60) return { label: '偏悲观', color: 'var(--accent-solid)', icon: <FrownOutlined /> };
+  return { label: '极度悲观', color: 'var(--color-down)', icon: <FrownOutlined /> };
 }
 
 const MarketSentiment = React.memo(function MarketSentiment({
@@ -92,8 +93,13 @@ const MarketSentiment = React.memo(function MarketSentiment({
         </div>
         <Tag
           icon={sentiment.icon}
-          color={sentiment.color}
-          style={{ marginTop: 4, fontSize: 14 }}
+          style={{
+            marginTop: 4,
+            fontSize: 14,
+            color: sentiment.color,
+            background: 'transparent',
+            borderColor: sentiment.color,
+          }}
         >
           {sentiment.label}
         </Tag>
@@ -118,7 +124,7 @@ const MarketSentiment = React.memo(function MarketSentiment({
               justifyContent: 'center',
               minWidth: risePercent > 5 ? undefined : 0,
             }}>
-              {risePercent > 10 && <Text style={{ color: '#fff', fontSize: 11 }}>{riseCount}</Text>}
+              {risePercent > 10 && <Text style={{ color: 'var(--text-inverse)', fontSize: 11 }}>{riseCount}</Text>}
             </div>
           </Tooltip>
           <Tooltip title={`平盘: ${flatCount} 只`}>
@@ -137,7 +143,7 @@ const MarketSentiment = React.memo(function MarketSentiment({
               justifyContent: 'center',
               minWidth: fallPercent > 5 ? undefined : 0,
             }}>
-              {fallPercent > 10 && <Text style={{ color: '#fff', fontSize: 11 }}>{fallCount}</Text>}
+              {fallPercent > 10 && <Text style={{ color: 'var(--text-inverse)', fontSize: 11 }}>{fallCount}</Text>}
             </div>
           </Tooltip>
         </div>
@@ -157,13 +163,13 @@ const MarketSentiment = React.memo(function MarketSentiment({
       {/* 核心指标 */}
       <Row gutter={[8, 8]}>
         <Col span={12}>
-          <div style={{ background: 'rgba(239,68,68,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
+          <div style={{ background: 'var(--color-up-bg)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>涨停</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-up)' }}>{limitUp}</div>
           </div>
         </Col>
         <Col span={12}>
-          <div style={{ background: 'rgba(34,197,94,0.12)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
+          <div style={{ background: 'var(--color-down-bg)', padding: '8px 12px', borderRadius: 6, textAlign: 'center' }}>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>跌停</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-down)' }}>{limitDown}</div>
           </div>

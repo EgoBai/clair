@@ -44,10 +44,12 @@ interface MultiSignalPanelProps {
   symbol: string;
 }
 
+// 方向语义沿用「看多=绿、看空=红、中性=警示」，与 AI 评分卡一致；
+// 颜色一律走主题令牌，保证亮/暗主题下都有足够对比度。
 const DIRECTION_CONFIG = {
-  bullish: { color: '#22c55e', bg: 'rgba(34,197,94,0.08)', icon: <RiseOutlined />, label: '看多' },
-  bearish: { color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: <FallOutlined />, label: '看空' },
-  neutral: { color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: <MinusOutlined />, label: '中性' },
+  bullish: { color: 'var(--color-down)', bg: 'var(--color-down-bg)', icon: <RiseOutlined />, label: '看多' },
+  bearish: { color: 'var(--color-up)', bg: 'var(--color-up-bg)', icon: <FallOutlined />, label: '看空' },
+  neutral: { color: 'var(--color-warning)', bg: 'var(--color-warning-bg)', icon: <MinusOutlined />, label: '中性' },
 } as const;
 
 const TIMEFRAME_CONFIG = {
@@ -136,8 +138,15 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
             <span style={{ fontWeight: 700, fontSize: 14 }}>多信号融合分析</span>
           </div>
           <Tag
-            color={summary.overall === 'bullish' ? 'green' : summary.overall === 'bearish' ? 'red' : 'gold'}
-            style={{ fontSize: 13, fontWeight: 600, padding: '2px 12px', borderRadius: 20 }}
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              padding: '2px 12px',
+              borderRadius: 20,
+              color: overallCfg.color,
+              background: overallCfg.bg,
+              borderColor: overallCfg.color,
+            }}
           >
             {overallCfg.icon} {overallCfg.label} · 置信度 {(summary.confidence * 100).toFixed(0)}%
           </Tag>
@@ -152,25 +161,25 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={{ display: 'flex', gap: 16 }}>
             <span style={{ fontSize: 12 }}>
-              <RiseOutlined style={{ color: '#22c55e', marginRight: 4 }} />
-              <Text style={{ color: '#22c55e', fontWeight: 600 }}>{summary.bullish} 看多</Text>
+              <RiseOutlined style={{ color: 'var(--color-down)', marginRight: 4 }} />
+              <Text style={{ color: 'var(--color-down)', fontWeight: 600 }}>{summary.bullish} 看多</Text>
             </span>
             <span style={{ fontSize: 12 }}>
-              <FallOutlined style={{ color: '#ef4444', marginRight: 4 }} />
-              <Text style={{ color: '#ef4444', fontWeight: 600 }}>{summary.bearish} 看空</Text>
+              <FallOutlined style={{ color: 'var(--color-up)', marginRight: 4 }} />
+              <Text style={{ color: 'var(--color-up)', fontWeight: 600 }}>{summary.bearish} 看空</Text>
             </span>
             <span style={{ fontSize: 12 }}>
-              <MinusOutlined style={{ color: '#f59e0b', marginRight: 4 }} />
-              <Text style={{ color: '#f59e0b', fontWeight: 600 }}>{summary.neutral} 中性</Text>
+              <MinusOutlined style={{ color: 'var(--color-warning)', marginRight: 4 }} />
+              <Text style={{ color: 'var(--color-warning)', fontWeight: 600 }}>{summary.neutral} 中性</Text>
             </span>
           </div>
           <Text type="secondary" style={{ fontSize: 11 }}>
             共 {totalSignals} 个信号
           </Text>
         </div>
-        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(255,255,255,0.06)' }}>
-          <div style={{ width: `${bullishPct}%`, background: '#22c55e', transition: 'width 0.5s' }} />
-          <div style={{ width: `${bearishPct}%`, background: '#ef4444', transition: 'width 0.5s' }} />
+        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--bg-tertiary)' }}>
+          <div style={{ width: `${bullishPct}%`, background: 'var(--color-down)', transition: 'width 0.5s' }} />
+          <div style={{ width: `${bearishPct}%`, background: 'var(--color-up)', transition: 'width 0.5s' }} />
         </div>
       </div>
 
@@ -214,8 +223,10 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
                 )}
 
                 {/* 底部: 来源 + 数值 + 置信度 */}
-                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                  <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0, padding: '0 6px', lineHeight: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
+                  {/* source 可能是长句（如市场宽度的「全市场逐标的行情聚合（与 /api/breadth/current 同源）」），
+                      768px 平板下若 nowrap 会把卡片撑出视口，这里允许换行并限制最大宽度 */}
+                  <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0, padding: '0 6px', lineHeight: '18px', maxWidth: '64%', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
                     {signal.source}
                   </Tag>
                   <div style={{ textAlign: 'right' }}>
@@ -235,7 +246,7 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
                     size="small"
                     showInfo={false}
                     strokeColor={cfg.color}
-                    trailColor="rgba(255,255,255,0.06)"
+                    trailColor="var(--bg-tertiary)"
                     style={{ margin: 0, lineHeight: 0 }}
                   />
                 </div>
@@ -256,17 +267,17 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
               key: 'narrative',
               label: (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <ThunderboltOutlined style={{ color: '#3b82f6' }} />
+                  <ThunderboltOutlined style={{ color: 'var(--accent-solid)' }} />
                   <Text strong style={{ fontSize: 13 }}>AI 分析报告</Text>
                 </div>
               ),
               children: (
                 <div
                   style={{
-                    background: 'rgba(30,41,59,0.5)',
+                    background: 'var(--bg-secondary)',
                     borderRadius: 8,
                     padding: '12px 16px',
-                    border: '1px solid rgba(59,130,246,0.2)',
+                    border: '1px solid var(--accent-border)',
                   }}
                 >
                   {narrative.split('\n').map((line, i) => {
@@ -278,7 +289,7 @@ export default function MultiSignalPanel({ symbol }: MultiSignalPanelProps) {
                       return <Text key={i} style={{ display: 'block', margin: '8px 0 2px', fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{line.slice(4)}</Text>;
                     if (line.startsWith('> '))
                       return (
-                        <blockquote key={i} style={{ borderLeft: '2px solid #3b82f6', paddingLeft: 12, margin: '8px 0', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                        <blockquote key={i} style={{ borderLeft: '2px solid var(--accent-solid)', paddingLeft: 12, margin: '8px 0', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                           {line.slice(2)}
                         </blockquote>
                       );

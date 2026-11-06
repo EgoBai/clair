@@ -81,8 +81,10 @@
   --color-error: #f43f5e;
   --color-error-bg: rgba(244, 63, 94, 0.12);
   --color-highlight: #60a5fa;
-  --text-disabled: var(--text-tertiary, #5a6478);
-  --text-muted: var(--text-tertiary, #5a6478);
+  --text-disabled: var(--text-tertiary, #7b8598);
+  --text-muted: var(--text-tertiary, #7b8598);
+  /* 强调色实心按钮/胶囊上的文字：深色主题下 #3b82f6 配白字仅 3.68:1，改用深色字 5.15:1 */
+  --text-on-accent: #0d1117;
   --theme-primary: #3b82f6;
 }
 
@@ -103,7 +105,8 @@
   /* 文本层次 */
   --text-primary: #e8edf5;
   --text-secondary: #8b95a8;
-  --text-tertiary: #5a6478;
+  /* 旧 #5a6478 在 #161b26 卡片上仅 2.90:1；三级文字也承载面包屑/字段名，必须达 AA */
+  --text-tertiary: #7b8598;
   --text-inverse: #0d1117;
 
   /* 强调色 — 渐变蓝 */
@@ -145,20 +148,25 @@
 
   --text-primary: #1a1d26;
   --text-secondary: #5a6070;
-  --text-tertiary: #8b90a0;
+  /* 12px 次级文字需达到 WCAG AA（旧 #8b90a0 在 #f8f9fc 上仅 3.02:1） */
+  --text-tertiary: #6b7280;
   --text-inverse: #ffffff;
 
-  --accent-gradient: linear-gradient(135deg, #3b82f6, #6366f1);
-  --accent-solid: #3b82f6;
-  --accent-light: rgba(59, 130, 246, 0.08);
-  --accent-border: rgba(59, 130, 246, 0.2);
+  /* 亮色下 #3b82f6 作正文/按钮底仅 3.49–3.68:1；#2563eb 为 5.17:1 */
+  --accent-gradient: linear-gradient(135deg, #2563eb, #4f46e5);
+  --accent-solid: #2563eb;
+  --accent-light: rgba(37, 99, 235, 0.08);
+  --accent-border: rgba(37, 99, 235, 0.2);
 
-  --color-up: #dc2626;
-  --color-up-bg: rgba(220, 38, 38, 0.08);
-  --color-down: #16a34a;
-  --color-down-bg: rgba(22, 163, 74, 0.08);
-  --color-warning: #d97706;
-  --color-warning-bg: rgba(217, 119, 6, 0.08);
+  /* 旧 #dc2626 在 --bg-tertiary 灰卡上仅 4.35:1；#b91c1c 为 5.8:1 */
+  --color-up: #b91c1c;
+  --color-up-bg: rgba(185, 28, 28, 0.08);
+  /* 旧 #16a34a 在近白底仅 3.13:1，小号涨跌幅不达 AA */
+  --color-down: #15803d;
+  --color-down-bg: rgba(21, 128, 61, 0.08);
+  /* 旧 #d97706 在近白底上仅约 3.3:1；琥珀色小字（景气/拥挤/提示）在亮色下必须可读 */
+  --color-warning: #b45309;
+  --color-warning-bg: rgba(180, 83, 9, 0.08);
 
   --border-subtle: rgba(0, 0, 0, 0.04);
   --border-default: rgba(0, 0, 0, 0.08);
@@ -169,6 +177,12 @@
   --glow-accent: 0 0 20px rgba(59, 130, 246, 0.1);
   /* 错误底色：浅色主题降低不透明度，避免大面积泛红 */
   --color-error-bg: rgba(244, 63, 94, 0.08);
+  /* 旧 #f43f5e 在近白底仅 3.49:1；#be123c 为 6.4:1 */
+  --color-error: #be123c;
+  /* AI 解读小标题等强调文字：旧 #60a5fa 在亮色近白底仅 2.41:1 */
+  --color-highlight: #2563eb;
+  /* 实心强调按钮上的文字在亮色主题用白色 */
+  --text-on-accent: #ffffff;
 }
 
 /* ==================== 全局基础 ==================== */
@@ -400,4 +414,28 @@ body {
 ::selection {
   background: rgba(59, 130, 246, 0.3);
   color: var(--text-primary);
+}
+
+/* ==================== antd preset Tag 对比度（亮色） ====================
+ * antd 的绿/金/橙 preset 色取自固定调色板，不读主题 token：
+ * 亮色下 ant-tag-green #389e0d on #f6ffed 仅 3.37:1、ant-tag-gold #d48806 on #fffbe6 仅 2.76:1。
+ * 这三组是最常用的涨跌/提示语义标签，统一压深文字、保留浅底。 */
+[data-theme="light"] .ant-tag-green {
+  color: #15803d !important;
+  background: #f0fdf4 !important;
+  border-color: #bbf7d0 !important;
+}
+[data-theme="light"] .ant-tag-gold {
+  color: #b45309 !important;
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+[data-theme="light"] .ant-tag-orange {
+  color: #c2410c !important;
+  background: #fff7ed !important;
+  border-color: #fed7aa !important;
+}
+
+[data-theme="dark"] .ant-pagination-item-active a {
+  color: var(--text-on-accent) !important;
 }

@@ -218,6 +218,8 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
 
         .app-content {
           flex: 1;
+          /* flex 子项默认 min-width:auto，会被表格/按钮的固有宽度撑破视口；768px 平板实测溢出 1164px */
+          min-width: 0;
           margin-left: 240px;
           min-height: 100vh;
           display: flex;
@@ -252,6 +254,7 @@ export const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }
 
         .content-wrapper {
           flex: 1;
+          min-width: 0;
           padding: var(--space-6);
           max-width: 1400px;
           margin: 0 auto;
