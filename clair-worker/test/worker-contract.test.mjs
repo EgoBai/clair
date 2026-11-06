@@ -822,15 +822,16 @@ async function assertResearchItems(path, label) {
   assert.equal(status, 200, label + ' 必须 200（404 会被判成端点未挂载）');
   assert.ok(['real', 'unavailable'].includes(body.dataSource),
     label + ' dataSource 应为 real/unavailable，实际 ' + body.dataSource);
+  const items = Array.isArray(body.data) ? body.data : (body.data && body.data.items);
   if (body.dataSource === 'unavailable') {
     assert.equal(body.success, false, label + ' unavailable 时 success 必须 false');
     assert.ok(typeof body.message === 'string' && body.message.length > 10, label + ' 必须给中文原因');
-    assert.deepEqual(body.data.items, [], label + ' 不可用时 items 必须为空数组');
+    assert.deepEqual(items, [], label + ' 不可用时 items 必须为空数组');
     return;
   }
   assert.equal(body.success, true, label + ' real 时 success 必须 true');
-  assert.ok(Array.isArray(body.data.items) && body.data.items.length > 0, label + ' real 时 items 不能为空');
-  for (const item of body.data.items.slice(0, 5)) {
+  assert.ok(Array.isArray(items) && items.length > 0, label + ' real 时 items 不能为空');
+  for (const item of items.slice(0, 5)) {
     assert.ok(typeof item.title === 'string' && item.title.length > 0, label + ' item.title 必填');
     assert.ok(typeof item.url === 'string' && /^https?:\/\//.test(item.url), label + ' item.url 必须是真实 http 链接');
     assert.ok(!item.url.includes('#'), label + ' item.url 不得是 # 占位');

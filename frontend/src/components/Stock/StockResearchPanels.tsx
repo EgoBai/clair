@@ -580,7 +580,7 @@ export const StockNewsPanel: React.FC<{ symbol: string }> = ({ symbol }) => {
                 <div style={{ minWidth: 0, fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>
                   {validUrl ? <ExternalTitleLink url={url}>{fmtText(it.title)}</ExternalTitleLink> : fmtText(it.title)}
                 </div>
-                <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtDate(it.publishTime)}</span>
+                <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtDate(it.publishTime ?? it.time)}</span>
               </div>
               <div style={{ marginTop: 5, fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {fmtText(it.source)}{it.summary ? ` · ${String(it.summary).slice(0, 100)}` : ''}

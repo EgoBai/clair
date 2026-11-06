@@ -3737,20 +3737,42 @@ async function handleStockNews(symbol) {
     const dist = { positive: 0, negative: 0, neutral: 0 };
     items.forEach(i => { dist[i.sentiment] = (dist[i.sentiment] || 0) + 1; });
 
+    // 统一时间字段：上游快讯用 time，公告/资讯用 publishTime。
+    // 前端只读一个字段，不能一边有值一边显示「—」。
+    const normalized = items.slice(0, 20).map((i) => ({
+      ...i,
+      publishTime: i.publishTime || i.time || '',
+    }));
+    const note = items.length === 0
+      ? (notes.length ? `${notes.join('；')}；` : '') + `未检索到与「${name || symbol}」相关的新闻`
+      : undefined;
+    // 有内容，或上游确实响应了（有 source）但该标的没有新闻 → real；
+    // 两条真实源都没响应（source 为 null）→ unavailable，不伪装成「无新闻」。
+    const available = normalized.length > 0 || Boolean(source);
+
     return json({
-      data: items.slice(0, 20),
+      success: available,
+      dataSource: available ? 'real' : 'unavailable',
+      data: normalized,
       count: items.length,
       symbol,
       stockName: name || undefined,
       source,
       sentimentDistribution: dist,
-      note: items.length === 0
-        ? (notes.length ? `${notes.join('；')}；` : '') + `未检索到与「${name || symbol}」相关的新闻`
-        : undefined,
+      note,
+      message: available ? undefined : (note || '个股新闻真实源当前不可用'),
       disclaimer: '情感倾向基于新闻关键词规则统计，非真实舆情指数',
     });
   } catch (e) {
-    return json({ data: [], count: 0, symbol, error: e.message });
+    return json({
+      success: false,
+      dataSource: 'unavailable',
+      data: [],
+      count: 0,
+      symbol,
+      message: '个股新闻真实源请求失败：' + String(e && e.message || '未知错误'),
+      error: e.message,
+    });
   }
 }
 
