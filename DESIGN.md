@@ -1,6 +1,6 @@
 # 澄观 Clair 设计系统基线 v1
 
-状态：已批准 v1（2026-11-05）；P0 三项代码已实施（2026-11-05，commit 0bb898ef4），P0a 的亮色验收随三页试点完成。编制时间：2026-11-05。适用仓库：a-stock-website。
+状态：已批准 v1（2026-11-05）；P0 三项代码已实施（2026-11-05，commit 0bb898ef4）；三页试点完成（2026-11-06，commit 8b7ce0567，远端 92fdbeeed8b7），P0a 的亮色与 768 响应式验收在试点三页内通过，全站其余页面仍按 P2 逐批收敛。编制时间：2026-11-05。适用仓库：a-stock-website。
 
 本文只定义基线、页面责任与验收口径，不改变现有导航与用户可见交互。文中标注“待批准”的条目，须确认后才能进入实现。
 
@@ -400,7 +400,9 @@ H1–H4 是诚实红线，不进入“以后再说”；H5–H7 与研究工作�
 | P0b H2 组合失败 | 已完成 | 失败显示原因与重试，不再吞异常或伪装「未接入」；截图 `handover/p0-portfolio-error.png` |
 | P0b H3 财务四表失败 | 已完成 | `Promise.allSettled` 逐表记录失败、`dataSource` 置 unavailable/partial，缺失项显示「—」；截图 `handover/p0-financials-error.png` |
 | P0b H4 0 值兜底 | 已完成 | 行情/指数 K 线/情绪均值改「—」或剔除无效行，新增 3 个失败态测试文件与 14 个断言 |
-| P0a 三页亮/暗均正确 | 未完成 | 亮色下仍有历史硬编码深色样式（D1/D5），本轮只补 token；随三页试点逐页收口 |
-| P0a 三页旧涨跌字面量 | 部分完成 | `MarketSentiment` 涨跌/涨跌停色已换 token；Discover/StockDetail 的绿红多为「景气/优势/风险」语义，需逐处判定，不做机械替换 |
+| 三页对比度审计 | 已完成（真实项清零） | WCAG 4.5/3.0 脚本实测：亮色首页 28→5、个股 11→6、列表 3→3；暗色首页 7→3、个股 2→4、列表 2→1。剩余条目均为脚本对渐变背景、侧栏「澄观」渐变标题与 16px 主题图标的误报（图标按 3:1 已过），无真实正文/数值不达 AA |
+| 768 平板横向溢出 | 已完成 | 根因是 `.app-content/.content-wrapper` 为 flex 子项但缺 `min-width:0`，另有 MultiSignalPanel 来源 Tag `nowrap`；修后个股 1164→768、列表 906→768，两页六档 docW=winW |
+| P0a 三页亮/暗均正确 | 已完成（试点三页） | 2026-11-06 commit 8b7ce0567；首页/个股/列表 × 亮/暗 × 1440/768 共 12 组合 Playwright 实测：NaN 0、undefined 0、console error 0、pageerror 0、失败请求 0、docW=winW 无横向溢出；证据 `handover/evidence-pilot-final-report.json` 与 `handover/evidence-pilot-*.png` |
+| P0a 三页旧涨跌字面量 | 已完成（涨跌语义范围） | `MarketSentiment`、`StockListPage`、`CapitalFlowPanel`、`MultiSignalPanel`、`MarketBreadthSection` 的涨跌/资金流/评分色已换令牌；DiscoverPage 的 ECharts canvas 热力色、固定深底 tooltip 与市场温度仪表盘保留独立 hex，原因是不解析 CSS 变量的 canvas 与「健康度」语义，不属涨跌色，已在源码注释与 `pilotPagesTheme.test.ts` 说明 |
 
 验证：`npx tsc --noEmit` exit 0；6 个测试文件 138 passed；本地 Vite 生产构建成功；Playwright 注入 H1/H2/H3 失败响应均显示可读错误态。
