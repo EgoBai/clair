@@ -585,19 +585,17 @@ class ApiService {
 export const apiService = new ApiService();
 
 // 向后兼容的导出
-export const {
-  getStocks,
-  getStock,
-  getStockQuotes,
-  getLatestQuote,
-  batchGetQuotes,
-  getMarketSummary,
-  getIndustryPerformance,
-  getTopGainers,
-  getTopLosers,
-  getTopTurnover,
-  healthCheck,
-} = apiService;
+export const getStocks = apiService.getStocks.bind(apiService);
+export const getStock = apiService.getStock.bind(apiService);
+export const getStockQuotes = apiService.getStockQuotes.bind(apiService);
+export const getLatestQuote = apiService.getLatestQuote.bind(apiService);
+export const batchGetQuotes = apiService.batchGetQuotes.bind(apiService);
+export const getMarketSummary = apiService.getMarketSummary.bind(apiService);
+export const getIndustryPerformance = apiService.getIndustryPerformance.bind(apiService);
+export const getTopGainers = apiService.getTopGainers.bind(apiService);
+export const getTopLosers = apiService.getTopLosers.bind(apiService);
+export const getTopTurnover = apiService.getTopTurnover.bind(apiService);
+export const healthCheck = apiService.healthCheck.bind(apiService);
 
 // ==================== 通用请求封装 ====================
 // 经过 apiService 拦截器的请求（自动重试 + 日志 + 缓存 + 响应拦截器）
