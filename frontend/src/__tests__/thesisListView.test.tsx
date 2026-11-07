@@ -59,6 +59,9 @@ describe('观点卡列表', () => {
     const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href') === '/stocks/600519');
     expect(links.length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('link', { name: '本页行情与财务数据' }).getAttribute('href')).toBe('/stocks/600519');
+    // 观点检查区必须渲染；测试环境无行情，结论只能是「待验证」，不能伪造「有效」
+    expect(screen.getAllByText(/观点检查/).length).toBe(2);
+    expect(screen.getAllByText(/待验证/).length).toBe(2);
     // 375px 下筛选条不能撑破页面，只允许自身横滚
     const filterGroup = screen.getByRole('radiogroup');
     expect(filterGroup.parentElement?.style.overflowX).toBe('auto');

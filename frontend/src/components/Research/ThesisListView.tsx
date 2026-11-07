@@ -8,6 +8,8 @@ import {
 } from '@ant-design/icons';
 import { EmptyState } from '../Common/StateComponents';
 import { ThesisResearchLinks } from './ThesisResearchSection';
+import { evaluateThesis, THESIS_CHECK_COLOR } from '../../utils/thesisCheck';
+import { useThesisPrices } from '../../hooks/useThesisPrices';
 import {
   useThesisStore,
   THESIS_STANCE_LABEL,
@@ -39,6 +41,8 @@ const ThesisListView: React.FC = () => {
   const remove = useThesisStore((state) => state.remove);
   const [stance, setStance] = useState<StanceFilter>('all');
   const [query, setQuery] = useState('');
+  const symbols = useMemo(() => cards.map((card) => card.symbol), [cards]);
+  const prices = useThesisPrices(symbols);
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -108,6 +112,7 @@ const ThesisListView: React.FC = () => {
           {filtered.map((card) => {
             const latestRevision = card.revisions[card.revisions.length - 1];
             const research = card.research ?? [];
+            const check = evaluateThesis(card, prices[card.symbol]);
             return (
               <Card
                 key={card.id}
@@ -166,6 +171,24 @@ const ThesisListView: React.FC = () => {
                   {latestRevision && (
                     <Text type="secondary" style={{ fontSize: 12 }}>最近：{latestRevision.note}</Text>
                   )}
+                </div>
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    background: 'var(--bg-secondary, rgba(0,0,0,0.02))',
+                    borderLeft: '3px solid ' + THESIS_CHECK_COLOR[check.verdict],
+                  }}
+                >
+                  <Space size={8} wrap>
+                    <Text strong style={{ fontSize: 12, color: THESIS_CHECK_COLOR[check.verdict] }}>
+                      观点检查 · {check.label}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {check.reasons.join('；')}
+                    </Text>
+                  </Space>
                 </div>
                 <div style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   {card.evidence.map((item) => (
