@@ -9,11 +9,37 @@ interface QuoteLike {
   latestQuote?: { closePrice?: number | null } | null;
 }
 
-function pickStocks(payload: unknown): QuoteLike[] {
+/**
+ * 从批量行情响应里取出股票数组。
+ *
+ * 线上真实契约是 `{ data: StockWithQuote[], success: true }`（见
+ * `POST /api/stocks/batch/quotes` 实测），不是 `{ data: { stocks: [] } }`。
+ * 这里同时兼容两种包装，避免后端一改外层就静默退化成「全部待验证」。
+ */
+export function pickStocks(payload: unknown): QuoteLike[] {
   if (!payload || typeof payload !== 'object') return [];
-  const outer = payload as { data?: unknown; stocks?: unknown };
-  const body = (outer.data ?? outer) as { stocks?: unknown };
-  return Array.isArray(body.stocks) ? (body.stocks as QuoteLike[]) : [];
+  const root = payload as { data?: unknown; stocks?: unknown };
+  const candidates: unknown[] = [];
+
+  if (Array.isArray(root.data)) candidates.push(root.data);
+  if (root.data && typeof root.data === 'object') {
+    const body = root.data as { stocks?: unknown; data?: unknown };
+    if (Array.isArray(body.stocks)) candidates.push(body.stocks);
+    if (Array.isArray(body.data)) candidates.push(body.data);
+  }
+  if (Array.isArray(root.stocks)) candidates.push(root.stocks);
+
+  const found = candidates.find((item) => Array.isArray(item));
+  return (found as QuoteLike[] | undefined) ?? [];
+}
+
+/** 把批量行情响应归一成「标的 -> 最新收盘价」。取不到价就是 null。 */
+export function parseThesisPrices(payload: unknown): ThesisPriceMap {
+  const next: ThesisPriceMap = {};
+  for (const stock of pickStocks(payload)) {
+    if (stock.symbol) next[stock.symbol] = stock.latestQuote?.closePrice ?? null;
+  }
+  return next;
 }
 
 /**
@@ -36,11 +62,7 @@ export function useThesisPrices(symbols: string[]): ThesisPriceMap {
     batchGetQuotes(key.split(','))
       .then((response) => {
         if (!alive) return;
-        const next: ThesisPriceMap = {};
-        for (const stock of pickStocks(response)) {
-          if (stock.symbol) next[stock.symbol] = stock.latestQuote?.closePrice ?? null;
-        }
-        setPrices(next);
+        setPrices(parseThesisPrices(response));
       })
       .catch(() => {
         // 行情失败不阻断观点列表：价格留空，结论显示「待验证」。
