@@ -163,7 +163,9 @@ function ReportCenterPage() {
       // 后端可能返回含 null 的数组项（降级态），先剔空再映射，避免渲染/映射期崩页
       const repItems: BackendReport[] = (Array.isArray(repData?.items) ? repData.items : []).filter(Boolean);
       const symbolItems: BackendReport[] = (Array.isArray(symbolData?.items) ? symbolData.items : []).filter(Boolean);
-      const newsItems: BackendNewsItem[] = (Array.isArray(newsData?.items) ? newsData.items : []).filter(Boolean);
+      // 后端 /api/news 实际返回 { data: [...] }（数组），旧代码只认 data.items → 新闻恒空
+      const newsRaw = Array.isArray(newsData) ? newsData : newsData?.items;
+      const newsItems: BackendNewsItem[] = (Array.isArray(newsRaw) ? newsRaw : []).filter(Boolean);
       // 该股专用研报优先，按 id 去重，避免与全市场 50 条重叠计数
       const seenIds = new Set<string>();
       const mergedItems = [...symbolItems, ...repItems].filter((item) => {
@@ -189,6 +191,11 @@ function ReportCenterPage() {
       if (mappedReports.length > 0 || mappedNews.length > 0) ds = 'real';
       else if (repUnavailable && newsUnavailable) ds = 'unavailable';
       setDataSource(ds);
+      setLoading(false);
+    }).catch(() => {
+      // 兜底：解析/映射期任何异常都不得让页面停在「正在加载」
+      if (!alive) return;
+      setDataSource('unavailable');
       setLoading(false);
     });
     return () => { alive = false; };
