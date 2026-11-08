@@ -556,3 +556,7 @@
 - **遗留（不在本轮声称完成）**：① 「评级变动」子表为「暂无数据」，待核对源站是否真的无该字段，防「源有而前端不映射」；② 深链 /report-center 返回 HTTP 404 状态但 SPA 正常渲染（Pages 无 404.html 回退），影响爬虫与监控判定，列为 P2；③ 一致目标价—为源缺失的诚实降级，保留。
 - **教训**：页面「看起来在加载」不一定是网络慢，先比对响应体形状与 UI 解构路径；`Promise.all` 链缺少终端 catch 会把单点映射错误放大成整页永久加载。
 
+
+### D72 更正（2026-11-09 轮 51）
+- **撤回 P2「深链返回 HTTP 404」**：这不是缺陷。线上 index.html 内联注释与 deploy.yml 明确「cp dist/index.html dist/404.html」，GitHub Pages 对物理不存在路径返回 404 + 应用外壳，React Router 按真实路径渲染，地址栏保持不变，属设计行为。监控应按「外壳是否渲染」判定，不按 HTTP 状态码。
+- **修正 API 路径认知**：`https://egobai.github.io/clair/api/news/research/reports` 返回的是 SPA 外壳（index.html），不是接口响应；页面真实数据来自独立 Worker 域。判断「评级变动」字段是否存在，必须用真实 Worker base URL，本轮未取到，故该遗留项保持未验证，不下结论。
