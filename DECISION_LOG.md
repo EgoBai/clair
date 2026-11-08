@@ -534,3 +534,12 @@
 - 线上 chunk KnowledgeBase-4c0sviXr.js → KnowledgeBase-Dpb18IJh.js；bundle 内 color:"inherit" 0→1、"/stocks/" 2→3。
 - Playwright：/knowledge 中含 symbol 的笔记代码标签为 <a href="/clair/stocks/600519.SH">，点击后 URL 正确，页面渲染「贵州茅台 600519 沪市 食品饮料 1453.00 +1.00 +0.07% 数据截至 2026-11-06」，无空态字样。
 - 结论：缺口2 笔记侧闭环；观点侧、研报侧待办。
+
+## D71 观点卡股票标识「不挂个股」为误记：源码已有 Link，改判为待线上复验（轮 39）
+
+- **背景**：交接与台账长期把「笔记和观点不挂个股」列为待修断链之一。笔记侧已于 R32 关闭（`KnowledgeBase.tsx` symbol Tag 包 `<Link to={\`/stocks/\${entry.symbol}\`}>`，线上点击落 `/clair/stocks/600519.SH`）。观点卡侧此前一直按「未核实」挂着，且 R35 按 `frontend/src/components/ThesisCard.tsx` 找文件得到空路径，误判为「视图层不可跳转」。
+- **判断**：先定真实文件面，再判是否断链。实测仓库根 `/Users/ego_bai/.openclaw/workspace/a-stock-website`，前端源码根 `frontend/src` **存在**；`ThesisCard` 不是独立文件，观点卡在 `frontend/src/components/Research/ThesisListView.tsx` 内联渲染。
+- **证据（grep 证存在）**：`ThesisListView.tsx:122-124` —— `<Link to={\`/stocks/\${card.symbol}\`} style={{ fontWeight: 700 }}>{card.name} <Text type="secondary">{card.symbol}</Text></Link>`；同文件 `:138` 的「更新」按钮同样包 `<Link to={\`/stocks/\${card.symbol}\`}>`。`cd frontend/src` 下 `rg -l "ThesisCard"` 命中 6 个文件，无一为 `components/ThesisCard.tsx`。
+- **口径**：本轮**不改产品代码**。「观点不挂个股」在源码层面**证伪**，降级为「线上渲染待复验」；不把它继续当已确认缺陷，避免后续轮次重复劳动。线上复验仍缺 e2e 一证（需 Playwright 打开观点列表页断言 `a[href^="/clair/stocks/"]` 存在且可点）。
+- **代价与下一步**：① 线上 Playwright 复验观点列表页链接（未做，缺一证）；② 确认 `ThesisResearchSection.tsx:78/82` 的研报/笔记互链在线上是否可达（与「研报中心空白」同源，需独立证）；③ `/report-center` 主内容空白仍是未确认根因的最高影响项，下一轮优先。
+
