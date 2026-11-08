@@ -29,6 +29,7 @@ import {
   trackRatingChanges, analyzeConsensus, analyzeReportSentiment, findMostDivided,
   type ConsensusAnalysis, type RatingChange, type ResearchReport,
 } from '../utils/researchReportEngine';
+import { buyRatingRatio } from '../utils/buyRatingRatio';
 import {
   runNewsAnalysis, analyzeSentiment,
   type NewsEvent, type NewsHeatmap,
@@ -239,11 +240,10 @@ function ReportCenterPage() {
   // ── 顶部概览指标 ──
   const totalReports = reports.length;
   const covered = reportsByTicker.size;
-  const buyPct = useMemo(() => {
-    const rated = reports.filter((r) => r.rating !== 'none');
-    const buy = rated.filter((r) => r.rating === 'buy' || r.rating === 'overweight').length;
-    return rated.length ? buy / rated.length : 0;
-  }, [reports]);
+  const buyPct = useMemo(
+    () => buyRatingRatio(reports.map((r) => r.rating)),
+    [reports],
+  );
   // 目标价真实源未提供（targetPrice=0）→ 取首个有真实目标价的共识，否则 null（显示「—」）
   const topUpside = useMemo(
     () => consensusList.find((c) => c.avgTargetPrice > 0) ?? null,
