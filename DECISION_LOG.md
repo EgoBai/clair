@@ -560,3 +560,13 @@
 ### D72 更正（2026-11-09 轮 51）
 - **撤回 P2「深链返回 HTTP 404」**：这不是缺陷。线上 index.html 内联注释与 deploy.yml 明确「cp dist/index.html dist/404.html」，GitHub Pages 对物理不存在路径返回 404 + 应用外壳，React Router 按真实路径渲染，地址栏保持不变，属设计行为。监控应按「外壳是否渲染」判定，不按 HTTP 状态码。
 - **修正 API 路径认知**：`https://egobai.github.io/clair/api/news/research/reports` 返回的是 SPA 外壳（index.html），不是接口响应；页面真实数据来自独立 Worker 域。判断「评级变动」字段是否存在，必须用真实 Worker base URL，本轮未取到，故该遗留项保持未验证，不下结论。
+
+## D73 评级变动假空态结案：源无 prevRating 时显式不可判定，线上四证通过（轮 66-67）
+
+- **现象（D72 遗留①）**：/report-center「评级变动追踪」0 条，落 AntD 默认空态，读者等同于「无评级变动」。
+- **根因**：东方财富研报响应 14 字段无 prevRating；trackRatingChanges 按同机构前后评级比对，无前次评级恒得 0 条。这是「源不支持判断」，不是「无变动」。
+- **做法**：frontend/src/pages/ReportCenterPage.tsx:530 在 0 条时 Tag 由数量改为「源未提供」；:543 表空态改为「东方财富研报源不提供前次评级（prevRating），本节无法判定，不代表"无评级变动"」；:547 补方法论说明。不改口径、不造数据。
+- **四证**：① grep 证源码四条文案存在；② 读码证分支由 ratingChanges.length > 0 判定；③ 测试证行为：新增 reportCenterRatingChangeCopy.test.ts 3/3 通过（禁回落到「暂无数据」），researchReportEngine.test.ts 16/16；④ Playwright 证渲染：线上 /report-center bodyLen 2868，「源未提供 / 不可判定 / 无评级变动 / 前次评级」四串全部 true。
+- **部署**：commit 43fe90f78 → 远端 1e6d30458；Deploy to GitHub Pages run 42503607222 = success；线上包 ReportCenterPage-mXPCtFuT.js 四条新文案命中，旧「暂无数据」归零。
+- **口径更正（自我纠错）**：轮 60 曾据旧包 index-Ca4GLVYv.js 判「修复未上线」，实为部署尚未完成时采样；换包后复核推翻该结论，记此以免后人误引。
+- **遗留**：该 head 的 CI 仍 in_progress，不声明 CI 绿。

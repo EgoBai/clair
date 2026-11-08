@@ -26,3 +26,4 @@
 2. 新增断言类防复发物必须同时附 redgreen 红→绿两次运行输出；规则/门禁类用行为探针替代并注明。
 3. 本表只追加，不随台账状态回滚删除；打回重开时在「红→绿证据」列补一句重跑结果。
 4. 本表行数应等于台账中「已收口」行数；不一致时先查是否漏交防复发物（metrics.mjs 只做提示，不阻断）。
+| D73 评级变动假空态（源无 prevRating 时显示 0 条变动） | frontend/src/__tests__/reportCenterRatingChangeCopy.test.ts（源码级守卫：须含「源未提供/不提供前次评级/不可判定」，禁「暂无数据」，空态分支须由 ratingChanges.length 判定） | 43fe90f78 | E3 未做投毒对照；替代证据：线上 Playwright 四串断言 true + 线上包 grep 命中、旧空态文案归零 |
