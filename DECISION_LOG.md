@@ -528,3 +528,9 @@
 - **证据**：`npx tsc --noEmit` exit 0；`strategySignalHonesty.test.ts` 改写后 14 passed（删除「StockDetailPage 不得调用」的过时断言，新增「Worker 注册路由 + 前端调用 + 取不到不造 0 值」三例，Express `backend/src` 仍为零实现）；`StockDetailPage` 相关 4 个测试文件 158 passed；`worker-contract.test.mjs` 新增「三·八」2 例（600519 real + 全字段；999999 → 404 不伪造评分），全套 **110 通过 0 失败**，`_worker.js` SHA256 `d995e7dd347f17cfe9b3b80bfbd846d917dafb2e992bd40dc0a7483a90e7d304`。
 - **线上事故与修复**：首次上线后 Playwright 实测个股页「股票详情」整块渲染出错，摘要 `Objects are not valid as a React child (found: object with keys {overall, trend, signals, risk, timestamp})`——`generateAINarrative` 返回结构化对象而非字符串，卡片里 `{aiStrategy.aiNarrative}` 把对象直接塞进 React 子节点。修复为 object 分支出 overall/trend/signals/risk 逐字段渲染（字符串分支保留），并补一条断言锁定 object 判定 + 四字段访问。教训：字段名相同不代表类型相同，渲染前必须核对真实响应体类型。
 - **代价**：Express 版本仍无该端点（`backend/src` zero hit），两套部署行为不一致要靠 Worker 测试兜住；`score/rating` 是规则引擎输出而非模型推断，页面需保留「真实计算」标签以免被读成 AI 预测。
+
+## 2026-11-09 缺口2 笔记→个股 线上复验通过
+- commit 21c906afb；Pages workflow_run 42502148745 = success。
+- 线上 chunk KnowledgeBase-4c0sviXr.js → KnowledgeBase-Dpb18IJh.js；bundle 内 color:"inherit" 0→1、"/stocks/" 2→3。
+- Playwright：/knowledge 中含 symbol 的笔记代码标签为 <a href="/clair/stocks/600519.SH">，点击后 URL 正确，页面渲染「贵州茅台 600519 沪市 食品饮料 1453.00 +1.00 +0.07% 数据截至 2026-11-06」，无空态字样。
+- 结论：缺口2 笔记侧闭环；观点侧、研报侧待办。
