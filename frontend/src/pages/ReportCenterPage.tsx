@@ -524,7 +524,11 @@ function ReportCenterPage() {
       {/* 评级变动追踪 */}
       <Card
         title={<><AlertOutlined style={{ marginRight: 6, color: ACCENT }} />评级变动追踪</>}
-        extra={<Tag color={ratingChanges.length ? 'blue' : 'default'}>{ratingChanges.length} 条变动</Tag>}
+        extra={
+          ratingChanges.length > 0
+            ? <Tag color="blue">{ratingChanges.length} 条变动</Tag>
+            : <Tag color="default">源未提供</Tag>
+        }
         style={{ marginBottom: 16 }}
       >
         <Table
@@ -534,9 +538,13 @@ function ReportCenterPage() {
           size="small"
           pagination={{ pageSize: 6, size: 'small' }}
           scroll={{ x: 760 }}
+          locale={{
+            emptyText:
+              '东方财富研报源不提供前次评级（prevRating），本节无法判定，不代表“无评级变动”。',
+          }}
         />
         <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-          上调（红）/ 下调（绿）由 trackRatingChanges 依据同一机构前后评级变化推导。
+          上调（红）/ 下调（绿）依赖同机构前后评级对比；当前数据源未提供前次评级，故本表为「不可判定」而非「无变动」。
         </Text>
       </Card>
 
