@@ -543,3 +543,16 @@
 - **口径**：本轮**不改产品代码**。「观点不挂个股」在源码层面**证伪**，降级为「线上渲染待复验」；不把它继续当已确认缺陷，避免后续轮次重复劳动。线上复验仍缺 e2e 一证（需 Playwright 打开观点列表页断言 `a[href^="/clair/stocks/"]` 存在且可点）。
 - **代价与下一步**：① 线上 Playwright 复验观点列表页链接（未做，缺一证）；② 确认 `ThesisResearchSection.tsx:78/82` 的研报/笔记互链在线上是否可达（与「研报中心空白」同源，需独立证）；③ `/report-center` 主内容空白仍是未确认根因的最高影响项，下一轮优先。
 
+
+
+## D72 研报中心「永久加载态」修复并线上复验通过：真实研报 50 份 / 快讯 10 条已渲染（轮 49-50）
+
+- **现象**：线上 /report-center 长期停在「正在加载真实研报与新闻数据…」，DOM 仅 218 字符、stockLinks=0；但 /api/news/research/reports?limit=50 与 /api/news?pageSize=50 均 200 且有真实数据（首条 `AP202611081831535449` 安克创新26Q3点评）。
+- **根因（源码级两条）**：① `/api/news` 实际返回 `{data:[...]}` 数组，`ReportCenterPage.tsx` 按 `newsData.items` 取值 → undefined，新闻恒空；② `Promise.all([...]).then(...)` 无 `.catch`，映射异常时 `setLoading(false)` 永不执行 → 永久加载态。
+- **做法**：新闻取值兼容数组与 `{items}`；loading 链补 `.catch` 兜底并置 `dataSource:'unavailable'`。承诺不新增假数据、不改口径。
+- **证据**：单文件 esbuild（`--bundle --packages=external --loader:.tsx=tsx`）exit 0 产物 53536 字节；commit `65bd2942c`（1 file changed, 8 insertions, 1 deletion）；经 `scripts/git-push-api.mjs` 推送 CONTENT_CHECK=OK files=3113，远端 head `774d3ba15663`。
+- **部署**：`Deploy to GitHub Pages`（head 774d3ba1）= success；线上 bundle 由 `index-g3Z1lNDl.js` 变为 `index-DPYCPj80.js`（换包证据）。**CI 该 head 仍 in_progress，不声明 CI 绿**。
+- **线上复验（Playwright，2026-11-09）**：/report-center `loading=false`、`error=false`、mainLen 3353、cards 31、items 81、stockLinks 52；正文首行为「研报 AI 摘要中心」+「数据由东方财富实时接口提供（真实源）：50 份研报 / 10 条快讯」；指标卡 研报总数 50 / 覆盖股票 50只 / 买入评级占比 78.7% / 一致目标价「—（真实源未提供目标价）」；机构共识表渲染真实个股（安克创新 300866、古井贡酒 000596、胜宏科技 300476、生益电子 688183）。
+- **遗留（不在本轮声称完成）**：① 「评级变动」子表为「暂无数据」，待核对源站是否真的无该字段，防「源有而前端不映射」；② 深链 /report-center 返回 HTTP 404 状态但 SPA 正常渲染（Pages 无 404.html 回退），影响爬虫与监控判定，列为 P2；③ 一致目标价—为源缺失的诚实降级，保留。
+- **教训**：页面「看起来在加载」不一定是网络慢，先比对响应体形状与 UI 解构路径；`Promise.all` 链缺少终端 catch 会把单点映射错误放大成整页永久加载。
+
