@@ -9,7 +9,7 @@
  *   - 手动写笔记保存 → toast 提示，建议回 FloatingChat 继续对话
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Tag, Input, Typography, Space, Button, Modal, Select, Tooltip, Row, Col, Segmented, message,
 } from 'antd';
@@ -213,7 +213,9 @@ const NoteCard: React.FC<NoteCardProps> = ({ entry, expanded, onToggle, onDelete
           })}
         </span>
         {entry.symbol && (
-          <Tag style={{ borderRadius: 4, fontSize: 11, margin: 0 }}>{entry.symbol}</Tag>
+          <Link to={`/stocks/${entry.symbol}`} style={{ color: 'inherit' }}>
+            <Tag style={{ borderRadius: 4, fontSize: 11, margin: 0, cursor: 'pointer' }}>{entry.symbol}</Tag>
+          </Link>
         )}
         {entry.page === '手动笔记' ? (
           <Tag color="blue" style={{ borderRadius: 4, fontSize: 11, margin: 0 }}>
