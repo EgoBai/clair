@@ -579,3 +579,11 @@
 - 证据三（数据面）：https://clair-api.pages.dev/api/news/research/reports?limit=5 返回 dataSource=real，items[0].stockCode=002956（西麦食品），ticker 非空。
 - 边界：仅证「链接存在且 ticker 有值」，未做点击级 e2e，不证个股页数据完整。
 - 附带发现：https://clair-api.onrender.com 同路径 curl（-m 12）返回 0 字节，Render 后端当前不可服务；与 Render 约 27.2 美元/月估算联动，需先确认前端 VITE_API_BASE 指向。
+
+## D75 · 收口 D74 行号缺口 + 定位「AI 不感知 dataSource」改造面
+
+- D74 残留已消除：frontend/src/pages/ReportCenterPage.tsx:563 确为 {activeTicker && <Link to=/stocks/${activeTicker}>查看个股</Link>}，四处链接行号 344/391/493/563 全部核实。
+- 结论：报告中心「研报不链个股」彻底撤回，无残留待核行号。
+- AI 改造面（grep 实测）：入口 frontend/src/services/aiClient.ts（298 行，fetch 自拼 `${API_ORIGIN}/api/ai/chat`）、frontend/src/components/AI/ChatPanel.tsx（794 行）、frontend/src/utils/aiChatFallback.ts（97 行）、frontend/src/utils/aiResponse.ts（303 行）。
+- 已有事实：后端在 LLM 网关不可用时返回 HTTP 200 + success:false + dataSource:'unavailable'，aiClient 已用可判别结果类型表达四类结局；**缺的是页面侧 dataSource 未进入对话上下文**，AI 无法据此声明「本页数据不可用，不能判断」。
+- 下一步验收（未执行）：当页面 dataSource=unavailable 时，AI 首轮回答必须显式声明无法基于本页数据判断，并配单测；不得静默给结论。
