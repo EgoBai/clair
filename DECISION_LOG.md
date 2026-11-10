@@ -570,3 +570,12 @@
 - **部署**：commit 43fe90f78 → 远端 1e6d30458；Deploy to GitHub Pages run 42503607222 = success；线上包 ReportCenterPage-mXPCtFuT.js 四条新文案命中，旧「暂无数据」归零。
 - **口径更正（自我纠错）**：轮 60 曾据旧包 index-Ca4GLVYv.js 判「修复未上线」，实为部署尚未完成时采样；换包后复核推翻该结论，记此以免后人误引。
 - **遗留**：该 head 的 CI 仍 in_progress，不声明 CI 绿。
+
+## D74 · 撤回「研报不链个股」P1（证据不足即证伪）
+
+- 结论：该断链不成立，从缺口清单撤回，避免按错误前提改代码。
+- 证据一（源码）：frontend/src/pages/ReportCenterPage.tsx:344、:391、:493、:563 均为 Link to=/stocks/${r.ticker} 形态。
+- 证据二（线上包）：线上 chunk assets/js/ReportCenterPage-mXPCtFuT.js（23,493 B）grep 路径片段命中 4 次，与源码条数一致。
+- 证据三（数据面）：https://clair-api.pages.dev/api/news/research/reports?limit=5 返回 dataSource=real，items[0].stockCode=002956（西麦食品），ticker 非空。
+- 边界：仅证「链接存在且 ticker 有值」，未做点击级 e2e，不证个股页数据完整。
+- 附带发现：https://clair-api.onrender.com 同路径 curl（-m 12）返回 0 字节，Render 后端当前不可服务；与 Render 约 27.2 美元/月估算联动，需先确认前端 VITE_API_BASE 指向。
