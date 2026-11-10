@@ -7,12 +7,14 @@
  * - 投资笔记入口: "保存到投资笔记"按钮
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MessageOutlined, CloseOutlined, BulbOutlined } from '@ant-design/icons';
 import ChatPanel, { type DataSourceRef } from './ChatPanel';
 import { message } from 'antd';
 import { NOTE_SAVED_EVENT, type NoteSavedEventDetail } from '../../utils/knowledgeStore';
+import { buildDataAvailabilityClause } from '../../utils/aiDataAvailability';
+import { getPageDataSource, subscribePageDataSource } from '../../utils/pageDataSource';
 
 interface PageContext {
   page: string;
@@ -21,6 +23,8 @@ interface PageContext {
   stockName?: string;
   systemHint: string;
   symbols?: string[];
+  /** 本页接口自报的数据可用性（real/partial/unavailable/unknown） */
+  dataSource?: string | null;
 }
 
 interface MarketData {
@@ -272,6 +276,9 @@ const FloatingChat: React.FC = () => {
     };
   }, [location.pathname]);
 
+  // 订阅当前页的数据可用性（由页面写入，离开页面清空）
+  const pageDataSource = useSyncExternalStore(subscribePageDataSource, getPageDataSource, getPageDataSource);
+
   // 注入市场数据到systemHint
   const enrichedContext = useMemo(() => {
     let hint = pageContext.systemHint;
@@ -304,8 +311,12 @@ const FloatingChat: React.FC = () => {
     // 更新推荐问题
     setSuggestedQuestions(getSuggestedQuestions(pageContext.page, pageContext.stockName));
 
-    return { ...pageContext, systemHint: hint };
-  }, [pageContext, marketData, multidimSummary]);
+    // 数据可用性边界：real 不注入，其余三态必须让 AI 说清能不能判断
+    const availability = buildDataAvailabilityClause(pageDataSource);
+    if (availability) hint += `\n\n${availability}`;
+
+    return { ...pageContext, systemHint: hint, dataSource: pageDataSource };
+  }, [pageContext, marketData, multidimSummary, pageDataSource]);
 
   // C-02: 只登记真实取到数据的来源（含真实获取时间戳），取不到则不登记
   // 说明: localStorage 自选股无可信获取时间，故不作为数据来源登记

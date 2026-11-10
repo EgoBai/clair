@@ -20,6 +20,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { chatStream, type ChatMessage } from '../../services/aiClient';
+import { buildDataAvailabilityClause } from '../../utils/aiDataAvailability';
 import { Tag } from 'antd';
 import { renderMarkdown } from '../../utils/markdown';
 import { saveEntry, CATEGORIES } from '../../utils/knowledgeStore';
@@ -68,6 +69,8 @@ interface PageContext {
   symbol?: string;
   stockName?: string;
   systemHint: string;
+  /** 本页接口自报的数据可用性（real/partial/unavailable/unknown），用于给 AI 划边界 */
+  dataSource?: string | null;
 }
 
 interface QuickCommand {
@@ -212,7 +215,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ pageContext, suggestedQuestions =
 - 关心用户的投资心态，不只是数据
 回答要简洁专业，使用Markdown格式。`;
     if (!pageContext) return base;
-    return `${base}\n\n当前上下文：${pageContext.systemHint}`;
+    const availability = buildDataAvailabilityClause(pageContext.dataSource);
+    const tail = availability ? `\n\n${availability}` : '';
+    return `${base}\n\n当前上下文：${pageContext.systemHint}${tail}`;
   }, [pageContext]);
 
   // 自动滚动到底部

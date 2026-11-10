@@ -20,6 +20,7 @@ import type { KLineData } from '../components/Charts/KLineChart';
 const KLineChart = React.lazy(() => import('../components/Charts/KLineChart'));
 const IndicatorPanel = React.lazy(() => import('../components/Charts/IndicatorPanel'));
 import { useStockActions, useWatchlist } from '../store/useStockStore';
+import { setPageDataSource } from '../utils/pageDataSource';
 import { analyze } from '../utils/strategy';
 import { readJson } from '../utils/api';
 import { computeIndicatorSeries } from '../utils/indicatorCalc';
@@ -101,6 +102,9 @@ interface QuoteData {
 }
 
 const StockDetailPage: React.FC = () => {
+
+  // 离开本页即清空数据可用性，避免把上一页的状态带进 AI 对话
+  useEffect(() => () => setPageDataSource(null), []);
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -286,6 +290,8 @@ const StockDetailPage: React.FC = () => {
         const body = await readJson<any>(resp);
         const data = body?.data ?? body;
         if (!data) throw new Error('策略接口未返回数据');
+        // 把接口自报的数据可用性广播给 AI 上下文（real / partial / unavailable）
+        if (!cancelled) setPageDataSource(String(data.dataSource ?? 'real'));
         if (data.dataSource === 'unavailable') {
           if (!cancelled) setStrategyError(data.note || '策略暂不可得：K线样本不足，本次不返回评分');
           return;
