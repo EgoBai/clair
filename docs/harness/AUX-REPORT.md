@@ -216,3 +216,56 @@ node scripts/aux/doctor.mjs --deep   # 加跑 honesty-scan --strict、影子普�
   北向成交额 2757.2 亿 vs 港股通 0 亿、`dealAmount>0` 不成立），**不掩盖今日新问题**。
 - **提示**：报告测试数字时须注明「含/不含工作区未提交用例」，否则 HEAD 与工作区两套口径会打架。
 
+---
+
+## [RPT-20261116-1] 退市股定格价冒充实时（RPT-1 的后续）——已修复并线上验证
+
+- **判定：成立 → 已闭环**（2026-11-04 报出，11-16 复测仍存在，本轮由辅助方按用户直接指令修复）
+- **执行时间**：2026-11-16 00:20–00:35 CST
+- **修复前（两次独立复测一致）**
+
+  | 日期 | `dataSource` | `stale_symbols` | `coverage_ratio` | note |
+  |---|---|---|---|---|
+  | 2026-11-04 | `real` | 字段不存在 | `1` | 「本页全部股票均取到腾讯实时行情」 |
+  | 2026-11-16 部署前 | `real` | 字段不存在 | `1` | 同上 |
+
+  零成交量样本：`600001 邯郸钢铁`（2009 退市）/ `600002 齐鲁石化` / `600003 ST东北高` / `600005 武钢股份`（2017 停牌）。
+
+- **根因（不是缺数据，是判据只写了一半）**
+  判定「退市/长期停牌定格快照」的 `looksLikeRetiredQuote` 判据**只存在于 `/api/stocks/:symbol`（详情页）**，
+  列表页 `/api/stocks` 未复用。于是同一只退市股在详情页标 `partial`、在列表页被算作"已取到实时行情"。
+  上游直查（`qt.gtimg.cn`）：腾讯对退市股仍返回 `price`，但 `volume=0`、时间戳停在 `09:00:00`、字段带 `D` 标记
+  —— 数据是真的，**"这是今日行情"这个结论是假的**。
+
+- **改动**（commit `f7bec82ac`，3 文件 +155/−30）
+  1. 抽出模块级 `looksLikeRetiredQuote()`，详情页与列表页共用**同一判据**（判据只写一处，杜绝再次分叉）
+  2. 列表页命中时：`closePrice` 保留（真实最后成交价），`changePercent/volume/turnover/turnoverRate` 置 `null`
+     （不写 0），并加 `retiredSnapshot: true`
+  3. 新增 `stale_symbols` / `stale_count` / `tradable_count`；存在定格快照时 `dataSource` 降级为 `partial`，
+     `note` 写明条数与原因
+  4. 契约测试新增确定性用例（桩构造 1 只定格 + 2 只正常），锁死不得再自称 `real`
+
+- **验证（四证）**
+  | 证 | 结果 |
+  |---|---|
+  | 契约测试 | `node clair-worker/test/worker-contract.test.mjs` → **120 通过 / 0 失败**；新增用例实测执行且通过 |
+  | 双文件一致 | `worker.js` 与 `_worker.js` md5 同值（`d637727a…`） |
+  | 部署 | `Deploy Worker to Cloudflare` → success（含 D51 的部署后契约校验） |
+  | 线上行为 | 见下 |
+
+  **部署后线上实测**：
+  ```
+  dataSource: partial（顶层与 data 内同源）
+  coverage_ratio: 1 | quotes_available: 40 | tradable_count: 36
+  stale_count: 4 | stale_symbols: ["600001","600002","600003","600005"]
+  note: 4 只为退市或长期停牌的定格快照（无当日成交，当日涨跌与成交量已置 null，非实时）；…
+  600001 → {closePrice:5.29, changePercent:null, volume:null, turnover:null, retiredSnapshot:true}
+  600000（对照，在市）→ {volume:761573, changePercent:1.86}
+  ```
+  烟测：`--expect-commit f7bec82ac` → **版本一致性 MATCH**、`MALFORMED 0`、exit 0。
+
+- **残留（未做，留给主导方判断）**：`coverage_ratio` 仍是 `quotes_available/items`（本轮为 1），
+  与 `tradable_count=36/40` 并列存在两个"覆盖率"。字段语义已由 `note` 说清，
+  但长期看应把 `coverage_ratio` 定义收敛到一个口径，否则读报告的人仍可能只看 1。
+
+
