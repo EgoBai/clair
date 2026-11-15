@@ -555,6 +555,24 @@ const CHAIN_DETAILS = {
 };
 
 /**
+ * 「停用快照」判据 —— 退市/长期停牌标的在腾讯只剩一条定格快照：
+ * open/high/low/volume 全 0、price 与 prevClose 相等（快照时间停在 09:00:00）。
+ *
+ * 为什么判据必须只写一处：该判据原先只写在 /api/stocks/:symbol（详情页），
+ * 列表页 /api/stocks 没有复用，于是同一只退市股在详情页标 partial、在列表页却被算作
+ * 「已取到实时行情」，把 coverage_ratio 抬到 1 并声称 real。
+ * 2026-11-04 线上实测：pageSize=40 里 600001 邯郸钢铁(2009 退市)/600002 齐鲁石化/
+ * 600003 ST东北高/600005 武钢股份(2017 停牌) 四只零成交量标的全部混入 real。
+ * 判据只写这里，两个消费点都调它，避免再次分叉。
+ */
+function looksLikeRetiredQuote(q) {
+  if (!q) return false;
+  return Number.isFinite(q.price) && q.price > 0
+    && q.open === 0 && q.high === 0 && q.low === 0 && q.volume === 0
+    && Math.abs(q.price - q.prevClose) < 1e-9;
+}
+
+/**
  * 腾讯行情 API 返回 GBK 编码的文本
  * 格式: v_sh600519="1~贵州茅台~600519~1850.00~..."
  * 字段索引: 1=name, 2=symbol, 3=price, 4=prevClose, 5=open, 6=volume,
@@ -1301,6 +1319,8 @@ async function handleAllStocks(url) {
       // （000001.SZ 平安银行 vs sh000001 上证指数）。查不到则置 null，绝不回退纯代码。
       const tencentKey = stockTencentKey(s);
       const q = (tencentKey && quoteMapByTencent[tencentKey]) || null;
+      // 与 /api/stocks/:symbol 同一判据：退市/长期停牌的定格快照不是今日行情。
+      const retired = looksLikeRetiredQuote(q);
       return {
         symbol: s.symbol,
         name: s.name,
@@ -1309,15 +1329,19 @@ async function handleAllStocks(url) {
         concepts: s.concepts || [],
         latestQuote: q ? {
           closePrice: q.price,
-          changePercent: q.changePercent,
-          turnoverRate: q.turnoverRate,
+          // 定格快照的「当日」事实并不存在：涨跌/成交量/成交额/换手率一律 null（不写 0）。
+          // 前端对 null 渲染 '—'，不会显示成「0.00% / 0 手」这种零值顶替。
+          changePercent: retired ? null : q.changePercent,
+          turnoverRate: retired ? null : q.turnoverRate,
           peRatio: q.peRatio,
-          volume: q.volume,
-          turnover: q.turnover,
+          volume: retired ? null : q.volume,
+          turnover: retired ? null : q.turnover,
           // 总市值/流通市值：腾讯 parts[45]/[44]，单位「亿元」。缺失时省略键，
           // 前端据此显示 '—'，绝不用 0 或按股价×股本倒算。
           marketCap: Number.isFinite(q.marketCap) ? q.marketCap : undefined,
           circulatingMarketCap: Number.isFinite(q.circulatingMarketCap) ? q.circulatingMarketCap : undefined,
+          // 只在为真时加键，不给正常标的平白多一个字段
+          ...(retired ? { retiredSnapshot: true } : {}),
         } : null,
       };
     });
@@ -1325,17 +1349,31 @@ async function handleAllStocks(url) {
     // 诚实数据：latestQuote 为 null 表示"该股这一页没拿到真实行情"，
     // 不能因为 items 里有代码就自称 real。按有行情条数占比给 dataSource，
     // 并显式披露 quotes_available / coverage_ratio，前端与烟测据此判定。
+    //
+    // 但「有行情」不等于「今日有行情」：退市/长期停牌标的（looksLikeRetiredQuote）
+    // 拿到的是一条定格快照，价格真实但成交为 0。若把它计入可用条数，
+    // coverage_ratio 会被抬到 1 且 dataSource 报 real —— 那正是「陈旧价格冒充实时」，
+    // 与项目 P0-STALEPX 同一类红线。故单独计数并在 dataSource 上降级为 partial。
     const quotesAvailable = items.reduce((n, it) => n + (it.latestQuote ? 1 : 0), 0);
+    const staleSymbols = items
+      .filter(it => it.latestQuote && it.latestQuote.retiredSnapshot === true)
+      .map(it => it.symbol);
+    const tradableCount = quotesAvailable - staleSymbols.length;
+    const missingCount = items.length - quotesAvailable;
     const coverageRatio = items.length
       ? Math.round((quotesAvailable / items.length) * 1000) / 1000
       : 0;
     const dataSource = items.length === 0
       ? 'unavailable'
-      : (quotesAvailable === 0 ? 'unavailable' : (quotesAvailable < items.length ? 'partial' : 'real'));
+      : (quotesAvailable === 0 ? 'unavailable' : (quotesAvailable < items.length || staleSymbols.length > 0 ? 'partial' : 'real'));
     const note = dataSource === 'real'
       ? '本页全部股票均取到腾讯实时行情（latestQuote 非空）。'
       : (dataSource === 'partial'
-        ? '本页部分股票未取到实时行情，对应 latestQuote 为 null（不回落代码/不填 0）；quotes_available 为真实有值条数。'
+        ? [
+          missingCount > 0 ? `${missingCount} 只未取到行情（latestQuote 为 null，不回落代码/不填 0）` : null,
+          staleSymbols.length > 0 ? `${staleSymbols.length} 只为退市或长期停牌的定格快照（无当日成交，当日涨跌与成交量已置 null，非实时）` : null,
+          `quotes_available=${quotesAvailable}，tradable_count=${tradableCount}`,
+        ].filter(Boolean).join('；') + '。'
         : '本页未取到任何实时行情，latestQuote 全为 null；不返回伪造价格。');
 
     return json({
@@ -1349,6 +1387,9 @@ async function handleAllStocks(url) {
         dataSource,
         quotes_available: quotesAvailable,
         coverage_ratio: coverageRatio,
+        stale_symbols: staleSymbols,
+        stale_count: staleSymbols.length,
+        tradable_count: tradableCount,
         note,
       },
       timestamp: new Date().toISOString(),
@@ -1522,17 +1563,12 @@ async function handleStockDetail(symbol) {
       amplitude: q.high > 0 && q.low > 0 && q.prevClose > 0 ? ((q.high - q.low) / q.prevClose * 100) : null,
     };
 
-    // 北交所旧代码（43x/83x/87x）在 2025 年迁移到 920 段后，腾讯只回一条「停用快照」：
-    // open/high/low/volume 全 0、close 与 prevClose 相等、快照时间为当日 09:00。
-    // 直接透出等于把「0 涨跌 / 0 手」当成今日行情（零值顶替空态）。这里下钻一次日线，
-    // 还原最后成交日，把当日字段置 null，并标 dataSource='partial' 说明非实时。
-    const looksLikeRetiredQuote =
-      Number.isFinite(q.price) && q.price > 0 &&
-      q.open === 0 && q.high === 0 && q.low === 0 && q.volume === 0 &&
-      Math.abs(q.price - q.prevClose) < 1e-9;
+    // 判据集中在模块级 looksLikeRetiredQuote()，列表页 /api/stocks 复用同一函数，
+    // 避免「详情页标 partial、列表页报 real」这种两套口径。
+    const retiredQuote = looksLikeRetiredQuote(q);
     let quoteSource = 'real';
     let quoteNote = null;
-    if (looksLikeRetiredQuote) {
+    if (retiredQuote) {
       const pre = stock.market === 'SH' ? 'sh' : stock.market === 'BJ' ? 'bj' : 'sz';
       try {
         const kl = await fetchDailyKLine(pre + stock.symbol, stock.symbol, stock.market, 3);

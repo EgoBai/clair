@@ -1763,6 +1763,59 @@ await test('/api/stocks：一只行情都拿不到时 dataSource=unavailable，l
   });
 });
 
+// 退市/长期停牌标的在腾讯只剩一条「定格快照」（open/high/low/volume 全 0、close==prevClose）。
+// 详情页早已按 partial 处理，但列表页曾把它计入「已取到行情」，把 coverage_ratio 抬到 1 并报 real。
+// 2026-11-04 线上实测：pageSize=40 里 600001/600002/600003/600005 四只零成交量标的混入 real。
+// 本用例用桩构造「1 只定格 + 2 只正常」，锁死列表页不得再自称 real。
+function retiredQuoteLine(sym) {
+  const digits = sym.slice(2);
+  const p = new Array(50).fill('0');
+  p[0] = '1';
+  p[1] = '退市' + digits;
+  p[2] = digits;
+  p[3] = '5.29';   // price == prevClose（定格）
+  p[4] = '5.29';
+  p[5] = '0';      // open
+  p[6] = '0';      // volume
+  p[30] = '20261104090000'; // 快照时间停在 09:00
+  p[32] = '0';     // changePercent
+  p[33] = '0';     // high
+  p[34] = '0';     // low
+  p[37] = '0';     // turnover（万元）
+  p[38] = '0';     // turnoverRate
+  p[39] = '0';     // peRatio
+  return 'v_' + sym + '="' + p.join('~') + '";';
+}
+
+await test('/api/stocks：定格快照（退市/停牌）不得计入实时——dataSource=partial 且当日字段为 null', async () => {
+  await withStubbedTencentQuotes(
+    (sym) => (sym.endsWith('600001') ? retiredQuoteLine(sym) : fakeQuoteLine(sym)),
+    async () => {
+      const { status, body } = await callWorkerWithEnv(
+        'https://clair-api.pages.dev/api/stocks?page=1&pageSize=3', undefined, {});
+      assert.equal(status, 200);
+      assert.equal(body.dataSource, 'partial', '含定格快照时不得自称 real（部分标的非今日行情）');
+      assert.equal(body.data.dataSource, body.dataSource, '顶层与 data 内必须同源');
+      assert.equal(body.data.quotes_available, 3, 'quotes_available 语义不变：拿到报价即计入');
+      assert.deepEqual(body.data.stale_symbols, ['600001'], '定格快照必须单列');
+      assert.equal(body.data.stale_count, 1);
+      assert.equal(body.data.tradable_count, 2, 'tradable_count = 有报价 − 定格快照');
+
+      const stale = body.data.items.find((it) => it.symbol === '600001');
+      assert.equal(stale.latestQuote.closePrice, 5.29, '最后成交价是真实数字，保留不置空');
+      for (const k of ['volume', 'turnover', 'turnoverRate', 'changePercent']) {
+        assert.equal(stale.latestQuote[k], null, `${k} 必须是 null（不是 0）`);
+      }
+      assert.equal(stale.latestQuote.retiredSnapshot, true);
+
+      const live = body.data.items.find((it) => it.symbol !== '600001');
+      assert.ok(live.latestQuote.volume > 0, '正常标的成交量不受影响');
+      assert.equal(live.latestQuote.retiredSnapshot, undefined, '正常标的不得被误标');
+      assert.ok(/定格快照/.test(body.data.note), 'note 必须说明原因，否则读报告的人会以为是普通缺数');
+    }
+  );
+});
+
 await test('/api/stocks/:symbol：详情同时返回 latestQuote 与 quote（backend 契约是 latestQuote，缺它详情页永远「暂无行情数据」）', async () => {
   await withStubbedTencentQuotes(fakeQuoteLine, async () => {
     const { status, body } = await callWorkerWithEnv(
