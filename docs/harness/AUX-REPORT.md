@@ -269,3 +269,45 @@ node scripts/aux/doctor.mjs --deep   # 加跑 honesty-scan --strict、影子普�
   但长期看应把 `coverage_ratio` 定义收敛到一个口径，否则读报告的人仍可能只看 1。
 
 
+
+---
+
+## [RPT-20261116-2] 自我更正：RPT-6 关于 reportGenerator 的判定过重；并发现两个「无真源」测试
+
+- **判定：RPT-6 该行判断需修正**（原判「不成立/影子自抄」→ 实为「无生产源可绑，属有记录的特例」）
+- **更正依据**
+
+  `backend/src/__tests__/reportGenerator.test.ts` 文件头（:3-17）已明确记录核对过程：
+  逐条核对 `frontend/src/utils/researchReportEngine.ts` / `researchReportAnalysisEngine.ts` /
+  `financialReportEngine.ts` 三个候选，确认**均无** `createReport / registerDataSource / generate / exportCSV`
+  契约，故保留内联实现作测试替身，并用固定时钟 + 自增序号替代随机数与当前时间。
+
+  本轮独立复核（`rg` 全仓，排除 `__tests__`）：
+  ```bash
+  rg --files -g '*reportGenerator*' -g '!**/__tests__/**' .   # → 零命中
+  rg -n "class ReportGenerator|createReport\(|registerDataSource\(" --glob '!**/__tests__/**' --glob '!**/*.test.*' .
+  # → 仅命中本报告自身，生产代码零定义
+  ```
+  ⟹ **没有可迁移的生产实现**。原判把「无源可绑」误读成「偷懒自抄」，是我的判断错误。
+
+- **但由此暴露一个更值得处理的问题**：`reportGenerator.test.ts` 与 `reportGeneratorEngine.test.ts`
+  **两个文件都只 import `vitest`**、各自内联实现，且全仓无对应生产模块。
+  这不是「影子测试待迁移」，而是**测试对象不存在**——无论实现怎么改，它们永远是绿的。
+
+  对照项目先例：2026-11-04 的 `chore(m2)` 已把 13 个 D 类死测试归档到
+  `docs/_archive/dead-tests/2026-11/`（git rename、0 行改动）。同类处理应一致。
+
+- **建议（不代做，属主导方判断）**：给影子普查加一档分类——`有生产源可绑` vs `无生产源`。
+  后者不应计入「待迁移」，应走归档；否则影子数永远降不到 0，且会诱导后续批次反复「迁移」一些没有对象的测试。
+
+---
+
+## [RPT-20261116-3] `coverage_ratio` 与 `partial` 自相矛盾——已收口
+
+- **判定：成立 → 已修复**（commit `cc51f00bb`）
+- **缺陷**：修完 RPT-1 后线上出现 `dataSource: partial` 与 `coverage_ratio: 1` 同时成立。
+  覆盖率口径仍是「有报价条数 / 总数」，读报告的人只看覆盖率会以为数据全量可用。
+- **改动**：`coverage_ratio` 改为 `tradable_count / items.length`（可交易覆盖）；
+  绝对值仍由 `quotes_available / tradable_count / stale_count` 三字段并列披露，不丢信息。
+- **验证**：契约测试 **120 通过 / 0 失败**（含「全部取到行情 → 1」与「全无行情 → 0」两条既有断言）；
+  前端零消费该字段（`rg` 确认），无 UI 回归面。部署后 `pageSize=40` 的覆盖率预期由 1 变为 0.9。
