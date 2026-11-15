@@ -1360,8 +1360,12 @@ async function handleAllStocks(url) {
       .map(it => it.symbol);
     const tradableCount = quotesAvailable - staleSymbols.length;
     const missingCount = items.length - quotesAvailable;
+    // coverage_ratio 的口径是「可交易覆盖」，不是「有报价覆盖」：
+    // 退市/停牌标的虽有报价但当日无成交，若仍计入，会出现
+    // dataSource=partial 与 coverage_ratio=1 同时成立的自我矛盾
+    // （2026-11-16 线上实测：40 只里 4 只定格快照，旧口径给 1）。
     const coverageRatio = items.length
-      ? Math.round((quotesAvailable / items.length) * 1000) / 1000
+      ? Math.round((tradableCount / items.length) * 1000) / 1000
       : 0;
     const dataSource = items.length === 0
       ? 'unavailable'
