@@ -3,6 +3,6 @@
   "total": 1541,
   "shadowLoc": 172712,
   "recordedAt": "2026-11-16",
-  "note": "只许下调：影子数高于基线即失败。2026-11-16 归档两个无生产源测试（reportGenerator、reportGeneratorEngine → docs/_archive/dead-tests/2026-11）：基线 687→686；实测 688→686、total 1543→1541、shadowLoc 173404→172712",
+  "note": "只许下调：影子数高于基线即失败。2026-11-16 归档两个无生产源测试（backend/src/__tests__/reportGenerator.test.ts、reportGeneratorEngine.test.ts → docs/_archive/dead-tests/2026-11/，纯 rename 0 行改动，commit 202f9a5f5）：基线 687→686，实测 688→686（total 1543→1541、shadowLoc 173404→172712）。口径：686/1541/172712/193969 为 2026-11-17 工作区当前状态实测（包含未提交改动）；实测时工作区只有 .workbuddy/memory 记账脏文件，无未提交测试文件，故与 commit 202f9a5f5 的测试集合等价。",
   "realLoc": 193969
 }
