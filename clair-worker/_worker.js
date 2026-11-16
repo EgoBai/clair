@@ -1796,7 +1796,7 @@ function searchStockList(keyword, limit) {
 
 // ==================== Phase 2: AI 市场解读 ====================
 
-function generateMarketInsight(indices, sectors, stocks, quotes) {
+function generateMarketInsight(indices, sectors, stocks, quotes, breadth) {
   const upIndices = indices.filter(i => i.changePercent > 0);
   const downIndices = indices.filter(i => i.changePercent < 0);
   const topSectors = sectors.slice(0, 5);
@@ -1817,14 +1817,27 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
     `· ${i.name}: ${i.changePercent > 0 ? '+' : ''}${i.changePercent.toFixed(2)}%（${i.changePercent > 0 ? '上涨' : '下跌'}）`
   );
 
-  const allQuotes = quotes.filter(q => q && q.changePercent !== undefined && isFinite(q.changePercent));
-  const upStocks = allQuotes.filter(q => q.changePercent > 0).length;
-  const downStocks = allQuotes.filter(q => q.changePercent < 0).length;
-  const totalStocks = allQuotes.length || 1;
+  // 【P0-INSIGHT-POLLUTION 修复】市场宽度（涨跌家数/涨跌停/成交额）不再在本端点自行遍历
+  // quotes 聚合，而是直接取 loadBreadthSnapshot() 的同一份聚合结果 —— 与
+  // /api/market/summary、/api/breadth/current 同源同值。
+  // 原实现有两个缺陷：
+  //   1) 未剔除 9 条指数快照行（指数成交额=成份股合计），成交额被重复计算约 3 倍；
+  //   2) 涨跌停用扁平 ±9.9% 阈值，ST(±5%)/创业板科创板(±20%)/北交所(±30%) 全部误判，
+  //      跌停家数因此虚高（实测 168 vs 市场宽度 67）。
+  // allQuotes 仅保留给下方 PE 分布分析，并同样剔除指数行。
+  const indexKeys = new Set(INDEX_SYMBOLS.map(i => i.tencent));
+  const allQuotes = quotes.filter(q => q && !indexKeys.has(q.tencentSymbol) && q.changePercent !== undefined && isFinite(q.changePercent));
+
+  const upStocks = breadth.advancing;
+  const downStocks = breadth.declining;
+  const unchangedStocks = breadth.unchanged;
+  const totalStocks = breadth.totalStocks || (upStocks + downStocks + unchangedStocks) || 1;
   const upRatio = Math.round(upStocks / totalStocks * 100);
 
-  const limitUpStocks = allQuotes.filter(q => q.changePercent >= 9.9);
-  const limitDownStocks = allQuotes.filter(q => q.changePercent <= -9.9);
+  // 涨跌停家数直接取广度快照（按交易所涨跌停价判定，天然含 ST 5%/创业科创 20%/北交所 30%）
+  const limitUpCount = breadth.limitUp;
+  const limitDownCount = breadth.limitDown;
+  const totalTurnover = breadth.turnover;
 
   let breadthAnalysis;
   if (upRatio >= 70) breadthAnalysis = `普涨格局（${upRatio}%个股上涨），市场赚钱效应显著，做多情绪高涨`;
@@ -1845,18 +1858,20 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
   const fundamentalText = [
     `**指数表现**`,
     ...indexLines,
-    `**涨跌分布**: ${upStocks}涨 / ${downStocks}跌 / ${totalStocks - upStocks - downStocks}平`,
-    `**涨停/跌停**: ${limitUpStocks.length}只涨停 / ${limitDownStocks.length}只跌停`,
+    `**涨跌分布**: ${upStocks}涨 / ${downStocks}跌 / ${unchangedStocks}平`,
+    `**涨停/跌停**: ${limitUpCount}只涨停 / ${limitDownCount}只跌停`,
     breadthAnalysis,
     avgPE ? peAnalysis : '',
     '',
   ].filter(Boolean).join('\n');
 
   // ====== 二、资金面 ======
-  const totalTurnover = allQuotes.reduce((s, q) => s + (q.turnover || 0), 0);
-  const turnoverStr = totalTurnover > 1e12
-    ? (totalTurnover / 1e12).toFixed(1) + '万亿'
-    : (totalTurnover / 1e8).toFixed(0) + '亿';
+  // 成交额取广度快照（已剔除指数行、逐字段诚实累计）；null 时如实显示「不可得」，不以 0 顶替
+  const turnoverStr = totalTurnover === null
+    ? '不可得'
+    : totalTurnover > 1e12
+      ? (totalTurnover / 1e12).toFixed(1) + '万亿'
+      : (totalTurnover / 1e8).toFixed(0) + '亿';
 
   const sectorFlowLines = topSectors.slice(0, 3).map(s =>
     `· ${s.industry}: 成交${(s.total_turnover / 1e8).toFixed(0)}亿，均涨${s.avg_change_percent > 0 ? '+' : ''}${s.avg_change_percent}%，资金集中度高`
@@ -1887,8 +1902,8 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
   // ====== 三、政策/消息面 ======
   const topIndustry = topSectors[0];
   const hotEvents = [];
-  if (limitUpStocks.length >= 10) hotEvents.push(`${limitUpStocks.length}只个股涨停，短线情绪活跃`);
-  if (limitDownStocks.length >= 10) hotEvents.push(`${limitDownStocks.length}只个股跌停，注意规避风险`);
+  if (limitUpCount >= 10) hotEvents.push(`${limitUpCount}只个股涨停，短线情绪活跃`);
+  if (limitDownCount >= 10) hotEvents.push(`${limitDownCount}只个股跌停，注意规避风险`);
   if (topSectors.length > 0 && topSectors[0].avg_change_percent > 3)
     hotEvents.push(`${topSectors[0].industry}板块大涨${topSectors[0].avg_change_percent.toFixed(1)}%，催化因素值得跟踪`);
 
@@ -1935,8 +1950,8 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
     points: [
       `**指数表现**`,
       ...indexLines.slice(0, 3),
-      `**涨跌分布**：${upStocks}涨 / ${downStocks}跌 / ${totalStocks - upStocks - downStocks}平`,
-      `**涨停/跌停**：${limitUpStocks.length}只涨停 / ${limitDownStocks.length}只跌停`,
+      `**涨跌分布**：${upStocks}涨 / ${downStocks}跌 / ${unchangedStocks}平`,
+      `**涨停/跌停**：${limitUpCount}只涨停 / ${limitDownCount}只跌停`,
       breadthAnalysis,
       `**市场总成交**：${turnoverStr}`,
       `**操作建议**：${operationAdvice}`,
@@ -1945,7 +1960,7 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
       '上涨家数': String(upStocks),
       '下跌家数': String(downStocks),
       '上涨占比': `${upRatio}%`,
-      '涨停': `${limitUpStocks.length} 只`,
+      '涨停': `${limitUpCount} 只`,
       '成交额': turnoverStr,
     },
     sections: [
@@ -1962,16 +1977,52 @@ function generateMarketInsight(indices, sectors, stocks, quotes) {
     avgIndexChange: Math.round(avgIndexChange * 100) / 100,
     topSectors: topSectors.map(s => ({ industry: s.industry, score: s.score, avgChange: s.avg_change_percent })),
     weakSectors: bottomSectors.map(s => ({ industry: s.industry, score: s.score, avgChange: s.avg_change_percent })),
-    limitUpCount: limitUpStocks.length,
-    limitDownCount: limitDownStocks.length,
+    limitUpCount,
+    limitDownCount,
+    // 与 /api/market/summary、/api/breadth/current 同源同值，供契约测试与线上核对
+    risingStocks: upStocks,
+    fallingStocks: downStocks,
+    unchangedStocks,
+    totalStocks,
+    totalTurnover,
+    asOf: breadth.tradeDate || null,
+    dataSource: 'real',
     timestamp: Date.now(),
   };
 }
 
+// 市场解读（DiscoverPage 依赖 /api/ai/market-insight）
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// 【P0-INSIGHT-POLLUTION 修复】此前本端点把原始 quotes 交给 generateMarketInsight()，
+// 由后者自行聚合市场宽度，与 /api/market/summary（已修为 loadBreadthSnapshot）形成
+// 两套口径：成交额把 9 条指数快照行重复计入（实测 AI 卡 4.5 万亿 vs 市场宽度 1.46 万亿），
+// 涨跌停用扁平 ±9.9% 阈值，ST/创业板/科创板/北交所全部误判（实测 168 跌停 vs 宽度 67）。
+//
+// 修法：与 handleMarketSummary 完全同源 —— 先取 loadBreadthSnapshot()，把同一份
+// advancing/declining/unchanged/limitUp/limitDown/turnover 传进 generateMarketInsight；
+// 降级条件与 summary 对齐（快照为 null / 成交额或家数缺失 → 整卡诚实降级，
+// 不给 0、也不用旧口径顶替）。
+// ═══════════════════════════════════════════════════════════════════════════
 async function handleMarketInsight() {
   try {
     const { quoteMapByTencent, quotes } = await getAllQuotes();
     const stocks = await getStockList();
+    // 与 /api/market/summary、/api/breadth/current 共用同一份聚合（30s 缓存内复用同一对象）
+    const breadth = await loadBreadthSnapshot();
+    if (!breadth || breadth.turnover === null || breadth.totalStocks === null) {
+      return unavailable(
+        {
+          summary: 'AI 市场解读暂不可得：全市场逐标的行情覆盖率不足或成交额源不可达，本次不返回任何数值（不以 0 或旧口径顶替）',
+          points: [],
+          metrics: {},
+          limitUpCount: null,
+          limitDownCount: null,
+          totalTurnover: null,
+        },
+        'AI 市场解读暂不可得：市场宽度快照不可用（与 /api/market/summary 同源降级），本次不生成解读',
+      );
+    }
     const indices = INDEX_SYMBOLS.map(idx => {
       // idx.tencent 即带市场前缀 key（sh000001/bj899050）；直接查 quoteMapByTencent，
       // 消除纯代码撞号（quoteMap['000001'] 会被 sz000001 平安银行覆盖，导致上证指数读错行情）。
@@ -1984,8 +2035,9 @@ async function handleMarketInsight() {
     });
 
     const sectors = await getSectorData();
-    const insight = generateMarketInsight(indices, sectors, stocks, quotes);
-    return json({ data: insight, success: true });
+    const insight = generateMarketInsight(indices, sectors, stocks, quotes, breadth);
+    // 顶层与 data 内双写 dataSource（项目诚实契约；数值全部来自同一份真实广度快照）
+    return json({ data: insight, success: true, dataSource: 'real' });
   } catch (e) {
     return error(e.message);
   }

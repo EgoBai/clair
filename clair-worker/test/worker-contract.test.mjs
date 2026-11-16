@@ -751,6 +751,51 @@ await test('market/summary：date 为真实数据交易日（YYYY-MM-DD）而不
   assert.ok(!/T\d{2}:\d{2}:\d{2}/.test(s.data.date), 'date 不得是 ISO 时刻（那是请求时刻，不是数据日期）');
 });
 
+console.log('\n三·二 /api/ai/market-insight 与 /api/market/summary 同源一致性（成交额/涨跌停/涨跌家数）');
+
+await test('market-insight：成交额/涨跌停/涨跌家数与 market/summary 完全一致（剔除指数行，涨跌停按交易所价）', async () => {
+  // 先拉 summary（轻量，负责刷新 30s 行情缓存），再拉 insight（重，含板块聚合），
+  // 两次调用必须落在同一份广度快照上，否则「同一时刻两个端点两个数」本身就是缺陷。
+  const summary = (await callWorker('https://clair-api.pages.dev/api/market/summary')).body;
+  const insight = (await callWorker('https://clair-api.pages.dev/api/ai/market-insight')).body;
+  assert.equal(summary.success, true,
+    `summary 未成功：success=${summary.success} dataSource=${summary.dataSource} message=${summary.message || ''}`);
+  assert.equal(insight.success, true,
+    `insight 未成功：success=${insight.success} dataSource=${insight.dataSource} message=${insight.message || ''}`);
+  assert.equal(insight.dataSource, 'real', `insight 顶层 dataSource 应为 real，实际 ${insight.dataSource}`);
+  assert.equal(insight.data.dataSource, 'real', `insight.data.dataSource 应为 real，实际 ${insight.data.dataSource}`);
+  const i = insight.data;
+  const s = summary.data;
+  assert.equal(i.totalTurnover, s.totalTurnover,
+    `成交额必须与市场宽度同源：insight=${i.totalTurnover} summary=${s.totalTurnover}`);
+  assert.equal(i.limitUpCount, s.limitUpCount,
+    `涨停家数必须与市场宽度同源：insight=${i.limitUpCount} summary=${s.limitUpCount}`);
+  assert.equal(i.limitDownCount, s.limitDownCount,
+    `跌停家数必须与市场宽度同源：insight=${i.limitDownCount} summary=${s.limitDownCount}`);
+  assert.equal(i.risingStocks, s.risingStocks,
+    `上涨家数不一致：insight=${i.risingStocks} summary=${s.risingStocks}`);
+  assert.equal(i.fallingStocks, s.fallingStocks,
+    `下跌家数不一致：insight=${i.fallingStocks} summary=${s.fallingStocks}`);
+  assert.equal(i.unchangedStocks, s.unchangedStocks,
+    `平盘家数不一致：insight=${i.unchangedStocks} summary=${s.unchangedStocks}`);
+  assert.equal(i.totalStocks, s.totalStocks,
+    `总只数不一致：insight=${i.totalStocks} summary=${s.totalStocks}`);
+  assert.equal(i.asOf, s.asOf, `数据交易日不一致：insight=${i.asOf} summary=${s.asOf}`);
+  // 前端卡片文字也必须是同一套数字（防「字段修了、展示没修」）
+  assert.equal(i.metrics['上涨家数'], String(s.risingStocks),
+    `metrics.上涨家数 与 summary 不一致：${i.metrics['上涨家数']} vs ${s.risingStocks}`);
+  assert.equal(i.metrics['下跌家数'], String(s.fallingStocks),
+    `metrics.下跌家数 与 summary 不一致：${i.metrics['下跌家数']} vs ${s.fallingStocks}`);
+  assert.equal(i.metrics['涨停'], `${s.limitUpCount} 只`,
+    `metrics.涨停 与 summary 不一致：${i.metrics['涨停']} vs ${s.limitUpCount} 只`);
+  // 成交额量级防护：指数行重复计入时会放大约 3 倍（线上实测 4.5 万亿 vs 宽度 1.46 万亿）
+  assert.ok(i.totalTurnover > 1e11 && i.totalTurnover < 4e12,
+    `insight 成交额 ${i.totalTurnover} 超出 A 股单日可解释范围（1e11~4e12），疑似指数行重复计入`);
+  // 家数量级防护：指数行会让 totalStocks 多出 9 条
+  assert.ok(i.totalStocks <= s.requestedSymbols,
+    `insight.totalStocks=${i.totalStocks} 超过清单标的数 ${s.requestedSymbols}，疑似指数行串入`);
+});
+
 await test('north-bound/overview：有真实成交额 → dataSource 至少 partial，且净买额仍恒 null', async () => {
   const { body } = await callWorker('https://clair-api.pages.dev/api/north-bound/overview?days=10');
   assert.ok(['real', 'partial'].includes(body.dataSource),
