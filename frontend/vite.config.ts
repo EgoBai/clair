@@ -134,6 +134,12 @@ export default defineConfig(({ mode, command }) => ({
         target: 'ws://127.0.0.1:3001',
         ws: true,
       },
+      // 后端根路径健康检查（无 /api 前缀），不代理则 dev 下 404
+      '/health': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true,
+        timeout: 15000,
+      },
     },
   },
   build: {
