@@ -587,3 +587,14 @@
 - AI 改造面（grep 实测）：入口 frontend/src/services/aiClient.ts（298 行，fetch 自拼 `${API_ORIGIN}/api/ai/chat`）、frontend/src/components/AI/ChatPanel.tsx（794 行）、frontend/src/utils/aiChatFallback.ts（97 行）、frontend/src/utils/aiResponse.ts（303 行）。
 - 已有事实：后端在 LLM 网关不可用时返回 HTTP 200 + success:false + dataSource:'unavailable'，aiClient 已用可判别结果类型表达四类结局；**缺的是页面侧 dataSource 未进入对话上下文**，AI 无法据此声明「本页数据不可用，不能判断」。
 - 下一步验收（未执行）：当页面 dataSource=unavailable 时，AI 首轮回答必须显式声明无法基于本页数据判断，并配单测；不得静默给结论。
+
+## D76 · 市场解读成交额/涨跌停改与市场宽度同源，剔除指数重复计入（P0，线上已复验）
+
+- **现象（线上取证 2026-11-17 01:56）**：首页同屏「AI 市场解读」总成交 4.5 万亿，「市场宽度」1.46 万亿，差 3.08 倍；AI 卡 36 只涨停 / 168 只跌停，宽度 33 / 67，跌停虚高 2.5 倍。
+- **根因**：clair-worker/worker.js 的 handleMarketInsight 把原始 quotes 交给 generateMarketInsight() 自行聚合：① allQuotes 未剔除 9 条指数快照行（指数成交额=成份股合计，重复计入）；② 涨跌停用扁平 >=9.9 / <=-9.9，ST ±5%、创业板/科创板 ±20%、北交所 ±30% 全部误判。同文件 /api/market/summary 已改用 loadBreadthSnapshot()（:6897），本端点漏修。
+- **做法**：:2007 handleMarketInsight 先取 loadBreadthSnapshot()，降级条件与 summary 对齐（breadth 为 null 或 turnover/totalStocks 为 null → unavailable，metrics:{}，不给 0 也不用旧口径顶替）；:1831-1840 涨跌家数/涨跌停/成交额全部取 breadth（涨跌停复用 computeBreadthSnapshot :6776 内 quoteIsLimitUp/quoteIsLimitDown 的交易所涨跌停价判定，未新造第二套口径）；:1829 PE 分析所用 allQuotes 剔除指数行；返回补 risingStocks/fallingStocks/unchangedStocks/totalStocks/totalTurnover/asOf/dataSource 供机器对账。未改 getSectorData（板块级口径属其他端点）。
+- **四证**：① grep 证 :1820/:1997 注释与 breadth 赋值；② 读码证六项数值无自行聚合；③ 测试 clair-worker/test/worker-contract.test.mjs:756 断言 insight 与 market/summary 六数值全等，套件 121 通过 0 失败；④ 线上 curl 两接口同值（见下）。
+- **E3 红→绿（手跑，redgreen.mjs 只驱动 vitest）**：两文件同时投毒 :1840 totalTurnover = breadth.turnover → quotes.reduce(...)，RED exit=1（insight=4499800590000 summary=1456543370000）；还原后 GREEN 121 通过 0 失败，cmp -s worker.js _worker.js 相同、sha256 f6b6ac4df9ab4ba174eeab1bff3ab190b76440fe0a1a6e5146fa96fd0594c143。
+- **部署**：commit 8651d69a5 原生 git push 成功（7fdfabf0a..8651d69a5 main -> main，未走 git-push-api，故无 CONTENT_CHECK 行）；Deploy Worker to Cloudflare run 43923614755 = success。
+- **线上复验（HTTP 200）**：insight totalTurnover=1456543370000 / limitUp 33 / limitDown 67 / rising 1107 / falling 3986 / totalStocks 5539 / asOf 2026-11-16；summary 同值；对照修复前 4.5 万亿 / 36 / 168。
+- **代价/遗留**：insight 新增 breadth 依赖，市场宽度不可用即整卡降级（与 summary 一致，宁可不可得也不假数）；E3 为手跑非 redgreen.mjs 产出，已在 T-2611-03 §7 注明。
